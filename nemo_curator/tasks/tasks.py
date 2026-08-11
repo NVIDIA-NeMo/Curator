@@ -69,16 +69,6 @@ class Task(ABC, Generic[T]):
     def num_items(self) -> int:
         """Get the number of items in this task."""
 
-    def input_data_size_bytes(self) -> int:
-        """Return the serialized payload size counted by performance telemetry.
-
-        Task types should override this when they have a stable, inexpensive
-        byte representation. Returning zero means that the task does not
-        provide a byte-size contract; it must never be replaced by an item
-        count because those units are not interchangeable.
-        """
-        return 0
-
     def add_stage_perf(self, perf_stats: StagePerfStats) -> None:
         """Add performance stats for a stage."""
         self._stage_perf.append(perf_stats)

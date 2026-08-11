@@ -39,6 +39,8 @@ class RayDataExecutor(BaseExecutor):
     4. Returns final results as a list of tasks
     """
 
+    _supports_stage_perf_collection = True
+
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         """Initialize the executor.
 
@@ -114,8 +116,9 @@ class RayDataExecutor(BaseExecutor):
             # Convert final dataset back to tasks
             # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
-            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
-            stage_perf_collector = None
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
+                stage_perf_collector = None
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.

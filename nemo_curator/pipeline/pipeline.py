@@ -307,6 +307,7 @@ class Pipeline:
                 tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
                 rerun. Multiple runs (e.g. a SLURM array) may share the directory
                 — each writes its own LMDB file, so there is no contention.
+
         Returns:
             list[Task] | None: List of tasks
         """
@@ -380,24 +381,33 @@ class Pipeline:
                 minimum_shard_index=slurm_array.minimum_shard_index,
             )
 
-        performance_consumer = next(
-            (
-                stage
-                for stage in reversed(self.stages)
-                if stage.requests_performance_records()
-                and callable(getattr(stage, "finalize_performance_report", None))
-            ),
-            None,
-        )
+        requesting_consumers = [stage for stage in reversed(self.stages) if stage.requests_performance_records()]
+        invalid_consumers = [
+            stage
+            for stage in requesting_consumers
+            if not callable(getattr(stage, "finalize_performance_report", None))
+        ]
+        if invalid_consumers:
+            names = [stage.name for stage in invalid_consumers]
+            msg = f"Stages requesting performance records must implement finalize_performance_report(): {names}"
+            raise TypeError(msg)
+        performance_consumer = requesting_consumers[0] if requesting_consumers else None
         performance_report_context = (
             self._build_performance_report_context(executor, slurm_array) if performance_consumer is not None else None
         )
 
         run_started_s = time.perf_counter() if performance_consumer is not None else 0.0
-        if checkpoint_path is None:
-            result = executor.execute(self.stages, initial_tasks)
-        else:
-            result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        set_collection_requested = getattr(executor, "_set_stage_perf_collection_requested", None)
+        if callable(set_collection_requested):
+            set_collection_requested(performance_consumer is not None)
+        try:
+            if checkpoint_path is None:
+                result = executor.execute(self.stages, initial_tasks)
+            else:
+                result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        finally:
+            if callable(set_collection_requested):
+                set_collection_requested(False)
 
         if performance_consumer is not None:
             wall_time_s = max(time.perf_counter() - run_started_s, 0.0)

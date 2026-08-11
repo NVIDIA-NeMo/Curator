@@ -1,528 +1,481 @@
-# Stage Performance Telemetry Design
-
-**Status:** Draft implementation
+# Run-scoped stage performance telemetry
 
 **Pull request:** [NVIDIA-NeMo/Curator#2296](https://github.com/NVIDIA-NeMo/Curator/pull/2296)
 
-**Last updated:** August 8, 2026
+**Status:** Implemented on the pull-request branch
 
-## Table of Contents
+## Executive summary
 
-1. [Executive Summary](#executive-summary)
-2. [Background and Problem Statement](#background-and-problem-statement)
-3. [Goals](#goals)
-4. [Non-Goals](#non-goals)
-5. [User-Facing Contract](#user-facing-contract)
-6. [Architecture](#architecture)
-7. [Detailed Design](#detailed-design)
-8. [Report Schema](#report-schema)
-9. [Metric Semantics](#metric-semantics)
-10. [Compatibility](#compatibility)
-11. [Failure Model](#failure-model)
-12. [Resource and Scaling Characteristics](#resource-and-scaling-characteristics)
-13. [Alternatives Considered](#alternatives-considered)
-14. [Testing and Validation](#testing-and-validation)
-15. [Limitations and Follow-Up Work](#limitations-and-follow-up-work)
+This pull request adds an opt-in, run-scoped performance report for Curator pipelines executed by Ray Data or Xenna. The current user-facing consumer is the audio `ManifestWriterStage`, but collection itself is implemented in Curator's generic pipeline, executor, and stage-adapter layers.
 
-## Executive Summary
+When reporting is enabled, Curator writes one raw record after each successful `BaseStageAdapter.process_batch()` attempt. The record is published after Curator has completed task-ID assignment, filtering, Slurm source filtering, and resumability bookkeeping. A call that emits no output still has a record. A call that emits several outputs has one record, not one copy on every output task.
 
-This design adds an opt-in, run-scoped performance report for Curator pipelines. A user enables it by setting `performance_report_path` on the terminal `ManifestWriterStage`. When enabled, Curator records one timing record for every completed `process_batch` invocation and writes a compact JSON report grouped by pipeline stage.
+All workers publish to one run-scoped Ray actor. The actor is pinned to the driver node and appends JSON lines to a local, disk-backed spool. Each worker waits for its own append acknowledgement before its adapter call returns. After backend execution completes, the executor closes the actor, transfers the spool to the pipeline as a `PerformanceRecordStore`, and the selected consumer streams the records into the final JSON report.
 
-The report fixes two limitations of task-attached performance statistics:
+The report is deliberately raw. It preserves every field in each record rather than grouping records or selecting a fixed subset. That makes this pull request a small transport and lifecycle foundation on which later pull requests can add audio summaries and backend or GPU fields without changing the collector.
 
-- A stage invocation that emits no output task is still represented.
-- A stage invocation that fans out into multiple output tasks is represented once, instead of copying the same processing time to every output task and making a later sum overestimate the real processing time.
+When reporting is disabled, Curator follows the existing main-branch behavior: `StagePerfStats` is attached to each output task. No collector or report is created.
 
-The authoritative records are transported through a run-scoped, driver-affined Ray actor into a disk-backed JSONL spool. After execution, spool ownership moves to the pipeline and the terminal writer streams a stage-grouped report without loading all invocation records into memory. The report includes every planned stage, stable plan-order stage identifiers, per-invocation identifiers and processing times, stage activity windows, executor wall time, pipeline metadata, and optional Slurm-array identity.
+## Problem
 
-When `performance_report_path` is not set, Curator does not create the collector or report. Existing task-attached performance behavior and its public serialization shape remain available.
+Output tasks are not a complete accounting boundary for stage execution.
 
-## Background and Problem Statement
+- **Zero output:** if a completed adapter call returns no task, there is no task on which to store its performance data.
+- **Fan-out:** if one adapter call returns several tasks, attaching the same timing to every output makes a later sum count one execution several times.
+- **Plan context:** task records alone do not identify stages that produced no output, distinguish repeated stage names, or show the concrete stage order after composite-stage decomposition.
+- **Scale:** retaining every record in actor or driver memory makes memory grow with the number of adapter calls.
 
-Curator stages operate on tasks, but stage processing is not required to be one input task to one output task. A single `process_batch` call can return:
+The new accounting boundary is therefore one completed generic stage-adapter attempt, independent of how many tasks that attempt emits.
 
-- no output tasks, such as when every item is filtered;
-- one output task; or
-- multiple output tasks, such as a batch that is split or fanned out.
+## Terminology
 
-Historically, Curator attached a `StagePerfStats` object to each output task. That representation is useful for following an individual task, but output tasks are not a lossless accounting boundary for stage invocations.
+### Processing stage
 
-### Zero-output loss
+A `ProcessingStage` is the user-facing Curator stage. It can implement `process()` or `process_batch()` and can process any Curator task type or modality.
 
-If a completed invocation produces no task, there is no object on which to attach its statistics. The invocation disappears from output-derived performance analysis.
+### Stage adapter
 
-### Fan-out duplication
+`BaseStageAdapter` is Curator's generic executor adapter in `nemo_curator/backends/base.py`. `RayDataStageAdapter` and `XennaStageAdapter` inherit from it and route backend batches through its `process_batch()` implementation.
 
-If one invocation produces `N` output tasks, the same invocation-level processing time is attached to all `N` tasks. Summing task-attached times counts one execution `N` times. The validated 16-row ASR example produced two real ASR batch calls, but task-attached reference results contained 16 ASR records. Their summed ASR time was exactly eight times the sum of the two unique call durations.
+This is not an audio-specific adapter and it is not an ASR model adapter. Stage authors do not create it to use telemetry; the integrated Ray Data and Xenna executors already wrap `ProcessingStage` execution with it.
 
-### Missing run and plan context
+### Invocation record
 
-Task records alone do not provide a complete ordered view of the pipeline. In particular, they cannot describe a planned stage that produced no outputs, and stage names alone are insufficient when names repeat. A run-level report needs a Curator-owned run identity, stable stage identities based on the built pipeline, and executor-level wall time.
+In this design, an invocation record describes one successful attempt of `BaseStageAdapter.process_batch()`. It is not a promise of exactly one record for a logical task across backend retries. If a backend retries work and more than one attempt reaches successful publication, the report can contain more than one attempt record.
 
-### Unbounded driver memory risk
+### Performance consumer
 
-Large pipelines may execute millions of stage invocations. Returning all records as an in-memory list or retaining them inside an actor until the end makes peak memory scale with invocation count. The transport and report writer therefore need disk-backed, streaming behavior.
+A consumer is a pipeline stage that returns `True` from `requests_performance_records()` and implements `finalize_performance_report(...)`. It receives the disk-backed store and run context after successful backend execution. The first consumer shipped here is audio's `ManifestWriterStage`; the protocol itself is not audio-specific.
 
 ## Goals
 
-The design has the following goals:
+This pull request is intended to:
 
-1. Record exactly one performance entry per successfully completed stage invocation when reporting is enabled.
-2. Preserve invocations that produce zero output tasks.
-3. Avoid invocation duplication when one call produces multiple output tasks.
-4. Describe every stage in built pipeline order, including stages with zero recorded invocations.
-5. Give every run, stage, and invocation an unambiguous identity.
-6. Work with both `RayDataExecutor` and `XennaExecutor` execution paths.
-7. Bound driver and collector memory independently of invocation count by spooling records to disk and streaming the final report.
-8. Propagate collector and report failures instead of silently publishing an incomplete report.
-9. Support local and fsspec-backed report destinations.
-10. Preserve the disabled-path task performance contract.
+1. retain successful zero-output adapter attempts;
+2. avoid fan-out duplication by publishing outside the output-task loop;
+3. preserve the current task-attached behavior when reporting is disabled;
+4. identify the run and concrete built stages without relying on ambient run-ID environment variables;
+5. keep collector and report-writing memory bounded as record count grows;
+6. use the same collection path for Ray Data and Xenna;
+7. fail the run instead of knowingly writing a partial report; and
+8. preserve unknown fields so later telemetry producers can extend records without modifying this transport.
 
-## Non-Goals
+## Non-goals and ownership boundaries
 
-This pull request does not:
+This pull request does not provide:
 
-- collect GPU, NVML, CPU, RAM, network, or per-actor hardware telemetry;
-- upload artifacts to Swift or define Swift lifecycle policy;
-- guarantee atomic replacement on every remote fsspec implementation;
-- make invocation arrival order deterministic across concurrent workers;
-- expose the internal raw JSONL spool as the public report format;
-- infer serialized stage execution from stage activity windows;
-- support multiple independent performance-report consumers in one pipeline;
-- retain performance records across repeated calls to `Pipeline.run()`; or
-- attribute executor setup, shutdown, scheduling, or report-writing time to individual stage processing calls.
+- aggregated or stage-grouped summaries;
+- input byte counts or an `AudioTask.input_data_size_bytes()` hook;
+- output cardinality;
+- GPU identity, utilization, memory, NVML, CPU, RAM, network, or other hardware telemetry;
+- backend actor or worker identity;
+- logical exactly-once accounting across Ray or Xenna retries;
+- deterministic record arrival order across concurrent workers;
+- zero-latency collection;
+- a Swift client, upload policy, or new cloud-filesystem dependency extra; or
+- support for several independently finalized reports in one run.
 
-Hardware and backend telemetry can build on the identities and report lifecycle defined here, but remains a separate feature.
+Follow-up ownership is intentionally separate:
 
-## User-Facing Contract
+- **PR #2223** owns audio/Qwen-specific metric interpretation and summaries built from these raw records.
+- **PR #2262** owns GPU, actor, worker, and backend hardware telemetry fields and hooks.
 
-### Enabling collection
+## User-facing configuration
 
-Collection is enabled by configuring the terminal manifest writer:
+The current audio consumer is configured on the terminal writer:
 
 ```yaml
-performance_report_path: /output/qwen_omni_performance.json
+performance_report_path: /output/performance.json
 
 stages:
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
-    output_path: /output/qwen_omni_results.jsonl
+    output_path: /output/results.jsonl
     performance_report_path: ${performance_report_path}
 ```
 
-The path may be a local filesystem path or a URL understood by fsspec. The report path must not resolve to the manifest path.
+The setting is stage-local, but a valid request enables collection once for the supported pipeline run:
 
-The opt-in is declared by a stage through `requests_performance_records()`, but collection is run-scoped. `Pipeline.run()` selects the rightmost requesting stage that also implements `finalize_performance_report()` as the single report consumer. The current supported consumer is `ManifestWriterStage`.
+- `null` disables collection;
+- a non-empty path enables collection; and
+- an empty or whitespace-only string is invalid.
 
-### Disabling collection
+The report destination must not resolve to the manifest destination. Under a Slurm array, the writer adds a shard suffix before performing the final collision check, for example `performance.shard-00007-of-00011.json`.
 
-Omit `performance_report_path`, or set it to `null`. In that mode:
+Local and fsspec-backed destinations are accepted. A remote URL works only when the corresponding fsspec implementation and credentials are already available in the environment; this pull request does not add a general cloud-filesystem installation extra.
 
-- no collector actor is created;
-- no disk spool is created;
-- no run-level performance report is written;
-- no performance-report context is transferred to a consumer; and
-- the existing task-attached `StagePerfStats.to_dict()` shape is preserved.
+The bundled Qwen-Omni tutorial defaults `performance_report_path` to `null`, so users opt in explicitly:
 
-### Output ownership
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/qwen_omni_inprocess \
+  --config-name pipeline \
+  manifest_path=/data/input.jsonl \
+  performance_report_path=/output/performance.json
+```
 
-When collection is enabled, run-scoped records are authoritative. Invocation records are not copied into output tasks. The `Pipeline` holds the returned disk-backed record store. The store owns its spool until the next run cleans the previous store, a caller explicitly cleans the store, the store's context manager exits, or its finalizer runs.
+Ray Data and Xenna advertise support for the run-scoped collector. If a report
+is requested with another `BaseExecutor` implementation that has not opted in
+to this private executor protocol, Curator fails before executing the pipeline
+instead of writing a misleading empty report.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    C["ManifestWriterStage.performance_report_path"] --> P["Pipeline.run selects report consumer"]
-    P --> X["Executor starts driver-affined collector actor"]
-    X --> W["Stage adapters execute on Ray workers"]
-    W -->|"one acknowledged publication per process_batch call"| A["Run-scoped collector actor"]
-    A -->|"append extended JSON record"| S["Driver-node JSONL spool"]
-    X -->|"finish and transfer spool ownership"| R["PerformanceRecordStore on Pipeline"]
-    R --> F["ManifestWriterStage.finalize_performance_report"]
-    P --> F
-    F -->|"stream and group by stable stage ID"| J["Compact performance JSON"]
+    A["Pipeline.build() decomposes stages"] --> B["Assign plan IDs such as 000:reader"]
+    B --> C["Pipeline.run() resolves one requesting consumer"]
+    C --> D["Set one private executor enablement flag"]
+    D --> E["Executor initializes Ray"]
+    E --> F["Start one driver-affined collector actor"]
+    F --> G["Ray Data or Xenna workers call BaseStageAdapter.process_batch()"]
+    G --> H["Stage work and Curator output bookkeeping succeed"]
+    H --> I["Build one raw invocation dictionary"]
+    I --> J["Actor serializes and appends one JSONL line"]
+    J --> K["Worker waits for acknowledgement"]
+    K --> L["Backend completes after all worker calls complete"]
+    L --> M["Finish actor and transfer PerformanceRecordStore"]
+    M --> N["Pipeline calls consumer finalizer"]
+    N --> O["Stream top-level records array to JSON"]
 ```
 
-The design separates four concerns:
+There is one collector actor and one local spool for the run. The design does not choose a collector count from stage speed, batch size, worker count, or modality.
 
-| Concern | Owner | Responsibility |
-|---|---|---|
-| Enablement and run context | `Pipeline` | Select one consumer; create run, executor, stage-plan, and Slurm context |
-| Execution lifecycle | `BaseExecutor` and backend executors | Start, finish, clean up, and transfer the collector spool exactly once |
-| Invocation capture and transport | `BaseStageAdapter` and collector actor | Measure each call and synchronously acknowledge one accepted actor append per invocation |
-| Public report construction | `ManifestWriterStage` | Validate destination, group records by stage, and stream the compact report |
+## Component responsibilities
 
-## Detailed Design
+| File and function | Responsibility |
+|---|---|
+| `nemo_curator/pipeline/pipeline.py` — `Pipeline.build()` | Assign a stable plan-order ID to each concrete stage after decomposition. |
+| `nemo_curator/pipeline/pipeline.py` — `Pipeline._build_performance_report_context()` | Create Curator-owned run, executor, pipeline-plan, and Slurm context. |
+| `nemo_curator/pipeline/pipeline.py` — `Pipeline.run()` | Resolve the requesting consumer once, enable the executor once, transfer the finished store, and call the consumer. |
+| `nemo_curator/stages/base.py` — `ProcessingStage.requests_performance_records()` | Provide the modality-neutral opt-in protocol; the default is `False`. |
+| `nemo_curator/backends/base.py` — `BaseExecutor` collector methods | Start, stop, clean up, and transfer one run-scoped collector store. |
+| `nemo_curator/backends/base.py` — `BaseStageAdapter.process_batch()` | Preserve legacy task statistics when disabled, or create and publish one raw record when enabled. |
+| `nemo_curator/utils/stage_perf_collector.py` | Own the driver-affined actor, JSONL spool, synchronous publication, poison state, and `PerformanceRecordStore`. |
+| `nemo_curator/backends/ray_data/executor.py` — `RayDataExecutor.execute()` | Place collector start/finish around Ray Data execution and final materialization. |
+| `nemo_curator/backends/xenna/executor.py` — `XennaExecutor.execute()` | Place the same lifecycle around Xenna execution. |
+| `nemo_curator/stages/audio/common.py` — `ManifestWriterStage` | Act as the first consumer and stream a raw report to local or fsspec storage. |
+| `nemo_curator/utils/file_utils.py` — `write_json_file_streaming_array()` | Write a surrounding JSON object plus one incrementally emitted array. |
 
-### Pipeline plan and identity
+## Detailed lifecycle
 
-After composite stages are decomposed, `Pipeline.build()` assigns every concrete stage a stable identifier:
+### 1. Build the concrete plan
+
+`Pipeline.build()` decomposes composite stages and then stamps every executable stage:
 
 ```python
 for stage_index, stage in enumerate(self.stages):
     stage._curator_stage_id = f"{stage_index:03d}:{stage.name}"
 ```
 
-For a pipeline containing `audio_reader`, `qwen_omni_asr`, and `manifest_writer`, the identifiers are:
+For stages named `reader`, `asr`, and `writer`, the IDs are:
 
 ```text
-000:audio_reader
-001:qwen_omni_asr
-002:manifest_writer
+000:reader
+001:asr
+002:writer
 ```
 
-The numeric prefix expresses exact built-plan order and disambiguates repeated stage names. It does not assert that execution windows cannot overlap.
+The prefix describes built-plan order. It does not claim that runtime activity windows are serialized or that records arrive in that order.
 
-At the beginning of each `Pipeline.run()`, Curator creates a new random run ID with `uuid.uuid4().hex`. This identity is owned by Curator and is not read from an uncontrolled environment variable. The report context also contains:
+### 2. Resolve enablement once
 
+`Pipeline.run()` scans the built stages from right to left for stages requesting records. Every requester must implement a callable `finalize_performance_report`. The rightmost requester becomes the consumer.
+
+The pipeline passes a single boolean into the executor through `_set_stage_perf_collection_requested()`. The executor does not rescan stage configuration. The flag is reset in `finally` after `execute()` returns or raises.
+
+When enabled, the pipeline also builds report context containing:
+
+- a new Curator-owned UUID for this `Pipeline.run()` call;
 - pipeline name and description;
 - executor class name;
-- ordered metadata for every built stage; and
-- Slurm-array context resolved once for the run.
+- ordered stage ID, name, fully qualified type, batch size, and worker count; and
+- optional Slurm shard index and total shard count.
 
-Any performance-record store from a previous run is cleaned before the new run begins.
+Slurm information is passed directly to the consumer as report context; it is not copied onto every stage or task.
 
-### Report-consumer selection
+### 3. Start one driver-affined collector
 
-`Pipeline.run()` scans the built stages from right to left and chooses the first stage for which both conditions are true:
+After Ray initialization, the executor creates one `_StagePerfCollector` actor with `max_concurrency=1`. A hard `NodeAffinitySchedulingStrategy` places it on the Ray driver's node.
 
-1. `requests_performance_records()` returns `True`; and
-2. `finalize_performance_report` is callable.
+The affinity is required because the actor writes to a node-local temporary JSONL file and the driver later reads that same path after actor shutdown. “Driver-affined” means placement on the same Ray node as the driver; it does not mean the actor executes inside the driver process.
 
-This makes the terminal writer the lifecycle owner without changing `BaseExecutor.execute()` to return a new public result type. The current contract supports one consumer. Pipelines requiring multiple reports should add that behavior to one consumer rather than rely on multiple requesting stages.
+The collector handle is stamped privately onto every concrete stage so its serialized worker-side adapter can find the actor.
 
-### Collector lifecycle
+### 4. Capture one successful adapter attempt
 
-`BaseExecutor._start_stage_perf_collector()` first checks whether any stage requests performance records. If not, it returns without importing or starting the transport.
+`BaseStageAdapter.process_batch()` always retains Curator's existing `StageTimer` lifecycle. When a collector handle is present, it additionally captures an epoch window and a monotonic elapsed time around the stage's `process_batch()` call.
 
-When enabled, the executor creates one Ray actor for the run. `RayDataExecutor` and `XennaExecutor` use the same lifecycle:
+After the stage call returns, the adapter performs existing Curator bookkeeping:
 
-1. initialize Ray;
-2. start the collector;
-3. execute the pipeline and materialize final outputs;
-4. finish the collector and retain its record store;
-5. shut down Ray;
-6. transfer the record store exactly once to `Pipeline`; and
-7. let the selected consumer write the report.
+1. convert filtered `None` slots to sentinels;
+2. assign output task IDs;
+3. record failed tasks;
+4. apply source-stage and Slurm filtering;
+5. update resumability counters when enabled; and
+6. remove sentinels before returning results.
 
-Failure paths stop the collector without retaining records and clean its spool. Successful execution transfers spool ownership from the actor lifecycle into the executor slot, then from the executor slot into the pipeline. `consume_external_perf_records()` clears the executor slot as it returns, preventing a second transfer.
+Only after those steps succeed does it construct one raw record and call `record_stage_perf()`. The publication is outside the loop over output tasks.
 
-### Driver affinity
-
-The collector actor uses a hard Ray node-affinity constraint targeting the driver node. The actor does not retain the full record set in memory; it appends records to a local temporary file. The driver must be able to read that same file after the actor is killed, so actor placement and spool ownership cannot be independent.
-
-This is referred to as **driver-affined**: the actor is scheduled on the same physical Ray node as the driver because its local disk artifact is part of the ownership-transfer contract.
-
-### Per-invocation capture
-
-`BaseStageAdapter.process_batch()` checks once per call whether the executor stamped a collector handle onto the stage. When enabled, it:
-
-1. counts input items;
-2. obtains the task-specific input byte count;
-3. records an epoch start timestamp;
-4. measures only `stage.process_batch()` with a monotonic clock;
-5. applies existing task IDs, post-processing, filtering, and resumability handling;
-6. creates one extended `StagePerfStats` record; and
-7. publishes it once, outside the output-task loop.
-
-The collector call is deliberately outside the loop over results. An invocation is the accounting unit; an output task is not. Publishing inside the loop would drop zero-output calls and multiply one processing duration by the fan-out count.
-
-When reporting is disabled, the adapter retains the established behavior of attaching the stage statistics to each output task.
-
-### Timing and input-size capture
-
-`StageTimer.reinit()` now receives bytes rather than item count. These are different dimensions: eight audio rows are not eight bytes. Passing item count to a byte-to-megabyte conversion produced a value with the wrong unit.
-
-The base `Task.input_data_size_bytes()` returns zero. Task implementations opt in only when they have an inexpensive, stable byte representation. `AudioTask` measures:
-
-- the UTF-8 size of a compact, sorted JSON envelope; and
-- tensor or NumPy storage through `nbytes`, or `numel() * element_size()`.
-
-Non-JSON tensor and array values are replaced by `null` in the envelope before their storage is counted separately. This avoids attempting to JSON-serialize waveforms and prevents valid tensor-backed audio tasks from crashing telemetry.
-
-Input byte counts are retained in the internal extended record for future aggregation. They are not currently exposed in the compact public report.
-
-### Publication acknowledgement and completeness
-
-Each worker calls the collector actor and waits for that publication's acknowledgement. This synchronous acknowledgement is intentional.
-
-A driver-side barrier cannot fence actor calls submitted independently by Ray Data or Xenna workers. Ray guarantees ordering only under narrower submitter conditions; a later call from the driver may overtake publications from other submitters. Waiting at each producer means executor completion cannot precede an unacknowledged performance publication.
-
-The acknowledgement is therefore the completeness boundary. It creates backpressure, but prevents a successful report from silently losing its tail.
-
-### Disk-backed record store
-
-The collector appends one extended JSON object per line to a unique temporary JSONL spool. In-memory actor state contains only bounded metadata such as the record count.
-
-At finish, the actor returns the path and count as a `PerformanceRecordStore`. The store is reiterable and can yield dictionaries or reconstructed `StagePerfStats` instances without reading the complete file into memory. It supports:
-
-- explicit `cleanup()`/`close()`;
-- context-manager cleanup; and
-- a weak-reference finalizer as a last resort.
-
-The spool is an internal transport artifact, not a supported output. Its schema may evolve with the implementation while the public report remains versioned.
-
-### Report construction
-
-`ManifestWriterStage.finalize_performance_report()` pre-creates one summary for every stage in ordered pipeline metadata. It then streams the spool once, rejects unknown stage IDs, and writes each stage's invocation IDs and processing times to stage-specific temporary files. It tracks only the minimum valid start time and maximum valid end time in memory.
-
-The final JSON writer streams those temporary arrays into the report. For local paths it:
-
-1. writes a temporary file in the destination directory;
-2. flushes and `fsync`s the file; and
-3. atomically replaces the destination with `os.replace`.
-
-For remote fsspec destinations it streams to the opened filesystem object. Generic remote filesystems do not provide a universal atomic-replace contract, so atomicity is guaranteed only for the local path implementation.
-
-### Slurm-array reports
-
-`SlurmArrayConfig.from_env()` is resolved once per pipeline run. The resolved shard identity is passed directly to the report consumer as run context rather than copied onto every stage.
-
-When array context exists, the report name receives a shard suffix before it is opened, for example:
-
-```text
-performance.shard-00007-of-00020.json
+```mermaid
+flowchart LR
+    A["One input batch"] --> B["stage.process_batch()"]
+    B --> C["Curator ID/filter/resumability bookkeeping"]
+    C --> D{"Output count"}
+    D -->|"zero"| E["No output tasks"]
+    D -->|"one"| F["One output task"]
+    D -->|"many"| G["Several output tasks"]
+    E --> H["One invocation record"]
+    F --> H
+    G --> H
 ```
 
-The effective suffixed path is compared with the manifest path after suffix resolution. This second validation prevents an apparently distinct configured report path from becoming the manifest path after transformation and overwriting manifest data.
+If stage processing or adapter bookkeeping raises before publication, there is no successful adapter-attempt record. If required publication fails, the adapter call raises rather than returning success.
 
-Invalid or partial Slurm-array environment configuration raises an error instead of publishing ambiguous shard identity.
+### 5. Acknowledge every required publication
 
-## Report Schema
+`record_stage_perf()` submits `collector.record.remote(record)` and immediately waits with `ray.get()`.
 
-The report is a compact, stage-grouped JSON object with `schema_version` set to `1`:
+This wait is necessary for the current actor-based design. A driver call made after backend work cannot reliably fence actor calls submitted by independent Ray Data or Xenna workers. By waiting at each producer:
+
+1. a worker batch can complete only after its own record call is acknowledged;
+2. backend completion waits for all successful worker batches; and
+3. collector `finish()` is called only after backend completion.
+
+The acknowledgement is not a disk `fsync` guarantee. It confirms that the actor serialized the record and completed its buffered file write. It also adds a Ray RPC and serialized-actor wait to every enabled adapter invocation, so enabled collection is not latency-free.
+
+### 6. Spool with bounded memory
+
+The actor converts the complete record dictionary to one JSON string plus a newline and performs one buffered file `write()`. It increments `record_count` only after that write succeeds.
+
+The actor does not retain all records in memory. Its growing state is the local JSONL file; in-memory state is limited to the file object, count, and terminal status.
+
+`PerformanceRecordStore.iter_dicts()` reads and decodes one line at a time. It returns raw dictionaries and does not reconstruct `StagePerfStats`, so fields unknown to this pull request are preserved.
+
+### 7. Finish and transfer ownership
+
+On backend success, `RayDataExecutor` or `XennaExecutor` calls `_stop_stage_perf_collector(..., keep_records=True)` before Ray shutdown. `finish()` closes the spool and returns its path and count. The actor is killed, while `PerformanceRecordStore` retains ownership of the file.
+
+`Pipeline.run()` calls `executor.consume_external_perf_records()` once. That method clears the executor slot as it returns the store, preventing a second ownership transfer. The pipeline retains the store as `pipeline.performance_records` and passes the same object to the consumer.
+
+A later call to `Pipeline.run()` cleans the previous store before beginning. Callers can also invoke `cleanup()`/`close()`, use the store as a context manager, or rely on its weak-reference finalizer as a last resort.
+
+### 8. Stream the public report
+
+`ManifestWriterStage.finalize_performance_report()` applies any Slurm shard suffix, validates the effective report path against the manifest path, and calls `write_json_file_streaming_array()`.
+
+The writer emits report metadata followed by a top-level `records` array. Each item comes directly from `PerformanceRecordStore.iter_dicts()`, so finalization memory does not grow with the number of records.
+
+Local output uses Curator's atomic text-write helper. Remote fsspec output streams directly and therefore has only the guarantees of the selected filesystem implementation.
+
+## Report schema
+
+The following is an illustrative shape, not captured benchmark output:
 
 ```json
 {
   "schema_version": 1,
-  "pipeline_name": "qwen_omni_pipeline",
-  "run_id": "<curator-owned UUID>",
+  "pipeline_name": "example",
+  "run_id": "73006a419f89498fa4243238095ba950",
   "executor": "RayDataExecutor",
   "pipeline": {
-    "pipeline_name": "qwen_omni_pipeline",
-    "pipeline_description": "...",
+    "pipeline_name": "example",
+    "pipeline_description": "",
     "stages": [
       {
-        "stage_id": "000:qwen_omni_asr",
-        "name": "qwen_omni_asr",
-        "type": "...",
-        "batch_size": 8,
-        "num_workers": 1
+        "stage_id": "000:reader",
+        "name": "reader",
+        "type": "package.ReaderStage",
+        "batch_size": 1,
+        "num_workers": null
       },
       {
-        "stage_id": "001:manifest_writer",
-        "name": "manifest_writer",
-        "type": "...",
-        "batch_size": null,
-        "num_workers": null
+        "stage_id": "001:writer",
+        "name": "writer",
+        "type": "package.WriterStage",
+        "batch_size": 1,
+        "num_workers": 1
       }
     ]
   },
   "slurm_array": null,
-  "wall_time_s": 45.559,
-  "record_count": 18,
-  "stage_performance": [
+  "wall_time_s": 2.75,
+  "record_count": 2,
+  "records": [
     {
-      "stage_id": "000:qwen_omni_asr",
-      "stage_start_s": 1786114658.1,
-      "stage_end_s": 1786114660.2,
-      "invocation_ids": ["<UUID>", "<UUID>"],
-      "processing_times_s": [1.1, 0.9]
+      "stage_name": "reader",
+      "stage_id": "000:reader",
+      "invocation_id": "77de2081ec534fbda4df8d755889f311",
+      "process_time": 0.42,
+      "actor_idle_time": 0.0,
+      "num_items_processed": 1,
+      "custom_metrics": {},
+      "window_start_s": 1786400000.1,
+      "window_end_s": 1786400000.52
     },
     {
-      "stage_id": "001:manifest_writer",
-      "stage_start_s": 1786114660.3,
-      "stage_end_s": 1786114660.5,
-      "invocation_ids": ["<16 UUIDs>"],
-      "processing_times_s": ["<16 durations>"]
+      "stage_name": "writer",
+      "stage_id": "001:writer",
+      "invocation_id": "34ea8bcc4a314fa7aa80a834792a1cf9",
+      "process_time": 0.01,
+      "actor_idle_time": 0.08,
+      "num_items_processed": 1,
+      "custom_metrics": {},
+      "window_start_s": 1786400000.6,
+      "window_end_s": 1786400000.61
     }
   ]
 }
 ```
 
-### Top-level fields
+### Header fields
 
 | Field | Meaning |
 |---|---|
-| `schema_version` | Public report schema version; currently `1` |
-| `pipeline_name` | Name of the pipeline execution |
-| `run_id` | New Curator-owned identity for this `Pipeline.run()` call |
-| `executor` | Concrete executor class name |
-| `pipeline` | Ordered built-stage metadata and pipeline description |
-| `slurm_array` | Run-level shard index/count, or `null` |
-| `wall_time_s` | Executor wall time as defined below |
-| `record_count` | Total number of captured invocation records |
-| `stage_performance` | One summary per planned stage in plan order |
+| `schema_version` | Version of the report envelope. |
+| `pipeline_name` | Name supplied to `Pipeline`. |
+| `run_id` | Fresh Curator-owned identity for this `Pipeline.run()` call. |
+| `executor` | Executor class name. |
+| `pipeline` | Pipeline name, description, and all concrete stages in built-plan order. |
+| `slurm_array` | `{shard_index, total_shards}` when resolved, otherwise `null`. |
+| `wall_time_s` | Monotonic elapsed time around `executor.execute()`. It excludes report finalization. |
+| `record_count` | Number of successfully appended records in the store. |
+| `records` | Raw invocation dictionaries in collector arrival order. |
 
-### Stage fields
+### Core record fields produced here
 
 | Field | Meaning |
 |---|---|
-| `stage_id` | Stable identifier combining zero-padded plan index and stage name |
-| `stage_start_s` | Earliest recorded invocation start in epoch seconds, or `null` |
-| `stage_end_s` | Latest recorded invocation end in epoch seconds, or `null` |
-| `invocation_ids` | One UUID per captured invocation |
-| `processing_times_s` | Monotonic `process_batch` duration aligned by index with `invocation_ids` |
+| `stage_name` | Stage's display name. Names need not be unique. |
+| `stage_id` | Stable identity within the concrete built plan. |
+| `invocation_id` | Random UUID identifying this adapter attempt. |
+| `process_time` | Monotonic elapsed seconds around the stage's `process_batch()` call. |
+| `actor_idle_time` | Existing `StageTimer` idle-time value for that adapter instance. In enabled mode, the next idle window starts after the prior telemetry acknowledgement, so collector wait is not mislabeled as idle time. |
+| `num_items_processed` | Existing `StageTimer` input-item count for the call. |
+| `custom_metrics` | Metrics logged by the stage during the call. |
+| `window_start_s`, `window_end_s` | Epoch timestamps surrounding the stage call, useful for placement on a shared timeline. |
 
-Every planned stage appears. A stage with no completed invocation has `null` start/end values and empty arrays. The following invariant holds:
+The transport and writer do not whitelist these fields. If a later producer adds a JSON-serializable field, it remains in the spool and final `records` array.
 
-```text
-record_count == sum(len(stage.invocation_ids) for stage in stage_performance)
+## Ordering and interpretation
+
+- `pipeline.stages` is in concrete built-plan order.
+- `records` is in collector arrival order across workers and is not a stage-order trace.
+- Windows from different workers or stages may overlap.
+- `process_time` values describe attempts and should not be summed as an exactly-once logical-work total without accounting for backend retries.
+- A planned stage with no successful published attempt appears in `pipeline.stages` but has no corresponding record.
+- `wall_time_s` includes executor initialization, scheduling, execution, result materialization, collector finishing, and executor shutdown performed inside `execute()`. It does not include final JSON writing.
+
+## Enabled and disabled behavior
+
+| Behavior | `performance_report_path: null` | Non-empty `performance_report_path` |
+|---|---|---|
+| Collector actor | Not created | One per run |
+| JSONL spool | Not created | One driver-node file |
+| New invocation record | Not created | One per successful adapter attempt |
+| New record copied to output tasks | No | No |
+| Existing `StagePerfStats` attached to outputs | Preserved | Suppressed for this run's adapter calls |
+| Zero-output attempts observable | No task to carry stats | Yes |
+| Fan-out duplicates invocation stats | Existing behavior | No |
+| Final report | None | Raw streaming JSON |
+
+“Suppressed” applies to statistics that this run's adapters would otherwise add. Curator does not erase unrelated performance data already present on caller-supplied tasks.
+
+## Failure model
+
+The report is required when configured; errors are not silently downgraded.
+
+- Collector creation or readiness failure fails executor startup and removes the temporary spool.
+- A JSON-serialization or spool-write error latches the first failure, closes the file, and poisons the collector.
+- A publication or acknowledgement error fails the adapter call. The worker also tries to poison the collector so an ambiguously acknowledged append cannot later become a successful report.
+- A poisoned collector cannot finish into a `PerformanceRecordStore`.
+- A backend failure stops the collector without retaining its records and cleans the spool.
+- A successful backend run followed by report-writing failure raises from the consumer; the pipeline retains the store for inspection or explicit cleanup.
+
+This is fail-closed against known collection errors. It is not a durability protocol for machine loss and does not claim transactional exactly-once delivery.
+
+## Resource and performance characteristics
+
+- **Driver memory:** bounded with respect to record count during collection and report writing.
+- **Disk:** grows linearly with the number and serialized size of records until cleanup.
+- **Actor memory:** bounded metadata plus Python and Ray runtime overhead.
+- **Actor throughput:** one actor serializes all appends because `max_concurrency=1`.
+- **Worker latency:** one Ray actor round trip and acknowledgement wait per enabled adapter invocation.
+- **Disabled path:** no actor, spool, extra epoch window, or new record publication.
+
+The synchronous wait favors report completeness over minimum per-batch latency. Pipelines with very fast, highly parallel adapter calls may observe collector contention. Per-stage, per-worker, or dynamically sharded collectors are not part of this pull request because they add routing, ownership, failure, and merge complexity without a stable workload-independent sizing rule.
+
+## Modality-neutral extension protocol
+
+Another modality does not need to modify collection code. It can provide a terminal `ProcessingStage` that:
+
+1. returns `True` from `requests_performance_records()` when its report path or equivalent option is enabled; and
+2. implements `finalize_performance_report(performance_records=..., wall_time_s=..., report_context=...)`.
+
+The generic pipeline will select that stage, the existing executors will collect records from all generic stage-adapter calls, and the modality's consumer can stream or interpret the store. The consumer is responsible for its public schema and destination policy.
+
+This protocol separates collection from interpretation:
+
+```mermaid
+flowchart LR
+    A["Generic BaseStageAdapter records"] --> B["Generic disk-backed store"]
+    B --> C["Audio ManifestWriterStage today"]
+    B --> D["Future modality consumer"]
+    B --> E["PR #2223 audio aggregation"]
+    F["PR #2262 backend/GPU producers"] --> B
 ```
 
-## Metric Semantics
+Only one requesting consumer is finalized by the current pipeline contract. Multiple independent report consumers require a future explicit composition design.
 
-### Invocation processing time
+## Alternatives considered
 
-`processing_times_s[i]` measures the monotonic elapsed time around the corresponding call to `stage.process_batch()`. It does not include collector publication, report serialization, or the adapter's later output-task bookkeeping.
+### Continue using output tasks
 
-### Stage activity window
+This is the disabled-path compatibility behavior, but it cannot represent zero-output calls and duplicates fan-out timing.
 
-`stage_start_s` and `stage_end_s` are the minimum epoch start and maximum epoch end among a stage's captured invocations. They make cross-stage activity visible on a common clock.
+### Return `(tasks, records)` or an `ExecutionResult`
 
-The stage ID list gives exact pipeline plan order. The windows give observed activity bounds. They are different concepts: executor pipelining and concurrency can make adjacent stages overlap, so stage windows must not be added together or interpreted as a strictly serial timeline.
+This would make side results explicit but would change executor result contracts and backend plumbing throughout Curator.
 
-### Executor wall time
+### Keep all records in actor or driver memory
 
-`wall_time_s` is measured with a monotonic clock around `executor.execute()`. For the integrated Ray Data and Xenna paths it includes executor initialization performed inside `execute`, scheduling, stage work, output materialization, collector drain/finish, and Ray shutdown. It excludes final performance-report serialization because finalization occurs after `execute()` returns.
+This is simpler for small runs but makes peak memory proportional to invocation count.
 
-Executor wall time is an end-to-end execution latency, not the sum of stage processing times. Stage calls can execute concurrently, and executor overhead is not assigned to a stage.
+### Asynchronous fire-and-forget publication plus a driver barrier
 
-### Actor idle time, custom metrics, items, and bytes
+A driver barrier does not fence calls independently submitted by workers. It can let report tails arrive after finalization.
 
-The internal extended record retains legacy timing fields, item cardinality, input bytes, custom metrics, invocation identity, and timestamps. Schema version 1 intentionally exposes only the fields needed for exact invocation accounting and stage timing. This keeps the public report compact and avoids making internal transport details an early compatibility promise.
+### Background worker queues or one collector per stage/worker
 
-## Compatibility
+These can reduce the synchronous hot path for some workloads, but require queue bounds, drain ownership, failure propagation, retry semantics, collector assignment, and multi-spool merging. A fixed collector count is not uniformly optimal for heterogeneous pipelines. They are not justified for the minimal foundation.
 
-### Disabled path
+## Tests and validation
 
-With no `performance_report_path`, the collector path is not active. Output tasks continue to receive the established `StagePerfStats.to_dict()` fields:
+Committed tests cover:
 
-- `stage_name`;
-- `process_time`;
-- `actor_idle_time`;
-- `input_data_size_mb`;
-- `num_items_processed`; and
-- `custom_metrics`.
+- one-output, zero-output, fan-out, and explicit batch-stage publication;
+- no task duplication when enabled and legacy task statistics when disabled;
+- exclusion of the prior publication wait from the next actor-idle window;
+- one-time consumer resolution and record-store transfer;
+- explicit rejection by executors that do not support this collector lifecycle;
+- Ray Data and Xenna end-to-end report creation;
+- collector lifecycle and multi-submitter completeness;
+- collector start, append, acknowledgement, finish, poison, and cleanup failures;
+- re-iterable raw dictionaries and preservation of future fields;
+- bounded-memory streaming with a large record set;
+- local atomic output and fsspec streaming output;
+- blank paths, manifest/report collisions, and Slurm-suffixed collisions; and
+- run, stage-plan, executor, and Slurm report context.
 
-Run, stage, and invocation identities are not added to that legacy public task serialization.
+Historical ASR parity evidence is documented separately in `tutorials/audio/performance/README.md`. It validates transcript parity for an earlier compact-report revision; it is not presented as byte-for-byte evidence for the final raw schema.
 
-The input-size correction is intentional: item cardinality is no longer passed to an API that expects bytes. Task types that do not implement a byte-size contract report zero rather than a dimensionally invalid value.
+## Review checklist
 
-### Enabled path
-
-With reporting enabled, invocation statistics move out of tasks into the run-scoped collector. Task payload and output manifest content remain unchanged; only the ownership of performance statistics changes. Consumers that need exact whole-run accounting should use the performance report rather than summing task records.
-
-### Custom executors and consumers
-
-The collector transport is implemented in `BaseExecutor`, but a custom executor must participate in the start, finish, cleanup, and consume lifecycle to produce a report. A custom report consumer must both request records and implement `finalize_performance_report()`.
-
-## Failure Model
-
-Performance reporting is fail-closed once explicitly requested. A successful pipeline must not silently claim a complete report after dropping records.
-
-| Failure | Behavior |
-|---|---|
-| Collector cannot start | Execution fails before stage work |
-| Invocation publication fails | The stage call/pipeline fails; no silent record drop |
-| Collector finish or spool transfer fails | Execution fails and temporary state is cleaned |
-| Record contains an unknown stage ID | Report finalization fails |
-| Configured or Slurm-resolved report collides with manifest | Validation fails before manifest data can be overwritten |
-| Local report write fails before replace | Previous destination remains intact |
-| Invalid/partial Slurm configuration | Run fails instead of emitting ambiguous shard metadata |
-| Pipeline execution fails | Collector is stopped without retaining the incomplete spool |
-
-Synchronous publication acknowledgement is part of this failure model. It trades some throughput for an explicit completeness guarantee.
-
-## Resource and Scaling Characteristics
-
-Let `R` be invocation count and `S` be stage count.
-
-- Collector memory is `O(1)` with respect to `R`; record storage is `O(R)` on local disk.
-- Report aggregation memory is `O(S)`; stage-specific temporary arrays and the final report are `O(R)` on disk.
-- Publication adds one Ray actor call and acknowledgement per completed invocation.
-- The collector requests no CPU resource, uses `max_concurrency=1`, and serializes appends to one spool.
-- Final report construction reads the spool once and streams the output.
-
-Committed stress tests cover 50,000 records. After baseline setup, collector memory growth remains below 512 KiB, and report-generation peak traced memory remains below 2 MiB. These tests protect the intended bounded-memory design rather than prescribing exact production memory use.
-
-## Alternatives Considered
-
-### Attach records only to output tasks
-
-This is the previous model. It has the smallest new implementation cost and keeps task-local lineage, but it cannot represent zero-output calls and duplicates invocation statistics for fan-out calls. It is retained only for compatibility when run-scoped reporting is disabled.
-
-### Keep all records in actor memory
-
-This simplifies storage and final transfer for small runs. Memory grows with invocation count, the actor must remain alive through report creation or return a potentially large object, and actor loss loses the entire record set. A disk spool provides bounded memory and explicit ownership transfer.
-
-### Return `(tasks, records)` from `execute()`
-
-This makes performance data an explicit executor return value, but changes a central public interface and all executor callers for an opt-in feature. The executor-owned transfer slot preserves the existing result contract.
-
-### Return an `ExecutionResult(tasks, records)` object
-
-This is cleaner if Curator adopts a broader result model, but has the same compatibility and migration cost as changing the tuple return type. It is disproportionate to the current report feature.
-
-### Let the writer access the actor directly
-
-This couples a terminal stage to Ray actor lifetime and backend shutdown order. It also makes cleanup and custom executor behavior harder to reason about. Transferring a backend-neutral `PerformanceRecordStore` before finalization separates transport from serialization.
-
-### Use a driver-side barrier after execution
-
-A driver submission does not order publications already submitted by independent workers. It can finish before worker-originated actor calls. Producer-side acknowledgements provide the required ordering boundary.
-
-### Accumulate records directly on `Pipeline`
-
-Workers do not share the driver's Python object, so this requires a transport channel regardless. Direct accumulation would also make pipeline memory grow with invocation count.
-
-### Publish the raw extended record list
-
-A raw list exposes more fields immediately, but creates a large public artifact, requires consumers to solve stage grouping and zero-invocation representation, and prematurely freezes internal fields. The compact stage-grouped schema publishes the guarantees required by this feature while leaving room for later versioned metrics.
-
-### Best-effort asynchronous publication
-
-This can reduce per-call latency, but executor completion cannot prove that independent worker submissions reached the actor. Silent report truncation is less acceptable than failing an explicitly requested authoritative report.
-
-## Testing and Validation
-
-### Committed regression coverage
-
-The test suite covers:
-
-- one-to-one, zero-output, and fan-out invocation accounting;
-- disabled-path task compatibility;
-- collector start, publication, finish, cleanup, and exactly-once transfer;
-- Ray Data and Xenna report enablement;
-- tensor- and NumPy-backed audio input-size calculation;
-- local, URI, and in-memory fsspec destinations;
-- Slurm suffixing, context, invalid configuration, and post-suffix collision detection;
-- unknown stage identity rejection;
-- local atomic-write failure preserving an existing destination;
-- report invariants and zero-invocation stages; and
-- bounded-memory behavior at 50,000 records.
-
-### Live GPU parity validation
-
-The runtime implementation at `ab7081b325dfabc702a3c6642184c20c13633ac4` was validated against Curator main at `a4470c6fe9b20ec98eb0839939c5e89de8aca3e5` with a 16-row ASR run using batch size 8 on an NVIDIA GeForce RTX 3080 Ti. The target and reference produced:
-
-- 16 of 16 exact transcript matches;
-- byte-identical output JSONL manifests; and
-- 100% sampled GPU utilization in both arms.
-
-The target report contained 18 invocation records: two ASR batch invocations and 16 writer invocations. Target output tasks contained no attached performance records while reporting was enabled.
-
-The reference path attached 32 records to 16 tasks. Its 16 attached ASR entries represented only two real ASR calls, and summing them overestimated the two unique processing durations by exactly the fan-out factor of eight. This validates the accounting problem and the new report's one-record-per-invocation behavior.
-
-The measured target and reference pipeline wall times came from sequential canary runs and are not evidence of a causal performance change. The validation establishes output parity and telemetry semantics, not a performance-regression conclusion.
-
-The complete reproducible example and exact report are in [`tutorials/audio/performance/README.md`](tutorials/audio/performance/README.md).
-
-## Limitations and Follow-Up Work
-
-1. **Hardware telemetry:** GPU identity/utilization and system metrics belong in a separate backend telemetry layer that can reuse the run and stage identities.
-2. **Additional public metrics:** Item counts, input bytes, custom metrics, and idle-time aggregation require an intentional schema-version decision before exposure.
-3. **Remote atomicity:** Filesystem-specific commit/rename support may improve guarantees beyond generic fsspec streaming.
-4. **Multiple consumers:** The current lifecycle selects one terminal consumer. Supporting multiple independent reports requires explicit fan-out and ownership semantics.
-5. **Retry semantics:** The report counts completed adapter invocations observed by the collector. If an executor retries completed work, a future extension may need attempt IDs or logical-invocation deduplication.
-6. **Publication overhead:** Producer acknowledgements prioritize completeness. Future batching must preserve an equivalent fence and bounded-memory guarantee.
-7. **Invocation ordering:** Arrays reflect collector arrival order within each stage. Consumers must use IDs and timestamps rather than assume a deterministic total order across workers.
+- Enabling is explicit and disabling remains the default.
+- The publication point is outside the output loop and after Curator bookkeeping.
+- No audio byte hook or task schema change is required.
+- No aggregation, output cardinality, GPU, hardware, actor, or worker fields are promised here.
+- Raw unknown fields survive collector and writer traversal.
+- Failures do not knowingly produce a successful partial report.
+- Retry semantics are described as attempt-level, not logical exactly-once.
+- The acknowledgement latency and single-actor bottleneck are explicit.
+- Audio is the first consumer, not the boundary of the collection feature.

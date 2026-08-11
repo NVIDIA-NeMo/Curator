@@ -31,8 +31,7 @@ from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     import tarfile
-    from collections.abc import Callable, Iterable
-    from typing import TextIO
+    from collections.abc import Iterable
 
     import pandas as pd
 
@@ -76,18 +75,13 @@ def write_json_file(path: str, payload: dict[str, Any], fs: fsspec.AbstractFileS
     fs.write_text(path, f"{json.dumps(payload, sort_keys=True)}\n", encoding="utf-8")
 
 
-def _write_json_item(item: object, output: TextIO) -> None:
-    json.dump(item, output, sort_keys=True)
-
-
-def write_json_file_streaming_array(  # noqa: PLR0913
+def write_json_file_streaming_array(
     path: str,
     payload: dict[str, Any],
     *,
     array_key: str,
     items: Iterable[Any],
     fs: fsspec.AbstractFileSystem,
-    item_writer: Callable[[Any, TextIO], None] = _write_json_item,
 ) -> None:
     """Write one JSON array incrementally while keeping the surrounding object."""
     if array_key in payload:
@@ -106,7 +100,7 @@ def write_json_file_streaming_array(  # noqa: PLR0913
         for index, item in enumerate(items):
             if index:
                 output.write(",")
-            item_writer(item, output)
+            json.dump(item, output, sort_keys=True)
         output.write("]}\n")
 
     if isinstance(fs, LocalFileSystem):

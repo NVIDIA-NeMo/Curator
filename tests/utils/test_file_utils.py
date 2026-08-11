@@ -33,7 +33,6 @@ from nemo_curator.utils.file_utils import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import TextIO
 
 
 class TestJsonFiles:
@@ -89,22 +88,16 @@ class TestJsonFiles:
             "records": [{"index": 0}],
         }
 
-    def test_streaming_array_accepts_item_writer(self) -> None:
+    def test_streaming_array_preserves_nested_items(self) -> None:
         path = "/pr2296-file-utils/nested-array.json"
         fs = fsspec.filesystem("memory")
-
-        def write_item(item: list[int], output: TextIO) -> None:
-            output.write('{"values":[')
-            output.write(",".join(str(value) for value in item))
-            output.write("]}")
 
         write_json_file_streaming_array(
             path,
             {"schema_version": 1},
             array_key="groups",
-            items=[[1, 2], [3]],
+            items=[{"values": [1, 2]}, {"values": [3]}],
             fs=fs,
-            item_writer=write_item,
         )
 
         assert read_json_file(path, fs) == {

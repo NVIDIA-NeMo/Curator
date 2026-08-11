@@ -13,8 +13,8 @@
 # limitations under the License.
 
 from collections.abc import Iterable
+from typing import Any
 
-from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import (
     PerformanceRecordStore,
     _new_spool_path,
@@ -22,7 +22,9 @@ from nemo_curator.utils.stage_perf_collector import (
 )
 
 
-def make_performance_record_store(records: Iterable[StagePerfStats]) -> PerformanceRecordStore:
+def make_performance_record_store(
+    records: Iterable[dict[str, Any]],
+) -> PerformanceRecordStore:
     """Construct a disk-backed store for tests without expanding the production API."""
     spool = _StagePerfSpool(_new_spool_path())
     for record in records:

@@ -68,22 +68,31 @@ class WorkerMetadata:
 class BaseExecutor(ABC):
     """Executor for a pipeline."""
 
+    _supports_stage_perf_collection = False
+
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
         self._external_perf_records: PerformanceRecordStore | None = None
+        self._stage_perf_collection_requested = False
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
-    @staticmethod
-    def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
+    def _set_stage_perf_collection_requested(self, requested: bool) -> None:
+        """Set the private collection request resolved once by ``Pipeline``."""
+        if requested and not self._supports_stage_perf_collection:
+            msg = f"{type(self).__name__} does not support run-scoped stage performance collection"
+            raise NotImplementedError(msg)
+        self._stage_perf_collection_requested = requested
+
+    def _start_stage_perf_collector(self, stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
         """Start the run-scoped collector when performance collection is enabled."""
+        if not self._stage_perf_collection_requested:
+            return None
         from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
 
-        if not any(stage.requests_performance_records() for stage in stages):
-            return None
         try:
             return start_stage_perf_collector(stages)
         except Exception as exc:
@@ -143,13 +152,8 @@ class BaseStageAdapter:
 
         capture_metrics = getattr(self.stage, "_curator_stage_perf_collector_actor", None) is not None
         num_input_items = sum(task.num_items for task in tasks)
-        # Behavior correction: the legacy disabled path passed an item count to
-        # a byte-sized timer and exposed that unit mismatch as MB. When no
-        # report is requested, leave the unmeasured byte field at zero while
-        # retaining the task-attached legacy performance schema.
-        input_size_bytes = sum(task.input_data_size_bytes() for task in tasks) if capture_metrics else 0
         # Initialize performance timer for this batch
-        self._timer.reinit(input_size_bytes)
+        self._timer.reinit(num_input_items)
 
         window_start_s = time.time() if capture_metrics else 0.0
         process_start_s = time.perf_counter() if capture_metrics else 0.0
@@ -157,7 +161,7 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
         process_elapsed_s = max(time.perf_counter() - process_start_s, 0.0) if capture_metrics else 0.0
-        window_end_s = time.time() if capture_metrics else 0.0
+        window_end_s = max(time.time(), window_start_s) if capture_metrics else 0.0
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -200,11 +204,6 @@ class BaseStageAdapter:
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
-        if capture_metrics:
-            stage_perf_stats.process_time = process_elapsed_s
-            stage_perf_stats.invocation_id = uuid.uuid4().hex
-            stage_perf_stats.window_start_s = window_start_s
-            stage_perf_stats.window_end_s = window_end_s
         # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
@@ -220,9 +219,24 @@ class BaseStageAdapter:
             from nemo_curator.utils.stage_perf_collector import record_stage_perf
 
             # Publish once per process_batch invocation, outside the output
-            # loop. Publishing per output would over-estimate time, bytes,
-            # items, and custom metrics whenever one input fans out.
-            record_stage_perf(self.stage, stage_perf_stats)
+            # loop. Publishing per output would over-estimate time, items, and
+            # custom metrics whenever one input fans out.
+            performance_record = {
+                "stage_name": stage_perf_stats.stage_name,
+                "stage_id": str(getattr(self.stage, "_curator_stage_id", "") or ""),
+                "invocation_id": uuid.uuid4().hex,
+                "process_time": process_elapsed_s,
+                "actor_idle_time": stage_perf_stats.actor_idle_time,
+                "num_items_processed": stage_perf_stats.num_items_processed,
+                "custom_metrics": dict(stage_perf_stats.custom_metrics),
+                "window_start_s": window_start_s,
+                "window_end_s": window_end_s,
+            }
+            record_stage_perf(self.stage, performance_record)
+            # The acknowledgement is telemetry work, not actor idle time.
+            # Start the next idle window only after the required publication
+            # has completed, without changing the legacy disabled path.
+            self._timer._last_active_time = time.time()
 
         return results
 

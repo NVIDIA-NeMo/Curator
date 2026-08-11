@@ -14,26 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from pathlib import Path
 
-import numpy as np
-import pytest
-import torch
-
 from nemo_curator.tasks import AudioTask
-
-
-class _MetadataOnlyArray:
-    nbytes = 16 * 4
-
-    def __iter__(self):
-        msg = "array contents must not be iterated"
-        raise AssertionError(msg)
-
-    def __str__(self) -> str:
-        msg = "array contents must not be stringified"
-        raise AssertionError(msg)
 
 
 def test_audio_task_stores_dict() -> None:
@@ -66,32 +49,3 @@ def test_audio_task_validation_missing_file(tmp_path: Path) -> None:
 def test_audio_task_validation_no_filepath_key() -> None:
     entry = AudioTask(data={"text": "hello"})
     assert entry.validate() is True
-
-
-def test_audio_task_input_size_uses_compact_utf8_json() -> None:
-    data = {"speaker": "Ñoño", "text": "日本語テスト"}
-    entry = AudioTask(data=data)
-
-    expected = len(json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"))
-    assert entry.input_data_size_bytes() == expected
-
-
-@pytest.mark.parametrize(
-    "waveform",
-    [
-        pytest.param(torch.zeros(16, dtype=torch.float32), id="torch"),
-        pytest.param(np.zeros(16, dtype=np.float32), id="numpy"),
-        pytest.param(_MetadataOnlyArray(), id="metadata-only"),
-    ],
-)
-def test_audio_task_input_size_counts_nested_array_storage_without_materializing_it(waveform: object) -> None:
-    entry = AudioTask(
-        dataset_name="test",
-        data={"text": "payload", "nested": [{"waveform": waveform}]},
-    )
-    envelope = {"text": "payload", "nested": [{"waveform": None}]}
-    envelope_bytes = len(
-        json.dumps(envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    )
-
-    assert entry.input_data_size_bytes() == envelope_bytes + 16 * 4

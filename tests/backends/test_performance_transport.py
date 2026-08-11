@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -20,7 +21,6 @@ import pytest
 from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, Task
-from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import COLLECTOR_ACTOR_ATTR
 from tests.utils.performance_record_store import make_performance_record_store
 
@@ -39,6 +39,13 @@ class _MetricStage(_Stage):
 
 
 class _Executor(BaseExecutor):
+    _supports_stage_perf_collection = True
+
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> None:
+        return None
+
+
+class _UnsupportedExecutor(BaseExecutor):
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> None:
         return None
 
@@ -62,12 +69,23 @@ class _FanOutStage(ProcessingStage[Task, Task]):
         return [task, EmptyTask()]
 
 
+class _BatchStage(ProcessingStage[Task, Task]):
+    name = "batch"
+
+    def process(self, task: Task) -> Task:
+        return task
+
+    def process_batch(self, tasks: list[Task]) -> list[Task]:
+        return tasks
+
+
 @pytest.mark.parametrize(
     ("stage", "expected_output_count"),
     [
         pytest.param(_Stage(), 1, id="one-output"),
         pytest.param(_ZeroOutputStage(), 0, id="zero-output"),
         pytest.param(_FanOutStage(), 2, id="fan-out"),
+        pytest.param(_BatchStage(), 1, id="explicit-process-batch"),
     ],
 )
 def test_adapter_publishes_once_per_invocation_without_task_duplication(
@@ -78,18 +96,20 @@ def test_adapter_publishes_once_per_invocation_without_task_duplication(
     setattr(stage, COLLECTOR_ACTOR_ATTR, object())
 
     with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
-        results = BaseStageAdapter(stage).process_batch([EmptyTask()])
+        results = BaseStageAdapter(stage).process_batch([AudioTask(dataset_name="test", data={"text": "payload"})])
 
     assert len(results) == expected_output_count
     assert all(result._stage_perf == [] for result in results)
     publish.assert_called_once()
-    perf = publish.call_args.args[1]
-    assert perf.stage_id == f"000:{stage.name}"
-    assert perf.invocation_id
-    assert perf.window_end_s >= perf.window_start_s > 0
+    record = publish.call_args.args[1]
+    assert record["stage_id"] == f"000:{stage.name}"
+    assert record["invocation_id"]
+    assert record["window_end_s"] >= record["window_start_s"] > 0
+    assert record["num_items_processed"] == 1
+    assert "input_data_size_mb" not in record
 
 
-def test_adapter_disabled_collection_corrects_item_count_reported_as_byte_size() -> None:
+def test_adapter_disabled_collection_preserves_main_task_attached_stats() -> None:
     [result] = BaseStageAdapter(_MetricStage()).process_batch(
         [AudioTask(dataset_name="test", data={"text": "payload"})]
     )
@@ -106,13 +126,38 @@ def test_adapter_disabled_collection_corrects_item_count_reported_as_byte_size()
     }
     assert perf.stage_name == "stage"
     assert perf.num_items_processed == 1
-    assert perf.input_data_size_mb == 0.0
+    assert perf.input_data_size_mb == pytest.approx(1 / 1024 / 1024)
     assert perf.custom_metrics == {"metric": 2.5}
-    assert perf.invocation_id == ""
-    assert perf.window_start_s == perf.window_end_s == 0.0
+    assert not hasattr(perf, "invocation_id")
+    assert not hasattr(perf, "window_start_s")
+
+
+def test_publication_wait_is_not_charged_to_the_next_actor_idle_window() -> None:
+    clock = SimpleNamespace(now=100.0)
+    records: list[dict[str, object]] = []
+    stage = _Stage()
+    setattr(stage, COLLECTOR_ACTOR_ATTR, object())
+    adapter = BaseStageAdapter(stage)
+
+    def publish(_stage: ProcessingStage, record: dict[str, object]) -> None:
+        records.append(record)
+        clock.now += 10.0
+
+    with (
+        patch("nemo_curator.backends.base.time.time", side_effect=lambda: clock.now),
+        patch("nemo_curator.backends.base.time.perf_counter", side_effect=lambda: clock.now),
+        patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", side_effect=publish),
+    ):
+        adapter.process_batch([AudioTask(dataset_name="test", data={"text": "first"})])
+        clock.now += 2.0
+        adapter.process_batch([AudioTask(dataset_name="test", data={"text": "second"})])
+
+    assert records[1]["actor_idle_time"] == pytest.approx(2.0)
 
 
 def test_required_collector_start_failure_is_not_silenced() -> None:
+    executor = _Executor()
+    executor._set_stage_perf_collection_requested(True)
     with (
         patch(
             "nemo_curator.utils.stage_perf_collector.start_stage_perf_collector",
@@ -120,16 +165,19 @@ def test_required_collector_start_failure_is_not_silenced() -> None:
         ),
         pytest.raises(RuntimeError, match="Required stage performance collector failed to start"),
     ):
-        _Executor._start_stage_perf_collector([_RequiredReportStage()])
+        executor._start_stage_perf_collector([_RequiredReportStage()])
+
+
+def test_unsupported_executor_rejects_required_collection() -> None:
+    executor = _UnsupportedExecutor()
+
+    with pytest.raises(NotImplementedError, match="does not support run-scoped stage performance collection"):
+        executor._set_stage_perf_collection_requested(True)
 
 
 def test_executor_transfers_external_records_exactly_once() -> None:
     executor = _Executor()
-    expected_record = StagePerfStats(
-        stage_name="stage",
-        invocation_id="invocation-1",
-        process_time=1.0,
-    )
+    expected_record = {"stage_name": "stage", "invocation_id": "invocation-1", "process_time": 1.0}
     records = make_performance_record_store([expected_record])
     spool_path = Path(records.path)
     executor._external_perf_records = records
@@ -144,21 +192,3 @@ def test_executor_transfers_external_records_exactly_once() -> None:
 
     transferred.cleanup()
     assert not spool_path.exists()
-
-
-def test_audio_input_byte_count_is_independent_of_item_count() -> None:
-    stage = _Stage()
-    setattr(stage, COLLECTOR_ACTOR_ATTR, object())
-    adapter = BaseStageAdapter(stage)
-    small = AudioTask(dataset_name="test", data={"text": "a"})
-    large = AudioTask(dataset_name="test", data={"text": "a" * 1_000})
-
-    with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
-        [small_result] = adapter.process_batch([small])
-        [large_result] = adapter.process_batch([large])
-
-    assert small_result._stage_perf == large_result._stage_perf == []
-    small_perf = publish.call_args_list[0].args[1]
-    large_perf = publish.call_args_list[1].args[1]
-    assert small_perf.num_items_processed == large_perf.num_items_processed == 1
-    assert large_perf.input_data_size_mb > small_perf.input_data_size_mb > 0

@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from ray.actor import ActorHandle
 
     from nemo_curator.stages.base import ProcessingStage
-    from nemo_curator.utils.performance_utils import StagePerfStats
 
 COLLECTOR_ACTOR_ATTR = "_curator_stage_perf_collector_actor"
 
@@ -45,14 +44,59 @@ class _StagePerfSpool:
         self._path = path
         self._record_count = 0
         self._file = Path(path).open("w", encoding="utf-8")  # noqa: SIM115
+        self._failure_message: str | None = None
+        self._finished = False
 
-    def record(self, perf_stats: StagePerfStats) -> None:
-        json.dump(perf_stats.to_extended_dict(), self._file, sort_keys=True)
-        self._file.write("\n")
+    def _terminal_error(self) -> RuntimeError:
+        failure_message = self._failure_message or "unknown terminal failure"
+        return RuntimeError(f"Stage performance collector is poisoned: {failure_message}")
+
+    def _raise_if_unusable(self) -> None:
+        if self._failure_message is not None:
+            raise self._terminal_error()
+        if self._finished:
+            msg = "Stage performance collector is already finished"
+            raise RuntimeError(msg)
+
+    def _poison(self, failure_message: str) -> None:
+        """Latch the first failure and prevent this spool from becoming a store."""
+        if self._failure_message is None:
+            self._failure_message = failure_message
+        with contextlib.suppress(Exception):
+            self._file.close()
+
+    def _write_line(self, line: str) -> None:
+        written = self._file.write(line)
+        if written != len(line):
+            msg = f"Short stage performance spool write: expected {len(line)} characters, wrote {written}"
+            raise OSError(msg)
+
+    def record(self, record: dict[str, Any]) -> None:
+        """Encode and append one raw record, poisoning the spool on any failure."""
+        self._raise_if_unusable()
+        try:
+            line = json.dumps(record) + "\n"
+            self._write_line(line)
+        except Exception as exc:
+            self._poison(f"{type(exc).__name__}: {exc}")
+            raise self._terminal_error() from exc
         self._record_count += 1
 
+    def fail(self, failure_message: str) -> None:
+        """Poison the spool explicitly after a transport-side uncertainty."""
+        self._raise_if_unusable()
+        self._poison(failure_message)
+        raise self._terminal_error()
+
     def finish(self) -> tuple[str, int]:
-        self._file.close()
+        """Close a healthy spool; a poisoned spool can never become a store."""
+        self._raise_if_unusable()
+        try:
+            self._file.close()
+        except Exception as exc:
+            self._poison(f"{type(exc).__name__}: {exc}")
+            raise self._terminal_error() from exc
+        self._finished = True
         return self._path, self._record_count
 
 
@@ -93,11 +137,9 @@ class PerformanceRecordStore:
                 self.path,
             )
 
-    def __iter__(self) -> Iterator[StagePerfStats]:
-        from nemo_curator.utils.performance_utils import StagePerfStats
-
-        for payload in self.iter_dicts():
-            yield StagePerfStats(**payload)
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        """Yield raw dictionaries so future schema fields remain readable."""
+        yield from self.iter_dicts()
 
     def __len__(self) -> int:
         return self.record_count
@@ -114,7 +156,11 @@ class PerformanceRecordStore:
             return
         with Path(self.path).open(encoding="utf-8") as records_file:
             for line in records_file:
-                yield json.loads(line)
+                payload = json.loads(line)
+                if not isinstance(payload, dict):
+                    msg = f"Expected a stage performance record object, got {type(payload).__name__}"
+                    raise TypeError(msg)
+                yield payload
 
     def cleanup(self) -> None:
         """Remove the run-scoped spool after its records are no longer needed."""
@@ -149,8 +195,11 @@ class _StagePerfCollector:
     def ready(self) -> bool:
         return True
 
-    def record(self, perf_stats: StagePerfStats) -> None:
-        self._spool.record(perf_stats)
+    def record(self, record: dict[str, Any]) -> None:
+        self._spool.record(record)
+
+    def fail(self, failure_message: str) -> None:
+        self._spool.fail(failure_message)
 
     def finish(self) -> tuple[str, int]:
         return self._spool.finish()
@@ -180,7 +229,7 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> _StagePerfColle
 
 def record_stage_perf(
     stage: ProcessingStage,
-    perf_stats: StagePerfStats,
+    record: dict[str, Any],
 ) -> None:
     """Publish one required invocation and wait for the collector acknowledgement."""
     collector = getattr(stage, COLLECTOR_ACTOR_ATTR, None)
@@ -188,12 +237,18 @@ def record_stage_perf(
         msg = f"Stage performance collector is not configured for {stage.name}"
         raise RuntimeError(msg)
     try:
-        record_ref = collector.record.remote(perf_stats)
+        record_ref = collector.record.remote(record)
         # The driver cannot fence actor calls submitted by Ray Data/Xenna
         # workers. Each producer therefore waits for its own call before
         # returning, so executor completion fences every publication.
         ray.get(record_ref)
     except Exception as exc:
+        # The append may have succeeded even when its acknowledgement was lost.
+        # Poison the run best-effort so a later finish cannot expose a possibly
+        # incomplete or ambiguously acknowledged store.
+        with contextlib.suppress(Exception):
+            fail_ref = collector.fail.remote(f"{type(exc).__name__}: {exc}")
+            ray.get(fail_ref)
         msg = f"Required stage performance publication failed for {stage.name}: {exc}"
         raise RuntimeError(msg) from exc
 

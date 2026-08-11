@@ -24,7 +24,6 @@ import ray
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
-from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import (
     COLLECTOR_ACTOR_ATTR,
     _StagePerfCollector,
@@ -49,11 +48,29 @@ class _ReportStage(_Stage):
         return True
 
 
+def _perf_record(
+    *,
+    invocation_id: str = "",
+    custom_metrics: dict[str, object] | None = None,
+) -> dict[str, object]:
+    record: dict[str, object] = {
+        "stage_name": "stage",
+        "process_time": 0.0,
+        "actor_idle_time": 0.0,
+        "num_items_processed": 0,
+        "custom_metrics": {},
+        "invocation_id": invocation_id,
+    }
+    if custom_metrics is not None:
+        record["custom_metrics"] = custom_metrics
+    return record
+
+
 def test_record_stage_perf_requires_collector() -> None:
     with pytest.raises(RuntimeError, match="Stage performance collector is not configured"):
         record_stage_perf(
             _Stage(),
-            StagePerfStats(stage_name="stage"),
+            _perf_record(),
         )
 
 
@@ -66,7 +83,7 @@ def test_record_stage_perf_acknowledges_every_publication() -> None:
 
     with patch("nemo_curator.utils.stage_perf_collector.ray.get") as ray_get:
         for _ in record_refs:
-            record_stage_perf(stage, StagePerfStats(stage_name="stage"))
+            record_stage_perf(stage, _perf_record())
 
     assert [call.args[0] for call in ray_get.call_args_list] == record_refs
 
@@ -75,16 +92,22 @@ def test_required_publish_failure_is_not_silenced() -> None:
     stage = _Stage()
     collector = MagicMock()
     record_ref = object()
+    fail_ref = object()
     collector.record.remote.return_value = record_ref
+    collector.fail.remote.return_value = fail_ref
     setattr(stage, COLLECTOR_ACTOR_ATTR, collector)
 
     with (
-        patch("nemo_curator.utils.stage_perf_collector.ray.get", side_effect=OSError("publish failed")) as ray_get,
+        patch(
+            "nemo_curator.utils.stage_perf_collector.ray.get",
+            side_effect=[OSError("publish failed"), RuntimeError("poisoned")],
+        ) as ray_get,
         pytest.raises(RuntimeError, match="Required stage performance publication failed"),
     ):
-        record_stage_perf(stage, StagePerfStats(stage_name="stage"))
+        record_stage_perf(stage, _perf_record())
 
-    ray_get.assert_called_once_with(record_ref)
+    assert [call.args[0] for call in ray_get.call_args_list] == [record_ref, fail_ref]
+    collector.fail.remote.assert_called_once_with("OSError: publish failed")
 
 
 def test_required_finish_failure_is_not_silenced(tmp_path: Path) -> None:
@@ -166,13 +189,13 @@ def test_collector_returns_disk_backed_record_store() -> None:
 
     record_stage_perf(
         stage,
-        StagePerfStats(stage_name="stage", invocation_id="invocation-1"),
+        _perf_record(invocation_id="invocation-1"),
     )
     record_store = stop_stage_perf_collector(collector, [stage])
 
     assert len(record_store) == 1
     assert record_store.path
-    assert [record.invocation_id for record in record_store] == ["invocation-1"]
+    assert [record["invocation_id"] for record in record_store] == ["invocation-1"]
     record_store.cleanup()
 
 
@@ -184,15 +207,11 @@ def test_actor_record_failure_surfaces_immediately() -> None:
     with pytest.raises(RuntimeError, match="Required stage performance publication failed"):
         record_stage_perf(
             stage,
-            StagePerfStats(
-                stage_name="stage",
-                custom_metrics={"not-json-serializable": object()},  # type: ignore[dict-item]
-            ),
+            _perf_record(custom_metrics={"not-json-serializable": object()}),
         )
 
-    record_store = stop_stage_perf_collector(collector, [stage])
-    assert len(record_store) == 0
-    record_store.cleanup()
+    with pytest.raises(ray.exceptions.RayTaskError, match="Stage performance collector is poisoned"):
+        stop_stage_perf_collector(collector, [stage])
 
 
 @pytest.mark.usefixtures("shared_ray_client")
@@ -205,10 +224,7 @@ def test_required_publications_from_multiple_submitters_are_complete() -> None:
         for record_index in range(7):
             record_stage_perf(
                 stage,
-                StagePerfStats(
-                    stage_name="stage",
-                    invocation_id=f"producer-{producer_index}-record-{record_index}",
-                ),
+                _perf_record(invocation_id=f"producer-{producer_index}-record-{record_index}"),
             )
 
     ray.get([publish_records.remote(stage, producer_index) for producer_index, stage in enumerate(stages)])
@@ -218,12 +234,12 @@ def test_required_publications_from_multiple_submitters_are_complete() -> None:
         f"producer-{producer_index}-record-{record_index}" for producer_index in range(4) for record_index in range(7)
     }
     assert len(record_store) == len(expected_ids)
-    assert {record.invocation_id for record in record_store} == expected_ids
+    assert {record["invocation_id"] for record in record_store} == expected_ids
     record_store.cleanup()
 
 
 def test_record_store_cleans_spool_when_last_owner_is_released() -> None:
-    record_store = make_performance_record_store([StagePerfStats(stage_name="stage")])
+    record_store = make_performance_record_store([_perf_record()])
     spool_path = Path(record_store.path)
 
     assert spool_path.is_file()
@@ -235,17 +251,69 @@ def test_record_store_cleans_spool_when_last_owner_is_released() -> None:
 
 
 def test_record_store_context_manager_preserves_iteration_until_close() -> None:
-    with make_performance_record_store(
-        [StagePerfStats(stage_name="stage", invocation_id="invocation-1")]
-    ) as record_store:
+    with make_performance_record_store([_perf_record(invocation_id="invocation-1")]) as record_store:
         spool_path = Path(record_store.path)
-        assert [record.invocation_id for record in record_store] == ["invocation-1"]
-        assert [record.invocation_id for record in record_store] == ["invocation-1"]
+        assert [record["invocation_id"] for record in record_store] == ["invocation-1"]
+        assert [record["invocation_id"] for record in record_store] == ["invocation-1"]
 
     assert not spool_path.exists()
     assert not spool_path.parent.exists()
     assert record_store.path == ""
     assert len(record_store) == 0
+
+
+def test_record_store_iteration_preserves_future_fields() -> None:
+    record = {
+        "stage_name": "stage",
+        "invocation_id": "invocation-1",
+        "future_schema_field": {"nested": [1, 2, 3]},
+    }
+
+    with make_performance_record_store([record]) as record_store:
+        assert list(record_store) == [record]
+        assert list(record_store.iter_dicts()) == [record]
+
+
+def test_spool_encodes_each_record_with_one_buffered_write() -> None:
+    record = {"invocation_id": "invocation-1", "stage_name": "stage"}
+    expected_line = '{"invocation_id": "invocation-1", "stage_name": "stage"}\n'
+    records_file = MagicMock()
+    records_file.write.return_value = len(expected_line)
+
+    with patch.object(Path, "open", return_value=records_file):
+        spool = _StagePerfSpool("records.jsonl")
+        spool.record(record)
+        path, record_count = spool.finish()
+
+    records_file.write.assert_called_once_with(expected_line)
+    assert records_file.close.call_count == 1
+    assert path == "records.jsonl"
+    assert record_count == 1
+
+
+def test_spool_poison_prevents_partial_store_success(tmp_path: Path) -> None:
+    spool = _StagePerfSpool(str(tmp_path / "records.jsonl"))
+    spool.record({"invocation_id": "written"})
+
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: acknowledgement lost"):
+        spool.fail("acknowledgement lost")
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: acknowledgement lost"):
+        spool.record({"invocation_id": "must-not-write"})
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: acknowledgement lost"):
+        spool.finish()
+
+
+def test_spool_serialization_failure_stays_poisoned(tmp_path: Path) -> None:
+    spool = _StagePerfSpool(str(tmp_path / "records.jsonl"))
+
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: TypeError"):
+        spool.record({"not-json-serializable": object()})
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: TypeError"):
+        spool.record({"invocation_id": "must-not-write"})
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: TypeError"):
+        spool.fail("later failure must not replace the first")
+    with pytest.raises(RuntimeError, match="Stage performance collector is poisoned: TypeError"):
+        spool.finish()
 
 
 def test_record_store_cleans_spool_at_normal_process_exit(tmp_path: Path) -> None:
@@ -254,10 +322,9 @@ def test_record_store_cleans_spool_at_normal_process_exit(tmp_path: Path) -> Non
 from pathlib import Path
 import sys
 
-from nemo_curator.utils.performance_utils import StagePerfStats
 from tests.utils.performance_record_store import make_performance_record_store
 
-store = make_performance_record_store([StagePerfStats(stage_name="stage")])
+store = make_performance_record_store([{"stage_name": "stage"}])
 Path(sys.argv[1]).write_text(store.path, encoding="utf-8")
 """
 
@@ -273,12 +340,12 @@ Path(sys.argv[1]).write_text(store.path, encoding="utf-8")
 
 def test_high_cardinality_spool_has_bounded_memory(tmp_path: Path) -> None:
     spool = _StagePerfSpool(str(tmp_path / "records.jsonl"))
-    record = StagePerfStats(
-        stage_name="ASR",
-        invocation_id="invocation",
-        process_time=1.0,
-        custom_metrics={"audio_duration_s": 12.0},
-    )
+    record = {
+        "stage_name": "ASR",
+        "invocation_id": "invocation",
+        "process_time": 1.0,
+        "custom_metrics": {"audio_duration_s": 12.0},
+    }
 
     tracemalloc.start()
     try:

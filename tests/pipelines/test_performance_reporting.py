@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.slurm_array import (
     SLURM_ARRAY_ENABLED_ENV_VAR,
@@ -29,7 +30,6 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, Task
-from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 from tests.utils.performance_record_store import make_performance_record_store
 
@@ -68,23 +68,37 @@ class _CardinalityConsumer(_TerminalConsumer):
         return [task, AudioTask(dataset_name="test", data={"text": "second"})] if self.fan_out else None
 
 
+class _InvalidConsumer(ProcessingStage[Task, Task]):
+    name = "invalid-consumer"
+
+    def process(self, task: Task) -> Task:
+        return task
+
+    def requests_performance_records(self) -> bool:
+        return True
+
+
 class _Executor:
     def __init__(self) -> None:
         self.records: PerformanceRecordStore | None = None
         self.consume_calls = 0
+        self.collection_requests: list[bool] = []
+
+    def _set_stage_perf_collection_requested(self, requested: bool) -> None:
+        self.collection_requests.append(requested)
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         terminal_stage = stages[-1]
         self.records = make_performance_record_store(
             [
-                StagePerfStats(
-                    stage_name=terminal_stage.name,
-                    stage_id=terminal_stage._curator_stage_id,
-                    invocation_id="invocation-1",
-                    process_time=1.0,
-                    window_start_s=10.0,
-                    window_end_s=11.0,
-                )
+                {
+                    "stage_name": terminal_stage.name,
+                    "stage_id": terminal_stage._curator_stage_id,
+                    "invocation_id": "invocation-1",
+                    "process_time": 1.0,
+                    "window_start_s": 10.0,
+                    "window_end_s": 11.0,
+                }
             ]
         )
         return list(initial_tasks or [])
@@ -94,6 +108,11 @@ class _Executor:
         records, self.records = self.records, None
         assert records is not None
         return records
+
+
+class _UnsupportedExecutor(BaseExecutor):
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+        return list(initial_tasks or [])
 
 
 def test_pipeline_assigns_stable_ids_and_drains_records_once() -> None:
@@ -127,6 +146,7 @@ def test_pipeline_assigns_stable_ids_and_drains_records_once() -> None:
     assert [stage["name"] for stage in report_context["pipeline"]["stages"]] == ["duplicate", "duplicate"]
     assert executor.consume_calls == 1
     assert executor.records is None
+    assert executor.collection_requests == [True, False]
 
 
 def test_disabled_report_skips_context_and_record_transfer(tmp_path: Path) -> None:
@@ -142,7 +162,22 @@ def test_disabled_report_skips_context_and_record_transfer(tmp_path: Path) -> No
     assert pipeline.performance_records is None
     assert executor.consume_calls == 0
     assert executor.records is not None
+    assert executor.collection_requests == [False, False]
     executor.records.cleanup()
+
+
+def test_requesting_stage_without_finalizer_is_rejected() -> None:
+    pipeline = Pipeline(name="invalid", stages=[_InvalidConsumer()])
+
+    with pytest.raises(TypeError, match="must implement finalize_performance_report"):
+        pipeline.run(executor=_Executor(), initial_tasks=[])
+
+
+def test_pipeline_rejects_required_collection_on_unsupported_executor() -> None:
+    pipeline = Pipeline(name="unsupported", stages=[_TerminalConsumer()])
+
+    with pytest.raises(NotImplementedError, match="does not support run-scoped stage performance collection"):
+        pipeline.run(executor=_UnsupportedExecutor(), initial_tasks=[])
 
 
 def test_slurm_environment_reaches_sharded_terminal_report(
@@ -204,12 +239,12 @@ def test_report_path_alone_collects_records_end_to_end(executor: object, tmp_pat
     assert report["record_count"] == 1
     assert report["pipeline"]["pipeline_name"] == "path-only"
     assert [stage["stage_id"] for stage in report["pipeline"]["stages"]] == ["000:manifest_writer"]
-    [stage_performance] = report["stage_performance"]
-    assert stage_performance["stage_id"] == "000:manifest_writer"
-    assert len(stage_performance["invocation_ids"]) == 1
-    assert len(stage_performance["processing_times_s"]) == 1
-    assert stage_performance["stage_end_s"] >= stage_performance["stage_start_s"] > 0
-    assert "records" not in report
+    [record] = report["records"]
+    assert record["stage_id"] == "000:manifest_writer"
+    assert record["invocation_id"]
+    assert record["window_end_s"] >= record["window_start_s"] > 0
+    assert record["num_items_processed"] == 1
+    assert "input_data_size_mb" not in record
 
 
 @pytest.mark.parametrize(
@@ -235,9 +270,9 @@ def test_cardinality_invocation_is_collected_once_end_to_end(executor: object, f
     records, _, _ = consumer.finalized
     assert len(records) == 1
     [record] = list(records)
-    assert record.stage_id == "000:cardinality"
-    assert record.invocation_id
-    assert record.custom_metrics == {"cardinality_metric": 3.5}
+    assert record["stage_id"] == "000:cardinality"
+    assert record["invocation_id"]
+    assert record["custom_metrics"] == {"cardinality_metric": 3.5}
 
 
 @pytest.mark.parametrize(
@@ -262,5 +297,6 @@ def test_disabled_report_uses_task_attached_metrics_without_extended_report(exec
     assert len(results) == 1
     assert len(results[0]._stage_perf) == 1
     assert results[0]._stage_perf[0].stage_name == "manifest_writer"
-    assert results[0]._stage_perf[0].invocation_id == ""
+    assert not hasattr(results[0]._stage_perf[0], "invocation_id")
+    assert executor._external_perf_records is None  # type: ignore[attr-defined]
     assert {path.name for path in tmp_path.iterdir()} == {manifest_path.name}

@@ -237,10 +237,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         if isinstance(input_specs, tuple):
             return self._validate_input_spec(input_specs, "inputs()")
         if not isinstance(input_specs, dict):
-            msg = (
-                f"Stage {self.name} inputs() must return an input spec tuple "
-                "or dict of task type to input spec"
-            )
+            msg = f"Stage {self.name} inputs() must return an input spec tuple or dict of task type to input spec"
             raise TypeError(msg)
 
         # Search the task's MRO from most to least specific. For example, given
@@ -248,9 +245,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         # for CustomDocumentBatch first, then DocumentBatch, and finally Task.
         for candidate_type in type(task).mro():
             if candidate_type in input_specs:
-                return self._validate_input_spec(
-                    input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]"
-                )
+                return self._validate_input_spec(input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]")
 
         supported_task_types = ", ".join(supported_type.__name__ for supported_type in input_specs) or "<none>"
         msg = (

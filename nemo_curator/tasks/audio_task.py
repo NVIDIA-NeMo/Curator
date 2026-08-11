@@ -12,10 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
 from dataclasses import dataclass, field
-from numbers import Integral
 
 from loguru import logger
 
@@ -67,38 +65,6 @@ class AudioTask(Task[dict]):
     @property
     def num_items(self) -> int:
         return 1
-
-    def input_data_size_bytes(self) -> int:
-        """Return compact JSON-envelope bytes plus in-memory array storage.
-
-        Audio stages may carry waveform tensors or NumPy arrays between stages.
-        Representing those transient values as JSON ``null`` keeps telemetry
-        non-blocking and avoids materializing huge, misleading array strings;
-        their actual element-storage bytes are counted separately.
-        """
-        array_bytes = 0
-
-        def _replace_non_json(value: object) -> None:
-            nonlocal array_bytes
-            nbytes = getattr(value, "nbytes", None)
-            if isinstance(nbytes, Integral):
-                array_bytes += max(int(nbytes), 0)
-            else:
-                numel = getattr(value, "numel", None)
-                element_size = getattr(value, "element_size", None)
-                if callable(numel) and callable(element_size):
-                    array_bytes += max(int(numel()) * int(element_size()), 0)
-
-        json_bytes = len(
-            json.dumps(
-                self.data,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-                default=_replace_non_json,
-            ).encode("utf-8")
-        )
-        return json_bytes + array_bytes
 
     def validate(self) -> bool:
         """Validate the task data."""
