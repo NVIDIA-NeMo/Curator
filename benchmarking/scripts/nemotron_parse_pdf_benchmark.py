@@ -74,7 +74,10 @@ def _sample_ids_from_metadata(task: Any) -> set[str]:  # noqa: ANN401
         else:
             if isinstance(record, dict) and record.get("file_name"):
                 name = record["file_name"]
-        ids.add(Path(name).stem)
+        # Mirror PDFPreprocessStage's sample_id convention exactly: strip only the
+        # extension, keeping any directory prefix. Using Path().stem here would
+        # collapse "a/x.pdf" and "b/x.pdf" onto the same id and undercount.
+        ids.add(name.rsplit(".", 1)[0])
     return ids
 
 
