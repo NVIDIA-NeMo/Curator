@@ -57,10 +57,21 @@ _CHATTERBOX_PIP_SPEC = "chatterbox-tts>=0.1.4"
 # Without setuptools<81 here, perth.PerthImplicitWatermarker silently becomes None
 # and ChatterboxTTS() raises "'NoneType' object is not callable".
 _CHATTERBOX_SETUPTOOLS_SPEC = "setuptools<81"
+# Ray clones the whole base venv before installing chatterbox's pins on top, so
+# the base env's torchvision (built against Curator's own torch) is left behind
+# unchanged. It is ABI-incompatible with chatterbox's torch==2.6.0 (custom-op
+# registration in transformers' vision utils raises "operator torchvision::nms
+# does not exist" as soon as anything -- including plain LlamaModel -- triggers
+# transformers' lazy import of image_utils), so it must be pinned to the release
+# matching torch 2.6.0 alongside chatterbox, not left for pip to skip.
+_CHATTERBOX_TORCHVISION_SPEC = "torchvision==0.21.0"
 _CHATTERBOX_RUNTIME_ENV: dict[str, Any] = {
     # pip_check=False: chatterbox's pinned transformers/torch differ from the
     # cloned base venv; we only need them consistent inside this isolated env.
-    "pip": {"packages": [_CHATTERBOX_PIP_SPEC, _CHATTERBOX_SETUPTOOLS_SPEC], "pip_check": False},
+    "pip": {
+        "packages": [_CHATTERBOX_PIP_SPEC, _CHATTERBOX_SETUPTOOLS_SPEC, _CHATTERBOX_TORCHVISION_SPEC],
+        "pip_check": False,
+    },
 }
 
 _CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
