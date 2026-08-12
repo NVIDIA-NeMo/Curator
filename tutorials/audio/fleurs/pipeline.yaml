@@ -19,7 +19,7 @@ documentation: |
 
   0. ``CreateInitialManifestFleursStage`` — Hugging Face download (once per
      language under ``<raw_data_dir>/<lang>/``) and manifest emission
-  1. ``InferenceAsrNemoStage`` — GPU ASR inference (adds ``pred_text``)
+  1. ``ASRStage`` + ``NeMoASRAdapter`` — GPU ASR inference (adds ``pred_text``)
   2. ``GetPairwiseWerStage`` — pairwise WER (adds ``wer_pct``)
   3. ``GetAudioDurationStage`` — audio duration in seconds
   4. ``PreserveByValueStage`` — keep samples with ``wer_pct <= wer_threshold``
@@ -50,8 +50,16 @@ stages:
     raw_data_dir: ${raw_data_dir}
     batch_size: 4
 
-  - _target_: nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage
-    model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/stt_hy_fastconformer_hybrid_large_pc
+    audio_filepath_key: audio_filepath
+    target_sample_rate: 16000
+    batch_size: 16
+    adapter_kwargs:
+      # Avoid NeMo RNNT label-loop CUDA graphs, which are not supported by all
+      # CUDA runtime/driver combinations. This does not disable GPU inference.
+      use_cuda_graph_decoder: false
     resources:
       _target_: nemo_curator.stages.resources.Resources
       gpus: 1.0

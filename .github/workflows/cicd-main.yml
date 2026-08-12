@@ -135,12 +135,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.BOT_ID }}
+          private-key: ${{ secrets.BOT_KEY }}
+
       - name: main
         uses: ./.github/actions/build-container
         with:
           container-registry: ${{ env.container-registry }}
           dockerfile-path: "./docker/Dockerfile"
-          PAT: ${{ secrets.PAT }}
+          PAT: ${{ steps.app-token.outputs.token }}
           repo-name: "Curator"
 
   cicd-gpu-test-matrix:
@@ -190,13 +197,20 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.BOT_ID }}
+          private-key: ${{ secrets.BOT_KEY }}
+
       - name: main
         uses: ./.github/actions/test-template
         with:
           script: L0_Unit_Test_GPU
           is_unit_test: "false"
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          PAT: ${{ secrets.PAT }}
+          PAT: ${{ steps.app-token.outputs.token }}
           timeout: 40
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
           runner: ${{ needs.pre-flight.outputs.runner_prefix }}
