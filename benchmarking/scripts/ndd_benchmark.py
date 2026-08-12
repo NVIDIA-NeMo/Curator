@@ -189,6 +189,7 @@ def run_nemotron_cc_sdg_benchmark(
                 temperature=1.0,
                 top_p=1.0,
                 max_tokens=512,
+                max_parallel_requests=128,
             ),
         )
     ]
@@ -282,6 +283,7 @@ def main() -> int:
     logger.info("=== Nemotron-CC SDG Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    # Parse JSON string args
     engine_kwargs = json.loads(args.engine_kwargs) if args.engine_kwargs else None
     autoscaling_config = json.loads(args.autoscaling_config) if args.autoscaling_config else None
 

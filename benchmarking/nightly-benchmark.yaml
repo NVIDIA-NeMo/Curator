@@ -412,10 +412,10 @@ entries:
 
     requirements:
       - metric: num_documents_processed
-        exact_value: 65844782
+        exact_value: 329774475
       - metric: num_duplicates
-        min_value: 1000000
-        max_value: 1250000
+        min_value: 10000000
+        max_value: 11000000
 
   - name: dedup_removal_raydata
     enabled: true
