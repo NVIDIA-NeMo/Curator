@@ -12,6 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Chatterbox TTS conversation-turn synthesis pipeline.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/tts \
+#     --config-name pipeline \
+#     input_manifest=/data/turns.jsonl \
+#     reference_voices_dataset=/data/reference_voices \
+#     output_dir=/data/tts_output
+
 defaults:
   - _self_
   - override hydra/job_logging: none
@@ -36,14 +46,15 @@ documentation: |
     ``conversation_id``, ``speaker``, and ``utterance`` (or ``text``).
   * **reference_voices_dataset**: Root directory of reference audio
     (``wavs/<dialog>/<speaker>.wav`` or MLS ``<spk>/<book>/<seg>.flac``).
-  * **output_dir**: Root directory for generated audio and the result manifest.
+  * **output_dir**: Root directory for generated audio; the result manifest is
+    written to ``${output_dir}/result.jsonl``.
 
   Set **language** to an ISO 639-1 code (e.g. ``fr``) to use the multilingual
   model; leave it ``null`` for the English-only model.
 
   **Output format**
 
-  Output manifest contains the following additional keys:
+  ``${output_dir}/result.jsonl`` contains the input manifest fields plus:
 
   * **audio_filepath (str)**: path to the generated WAV file.
   * **duration (float)**: duration of the generated audio in seconds.
@@ -53,8 +64,8 @@ input_manifest: ???
 output_dir: ???
 reference_voices_dataset: ???
 
-backend: xenna
-clean: false
+backend: ray_data
+execution_mode: streaming
 language: null
 device: cuda
 cache_dir: null
@@ -62,9 +73,14 @@ sample_rate: 24000
 cfg_weight: 0.5
 exaggeration: 0.5
 temperature: 0.8
+repetition_penalty: null
+min_p: 0.05
+top_p: 1.0
+normalize_audio: true
+normalize_level: -20.0
 max_reference_duration: 60.0
 
-processors:
+stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${input_manifest}
 
@@ -78,11 +94,12 @@ processors:
     cfg_weight: ${cfg_weight}
     exaggeration: ${exaggeration}
     temperature: ${temperature}
+    repetition_penalty: ${repetition_penalty}
+    min_p: ${min_p}
+    top_p: ${top_p}
+    normalize_audio: ${normalize_audio}
+    normalize_level: ${normalize_level}
     max_reference_duration: ${max_reference_duration}
 
-  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
-
-  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
-    path: ${output_dir}/result
-    write_kwargs:
-      force_ascii: false
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/result.jsonl

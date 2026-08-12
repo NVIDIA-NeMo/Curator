@@ -6,16 +6,21 @@ Synthesise multi-speaker conversation audio from text using Chatterbox TTS with 
 
 This tutorial runs the `ChatterboxTTSStage` over a JSONL manifest of conversation turns and produces one WAV file per turn, with speaker voices cloned from a reference audio dataset and kept consistent within each conversation. It supports both the English-only model (`ChatterboxTTS`) and the multilingual model (`ChatterboxMultilingualTTS`, 23 languages), and caches outputs so re-runs reuse existing files.
 
-Each cached `<hash>.wav` is written alongside a `<hash>.json` sidecar recording every setting that affected it (language, voice, sampling params, etc.). A cache hit is only trusted if the sidecar matches the current run's settings exactly, so changing any generation setting (e.g. switching `--language`) always produces fresh audio instead of silently reusing a previous, differently-configured run's file. Cache entries are written atomically, so a crash mid-write can never leave a corrupt file that looks like a valid cache hit.
+Each cached `<hash>.wav` is written alongside a `<hash>.json` sidecar recording every setting that affected it (language, voice, sampling params, etc.). A cache hit is only trusted if the sidecar matches the current run's settings exactly, so changing any generation setting (e.g. switching `language`) always produces fresh audio instead of silently reusing a previous, differently-configured run's file. Cache entries are written atomically, so a crash mid-write can never leave a corrupt file that looks like a valid cache hit.
+
+The tutorial uses the generic YAML runner in `nemo_curator/config/run.py`; no
+tutorial-specific Python runner is needed. The YAML selects the executor
+backend and, for Xenna, its execution mode; the generic runner constructs that
+executor and passes it to `Pipeline.run()`.
 
 ### Pipeline flow
 
 ```
-┌──────────────┐    ┌──────────────────┐    ┌────────────────────┐    ┌──────────────┐
-│ManifestReader│───▶│ ChatterboxTTS    │───▶│ AudioToDocument    │───▶│ JsonlWriter  │
-│ (turn JSONL) │    │ (synthesise WAV) │    │ (AudioTask -> doc) │    │ (manifest)   │
-└──────────────┘    └──────────────────┘    └────────────────────┘    └──────────────┘
-   turns input           GPU                                              enriched output
+┌──────────────┐    ┌──────────────────┐    ┌────────────────┐
+│ManifestReader│───▶│ ChatterboxTTS    │───▶│ ManifestWriter │
+│ (turn JSONL) │    │ (synthesise WAV) │    │ (result.jsonl) │
+└──────────────┘    └──────────────────┘    └────────────────┘
+   turns input           GPU                  enriched output
 ```
 
 ## Prerequisites
@@ -41,10 +46,10 @@ environment. The first run therefore provisions that environment (one-time
 download of chatterbox and its deps); subsequent runs reuse Ray's cached
 virtualenv.
 
-> **Requires `--backend ray_data`.** Only the Ray Data (and Ray actor pool)
+> **Requires `backend=ray_data`.** Only the Ray Data (and Ray actor pool)
 > backends honor a stage's `runtime_env`; the default `xenna` backend does not,
 > so under `xenna` you must install chatterbox into the main environment
-> yourself. Run this tutorial with `--backend ray_data` to use the auto-managed
+> yourself. Run this tutorial with `backend=ray_data` to use the auto-managed
 > isolated environment.
 
 If you have already provisioned chatterbox in a dedicated environment and want
@@ -77,56 +82,64 @@ This tutorial needs two inputs you provide: a **turn manifest** and a **referenc
 
 ## Quick start
 
+From the Curator repository root:
+
 ```bash
-python tutorials/audio/tts/run.py --config-path . --config-name pipeline \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/tts \
+  --config-name pipeline \
   input_manifest=/data/turns.jsonl \
   reference_voices_dataset=/data/reference_voices \
   output_dir=/data/tts_output
 ```
+
+`--config-path` is relative to `nemo_curator/config/run.py`, while manifest,
+reference-dataset, and output paths are resolved from the current working
+directory. Run the command from the repository root as shown.
 
 Expected output:
 
 ```
 [TTS] conv001/Alice: 1.84s -> 8f1c.._Alice_3a9d.._b2e1.wav
 [TTS] conv001/Bob: 2.07s -> 8f1c.._Bob_77c0.._d4a8.wav
-Pipeline completed in 12.43s (0.21 min)
-Results written to /data/tts_output/result/*.jsonl
+Pipeline completed!
 ```
+
+Results are written to `/data/tts_output/result.jsonl`.
 
 ## Usage
 
-### All CLI options (`pipeline.py`)
+### All configurable settings (`pipeline.yaml`)
 
-| Argument | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `--input-manifest` | *(required)* | JSONL manifest of conversation turns |
-| `--reference-voices-dataset` | *(required)* | Root directory of reference audio |
-| `--output-dir` | *(required)* | Root output directory for the result manifest |
-| `--output-audio-dir` | `<output-dir>/audio` | Directory for generated WAV files |
-| `--language` | `None` (English) | ISO 639-1 code for the multilingual model |
-| `--device` | `cuda` | Torch device for inference |
-| `--cache-dir` | `None` | HuggingFace cache for Chatterbox weights |
-| `--sample-rate` | `24000` | Output WAV sample rate. Chatterbox always synthesises at 24000 Hz; a different value here is honored by resampling the output before writing |
-| `--cfg-weight` | `0.5` | Classifier-free guidance weight |
-| `--exaggeration` | `0.5` | Emotion exaggeration |
-| `--temperature` | `0.8` | Sampling temperature |
-| `--max-reference-duration` | `60.0` | Max seconds of reference speech to use |
-| `--clean` | off | Remove `<output-dir>/result/` before running (Hydra: `clean=true`) |
-| `--backend` | `xenna` | Execution backend: `xenna` or `ray_data` |
+| `input_manifest` | *(required)* | JSONL manifest of conversation turns |
+| `reference_voices_dataset` | *(required)* | Root directory of reference audio |
+| `output_dir` | *(required)* | Root output directory; result manifest is `${output_dir}/result.jsonl` |
+| `language` | `null` (English) | ISO 639-1 code for the multilingual model |
+| `device` | `cuda` | Torch device for inference |
+| `cache_dir` | `null` | HuggingFace cache for Chatterbox weights |
+| `sample_rate` | `24000` | Output WAV sample rate. Chatterbox always synthesises at 24000 Hz; a different value here is honored by resampling the output before writing |
+| `cfg_weight` | `0.5` | Classifier-free guidance weight |
+| `exaggeration` | `0.5` | Emotion exaggeration (float, or `[min, max]` to randomise per conversation) |
+| `temperature` | `0.8` | Sampling temperature |
+| `repetition_penalty` | `null` | Repetition penalty (defaults to `2.0` for multilingual, `1.2` for English) |
+| `min_p` | `0.05` | Min-p sampling parameter |
+| `top_p` | `1.0` | Top-p sampling parameter |
+| `normalize_audio` | `true` | Whether to normalise output volume |
+| `normalize_level` | `-20.0` | Target loudness in dB |
+| `max_reference_duration` | `60.0` | Max seconds of reference speech to use |
+| `backend` | `ray_data` | Execution backend: `xenna` or `ray_data` |
+| `execution_mode` | `streaming` | Xenna only: `streaming` or `batch` |
 
-### Using custom data (argparse runner)
-
-```bash
-python tutorials/audio/tts/pipeline.py \
-  --input-manifest /data/turns.jsonl \
-  --reference-voices-dataset /data/reference_voices \
-  --output-dir ./my_output
-```
+Override any setting on the command line, e.g. `cfg_weight=0.3`.
 
 ### Multilingual synthesis
 
 ```bash
-python tutorials/audio/tts/run.py --config-path . --config-name pipeline \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/tts \
+  --config-name pipeline \
   input_manifest=/data/turns.jsonl \
   reference_voices_dataset=/data/mls_french \
   output_dir=/data/tts_output_fr \
@@ -139,8 +152,10 @@ Supported languages: `ar`, `da`, `de`, `el`, `en`, `es`, `fi`, `fr`, `he`, `hi`,
 
 | Backend | Description | When to use |
 |---|---|---|
-| `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. Does **not** honor the stage `runtime_env`, so chatterbox must already be installed in the environment. | Workloads where you pre-install chatterbox yourself. |
-| `ray_data` | Built on Ray Data `map_batches`. Honors the stage `runtime_env`, so chatterbox is auto-installed into an isolated virtualenv. | **Recommended for this tutorial** — enables the isolated chatterbox runtime described above. |
+| `ray_data` | Default for this tutorial. Built on Ray Data `map_batches`. Honors the stage `runtime_env`, so chatterbox is auto-installed into an isolated virtualenv. | **Recommended** — enables the isolated chatterbox runtime described above. |
+| `xenna` | Cosmos-Xenna streaming engine with automatic worker allocation. Does **not** honor the stage `runtime_env`, so chatterbox must already be installed in the environment. | Workloads where you pre-install chatterbox yourself. |
+
+`execution_mode` applies only to Xenna and is ignored when `backend` is `ray_data`.
 
 ## Pipeline stages
 
@@ -150,29 +165,11 @@ Reads the JSONL turn manifest line-by-line and emits one `AudioTask` per turn (n
 
 ### Stage 2: `ChatterboxTTSStage`
 
-Loads the English or multilingual Chatterbox model, assigns each speaker a reference voice (consistent within a conversation), and synthesises audio for each turn. Output filenames are deterministic (hash of conversation/speaker/text/reference), so existing files are reused on re-runs. Runs on GPU with `batch_size=1` (turns are synthesised serially).
+Loads the English or multilingual Chatterbox model, assigns each speaker a reference voice (consistent within a conversation), and synthesises audio for each turn. Output filenames are deterministic (hash of conversation/speaker/text/reference), so existing files are reused on re-runs. Runs on GPU with `batch_size=1` (turns are synthesised serially) — both are declared on the stage itself, not the tutorial.
 
-### Stage 3: `AudioToDocumentStage`
+### Stage 3: `ManifestWriterStage`
 
-Converts each `AudioTask` into a document row for manifest writing.
-
-### Stage 4: `JsonlWriter`
-
-Writes the enriched manifest to `<output-dir>/result/*.jsonl`.
-
-### Re-running the pipeline
-
-`AudioToDocumentStage` carries the input manifest's path through as
-`source_files`, so `JsonlWriter` names each output shard deterministically
-from it instead of a random UUID. **Re-running with an unchanged manifest
-does not spawn ever-more result shards** — but neither entry point cleans
-`<output-dir>/result/` for you by default, so results from a *different*
-prior run (e.g. a different manifest, or a bigger one) are left in place
-alongside the new shards.
-
-Both entry points share the same opt-in policy: pass `--clean`
-(`pipeline.py`) or `clean=true` (`run.py`, Hydra) to remove
-`<output-dir>/result/` before the run for a guaranteed-fresh set of outputs.
+Appends each enriched turn to `${output_dir}/result.jsonl`. The output file is truncated once when the pipeline starts, so re-running with an unchanged manifest overwrites the previous result instead of accumulating shards; cached audio files under `${output_dir}/audio` are still reused since generation itself stays keyed off the deterministic filename/sidecar cache described above.
 
 ## Parameters and tuning
 
@@ -185,7 +182,7 @@ Both entry points share the same opt-in policy: pass `--clean`
 
 ## Output format
 
-Results are written to `<output-dir>/result/*.jsonl`. Each line is the input turn enriched with:
+Results are written to `${output_dir}/result.jsonl`. Each line is the input turn enriched with:
 
 ```json
 {
@@ -234,7 +231,7 @@ A larger topic → conversation → TTS → forced-alignment → merge data-gene
 |---|---|---|
 | `No reference audio found` | Dataset doesn't match either expected layout | Use `wavs/<dialog>/<speaker>.wav` or MLS `<spk>/<book>/<seg>.flac` |
 | `Unsupported language` | `language` is not a supported ISO 639-1 code | Use one of the codes listed above, or omit for English |
-| All outputs are ~2s of silence | TTS inference failed per turn (graceful fallback) | Run with `--verbose`; check GPU memory and model download |
+| All outputs are ~2s of silence | TTS inference failed per turn (graceful fallback) | Check GPU memory and model download |
 | No output for 2+ minutes at start | First-run model download from HuggingFace | Wait; check `~/.cache/huggingface/` for growing files |
 
 ## Citation / License
