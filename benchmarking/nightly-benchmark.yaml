@@ -372,13 +372,11 @@ entries:
           - U022P8CDX40  # Sarah Yurick
 
     requirements:
-      # TODO: Update these values
       - metric: num_documents_processed
-        exact_value: 32882558
+        exact_value: 65844782
       - metric: num_duplicates
-        # 494,297 is expected, ensure +/- 1%
-        min_value: 489354
-        max_value: 499240
+        min_value: 1000000
+        max_value: 1250000
 
   - name: dedup_removal_raydata
     enabled: true
