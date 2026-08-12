@@ -19,6 +19,7 @@ import subprocess
 
 import pytest
 
+from nemo_curator.tasks import AudioTask
 from tests import FIXTURES_DIR
 
 OPUS_FIXTURE = FIXTURES_DIR / "audio/tagging/audios/audio_1.opus"
@@ -61,3 +62,13 @@ def wav_filepath(tmp_path_factory: pytest.TempPathFactory):
 @pytest.fixture
 def audio_filepath():
     return OPUS_FIXTURE
+
+
+@pytest.fixture
+def audio_task():
+    """Factory for AudioTask instances. Each task wraps a single dict."""
+
+    def _make(**kwargs) -> AudioTask:
+        return AudioTask(data=kwargs)
+
+    return _make

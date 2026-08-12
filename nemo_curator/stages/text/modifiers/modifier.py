@@ -90,7 +90,6 @@ class Modify(ProcessingStage[DocumentBatch, DocumentBatch]):
                 df[output_field_i] = [inner_modify_fn(**rec) for rec in df[cols].to_dict("records")]
 
         return DocumentBatch(
-            task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

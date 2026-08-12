@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+
+import pandas as pd
+import pyarrow as pa
 import pytest
 
-from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import DocumentBatch, Task
 
 
 class MockTask(Task[dict]):
@@ -24,7 +28,7 @@ class MockTask(Task[dict]):
 
     def __init__(self, data: dict | None = None):
         self.data = data or {}
-        super().__init__(task_id="", dataset_name="", data=self.data)
+        super().__init__(dataset_name="", data=self.data)
 
     @property
     def num_items(self) -> int:
@@ -32,6 +36,51 @@ class MockTask(Task[dict]):
 
     def validate(self) -> bool:
         return True
+
+
+class AlternateMockTask(MockTask):
+    """Second mock task type for input-spec dispatch tests."""
+
+
+class ChildMockTask(AlternateMockTask):
+    """More specific mock task type for MRO dispatch tests."""
+
+
+class ForeignTask(Task[object]):
+    """Task outside the MockTask hierarchy for unsupported-type tests."""
+
+    @property
+    def num_items(self) -> int:
+        return 1
+
+    def validate(self) -> bool:
+        return True
+
+
+class AttrData:
+    """Simple data object whose fields can be validated with hasattr()."""
+
+    def __init__(self, **attrs: object) -> None:
+        for name, value in attrs.items():
+            setattr(self, name, value)
+
+
+class DictInputStage(ProcessingStage[MockTask, MockTask]):
+    """Stage whose inputs can be configured per test."""
+
+    name = "DictInputStage"
+
+    def __init__(self, input_specs: StageInputSpecs):
+        self._input_specs = input_specs
+
+    def process(self, task: MockTask) -> MockTask:
+        return task
+
+    def inputs(self) -> StageInputSpecs:
+        return self._input_specs
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
 
 
 class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
@@ -49,6 +98,37 @@ class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+
+class BackendConfiguredStage(ConcreteProcessingStage):
+    """Stage with backend configuration for testing with_ overrides."""
+
+    name = "BackendConfiguredStage"
+
+    def ray_stage_spec(self) -> dict[str, object]:
+        return {"base_only": "ray", "shared": "stage"}
+
+    def xenna_stage_spec(self) -> dict[str, object]:
+        return {"base_only": "xenna", "shared": "stage"}
+
+    def num_workers(self) -> int | None:
+        return 2
+
+
+@pytest.mark.parametrize("table_factory", [pa.table, pd.DataFrame], ids=["pyarrow", "pandas"])
+def test_validate_input_with_tabular_columns(
+    table_factory: Callable[[dict[str, list[str]]], pa.Table | pd.DataFrame],
+) -> None:
+    class TextProcessingStage(ConcreteProcessingStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            return ["data"], ["text content"]
+
+    stage = TextProcessingStage()
+    valid_batch = DocumentBatch(dataset_name="test", data=table_factory({"text content": ["hello"]}))
+    missing_batch = DocumentBatch(dataset_name="test", data=table_factory({"other": ["hello"]}))
+
+    assert stage.validate_input(valid_batch)
+    assert not stage.validate_input(missing_batch)
 
 
 class TestProcessingStageWith:
@@ -267,6 +347,120 @@ class TestProcessingStageWith:
         assert stage_with_custom.resources == Resources(cpus=5.0)
         assert stage_with_custom2.resources == Resources(cpus=7.0)
 
+    def test_backend_stage_spec_overrides_merge_with_user_values_winning(self):
+        """Test with_ overrides Ray and Xenna stage specs without mutating the original stage."""
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(
+            ray_stage_spec={"shared": "override", "ray_only": True},
+            xenna_stage_spec={"shared": "override", "xenna_only": True},
+        )
+
+        assert stage.ray_stage_spec() == {"base_only": "ray", "shared": "stage"}
+        assert stage.xenna_stage_spec() == {"base_only": "xenna", "shared": "stage"}
+        assert stage_new.ray_stage_spec() == {"base_only": "ray", "shared": "override", "ray_only": True}
+        assert stage_new.xenna_stage_spec() == {"base_only": "xenna", "shared": "override", "xenna_only": True}
+
+    def test_xenna_stage_spec_override_rejects_num_workers(self):
+        """Test with_ rejects Xenna num_workers overrides in favor of the generic num_workers hook."""
+        stage = BackendConfiguredStage()
+
+        with pytest.raises(ValueError, match="with_\\(num_workers="):
+            stage.with_(xenna_stage_spec={"num_workers": 4})
+
+    def test_backend_stage_spec_overrides_chain_as_shallow_merges(self):
+        """Test later with_ stage spec overrides win while preserving previous override keys."""
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(ray_stage_spec={"shared": "first", "first_only": 1}).with_(
+            ray_stage_spec={"shared": "second", "second_only": 2}
+        )
+
+        assert stage_new.ray_stage_spec() == {
+            "base_only": "ray",
+            "shared": "second",
+            "first_only": 1,
+            "second_only": 2,
+        }
+
+    def test_num_workers_override_accepts_none_as_explicit_override(self):
+        """Test num_workers can be overridden, including None for executor default behavior."""
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(num_workers=None)
+
+        assert stage.num_workers() == 2
+        assert stage_new.num_workers() is None
+
+
+class TestProcessingStageInputSpecs:
+    """Test legacy and task-type-specific input specs."""
+
+    def test_legacy_tuple_input_spec_validation_still_works(self) -> None:
+        stage = DictInputStage((["data"], ["text"]))
+
+        assert stage.input_spec_for_task(MockTask(data=AttrData(text="hello"))) == (["data"], ["text"])
+        assert stage.validate_input(MockTask(data=AttrData(text="hello"))) is True
+        assert stage.validate_input(MockTask(data=AttrData())) is False
+
+    def test_dict_input_spec_selects_matching_task_type(self) -> None:
+        stage = DictInputStage(
+            {
+                MockTask: (["data"], ["text"]),
+                AlternateMockTask: (["data"], ["title"]),
+            }
+        )
+
+        assert stage.validate_input(MockTask(data=AttrData(text="hello"))) is True
+        assert stage.validate_input(MockTask(data=AttrData(title="hello"))) is False
+        assert stage.validate_input(AlternateMockTask(data=AttrData(title="hello"))) is True
+        assert stage.validate_input(AlternateMockTask(data=AttrData(text="hello"))) is False
+
+    def test_dict_input_spec_uses_most_specific_task_type(self) -> None:
+        stage = DictInputStage(
+            {
+                AlternateMockTask: (["data"], ["parent_col"]),
+                ChildMockTask: (["data"], ["child_col"]),
+            }
+        )
+
+        assert stage.input_spec_for_task(ChildMockTask(data=AttrData(child_col="value"))) == (
+            ["data"],
+            ["child_col"],
+        )
+        assert stage.validate_input(ChildMockTask(data=AttrData(child_col="value"))) is True
+        assert stage.validate_input(ChildMockTask(data=AttrData(parent_col="value"))) is False
+
+    def test_dict_input_spec_rejects_unsupported_task_type(self) -> None:
+        stage = DictInputStage({MockTask: (["data"], [])})
+        task = ForeignTask(dataset_name="foreign", data=AttrData())
+
+        with pytest.raises(TypeError, match="does not support input task type ForeignTask"):
+            stage.input_spec_for_task(task)
+        assert stage.validate_input(task) is False
+
+    def test_invalid_legacy_tuple_input_spec_fails_validation(self) -> None:
+        stage = DictInputStage((["data"],))
+
+        with pytest.raises(TypeError, match=r"inputs\(\) must be a tuple"):
+            stage.input_spec_for_task(MockTask(data=AttrData()))
+        assert stage.validate_input(MockTask(data=AttrData())) is False
+
+    def test_invalid_dict_input_spec_fails_validation(self) -> None:
+        stage = DictInputStage({MockTask: (["data"],)})
+
+        with pytest.raises(TypeError, match=r"inputs\(\)\[MockTask\] must be a tuple"):
+            stage.input_spec_for_task(MockTask(data=AttrData()))
+        assert stage.validate_input(MockTask(data=AttrData())) is False
+
+    def test_default_process_batch_uses_dict_input_spec_validation(self) -> None:
+        stage = DictInputStage({MockTask: (["data"], ["text"])})
+        task = MockTask(data=AttrData(text="hello"))
+
+        assert stage.process_batch([task]) == [task]
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([MockTask(data=AttrData())])
+
 
 class TestProcessingStageOverriddenProperties:
     """Test that ProcessingStage raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
@@ -383,6 +577,18 @@ class TestProcessingStageOverriddenProperties:
                 def process(self, task: MockTask) -> MockTask:
                     return task
 
+    def test_num_workers_attribute(self):
+        """Test that ProcessingStage raises an error if a derived class defines 'num_workers' as an attribute."""
+        with pytest.raises(TypeError, match="must not define 'num_workers' as a stage attribute"):
+
+            class MockStageNumWorkersAttribute(ProcessingStage[MockTask, MockTask]):
+                name = "MockStageNumWorkersAttribute"
+                resources = Resources(cpus=1.0)
+                num_workers: int = 1
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
     def test_nested_class_inheritance(self):
         """Test that nested class inheritance raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
         with pytest.raises(TypeError, match="MockStageNestedOverriddenName must not override '_name'"):
@@ -458,6 +664,20 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+
+class MockFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockFanoutStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class MockOptionalFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockOptionalFanoutStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
 
 
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
@@ -655,3 +875,48 @@ class TestCompositeStageWith:
 
         # outputs() should return the last stage's outputs
         assert composite.outputs() == composite.decompose()[-1].outputs()
+
+    def test_apply_with_backend_config_overrides(self):
+        """Test composite with_ can override backend configuration for decomposed stages."""
+        composite = ConcreteCompositeStage()
+        stages = [BackendConfiguredStage(), MockStageB(), MockStageC()]
+
+        composite.with_(
+            {
+                "BackendConfiguredStage": {
+                    "ray_stage_spec": {"shared": "override", "ray_only": True},
+                    "xenna_stage_spec": {"shared": "override", "xenna_only": True},
+                    "num_workers": 4,
+                }
+            }
+        )
+
+        modified_stages = composite._apply_with_(stages)
+
+        assert modified_stages[0].ray_stage_spec() == {"base_only": "ray", "shared": "override", "ray_only": True}
+        assert modified_stages[0].xenna_stage_spec() == {
+            "base_only": "xenna",
+            "shared": "override",
+            "xenna_only": True,
+        }
+        assert modified_stages[0].num_workers() == 4
+
+
+class TestProcessingStageFanoutDetection:
+    def test_base_ray_stage_spec_marks_non_list_outputs_as_non_fanout(self):
+        stage = MockStageA()
+
+        assert stage.is_fanout_stage() is False
+        assert stage.ray_stage_spec()["is_fanout_stage"] is False
+
+    def test_base_ray_stage_spec_marks_list_outputs_as_fanout(self):
+        stage = MockFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
+    def test_base_ray_stage_spec_marks_union_list_outputs_as_fanout(self):
+        stage = MockOptionalFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True

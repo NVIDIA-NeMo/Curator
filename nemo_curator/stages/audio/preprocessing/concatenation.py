@@ -111,7 +111,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         segments_sorted = sorted(segments, key=self._seg_sort_key)
         original_file = segments_sorted[0].get("original_file", "unknown")
 
-        combined = self._concatenate(original_file, segments_sorted, task.task_id, task.dataset_name)
+        combined = self._concatenate(original_file, segments_sorted, task.dataset_name)
         if combined is None:
             return []
         return combined
@@ -147,7 +147,6 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         self,
         original_file: str,
         segments: list[dict[str, Any]],
-        task_id: str,
         dataset_name: str,
     ) -> AudioTask | None:
         """Concatenate a list of segment dicts from the same source file."""
@@ -166,8 +165,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
 
             if parts and sr != sample_rate:
                 logger.warning(
-                    f"[SegmentConcat] Sample rate mismatch: "
-                    f"expected {sample_rate}Hz, got {sr}Hz. Skipping segment."
+                    f"[SegmentConcat] Sample rate mismatch: expected {sample_rate}Hz, got {sr}Hz. Skipping segment."
                 )
                 continue
             sample_rate = sr
@@ -227,7 +225,6 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
 
         result_task = AudioTask(
             data=output_data,
-            task_id=task_id,
             dataset_name=dataset_name,
         )
         result_task._metadata = {"segment_mappings": mappings}

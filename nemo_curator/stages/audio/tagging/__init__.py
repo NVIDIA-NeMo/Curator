@@ -40,6 +40,11 @@ _LAZY_IMPORTS = {
     "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "PyAnnoteDiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization.pyannote",
     "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
+    # --- Text processing (tagging/text/) ---
+    "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
+    "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese_conversion",
+    # --- Segment preparation ---
+    "PrepareModuleSegmentsStage": "nemo_curator.stages.audio.tagging.prepare_module_segments",
 }
 
 _cache: dict[str, Any] = {}

@@ -15,10 +15,10 @@
 
 set -xeuo pipefail
 
-# Versions pinned to match upstream ai-dynamo/dynamo container/context.yaml,
-# so Dynamo-Curator integration runs the same etcd/nats-server binaries as
-# Dynamo's own runtime images.
-ETCD_VERSION=3.5.21
+# nats-server matches upstream ai-dynamo/dynamo container/context.yaml. etcd
+# leads Dynamo's pin (3.5.30) to the latest 3.5.x patch to clear the bundled
+# grpc-go + x/net CVEs; 3.5.x binaries stay wire-compatible with Dynamo.
+ETCD_VERSION=3.5.32
 NATS_VERSION=2.10.28
 
 for i in "$@"; do

@@ -29,7 +29,7 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
-from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 
 
 def _collect_diarization_metrics(tasks: list, elapsed_s: float) -> dict[str, Any]:

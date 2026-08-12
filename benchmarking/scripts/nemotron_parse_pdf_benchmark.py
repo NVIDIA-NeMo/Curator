@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import collect_parquet_output_metrics, setup_executor, write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tutorials" / "interleaved" / "nemotron_parse_pdf"))
@@ -37,6 +37,26 @@ from main import (  # noqa: E402
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
 )
+
+from nemo_curator.tasks.utils import TaskPerfUtils  # noqa: E402
+
+
+def _safe_div(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator else 0.0
+
+
+def _compute_pdf_parse_metrics(output_tasks: list, run_time_taken: float) -> dict[str, float]:
+    """Compute benchmark-level throughput metrics from additive task stats."""
+    task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
+    metric_prefix = "task_nemotron_parse_inference_custom"
+
+    num_valid_pages = task_metrics.get(f"{metric_prefix}.num_valid_pages_sum", 0.0)
+    total_output_tokens = task_metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
+
+    return {
+        "throughput_pages_per_sec": _safe_div(num_valid_pages, run_time_taken),
+        "throughput_output_tokens_per_sec": _safe_div(total_output_tokens, run_time_taken),
+    }
 
 
 def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]:
@@ -72,27 +92,13 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                     unique_samples.update(task.data.column("sample_id").to_pylist())
 
         num_pdfs_processed = len(unique_samples)
-        parquet_metrics = collect_parquet_output_metrics(output_dir)
-
-        stage_perf: dict[str, list[float]] = {}
-        for task in output_tasks:
-            for perf in task._stage_perf:
-                stage_perf.setdefault(perf.stage_name, []).append(perf.process_time)
-
-        stage_summary = {}
-        for stage_name, times in stage_perf.items():
-            stage_summary[stage_name] = {
-                "count": len(times),
-                "total_s": sum(times),
-                "mean_s": sum(times) / len(times) if times else 0,
-                "min_s": min(times) if times else 0,
-                "max_s": max(times) if times else 0,
-            }
+        pdf_parse_metrics = _compute_pdf_parse_metrics(output_tasks, run_time_taken)
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_pdfs_processed} PDFs")
+        logger.success(f"Page throughput: {pdf_parse_metrics['throughput_pages_per_sec']:.2f} pages/s")
         logger.success(
-            f"Output: {parquet_metrics.get('num_rows', 0)} rows in {parquet_metrics.get('num_output_files', 0)} files"
+            f"Output token throughput: {pdf_parse_metrics['throughput_output_tokens_per_sec']:.2f} tokens/s"
         )
         success = True
 
@@ -102,8 +108,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         logger.debug(f"Full traceback:\n{error_traceback}")
         run_time_taken = time.perf_counter() - run_start_time
         num_pdfs_processed = 0
-        parquet_metrics = {}
-        stage_summary = {}
+        pdf_parse_metrics = {}
 
     return {
         "params": {
@@ -128,8 +133,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "num_pdfs_processed": num_pdfs_processed,
             "num_output_tasks": len(output_tasks),
             "throughput_pdfs_per_sec": num_pdfs_processed / run_time_taken if run_time_taken > 0 else 0,
-            **parquet_metrics,
-            "stage_performance": stage_summary,
+            **pdf_parse_metrics,
         },
         "tasks": output_tasks,
     }

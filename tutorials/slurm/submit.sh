@@ -35,9 +35,7 @@
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Paths — adjust to your environment
-# ---------------------------------------------------------------------------
+# Root of the NeMo Curator checkout — auto-detected from this script's location.
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 # Shared directory for Ray port broadcast — must be visible to ALL nodes.

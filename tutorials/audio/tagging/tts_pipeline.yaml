@@ -26,7 +26,10 @@
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
 #   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
-#   7. ManifestWriter          - Write output JSONL manifest
+#   7. BandwidthEstimation     - Estimate bandwidth
+#   8. SquimMetrics            - Audio quality metrics
+#   9. PrepareModuleSegments   - Prepare TTS segments
+#   10. ManifestWriter         - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
 #   python tutorials/audio/tagging/main.py \
@@ -79,9 +82,7 @@ language_short: en
 hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
-batch_size: 4
-resources:
-  cpus: 2
+execution_mode: streaming
 
 # =============================================================================
 # PIPELINE STAGES
@@ -99,7 +100,6 @@ stages:
     target_sample_rate: ${sample_rate}
     target_format: "wav"
     target_nchannels: 1
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"
@@ -110,7 +110,6 @@ stages:
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
     min_len: 1.0
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
     name: "ASRAlignment"
@@ -120,13 +119,27 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
     text_key: "text"
     words_key: "words"
-    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.metrics.bandwidth.BandwidthEstimationStage
+    name: "BandwidthEstimation"
+
+  - _target_: nemo_curator.stages.audio.metrics.squim.TorchSquimQualityMetricsStage
+    name: "SquimMetrics"
+
+  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
+    name: "PrepareModuleSegments"
+    module: tts
+    min_duration: 5
+    max_duration: 20
+    max_pause: 2
+    terminal_punct_marks: ".!?。？！。"
+    full_utterance_ratio: 1.0
+    punctuation_split_only: false
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${final_manifest}

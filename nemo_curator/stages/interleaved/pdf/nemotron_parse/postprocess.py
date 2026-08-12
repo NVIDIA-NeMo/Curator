@@ -104,7 +104,6 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
                 final_df[col] = None
 
         return InterleavedBatch(
-            task_id=f"{task.task_id}_postprocessed",
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(final_df, preserve_index=False),
             _metadata=task._metadata,

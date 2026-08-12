@@ -23,14 +23,15 @@ import yaml
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 
-def load_prompt_template(filename: str) -> tuple[str, str]:
+def load_prompt_template(filename_or_path: str | Path) -> tuple[str, str]:
     """Load a YAML prompt file and return ``(system_prompt, user_template)``.
 
     Parameters
     ----------
-    filename : str
-        Name of the YAML file inside the ``prompts/`` directory
-        (e.g. ``"translate.yaml"`` or ``"faith_eval.yaml"``).
+    filename_or_path : str | Path
+        Name of a YAML file inside the packaged ``prompts/`` directory
+        (e.g. ``"translate.yaml"`` or ``"faith_eval.yaml"``), or an absolute
+        local path to a YAML prompt file.
 
     Returns
     -------
@@ -46,7 +47,9 @@ def load_prompt_template(filename: str) -> tuple[str, str]:
     KeyError
         If the top-level mapping is missing the ``system`` or ``user`` key.
     """
-    prompt_path = _PROMPT_DIR / filename
+    prompt_path = Path(filename_or_path)
+    if not prompt_path.is_absolute():
+        prompt_path = _PROMPT_DIR / prompt_path
     try:
         with open(prompt_path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)

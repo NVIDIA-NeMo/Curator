@@ -19,14 +19,14 @@ import pandas as pd
 
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.tasks import DocumentBatch, EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
 
-from .base import BaseReader
+from .base import BaseFileReader
 
 
 @dataclass
-class ParquetReaderStage(BaseReader):
+class ParquetReaderStage(BaseFileReader):
     """
     Stage that processes a group of Parquet files into a DocumentBatch.
     This stage accepts FileGroupTasks created by FilePartitioningStage
@@ -66,7 +66,7 @@ class ParquetReaderStage(BaseReader):
 
 
 @dataclass
-class ParquetReader(CompositeStage[_EmptyTask, DocumentBatch]):
+class ParquetReader(CompositeStage[EmptyTask, DocumentBatch]):
     """Composite stage for reading Parquet files.
 
     This high-level stage decomposes into:

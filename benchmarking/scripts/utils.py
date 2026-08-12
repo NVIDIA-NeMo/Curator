@@ -36,15 +36,24 @@ _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actor
 
 
 def setup_executor(
-    executor_name: str, config: dict[str, Any] | None = None
+    executor_name: str,
+    config: dict[str, Any] | None = None,
 ) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
-    """Setup the executor for the given name."""
+    """Setup the executor for the given name.
+
+    Args:
+        executor_name: One of 'xenna', 'ray_data', 'ray_actors'.
+        config: Optional config dict forwarded to XennaExecutor only
+            (e.g. ``{"execution_mode": "batch"}``).
+    """
     try:
-        executor = _executor_map[executor_name](config=config)
+        cls = _executor_map[executor_name]
     except KeyError:
         msg = f"Executor {executor_name} not supported"
         raise ValueError(msg) from None
-    return executor
+    if config and executor_name == "xenna":
+        return cls(config=config)
+    return cls()
 
 
 def load_dataset_files(
@@ -390,19 +399,37 @@ class RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
     """Multiply each AudioTask N times for scale testing.
 
     Duplicates entries in-memory after reading so the file is only read once.
+    When ``unique_id_key`` is set, every copy receives a deterministic identifier
+    so downstream writers do not overwrite repeated inputs.
     """
 
     name = "repeat_entries"
 
-    def __init__(self, repeat_factor: int = 1) -> None:
+    def __init__(self, repeat_factor: int = 1, unique_id_key: str | None = None) -> None:
+        if repeat_factor < 1:
+            msg = "repeat_factor must be at least 1"
+            raise ValueError(msg)
         self._repeat_factor = repeat_factor
+        self._unique_id_key = unique_id_key
 
     def process(self, task: AudioTask) -> list[AudioTask]:
-        return [
-            AudioTask(
-                data=task.data.copy(),
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
+        results = []
+        for repeat_index in range(self._repeat_factor):
+            data = task.data.copy()
+            if self._unique_id_key is not None:
+                source_id = data.get(self._unique_id_key)
+                if source_id is None or source_id == "":
+                    msg = f"Cannot repeat entry without '{self._unique_id_key}'"
+                    raise ValueError(msg)
+                data[self._unique_id_key] = f"{source_id}_repeat_{repeat_index}"
+
+            results.append(
+                AudioTask(
+                    dataset_name=task.dataset_name,
+                    data=data,
+                    filepath_key=task.filepath_key,
+                    _metadata=task._metadata,
+                    _stage_perf=list(task._stage_perf),
+                )
             )
-            for _ in range(self._repeat_factor)
-        ]
+        return results

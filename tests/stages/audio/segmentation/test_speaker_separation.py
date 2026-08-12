@@ -34,12 +34,16 @@ def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTas
     num_samples = int(duration_sec * sample_rate)
     return AudioTask(
         data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
-        task_id="test",
         dataset_name="test",
     )
 
 
 class TestSpeakerSeparationStage:
+    def test_ray_stage_spec(self) -> None:
+        stage = SpeakerSeparationStage()
+
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
     def test_process_returns_per_speaker_tasks(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
@@ -119,7 +123,6 @@ class TestSpeakerSeparationStage:
 
         task = AudioTask(
             data={"some_key": "value"},
-            task_id="test",
             dataset_name="test",
         )
         result = stage.process(task)

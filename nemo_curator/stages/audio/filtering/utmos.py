@@ -202,7 +202,7 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         if "segments" in task.data:
             survivors = []
             for seg in task.data["segments"]:
-                temp = AudioTask(data=seg, task_id=task.task_id)
+                temp = AudioTask(data=seg)
                 result = self._process_single(temp)
                 if result is not None:
                     survivors.append(temp.data)

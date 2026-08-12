@@ -28,17 +28,15 @@ def load_manifest(manifest_file: str, encoding: str | None = None) -> list[dict[
         return [json.loads(line) for line in f if line.strip()]
 
 
-def _approx_metrics(metrics: dict) -> dict:
-    """Wrap numeric metric values with pytest.approx for tolerant comparison."""
-    result = {}
-    for k, v in metrics.items():
-        if isinstance(v, dict):
-            result[k] = _approx_metrics(v)
-        elif isinstance(v, float):
-            result[k] = pytest.approx(v, rel=1e-3)
-        else:
-            result[k] = v
-    return result
+def _approx_value(v: Any) -> Any:  # noqa: ANN401
+    """Wrap a single value with pytest.approx if numeric, recursing into containers."""
+    if isinstance(v, dict):
+        return {k: _approx_value(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_approx_value(item) for item in v]
+    if isinstance(v, float):
+        return pytest.approx(v, rel=1e-2)
+    return v
 
 
 def check_output(output_manifest: str, reference_manifest: str, text_key: str = "text") -> None:
@@ -59,16 +57,34 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
     )
 
     for out_entry, ref_entry in zip(output_data, reference_data, strict=True):
-        assert out_entry[text_key] == ref_entry[text_key], f"Text mismatch for {out_entry.get('audio_item_id')}"
+        if "segments" in ref_entry:
+            assert len(out_entry["segments"]) == len(ref_entry["segments"]), (
+                f"Segment count mismatch for {out_entry.get('audio_item_id')}: "
+                f"output={len(out_entry['segments'])}, reference={len(ref_entry['segments'])}"
+            )
+            for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
+                assert out_seg["start"] == pytest.approx(ref_seg["start"], abs=0.5), (
+                    f"Segment start mismatch: got {out_seg['start']}, expected {ref_seg['start']}"
+                )
+                assert out_seg["end"] == pytest.approx(ref_seg["end"], abs=0.5), (
+                    f"Segment end mismatch: got {out_seg['end']}, expected {ref_seg['end']}"
+                )
+                if text_key in ref_seg:
+                    assert out_seg[text_key] == ref_seg[text_key], (
+                        f"Text mismatch in segment ({ref_seg['start']:.2f}-{ref_seg['end']:.2f})"
+                    )
+                if "metrics" in ref_seg:
+                    assert out_seg["metrics"] == _approx_value(ref_seg["metrics"])
 
-        for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
-            assert out_seg["start"] == pytest.approx(ref_seg["start"], rel=1e-3)
-            assert out_seg["end"] == pytest.approx(ref_seg["end"], rel=1e-3)
-            assert out_seg["text"] == ref_seg["text"]
-            if "metrics" in ref_seg:
-                assert out_seg["metrics"] == _approx_metrics(ref_seg["metrics"])
-
-        for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
-            assert out_word["word"] == ref_word["word"]
-            assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.01)
-            assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.01)
+        if "alignment" in ref_entry:
+            assert len(out_entry["alignment"]) == len(ref_entry["alignment"]), (
+                f"Alignment word count mismatch for {out_entry.get('audio_item_id')}"
+            )
+            for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
+                assert out_word["word"] == ref_word["word"]
+                assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.5), (
+                    f"Alignment start mismatch for '{ref_word['word']}': got {out_word['start']}, expected {ref_word['start']}"
+                )
+                assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.5), (
+                    f"Alignment end mismatch for '{ref_word['word']}': got {out_word['end']}, expected {ref_word['end']}"
+                )

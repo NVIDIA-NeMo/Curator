@@ -106,7 +106,6 @@ def input_task(sample_files: tuple[list[str], str]) -> FileGroupTask:
     """Create a FileGroupTask from sample files."""
     files, format_type = sample_files
     return FileGroupTask(
-        task_id=f"test_task_{format_type}",
         dataset_name="test_dataset",
         data=files,
         _metadata={"batch_id": 0, "total_batches": 1, "format": format_type},
@@ -157,6 +156,12 @@ class TestMinHashStage:
         # Setup and process
         stage.setup()
         output_task = stage.process(input_task)
+
+        # Verify detailed stage timings are recorded
+        assert all(
+            stage._custom_metrics[metric] > 0
+            for metric in ("minhash_read_time", "minhash_compute_time", "minhash_write_time")
+        )
 
         # Verify output task structure
         assert isinstance(output_task, FileGroupTask)
@@ -215,9 +220,7 @@ class TestMinHashStage:
         input_file = tmp_path / "bad_schema.jsonl"
         data.to_json(input_file, orient="records", lines=True)
 
-        input_task = FileGroupTask(
-            task_id="bad_test", dataset_name="bad_dataset", data=[str(input_file)], _metadata={}
-        )
+        input_task = FileGroupTask(dataset_name="bad_dataset", data=[str(input_file)], _metadata={})
 
         stage = MinHashStage(
             output_path=str(tmp_path / "output"),
@@ -240,9 +243,7 @@ class TestMinHashStage:
         input_file = tmp_path / "empty.jsonl"
         data.to_json(input_file, orient="records", lines=True)
 
-        input_task = FileGroupTask(
-            task_id="empty_test", dataset_name="empty_dataset", data=[str(input_file)], _metadata={}
-        )
+        input_task = FileGroupTask(dataset_name="empty_dataset", data=[str(input_file)], _metadata={})
 
         stage = MinHashStage(
             output_path=str(tmp_path / "output"),
@@ -261,9 +262,7 @@ class TestMinHashStage:
             text_field="text",
         )
 
-        input_task = FileGroupTask(
-            task_id="test_task", dataset_name="test_dataset", data=["dummy.jsonl"], _metadata={}
-        )
+        input_task = FileGroupTask(dataset_name="test_dataset", data=["dummy.jsonl"], _metadata={})
 
         # Should raise error because setup wasn't called
         with pytest.raises(RuntimeError, match="MinHash processor or ID generator not initialized"):
@@ -287,9 +286,7 @@ class TestMinHashStage:
         input_file = tmp_path / "large_texts.jsonl"
         data.to_json(input_file, orient="records", lines=True)
 
-        input_task = FileGroupTask(
-            task_id="large_test", dataset_name="large_dataset", data=[str(input_file)], _metadata={}
-        )
+        input_task = FileGroupTask(dataset_name="large_dataset", data=[str(input_file)], _metadata={})
 
         stage = MinHashStage(
             output_path=str(tmp_path / "output"),
@@ -329,9 +326,7 @@ class TestMinHashStage:
         input_file = tmp_path / "special_chars.jsonl"
         data.to_json(input_file, orient="records", lines=True)
 
-        input_task = FileGroupTask(
-            task_id="special_test", dataset_name="special_dataset", data=[str(input_file)], _metadata={}
-        )
+        input_task = FileGroupTask(dataset_name="special_dataset", data=[str(input_file)], _metadata={})
 
         stage = MinHashStage(
             output_path=str(tmp_path / "output"),
@@ -376,12 +371,8 @@ class TestMinHashStage:
         data = pd.DataFrame({"text": ["Document 1", "Document 2", "Document 3"]})
         data.to_json(input_file1, orient="records", lines=True)
         data.to_json(input_file2, orient="records", lines=True)
-        input_task1 = FileGroupTask(
-            task_id="setup_test_1", dataset_name="setup_dataset_1", data=[str(input_file1)], _metadata={}
-        )
-        input_task2 = FileGroupTask(
-            task_id="setup_test_2", dataset_name="setup_dataset_2", data=[str(input_file2)], _metadata={}
-        )
+        input_task1 = FileGroupTask(dataset_name="setup_dataset_1", data=[str(input_file1)], _metadata={})
+        input_task2 = FileGroupTask(dataset_name="setup_dataset_2", data=[str(input_file2)], _metadata={})
 
         # Setup and process first batch
         stage1.setup()

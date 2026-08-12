@@ -50,7 +50,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         min_len: Minimum length of audio segments to process (seconds).
         max_len: Maximum length of audio segments to process (seconds).
-        num_workers: Number of workers for data loading.
+        dataloader_num_workers: Number of workers for data loading.
         split_batch_size: Max entries/paths per batch when chunking.
         infer_segment_only: If True, process segments only; else full audio / meta-entries.
         text_key: Key for predicted text in manifest.
@@ -65,7 +65,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Processing parameters
     batch_size: int = 32
-    num_workers: int = 10
+    dataloader_num_workers: int = 10
     split_batch_size: int = 5000
     infer_segment_only: bool = False
 
@@ -158,6 +158,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         is_fastconformer (bool): Whether model's encoder is FastConformer
         decoder_type (str): Type of decoder ('ctc' or 'rnnt'). Defaults to "rnnt"
         transcribe_batch_size (int): Batch size for transcribing. Defaults to 32
+        use_cuda_graphs (bool): Whether decoding may use CUDA graphs. Defaults to True
         timestamp_type (str): Type of timestamp ('word' or 'char')
         disable_word_confidence (bool): Whether to disable word confidence score computation
     """
@@ -173,10 +174,11 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     # Model settings
     is_fastconformer: bool = True
     decoder_type: str = "rnnt"
+    use_cuda_graphs: bool = True
 
     # Processing parameters
     transcribe_batch_size: int = 32
-    num_workers: int = 10
+    dataloader_num_workers: int = 10
     batch_size: int = 100
 
     # Timestamp settings
@@ -244,8 +246,10 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
         if self.decoder_type == "ctc":
             decoding_cfg.strategy = "greedy_batch"
+            decoding_cfg.greedy.allow_cuda_graphs = self.use_cuda_graphs
         else:
             decoding_cfg.rnnt_timestamp_type = self.timestamp_type
+            decoding_cfg.greedy.use_cuda_graph_decoder = self.use_cuda_graphs
 
         decoding_cfg.preserve_alignments = self.compute_timestamps
         decoding_cfg.confidence_cfg.preserve_word_confidence = not self.disable_word_confidence
@@ -256,16 +260,20 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
         self._override_cfg = self._asr_model.get_transcribe_config()
         self._override_cfg.batch_size = self.transcribe_batch_size
-        self._override_cfg.num_workers = self.num_workers
+        self._override_cfg.num_workers = self.dataloader_num_workers
         self._override_cfg.return_hypotheses = True
         self._override_cfg.timestamps = self.compute_timestamps
 
         logger.info(f"[{self.name}] Initialized ASR model on {self._device}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
+        if self.infer_segment_only:
+            return ["data"], ["resampled_audio_filepath", self.segments_key]
         return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
+        if self.infer_segment_only:
+            return ["data"], ["resampled_audio_filepath", self.segments_key]
         return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]
 
     def get_alignments_text(self, hypotheses: Any) -> tuple[list, str]:  # noqa: ANN401

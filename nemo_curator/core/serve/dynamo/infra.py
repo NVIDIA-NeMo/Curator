@@ -105,10 +105,12 @@ def build_worker_actor_name(
 
 
 def engine_kwargs_to_cli_flags(engine_kwargs: dict[str, Any]) -> list[str]:
-    """Convert a vLLM ``engine_kwargs`` dict to a list of CLI flags.
+    """Convert a kwargs dict to CLI flags.
 
     Example: ``{"tensor_parallel_size": 4, "enforce_eager": True}``
     becomes ``["--tensor-parallel-size", "4", "--enforce-eager"]``.
+    Boolean ``False`` values become ``--no-<flag>``; omit a key when no CLI
+    override should be passed.
     """
     flags: list[str] = []
     for key, value in engine_kwargs.items():
@@ -116,6 +118,8 @@ def engine_kwargs_to_cli_flags(engine_kwargs: dict[str, Any]) -> list[str]:
         if isinstance(value, bool):
             if value:
                 flags.append(flag)
+            else:
+                flags.append("--no-" + key.replace("_", "-"))
         elif isinstance(value, (dict, list)):
             flags.extend([flag, json.dumps(value)])
         else:

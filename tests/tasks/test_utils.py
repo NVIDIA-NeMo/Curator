@@ -15,14 +15,14 @@
 import numpy as np
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.performance_utils import StagePerfStats
 
 
-def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -> _EmptyTask:
+def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -> EmptyTask:
     perf = StagePerfStats(stage_name=stage_name, process_time=process_time, custom_metrics={"io": custom})
-    return _EmptyTask(task_id=f"{stage_name}_{process_time}", dataset_name="test", data=None, _stage_perf=[perf])
+    return EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
 
 
 class TestTaskPerfUtils:
@@ -54,6 +54,42 @@ class TestTaskPerfUtils:
         assert np.allclose(metrics["StageA"]["custom.io"], np.array([5.0]))
         assert np.allclose(metrics["StageB"]["process_time"], np.array([2.0]))
         assert np.allclose(metrics["StageB"]["custom.io"], np.array([7.0]))
+
+    def test_collect_stage_metrics_counts_shared_batch_stats_once(self) -> None:
+        """A fan-out batch's shared stats must not be counted once per output task."""
+        shared_perf = StagePerfStats(
+            stage_name="FanoutStage",
+            process_time=2.0,
+            custom_metrics={"num_rows": 100.0},
+        )
+        tasks = [EmptyTask(dataset_name=f"output_{index}", data=None, _stage_perf=[shared_perf]) for index in range(3)]
+
+        metrics = TaskPerfUtils.aggregate_task_metrics(tasks)
+
+        assert metrics["FanoutStage_process_time_sum"] == 2.0
+        assert metrics["FanoutStage_custom.num_rows_sum"] == 100.0
+
+    def test_collect_stage_metrics_counts_distinct_equal_stats_separately(self) -> None:
+        """Equal metrics from separate batch calls remain separate observations."""
+        tasks = [
+            EmptyTask(
+                dataset_name=f"batch_{index}",
+                data=None,
+                _stage_perf=[
+                    StagePerfStats(
+                        stage_name="FanoutStage",
+                        process_time=2.0,
+                        custom_metrics={"num_rows": 100.0},
+                    )
+                ],
+            )
+            for index in range(3)
+        ]
+
+        metrics = TaskPerfUtils.aggregate_task_metrics(tasks)
+
+        assert metrics["FanoutStage_process_time_sum"] == 6.0
+        assert metrics["FanoutStage_custom.num_rows_sum"] == 300.0
 
     def test_aggregate_task_metrics_with_pipeline_prefixes(self) -> None:
         """Test aggregating task metrics with pipeline prefixes."""

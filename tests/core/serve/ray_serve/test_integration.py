@@ -140,7 +140,6 @@ class TestRayServeIntegration:
 
         initial_tasks = [
             DocumentBatch(
-                task_id=f"gpu-sep-{i}",
                 dataset_name="ray-serve-coexistence",
                 data=pd.DataFrame({"text": [f"hello {i}"]}),
             )

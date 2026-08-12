@@ -33,7 +33,7 @@ class TestMonoConversionStage:
 
         with patch(MOCK_TARGET, return_value=(stereo, 48000)), patch(MOCK_EXISTS, return_value=True):
             stage = MonoConversionStage(output_sample_rate=48000)
-            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            task = AudioTask(data={"audio_filepath": wav.as_posix()})
             result = stage.process(task)
 
         assert isinstance(result, AudioTask)
@@ -51,7 +51,7 @@ class TestMonoConversionStage:
 
         with patch(MOCK_TARGET, return_value=(mono, 48000)), patch(MOCK_EXISTS, return_value=True):
             stage = MonoConversionStage(output_sample_rate=48000)
-            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            task = AudioTask(data={"audio_filepath": wav.as_posix()})
             result = stage.process(task)
 
         assert isinstance(result, AudioTask)
@@ -66,7 +66,7 @@ class TestMonoConversionStage:
 
         with patch(MOCK_TARGET, return_value=(audio, 22050)), patch(MOCK_EXISTS, return_value=True):
             stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=True)
-            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            task = AudioTask(data={"audio_filepath": wav.as_posix()})
             result = stage.process(task)
 
         assert result == []
@@ -79,7 +79,7 @@ class TestMonoConversionStage:
 
         with patch(MOCK_TARGET, return_value=(audio, 22050)), patch(MOCK_EXISTS, return_value=True):
             stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=False)
-            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            task = AudioTask(data={"audio_filepath": wav.as_posix()})
             result = stage.process(task)
 
         assert isinstance(result, AudioTask)
@@ -87,13 +87,13 @@ class TestMonoConversionStage:
 
     def test_missing_file_skipped(self) -> None:
         stage = MonoConversionStage()
-        task = AudioTask(data={"audio_filepath": "/nonexistent/path.wav"}, task_id="t1")
+        task = AudioTask(data={"audio_filepath": "/nonexistent/path.wav"})
         result = stage.process(task)
         assert result == []
 
     def test_missing_filepath_key_skipped(self) -> None:
         stage = MonoConversionStage()
-        task = AudioTask(data={"other_key": "value"}, task_id="t1")
+        task = AudioTask(data={"other_key": "value"})
         result = stage.process(task)
         assert result == []
 
@@ -103,7 +103,7 @@ class TestMonoConversionStage:
 
         with patch(MOCK_TARGET, side_effect=RuntimeError("bad file")), patch(MOCK_EXISTS, return_value=True):
             stage = MonoConversionStage()
-            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            task = AudioTask(data={"audio_filepath": wav.as_posix()})
             result = stage.process(task)
 
         assert result == []

@@ -15,13 +15,11 @@
 import pathlib
 from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import torch
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, ImageBatch, ImageObject
@@ -52,12 +50,6 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             self.resources = Resources(gpus=self.num_gpus_per_worker)
         else:
             self.resources = Resources()
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -137,9 +129,8 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
 
     def _stream_batches(self, tar_files: list[pathlib.Path]) -> Generator[ImageBatch, None, None]:
         """Emit one ImageBatch per DALI run across all provided tar files."""
-        for batch_id, image_objects in enumerate(self._read_tars_with_dali(tar_files)):
+        for _batch_id, image_objects in enumerate(self._read_tars_with_dali(tar_files)):
             yield ImageBatch(
-                task_id=f"image_batch_{batch_id}",
                 dataset_name="tar_files",
                 data=image_objects,
             )

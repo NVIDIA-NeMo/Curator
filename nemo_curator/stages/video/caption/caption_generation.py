@@ -40,7 +40,6 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512
-    model_does_preprocess: bool = False
     disable_mmcache: bool = False
     vllm_kwargs: dict[str, Any] = field(default_factory=dict)
     verbose: bool = False
@@ -62,7 +61,6 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 caption_batch_size=self.caption_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
-                model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
                 **self.vllm_kwargs,
             )

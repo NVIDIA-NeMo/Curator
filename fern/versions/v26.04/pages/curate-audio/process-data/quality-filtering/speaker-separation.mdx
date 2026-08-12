@@ -91,7 +91,7 @@ For pure offline curation, `SpeakerSeparationStage` is faster and more accurate.
 ### Step 1: Configure the Stage
 
 ```python
-from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 
 streaming = InferenceSortformerStage(
     model_name="nvidia/diar_streaming_sortformer_4spk-v2.1",

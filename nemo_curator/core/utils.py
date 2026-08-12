@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.util
 import os
-import shutil
 import socket
 import subprocess
 import time
@@ -30,6 +30,7 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_MAX_WORKER_PORT,
     DEFAULT_RAY_MIN_WORKER_PORT,
     DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
+    DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT,
     RAY_CLUSTER_START_VERIFICATION_TIMEOUT,
 )
 
@@ -95,19 +96,20 @@ def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT
     return responsive
 
 
-def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
+def get_free_port(start_port: int, get_next_free_port: bool = True, bind_host: str = "localhost") -> int:
     """Checks if start_port is free.
     If not, it will get the next free port starting from start_port if get_next_free_port is True.
     Else, it will raise an error if the free port is not equal to start_port.
+    bind_host controls the interface used for the probe.
     """
-    for port in range(start_port, 65535):
+    for port in range(start_port, 65536):
         if port >= DEFAULT_RAY_MIN_WORKER_PORT and port <= DEFAULT_RAY_MAX_WORKER_PORT:
             continue
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             # SO_REUSEADDR to avoid TIME_WAIT issues on some OSes
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("localhost", port))
+                s.bind((bind_host, port))
                 # If bind succeeds, port is free
                 return port  # noqa: TRY300
             except OSError:
@@ -188,20 +190,29 @@ def init_cluster(  # noqa: PLR0913
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
 
-    # Opt into Ray Serve's HAProxy ingress when both binaries resolve. Ray Serve
-    # uses socat to drive HAProxy's admin socket — without it, the controller's
-    # healthcheck silently returns False and trips a 5s timeout. Must precede
-    # Popen so Ray sees the env var at module-import on the raylet/worker.
-    # TODO(https://github.com/ray-project/ray/issues/62976): also set
-    # RAY_SERVE_HAPROXY_STATS_PORT once that lands so multi-cluster hosts
-    # don't collide on HAProxy's stats bind.
-    if shutil.which("haproxy") is not None and shutil.which("socat") is not None:
-        haproxy_metrics_port = get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT)
+    haproxy_source = _ray_serve_haproxy_source()
+    if haproxy_source is not None:
+        haproxy_metrics_port = get_free_port(
+            DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
+            bind_host="0.0.0.0",  # noqa: S104
+        )
+        haproxy_stats_port = get_free_port(
+            DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT,
+            bind_host="0.0.0.0",  # noqa: S104
+        )
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
+        os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
-        logger.info(f"Ray Serve HAProxy ingress enabled (metrics port {haproxy_metrics_port}).")
+        os.environ["RAY_SERVE_HAPROXY_STATS_PORT"] = str(haproxy_stats_port)
+        logger.info(
+            f"Ray Serve HAProxy ingress enabled via {haproxy_source} "
+            f"(metrics port {haproxy_metrics_port}, stats port {haproxy_stats_port})."
+        )
     else:
-        logger.debug("haproxy and/or socat not found on PATH; Ray Serve will use the default Python proxy.")
+        logger.debug(
+            "ray-haproxy package or explicit RAY_SERVE_HAPROXY_BINARY_PATH not found; "
+            "Ray Serve will use the default Python proxy."
+        )
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
             proc = subprocess.Popen(  # noqa: S603
@@ -214,54 +225,72 @@ def init_cluster(  # noqa: PLR0913
     return proc
 
 
-def split_table_by_group_max_bytes(
+def _ray_serve_haproxy_source() -> str | None:
+    """Return the configured Ray Serve HAProxy source, if available."""
+    if importlib.util.find_spec("ray_haproxy") is not None:
+        return "ray-haproxy package"
+    if os.environ.get("RAY_SERVE_HAPROXY_BINARY_PATH"):
+        return "RAY_SERVE_HAPROXY_BINARY_PATH"
+    return None
+
+
+def split_table_by_group(
     table: pa.Table,
     group_column: str,
-    max_batch_bytes: int | None,
+    *,
+    max_batch_bytes: int | None = None,
+    max_batch_rows: int | None = None,
 ) -> list[pa.Table]:
-    """Split an Arrow table by approximate byte size without splitting group rows.
+    """Split an Arrow table without reordering or splitting consecutive groups.
 
-    Each unique value in ``group_column`` is kept in a single output table.
-    If a single group exceeds ``max_batch_bytes``, it is still emitted as one chunk.
-
-    Note: null values in ``group_column`` are grouped together (consecutive
-    nulls are not split).  Callers should ensure the column is non-nullable
-    or handle nulls upstream.
+    Rows for each group must be consecutive. If a single group exceeds a batch
+    limit, it is still emitted as one chunk.
     """
-    if max_batch_bytes is None or table.num_rows == 0:
-        return [table]
-    if max_batch_bytes <= 0:
-        msg = f"max_batch_bytes must be > 0, got {max_batch_bytes}"
-        raise ValueError(msg)
+    for name, value in (("max_batch_bytes", max_batch_bytes), ("max_batch_rows", max_batch_rows)):
+        if value is not None and value <= 0:
+            msg = f"{name} must be > 0, got {value}"
+            raise ValueError(msg)
+
     if group_column not in table.column_names:
         msg = f"Group column '{group_column}' not found in table"
         raise ValueError(msg)
-
-    sort_indices = pc.sort_indices(table, sort_keys=[(group_column, "ascending")])
-    table = table.take(sort_indices)
-    col = table[group_column]
-    n = table.num_rows
-
-    if n <= 1:
+    if table.num_rows == 0:
         return [table]
 
-    ne = pc.not_equal(col.slice(1), col.slice(0, n - 1))
-    split_points = pc.indices_nonzero(ne).to_pylist()
-    group_starts = [0, *(p + 1 for p in split_points)]
-    group_ends = [*(p + 1 for p in split_points), n]
+    chunked = table[group_column]
+    groups = chunked.combine_chunks() if len(chunked.chunks) > 1 else chunked.chunks[0]
+    if pc.any(pc.is_null(groups)).as_py():
+        msg = f"Group column '{group_column}' contains null values"
+        raise ValueError(msg)
+    if max_batch_bytes is None and max_batch_rows is None:
+        return [table]
 
-    avg_bytes_per_row = table.nbytes / n
-    chunk_split_indices: list[int] = []
+    num_rows = table.num_rows
+    group_change = pc.not_equal(groups.slice(1), groups.slice(0, num_rows - 1))
+    group_ends = [*(point + 1 for point in pc.indices_nonzero(group_change).to_pylist()), num_rows]
+
+    split_points: list[int] = []
+    chunk_start = 0
     chunk_bytes = 0.0
-    for i, (gs, ge) in enumerate(zip(group_starts, group_ends, strict=True)):
-        group_bytes = (ge - gs) * avg_bytes_per_row
-        if i > 0 and chunk_bytes > 0 and (chunk_bytes + group_bytes > max_batch_bytes):
-            chunk_split_indices.append(gs)
+    chunk_rows = 0
+    avg_bytes_per_row = table.nbytes / num_rows
+    for group_end in group_ends:
+        group_start = chunk_start + chunk_rows
+        group_rows = group_end - group_start
+        group_bytes = group_rows * avg_bytes_per_row
+        exceeds_batch_limit = chunk_rows > 0 and (
+            (max_batch_bytes is not None and chunk_bytes + group_bytes > max_batch_bytes)
+            or (max_batch_rows is not None and chunk_rows + group_rows > max_batch_rows)
+        )
+        if exceeds_batch_limit:
+            split_points.append(group_start)
+            chunk_start = group_start
             chunk_bytes = 0.0
-        chunk_bytes += group_bytes
+            chunk_rows = 0
 
-    if not chunk_split_indices:
-        return [table]
-    all_starts = [0, *chunk_split_indices]
-    all_ends = [*chunk_split_indices, n]
-    return [table.slice(s, e - s) for s, e in zip(all_starts, all_ends, strict=True)]
+        chunk_bytes += group_bytes
+        chunk_rows += group_rows
+
+    starts = [0, *split_points]
+    ends = [*split_points, num_rows]
+    return [table.slice(start, end - start) for start, end in zip(starts, ends, strict=True)]

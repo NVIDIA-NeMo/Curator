@@ -136,6 +136,47 @@ class TestBackendIntegrations:
             "Mismatch in dataset names"
         )
 
+    def test_task_ids(self):
+        """task_ids are deterministic id paths assigned as tasks flow
+        through the pipeline. We can't assert exact id strings — the source
+        partitions hash temp-dir file paths, so the hash varies per run — but
+        we can pin the structure: rooted at the EmptyTask root "0", a stable
+        content-hash source segment, then a clean underscore-joined path."""
+        assert self.output_tasks is not None, "Expected output tasks"
+
+        task_ids = [task.task_id for task in self.output_tasks]
+
+        # Every task that made it through the pipeline has an id assigned.
+        assert all(task_ids), "Every output task should have a non-empty task_id"
+
+        # Task ids are unique per task.
+        assert len(set(task_ids)) == len(task_ids), "task_ids should be unique"
+
+        for tid in task_ids:
+            # Clean "_"-joined id path: no empty segments, so no leading/
+            # trailing/double underscores (the source's EmptyTask parent,
+            # whose id is "", is filtered out by _set_task_id).
+            segments = tid.split("_")
+            assert all(segments), f"task_id {tid!r} has an empty id segment"
+
+            # Every id descends from the implicit EmptyTask root "0".
+            assert segments[0] == "0", f"task_id {tid!r} is not rooted at '0'"
+
+            # The source stage (FilePartitioningStage) stamps each partition's
+            # FileGroupTask content hash as the second segment; downstream
+            # stages append positional indices. The hash is a 12-char hex
+            # string (see tests/tasks/test_file_group_tasks.py); its value is
+            # not knowable a priori, so we assert its shape.
+            source_hash = segments[1]
+            assert len(source_hash) == 12, f"task_id {tid!r} source-hash segment {source_hash!r} is not 12 chars"
+            assert all(c in "0123456789abcdef" for c in source_hash), (
+                f"task_id {tid!r} source-hash segment {source_hash!r} is not hex"
+            )
+
+        # All partitions share the same downstream id structure: every id has
+        # the same number of segments (one per stage boundary it crossed).
+        assert len({len(tid.split("_")) for tid in task_ids}) == 1, "task_ids should all have the same path depth"
+
     def test_perf_stats(self):
         """Test that performance statistics are correctly recorded for all stages."""
         # Check content of stage perf stats

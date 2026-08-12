@@ -112,7 +112,9 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         else:
             self._final_max_model_len = self.max_model_len
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         cache_dir = self._model_kwargs.get("cache_dir") if self._model is None else self._model.cache_dir
 
@@ -141,7 +143,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df = df[df[self.n_tokens_field] < threshold].copy()
             if len(df) == 0:
                 return DocumentBatch(
-                    task_id=batch.task_id,
                     dataset_name=batch.dataset_name,
                     data=pd.DataFrame(columns=df.columns),
                     _metadata=batch._metadata,
@@ -198,7 +199,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             output_df[self.output_field] = generated_texts
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=output_df,
             _metadata=batch._metadata,

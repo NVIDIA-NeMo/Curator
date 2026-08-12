@@ -65,7 +65,6 @@ class RecordPackagingVersionStage(ProcessingStage[DocumentBatch, DocumentBatch])
         batch[f"{self.name}_version"] = packaging.__version__
         batch[f"{self.name}_loguru_available"] = loguru_available
         return DocumentBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=batch,
             _metadata=task._metadata,
@@ -75,7 +74,6 @@ class RecordPackagingVersionStage(ProcessingStage[DocumentBatch, DocumentBatch])
 
 def _make_initial_task() -> DocumentBatch:
     return DocumentBatch(
-        task_id="runtime_env_test",
         dataset_name="test",
         data=pd.DataFrame({"text": ["hello"]}),
     )

@@ -263,7 +263,6 @@ class MathExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             output_cols = [*output_cols, self.filename_col]
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=pd.DataFrame(records) if records else pd.DataFrame(columns=output_cols),
             _metadata=batch._metadata,

@@ -155,9 +155,13 @@ data/
 
 # macOS Files
 .DS_Store
-AGENTS.md
 alm_output/
 benchmark_results/
+
+# Agent related files
+AGENTS.md
+CLAUDE.md
+.claude/settings.local.json
 
 # Fern: generated API reference from `libraries` in docs.yml (`fern docs md generate`).
 # Regenerated in CI (fern-docs-ci.yml, publish-fern-docs.yml); do not commit.

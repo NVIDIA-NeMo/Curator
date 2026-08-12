@@ -106,11 +106,7 @@ def fuzzy_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
     df.iloc[3:].to_json(file2, orient="records", lines=True)
 
     files = [str(file1), str(file2)]
-    return [
-        FileGroupTask(
-            task_id="file_group_0", dataset_name="test_dataset", data=files, _metadata={"source_files": files}
-        )
-    ]
+    return [FileGroupTask(dataset_name="test_dataset", data=files, _metadata={"source_files": files})]
 
 
 @pytest.fixture
@@ -125,11 +121,7 @@ def fuzzy_dedup_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
     df.iloc[3:].to_parquet(file2)
 
     files = [str(file1), str(file2)]
-    return [
-        FileGroupTask(
-            task_id="file_group_0", dataset_name="test_dataset", data=files, _metadata={"source_files": files}
-        )
-    ]
+    return [FileGroupTask(dataset_name="test_dataset", data=files, _metadata={"source_files": files})]
 
 
 @pytest.fixture
@@ -154,11 +146,7 @@ def no_duplicates_fuzzy_dedup_data(tmp_path: Path) -> list[FileGroupTask]:
     df.iloc[2:].to_parquet(file2)
 
     files = [str(file1), str(file2)]
-    return [
-        FileGroupTask(
-            task_id="file_group_0", dataset_name="test_dataset", data=files, _metadata={"source_files": files}
-        )
-    ]
+    return [FileGroupTask(dataset_name="test_dataset", data=files, _metadata={"source_files": files})]
 
 
 @pytest.mark.gpu
@@ -277,6 +265,31 @@ class TestFuzzyDuplicates:
 
         lsh_df = cudf.read_parquet(cache_path / "LSHStage")
         assert len(lsh_df) == 0
+
+    def test_input_file_extensions_default_to_input_filetype(self, tmp_path: Path) -> None:
+        workflow = FuzzyDeduplicationWorkflow(
+            input_path="/dummy",
+            cache_path=str(tmp_path),
+            output_path=str(tmp_path),
+            input_filetype="jsonl",
+        )
+
+        stages = workflow._create_minhash_pipeline(generate_input_filegroups=True).stages
+
+        assert stages[0].file_extensions == [".jsonl", ".json"]
+
+    def test_input_file_extensions_override_default(self, tmp_path: Path) -> None:
+        workflow = FuzzyDeduplicationWorkflow(
+            input_path="/dummy",
+            cache_path=str(tmp_path),
+            output_path=str(tmp_path),
+            input_filetype="parquet",
+            input_file_extensions=[".pq"],
+        )
+
+        stages = workflow._create_minhash_pipeline(generate_input_filegroups=True).stages
+
+        assert stages[0].file_extensions == [".pq"]
 
     def test_bad_inputs(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="bands_per_iteration must be between"):

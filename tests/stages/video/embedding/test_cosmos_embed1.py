@@ -72,7 +72,7 @@ class TestCosmosEmbed1FrameCreationStage:
             ],
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -302,7 +302,7 @@ class TestCosmosEmbed1EmbeddingStage:
             ],
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -499,7 +499,7 @@ class TestCosmosEmbed1EmbeddingStage:
             ],
         )
 
-        fresh_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=fresh_video)
+        fresh_task = VideoTask(dataset_name="test_dataset", data=fresh_video)
 
         result = stage.process(fresh_task)
 

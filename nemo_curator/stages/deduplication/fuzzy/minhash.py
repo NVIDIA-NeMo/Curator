@@ -306,28 +306,30 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             msg = "MinHash processor or ID generator not initialized. Call setup() first."
             raise RuntimeError(msg)
 
-        output_file = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
+        output_file = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
 
         read_kwargs = self.read_kwargs.copy()
 
         # Read input file based on format
-        if self.read_format == "jsonl":
-            df = self.read_jsonl(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
-        elif self.read_format == "parquet":
-            df = self.read_parquet(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
-        else:
-            msg = f"Unsupported read format: {self.read_format}"
-            raise ValueError(msg)
+        with self._time_metric("minhash_read_time"):
+            if self.read_format == "jsonl":
+                df = self.read_jsonl(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
+            elif self.read_format == "parquet":
+                df = self.read_parquet(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
+            else:
+                msg = f"Unsupported read format: {self.read_format}"
+                raise ValueError(msg)
 
         result_df = df[[CURATOR_DEDUP_ID_STR]]
-        result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
+        with self._time_metric("minhash_compute_time"):
+            result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
 
         # Write output file
-        self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
+        with self._time_metric("minhash_write_time"):
+            self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
 
         # Return FileGroupTask with output file
         return FileGroupTask(
-            task_id=f"{task.task_id}",
             dataset_name=f"{task.dataset_name}_minhash",
             data=[output_file],
             _metadata={

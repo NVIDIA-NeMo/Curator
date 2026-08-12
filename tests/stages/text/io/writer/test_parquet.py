@@ -22,7 +22,6 @@ import pytest
 
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.io.writer import base as writer_base
-from nemo_curator.stages.text.io.writer import utils as writer_utils
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -49,7 +48,7 @@ class TestParquetWriter:
         # Process
         with (
             mock.patch.object(
-                writer_utils, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
+                writer_base, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
             ) as mock_get_deterministic_hash,
             mock.patch.object(uuid, "uuid4", return_value=mock.Mock(hex="_TEST_FILE_HASH")) as mock_uuid4,
         ):
@@ -62,12 +61,12 @@ class TestParquetWriter:
                 assert mock_get_deterministic_hash.call_count == 1
                 # Verify get_deterministic_hash was called with correct arguments
                 mock_get_deterministic_hash.assert_called_once_with(source_files, document_batch.task_id)
-                # because we call it once for task, and that should be the only one
-                assert mock_uuid4.call_count <= 1
+                # consistent path uses the content hash for the filename; uuid is unused
+                assert mock_uuid4.call_count == 0
             else:
                 assert mock_get_deterministic_hash.call_count == 0
-                # because we call it once for task, and once for the filename
-                assert mock_uuid4.call_count == 2
+                # non-consistent path uses a single uuid for the filename
+                assert mock_uuid4.call_count == 1
 
         # Verify file was created
         assert result.task_id == document_batch.task_id  # Task ID should match input

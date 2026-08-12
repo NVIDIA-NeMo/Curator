@@ -34,7 +34,7 @@ _SAMPLE_ROW = {
 
 
 def _make_batch(data: pa.Table | pd.DataFrame) -> InterleavedBatch:
-    return InterleavedBatch(task_id="t", dataset_name="d", data=data)
+    return InterleavedBatch(dataset_name="d", data=data)
 
 
 # --- to_pyarrow ---

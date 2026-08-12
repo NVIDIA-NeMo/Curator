@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     curl \
     git \
+    libmagic1t64 \
     vim && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -44,14 +45,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.13-dev \
     python3.13-venv \
     python-is-python3 && \
-    apt-get install -y --only-upgrade gnupg && \
+    apt-get install -y --only-upgrade gnupg libunbound8 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
 
 # Install uv
-ENV UV_VERSION="0.8.22"
+ENV UV_VERSION="0.12.1"
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -62,21 +63,14 @@ RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site
 
 FROM build AS nemo_curator_dep
 
-# Install FFmpeg
-COPY docker/common/install_ffmpeg.sh .
-RUN bash install_ffmpeg.sh && \
-    rm install_ffmpeg.sh
-
 # Install etcd + nats-server (required by the Dynamo inference backend)
 COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
 
-# Install HAProxy so Ray Serve's HAProxy ingress mode (RAY_SERVE_ENABLE_HA_PROXY=1) has the binary on PATH
-COPY docker/common/install_haproxy.sh .
-RUN bash install_haproxy.sh && \
-    rm install_haproxy.sh
-ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
+# Use the ray-haproxy wheel so Ray Serve's HAProxy ingress mode can discover
+# the packaged binary without compiling HAProxy in the image.
+ENV RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY=1
 
 
 FROM nemo_curator_dep AS nemo_curator
@@ -90,9 +84,7 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-# Cap ninja parallelism for flash-attn's NVCC build at min(nproc, 16); default of nproc OOMs at ~2 GB/job.
-RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
-    if [ -n "${CURATOR_EXTRA}" ]; then \
+RUN if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
@@ -104,29 +96,19 @@ RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
     find /opt/venv -name "ray_dist.jar" -delete && \
     if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
         echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
-    fi
+    fi && \
+    # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
+    (uv pip uninstall opencv-python-headless || true)
 
-# Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
-ARG TARGETARCH
-RUN if python3 -c "import wandb" 2>/dev/null; then \
-        GRPC_VERSION=1.79.3 && \
-        GO_VERSION=1.26.1 && \
-        WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
-        WANDB_CORE_BIN=/opt/venv/lib/python3.13/site-packages/wandb/bin/wandb-core && \
-        curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
-        export PATH="/tmp/go/bin:$PATH" && \
-        export GOPATH=/tmp/gopath && \
-        git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
-        cd /tmp/wandb-src/core && \
-        go get google.golang.org/grpc@v${GRPC_VERSION} && \
-        go mod tidy && \
-        go mod vendor && \
-        CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
-            -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
-        rm -rf /tmp/wandb-src /tmp/go /tmp/gopath; \
-    else \
-        echo "wandb not installed, skipping CVE patch"; \
-    fi
+# Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
+# GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime
+# TORCH_CUDA_ARCH_LIST: compile for SM 8.0/8.6/8.9/9.0 to cover A100, A10, RTX Ada, H100
+ARG NEMOTRON_OCR_REV=86cacb0467fa4f7ce54342fdb250825e0d928ae7
+RUN uv pip install hatchling ninja editables && \
+    GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/nvidia/nemotron-ocr-v2 /tmp/nemotron-ocr-src && \
+    git -C /tmp/nemotron-ocr-src checkout "${NEMOTRON_OCR_REV}" && \
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" uv pip install --no-build-isolation /tmp/nemotron-ocr-src/nemotron-ocr && \
+    rm -rf /tmp/nemotron-ocr-src
 
 COPY . /opt/Curator
 

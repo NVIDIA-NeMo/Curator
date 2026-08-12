@@ -134,7 +134,6 @@ class IdentifyDuplicatesStage(ShuffleStage):
             removal_ids.to_parquet(output_file, **write_kwargs)
             result_tasks.append(
                 FileGroupTask(
-                    task_id=partition_id,
                     dataset_name=self.dataset_name + f"{self.name}",
                     data=[output_file],
                     _metadata={

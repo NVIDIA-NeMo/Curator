@@ -16,14 +16,12 @@ import glob
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 SAMPLE_RATE_48KHZ = 48000
 _MIN_FILENAME_PARTS = 6
@@ -35,7 +33,7 @@ DNS_READSPEECH_URL = (
 
 
 @dataclass
-class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask]):
+class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]):
     """
     Stage to create initial manifest for the DNS Challenge Read Speech dataset.
 
@@ -67,9 +65,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.text_key]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def download_and_extract(self) -> str:
         """Download and extract DNS Challenge Read Speech dataset (~4.88 GB)."""
@@ -316,7 +311,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
 
         logger.info("=" * 60)
 
-    def process(self, _: _EmptyTask) -> list[AudioTask]:
+    def process(self, _: EmptyTask) -> list[AudioTask]:
         """
         Main processing method. Returns list[AudioTask] with one AudioTask per file.
         """
@@ -340,11 +335,10 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
         logger.info(f"Creating manifest with {len(selected_entries)} total samples")
 
         audio_tasks = []
-        for i, entry in enumerate(selected_entries):
+        for _i, entry in enumerate(selected_entries):
             audio_tasks.append(
                 AudioTask(
                     data=entry,
-                    task_id=f"readspeech_{i}",
                     dataset_name="DNS-ReadSpeech",
                     filepath_key=self.filepath_key,
                 )

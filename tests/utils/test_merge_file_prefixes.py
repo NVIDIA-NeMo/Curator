@@ -64,13 +64,12 @@ def setup_mocks(mock_tokenizer: Mock):
         yield {"auto_tokenizer": mock_auto_tokenizer}
 
 
-def _make_batch(task_id: str, texts: list[str]) -> DocumentBatch:
-    df = pd.DataFrame({"text": texts, "id": [f"{task_id}_{i}" for i in range(len(texts))]})
+def _make_batch(prefix: str, texts: list[str]) -> DocumentBatch:
+    df = pd.DataFrame({"text": texts, "id": [f"{prefix}_{i}" for i in range(len(texts))]})
     return DocumentBatch(
-        task_id=task_id,
         dataset_name="test_dataset",
         data=df,
-        _metadata={"source_files": [f"{task_id}.jsonl"]},
+        _metadata={"source_files": [f"{prefix}.jsonl"]},
     )
 
 
@@ -112,7 +111,7 @@ class TestMergeFilePrefixes:
         # Build batches with varying per-document token counts so sequence_lengths differ.
         batches = [
             _make_batch(
-                task_id=f"batch_{i}",
+                prefix=f"batch_{i}",
                 texts=[f"batch {i} doc {j} " + ("word " * (j + i + 1)) for j in range(3)],
             )
             for i in range(num_batches)
@@ -188,7 +187,7 @@ class TestMergeFilePrefixes:
         os.makedirs(input_dir, exist_ok=True)
 
         batch = _make_batch(
-            task_id="only_batch",
+            prefix="single",
             texts=["hello world", "this is a longer test document", "tiny"],
         )
 
@@ -223,7 +222,7 @@ class TestMergeFilePrefixes:
         os.makedirs(input_dir, exist_ok=True)
 
         # A valid pair to prove the guard is checking each prefix, not just the directory as a whole.
-        batch = _make_batch(task_id="valid", texts=["some text here", "another doc"])
+        batch = _make_batch(prefix="pair", texts=["some text here", "another doc"])
         writer = MegatronTokenizerWriter(path=input_dir, model_identifier="test/model")
         writer.setup()
         writer.process(batch)

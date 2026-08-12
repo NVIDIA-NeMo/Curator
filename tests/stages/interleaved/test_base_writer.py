@@ -41,7 +41,6 @@ _BASE_ROW: dict[str, Any] = {
 
 def _make_task(rows: list[dict[str, Any]]) -> InterleavedBatch:
     return InterleavedBatch(
-        task_id="base_writer_test",
         dataset_name="test",
         data=pd.DataFrame(rows),
         _metadata={"source_files": ["x.tar"]},
@@ -195,7 +194,6 @@ def test_process_no_source_files_uses_uuid(tmp_path: Path, metadata: dict) -> No
     """source_files absent or empty → UUID fallback (non-deterministic), matching text BaseWriter."""
     rows = [{**_BASE_ROW}]
     task = InterleavedBatch(
-        task_id="no-source",
         dataset_name="test",
         data=pd.DataFrame(rows),
         _metadata=metadata,

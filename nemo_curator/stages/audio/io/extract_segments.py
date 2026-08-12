@@ -143,15 +143,17 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
         speaker_id = entry.get("speaker_id", "unknown")
         logger.warning(f"  {speaker_id}: no diar_segments, skipping")
         return []
-    return [
-        (int(s * 1000), int(e * 1000), e - s)
-        for s, e in sorted(diar_segments, key=lambda x: x[0])
-    ]
+    return [(int(s * 1000), int(e * 1000), e - s) for s, e in sorted(diar_segments, key=lambda x: x[0])]
 
 
 def _base_metadata(  # noqa: PLR0913
-    filename: str, original_file: str, entry: dict,
-    seg_idx: int, start_ms: int, end_ms: int, dur: float,
+    filename: str,
+    original_file: str,
+    entry: dict,
+    seg_idx: int,
+    start_ms: int,
+    end_ms: int,
+    dur: float,
 ) -> dict:
     row: dict = {
         "filename": filename,
@@ -320,9 +322,6 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     def num_workers(self) -> int | None:
         return 1
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
-
     def process(self, task: AudioTask) -> AudioTask:
         msg = "SegmentExtractionStage only supports process_batch"
         raise NotImplementedError(msg)
@@ -346,10 +345,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         self._all_metadata_rows.extend(metadata_rows)
         _write_metadata_csv(self.output_dir, self._all_metadata_rows)
 
-        logger.info(
-            f"[{self.name}] Extracted {extracted} segments "
-            f"({total_dur:.1f}s) from {len(tasks)} entries"
-        )
+        logger.info(f"[{self.name}] Extracted {extracted} segments ({total_dur:.1f}s) from {len(tasks)} entries")
         if speaker_counts:
             for speaker, count in sorted(speaker_counts.items()):
                 logger.debug(f"  {speaker}: {count} segments")
@@ -361,7 +357,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     # ------------------------------------------------------------------
 
     def _extract_by_timestamps(
-        self, entries: list[dict],
+        self,
+        entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 2: extract by original_start_ms / original_end_ms."""
 
@@ -378,7 +375,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _extract_speaker_diar(
-        self, entries: list[dict],
+        self,
+        entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 3: extract each diar_segment per speaker."""
 
@@ -396,7 +394,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _extract_speaker_timestamps(
-        self, entries: list[dict],
+        self,
+        entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 4: extract speaker-segments by timestamps."""
 
@@ -546,7 +545,9 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 def extract_segments_by_timestamps(
-    entries: list, output_dir: str, output_format: str,
+    entries: list,
+    output_dir: str,
+    output_format: str,
 ) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract segments by original_start_ms / original_end_ms, sorted by start time."""
     stage = SegmentExtractionStage(output_dir=output_dir, output_format=output_format)
@@ -554,7 +555,9 @@ def extract_segments_by_timestamps(
 
 
 def extract_speaker_diar_segments(
-    entries: list, output_dir: str, output_format: str,
+    entries: list,
+    output_dir: str,
+    output_format: str,
 ) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract individual speaking intervals from diar_segments per speaker."""
     stage = SegmentExtractionStage(output_dir=output_dir, output_format=output_format)
@@ -562,7 +565,9 @@ def extract_speaker_diar_segments(
 
 
 def extract_speaker_segments_by_timestamps(
-    entries: list, output_dir: str, output_format: str,
+    entries: list,
+    output_dir: str,
+    output_format: str,
 ) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract speaker-segments using original_start_ms / original_end_ms."""
     stage = SegmentExtractionStage(output_dir=output_dir, output_format=output_format)

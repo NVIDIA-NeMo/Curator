@@ -54,6 +54,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     max_speakers: int,
     overlap_percentage: int,
     repeat_factor: int,
+    execution_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run the ALM pipeline benchmark and collect comprehensive metrics."""
     benchmark_results_path = Path(benchmark_results_path)
@@ -63,6 +64,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     logger.info(f"Input manifest: {input_manifest}")
     logger.info(f"Executor: {executor}")
     logger.info(f"Repeat factor: {repeat_factor}")
+    if execution_mode:
+        logger.info(f"Execution mode: {execution_mode}")
     logger.info(f"Window duration: {target_window_duration}s (tolerance: {tolerance})")
     logger.info(f"Sample rate >= {min_sample_rate}, Bandwidth >= {min_bandwidth}")
     logger.info(f"Speakers: {min_speakers}-{max_speakers}")
@@ -90,7 +93,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
         )
     )
 
-    exc = setup_executor(executor)
+    executor_config = {"execution_mode": execution_mode} if execution_mode else None
+    exc = setup_executor(executor, config=executor_config)
 
     run_start_time = time.perf_counter()
 
@@ -198,6 +202,13 @@ def main() -> int:
     parser.add_argument(
         "--repeat-factor", type=int, default=1, help="Multiply manifest entries by this factor for scale testing"
     )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna executor. Default: streaming.",
+    )
 
     pre_args, remaining = parser.parse_known_args()
 
@@ -222,6 +233,7 @@ def main() -> int:
         "metrics": {"is_success": False},
         "tasks": [],
     }
+
     try:
         result_dict.update(run_alm_pipeline_benchmark(**run_args))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1

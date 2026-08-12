@@ -84,18 +84,19 @@ class QwenVL(ModelInterface):
         caption_batch_size: int,
         fp8: bool = True,
         max_output_tokens: int = 512,
-        model_does_preprocess: bool = False,
         disable_mmcache: bool = False,
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
         **vllm_kwargs,
     ):
+        if "model_does_preprocess" in vllm_kwargs:
+            msg = "model_does_preprocess is no longer supported; QwenVL always uses vLLM/HF preprocessing."
+            raise TypeError(msg)
         self.model_dir = model_dir
         self.model_variant = model_variant
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
-        self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
         self.vllm_kwargs = vllm_kwargs
         self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
@@ -113,13 +114,10 @@ class QwenVL(ModelInterface):
             msg = "vllm is required for QwenVL model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        # Qwen3-VL uses image_factor=32; pre-extracted frames may not be multiples of 32,
-        # so always enable resize for qwen3 regardless of model_does_preprocess.
-        do_resize = True if self.model_variant == "qwen3" else self.model_does_preprocess
         mm_processor_kwargs = {
-            "do_resize": do_resize,
-            "do_rescale": self.model_does_preprocess,
-            "do_normalize": self.model_does_preprocess,
+            "do_resize": True,
+            "do_rescale": True,
+            "do_normalize": True,
             **_QWEN_VL_PIXEL_PARAMS[self.model_variant],
         }
         self.model = LLM(
