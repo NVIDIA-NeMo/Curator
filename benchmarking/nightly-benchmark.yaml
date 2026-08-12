@@ -369,7 +369,7 @@ entries:
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
         ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
 
     requirements:
       - metric: num_documents_processed
@@ -791,7 +791,6 @@ entries:
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
 
-  # TODO: Update this
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
     script: arxiv_e2e_pipeline_benchmark.py
@@ -815,13 +814,12 @@ entries:
     requirements:
       # Data integrity checks
       - metric: num_tar_files
-        exact_value: 45
+        exact_value: 100
       - metric: num_input_documents
         exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 
-  # TODO: Update this
   - name: arxiv_e2e_pipeline_xenna
     enabled: true
     script: arxiv_e2e_pipeline_benchmark.py
@@ -831,7 +829,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --executor=xenna
-    timeout_s: 3600
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -845,7 +843,7 @@ entries:
     requirements:
       # Data integrity checks
       - metric: num_tar_files
-        exact_value: 45
+        exact_value: 100
       - metric: num_input_documents
         exact_value: 90922
       - metric: num_output_documents
