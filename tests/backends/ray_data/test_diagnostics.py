@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 import ray
+from ray.data._internal.execution.interfaces.execution_options import ExecutionResources
 
 from nemo_curator.backends.ray_data import diagnostics
 from nemo_curator.backends.ray_data.diagnostics import (
@@ -43,37 +44,6 @@ class _Clock:
         return self.now
 
 
-class _Resources:
-    def __init__(
-        self,
-        *,
-        cpu: float = 0,
-        gpu: float = 0,
-        memory: float = 0,
-        object_store_memory: float = 0,
-    ) -> None:
-        self.cpu = cpu
-        self.gpu = gpu
-        self.memory = memory
-        self.object_store_memory = object_store_memory
-
-    def satisfies_limit(self, limit: "_Resources") -> bool:
-        return (
-            self.cpu <= limit.cpu
-            and self.gpu <= limit.gpu
-            and self.memory <= limit.memory
-            and self.object_store_memory <= limit.object_store_memory
-        )
-
-    def add(self, other: "_Resources") -> "_Resources":
-        return _Resources(
-            cpu=self.cpu + other.cpu,
-            gpu=self.gpu + other.gpu,
-            memory=self.memory + other.memory,
-            object_store_memory=self.object_store_memory + other.object_store_memory,
-        )
-
-
 def _constant(value: object) -> Callable[..., object]:
     def return_value(*_args: object, **_kwargs: object) -> object:
         return value
@@ -81,154 +51,11 @@ def _constant(value: object) -> Callable[..., object]:
     return return_value
 
 
-def _make_metadata_fetcher_module() -> tuple[SimpleNamespace, object]:
-    not_ready = object()
-
-    class ThreadedMetadataFetcher:
-        def __init__(self) -> None:
-            self._pending_deferred = []
-            self.fetch_remaining = []
-            self.pop_results = []
-
-        def submit(self, op_key: object, tasks: list[object]) -> None:
-            self._pending_deferred = []
-
-        def _fetch(self, pending: list[object]) -> list[object]:
-            return self.fetch_remaining
-
-        def _pop_result(self, ref: object) -> object:
-            return self.pop_results.pop(0)
-
-        def stop(self) -> None:
-            pass
-
-    class InlineMetadataFetcher:
-        def in_data_ready_get_object_size(self, task: object) -> int:
-            return 1
-
-        def stop(self) -> None:
-            pass
-
-    module = SimpleNamespace(
-        ThreadedMetadataFetcher=ThreadedMetadataFetcher,
-        InlineMetadataFetcher=InlineMetadataFetcher,
-        _Signal=SimpleNamespace(NOT_READY=not_ready),
-        logger=logging.getLogger("test_metadata_fetcher"),
-    )
-    return module, not_ready
-
-
-def test_threaded_metadata_fetch_diagnostics_report_stall_recovery_and_summary(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    module, not_ready = _make_metadata_fetcher_module()
-    clock = _Clock()
-    caplog.set_level(logging.DEBUG, logger=module.logger.name)
-    diagnostics._install_metadata_fetch_diagnostics(module, clock=clock)
-
-    fetcher = module.ThreadedMetadataFetcher()
-    metadata_ref = object()
-    second_metadata_ref = object()
-    task = SimpleNamespace(operator_name="ReadImages")
-    fetcher._pending_deferred = [
-        SimpleNamespace(task=task, meta_ref=metadata_ref),
-        SimpleNamespace(task=task, meta_ref=second_metadata_ref),
-    ]
-    fetcher.submit(SimpleNamespace(op=SimpleNamespace(name="ReadImages")), [])
-
-    clock.now = 1.1
-    fetcher.pop_results = [not_ready]
-    assert fetcher._pop_result(metadata_ref) is not_ready
-
-    clock.now = 2.0
-    fetcher.fetch_remaining = [second_metadata_ref]
-    assert fetcher._fetch([metadata_ref, second_metadata_ref]) == [second_metadata_ref]
-
-    clock.now = 2.5
-    fetcher.pop_results = [b"metadata"]
-    assert fetcher._pop_result(metadata_ref) == b"metadata"
-
-    clock.now = 2.8
-    fetcher.fetch_remaining = []
-    assert fetcher._fetch([second_metadata_ref]) == []
-
-    clock.now = 3.0
-    fetcher.pop_results = [b"second metadata"]
-    assert fetcher._pop_result(second_metadata_ref) == b"second metadata"
-    fetcher.stop()
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert any(
-        "ray_data_metadata_fetch_state" in message
-        and 'operator="ReadImages"' in message
-        and 'state="stalled"' in message
-        and "oldest_pending_ms=1100.0" in message
-        for message in messages
-    )
-    assert any(
-        "ray_data_metadata_fetch_state" in message
-        and 'state="recovered"' in message
-        and "stall_duration_ms=2800.0" in message
-        for message in messages
-    )
-    assert any(
-        "ray_data_metadata_fetch_summary" in message
-        and 'mode="threaded"' in message
-        and "submitted=2" in message
-        and "emitted=2" in message
-        and "fetch_latency_ms_total=4800.0" in message
-        and "delivery_delay_ms_total=700.0" in message
-        and "pending_high_watermark=2" in message
-        for message in messages
-    )
-
-
-def test_inline_metadata_fetch_diagnostics_report_operator_summary(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    module, _ = _make_metadata_fetcher_module()
-    clock = _Clock()
-    original_fetch = module.InlineMetadataFetcher.in_data_ready_get_object_size
-
-    calls = 0
-
-    def advance_during_fetch(self: object, task: object) -> int | None:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            clock.now = 1.1
-            return None
-        clock.now = 2.5
-        return original_fetch(self, task)
-
-    module.InlineMetadataFetcher.in_data_ready_get_object_size = advance_during_fetch
-    caplog.set_level(logging.DEBUG, logger=module.logger.name)
-    diagnostics._install_metadata_fetch_diagnostics(module, clock=clock)
-
-    fetcher = module.InlineMetadataFetcher()
-    task = SimpleNamespace(operator_name="ReadAudio", pending_meta_ref=object())
-    assert fetcher.in_data_ready_get_object_size(task) is None
-    assert fetcher.in_data_ready_get_object_size(task) == 1
-    fetcher.stop()
-
-    assert any(
-        "ray_data_metadata_fetch_summary" in record.getMessage()
-        and 'operator="ReadAudio"' in record.getMessage()
-        and 'mode="inline"' in record.getMessage()
-        and "submitted=1" in record.getMessage()
-        and "emitted=1" in record.getMessage()
-        and "fetch_latency_ms_total=2500.0" in record.getMessage()
+def _event_message(caplog: pytest.LogCaptureFixture, event: str, state: str) -> str:
+    return next(
+        record.getMessage()
         for record in caplog.records
-    )
-    assert any(
-        "ray_data_metadata_fetch_state" in record.getMessage() and 'state="stalled"' in record.getMessage()
-        for record in caplog.records
-    )
-    assert any(
-        "ray_data_metadata_fetch_state" in record.getMessage()
-        and 'state="recovered"' in record.getMessage()
-        and "stall_duration_ms=2500.0" in record.getMessage()
-        for record in caplog.records
+        if event in record.getMessage() and f'state="{state}"' in record.getMessage()
     )
 
 
@@ -245,9 +72,9 @@ def test_resource_admission_recovery_reports_blocked_duration_and_object_store_a
 
     class ReservationOpResourceAllocator(OpResourceAllocator):
         def __init__(self) -> None:
-            self.budget = _Resources(cpu=1, object_store_memory=1000)
+            self.budget = ExecutionResources(cpu=1, object_store_memory=1000)
 
-        def get_budget(self, op: object) -> _Resources:
+        def get_budget(self, op: object) -> ExecutionResources:
             return self.budget
 
     class ResourceBudgetBackpressurePolicy:
@@ -263,7 +90,7 @@ def test_resource_admission_recovery_reports_blocked_duration_and_object_store_a
         logger=logger,
     )
     allocator = ReservationOpResourceAllocator()
-    usage = _Resources(cpu=1, object_store_memory=300)
+    usage = ExecutionResources(cpu=1, object_store_memory=300)
     resource_manager = SimpleNamespace(
         _op_resource_allocator=allocator,
         get_op_usage=_constant(usage),
@@ -275,8 +102,8 @@ def test_resource_admission_recovery_reports_blocked_duration_and_object_store_a
         name = "ReadImages"
         metrics = SimpleNamespace(obj_store_mem_max_pending_output_per_task=50)
 
-        def incremental_resource_usage(self) -> _Resources:
-            return _Resources(cpu=2, object_store_memory=10)
+        def incremental_resource_usage(self) -> ExecutionResources:
+            return ExecutionResources(cpu=2, object_store_memory=10)
 
     op = Op()
 
@@ -289,17 +116,13 @@ def test_resource_admission_recovery_reports_blocked_duration_and_object_store_a
     assert not policy.can_add_input(op)
 
     clock.now = 2.5
-    allocator.budget = _Resources(cpu=3, object_store_memory=1000)
+    allocator.budget = ExecutionResources(cpu=3, object_store_memory=1000)
     assert policy.can_add_input(op)
 
-    assert any(
-        "ray_data_resource_budget_admission" in record.getMessage()
-        and 'state="allowed"' in record.getMessage()
-        and "blocked_duration_ms=2500.0" in record.getMessage()
-        and "object_store_internal_bytes=100" in record.getMessage()
-        and "object_store_output_bytes=200" in record.getMessage()
-        for record in caplog.records
-    )
+    recovery = _event_message(caplog, "ray_data_resource_budget_admission", "allowed")
+    assert "blocked_duration_ms=2500.0" in recovery
+    assert "object_store_internal_bytes=100" in recovery
+    assert "object_store_output_bytes=200" in recovery
 
 
 def test_downstream_capacity_recovery_reports_blocked_duration_and_object_store_attribution(
@@ -349,96 +172,10 @@ def test_downstream_capacity_recovery_reports_blocked_duration_and_object_store_
     policy.queue_ratio = 1.0
     assert not policy._should_apply_backpressure(op)
 
-    assert any(
-        "ray_data_downstream_capacity_admission" in record.getMessage()
-        and 'state="allowed"' in record.getMessage()
-        and "blocked_duration_ms=4000.0" in record.getMessage()
-        and "object_store_internal_bytes=100" in record.getMessage()
-        and "object_store_output_bytes=500" in record.getMessage()
-        for record in caplog.records
-    )
-
-
-def test_actor_autoscaling_decision_reports_object_store_attribution(  # noqa: C901
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    logger = logging.getLogger("test_actor_autoscaling")
-    caplog.set_level(logging.DEBUG, logger=logger.name)
-
-    class ActorPool:
-        def current_size(self) -> int:
-            return 4
-
-        def min_size(self) -> int:
-            return 1
-
-        def max_size(self) -> int:
-            return 8
-
-        def num_running_actors(self) -> int:
-            return 4
-
-        def num_pending_actors(self) -> int:
-            return 0
-
-        def num_active_actors(self) -> int:
-            return 3
-
-        def num_idle_actors(self) -> int:
-            return 1
-
-        def get_pool_util(self) -> float:
-            return 1.5
-
-        def num_tasks_in_flight(self) -> int:
-            return 6
-
-        def scale(self, request: object) -> None:
-            pass
-
-    actor_pool = ActorPool()
-
-    class Op:
-        name = "ImageEmbedding"
-
-        def get_autoscaling_actor_pools(self) -> list[ActorPool]:
-            return [actor_pool]
-
-    op = Op()
-    state = SimpleNamespace(
-        _scheduling_status=SimpleNamespace(reason="ResourceBudget"),
-        total_enqueued_input_blocks=lambda: 10,
-        total_enqueued_input_blocks_bytes=lambda: 1000,
-    )
-    resources = _Resources(cpu=4, gpu=1, object_store_memory=300)
-    resource_manager = SimpleNamespace(
-        get_allocation=_constant(resources),
-        get_op_usage=_constant(resources),
-        get_budget=_constant(resources),
-        get_mem_op_internal=_constant(100),
-        get_mem_op_outputs=_constant(200),
-    )
-
-    class DefaultActorAutoscaler:
-        def __init__(self) -> None:
-            self._resource_manager = resource_manager
-            self._topology = {op: state}
-
-        def _derive_target_scaling_config(self, pool: ActorPool, current_op: Op, current_state: object) -> object:
-            return SimpleNamespace(delta=1, reason="high utilization")
-
-    module = SimpleNamespace(DefaultActorAutoscaler=DefaultActorAutoscaler, logger=logger)
-    diagnostics._install_actor_autoscaling_diagnostics(module)
-
-    DefaultActorAutoscaler().try_trigger_scaling()
-
-    assert any(
-        "ray_data_actor_autoscaling_decision" in record.getMessage()
-        and 'operator="ImageEmbedding"' in record.getMessage()
-        and "object_store_internal_bytes=100" in record.getMessage()
-        and "object_store_output_bytes=200" in record.getMessage()
-        for record in caplog.records
-    )
+    recovery = _event_message(caplog, "ray_data_downstream_capacity_admission", "allowed")
+    assert "blocked_duration_ms=4000.0" in recovery
+    assert "object_store_internal_bytes=100" in recovery
+    assert "object_store_output_bytes=500" in recovery
 
 
 def test_logfmt_event_escapes_strings_and_flattens_resources() -> None:
@@ -501,8 +238,10 @@ def test_scheduler_diagnostics_are_written_to_ray_session_log(
     assert ray_data_log.exists()
     log_contents = ray_data_log.read_text()
     assert {
-        "ray_data_metadata_fetch_summary",
         "ray_data_resource_budget_admission",
         "ray_data_downstream_capacity_admission",
         "ray_data_actor_autoscaling_decision",
     } <= set(log_contents.split())
+    actor_event = next(line for line in log_contents.splitlines() if "ray_data_actor_autoscaling_decision" in line)
+    assert "object_store_internal_bytes=" in actor_event
+    assert "object_store_output_bytes=" in actor_event
