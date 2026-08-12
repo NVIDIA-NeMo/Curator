@@ -11,6 +11,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
 - [Audio Tagging Benchmark](#audio-tagging-benchmark)
+- [Audio Sortformer Benchmark](#audio-sortformer-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -566,10 +567,11 @@ Audio benchmarks that depend on external corpora use the same two-layer setup:
 1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
    machine to populate persistent paths under `{datasets_path}` and, when
    needed, `{model_weights_path}`.
-2. Run nightly entries with `--raw-data-dir` and `--no-auto-download` so the
-   benchmark itself never downloads the corpus during the scheduled run.
+2. Run nightly entries from the staged data and local model paths so the
+   benchmark itself never downloads inputs during the scheduled run. Entries
+   that support a standalone download fallback also pass `--no-auto-download`.
 
-The benchmark scripts keep their standalone auto-download path for ad hoc local
+Benchmarks that expose a standalone auto-download path keep it for ad hoc local
 debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
@@ -589,11 +591,19 @@ python benchmarking/data_prep/prepare_fleurs_data.py \
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --output-path {datasets_path}/audio_tagging_ami_sdm \
   --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path {datasets_path}/audio_sortformer_ami_sdm \
+  --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 ```
 
 After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
 `fleurs_hy_am` and `{datasets_path}/audio_tagging_ami_sdm` as
-`audio_tagging_ami_sdm`. Both nightly benchmark commands pass `--no-auto-download`.
+`audio_tagging_ami_sdm`. It mounts the complete public AMI SDM validation and
+test splits at
+`{datasets_path}/audio_sortformer_ami_sdm` as `audio_sortformer_ami_sdm`.
+FLEURS and audio tagging pass `--no-auto-download`; Sortformer requires its
+staged dataset and local `.nemo` checkpoint directly.
 
 ---
 
@@ -702,6 +712,103 @@ requires complete second-pass ASR and finite WER output, nonzero work from all
 and at least 1.2 source audio hours (2.4 for the repeated entry). The nightly
 configuration additionally requires at least 100 complete segments and 0.2
 tagged audio hours (200 segments and 0.4 hours for the repeated entry).
+
+---
+
+## Audio Sortformer Benchmark
+
+The Sortformer nightly benchmark uses the complete `sdm` `validation` and
+`test` splits from the
+public, ungated [`diarizers-community/ami`](https://huggingface.co/datasets/diarizers-community/ami)
+dataset. The splits are CC-BY-4.0, contain 34 unique meetings, occupy
+2,034,736,248 bytes in six source Parquet shards, contain 2,157,687,735 bytes
+of embedded mono 16 kHz PCM audio, and span approximately 18.730 hours. The prep
+script pins dataset revision
+`8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0` and records the public source
+contract in `source_metadata.json` next to the manifest. The benchmark also
+pins canonical meeting IDs, durations, timestamps, and speaker labels with
+SHA-256 `ad548f866d578402a03dc6e10fb92c613092f862e7ca0ec0592a8e74c114ad99`.
+
+The same script stages the public, ungated
+[`nvidia/diar_streaming_sortformer_4spk-v2.1`](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1)
+checkpoint at revision `fafaab5faa1617a0ca52d38dd3dc4bd636800d3d`.
+The `.nemo` file is 471,367,680 bytes with SHA-256
+`8abd32832159c6ac1148c926b7276f35ba34582c444e559dce1f1253fea42ef8`.
+It is governed by the
+[`NVIDIA Open Model License`](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/).
+Neither source requires a token. Stage and verify both inputs once with:
+
+```bash
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path /path/to/datasets/audio_sortformer_ami_sdm \
+  --model-output-path /path/to/model_weights/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path /path/to/datasets/audio_sortformer_ami_sdm \
+  --model-output-path /path/to/model_weights/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo \
+  --verify-only
+```
+
+The staged manifest contains `audio_filepath`, `audio_item_id`, `session_name`,
+measured `duration`, and the public `timestamps_start`, `timestamps_end`, and
+`speakers` reference arrays for every meeting.
+Its metadata records each decoded WAV's SHA-256. Before timing begins, the
+benchmark verifies the exact dataset metadata, WAV hashes/format/duration, and
+model size/SHA, then rewrites only `audio_filepath` to the mounted data
+directory. It rejects missing rows, duplicate identities, output row loss,
+duplicate RTTM session names, malformed segments, files with no detected
+segments, and records semantic diarization error rate. Structural checks cover
+all 34 outputs, and DER is computed for every unique source `audio_item_id`.
+DER uses zero collar and includes overlap, but is report-only until a baseline
+is calibrated because the public Hugging Face timestamps differ from the
+forced-alignment RTTMs used for NVIDIA's model-card result. The checkpoint is
+always loaded from `--model-path`, so timed nightly runs have no network or
+model-download variance.
+
+NVIDIA reports 17.80% DER for the 30.4-second very-high-latency profile on
+AMI Test SDM, with overlap included and a zero-second collar against
+forced-alignment RTTMs. This benchmark uses the public dataset's `only_words`
+annotations and the 1.04-second low-latency profile, so it does not claim to
+reproduce that model-card DER.
+
+Nightly processes each of the 34 immutable source meetings exactly once. Every
+meeting has a unique `audio_item_id` and `session_name`, so concurrent RTTM
+writes cannot collide. The inference stage uses exactly eight workers with one
+full GPU each, and the entry inherits the nightly Ray default of eight GPUs.
+It explicitly selects Sortformer's published 1.04-second low-latency profile:
+chunk length 6, left context 1, right context 7, FIFO length 188, speaker-cache
+update period 144, and speaker-cache length 188. NVIDIA reports an RTF of 0.093
+for this profile on an RTX 6000 Ada with batch size 1. On that reference, the
+workload estimate is:
+
+```text
+18.729746667 audio hours * 0.093 RTF / 8 GPUs = 0.217733305 hours = 13.064 minutes
+```
+
+Actual wall time remains hardware-dependent. The entry is checked in disabled
+until an operator provisions these public inputs in the scheduled nightly's
+persistent dataset/model mounts, then calibrates this estimate on its eight-GPU
+hardware and enables the entry. The workload is sized for the requested 10-15
+minute range rather than relying on model initialization time. Run the same
+workload locally with:
+
+```bash
+python benchmarking/scripts/audio_sortformer_benchmark.py \
+  --benchmark-results-path /tmp/audio-sortformer-results \
+  --raw-data-dir /path/to/datasets/audio_sortformer_ami_sdm \
+  --model-path /path/to/model_weights/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo \
+  --gpu-stage-num-workers 8 \
+  --chunk-len 6 \
+  --chunk-left-context 1 \
+  --chunk-right-context 7 \
+  --fifo-len 188 \
+  --spkcache-update-period 144 \
+  --spkcache-len 188 \
+  --executor xenna \
+  --rttm-out-dir /tmp/audio-sortformer-results/rttm
+```
+
+For a functional smoke test on one GPU, use `--gpu-stage-num-workers 1`.
 
 ---
 
