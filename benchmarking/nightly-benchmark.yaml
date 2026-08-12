@@ -369,7 +369,7 @@ entries:
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
         ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
 
     requirements:
       - metric: num_documents_processed
@@ -408,6 +408,7 @@ entries:
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
         ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
           - U022P8CDX40  # Sarah Yurick
 
     requirements:
@@ -1054,7 +1055,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 1200
+    timeout_s: 1800
     ray:
       num_cpus: 32
     sink_data:
@@ -1085,7 +1086,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 1200
+    timeout_s: 1800
     ray:
       num_cpus: 32
     sink_data:
