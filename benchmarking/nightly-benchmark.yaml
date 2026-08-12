@@ -1350,7 +1350,7 @@ entries:
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
-      --pdfs-per-task=10
+      --pdfs-per-task=20
       --max-pdfs=1278
       --max-pages=10
       --max-num-seqs=64
@@ -1374,11 +1374,18 @@ entries:
         exact_value: 1278
       - metric: num_pages_processed
         exact_value: 5794
-      # Throughput is a floor, not an exact value: wall-clock moves with cluster
-      # load. Observed ~7.8 pages/s; 5.0 leaves headroom for a loaded cluster
-      # while still catching a real regression.
+      # Throughput floors rather than exact values: wall-clock moves with cluster
+      # load. Observed 8.5-8.9 pages/s and 7166-7482 output tokens/s across both
+      # executors, so these sit ~15-18% below the slowest measurement -- tight
+      # enough to catch a real regression, loose enough not to flake.
+      # The token rate is asserted as well as the page rate so that swapping the
+      # inference backend (e.g. to Dynamo) has to preserve generation throughput,
+      # not just page throughput. It is a rate, not a count: exact token counts
+      # are not reproducible under dynamic batching.
       - metric: throughput_pages_per_sec
-        min_value: 5.0
+        min_value: 7.0
+      - metric: throughput_output_tokens_per_sec
+        min_value: 6000
 
   - name: nemotron_parse_pdf_raydata
     enabled: true
@@ -1392,7 +1399,7 @@ entries:
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
-      --pdfs-per-task=10
+      --pdfs-per-task=20
       --max-pdfs=1278
       --max-pages=10
       --max-num-seqs=64
@@ -1416,11 +1423,18 @@ entries:
         exact_value: 1278
       - metric: num_pages_processed
         exact_value: 5794
-      # Throughput is a floor, not an exact value: wall-clock moves with cluster
-      # load. Observed ~7.8 pages/s; 5.0 leaves headroom for a loaded cluster
-      # while still catching a real regression.
+      # Throughput floors rather than exact values: wall-clock moves with cluster
+      # load. Observed 8.5-8.9 pages/s and 7166-7482 output tokens/s across both
+      # executors, so these sit ~15-18% below the slowest measurement -- tight
+      # enough to catch a real regression, loose enough not to flake.
+      # The token rate is asserted as well as the page rate so that swapping the
+      # inference backend (e.g. to Dynamo) has to preserve generation throughput,
+      # not just page throughput. It is a rate, not a count: exact token counts
+      # are not reproducible under dynamic batching.
       - metric: throughput_pages_per_sec
-        min_value: 5.0
+        min_value: 7.0
+      - metric: throughput_output_tokens_per_sec
+        min_value: 6000
 
 
   - name: alm_pipeline_xenna
