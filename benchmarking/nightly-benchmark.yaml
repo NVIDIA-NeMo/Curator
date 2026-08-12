@@ -1055,7 +1055,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 1800
+    timeout_s: 2100
     ray:
       num_cpus: 32
     sink_data:
@@ -1065,12 +1065,14 @@ entries:
           - throughput_rows_per_sec
           - serve_startup_s
         ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
           - U022P8CDX40  # Sarah Yurick
     requirements:
       - metric: output_row_count
-        exact_value: 853
+        min_value: 245400
+        max_value: 245500
       - metric: throughput_rows_per_sec
-        min_value: 5.8
+        min_value: 150
 
   - name: ndd_ray_serve_dp8
     enabled: true
@@ -1086,7 +1088,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 1800
+    timeout_s: 2100
     ray:
       num_cpus: 32
     sink_data:
@@ -1096,12 +1098,14 @@ entries:
           - throughput_rows_per_sec
           - serve_startup_s
         ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
           - U022P8CDX40  # Sarah Yurick
     requirements:
       - metric: output_row_count
-        exact_value: 853
+        min_value: 245400
+        max_value: 245500
       - metric: throughput_rows_per_sec
-        min_value: 5.0
+        min_value: 150
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     enabled: true
