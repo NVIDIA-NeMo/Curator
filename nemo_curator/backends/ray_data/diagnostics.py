@@ -33,10 +33,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from typing import Any
 
 # Runtime monkeypatch callbacks necessarily accept objects owned by Ray's
 # private, untyped implementation modules.
@@ -170,10 +167,7 @@ def _has_native_diagnostics(autoscaler_module: Any, resource_manager_module: Any
 
 
 def _install_resource_admission_diagnostics(  # noqa: C901, PLR0915
-    resource_manager_module: Any,
-    resource_policy_module: Any,
-    *,
-    clock: Callable[[], float] = time.perf_counter,
+    resource_manager_module: Any, resource_policy_module: Any
 ) -> None:
     allocator_cls = resource_manager_module.OpResourceAllocator
     reservation_cls = resource_manager_module.ReservationOpResourceAllocator
@@ -235,9 +229,9 @@ def _install_resource_admission_diagnostics(  # noqa: C901, PLR0915
             blocked_since = self._nemo_curator_resource_blocked_since
             if decision.allowed:
                 started_at = blocked_since.pop(op, None)
-                blocked_duration_ms = None if started_at is None else _milliseconds(clock() - started_at)
+                blocked_duration_ms = None if started_at is None else _milliseconds(time.perf_counter() - started_at)
             else:
-                blocked_since.setdefault(op, clock())
+                blocked_since.setdefault(op, time.perf_counter())
                 blocked_duration_ms = None
             usage = None
             allocation = None
@@ -264,11 +258,7 @@ def _install_resource_admission_diagnostics(  # noqa: C901, PLR0915
     policy_cls.can_add_input = can_add_input
 
 
-def _install_downstream_capacity_diagnostics(
-    downstream_policy_module: Any,
-    *,
-    clock: Callable[[], float] = time.perf_counter,
-) -> None:
+def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> None:
     policy_cls = downstream_policy_module.DownstreamCapacityBackpressurePolicy
     original_init = policy_cls.__init__
 
@@ -295,11 +285,11 @@ def _install_downstream_capacity_diagnostics(
         if previous != result:
             blocked_since = self._nemo_curator_downstream_blocked_since
             if result:
-                blocked_since.setdefault(op, clock())
+                blocked_since.setdefault(op, time.perf_counter())
                 blocked_duration_ms = None
             else:
                 started_at = blocked_since.pop(op, None)
-                blocked_duration_ms = None if started_at is None else _milliseconds(clock() - started_at)
+                blocked_duration_ms = None if started_at is None else _milliseconds(time.perf_counter() - started_at)
             queue_bytes = self._get_queue_size_bytes(op)
             downstream_capacity_bytes = self._get_downstream_capacity_size_bytes(op)
             downstream_policy_module.logger.debug(
