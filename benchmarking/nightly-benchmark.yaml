@@ -59,6 +59,10 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/mscoco/model_weights"
+  - name: "image_curation_mint1t"
+    formats:
+    - type: "wds"
+      path: "{datasets_path}/image_curation/mint1t_unique_jpeg_600k_v1"
   - name: "videos"
     formats:
     - type: "mp4"
@@ -601,11 +605,12 @@ entries:
     script: image_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-wds-dataset-dir={dataset:mscoco,wds}
+      --input-wds-dataset-dir={dataset:image_curation_mint1t,wds}
       --output-dataset-dir={session_entry_dir}/scratch/output
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=ray_data
       --tar-files-per-partition=1
+      --input-partition-limit=475
       --batch-size=1000
       --embedding-batch-size=500
       --aesthetic-batch-size=500
@@ -615,27 +620,30 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
+          - num_images_processed
+          - num_images_written
           - throughput_images_per_sec
         ping_on_failure:
           - U020C9VC05N  # Ao Tang
 
     requirements:
-      # ensure the total number of documents processed is correct
+      # 475 deterministic shards x 1,000 unique images per shard.
       - metric: num_images_processed
-        exact_value: 3800
+        exact_value: 475000
       - metric: throughput_images_per_sec
-        min_value: 3.0
+        min_value: 100.0
 
   - name: image_curation_xenna
     enabled: true
     script: image_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-wds-dataset-dir={dataset:mscoco,wds}
+      --input-wds-dataset-dir={dataset:image_curation_mint1t,wds}
       --output-dataset-dir={session_entry_dir}/scratch/output
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=xenna
       --tar-files-per-partition=1
+      --input-partition-limit=475
       --batch-size=1000
       --embedding-batch-size=500
       --aesthetic-batch-size=500
@@ -645,16 +653,18 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
+          - num_images_processed
+          - num_images_written
           - throughput_images_per_sec
         ping_on_failure:
           - U020C9VC05N  # Ao Tang
 
     requirements:
-      # ensure the total number of documents processed is correct
+      # 475 deterministic shards x 1,000 unique images per shard.
       - metric: num_images_processed
-        exact_value: 3800
+        exact_value: 475000
       - metric: throughput_images_per_sec
-        min_value: 3.0
+        min_value: 100.0
 
   - name: audio_sortformer_xenna
     enabled: false
