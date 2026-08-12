@@ -339,7 +339,7 @@ entries:
         min_value: 58633871
         max_value: 59818394
 
-  - name: semdedup_identification_xenna
+  - name: semdedup_identification_xenna_dataset_size_ratio
     enabled: true
     script: semdedup_identification_benchmark.py
     args: >-
@@ -369,7 +369,46 @@ entries:
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
         ping_on_failure:
-          - U07JL5K0L10  # Praateek Mahajan
+          - U022P8CDX40  # Sarah Yurick
+
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 65844782
+      - metric: num_duplicates
+        min_value: 1000000
+        max_value: 1250000
+
+  - name: semdedup_identification_xenna_fit_data_fraction
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,parquet_gemma_embeddings}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=_curator_dedup_id
+      --embedding-field=embeddings
+      --embedding-dim=1536
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=1024
+      --fit-data-fraction=0.20
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - num_duplicates
+          # %percent time taken
+          - kmeans_read_percent_time
+          - kmeans_write_percent_time
+          - kmeans_fit_predict_percent_time
+          - pairwise_percent_time
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
 
     requirements:
       - metric: num_documents_processed
@@ -816,9 +855,9 @@ entries:
       - metric: num_tar_files
         exact_value: 100
       - metric: num_input_documents
-        exact_value: 90922
+        exact_value: 173247
       - metric: num_output_documents
-        exact_value: 61474
+        exact_value: 116538
 
   - name: arxiv_e2e_pipeline_xenna
     enabled: true
@@ -845,9 +884,9 @@ entries:
       - metric: num_tar_files
         exact_value: 100
       - metric: num_input_documents
-        exact_value: 90922
+        exact_value: 173247
       - metric: num_output_documents
-        exact_value: 61474
+        exact_value: 116538
 
   - name: video_embedding_xenna
     enabled: true
