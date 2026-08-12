@@ -396,7 +396,7 @@ entries:
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --fit-data-fraction=0.20
-    timeout_s: 1200
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -847,7 +847,7 @@ entries:
           - num_input_documents
           - num_output_documents
         ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
+          - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
     requirements:
@@ -876,7 +876,7 @@ entries:
           - num_input_documents
           - num_output_documents
         ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
+          - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
     requirements:
@@ -1040,13 +1040,13 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.5
 
-  # TODO: Update this
   - name: ndd_dynamo_dp8
     enabled: true
     script: ndd_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
       --output-path={session_entry_dir}/scratch/output
       --inference-server-type=dynamo
       --model-id=openai/gpt-oss-20b
@@ -1054,13 +1054,12 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 2700  # 45 min for Dynamo runtime_env setup plus 8-replica gpt-oss-20b weights load
+    timeout_s: 1200
     ray:
       num_cpus: 32
     sink_data:
       - name: slack
         additional_metrics:
-          - input_row_count
           - output_row_count
           - throughput_rows_per_sec
           - serve_startup_s
@@ -1072,13 +1071,13 @@ entries:
       - metric: throughput_rows_per_sec
         min_value: 5.8
 
-  # TODO: Update this
   - name: ndd_ray_serve_dp8
     enabled: true
     script: ndd_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
       --output-path={session_entry_dir}/scratch/output
       --inference-server-type=ray-serve
       --model-id=openai/gpt-oss-20b
@@ -1086,13 +1085,12 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 1800
+    timeout_s: 1200
     ray:
       num_cpus: 32
     sink_data:
       - name: slack
         additional_metrics:
-          - input_row_count
           - output_row_count
           - throughput_rows_per_sec
           - serve_startup_s
