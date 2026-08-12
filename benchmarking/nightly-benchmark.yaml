@@ -1360,6 +1360,7 @@ entries:
         additional_metrics:
           - num_pdfs_processed
           - num_pages_processed
+          - num_output_tokens
           - num_output_tasks
           - throughput_pages_per_sec
           - throughput_output_tokens_per_sec
@@ -1386,6 +1387,18 @@ entries:
         min_value: 7.0
       - metric: throughput_output_tokens_per_sec
         min_value: 6000
+      # Total generated tokens, asserted as a band rather than an exact value.
+      # Dynamic batching shifts where the model emits EOS, so the count is not
+      # reproducible the way the page count is -- but it is stable to within 1%.
+      # Measured across 10 runs (both executors): 4,852,596 to 4,897,124, mean
+      # 4,872,307, total spread 0.91%. The band is +/-5% of that mean, ~10x the
+      # observed drift, so it will not flake but will still catch a change in
+      # what the model generates -- e.g. swapping the inference backend for one
+      # that is materially more or less verbose, which a throughput floor alone
+      # would miss.
+      - metric: num_output_tokens
+        min_value: 4630000
+        max_value: 5115000
 
   - name: nemotron_parse_pdf_raydata
     enabled: true
@@ -1409,6 +1422,7 @@ entries:
         additional_metrics:
           - num_pdfs_processed
           - num_pages_processed
+          - num_output_tokens
           - num_output_tasks
           - throughput_pages_per_sec
           - throughput_output_tokens_per_sec
@@ -1435,6 +1449,18 @@ entries:
         min_value: 7.0
       - metric: throughput_output_tokens_per_sec
         min_value: 6000
+      # Total generated tokens, asserted as a band rather than an exact value.
+      # Dynamic batching shifts where the model emits EOS, so the count is not
+      # reproducible the way the page count is -- but it is stable to within 1%.
+      # Measured across 10 runs (both executors): 4,852,596 to 4,897,124, mean
+      # 4,872,307, total spread 0.91%. The band is +/-5% of that mean, ~10x the
+      # observed drift, so it will not flake but will still catch a change in
+      # what the model generates -- e.g. swapping the inference backend for one
+      # that is materially more or less verbose, which a throughput floor alone
+      # would miss.
+      - metric: num_output_tokens
+        min_value: 4630000
+        max_value: 5115000
 
 
   - name: alm_pipeline_xenna
