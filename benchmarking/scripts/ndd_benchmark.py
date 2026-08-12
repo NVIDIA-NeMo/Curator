@@ -45,6 +45,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc import WikipediaParaphrasingStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 if TYPE_CHECKING:
     from nemo_curator.core.serve import InferenceServer
@@ -221,7 +222,9 @@ def run_nemotron_cc_sdg_benchmark(
         if inference_server is not None:
             inference_server.stop()
 
-    output_row_count = sum(task.num_items for task in output_tasks) if output_tasks else 0
+    output_row_count = int(
+        TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_output_records")
+    )
     throughput_rows_per_sec = output_row_count / run_time_taken if run_time_taken > 0 else 0
 
     logger.success(f"Nemotron-CC SDG benchmark completed in {run_time_taken:.2f}s")
