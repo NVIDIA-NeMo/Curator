@@ -612,11 +612,11 @@ entries:
       --tar-files-per-partition=1
       --input-partition-limit=300
       --batch-size=1000
-      --reader-workers=6
+      --reader-workers=11
       --embedding-batch-size=500
-      --embedding-workers=25
+      --embedding-workers=11
       --aesthetic-batch-size=500
-      --aesthetic-workers=1
+      --aesthetic-workers=10
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
