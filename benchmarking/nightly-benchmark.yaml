@@ -1089,7 +1089,7 @@ entries:
       --model-id=openai/gpt-oss-20b
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
-      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --engine-kwargs='{"tensor_parallel_size": 1, "max_model_len": 131072}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
     timeout_s: 2100
     ray:
