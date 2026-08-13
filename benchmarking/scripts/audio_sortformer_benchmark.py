@@ -34,11 +34,6 @@ from nemo_curator.stages.resources import Resources
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
 
-AMI_SPLITS = ("validation", "test")
-AMI_SPLIT_NUM_ROWS = {"validation": 18, "test": 16}
-EXPECTED_AUDIO_FILENAMES = tuple(
-    f"ami_sdm_{split}_{index:03d}.wav" for split in AMI_SPLITS for index in range(AMI_SPLIT_NUM_ROWS[split])
-)
 DEFAULT_CHUNK_LEN = 6
 DEFAULT_CHUNK_LEFT_CONTEXT = 1
 DEFAULT_CHUNK_RIGHT_CONTEXT = 7
@@ -48,93 +43,23 @@ DEFAULT_SPKCACHE_LEN = 188
 SORTFORMER_STAGE_NAME = "Sortformer_inference"
 
 
-def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:
-    if not path.is_file() or path.stat().st_size == 0:
-        msg = f"{label} is missing or empty: {path}"
-        raise RuntimeError(msg)
-
-    rows: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as jsonl_file:
-        for line_number, line in enumerate(jsonl_file, start=1):
+def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> tuple[int, float]:
+    target_manifest.parent.mkdir(parents=True, exist_ok=True)
+    num_rows = 0
+    total_duration_s = 0.0
+    with (
+        source_manifest.open(encoding="utf-8") as source_file,
+        target_manifest.open("w", encoding="utf-8") as target_file,
+    ):
+        for line in source_file:
             if not line.strip():
                 continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as e:
-                msg = f"{label} has invalid JSON on line {line_number}: {e}"
-                raise RuntimeError(msg) from e
-            if not isinstance(row, Mapping):
-                msg = f"{label} line {line_number} is not a JSON object"
-                raise TypeError(msg)
-            rows.append(dict(row))
-    if not rows:
-        msg = f"{label} contains no data rows: {path}"
-        raise RuntimeError(msg)
-    return rows
-
-
-def _validate_manifest_contract(rows: list[dict[str, Any]], label: str) -> None:
-    if len(rows) != len(EXPECTED_AUDIO_FILENAMES):
-        msg = f"{label} must contain exactly {len(EXPECTED_AUDIO_FILENAMES)} rows, found {len(rows)}"
-        raise RuntimeError(msg)
-
-    expected_filenames = set(EXPECTED_AUDIO_FILENAMES)
-    seen_filenames: set[str] = set()
-    seen_ids: set[str] = set()
-    for line_number, row in enumerate(rows, start=1):
-        audio_filepath = row.get("audio_filepath")
-        if not isinstance(audio_filepath, str) or not audio_filepath:
-            msg = f"{label} line {line_number} must contain audio_filepath"
-            raise RuntimeError(msg)
-        filename = Path(audio_filepath).name
-        if filename not in expected_filenames:
-            msg = f"{label} line {line_number} references unexpected audio file {filename!r}"
-            raise RuntimeError(msg)
-        if filename in seen_filenames:
-            msg = f"{label} contains duplicate audio file {filename!r}"
-            raise RuntimeError(msg)
-        seen_filenames.add(filename)
-
-        audio_item_id = row.get("audio_item_id")
-        if not isinstance(audio_item_id, str) or not audio_item_id:
-            msg = f"{label} line {line_number} must contain a nonempty audio_item_id"
-            raise RuntimeError(msg)
-        if audio_item_id in seen_ids:
-            msg = f"{label} contains duplicate audio_item_id {audio_item_id!r}"
-            raise RuntimeError(msg)
-        seen_ids.add(audio_item_id)
-
-        duration = row.get("duration")
-        if not isinstance(duration, (int, float)) or duration <= 0:
-            msg = f"{label} line {line_number} must contain a positive duration"
-            raise RuntimeError(msg)
-
-
-def _locate_prestaged_data(data_dir: Path) -> tuple[Path, Path]:
-    manifest_path = data_dir / "manifest.jsonl"
-    audio_dir = data_dir / "audio"
-    if not manifest_path.is_file() or not audio_dir.is_dir():
-        msg = f"Expected pre-staged manifest.jsonl and audio/ under {data_dir}"
-        raise FileNotFoundError(msg)
-    missing_audio = [
-        audio_dir / filename for filename in EXPECTED_AUDIO_FILENAMES if not (audio_dir / filename).is_file()
-    ]
-    if missing_audio:
-        msg = f"Pre-staged audio files are missing: {', '.join(str(path) for path in missing_audio)}"
-        raise FileNotFoundError(msg)
-    _validate_manifest_contract(_load_jsonl_rows(manifest_path, "Input manifest"), "Input manifest")
-    return manifest_path, audio_dir
-
-
-def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> int:
-    rows = _load_jsonl_rows(source_manifest, "Source manifest")
-    _validate_manifest_contract(rows, "Source manifest")
-    target_manifest.parent.mkdir(parents=True, exist_ok=True)
-    with target_manifest.open("w", encoding="utf-8") as target_file:
-        for row in rows:
+            row = json.loads(line)
             row["audio_filepath"] = str((audio_dir / Path(row["audio_filepath"]).name).resolve())
             target_file.write(json.dumps(row) + "\n")
-    return len(rows)
+            num_rows += 1
+            total_duration_s += row["duration"]
+    return num_rows, total_duration_s
 
 
 def _validate_segment(segment: object, label: str) -> None:
@@ -156,17 +81,10 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
         msg = f"Sortformer returned {len(tasks)} rows for {num_input_rows} input rows"
         raise RuntimeError(msg)
 
-    total_duration_s = 0.0
     num_tasks_with_segments = 0
     num_segments = 0
     stage_items = 0
     for task_index, task in enumerate(tasks):
-        duration = task.data.get("duration")
-        if not isinstance(duration, (int, float)) or duration <= 0:
-            msg = f"task {task_index} must contain a positive duration"
-            raise RuntimeError(msg)
-        total_duration_s += duration
-
         segments = task.data.get("diar_segments")
         if not isinstance(segments, list):
             msg = f"task {task_index} must contain a diar_segments list"
@@ -195,7 +113,6 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
         "num_tasks_with_segments": num_tasks_with_segments,
         "num_segments_processed": num_segments,
         "stage_execution_coverage_ratio": 1.0,
-        "total_audio_duration_hours": total_duration_s / 3600,
     }
 
 
@@ -219,14 +136,12 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
         msg = "gpu_stage_num_workers must be at least 1"
         raise ValueError(msg)
 
-    source_manifest, audio_dir = _locate_prestaged_data(Path(raw_data_dir))
+    data_dir = Path(raw_data_dir)
+    source_manifest = data_dir / "manifest.jsonl"
+    audio_dir = data_dir / "audio"
     input_manifest = Path(scratch_output_path) / "audio_sortformer_ami_sdm" / "manifest.jsonl"
-    num_input_rows = _write_staged_manifest(source_manifest, input_manifest, audio_dir)
+    num_input_rows, total_duration_s = _write_staged_manifest(source_manifest, input_manifest, audio_dir)
     logger.info(f"Benchmark results path: {benchmark_results_path}")
-    local_model = Path(model_path)
-    if not local_model.is_file():
-        msg = f"Pre-staged Sortformer model not found: {local_model}"
-        raise FileNotFoundError(msg)
 
     exc = setup_executor(executor)
     run_start_time = time.perf_counter()
@@ -237,7 +152,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest)))
     pipeline.add_stage(
         InferenceSortformerStage(
-            model_path=str(local_model),
+            model_path=model_path,
             rttm_out_dir=rttm_out_dir,
             chunk_len=chunk_len,
             chunk_left_context=chunk_left_context,
@@ -251,7 +166,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     results = pipeline.run(exc)
     run_time_taken = time.perf_counter() - run_start_time
     output_metrics = _validate_outputs(results, num_input_rows)
-    total_audio_hours = output_metrics["total_audio_duration_hours"]
+    total_audio_hours = total_duration_s / 3600
 
     logger.success(f"Processed all {num_input_rows} unique AMI meetings")
     return {
@@ -259,6 +174,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
             "is_success": True,
             "time_taken_s": run_time_taken,
             **output_metrics,
+            "total_audio_duration_hours": total_audio_hours,
             "real_time_factor": run_time_taken / (total_audio_hours * 3600) if total_audio_hours > 0 else 0,
             "throughput_files_per_sec": num_input_rows / run_time_taken if run_time_taken > 0 else 0,
             "throughput_audio_hours_per_hour": (

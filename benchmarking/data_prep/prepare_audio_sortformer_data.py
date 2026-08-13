@@ -188,7 +188,6 @@ def stage_dataset(output_path: Path, cache_dir: str) -> None:
             msg = f"Expected {expected_rows} AMI SDM {split} rows, found {split_rows}"
             raise RuntimeError(msg)
 
-    _validate_manifest_contract(manifest_rows, f"{AMI_HF_REPO_ID}/{AMI_CONFIG}")
     _write_manifest(manifest_rows, output_path / "manifest.jsonl")
     logger.success(f"Dataset ready: {len(manifest_rows)} unique AMI SDM meetings")
 

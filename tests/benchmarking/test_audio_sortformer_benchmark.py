@@ -38,14 +38,14 @@ def benchmark_module():
         sys.modules.pop("audio_sortformer_benchmark", None)
 
 
-def _manifest_rows(benchmark_module: ModuleType) -> list[dict]:
+def _manifest_rows(num_rows: int = 34) -> list[dict]:
     return [
         {
-            "audio_filepath": f"audio/{filename}",
-            "audio_item_id": filename.removesuffix(".wav"),
+            "audio_filepath": f"audio/meeting_{index:03d}.wav",
+            "audio_item_id": f"meeting_{index:03d}",
             "duration": 2000.0,
         }
-        for filename in benchmark_module.EXPECTED_AUDIO_FILENAMES
+        for index in range(num_rows)
     ]
 
 
@@ -57,18 +57,16 @@ def test_write_staged_manifest_uses_local_audio_paths(tmp_path: Path, benchmark_
     data_dir = tmp_path / "input"
     audio_dir = data_dir / "audio"
     audio_dir.mkdir(parents=True)
-    rows = _manifest_rows(benchmark_module)
-    for row in rows:
-        (audio_dir / Path(row["audio_filepath"]).name).touch()
+    rows = _manifest_rows(num_rows=2)
     source_manifest = data_dir / "manifest.jsonl"
     source_manifest.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
-    located_manifest, located_audio = benchmark_module._locate_prestaged_data(data_dir)
     target_manifest = tmp_path / "scratch" / "manifest.jsonl"
-    num_rows = benchmark_module._write_staged_manifest(located_manifest, target_manifest, located_audio)
+    num_rows, total_duration_s = benchmark_module._write_staged_manifest(source_manifest, target_manifest, audio_dir)
     rewritten = [json.loads(line) for line in target_manifest.read_text().splitlines()]
 
-    assert num_rows == 34
+    assert num_rows == 2
+    assert total_duration_s == 4000.0
     assert all(Path(row["audio_filepath"]).parent == audio_dir.resolve() for row in rewritten)
 
 
@@ -133,12 +131,9 @@ def test_run_uses_eight_one_gpu_workers(
     data_dir = tmp_path / "input"
     audio_dir = data_dir / "audio"
     audio_dir.mkdir(parents=True)
-    rows = _manifest_rows(benchmark_module)
-    for row in rows:
-        (audio_dir / Path(row["audio_filepath"]).name).touch()
+    rows = _manifest_rows()
     (data_dir / "manifest.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
     model_path = tmp_path / "model.nemo"
-    model_path.touch()
 
     output_tasks = [
         SimpleNamespace(
