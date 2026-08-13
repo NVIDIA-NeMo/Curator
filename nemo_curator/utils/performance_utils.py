@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import statistics
 import time
+import uuid
 from typing import TYPE_CHECKING
 
 import attrs
@@ -46,6 +47,9 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
+    # Stable across serialization so a batch-level observation attached to
+    # multiple output tasks is aggregated exactly once.
+    observation_id: str = attrs.field(factory=lambda: uuid.uuid4().hex, repr=False)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
@@ -88,6 +92,7 @@ class StagePerfStats:
         """
         res = self.to_dict()
         res.pop("stage_name", None)
+        res.pop("observation_id", None)
         # Extract and drop the raw custom_metrics dict from the flattened output
         custom_metrics = res.pop("custom_metrics", {})
         # Flatten custom_metrics with a stable prefix

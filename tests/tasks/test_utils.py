@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
+
 import numpy as np
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
@@ -68,6 +70,19 @@ class TestTaskPerfUtils:
 
         assert metrics["FanoutStage_process_time_sum"] == 2.0
         assert metrics["FanoutStage_custom.num_rows_sum"] == 100.0
+
+    def test_collect_stage_metrics_counts_serialized_batch_stats_once(self) -> None:
+        """Serialized copies of one batch observation retain their deduplication identity."""
+        shared_perf = StagePerfStats(stage_name="BatchedStage", process_time=2.0, num_items_processed=500)
+        tasks = [
+            EmptyTask(dataset_name=f"output_{index}", data=None, _stage_perf=[copy.deepcopy(shared_perf)])
+            for index in range(5)
+        ]
+
+        metrics = TaskPerfUtils.aggregate_task_metrics(tasks)
+
+        assert metrics["BatchedStage_process_time_sum"] == 2.0
+        assert metrics["BatchedStage_num_items_processed_sum"] == 500.0
 
     def test_collect_stage_metrics_counts_distinct_equal_stats_separately(self) -> None:
         """Equal metrics from separate batch calls remain separate observations."""

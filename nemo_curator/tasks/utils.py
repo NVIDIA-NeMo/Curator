@@ -85,7 +85,7 @@ class TaskPerfUtils:
             Dict mapping stage_name -> metric_name -> list of numeric values.
         """
         stage_to_metrics: dict[str, dict[str, list[float]]] = {}
-        seen_stage_perfs: set[int] = set()
+        seen_stage_perfs: set[str | int] = set()
 
         for pipeline_tasks in TaskPerfUtils._normalize_pipeline_tasks(tasks).values():
             for task in pipeline_tasks or []:
@@ -94,7 +94,10 @@ class TaskPerfUtils:
                     # A batch may fan out into multiple tasks. The adapter attaches
                     # the same batch-level stats object to every output so each task
                     # retains its provenance; aggregate that shared object only once.
-                    perf_id = id(perf)
+                    # Ray serializes each output row independently, so copies of
+                    # one batch-level stats object do not retain Python identity.
+                    # Prefer the stable observation id and fall back for old data.
+                    perf_id = getattr(perf, "observation_id", id(perf))
                     if perf_id in seen_stage_perfs:
                         continue
                     seen_stage_perfs.add(perf_id)

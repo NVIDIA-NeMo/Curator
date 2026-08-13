@@ -615,8 +615,8 @@ entries:
       --reader-workers=8
       --embedding-batch-size=500
       --embedding-task-batch-size=5
-      --embedding-gpus-per-worker=0.5
-      --embedding-workers=12
+      --embedding-gpus-per-worker=0.25
+      --embedding-workers=24
       --remove-image-data-after-embedding
       --aesthetic-batch-size=500
       --aesthetic-task-batch-size=5
