@@ -1061,7 +1061,10 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
+          - input_row_count
           - output_row_count
+          - input_tokens_median_per_record
+          - output_tokens_median_per_record
           - throughput_rows_per_sec
           - serve_startup_s
         ping_on_failure:
@@ -1094,7 +1097,10 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
+          - input_row_count
           - output_row_count
+          - input_tokens_median_per_record
+          - output_tokens_median_per_record
           - throughput_rows_per_sec
           - serve_startup_s
         ping_on_failure:

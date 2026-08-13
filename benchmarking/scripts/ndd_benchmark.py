@@ -179,6 +179,7 @@ def run_nemotron_cc_sdg_benchmark(
         msg = f"Unknown inference_server_type: {inference_server_type}"
         raise ValueError(msg)
 
+    # Build config and run pipeline
     model_alias = model_id
     model_configs = [
         dd.ModelConfig(
@@ -222,13 +223,30 @@ def run_nemotron_cc_sdg_benchmark(
         if inference_server is not None:
             inference_server.stop()
 
+    # Post-run: extract metrics from _stage_perf
+    input_row_count = int(
+        TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_input_records")
+    )
     output_row_count = int(
         TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_output_records")
+    )
+    input_tokens_median_per_record = float(
+        TaskPerfUtils.get_aggregated_stage_stat(
+            output_tasks, "DataDesignerStage", "custom.input_tokens_median_per_record"
+        )
+    )
+    output_tokens_median_per_record = float(
+        TaskPerfUtils.get_aggregated_stage_stat(
+            output_tasks, "DataDesignerStage", "custom.output_tokens_median_per_record"
+        )
     )
     throughput_rows_per_sec = output_row_count / run_time_taken if run_time_taken > 0 else 0
 
     logger.success(f"Nemotron-CC SDG benchmark completed in {run_time_taken:.2f}s")
+    logger.success(f"Input:  {input_row_count} rows")
     logger.success(f"Output: {output_row_count} rows")
+    logger.success(f"Input tokens median per record: {input_tokens_median_per_record:,}")
+    logger.success(f"Output tokens median per record: {output_tokens_median_per_record:,}")
     logger.success(f"Throughput: {throughput_rows_per_sec:.2f} rows/sec")
 
     return {
@@ -237,7 +255,10 @@ def run_nemotron_cc_sdg_benchmark(
             "time_taken_s": run_time_taken,
             "inference_server_type": inference_server_type,
             "model_id": model_id,
+            "input_row_count": input_row_count,
             "output_row_count": output_row_count,
+            "input_tokens_median_per_record": input_tokens_median_per_record,
+            "output_tokens_median_per_record": output_tokens_median_per_record,
             "throughput_rows_per_sec": throughput_rows_per_sec,
             "serve_startup_s": serve_startup_s,
             "dataset_size_gb": dataset_size_gb,
