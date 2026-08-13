@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 pytest.importorskip("soundfile")
 
-from benchmarking.data_prep import prepare_audio_sortformer_data as prep
 from benchmarking.scripts import audio_sortformer_contract as contract
 
 
@@ -40,32 +39,29 @@ def _valid_rows() -> list[dict]:
             "timestamps_end": [1.0, 2.0, 3.0],
             "speakers": ["speaker_a", "speaker_b", "speaker_c"],
         }
-        for index, filename in enumerate(prep.EXPECTED_AUDIO_FILENAMES)
+        for filename in contract.EXPECTED_AUDIO_FILENAMES
     ]
 
 
 def test_pinned_sources_are_public_and_sized() -> None:
-    metadata = contract.source_metadata()
-
-    assert metadata["dataset"]["public"] is True
-    assert metadata["dataset"]["gated"] is False
-    assert metadata["dataset"]["license"] == "cc-by-4.0"
-    assert metadata["dataset"]["splits"] == ["validation", "test"]
-    assert metadata["dataset"]["split_num_rows"] == {"validation": 18, "test": 16}
-    assert metadata["dataset"]["num_rows"] == 34
-    assert metadata["dataset"]["source_download_bytes"] == 2_034_736_248
-    assert metadata["dataset"]["decoded_audio_bytes"] == 2_157_687_735
-    assert len(metadata["dataset"]["audio_sha256"]) == 34
+    assert contract.DATASET_HF_REPO_ID == "diarizers-community/ami"
+    assert contract.DATASET_LICENSE == "cc-by-4.0"
+    assert contract.DATASET_SPLITS == ("validation", "test")
+    assert contract.DATASET_SPLIT_NUM_ROWS == {"validation": 18, "test": 16}
+    assert contract.DATASET_NUM_ROWS == 34
+    assert contract.DATASET_SOURCE_DOWNLOAD_BYTES == 2_034_736_248
+    assert contract.DATASET_DECODED_AUDIO_BYTES == 2_157_687_735
     assert len(set(contract.EXPECTED_AUDIO_FILENAMES)) == 34
-    assert metadata["dataset"]["reference_annotations_sha256"] == contract.REFERENCE_ANNOTATIONS_SHA256
-    assert metadata["model"]["public"] is True
-    assert metadata["model"]["gated"] is False
-    assert metadata["model"]["size_bytes"] == 471_367_680
-    assert metadata["model"]["license"] == "nvidia-open-model-license"
+    assert len(contract.AUDIO_CORPUS_SHA256) == 64
+    assert contract.MODEL_SIZE_BYTES == 471_367_680
+    assert contract.MODEL_LICENSE == "nvidia-open-model-license"
 
 
-def test_validate_manifest_contract_accepts_complete_public_split() -> None:
-    prep._validate_manifest_contract(_valid_rows(), "test manifest")
+def test_validate_manifest_contract_accepts_complete_public_split(monkeypatch: MonkeyPatch) -> None:
+    rows = _valid_rows()
+    monkeypatch.setattr(contract, "REFERENCE_ANNOTATIONS_SHA256", contract.reference_annotations_sha256(rows))
+
+    contract.validate_manifest(rows, "test manifest")
 
 
 @pytest.mark.parametrize(
@@ -79,17 +75,20 @@ def test_validate_manifest_contract_accepts_complete_public_split() -> None:
         ("speakers", ["", "speaker_b", "speaker_c"], "empty reference speaker"),
     ],
 )
-def test_validate_manifest_contract_rejects_invalid_rows(field: str, replacement: object, match: str) -> None:
+def test_validate_manifest_contract_rejects_invalid_rows(
+    field: str, replacement: object, match: str, monkeypatch: MonkeyPatch
+) -> None:
     rows = deepcopy(_valid_rows())
+    monkeypatch.setattr(contract, "REFERENCE_ANNOTATIONS_SHA256", contract.reference_annotations_sha256(rows))
     rows[0][field] = replacement
 
     with pytest.raises(RuntimeError, match=match):
-        prep._validate_manifest_contract(rows, "test manifest")
+        contract.validate_manifest(rows, "test manifest")
 
 
 def test_validate_manifest_contract_rejects_truncated_split() -> None:
     with pytest.raises(RuntimeError, match="exactly 34 rows"):
-        prep._validate_manifest_contract(_valid_rows()[:-1], "test manifest")
+        contract.validate_manifest(_valid_rows()[:-1], "test manifest")
 
 
 def test_validate_model_rejects_same_size_tamper(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:

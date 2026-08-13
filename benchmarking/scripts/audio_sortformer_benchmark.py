@@ -17,32 +17,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import time
 import traceback
 from pathlib import Path
 from typing import Any
 
-import soundfile as sf
-from audio_sortformer_contract import (
-    AUDIO_SAMPLE_RATE,
-    DATASET_AUDIO_SHA256,
-    DATASET_NUM_ROWS,
-    EXPECTED_AUDIO_FILENAMES,
-    MANIFEST_FILENAME,
-    MAX_DATASET_DURATION_S,
-    MIN_DATASET_DURATION_S,
-    MONO_CHANNELS,
-    REFERENCE_ANNOTATIONS_SHA256,
-    SOURCE_METADATA_FILENAME,
-    TIMESTAMP_TOLERANCE_S,
-    reference_annotations_sha256,
-    sha256,
-    source_metadata,
-    validate_model,
-    validate_reference_annotations,
-)
+import audio_sortformer_contract as contract
 from loguru import logger
 from pyannote.core import Annotation, Segment
 from pyannote.metrics.diarization import DiarizationErrorRate
@@ -61,134 +42,14 @@ DEFAULT_SPKCACHE_UPDATE_PERIOD = 144
 DEFAULT_SPKCACHE_LEN = 188
 
 
-def _load_and_rewrite_manifest(  # noqa: C901, PLR0912, PLR0915
-    raw_data_dir: Path, target_manifest: Path
-) -> list[dict[str, Any]]:
-    source_manifest = raw_data_dir / MANIFEST_FILENAME
+def _load_and_rewrite_manifest(raw_data_dir: Path, target_manifest: Path) -> list[dict[str, Any]]:
+    rows, _ = contract.validate_staged_dataset(raw_data_dir)
     audio_dir = raw_data_dir / "audio"
-    metadata_path = raw_data_dir / SOURCE_METADATA_FILENAME
-    if not source_manifest.is_file():
-        msg = f"Pre-staged Sortformer manifest not found: {source_manifest}"
-        raise FileNotFoundError(msg)
-    if not audio_dir.is_dir():
-        msg = f"Pre-staged Sortformer audio directory not found: {audio_dir}"
-        raise FileNotFoundError(msg)
-    if not metadata_path.is_file():
-        msg = f"Pre-staged Sortformer source metadata not found: {metadata_path}"
-        raise FileNotFoundError(msg)
-
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    if metadata != source_metadata():
-        msg = f"Sortformer source metadata does not match the pinned public inputs: {metadata_path}"
-        raise RuntimeError(msg)
-
-    rows: list[dict[str, Any]] = []
-    seen_audio_files: set[str] = set()
-    seen_audio_item_ids: set[str] = set()
-    seen_session_names: set[str] = set()
-    total_duration_s = 0.0
-
-    with source_manifest.open(encoding="utf-8") as manifest_file:
-        for line_number, line in enumerate(manifest_file, start=1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as e:
-                msg = f"Sortformer manifest has invalid JSON on line {line_number}: {e}"
-                raise RuntimeError(msg) from e
-            if not isinstance(row, dict):
-                msg = f"Sortformer manifest line {line_number} is not a JSON object"
-                raise TypeError(msg)
-
-            audio_filepath = row.get("audio_filepath")
-            if not isinstance(audio_filepath, str) or not audio_filepath:
-                msg = f"Sortformer manifest line {line_number} must contain audio_filepath"
-                raise RuntimeError(msg)
-            audio_basename = Path(audio_filepath).name
-            if audio_basename not in EXPECTED_AUDIO_FILENAMES:
-                msg = f"Sortformer manifest references unexpected audio file {audio_basename!r}"
-                raise RuntimeError(msg)
-            if audio_basename in seen_audio_files:
-                msg = f"Sortformer manifest contains duplicate audio file {audio_basename!r}"
-                raise RuntimeError(msg)
-            resolved_audio_path = audio_dir / audio_basename
-            if not resolved_audio_path.is_file():
-                msg = f"Sortformer manifest audio file not found: {resolved_audio_path}"
-                raise FileNotFoundError(msg)
-            seen_audio_files.add(audio_basename)
-
-            audio_item_id = row.get("audio_item_id")
-            if not isinstance(audio_item_id, str) or not audio_item_id:
-                msg = f"Sortformer manifest line {line_number} must contain audio_item_id"
-                raise RuntimeError(msg)
-            if audio_item_id in seen_audio_item_ids:
-                msg = f"Sortformer manifest contains duplicate audio_item_id {audio_item_id!r}"
-                raise RuntimeError(msg)
-            seen_audio_item_ids.add(audio_item_id)
-
-            session_name = row.get("session_name")
-            if not isinstance(session_name, str) or not session_name:
-                msg = f"Sortformer manifest line {line_number} must contain session_name"
-                raise RuntimeError(msg)
-            if session_name in seen_session_names:
-                msg = f"Sortformer manifest contains duplicate session_name {session_name!r}"
-                raise RuntimeError(msg)
-            seen_session_names.add(session_name)
-
-            duration = row.get("duration")
-            if not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0:
-                msg = f"Sortformer manifest line {line_number} must contain a finite positive duration"
-                raise RuntimeError(msg)
-            total_duration_s += float(duration)
-            validate_reference_annotations(row, float(duration), f"Sortformer manifest line {line_number}")
-
-            audio_info = sf.info(resolved_audio_path)
-            if audio_info.samplerate != AUDIO_SAMPLE_RATE or audio_info.channels != MONO_CHANNELS:
-                msg = (
-                    f"Expected mono 16 kHz WAV, found {audio_info.channels} channels at "
-                    f"{audio_info.samplerate} Hz: {resolved_audio_path}"
-                )
-                raise RuntimeError(msg)
-            measured_duration_s = float(audio_info.frames) / audio_info.samplerate
-            if not math.isclose(measured_duration_s, float(duration), abs_tol=TIMESTAMP_TOLERANCE_S):
-                msg = f"Sortformer manifest duration does not match staged WAV: {resolved_audio_path}"
-                raise RuntimeError(msg)
-            expected_sha256 = DATASET_AUDIO_SHA256[audio_basename]
-            actual_sha256 = sha256(resolved_audio_path)
-            if not isinstance(expected_sha256, str) or actual_sha256 != expected_sha256:
-                msg = f"Sortformer staged audio SHA-256 mismatch: {resolved_audio_path}"
-                raise RuntimeError(msg)
-
-            rewritten_row = dict(row)
-            rewritten_row["audio_filepath"] = str(resolved_audio_path.resolve())
-            rows.append(rewritten_row)
-
-    if len(rows) != DATASET_NUM_ROWS:
-        msg = f"Sortformer manifest must contain exactly {DATASET_NUM_ROWS} rows, found {len(rows)}"
-        raise RuntimeError(msg)
-    if seen_audio_files != set(EXPECTED_AUDIO_FILENAMES):
-        msg = "Sortformer manifest does not contain the complete pinned AMI SDM validation/test workload"
-        raise RuntimeError(msg)
-    if not MIN_DATASET_DURATION_S <= total_duration_s <= MAX_DATASET_DURATION_S:
-        msg = (
-            f"Sortformer source duration {total_duration_s:.3f}s is outside the expected public AMI SDM "
-            f"range [{MIN_DATASET_DURATION_S:.0f}, {MAX_DATASET_DURATION_S:.0f}]s"
-        )
-        raise RuntimeError(msg)
-    actual_reference_sha256 = reference_annotations_sha256(rows)
-    if actual_reference_sha256 != REFERENCE_ANNOTATIONS_SHA256:
-        msg = (
-            "Sortformer reference annotation SHA-256 mismatch: "
-            f"expected {REFERENCE_ANNOTATIONS_SHA256}, found {actual_reference_sha256}"
-        )
-        raise RuntimeError(msg)
-
-    target_manifest.parent.mkdir(parents=True, exist_ok=True)
-    with target_manifest.open("w", encoding="utf-8") as target_file:
-        for row in rows:
-            target_file.write(json.dumps(row) + "\n")
-    return rows
+    rewritten_rows = [
+        {**row, "audio_filepath": str((audio_dir / Path(row["audio_filepath"]).name).resolve())} for row in rows
+    ]
+    contract.write_manifest(rewritten_rows, target_manifest)
+    return rewritten_rows
 
 
 def _is_valid_segment(segment: object, duration_s: float) -> bool:
@@ -202,7 +63,7 @@ def _is_valid_segment(segment: object, duration_s: float) -> bool:
         and math.isfinite(start)
         and isinstance(end, (int, float))
         and math.isfinite(end)
-        and 0 <= start < end <= duration_s + TIMESTAMP_TOLERANCE_S
+        and 0 <= start < end <= duration_s + contract.TIMESTAMP_TOLERANCE_S
         and isinstance(speaker, str)
         and bool(speaker)
     )
@@ -364,7 +225,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
 
     raw_data_path = Path(raw_data_dir).resolve()
     resolved_model_path = Path(model_path).resolve()
-    validate_model(resolved_model_path)
+    contract.validate_model(resolved_model_path)
 
     results_path = Path(benchmark_results_path).resolve()
     input_manifest_path = results_path / "sortformer_input_manifest.jsonl"
