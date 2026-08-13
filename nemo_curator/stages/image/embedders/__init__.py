@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from .clip_embedder import ImageEmbeddingStage
+from .reader_embedder import ImageReaderEmbeddingStage
 
-__all__ = ["ImageEmbeddingStage"]
+__all__ = ["ImageEmbeddingStage", "ImageReaderEmbeddingStage"]

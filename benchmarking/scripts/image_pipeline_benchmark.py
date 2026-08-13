@@ -30,6 +30,7 @@ from utils import setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.embedders.reader_embedder import ImageReaderEmbeddingStage
 from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from nemo_curator.stages.image.io.image_reader import ImageReaderStage
 from nemo_curator.stages.image.io.image_writer import ImageWriterStage
@@ -52,29 +53,45 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
         )
     )
 
-    # Stage 1: Read images from webdataset tar files (now runs in parallel)
-    reader_stage = ImageReaderStage(
-        dali_batch_size=args.batch_size,
-        verbose=args.verbose,  # Force verbose to see debug info
-        num_threads=args.reader_num_threads,  # More threads for I/O
-        num_gpus_per_worker=args.reader_gpus_per_worker,
-    )
-    if args.reader_workers is not None:
-        reader_stage = reader_stage.with_(num_workers=args.reader_workers)
-    pipeline.add_stage(reader_stage)
+    if args.fuse_reader_embedding:
+        # Keep full-resolution decoded arrays within one GPU actor. Only the
+        # encoded JPEG bytes and compact embeddings cross the Ray object store.
+        reader_embedding_stage = ImageReaderEmbeddingStage(
+            model_dir=args.model_dir,
+            dali_batch_size=args.batch_size,
+            reader_num_threads=args.reader_num_threads,
+            num_gpus_per_worker=args.embedding_gpus_per_worker,
+            model_inference_batch_size=args.embedding_batch_size,
+            remove_image_data=args.remove_image_data_after_embedding,
+            verbose=args.verbose,
+        )
+        if args.fused_reader_embedding_workers is not None:
+            reader_embedding_stage = reader_embedding_stage.with_(num_workers=args.fused_reader_embedding_workers)
+        pipeline.add_stage(reader_embedding_stage)
+    else:
+        # Stage 1: Read images from webdataset tar files (now runs in parallel)
+        reader_stage = ImageReaderStage(
+            dali_batch_size=args.batch_size,
+            verbose=args.verbose,  # Force verbose to see debug info
+            num_threads=args.reader_num_threads,  # More threads for I/O
+            num_gpus_per_worker=args.reader_gpus_per_worker,
+        )
+        if args.reader_workers is not None:
+            reader_stage = reader_stage.with_(num_workers=args.reader_workers)
+        pipeline.add_stage(reader_stage)
 
-    # Stage 2: Generate CLIP embeddings for images
-    embedding_stage = ImageEmbeddingStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.embedding_gpus_per_worker,
-        model_inference_batch_size=args.embedding_batch_size,
-        remove_image_data=args.remove_image_data_after_embedding,
-        batch_size=args.embedding_task_batch_size,
-        verbose=args.verbose,
-    )
-    if args.embedding_workers is not None:
-        embedding_stage = embedding_stage.with_(num_workers=args.embedding_workers)
-    pipeline.add_stage(embedding_stage)
+        # Stage 2: Generate CLIP embeddings for images
+        embedding_stage = ImageEmbeddingStage(
+            model_dir=args.model_dir,
+            num_gpus_per_worker=args.embedding_gpus_per_worker,
+            model_inference_batch_size=args.embedding_batch_size,
+            remove_image_data=args.remove_image_data_after_embedding,
+            batch_size=args.embedding_task_batch_size,
+            verbose=args.verbose,
+        )
+        if args.embedding_workers is not None:
+            embedding_stage = embedding_stage.with_(num_workers=args.embedding_workers)
+        pipeline.add_stage(embedding_stage)
 
     # Stage 3: Generate aesthetic quality scores and filter
     aesthetic_stage = ImageAestheticFilterStage(
@@ -140,7 +157,10 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         # item count represents every decoded input image, including images later
         # removed by the aesthetic filter.
         num_images_processed = int(
-            task_metrics.get("task_image_embedding_num_items_processed_sum", num_images_written)
+            task_metrics.get(
+                "task_image_reader_embedding_custom.num_images_processed_sum",
+                task_metrics.get("task_image_embedding_num_items_processed_sum", num_images_written),
+            )
         )
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
@@ -171,7 +191,11 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "tar_files_per_partition": args.tar_files_per_partition,
             "input_partition_limit": args.input_partition_limit,
             "batch_size": args.batch_size,
+            "reader_num_threads": args.reader_num_threads,
+            "reader_gpus_per_worker": args.reader_gpus_per_worker,
             "reader_workers": args.reader_workers,
+            "fuse_reader_embedding": args.fuse_reader_embedding,
+            "fused_reader_embedding_workers": args.fused_reader_embedding_workers,
             "embedding_batch_size": args.embedding_batch_size,
             "embedding_task_batch_size": args.embedding_task_batch_size,
             "embedding_gpus_per_worker": args.embedding_gpus_per_worker,
@@ -255,6 +279,17 @@ def main() -> int:
         "--reader-gpus-per-worker", type=float, default=0.25, help="GPU allocation per worker for image reading"
     )
     parser.add_argument("--reader-workers", type=int, default=None, help="Fixed number of image reader workers")
+    parser.add_argument(
+        "--fuse-reader-embedding",
+        action="store_true",
+        help="Decode and embed images in the same GPU actor to avoid transporting decoded arrays",
+    )
+    parser.add_argument(
+        "--fused-reader-embedding-workers",
+        type=int,
+        default=None,
+        help="Fixed number of fused reader/embedding workers",
+    )
 
     # Embedding stage arguments
     parser.add_argument("--embedding-batch-size", type=int, default=32, help="Batch size for embedding generation")
