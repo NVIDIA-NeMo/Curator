@@ -159,6 +159,41 @@ class TestInferenceSortformerStage:
         content = rttm_file.read_text()
         assert "SPEAKER my_audio" in content
 
+    def test_process_clips_frame_grid_overrun_to_audio_duration(self, tmp_path: Path) -> None:
+        audio_duration = 1768.5333125
+        fake_output = [
+            [
+                "1767.92 1768.55 speaker_2",
+                "1768.54 1768.70 speaker_3",
+            ]
+        ]
+        mock_model = self._make_mock_model(fake_output)
+        stage = InferenceSortformerStage(
+            diar_model=mock_model,
+            rttm_out_dir=str(tmp_path),
+        )
+
+        task = AudioTask(
+            data={
+                "audio_filepath": "/test/ami_sdm_validation_012.wav",
+                "duration": audio_duration,
+                "session_name": "ami_sdm_validation_012",
+            }
+        )
+        result = stage.process(task)
+
+        assert result.data["diar_segments"] == [
+            {
+                "start": 1767.92,
+                "end": audio_duration,
+                "speaker": "speaker_2",
+            }
+        ]
+        rttm_file = tmp_path / "ami_sdm_validation_012.rttm"
+        assert rttm_file.read_text().strip() == (
+            "SPEAKER ami_sdm_validation_012 1 1767.920 0.613 <NA> <NA> speaker_2 <NA> <NA>"
+        )
+
     def test_process_preserves_existing_data(self) -> None:
         fake_output = [["0.00 1.00 speaker_0"]]
         mock_model = self._make_mock_model(fake_output)
