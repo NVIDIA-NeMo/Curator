@@ -735,22 +735,16 @@ tagged audio hours (200 segments and 0.4 hours for the repeated entry).
 The Sortformer nightly benchmark uses the complete `sdm` `validation` and
 `test` splits from the
 public, ungated [`diarizers-community/ami`](https://huggingface.co/datasets/diarizers-community/ami)
-dataset. The splits are CC-BY-4.0, contain 34 unique meetings, occupy
-2,034,736,248 bytes in six source Parquet shards, contain 2,157,687,735 bytes
-of embedded mono 16 kHz PCM audio, and span approximately 18.730 hours. The prep
-script pins dataset revision
-`8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0`. The benchmark pins the complete
-audio corpus with one aggregate SHA-256, and independently pins canonical
-meeting IDs, durations, timestamps, and speaker labels.
+dataset. The CC-BY-4.0 splits contain 34 unique meetings, have a public source
+download size of approximately 2.03 GB, and span approximately 18.73 audio
+hours. This is large enough to exercise eight workers for the requested nightly
+window without repeating any meeting.
 
-The same script stages the public, ungated
+The same prep script stages the public, ungated
 [`nvidia/diar_streaming_sortformer_4spk-v2.1`](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1)
-checkpoint at revision `fafaab5faa1617a0ca52d38dd3dc4bd636800d3d`.
-The `.nemo` file is 471,367,680 bytes with SHA-256
-`8abd32832159c6ac1148c926b7276f35ba34582c444e559dce1f1253fea42ef8`.
-It is governed by the
-[`NVIDIA Open Model License`](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/).
-Neither source requires a token. Stage and verify both inputs once with:
+checkpoint as a local `.nemo` file. Neither source requires a token. Following
+the audio-tagging setup, stage both inputs once and use `--verify-only` to check
+that the expected manifest, 34 unique audio files, and model are present:
 
 ```bash
 python benchmarking/data_prep/prepare_audio_sortformer_data.py \
@@ -763,13 +757,10 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --verify-only
 ```
 
-The manifest retains duration and public speaker annotations for DER. Before
-timing, the benchmark verifies the exact corpus, annotations, WAV format, and
-model, then resolves the portable audio paths from the mounted data directory.
-It processes all 34 meetings exactly once with eight one-GPU workers; missing,
-duplicate, empty, or malformed outputs fail the run. DER uses zero collar with
-overlap and remains report-only because these public references differ from
-the forced-alignment RTTMs used for NVIDIA's model-card result.
+The benchmark rewrites a per-run manifest so its audio paths resolve in the
+active environment, then processes all 34 unique rows once with eight one-GPU
+workers. As in the audio-tagging benchmark, it checks input/output row counts,
+nonempty well-formed segments, stage execution, audio duration, and throughput.
 
 The nightly selects the published 1.04-second low-latency profile (chunk
 `6/1/7`, FIFO `188`, speaker-cache update/length `144/188`). Applying NVIDIA's
@@ -779,13 +770,14 @@ published 0.093 RTF to this workload gives the sizing estimate:
 18.729746667 audio hours * 0.093 RTF / 8 GPUs = 0.217733305 hours = 13.064 minutes
 ```
 
-Actual wall time is hardware-dependent. The entry stays disabled until these
-inputs are provisioned and the 10–15 minute estimate is calibrated on the
-nightly host. Run the same workload locally with:
+Actual wall time is hardware-dependent. Provision the inputs once with the data
+setup above before running the enabled nightly entry. Run the same workload
+locally with:
 
 ```bash
 python benchmarking/scripts/audio_sortformer_benchmark.py \
   --benchmark-results-path /tmp/audio-sortformer-results \
+  --scratch-output-path /tmp/audio-sortformer-scratch \
   --raw-data-dir /path/to/datasets/audio_sortformer_ami_sdm \
   --model-path /path/to/model_weights/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo \
   --gpu-stage-num-workers 8 \

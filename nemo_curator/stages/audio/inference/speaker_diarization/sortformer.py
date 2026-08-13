@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -23,7 +22,6 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from nemo.collections.asr.models import SortformerEncLabelModel
 
-from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 
 if TYPE_CHECKING:
@@ -70,26 +68,6 @@ def _parse_sortformer_segments(raw_segments: list) -> list[dict[str, Any]]:
     return segments
 
 
-def _clip_sortformer_segments(segments: list[dict[str, Any]], audio_duration: float) -> list[dict[str, Any]]:
-    """Clip diarization segments to the audio bounds and drop empty intervals."""
-    clipped_segments: list[dict[str, Any]] = []
-    for segment in segments:
-        start = float(segment["start"])
-        end = float(segment["end"])
-        if not math.isfinite(start) or not math.isfinite(end):
-            logger.warning(f"Skipping segment with non-finite timestamps: {segment!r}")
-            continue
-
-        clipped_start = min(max(start, 0.0), audio_duration)
-        clipped_end = min(max(end, 0.0), audio_duration)
-        if clipped_end <= clipped_start:
-            logger.warning(f"Skipping segment outside the audio bounds: {segment!r}")
-            continue
-
-        clipped_segments.append({**segment, "start": clipped_start, "end": clipped_end})
-    return clipped_segments
-
-
 def _write_rttm(segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: str) -> None:
     """Write diarization segments to an RTTM file."""
     os.makedirs(rttm_out_dir, exist_ok=True)
@@ -117,7 +95,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         cache_dir: Directory for caching downloaded model weights. Defaults to HF hub default.
         diar_model: Pre-loaded SortformerEncLabelModel; if provided, setup() is a no-op.
         filepath_key: Key in data for path to audio file. Defaults to "audio_filepath".
-        duration_key: Optional key in data for the audio duration. Defaults to "duration".
         diar_segments_key: Key in output data for diarization segments list. Defaults to "diar_segments".
         rttm_out_dir: Optional directory to write RTTM files. Defaults to None.
         chunk_len: Streaming chunk size in 80 ms frames. Defaults to 340 (~30.4 s latency).
@@ -135,7 +112,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     cache_dir: str | None = None
     diar_model: Any | None = None
     filepath_key: str = "audio_filepath"
-    duration_key: str = "duration"
     diar_segments_key: str = "diar_segments"
     rttm_out_dir: str | None = None
     chunk_len: int = 340
@@ -246,16 +222,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
 
         all_segments = self.diarize([file_path])
         segments = all_segments[0]
-        audio_duration = task.data.get(self.duration_key)
-        if (
-            isinstance(audio_duration, bool)
-            or not isinstance(audio_duration, (int, float))
-            or not math.isfinite(audio_duration)
-            or audio_duration <= 0
-        ):
-            audio_duration = get_audio_duration(file_path)
-        if math.isfinite(audio_duration) and audio_duration > 0:
-            segments = _clip_sortformer_segments(segments, float(audio_duration))
 
         if self.rttm_out_dir is not None:
             _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
