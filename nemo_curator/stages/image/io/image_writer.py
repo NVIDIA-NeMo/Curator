@@ -27,7 +27,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.file_group import FileGroupTask
-from nemo_curator.tasks.image import ImageBatch
+from nemo_curator.tasks.image import ImageBatch, ImageObject
 
 
 @dataclass
@@ -104,6 +104,15 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
             Image.fromarray(img, mode=mode).save(buffer, format="JPEG", quality=92)
             return buffer.getvalue(), ".jpg"
 
+    def _get_image_payload(self, image: ImageObject) -> tuple[bytes, str]:
+        """Return encoded image bytes, preferring the original payload."""
+        if image.image_bytes is not None:
+            return image.image_bytes, ".jpg"
+        if image.image_data is not None:
+            return self._encode_image_to_bytes(image.image_data)
+        msg = "ImageObject has neither image_bytes nor image_data; cannot write image bytes"
+        raise ValueError(msg)
+
     def _write_tar(self, base_name: str, members: list[tuple[str, bytes]]) -> str:
         """Write a tar file with given (member_name, bytes) entries using provided base name.
 
@@ -179,11 +188,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
             chunk = images[start : start + self.images_per_tar]
             members: list[tuple[str, bytes]] = []
             for idx, img_obj in enumerate(chunk):
-                if img_obj.image_data is None:
-                    msg = "ImageObject.image_data is None; cannot write image bytes"
-                    raise ValueError(msg)
-
-                payload, ext = self._encode_image_to_bytes(img_obj.image_data)
+                payload, ext = self._get_image_payload(img_obj)
                 member_basename = img_obj.image_id or f"{start + idx:06d}"
                 member_name = f"{member_basename}{ext}"
                 members.append((member_name, payload))

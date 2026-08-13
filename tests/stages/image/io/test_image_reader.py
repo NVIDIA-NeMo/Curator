@@ -47,6 +47,13 @@ class _FakeTensorList:
         return self._arrays[index]
 
 
+class _FakeEncodedTensorList(_FakeTensorList):
+    """Encoded image payloads paired with the decoded fake batch."""
+
+    def __init__(self, batch_size: int) -> None:
+        self._arrays = [np.frombuffer(f"jpeg-{i}".encode(), dtype=np.uint8) for i in range(batch_size)]
+
+
 @dataclass
 class _FakePipeline:
     """A fake DALI pipeline that yields a fixed batch size until a total is reached."""
@@ -60,8 +67,8 @@ class _FakePipeline:
     def epoch_size(self) -> dict[int, int]:
         return {0: self.total_samples}
 
-    def run(self) -> _FakeTensorList:
-        return _FakeTensorList(self.batch_size)
+    def run(self) -> tuple[_FakeTensorList, _FakeEncodedTensorList]:
+        return _FakeTensorList(self.batch_size), _FakeEncodedTensorList(self.batch_size)
 
 
 def _fake_create_pipeline_factory(per_tar_total: int, batch: int) -> Callable[[list[str]], _FakePipeline]:
@@ -126,7 +133,7 @@ def test_inputs_outputs_and_name() -> None:
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(dali_batch_size=3, verbose=False)
     assert stage.inputs() == ([], [])
-    assert stage.outputs() == (["data"], ["image_data", "image_path", "image_id"])
+    assert stage.outputs() == (["data"], ["image_bytes", "image_data", "image_path", "image_id"])
     assert stage.name == "image_reader"
     assert stage.ray_stage_spec()["is_fanout_stage"] is True
 
@@ -166,6 +173,7 @@ def test_process_streams_batches_from_dali() -> None:
     assert total_images == 10  # 2 tars * 5 images each
     # Spot-check a couple of ImageObject fields
     assert all(isinstance(img, ImageObject) for b in batches for img in b.data)
+    assert all(img.image_bytes is not None for b in batches for img in b.data)
 
 
 def test_process_raises_on_empty_task() -> None:
@@ -234,6 +242,7 @@ def test_dali_image_reader_on_gpu() -> None:
             assert img.image_data is not None
             assert img.image_data.ndim == 3  # H, W, C
             assert img.image_data.shape[2] == 3
+            assert img.image_bytes is not None
             assert img.image_id != ""
             assert img.image_path.endswith(".jpg")
             total_images += 1

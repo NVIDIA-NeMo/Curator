@@ -419,6 +419,31 @@ class TestImageAestheticFilterStage:
             # All should pass
             assert len(result.data) == 100
 
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    def test_process_batch_coalesces_images_and_preserves_tasks(self, mock_aesthetic_scorer: Mock) -> None:
+        stage = ImageAestheticFilterStage(
+            model_inference_batch_size=4,
+            batch_size=2,
+            score_threshold=0.5,
+        )
+        model = Mock()
+        model.return_value = torch.tensor([0.1, 0.6, 0.7, 0.2])
+        mock_aesthetic_scorer.return_value = model
+        stage.setup()
+
+        tasks = [
+            ImageBatch(
+                dataset_name="ds",
+                data=[ImageObject(embedding=np.ones(8, dtype=np.float32)) for _ in range(2)],
+            )
+            for _ in range(2)
+        ]
+
+        result = stage.process_batch(tasks)
+
+        model.assert_called_once()
+        assert [result[0].data[0].aesthetic_score, result[1].data[0].aesthetic_score] == pytest.approx([0.6, 0.7])
+
     def test_score_statistics(self, sample_image_batch: ImageBatch) -> None:
         """Test that score statistics are meaningful."""
         stage = ImageAestheticFilterStage(

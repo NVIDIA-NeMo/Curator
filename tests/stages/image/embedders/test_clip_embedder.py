@@ -202,6 +202,28 @@ class TestImageEmbeddingStage:
             assert img_obj.embedding.shape == (512,)
 
     @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    def test_process_batch_coalesces_images_across_tasks(self, mock_clip_embeddings: Mock) -> None:
+        stage = ImageEmbeddingStage(model_inference_batch_size=4, batch_size=2)
+        model = Mock()
+        model.return_value = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8)
+        mock_clip_embeddings.return_value = model
+        stage.setup()
+
+        tasks = [
+            ImageBatch(
+                dataset_name="ds",
+                data=[ImageObject(image_data=np.zeros((2, 2, 3), dtype=np.uint8)) for _ in range(2)],
+            )
+            for _ in range(2)
+        ]
+
+        result = stage.process_batch(tasks)
+
+        assert result == tasks
+        model.assert_called_once()
+        assert all(image.embedding is not None for task in tasks for image in task.data)
+
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_empty_batch(self, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage) -> None:
         """Test processing empty image batch."""
         empty_batch = ImageBatch(data=[], dataset_name="test_dataset")

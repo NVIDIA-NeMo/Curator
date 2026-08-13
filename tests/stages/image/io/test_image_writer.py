@@ -131,7 +131,29 @@ def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, 
     assert out._metadata["output_dir"] == str(tmp_path)
 
 
-def test_process_raises_on_missing_image_data(tmp_path: pathlib.Path) -> None:
+def test_process_writes_encoded_image_bytes_without_reencoding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=1)
+    monkeypatch.setattr(
+        image_writer_stage_cls,
+        "_encode_image_to_bytes",
+        lambda _self, _arr: pytest.fail("encoded bytes should bypass JPEG encoding"),
+    )
+    monkeypatch.setattr(image_writer_stage_cls, "_write_parquet", lambda *_args: str(tmp_path / "meta.parquet"))
+
+    batch = ImageBatch(
+        dataset_name="ds",
+        data=[ImageObject(image_id="x", image_path="/p/x.jpg", image_bytes=b"original-jpeg")],
+    )
+    out = stage.process(batch)
+
+    with tarfile.open(next(path for path in out.data if path.endswith(".tar")), "r") as tf:
+        assert tf.extractfile("x.jpg").read() == b"original-jpeg"
+
+
+def test_process_raises_when_encoded_and_decoded_image_data_are_missing(tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
     stage.setup()
@@ -141,7 +163,7 @@ def test_process_raises_on_missing_image_data(tmp_path: pathlib.Path) -> None:
         data=[ImageObject(image_id="x", image_path="/p/x.jpg", image_data=None)],
     )
 
-    with pytest.raises(ValueError, match="image_data is None"):
+    with pytest.raises(ValueError, match="neither image_bytes nor image_data"):
         stage.process(bad)
 
 

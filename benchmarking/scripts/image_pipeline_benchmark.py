@@ -53,36 +53,41 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     )
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
-    pipeline.add_stage(
-        ImageReaderStage(
-            dali_batch_size=args.batch_size,
-            verbose=args.verbose,  # Force verbose to see debug info
-            num_threads=args.reader_num_threads,  # More threads for I/O
-            num_gpus_per_worker=args.reader_gpus_per_worker,
-        )
+    reader_stage = ImageReaderStage(
+        dali_batch_size=args.batch_size,
+        verbose=args.verbose,  # Force verbose to see debug info
+        num_threads=args.reader_num_threads,  # More threads for I/O
+        num_gpus_per_worker=args.reader_gpus_per_worker,
     )
+    if args.reader_workers is not None:
+        reader_stage = reader_stage.with_(num_workers=args.reader_workers)
+    pipeline.add_stage(reader_stage)
 
     # Stage 2: Generate CLIP embeddings for images
-    pipeline.add_stage(
-        ImageEmbeddingStage(
-            model_dir=args.model_dir,
-            num_gpus_per_worker=args.embedding_gpus_per_worker,
-            model_inference_batch_size=args.embedding_batch_size,
-            remove_image_data=False,
-            verbose=args.verbose,
-        )
+    embedding_stage = ImageEmbeddingStage(
+        model_dir=args.model_dir,
+        num_gpus_per_worker=args.embedding_gpus_per_worker,
+        model_inference_batch_size=args.embedding_batch_size,
+        remove_image_data=args.remove_image_data_after_embedding,
+        batch_size=args.embedding_task_batch_size,
+        verbose=args.verbose,
     )
+    if args.embedding_workers is not None:
+        embedding_stage = embedding_stage.with_(num_workers=args.embedding_workers)
+    pipeline.add_stage(embedding_stage)
 
     # Stage 3: Generate aesthetic quality scores and filter
-    pipeline.add_stage(
-        ImageAestheticFilterStage(
-            model_dir=args.model_dir,
-            num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-            model_inference_batch_size=args.aesthetic_batch_size,
-            score_threshold=args.aesthetic_threshold,
-            verbose=args.verbose,
-        )
+    aesthetic_stage = ImageAestheticFilterStage(
+        model_dir=args.model_dir,
+        num_gpus_per_worker=args.aesthetic_gpus_per_worker,
+        model_inference_batch_size=args.aesthetic_batch_size,
+        batch_size=args.aesthetic_task_batch_size,
+        score_threshold=args.aesthetic_threshold,
+        verbose=args.verbose,
     )
+    if args.aesthetic_workers is not None:
+        aesthetic_stage = aesthetic_stage.with_(num_workers=args.aesthetic_workers)
+    pipeline.add_stage(aesthetic_stage)
 
     # Stage 4: Write down to disk
     pipeline.add_stage(
@@ -166,10 +171,16 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "tar_files_per_partition": args.tar_files_per_partition,
             "input_partition_limit": args.input_partition_limit,
             "batch_size": args.batch_size,
+            "reader_workers": args.reader_workers,
             "embedding_batch_size": args.embedding_batch_size,
+            "embedding_task_batch_size": args.embedding_task_batch_size,
             "embedding_gpus_per_worker": args.embedding_gpus_per_worker,
+            "embedding_workers": args.embedding_workers,
+            "remove_image_data_after_embedding": args.remove_image_data_after_embedding,
             "aesthetic_batch_size": args.aesthetic_batch_size,
+            "aesthetic_task_batch_size": args.aesthetic_task_batch_size,
             "aesthetic_gpus_per_worker": args.aesthetic_gpus_per_worker,
+            "aesthetic_workers": args.aesthetic_workers,
             "aesthetic_threshold": args.aesthetic_threshold,
             "images_per_tar": args.images_per_tar,
         },
@@ -243,21 +254,41 @@ def main() -> int:
     parser.add_argument(
         "--reader-gpus-per-worker", type=float, default=0.25, help="GPU allocation per worker for image reading"
     )
+    parser.add_argument("--reader-workers", type=int, default=None, help="Fixed number of image reader workers")
 
     # Embedding stage arguments
     parser.add_argument("--embedding-batch-size", type=int, default=32, help="Batch size for embedding generation")
+    parser.add_argument(
+        "--embedding-task-batch-size",
+        type=int,
+        default=1,
+        help="Number of ImageBatch transport tasks coalesced per embedding call",
+    )
     parser.add_argument(
         "--embedding-gpus-per-worker",
         type=float,
         default=0.25,
         help="GPU allocation per worker for embedding generation",
     )
+    parser.add_argument("--embedding-workers", type=int, default=None, help="Fixed number of embedding workers")
+    parser.add_argument(
+        "--remove-image-data-after-embedding",
+        action="store_true",
+        help="Drop decoded pixels after embedding; requires encoded image bytes for the writer",
+    )
 
     # Aesthetic scoring arguments
     parser.add_argument("--aesthetic-batch-size", type=int, default=32, help="Batch size for aesthetic scoring")
     parser.add_argument(
+        "--aesthetic-task-batch-size",
+        type=int,
+        default=1,
+        help="Number of ImageBatch transport tasks coalesced per aesthetic call",
+    )
+    parser.add_argument(
         "--aesthetic-gpus-per-worker", type=float, default=0.25, help="GPU allocation per worker for aesthetic scoring"
     )
+    parser.add_argument("--aesthetic-workers", type=int, default=None, help="Fixed number of aesthetic workers")
     parser.add_argument(
         "--aesthetic-threshold",
         type=float,

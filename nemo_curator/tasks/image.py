@@ -36,6 +36,7 @@ class ImageObject:
         image_path: Path to the image file on disk
         image_id: Unique identifier for the image
         metadata: Additional metadata associated with the image
+        image_bytes: Original encoded image bytes, when available
         image_data: Raw image pixel data as numpy array (H, W, C) in RGB format
         embedding: Image embedding vector as numpy array
         aesthetic_score: Aesthetic quality score as float
@@ -45,6 +46,8 @@ class ImageObject:
     image_path: str = ""
     image_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    # original encoded data (for example, JPEG bytes)
+    image_bytes: bytes | None = None
     # raw data
     image_data: np.ndarray | None = None
     # embedding data

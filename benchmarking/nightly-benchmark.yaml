@@ -611,9 +611,17 @@ entries:
       --executor=ray_data
       --tar-files-per-partition=1
       --input-partition-limit=300
-      --batch-size=1000
+      --batch-size=100
+      --reader-workers=8
       --embedding-batch-size=500
+      --embedding-task-batch-size=5
+      --embedding-gpus-per-worker=1.0
+      --embedding-workers=6
+      --remove-image-data-after-embedding
       --aesthetic-batch-size=500
+      --aesthetic-task-batch-size=5
+      --aesthetic-gpus-per-worker=0.0
+      --aesthetic-workers=16
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
@@ -646,6 +654,7 @@ entries:
       --input-partition-limit=850
       --batch-size=1000
       --embedding-batch-size=500
+      --remove-image-data-after-embedding
       --aesthetic-batch-size=500
       --aesthetic-threshold=0.9
       --verbose

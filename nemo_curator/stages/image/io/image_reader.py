@@ -55,7 +55,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["image_data", "image_path", "image_id"]
+        return ["data"], ["image_bytes", "image_data", "image_path", "image_id"]
 
     def _create_dali_pipeline(self, tar_paths: list[str]) -> object:
         try:
@@ -81,7 +81,10 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             )
             # Decode on GPU when available, otherwise on CPU; keep original sizes (no resize)
             decode_device = "mixed" if torch.cuda.is_available() else "cpu"
-            return fn.decoders.image(img_raw, device=decode_device, output_type=types.RGB)
+            decoded = fn.decoders.image(img_raw, device=decode_device, output_type=types.RGB)
+            # Preserve the encoded payload so downstream writers do not need to
+            # retain decoded pixels or perform a lossy JPEG re-encode.
+            return decoded, img_raw
 
         pipe = webdataset_pipeline()
         pipe.build()
@@ -101,12 +104,19 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         id_prefix = tar_paths[0].stem if len(tar_paths) == 1 else f"group_{tar_paths[0].stem}_x{len(tar_paths)}"
 
         while samples_completed < total_samples:
-            img_batch = pipe.run()
-            if isinstance(img_batch, tuple):
-                img_batch = img_batch[0]
+            pipeline_output = pipe.run()
+            if isinstance(pipeline_output, tuple):
+                img_batch = pipeline_output[0]
+                encoded_batch = pipeline_output[1] if len(pipeline_output) > 1 else None
+            else:
+                # Retain compatibility with custom/fake DALI pipelines that only
+                # return decoded images.
+                img_batch = pipeline_output
+                encoded_batch = None
 
             # Per-sample extraction to preserve original sizes
             img_cpu = img_batch.as_cpu()
+            encoded_cpu = encoded_batch.as_cpu() if encoded_batch is not None else None
             batch_size = len(img_cpu)
             remaining = total_samples - samples_completed
             effective = min(batch_size, remaining)
@@ -115,10 +125,16 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             for i in range(effective):
                 img_item = img_cpu.at(i)
                 img_np = img_item if isinstance(img_item, np.ndarray) else img_item.as_array()
+                encoded_item = encoded_cpu.at(i) if encoded_cpu is not None else None
+                image_bytes = None
+                if encoded_item is not None:
+                    encoded_np = encoded_item if isinstance(encoded_item, np.ndarray) else encoded_item.as_array()
+                    image_bytes = encoded_np.tobytes()
                 image_objects.append(
                     ImageObject(
                         image_path=str(base_path / f"{id_prefix}_{samples_completed + i:06d}.jpg"),
                         image_id=f"{id_prefix}_{samples_completed + i:06d}",
+                        image_bytes=image_bytes,
                         image_data=img_np,
                     )
                 )
