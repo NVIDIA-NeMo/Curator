@@ -130,6 +130,19 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_tagging_ami_sdm"
+  # 99 Common Crawl PDFs (~87MB) extracted from the CC-MAIN zip hierarchy.
+  # Web-crawled rather than arXiv, so page counts and layouts vary widely,
+  # which keeps the throughput numbers representative of real workloads.
+  - name: "nemotron_parse_pdf"
+    formats:
+    - type: "manifest"
+      path: "{datasets_path}/nemotron_parse_pdf/manifest.jsonl"
+    - type: "pdf_dir"
+      path: "{datasets_path}/nemotron_parse_pdf/pdfs"
+  - name: "nemotron_parse_pdf_model"
+    formats:
+    - type: "files"
+      path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -698,7 +711,7 @@ entries:
         min_value: 3.0
 
   - name: audio_sortformer_xenna
-    enabled: false
+    enabled: true
     script: audio_sortformer_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
@@ -1169,56 +1182,6 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.1
 
-  - name: multimodal_mint1t_xenna
-    enabled: false
-    script: multimodal_mint1t_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --executor=xenna
-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --files-per-partition=2
-      --mode=overwrite
-      --no-materialize-on-write
-      --output-max-batch-bytes=2000000
-    timeout_s: 1800
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_rows_per_sec
-          - num_rows
-          - num_output_files
-          - materialize_error_count
-        ping_on_failure:
-          - UGFRT88RE  # Vibhu Jawa
-    ray:
-      num_gpus: 0
-
-  - name: multimodal_mint1t_xenna_materialize
-    enabled: false
-    script: multimodal_mint1t_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --executor=xenna
-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --files-per-partition=2
-      --mode=overwrite
-      --materialize-on-write
-      --output-max-batch-bytes=2000000
-    timeout_s: 1800
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_rows_per_sec
-          - num_rows
-          - num_output_files
-          - materialize_error_count
-        ping_on_failure:
-          - UGFRT88RE  # Vibhu Jawa
-    ray:
-      num_gpus: 0
-
   # Consumes the pre-staged AMI data and local PyAnnote snapshot produced by
   # benchmarking/data_prep/prepare_audio_tagging_data.py. Nightly passes
   # --no-auto-download and does not require HF_TOKEN or network access.
@@ -1326,44 +1289,20 @@ entries:
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
-  - name: interleaved_filter_xenna
-    enabled: false
+  - name: interleaved_filter_raydata_materialize
+    enabled: true
     script: interleaved_filter_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --executor=xenna
+      --executor=ray_data
       --input-path={dataset:multimodal_mint1t,wds_tar_dir}
       --output-path={session_entry_dir}/scratch/output
       --clip-model-dir={dataset:mscoco_model_weights,files}
-      --files-per-partition=2
-      --mode=overwrite
-      --no-materialize-on-write
-      --output-max-batch-bytes=2000000
-    timeout_s: 1800
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_rows_per_sec
-          - num_rows
-          - num_output_files
-          - materialize_error_count
-        ping_on_failure:
-          - UGFRT88RE
-
-
-  - name: interleaved_filter_xenna_materialize
-    enabled: false
-    script: interleaved_filter_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --executor=xenna
-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --clip-model-dir={dataset:mscoco_model_weights,files}
+      --num-files=1000
       --files-per-partition=2
       --mode=overwrite
       --materialize-on-write
-      --output-max-batch-bytes=2000000
+      --output-max-batch-bytes=64000000
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1374,6 +1313,173 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
+    requirements:
+      # Allow +/-0.01% around the observed 318,062 images and 716,038 rows.
+      - metric: output_num_images
+        min_value: 318031
+        max_value: 318093
+      - metric: output_num_rows
+        min_value: 715967
+        max_value: 716109
+
+
+  - name: interleaved_filter_xenna_materialize
+    enabled: true
+    script: interleaved_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --clip-model-dir={dataset:mscoco_model_weights,files}
+      --num-files=1000
+      --files-per-partition=2
+      --mode=overwrite
+      --materialize-on-write
+      --output-max-batch-bytes=64000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE
+    requirements:
+      # Allow +/-0.01% around the observed 318,062 images and 716,038 rows.
+      - metric: output_num_images
+        min_value: 318031
+        max_value: 318093
+      - metric: output_num_rows
+        min_value: 715967
+        max_value: 716109
+
+
+  - name: nemotron_parse_pdf_xenna
+    enabled: true
+    script: nemotron_parse_pdf_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --manifest={dataset:nemotron_parse_pdf,manifest}
+      --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={dataset:nemotron_parse_pdf_model,files}
+      --backend=vllm
+      --enforce-eager
+      --pdfs-per-task=20
+      --max-pdfs=1278
+      --max-pages=10
+      --max-num-seqs=64
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_pdfs_processed
+          - num_pages_processed
+          - num_output_tokens
+          - num_output_tasks
+          - throughput_pages_per_sec
+          - throughput_output_tokens_per_sec
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+    requirements:
+      # Exact counts: the dataset is fixed and every file in it renders, so a
+      # correct run reproduces these precisely. Verified identical across three
+      # runs on both executors. Any drift means PDFs are being dropped, which is
+      # the failure this entry exists to catch.
+      - metric: num_pdfs_processed
+        exact_value: 1278
+      - metric: num_pages_processed
+        exact_value: 5794
+      # Throughput floors rather than exact values: wall-clock moves with cluster
+      # load. Observed 8.5-8.9 pages/s and 7166-7482 output tokens/s across both
+      # executors, so these sit ~15-18% below the slowest measurement -- tight
+      # enough to catch a real regression, loose enough not to flake.
+      # The token rate is asserted as well as the page rate so that swapping the
+      # inference backend (e.g. to Dynamo) has to preserve generation throughput,
+      # not just page throughput. It is a rate, not a count: exact token counts
+      # are not reproducible under dynamic batching.
+      - metric: throughput_pages_per_sec
+        min_value: 7.0
+      - metric: throughput_output_tokens_per_sec
+        min_value: 6000
+      # Total generated tokens, asserted as a band rather than an exact value.
+      # Dynamic batching shifts where the model emits EOS, so the count is not
+      # reproducible the way the page count is -- but it is stable to within 1%.
+      # Measured across 10 runs (both executors): 4,852,596 to 4,897,124, mean
+      # 4,872,307, total spread 0.91%. The band is +/-5% of that mean, ~10x the
+      # observed drift, so it will not flake but will still catch a change in
+      # what the model generates -- e.g. swapping the inference backend for one
+      # that is materially more or less verbose, which a throughput floor alone
+      # would miss.
+      - metric: num_output_tokens
+        min_value: 4630000
+        max_value: 5115000
+
+  - name: nemotron_parse_pdf_raydata
+    enabled: true
+    script: nemotron_parse_pdf_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={dataset:nemotron_parse_pdf,manifest}
+      --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={dataset:nemotron_parse_pdf_model,files}
+      --backend=vllm
+      --enforce-eager
+      --pdfs-per-task=20
+      --max-pdfs=1278
+      --max-pages=10
+      --max-num-seqs=64
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_pdfs_processed
+          - num_pages_processed
+          - num_output_tokens
+          - num_output_tasks
+          - throughput_pages_per_sec
+          - throughput_output_tokens_per_sec
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+    requirements:
+      # Exact counts: the dataset is fixed and every file in it renders, so a
+      # correct run reproduces these precisely. Verified identical across three
+      # runs on both executors. Any drift means PDFs are being dropped, which is
+      # the failure this entry exists to catch.
+      - metric: num_pdfs_processed
+        exact_value: 1278
+      - metric: num_pages_processed
+        exact_value: 5794
+      # Throughput floors rather than exact values: wall-clock moves with cluster
+      # load. Observed 8.5-8.9 pages/s and 7166-7482 output tokens/s across both
+      # executors, so these sit ~15-18% below the slowest measurement -- tight
+      # enough to catch a real regression, loose enough not to flake.
+      # The token rate is asserted as well as the page rate so that swapping the
+      # inference backend (e.g. to Dynamo) has to preserve generation throughput,
+      # not just page throughput. It is a rate, not a count: exact token counts
+      # are not reproducible under dynamic batching.
+      - metric: throughput_pages_per_sec
+        min_value: 7.0
+      - metric: throughput_output_tokens_per_sec
+        min_value: 6000
+      # Total generated tokens, asserted as a band rather than an exact value.
+      # Dynamic batching shifts where the model emits EOS, so the count is not
+      # reproducible the way the page count is -- but it is stable to within 1%.
+      # Measured across 10 runs (both executors): 4,852,596 to 4,897,124, mean
+      # 4,872,307, total spread 0.91%. The band is +/-5% of that mean, ~10x the
+      # observed drift, so it will not flake but will still catch a change in
+      # what the model generates -- e.g. swapping the inference backend for one
+      # that is materially more or less verbose, which a throughput floor alone
+      # would miss.
+      - metric: num_output_tokens
+        min_value: 4630000
+        max_value: 5115000
 
 
   - name: alm_pipeline_xenna
