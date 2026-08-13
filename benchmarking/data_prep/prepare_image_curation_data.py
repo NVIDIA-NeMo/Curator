@@ -30,7 +30,7 @@ Example::
 
     python prepare_image_curation_data.py \
         --input-path /datasets/multimodal/mint1t/CC-MAIN-2024-18-shard-0 \
-        --output-path /datasets/image_curation/mint1t_unique_jpeg_600k_v1
+        --output-path /datasets/image_curation/mint1t_unique_jpeg_1m_v1
 """
 
 from __future__ import annotations
@@ -529,7 +529,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-path", type=Path, required=True, help="Directory containing MINT-1T tar shards")
     parser.add_argument("--output-path", type=Path, required=True, help="Directory for the prepared JPEG WebDataset")
-    parser.add_argument("--num-images", type=int, default=600_000, help="Exact number of unique output images")
+    parser.add_argument("--num-images", type=int, default=1_000_000, help="Exact number of unique output images")
     parser.add_argument("--images-per-tar", type=int, default=1_000, help="Exact images per output tar")
     parser.add_argument(
         "--candidate-buffer-per-shard",

@@ -62,7 +62,7 @@ datasets:
   - name: "image_curation_mint1t"
     formats:
     - type: "wds"
-      path: "{datasets_path}/image_curation/mint1t_unique_jpeg_600k_v1"
+      path: "{datasets_path}/image_curation/mint1t_unique_jpeg_1m_v1"
   - name: "videos"
     formats:
     - type: "mp4"
@@ -610,7 +610,7 @@ entries:
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=ray_data
       --tar-files-per-partition=1
-      --input-partition-limit=475
+      --input-partition-limit=300
       --batch-size=1000
       --embedding-batch-size=500
       --aesthetic-batch-size=500
@@ -627,11 +627,11 @@ entries:
           - U020C9VC05N  # Ao Tang
 
     requirements:
-      # 475 deterministic shards x 1,000 unique images per shard.
+      # 300 deterministic shards x 1,000 unique images per shard.
       - metric: num_images_processed
-        exact_value: 475000
+        exact_value: 300000
       - metric: throughput_images_per_sec
-        min_value: 100.0
+        min_value: 350.0
 
   - name: image_curation_xenna
     enabled: true
@@ -643,7 +643,7 @@ entries:
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=xenna
       --tar-files-per-partition=1
-      --input-partition-limit=475
+      --input-partition-limit=850
       --batch-size=1000
       --embedding-batch-size=500
       --aesthetic-batch-size=500
@@ -660,11 +660,11 @@ entries:
           - U020C9VC05N  # Ao Tang
 
     requirements:
-      # 475 deterministic shards x 1,000 unique images per shard.
+      # 850 deterministic shards x 1,000 unique images per shard.
       - metric: num_images_processed
-        exact_value: 475000
+        exact_value: 850000
       - metric: throughput_images_per_sec
-        min_value: 100.0
+        min_value: 900.0
 
   - name: audio_sortformer_xenna
     enabled: false
