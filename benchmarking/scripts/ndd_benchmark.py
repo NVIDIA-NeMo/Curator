@@ -118,7 +118,7 @@ def _start_dynamo_inference_server(
     return server
 
 
-def run_nemotron_cc_sdg_benchmark(
+def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
     inference_server_type: str,
     model_id: str,
     input_path: str,
