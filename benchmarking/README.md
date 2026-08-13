@@ -757,10 +757,11 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --verify-only
 ```
 
-The benchmark rewrites a per-run manifest so its audio paths resolve in the
-active environment, then processes all 34 unique rows once with eight one-GPU
-workers. As in the audio-tagging benchmark, it checks input/output row counts,
-nonempty well-formed segments, stage execution, audio duration, and throughput.
+The Xenna and Ray Data nightly entries use the same prepared manifest. Each
+rewrites its own per-run copy so the audio paths resolve in the active
+environment, then processes all 34 unique rows once with eight one-GPU workers.
+As in the audio-tagging benchmark, both check input/output row counts, nonempty
+well-formed segments, stage execution, audio duration, and throughput.
 
 The nightly selects the published 1.04-second low-latency profile (chunk
 `6/1/7`, FIFO `188`, speaker-cache update/length `144/188`). Applying NVIDIA's
@@ -771,8 +772,8 @@ published 0.093 RTF to this workload gives the sizing estimate:
 ```
 
 Actual wall time is hardware-dependent. Provision the inputs once with the data
-setup above before running the enabled nightly entry. Run the same workload
-locally with:
+setup above before running either enabled nightly entry. Run the same workload
+locally with `--executor xenna` or `--executor ray_data`:
 
 ```bash
 python benchmarking/scripts/audio_sortformer_benchmark.py \
