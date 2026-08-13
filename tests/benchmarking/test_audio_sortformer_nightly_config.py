@@ -23,39 +23,56 @@ from runner.session import Session  # noqa: E402
 from runner.utils import merge_config_files, remove_disabled_blocks, resolve_env_vars  # noqa: E402
 
 
-def test_sortformer_nightly_inherits_eight_gpus(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+def test_sortformer_nightly_executors_use_the_same_workload(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     root = Path(__file__).resolve().parents[2]
     monkeypatch.setenv("SLACK_CHANNEL_ID", "test")
     monkeypatch.setenv("SLACK_BOT_TOKEN", "test")
     config = merge_config_files(
         [root / "benchmarking/nightly-benchmark.yaml", root / "benchmarking/nightly-data-setup.yaml"]
     )
-    sortformer_entry = next(entry for entry in config["entries"] if entry["name"] == "audio_sortformer_xenna")
-    assert sortformer_entry["enabled"] is True
-    config = resolve_env_vars(remove_disabled_blocks(config), strict=True)
-    session = Session.from_dict(config, entries_exact=["audio_sortformer_xenna"])
+    entry_names_to_executors = {
+        "audio_sortformer_xenna": "xenna",
+        "audio_sortformer_raydata": "ray_data",
+    }
+    raw_entries = {entry["name"]: entry for entry in config["entries"] if entry["name"] in entry_names_to_executors}
+    assert raw_entries.keys() == entry_names_to_executors.keys()
+    assert all(entry["enabled"] is True for entry in raw_entries.values())
+    assert (
+        raw_entries["audio_sortformer_xenna"]["args"].replace("--executor=xenna", "--executor=ray_data")
+        == (raw_entries["audio_sortformer_raydata"]["args"])
+    )
+    assert (
+        raw_entries["audio_sortformer_xenna"]["requirements"]
+        == raw_entries["audio_sortformer_raydata"]["requirements"]
+    )
 
-    (entry,) = session.entries
-    assert entry.ray == {"num_cpus": 128, "num_gpus": 8, "enable_object_spilling": False}
-    assert entry.timeout_s == 1800
-    command = entry.get_command_to_run(tmp_path / entry.name, session.path_resolver, session.dataset_resolver)
-    assert "--repeat-factor" not in command
-    assert "--scratch-output-path" in command
-    assert "--gpu-stage-num-workers=8" in command
-    assert "--chunk-len=6" in command
-    assert "--chunk-left-context=1" in command
-    assert "--chunk-right-context=7" in command
-    assert "--fifo-len=188" in command
-    assert "--spkcache-update-period=144" in command
-    assert "--spkcache-len=188" in command
-    assert "--executor=xenna" in command
-    assert "{" not in command
-    assert entry.requirements["num_input_rows"]["exact_value"] == 34
-    assert entry.requirements["num_output_rows"]["exact_value"] == 34
-    assert entry.requirements["num_tasks_with_segments"]["exact_value"] == 34
-    assert entry.requirements["stage_execution_coverage_ratio"]["exact_value"] == 1.0
-    assert entry.requirements["total_audio_duration_hours"]["min_value"] == 18.7
-    assert entry.requirements["throughput_audio_hours_per_hour"]["min_value"] == 1.0
+    config = resolve_env_vars(remove_disabled_blocks(config), strict=True)
+    session = Session.from_dict(config, entries_exact=list(entry_names_to_executors))
+    entries = {entry.name: entry for entry in session.entries}
+
+    assert entries.keys() == entry_names_to_executors.keys()
+    for entry_name, executor in entry_names_to_executors.items():
+        entry = entries[entry_name]
+        assert entry.ray == {"num_cpus": 128, "num_gpus": 8, "enable_object_spilling": False}
+        assert entry.timeout_s == 1800
+        command = entry.get_command_to_run(tmp_path / entry.name, session.path_resolver, session.dataset_resolver)
+        assert "--repeat-factor" not in command
+        assert "--scratch-output-path" in command
+        assert "--gpu-stage-num-workers=8" in command
+        assert "--chunk-len=6" in command
+        assert "--chunk-left-context=1" in command
+        assert "--chunk-right-context=7" in command
+        assert "--fifo-len=188" in command
+        assert "--spkcache-update-period=144" in command
+        assert "--spkcache-len=188" in command
+        assert f"--executor={executor}" in command
+        assert "{" not in command
+        assert entry.requirements["num_input_rows"]["exact_value"] == 34
+        assert entry.requirements["num_output_rows"]["exact_value"] == 34
+        assert entry.requirements["num_tasks_with_segments"]["exact_value"] == 34
+        assert entry.requirements["stage_execution_coverage_ratio"]["exact_value"] == 1.0
+        assert entry.requirements["total_audio_duration_hours"]["min_value"] == 18.7
+        assert entry.requirements["throughput_audio_hours_per_hour"]["min_value"] == 1.0
 
     setup = next(item for item in session.data_setups if item.name == "audio_sortformer_ami_sdm")
     setup_command = setup.get_command_to_run(tmp_path / "setup", session.path_resolver, session.dataset_resolver)

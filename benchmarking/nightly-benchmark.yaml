@@ -959,9 +959,9 @@ entries:
 
   # The Sortformer low-latency profile is published at RTF=0.093. Processing the
   # ~18.73-hour public validation and test splits once gives an estimated
-  # 13.064-minute run across eight one-GPU workers. This entry intentionally
-  # inherits the global 8-GPU Ray default instead of overriding it. Provision its
-  # public inputs once via benchmarking/nightly-data-setup.yaml; scheduled
+  # 13.064-minute run across eight one-GPU workers. Both entries intentionally
+  # inherit the global 8-GPU Ray default instead of overriding it. Provision their
+  # shared public inputs once via benchmarking/nightly-data-setup.yaml; scheduled
   # per-entry CI reuses those persistent inputs and does not run setup.
   - name: audio_sortformer_xenna
     enabled: true
@@ -979,6 +979,56 @@ entries:
       --spkcache-update-period=144
       --spkcache-len=188
       --executor=xenna
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_input_rows
+          - num_output_rows
+          - input_output_row_count_match
+          - num_tasks_processed
+          - num_tasks_with_segments
+          - num_segments_processed
+          - stage_execution_coverage_ratio
+          - total_audio_duration_hours
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_input_rows
+        exact_value: 34
+      - metric: num_output_rows
+        exact_value: 34
+      - metric: input_output_row_count_match
+        exact_value: true
+      - metric: num_tasks_with_segments
+        exact_value: 34
+      - metric: num_segments_processed
+        min_value: 34
+      - metric: stage_execution_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_hours
+        min_value: 18.7
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
+
+  - name: audio_sortformer_raydata
+    enabled: true
+    script: audio_sortformer_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+      --gpu-stage-num-workers=8
+      --chunk-len=6
+      --chunk-left-context=1
+      --chunk-right-context=7
+      --fifo-len=188
+      --spkcache-update-period=144
+      --spkcache-len=188
+      --executor=ray_data
       --rttm-out-dir={session_entry_dir}/scratch/rttm
     timeout_s: 1800
     sink_data:
