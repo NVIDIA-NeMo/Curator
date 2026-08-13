@@ -739,10 +739,9 @@ dataset. The splits are CC-BY-4.0, contain 34 unique meetings, occupy
 2,034,736,248 bytes in six source Parquet shards, contain 2,157,687,735 bytes
 of embedded mono 16 kHz PCM audio, and span approximately 18.730 hours. The prep
 script pins dataset revision
-`8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0` and records the public source
-contract in `source_metadata.json` next to the manifest. The benchmark also
-pins canonical meeting IDs, durations, timestamps, and speaker labels with
-SHA-256 `ad548f866d578402a03dc6e10fb92c613092f862e7ca0ec0592a8e74c114ad99`.
+`8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0`. The benchmark pins the complete
+audio corpus with one aggregate SHA-256, and independently pins canonical
+meeting IDs, durations, timestamps, and speaker labels.
 
 The same script stages the public, ungated
 [`nvidia/diar_streaming_sortformer_4spk-v2.1`](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1)
@@ -764,48 +763,25 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --verify-only
 ```
 
-The staged manifest contains `audio_filepath`, `audio_item_id`, `session_name`,
-measured `duration`, and the public `timestamps_start`, `timestamps_end`, and
-`speakers` reference arrays for every meeting.
-Its metadata records each decoded WAV's SHA-256. Before timing begins, the
-benchmark verifies the exact dataset metadata, WAV hashes/format/duration, and
-model size/SHA, then rewrites only `audio_filepath` to the mounted data
-directory. It rejects missing rows, duplicate identities, output row loss,
-duplicate RTTM session names, malformed segments, files with no detected
-segments, and records semantic diarization error rate. Structural checks cover
-all 34 outputs, and DER is computed for every unique source `audio_item_id`.
-DER uses zero collar and includes overlap, but is report-only until a baseline
-is calibrated because the public Hugging Face timestamps differ from the
-forced-alignment RTTMs used for NVIDIA's model-card result. The checkpoint is
-always loaded from `--model-path`, so timed nightly runs have no network or
-model-download variance.
+The manifest retains duration and public speaker annotations for DER. Before
+timing, the benchmark verifies the exact corpus, annotations, WAV format, and
+model, then resolves the portable audio paths from the mounted data directory.
+It processes all 34 meetings exactly once with eight one-GPU workers; missing,
+duplicate, empty, or malformed outputs fail the run. DER uses zero collar with
+overlap and remains report-only because these public references differ from
+the forced-alignment RTTMs used for NVIDIA's model-card result.
 
-NVIDIA reports 17.80% DER for the 30.4-second very-high-latency profile on
-AMI Test SDM, with overlap included and a zero-second collar against
-forced-alignment RTTMs. This benchmark uses the public dataset's `only_words`
-annotations and the 1.04-second low-latency profile, so it does not claim to
-reproduce that model-card DER.
-
-Nightly processes each of the 34 immutable source meetings exactly once. Every
-meeting has a unique `audio_item_id` and `session_name`, so concurrent RTTM
-writes cannot collide. The inference stage uses exactly eight workers with one
-full GPU each, and the entry inherits the nightly Ray default of eight GPUs.
-It explicitly selects Sortformer's published 1.04-second low-latency profile:
-chunk length 6, left context 1, right context 7, FIFO length 188, speaker-cache
-update period 144, and speaker-cache length 188. NVIDIA reports an RTF of 0.093
-for this profile on an RTX 6000 Ada with batch size 1. On that reference, the
-workload estimate is:
+The nightly selects the published 1.04-second low-latency profile (chunk
+`6/1/7`, FIFO `188`, speaker-cache update/length `144/188`). Applying NVIDIA's
+published 0.093 RTF to this workload gives the sizing estimate:
 
 ```text
 18.729746667 audio hours * 0.093 RTF / 8 GPUs = 0.217733305 hours = 13.064 minutes
 ```
 
-Actual wall time remains hardware-dependent. The entry is checked in disabled
-until an operator provisions these public inputs in the scheduled nightly's
-persistent dataset/model mounts, then calibrates this estimate on its eight-GPU
-hardware and enables the entry. The workload is sized for the requested 10-15
-minute range rather than relying on model initialization time. Run the same
-workload locally with:
+Actual wall time is hardware-dependent. The entry stays disabled until these
+inputs are provisioned and the 10–15 minute estimate is calibrated on the
+nightly host. Run the same workload locally with:
 
 ```bash
 python benchmarking/scripts/audio_sortformer_benchmark.py \

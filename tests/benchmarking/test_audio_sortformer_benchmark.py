@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -67,19 +66,18 @@ def test_load_and_rewrite_manifest_uses_mounted_audio_paths(
         audio_path = audio_dir / Path(row["audio_filepath"]).name
         audio_path.write_bytes(b"audio")
     (raw_data_dir / "manifest.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    (raw_data_dir / "source_metadata.json").write_text(json.dumps(benchmark_module.source_metadata()))
     monkeypatch.setattr(
-        benchmark_module,
-        "DATASET_AUDIO_SHA256",
-        dict.fromkeys(benchmark_module.EXPECTED_AUDIO_FILENAMES, hashlib.sha256(b"audio").hexdigest()),
+        benchmark_module.contract,
+        "AUDIO_CORPUS_SHA256",
+        benchmark_module.contract.audio_corpus_sha256(audio_dir),
     )
     monkeypatch.setattr(
-        benchmark_module,
+        benchmark_module.contract,
         "REFERENCE_ANNOTATIONS_SHA256",
-        benchmark_module.reference_annotations_sha256(rows),
+        benchmark_module.contract.reference_annotations_sha256(rows),
     )
     monkeypatch.setattr(
-        benchmark_module.sf,
+        benchmark_module.contract.sf,
         "info",
         lambda _path: SimpleNamespace(
             samplerate=16_000,
@@ -95,11 +93,11 @@ def test_load_and_rewrite_manifest_uses_mounted_audio_paths(
     assert all(Path(row["audio_filepath"]).parent == audio_dir.resolve() for row in rewritten)
     assert target_manifest.is_file()
 
-    (audio_dir / benchmark_module.EXPECTED_AUDIO_FILENAMES[0]).write_bytes(b"other")
-    with pytest.raises(RuntimeError, match="audio SHA-256 mismatch"):
+    (audio_dir / contract.EXPECTED_AUDIO_FILENAMES[0]).write_bytes(b"other")
+    with pytest.raises(RuntimeError, match="audio corpus SHA-256 mismatch"):
         benchmark_module._load_and_rewrite_manifest(raw_data_dir, target_manifest)
 
-    (audio_dir / benchmark_module.EXPECTED_AUDIO_FILENAMES[0]).write_bytes(b"audio")
+    (audio_dir / contract.EXPECTED_AUDIO_FILENAMES[0]).write_bytes(b"audio")
     rows[0]["speakers"][0] = "tampered_speaker"
     (raw_data_dir / "manifest.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
     with pytest.raises(RuntimeError, match="reference annotation SHA-256 mismatch"):
