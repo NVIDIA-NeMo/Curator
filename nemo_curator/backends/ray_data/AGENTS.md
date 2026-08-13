@@ -21,9 +21,9 @@ blocks. Curator instead makes each `Task` its independent unit of work:
 block, and fanout stages repartition their outputs back to one row per block. In
 practice, **one row = one block = one Task**.
 
-The default stage `batch_size=1` therefore passes one Task to each stage call, not
-one document. A `DocumentBatch` may contain many documents inside that opaque Task,
-so tune task partitioning and per-task payload size rather than Ray block-size knobs.
+The default stage `batch_size=1` therefore passes one Task to each stage call. Ray
+cannot see or split records contained inside that opaque Task, so tune task
+partitioning and per-task payload size rather than Ray block-size knobs.
 
 ---
 
@@ -401,13 +401,13 @@ actor_pool_max_upscaling_delta, max_size - current_actors)`. When
 `current_actors == max_size`, the third term is 0, making delta=0 regardless of
 utilization or budget. Set it when the actor count must not exceed a known bound.
 
-### 2. `min_size` actors are created before any inputs arrive — `initial_size` alone does not hold them
+### 2. `MIN_WORKERS` actors are created before inputs arrive — `INITIAL_WORKERS` alone does not hold them
 
-The min_size check (step 2 in the autoscaler decision chain) fires before the
-`num_inputs_received == 0` guard (step 5). Actors are created up to `min_size`
-immediately at pipeline startup, not when the first item arrives.
+`RayStageSpecKeys.MIN_WORKERS` maps to Ray's `min_size`. Its check (step 2 in the
+autoscaler decision chain) fires before the `num_inputs_received == 0` guard
+(step 5), so these actors are created at pipeline startup.
 
-**`initial_size` without a matching `min_size` is a footgun for GPU stages.**
+**`INITIAL_WORKERS` without matching `MIN_WORKERS` is a footgun for GPU stages.**
 The `num_inputs_received == 0` guard only prevents downscaling *before* any
 inputs are received. As soon as the first block arrives and is assigned as a
 task, `num_inputs_received` becomes 1 and the guard never fires again. If
