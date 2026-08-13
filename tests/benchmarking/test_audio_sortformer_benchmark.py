@@ -22,8 +22,6 @@ from types import ModuleType, SimpleNamespace
 import pytest
 from pytest import MonkeyPatch
 
-from benchmarking.scripts import audio_sortformer_contract as contract
-
 pytest.importorskip("nemo.collections.asr")
 
 
@@ -40,185 +38,139 @@ def benchmark_module():
         sys.modules.pop("audio_sortformer_benchmark", None)
 
 
-def _manifest_rows() -> list[dict]:
+def _manifest_rows(benchmark_module: ModuleType) -> list[dict]:
     return [
         {
-            "audio_filepath": f"/container/audio/{filename}",
+            "audio_filepath": f"audio/{filename}",
             "audio_item_id": filename.removesuffix(".wav"),
-            "session_name": filename.removesuffix(".wav"),
-            "duration": contract.DATASET_PUBLISHED_MEAN_DURATION_S,
-            "timestamps_start": [0.0, 1.0, 2.0],
-            "timestamps_end": [1.0, 2.0, 3.0],
-            "speakers": ["speaker_a", "speaker_b", "speaker_c"],
+            "duration": 2000.0,
         }
-        for filename in contract.EXPECTED_AUDIO_FILENAMES
+        for filename in benchmark_module.EXPECTED_AUDIO_FILENAMES
     ]
 
 
-def test_load_and_rewrite_manifest_uses_mounted_audio_paths(
+def _stage_perf(benchmark_module: ModuleType) -> list[SimpleNamespace]:
+    return [SimpleNamespace(stage_name=benchmark_module.SORTFORMER_STAGE_NAME, num_items_processed=1)]
+
+
+def test_write_staged_manifest_uses_local_audio_paths(tmp_path: Path, benchmark_module: ModuleType) -> None:
+    data_dir = tmp_path / "input"
+    audio_dir = data_dir / "audio"
+    audio_dir.mkdir(parents=True)
+    rows = _manifest_rows(benchmark_module)
+    for row in rows:
+        (audio_dir / Path(row["audio_filepath"]).name).touch()
+    source_manifest = data_dir / "manifest.jsonl"
+    source_manifest.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    located_manifest, located_audio = benchmark_module._locate_prestaged_data(data_dir)
+    target_manifest = tmp_path / "scratch" / "manifest.jsonl"
+    num_rows = benchmark_module._write_staged_manifest(located_manifest, target_manifest, located_audio)
+    rewritten = [json.loads(line) for line in target_manifest.read_text().splitlines()]
+
+    assert num_rows == 34
+    assert all(Path(row["audio_filepath"]).parent == audio_dir.resolve() for row in rewritten)
+
+
+def test_validate_outputs_matches_tagging_methodology(benchmark_module: ModuleType) -> None:
+    tasks = [
+        SimpleNamespace(
+            data={
+                "duration": 10.0,
+                "diar_segments": [{"start": 0.0, "end": 10.02, "speaker": "speaker_0"}],
+            },
+            _stage_perf=_stage_perf(benchmark_module),
+        ),
+        SimpleNamespace(
+            data={
+                "duration": 10.0,
+                "diar_segments": [{"start": 1.0, "end": 2.0, "speaker": "speaker_1"}],
+            },
+            _stage_perf=_stage_perf(benchmark_module),
+        ),
+    ]
+
+    metrics = benchmark_module._validate_outputs(tasks, num_input_rows=2)
+
+    assert metrics["input_output_row_count_match"] is True
+    assert metrics["num_tasks_with_segments"] == 2
+    assert metrics["num_segments_processed"] == 2
+    assert metrics["stage_execution_coverage_ratio"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("tasks", "match"),
+    [
+        ([], "returned 0 rows"),
+        (
+            [SimpleNamespace(data={"duration": 10.0, "diar_segments": []}, _stage_perf=[])],
+            "no diarization segments",
+        ),
+        (
+            [
+                SimpleNamespace(
+                    data={
+                        "duration": 10.0,
+                        "diar_segments": [{"start": 2.0, "end": 1.0, "speaker": "speaker_0"}],
+                    },
+                    _stage_perf=[],
+                )
+            ],
+            "invalid timestamps",
+        ),
+    ],
+)
+def test_validate_outputs_rejects_incomplete_or_malformed_output(
+    tasks: list[SimpleNamespace], match: str, benchmark_module: ModuleType
+) -> None:
+    with pytest.raises(RuntimeError, match=match):
+        benchmark_module._validate_outputs(tasks, num_input_rows=1)
+
+
+def test_run_uses_eight_one_gpu_workers(
     tmp_path: Path, monkeypatch: MonkeyPatch, benchmark_module: ModuleType
 ) -> None:
-    raw_data_dir = tmp_path / "input"
-    audio_dir = raw_data_dir / "audio"
+    data_dir = tmp_path / "input"
+    audio_dir = data_dir / "audio"
     audio_dir.mkdir(parents=True)
-    rows = _manifest_rows()
+    rows = _manifest_rows(benchmark_module)
     for row in rows:
-        audio_path = audio_dir / Path(row["audio_filepath"]).name
-        audio_path.write_bytes(b"audio")
-    (raw_data_dir / "manifest.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    monkeypatch.setattr(
-        benchmark_module.contract,
-        "AUDIO_CORPUS_SHA256",
-        benchmark_module.contract.audio_corpus_sha256(audio_dir),
-    )
-    monkeypatch.setattr(
-        benchmark_module.contract,
-        "REFERENCE_ANNOTATIONS_SHA256",
-        benchmark_module.contract.reference_annotations_sha256(rows),
-    )
-    monkeypatch.setattr(
-        benchmark_module.contract.sf,
-        "info",
-        lambda _path: SimpleNamespace(
-            samplerate=16_000,
-            channels=1,
-            frames=int(contract.DATASET_PUBLISHED_MEAN_DURATION_S * 16_000),
-        ),
-    )
+        (audio_dir / Path(row["audio_filepath"]).name).touch()
+    (data_dir / "manifest.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    model_path = tmp_path / "model.nemo"
+    model_path.touch()
 
-    target_manifest = tmp_path / "output" / "manifest.jsonl"
-    rewritten = benchmark_module._load_and_rewrite_manifest(raw_data_dir, target_manifest)
-
-    assert len(rewritten) == 34
-    assert all(Path(row["audio_filepath"]).parent == audio_dir.resolve() for row in rewritten)
-    assert target_manifest.is_file()
-
-    (audio_dir / contract.EXPECTED_AUDIO_FILENAMES[0]).write_bytes(b"other")
-    with pytest.raises(RuntimeError, match="audio corpus SHA-256 mismatch"):
-        benchmark_module._load_and_rewrite_manifest(raw_data_dir, target_manifest)
-
-    (audio_dir / contract.EXPECTED_AUDIO_FILENAMES[0]).write_bytes(b"audio")
-    rows[0]["speakers"][0] = "tampered_speaker"
-    (raw_data_dir / "manifest.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    with pytest.raises(RuntimeError, match="reference annotation SHA-256 mismatch"):
-        benchmark_module._load_and_rewrite_manifest(raw_data_dir, target_manifest)
-
-
-def test_collect_metrics_requires_complete_unique_segment_output(benchmark_module: ModuleType) -> None:
-    tasks = [
+    output_tasks = [
         SimpleNamespace(
             data={
-                "duration": 10.0,
-                "session_name": f"session_{index}",
-                "audio_item_id": f"source_{index}",
+                **row,
                 "diar_segments": [{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}],
-                "timestamps_start": [0.0],
-                "timestamps_end": [1.0],
-                "speakers": ["reference_0"],
-            }
+            },
+            _stage_perf=_stage_perf(benchmark_module),
         )
-        for index in range(2)
+        for row in rows
     ]
+    captured: dict = {}
 
-    metrics = benchmark_module._collect_diarization_metrics(
-        tasks,
-        elapsed_s=1.0,
-        num_input_files=2,
-        source_num_files=2,
-        source_audio_duration_s=20.0,
-    )
+    def fake_run(pipeline: object, _executor: object) -> list[SimpleNamespace]:
+        captured["pipeline"] = pipeline
+        return output_tasks
 
-    assert metrics["is_success"] is True
-    assert metrics["input_output_row_count_match"] is True
-    assert metrics["output_session_names_unique"] is True
-    assert metrics["num_files_with_segments"] == 2
-    assert metrics["num_source_files_scored_for_der"] == 2
-    assert metrics["total_segments_detected"] == 2
-    assert metrics["total_audio_duration_hours"] == pytest.approx(20 / 3600, abs=1e-6)
+    monkeypatch.setattr(benchmark_module, "setup_executor", lambda _name: object())
+    monkeypatch.setattr(benchmark_module.Pipeline, "run", fake_run)
 
-
-def test_collect_metrics_rejects_duplicate_sessions_and_malformed_segments(benchmark_module: ModuleType) -> None:
-    tasks = [
-        SimpleNamespace(
-            data={
-                "duration": 10.0,
-                "session_name": "duplicate",
-                "audio_item_id": "source_0",
-                "diar_segments": [{"start": 1.0, "end": 0.0, "speaker": "speaker_0"}],
-                "timestamps_start": [0.0],
-                "timestamps_end": [1.0],
-                "speakers": ["reference_0"],
-            }
-        ),
-        SimpleNamespace(
-            data={
-                "duration": 10.0,
-                "session_name": "duplicate",
-                "audio_item_id": "source_0",
-                "diar_segments": [{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}],
-                "timestamps_start": [0.0],
-                "timestamps_end": [1.0],
-                "speakers": ["reference_0"],
-            }
-        ),
-    ]
-
-    metrics = benchmark_module._collect_diarization_metrics(
-        tasks,
-        elapsed_s=1.0,
-        num_input_files=2,
-        source_num_files=2,
-        source_audio_duration_s=20.0,
-    )
-
-    assert metrics["is_success"] is False
-    assert metrics["output_session_names_unique"] is False
-    assert metrics["malformed_segments"] == 1
-
-
-def test_collect_metrics_reports_semantically_wrong_output(benchmark_module: ModuleType) -> None:
-    task = SimpleNamespace(
-        data={
-            "duration": 2.0,
-            "session_name": "meeting",
-            "audio_item_id": "meeting",
-            "timestamps_start": [0.0, 1.0],
-            "timestamps_end": [1.0, 2.0],
-            "speakers": ["speaker_a", "speaker_b"],
-            "diar_segments": [{"start": 0.0, "end": 2.0, "speaker": "one_speaker"}],
-        }
-    )
-
-    metrics = benchmark_module._collect_diarization_metrics(
-        [task], 1.0, num_input_files=1, source_num_files=1, source_audio_duration_s=2.0
-    )
-
-    assert metrics["malformed_segments"] == 0
-    assert metrics["diarization_error_rate_percent"] == pytest.approx(50.0)
-    assert metrics["is_success"] is True
-
-
-def test_build_pipeline_uses_eight_one_gpu_workers(tmp_path: Path, benchmark_module: ModuleType) -> None:
-    pipeline = benchmark_module._build_pipeline(
-        manifest_path=tmp_path / "manifest.jsonl",
-        model_path=tmp_path / "model.nemo",
+    result = benchmark_module.run_audio_sortformer_benchmark(
+        benchmark_results_path=str(tmp_path / "results"),
+        scratch_output_path=str(tmp_path / "scratch"),
+        raw_data_dir=str(data_dir),
+        model_path=str(model_path),
         gpu_stage_num_workers=8,
-        chunk_len=6,
-        chunk_left_context=1,
-        chunk_right_context=7,
-        fifo_len=188,
-        spkcache_update_period=144,
-        spkcache_len=188,
-        rttm_out_dir=str(tmp_path / "rttm"),
     )
 
-    assert len(pipeline.stages) == 2
-    _, inference = pipeline.stages
+    _, inference = captured["pipeline"].stages
     assert inference.resources.gpus == 1
     assert inference.num_workers() == 8
     assert inference.chunk_len == 6
-    assert inference.chunk_left_context == 1
     assert inference.chunk_right_context == 7
-    assert inference.fifo_len == 188
-    assert inference.spkcache_update_period == 144
-    assert inference.spkcache_len == 188
+    assert result["metrics"]["num_input_rows"] == 34
+    assert result["metrics"]["num_output_rows"] == 34

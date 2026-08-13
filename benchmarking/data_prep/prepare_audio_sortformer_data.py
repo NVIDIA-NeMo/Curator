@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Stage the pinned public AMI SDM workload and Sortformer checkpoint."""
+"""One-time data preparation for the audio Sortformer benchmark."""
 
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import shutil
 import sys
-import tempfile
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -29,121 +30,174 @@ from datasets import Audio, load_dataset
 from huggingface_hub import hf_hub_download
 from loguru import logger
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import audio_sortformer_contract as contract
-
 DEFAULT_CACHE_DIR = "/tmp/curator/audio_sortformer_cache"  # noqa: S108
+AMI_HF_REPO_ID = "diarizers-community/ami"
+AMI_CONFIG = "sdm"
+AMI_SPLITS = ("validation", "test")
+AMI_SPLIT_NUM_ROWS = {"validation": 18, "test": 16}
+EXPECTED_AUDIO_FILENAMES = tuple(
+    f"ami_sdm_{split}_{index:03d}.wav" for split in AMI_SPLITS for index in range(AMI_SPLIT_NUM_ROWS[split])
+)
+MODEL_HF_REPO_ID = "nvidia/diar_streaming_sortformer_4spk-v2.1"
+MODEL_FILENAME = "diar_streaming_sortformer_4spk-v2.1.nemo"
 
 
-def _write_audio(audio: object, target_path: Path) -> float:
-    if not isinstance(audio, dict) or not isinstance(audio.get("bytes"), bytes):
-        msg = "Expected embedded WAV bytes in the pinned AMI Parquet row"
-        raise TypeError(msg)
-    audio_bytes = audio["bytes"]
-    info = sf.info(BytesIO(audio_bytes))
-    if (
-        info.samplerate != contract.AUDIO_SAMPLE_RATE
-        or info.channels != contract.MONO_CHANNELS
-        or info.subtype != "PCM_16"
-    ):
-        msg = f"Expected mono 16 kHz PCM-16 AMI audio, found {info.channels} channels at {info.samplerate} Hz"
+def _load_manifest_rows(manifest_path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with manifest_path.open(encoding="utf-8") as manifest_file:
+        for line_number, line in enumerate(manifest_file, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as e:
+                msg = f"Manifest has invalid JSON on line {line_number}: {e}"
+                raise RuntimeError(msg) from e
+            if not isinstance(row, dict):
+                msg = f"Manifest line {line_number} is not a JSON object"
+                raise TypeError(msg)
+            rows.append(row)
+    if not rows:
+        msg = f"Manifest contains no data rows: {manifest_path}"
         raise RuntimeError(msg)
-    target_path.write_bytes(audio_bytes)
-    return float(info.frames) / info.samplerate
+    return rows
+
+
+def _validate_manifest_contract(rows: list[dict[str, Any]], label: str) -> None:
+    if len(rows) != len(EXPECTED_AUDIO_FILENAMES):
+        msg = f"{label} must contain exactly {len(EXPECTED_AUDIO_FILENAMES)} rows, found {len(rows)}"
+        raise RuntimeError(msg)
+
+    expected_filenames = set(EXPECTED_AUDIO_FILENAMES)
+    seen_filenames: set[str] = set()
+    seen_ids: set[str] = set()
+    for line_number, row in enumerate(rows, start=1):
+        audio_filepath = row.get("audio_filepath")
+        if not isinstance(audio_filepath, str) or not audio_filepath:
+            msg = f"{label} line {line_number} must contain audio_filepath"
+            raise RuntimeError(msg)
+        filename = Path(audio_filepath).name
+        if filename not in expected_filenames:
+            msg = f"{label} line {line_number} references unexpected audio file {filename!r}"
+            raise RuntimeError(msg)
+        if filename in seen_filenames:
+            msg = f"{label} contains duplicate audio file {filename!r}"
+            raise RuntimeError(msg)
+        seen_filenames.add(filename)
+
+        audio_item_id = row.get("audio_item_id")
+        if not isinstance(audio_item_id, str) or not audio_item_id:
+            msg = f"{label} line {line_number} must contain a nonempty audio_item_id"
+            raise RuntimeError(msg)
+        if audio_item_id in seen_ids:
+            msg = f"{label} contains duplicate audio_item_id {audio_item_id!r}"
+            raise RuntimeError(msg)
+        seen_ids.add(audio_item_id)
+
+        duration = row.get("duration")
+        if not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0:
+            msg = f"{label} line {line_number} must contain a finite positive duration"
+            raise RuntimeError(msg)
+
+    if seen_filenames != expected_filenames:
+        msg = f"{label} is missing expected audio files: {sorted(expected_filenames - seen_filenames)}"
+        raise RuntimeError(msg)
+
+
+def _write_manifest(rows: list[dict[str, Any]], manifest_path: Path) -> None:
+    with manifest_path.open("w", encoding="utf-8") as manifest_file:
+        for row in rows:
+            manifest_file.write(json.dumps(row) + "\n")
 
 
 def verify_dataset(output_path: Path) -> bool:
-    try:
-        rows, total_duration_s = contract.validate_staged_dataset(output_path)
-    except Exception as e:
-        logger.error(f"Sortformer dataset validation failed: {e}")
+    manifest_path = output_path / "manifest.jsonl"
+    audio_dir = output_path / "audio"
+    if not manifest_path.is_file() or not audio_dir.is_dir():
+        logger.error(f"Expected manifest.jsonl and audio/ under {output_path}")
         return False
-    logger.info(
-        f"Verified {len(rows)} public AMI SDM files ({total_duration_s / 3600:.3f} hours, "
-        f"{contract.DATASET_SOURCE_DOWNLOAD_BYTES:,} source bytes)"
-    )
+
+    missing_audio = [
+        audio_dir / filename for filename in EXPECTED_AUDIO_FILENAMES if not (audio_dir / filename).is_file()
+    ]
+    if missing_audio:
+        logger.error(f"Missing expected audio files: {', '.join(str(path) for path in missing_audio)}")
+        return False
+
+    try:
+        rows = _load_manifest_rows(manifest_path)
+        _validate_manifest_contract(rows, str(manifest_path))
+    except Exception as e:
+        logger.error(f"Manifest validation failed: {e}")
+        return False
+
+    total_duration_hours = sum(float(row["duration"]) for row in rows) / 3600
+    logger.info(f"Verified {len(rows)} unique AMI SDM files ({total_duration_hours:.3f} audio hours)")
     return True
 
 
 def verify_model(model_path: Path) -> bool:
-    try:
-        contract.validate_model(model_path)
-    except Exception as e:
-        logger.error(f"Sortformer model validation failed: {e}")
+    if not model_path.is_file() or model_path.stat().st_size == 0:
+        logger.error(f"Sortformer model is missing or empty: {model_path}")
         return False
-    logger.info(f"Verified public Sortformer checkpoint: {model_path}")
+    logger.info(f"Verified local Sortformer checkpoint: {model_path}")
     return True
 
 
+def _write_audio_row(audio: object, target_path: Path) -> float:
+    if not isinstance(audio, dict) or not isinstance(audio.get("bytes"), bytes):
+        msg = "Expected embedded WAV bytes in the AMI row"
+        raise TypeError(msg)
+    audio_bytes = audio["bytes"]
+    info = sf.info(BytesIO(audio_bytes))
+    target_path.write_bytes(audio_bytes)
+    return float(info.frames) / info.samplerate
+
+
 def stage_dataset(output_path: Path, cache_dir: str) -> None:
-    """Build and verify in a temporary sibling before replacing prior data."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=f".{output_path.name}-staging-", dir=output_path.parent) as staging_dir:
-        staging_path = Path(staging_dir)
-        _stage_dataset(staging_path, cache_dir)
-        contract.validate_staged_dataset(staging_path)
-        if output_path.exists():
-            shutil.rmtree(output_path)
-        staging_path.replace(output_path)
-
-
-def _stage_dataset(output_path: Path, cache_dir: str) -> None:
     audio_dir = output_path / "audio"
-    audio_dir.mkdir(parents=True)
-    rows: list[dict[str, Any]] = []
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    manifest_rows: list[dict[str, Any]] = []
 
-    logger.info(
-        f"Staging {contract.DATASET_NUM_ROWS} public AMI SDM meetings from "
-        f"{contract.DATASET_HF_REPO_ID}@{contract.DATASET_REVISION}"
-    )
-    for split in contract.DATASET_SPLITS:
-        expected_rows = contract.DATASET_SPLIT_NUM_ROWS[split]
+    for split in AMI_SPLITS:
         dataset = load_dataset(
-            contract.DATASET_HF_REPO_ID,
-            contract.DATASET_CONFIG,
+            AMI_HF_REPO_ID,
+            AMI_CONFIG,
             split=split,
-            revision=contract.DATASET_REVISION,
             cache_dir=cache_dir,
             streaming=True,
-            token=False,
-        ).cast_column("audio", Audio(sampling_rate=contract.AUDIO_SAMPLE_RATE, decode=False))
-
+        ).cast_column("audio", Audio(decode=False))
+        expected_rows = AMI_SPLIT_NUM_ROWS[split]
         split_rows = 0
         for row_index, row in enumerate(dataset):
             if row_index >= expected_rows:
-                msg = f"Pinned AMI SDM {split} split contains more than {expected_rows} rows"
+                msg = f"AMI SDM {split} contains more than {expected_rows} rows"
                 raise RuntimeError(msg)
             audio_item_id = f"ami_sdm_{split}_{row_index:03d}"
             filename = f"{audio_item_id}.wav"
-            duration_s = _write_audio(row["audio"], audio_dir / filename)
-            rows.append(
+            duration = _write_audio_row(row["audio"], audio_dir / filename)
+            manifest_rows.append(
                 {
                     "audio_filepath": f"audio/{filename}",
                     "audio_item_id": audio_item_id,
-                    "session_name": audio_item_id,
-                    "duration": duration_s,
-                    "timestamps_start": [float(value) for value in row["timestamps_start"]],
-                    "timestamps_end": [float(value) for value in row["timestamps_end"]],
-                    "speakers": [str(value) for value in row["speakers"]],
+                    "duration": duration,
                 }
             )
             split_rows += 1
         if split_rows != expected_rows:
-            msg = f"Pinned AMI SDM {split} split must contain {expected_rows} rows, found {split_rows}"
+            msg = f"Expected {expected_rows} AMI SDM {split} rows, found {split_rows}"
             raise RuntimeError(msg)
 
-    contract.validate_manifest(rows, f"{contract.DATASET_HF_REPO_ID}/{contract.DATASET_CONFIG}")
-    contract.write_manifest(rows, output_path / contract.MANIFEST_FILENAME)
-    logger.success(f"Dataset ready: {len(rows)} unique public AMI SDM meetings")
+    _validate_manifest_contract(manifest_rows, f"{AMI_HF_REPO_ID}/{AMI_CONFIG}")
+    _write_manifest(manifest_rows, output_path / "manifest.jsonl")
+    logger.success(f"Dataset ready: {len(manifest_rows)} unique AMI SDM meetings")
 
 
 def stage_model(model_path: Path, cache_dir: str) -> None:
     downloaded_path = hf_hub_download(
-        repo_id=contract.MODEL_HF_REPO_ID,
-        filename=contract.MODEL_FILENAME,
-        revision=contract.MODEL_REVISION,
+        repo_id=MODEL_HF_REPO_ID,
+        filename=MODEL_FILENAME,
         cache_dir=cache_dir,
-        token=False,
     )
     model_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(downloaded_path, model_path)
@@ -164,16 +218,16 @@ def main() -> int:
     if args.verify_only:
         return 0 if verify_dataset(output_path) and verify_model(model_path) else 1
 
-    dataset_valid = verify_dataset(output_path)
-    if not dataset_valid:
+    dataset_ready = verify_dataset(output_path)
+    if not dataset_ready:
         stage_dataset(output_path, args.cache_dir)
-        dataset_valid = True  # stage_dataset already verified the transactional output
+        dataset_ready = verify_dataset(output_path)
 
-    model_valid = verify_model(model_path)
-    if not model_valid:
+    model_ready = verify_model(model_path)
+    if not model_ready:
         stage_model(model_path, args.cache_dir)
-        model_valid = verify_model(model_path)
-    return 0 if dataset_valid and model_valid else 1
+        model_ready = verify_model(model_path)
+    return 0 if dataset_ready and model_ready else 1
 
 
 if __name__ == "__main__":

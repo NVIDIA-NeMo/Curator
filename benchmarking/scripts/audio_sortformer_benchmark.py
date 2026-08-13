@@ -12,21 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark low-latency Streaming Sortformer on unique public AMI SDM meetings."""
+"""Benchmark Streaming Sortformer on unique public AMI SDM meetings."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import time
-import traceback
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import audio_sortformer_contract as contract
 from loguru import logger
-from pyannote.core import Annotation, Segment
-from pyannote.metrics.diarization import DiarizationErrorRate
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -34,165 +32,189 @@ from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 from nemo_curator.stages.resources import Resources
 
+if TYPE_CHECKING:
+    from nemo_curator.tasks import AudioTask
+
+AMI_SPLITS = ("validation", "test")
+AMI_SPLIT_NUM_ROWS = {"validation": 18, "test": 16}
+EXPECTED_AUDIO_FILENAMES = tuple(
+    f"ami_sdm_{split}_{index:03d}.wav" for split in AMI_SPLITS for index in range(AMI_SPLIT_NUM_ROWS[split])
+)
 DEFAULT_CHUNK_LEN = 6
 DEFAULT_CHUNK_LEFT_CONTEXT = 1
 DEFAULT_CHUNK_RIGHT_CONTEXT = 7
 DEFAULT_FIFO_LEN = 188
 DEFAULT_SPKCACHE_UPDATE_PERIOD = 144
 DEFAULT_SPKCACHE_LEN = 188
+SORTFORMER_STAGE_NAME = "Sortformer_inference"
 
 
-def _load_and_rewrite_manifest(raw_data_dir: Path, target_manifest: Path) -> list[dict[str, Any]]:
-    rows, _ = contract.validate_staged_dataset(raw_data_dir)
-    audio_dir = raw_data_dir / "audio"
-    rewritten_rows = [
-        {**row, "audio_filepath": str((audio_dir / Path(row["audio_filepath"]).name).resolve())} for row in rows
+def _finite_float(value: object, label: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as e:
+        msg = f"{label} must be a finite number, got {value!r}"
+        raise RuntimeError(msg) from e
+    if not math.isfinite(number):
+        msg = f"{label} must be a finite number, got {value!r}"
+        raise RuntimeError(msg)
+    return number
+
+
+def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:
+    if not path.is_file() or path.stat().st_size == 0:
+        msg = f"{label} is missing or empty: {path}"
+        raise RuntimeError(msg)
+
+    rows: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8") as jsonl_file:
+        for line_number, line in enumerate(jsonl_file, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as e:
+                msg = f"{label} has invalid JSON on line {line_number}: {e}"
+                raise RuntimeError(msg) from e
+            if not isinstance(row, Mapping):
+                msg = f"{label} line {line_number} is not a JSON object"
+                raise TypeError(msg)
+            rows.append(dict(row))
+    if not rows:
+        msg = f"{label} contains no data rows: {path}"
+        raise RuntimeError(msg)
+    return rows
+
+
+def _validate_manifest_contract(rows: list[dict[str, Any]], label: str) -> None:
+    if len(rows) != len(EXPECTED_AUDIO_FILENAMES):
+        msg = f"{label} must contain exactly {len(EXPECTED_AUDIO_FILENAMES)} rows, found {len(rows)}"
+        raise RuntimeError(msg)
+
+    expected_filenames = set(EXPECTED_AUDIO_FILENAMES)
+    seen_filenames: set[str] = set()
+    seen_ids: set[str] = set()
+    for line_number, row in enumerate(rows, start=1):
+        audio_filepath = row.get("audio_filepath")
+        if not isinstance(audio_filepath, str) or not audio_filepath:
+            msg = f"{label} line {line_number} must contain audio_filepath"
+            raise RuntimeError(msg)
+        filename = Path(audio_filepath).name
+        if filename not in expected_filenames:
+            msg = f"{label} line {line_number} references unexpected audio file {filename!r}"
+            raise RuntimeError(msg)
+        if filename in seen_filenames:
+            msg = f"{label} contains duplicate audio file {filename!r}"
+            raise RuntimeError(msg)
+        seen_filenames.add(filename)
+
+        audio_item_id = row.get("audio_item_id")
+        if not isinstance(audio_item_id, str) or not audio_item_id:
+            msg = f"{label} line {line_number} must contain a nonempty audio_item_id"
+            raise RuntimeError(msg)
+        if audio_item_id in seen_ids:
+            msg = f"{label} contains duplicate audio_item_id {audio_item_id!r}"
+            raise RuntimeError(msg)
+        seen_ids.add(audio_item_id)
+
+        duration = _finite_float(row.get("duration"), f"{label} line {line_number} duration")
+        if duration <= 0:
+            msg = f"{label} line {line_number} duration must be positive"
+            raise RuntimeError(msg)
+
+
+def _locate_prestaged_data(data_dir: Path) -> tuple[Path, Path]:
+    manifest_path = data_dir / "manifest.jsonl"
+    audio_dir = data_dir / "audio"
+    if not manifest_path.is_file() or not audio_dir.is_dir():
+        msg = f"Expected pre-staged manifest.jsonl and audio/ under {data_dir}"
+        raise FileNotFoundError(msg)
+    missing_audio = [
+        audio_dir / filename for filename in EXPECTED_AUDIO_FILENAMES if not (audio_dir / filename).is_file()
     ]
-    contract.write_manifest(rewritten_rows, target_manifest)
-    return rewritten_rows
+    if missing_audio:
+        msg = f"Pre-staged audio files are missing: {', '.join(str(path) for path in missing_audio)}"
+        raise FileNotFoundError(msg)
+    _validate_manifest_contract(_load_jsonl_rows(manifest_path, "Input manifest"), "Input manifest")
+    return manifest_path, audio_dir
 
 
-def _is_valid_segment(segment: object, duration_s: float) -> bool:
-    if not isinstance(segment, dict):
-        return False
-    start = segment.get("start")
-    end = segment.get("end")
-    speaker = segment.get("speaker")
-    return (
-        isinstance(start, (int, float))
-        and math.isfinite(start)
-        and isinstance(end, (int, float))
-        and math.isfinite(end)
-        and 0 <= start < end <= duration_s + contract.TIMESTAMP_TOLERANCE_S
-        and isinstance(speaker, str)
-        and bool(speaker)
-    )
+def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> int:
+    rows = _load_jsonl_rows(source_manifest, "Source manifest")
+    _validate_manifest_contract(rows, "Source manifest")
+    target_manifest.parent.mkdir(parents=True, exist_ok=True)
+    with target_manifest.open("w", encoding="utf-8") as target_file:
+        for row in rows:
+            row["audio_filepath"] = str((audio_dir / Path(row["audio_filepath"]).name).resolve())
+            target_file.write(json.dumps(row) + "\n")
+    return len(rows)
 
 
-def _add_segments_to_annotation(
-    annotation: Annotation,
-    starts: list,
-    ends: list,
-    speakers: list,
-) -> None:
-    for track_index, (start, end, speaker) in enumerate(zip(starts, ends, speakers, strict=True)):
-        annotation[Segment(float(start), float(end)), track_index] = str(speaker)
+def _validate_segment(segment: object, label: str) -> None:
+    if not isinstance(segment, Mapping):
+        msg = f"{label} must be a mapping"
+        raise TypeError(msg)
+    start = _finite_float(segment.get("start"), f"{label} start")
+    end = _finite_float(segment.get("end"), f"{label} end")
+    if start < 0 or end <= start:
+        msg = f"{label} has invalid timestamps"
+        raise RuntimeError(msg)
+    if not isinstance(segment.get("speaker"), str) or not segment["speaker"]:
+        msg = f"{label} must contain a nonempty speaker"
+        raise RuntimeError(msg)
 
 
-def _full_duration_uem(duration_s: float) -> Segment:
-    return Segment(0.0, duration_s)
+def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[str, int | float | bool]:
+    if len(tasks) != num_input_rows:
+        msg = f"Sortformer returned {len(tasks)} rows for {num_input_rows} input rows"
+        raise RuntimeError(msg)
 
+    total_duration_s = 0.0
+    num_tasks_with_segments = 0
+    num_segments = 0
+    stage_items = 0
+    for task_index, task in enumerate(tasks):
+        duration = _finite_float(task.data.get("duration"), f"task {task_index} duration")
+        if duration <= 0:
+            msg = f"task {task_index} duration must be positive"
+            raise RuntimeError(msg)
+        total_duration_s += duration
 
-def _collect_diarization_metrics(
-    tasks: list,
-    elapsed_s: float,
-    num_input_files: int,
-    source_num_files: int,
-    source_audio_duration_s: float,
-) -> dict[str, Any]:
-    num_output_files = len(tasks) if tasks else 0
-    processed_audio_duration_s = 0.0
-    total_segments = 0
-    malformed_segments = 0
-    num_files_with_segments = 0
-    output_session_names: list[str] = []
-    scored_audio_item_ids: set[str] = set()
-    der_metric = DiarizationErrorRate(collar=0.0, skip_overlap=False)
-
-    for task in tasks or []:
-        data = task.data if hasattr(task, "data") else {}
-        duration = data.get("duration")
-        if isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 0:
-            processed_audio_duration_s += float(duration)
-
-        session_name = data.get("session_name")
-        if isinstance(session_name, str) and session_name:
-            output_session_names.append(session_name)
-        audio_item_id = data.get("audio_item_id")
-
-        segments = data.get("diar_segments", [])
+        segments = task.data.get("diar_segments")
         if not isinstance(segments, list):
-            malformed_segments += 1
-            continue
-        valid_segments = sum(_is_valid_segment(segment, float(duration or 0)) for segment in segments)
-        malformed_segments += len(segments) - valid_segments
-        total_segments += valid_segments
-        if valid_segments > 0:
-            num_files_with_segments += 1
-        if (
-            valid_segments == len(segments)
-            and valid_segments > 0
-            and isinstance(session_name, str)
-            and isinstance(audio_item_id, str)
-            and audio_item_id
-            and audio_item_id not in scored_audio_item_ids
-        ):
-            reference = Annotation(uri=session_name)
-            hypothesis = Annotation(uri=session_name)
-            _add_segments_to_annotation(
-                reference,
-                data.get("timestamps_start", []),
-                data.get("timestamps_end", []),
-                data.get("speakers", []),
-            )
-            _add_segments_to_annotation(
-                hypothesis,
-                [segment["start"] for segment in segments],
-                [segment["end"] for segment in segments],
-                [segment["speaker"] for segment in segments],
-            )
-            der_metric(reference, hypothesis, uem=_full_duration_uem(float(duration)), uri=session_name)
-            scored_audio_item_ids.add(audio_item_id)
+            msg = f"task {task_index} must contain a diar_segments list"
+            raise TypeError(msg)
+        for segment_index, segment in enumerate(segments):
+            _validate_segment(segment, f"task {task_index} segment {segment_index}")
+        num_segments += len(segments)
+        num_tasks_with_segments += bool(segments)
 
-    expected_audio_duration_s = source_audio_duration_s
-    row_count_match = num_output_files == num_input_files
-    duration_match = math.isclose(processed_audio_duration_s, expected_audio_duration_s, rel_tol=1e-7, abs_tol=1e-3)
-    session_names_unique = len(output_session_names) == num_output_files == len(set(output_session_names))
-    segment_coverage_ratio = num_files_with_segments / num_output_files if num_output_files else 0.0
-    throughput_files_per_sec = num_output_files / elapsed_s if elapsed_s > 0 else 0.0
-    real_time_factor = elapsed_s / processed_audio_duration_s if processed_audio_duration_s > 0 else 0.0
-    throughput_audio_hours_per_hour = processed_audio_duration_s / elapsed_s if elapsed_s > 0 else 0.0
-    diarization_error_rate_percent = 100.0 * abs(der_metric) if num_files_with_segments else math.inf
-    der_components = der_metric[:]
-    is_success = (
-        row_count_match
-        and duration_match
-        and session_names_unique
-        and malformed_segments == 0
-        and num_files_with_segments == num_output_files
-        and len(scored_audio_item_ids) == source_num_files
-        and num_output_files > 0
-    )
+        for perf in task._stage_perf:
+            if perf.stage_name == SORTFORMER_STAGE_NAME:
+                stage_items += perf.num_items_processed
+
+    if num_segments == 0:
+        msg = "Sortformer produced no diarization segments"
+        raise RuntimeError(msg)
+    if stage_items <= 0:
+        msg = f"{SORTFORMER_STAGE_NAME} processed no data"
+        raise RuntimeError(msg)
 
     return {
-        "is_success": is_success,
-        "source_num_files": source_num_files,
-        "num_input_files": num_input_files,
-        "num_files_processed": num_output_files,
-        "input_output_row_count_match": row_count_match,
-        "output_session_names_unique": session_names_unique,
-        "num_files_with_segments": num_files_with_segments,
-        "num_source_files_scored_for_der": len(scored_audio_item_ids),
-        "segment_output_coverage_ratio": round(segment_coverage_ratio, 6),
-        "total_segments_detected": total_segments,
-        "malformed_segments": malformed_segments,
-        "diarization_error_rate_percent": round(diarization_error_rate_percent, 4),
-        "diarization_confusion_s": round(float(der_components["confusion"]), 4),
-        "diarization_missed_detection_s": round(float(der_components["missed detection"]), 4),
-        "diarization_false_alarm_s": round(float(der_components["false alarm"]), 4),
-        "exec_time_s": round(elapsed_s, 2),
-        "source_audio_duration_hours": round(source_audio_duration_s / 3600, 6),
-        "total_audio_duration_hours": round(expected_audio_duration_s / 3600, 6),
-        "processed_audio_duration_hours": round(processed_audio_duration_s / 3600, 6),
-        "input_output_duration_match": duration_match,
-        "real_time_factor": round(real_time_factor, 6),
-        "throughput_files_per_sec": round(throughput_files_per_sec, 4),
-        "throughput_audio_hours_per_hour": round(throughput_audio_hours_per_hour, 3),
+        "num_input_rows": num_input_rows,
+        "num_output_rows": len(tasks),
+        "input_output_row_count_match": True,
+        "num_tasks_processed": len(tasks),
+        "num_tasks_with_segments": num_tasks_with_segments,
+        "num_segments_processed": num_segments,
+        "stage_execution_coverage_ratio": 1.0,
+        "total_audio_duration_hours": total_duration_s / 3600,
     }
 
 
 def run_audio_sortformer_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
+    scratch_output_path: str,
     raw_data_dir: str,
     model_path: str,
     gpu_stage_num_workers: int = 1,
@@ -205,107 +227,30 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     rttm_out_dir: str | None = None,
     executor: str = "xenna",
 ) -> dict[str, Any]:
-    """Run Sortformer once per pinned AMI meeting and collect correctness and throughput metrics."""
+    """Run Sortformer on pre-staged audio and collect structural and throughput metrics."""
     if gpu_stage_num_workers < 1:
         msg = "gpu_stage_num_workers must be at least 1"
         raise ValueError(msg)
-    streaming_profile = {
-        "chunk_len": chunk_len,
-        "chunk_left_context": chunk_left_context,
-        "chunk_right_context": chunk_right_context,
-        "fifo_len": fifo_len,
-        "spkcache_update_period": spkcache_update_period,
-        "spkcache_len": spkcache_len,
-    }
-    for name, value in streaming_profile.items():
-        minimum = 0 if name == "chunk_left_context" else 1
-        if value < minimum:
-            msg = f"{name} must be at least {minimum}"
-            raise ValueError(msg)
 
-    raw_data_path = Path(raw_data_dir).resolve()
-    resolved_model_path = Path(model_path).resolve()
-    contract.validate_model(resolved_model_path)
+    source_manifest, audio_dir = _locate_prestaged_data(Path(raw_data_dir))
+    input_manifest = Path(scratch_output_path) / "audio_sortformer_ami_sdm" / "manifest.jsonl"
+    num_input_rows = _write_staged_manifest(source_manifest, input_manifest, audio_dir)
+    logger.info(f"Benchmark results path: {benchmark_results_path}")
+    local_model = Path(model_path)
+    if not local_model.is_file():
+        msg = f"Pre-staged Sortformer model not found: {local_model}"
+        raise FileNotFoundError(msg)
 
-    results_path = Path(benchmark_results_path).resolve()
-    input_manifest_path = results_path / "sortformer_input_manifest.jsonl"
-    source_rows = _load_and_rewrite_manifest(raw_data_path, input_manifest_path)
-    source_audio_duration_s = sum(float(row["duration"]) for row in source_rows)
-    num_input_files = len(source_rows)
-
-    logger.info("Starting audio Sortformer diarization benchmark")
-    logger.info(f"Executor: {executor}")
-    logger.info(f"Unique public source rows: {len(source_rows)}")
-    logger.info(f"Source audio hours: {source_audio_duration_s / 3600:.3f}")
-    logger.info(f"GPU workers: {gpu_stage_num_workers}")
-    logger.info(f"Streaming profile: {streaming_profile}")
-    logger.info(f"Model: {resolved_model_path}")
-    logger.info(f"Manifest: {input_manifest_path}")
-
-    pipeline = _build_pipeline(
-        manifest_path=input_manifest_path,
-        model_path=resolved_model_path,
-        gpu_stage_num_workers=gpu_stage_num_workers,
-        chunk_len=chunk_len,
-        chunk_left_context=chunk_left_context,
-        chunk_right_context=chunk_right_context,
-        fifo_len=fifo_len,
-        spkcache_update_period=spkcache_update_period,
-        spkcache_len=spkcache_len,
-        rttm_out_dir=rttm_out_dir,
-    )
-
-    executor_obj = setup_executor(executor)
-    start_time = time.perf_counter()
-    results = pipeline.run(executor_obj)
-    elapsed_s = time.perf_counter() - start_time
-    metrics = _collect_diarization_metrics(
-        results,
-        elapsed_s,
-        num_input_files=num_input_files,
-        source_num_files=len(source_rows),
-        source_audio_duration_s=source_audio_duration_s,
-    )
-
-    logger.success(
-        f"Benchmark completed: {metrics['num_files_processed']} files in {elapsed_s:.1f}s "
-        f"({metrics['throughput_audio_hours_per_hour']:.1f} audio-hours/hour)"
-    )
-    return {
-        "params": {
-            "benchmark_results_path": str(results_path),
-            "raw_data_dir": str(raw_data_path),
-            "model_path": str(resolved_model_path),
-            "gpu_stage_num_workers": gpu_stage_num_workers,
-            **streaming_profile,
-            "rttm_out_dir": rttm_out_dir,
-            "executor": executor,
-        },
-        "metrics": metrics,
-        "tasks": results,
-    }
-
-
-def _build_pipeline(  # noqa: PLR0913
-    manifest_path: Path,
-    model_path: Path,
-    gpu_stage_num_workers: int,
-    chunk_len: int,
-    chunk_left_context: int,
-    chunk_right_context: int,
-    fifo_len: int,
-    spkcache_update_period: int,
-    spkcache_len: int,
-    rttm_out_dir: str | None,
-) -> Pipeline:
+    exc = setup_executor(executor)
+    run_start_time = time.perf_counter()
     pipeline = Pipeline(
         name="audio_sortformer_diarization",
-        description="Unique public AMI SDM meetings -> low-latency Streaming Sortformer diarization.",
+        description="Unique AMI SDM meetings -> Streaming Sortformer diarization",
     )
-    pipeline.add_stage(ManifestReader(manifest_path=str(manifest_path)))
+    pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest)))
     pipeline.add_stage(
         InferenceSortformerStage(
-            model_path=str(model_path),
+            model_path=str(local_model),
             rttm_out_dir=rttm_out_dir,
             chunk_len=chunk_len,
             chunk_left_context=chunk_left_context,
@@ -315,48 +260,55 @@ def _build_pipeline(  # noqa: PLR0913
             spkcache_len=spkcache_len,
         ).with_(resources=Resources(gpus=1), num_workers=gpu_stage_num_workers)
     )
-    return pipeline
+    logger.info(pipeline.describe())
+    results = pipeline.run(exc)
+    run_time_taken = time.perf_counter() - run_start_time
+    output_metrics = _validate_outputs(results, num_input_rows)
+    total_audio_hours = output_metrics["total_audio_duration_hours"]
+
+    logger.success(f"Processed all {num_input_rows} unique AMI meetings")
+    return {
+        "metrics": {
+            "is_success": True,
+            "time_taken_s": run_time_taken,
+            **output_metrics,
+            "real_time_factor": run_time_taken / (total_audio_hours * 3600) if total_audio_hours > 0 else 0,
+            "throughput_files_per_sec": num_input_rows / run_time_taken if run_time_taken > 0 else 0,
+            "throughput_audio_hours_per_hour": (
+                total_audio_hours * 3600 / run_time_taken if run_time_taken > 0 else 0
+            ),
+        },
+        "tasks": results,
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Audio Sortformer benchmark on unique public, pre-staged AMI SDM audio"
-    )
-    parser.add_argument("--benchmark-results-path", required=True, help="Path for benchmark output artifacts")
+    parser = argparse.ArgumentParser(description="Audio Sortformer benchmark on pre-staged meeting audio")
+    parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
+    parser.add_argument("--scratch-output-path", required=True, help="Path for the rewritten input manifest")
     parser.add_argument("--raw-data-dir", required=True, help="Directory containing manifest.jsonl and audio/")
-    parser.add_argument("--model-path", required=True, help="Path to the pre-staged Sortformer .nemo checkpoint")
-    parser.add_argument(
-        "--gpu-stage-num-workers",
-        type=int,
-        default=1,
-        help="Exact number of one-GPU Sortformer workers",
-    )
+    parser.add_argument("--model-path", required=True, help="Pre-staged local Sortformer .nemo checkpoint")
+    parser.add_argument("--gpu-stage-num-workers", type=int, default=1)
     parser.add_argument("--chunk-len", type=int, default=DEFAULT_CHUNK_LEN)
     parser.add_argument("--chunk-left-context", type=int, default=DEFAULT_CHUNK_LEFT_CONTEXT)
     parser.add_argument("--chunk-right-context", type=int, default=DEFAULT_CHUNK_RIGHT_CONTEXT)
     parser.add_argument("--fifo-len", type=int, default=DEFAULT_FIFO_LEN)
     parser.add_argument("--spkcache-update-period", type=int, default=DEFAULT_SPKCACHE_UPDATE_PERIOD)
     parser.add_argument("--spkcache-len", type=int, default=DEFAULT_SPKCACHE_LEN)
-    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
-    parser.add_argument("--rttm-out-dir", default=None, help="Optional directory for one RTTM file per input")
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"])
+    parser.add_argument("--rttm-out-dir", default=None)
     args = parser.parse_args()
 
-    logger.info("=== Audio Sortformer Diarization Benchmark Starting ===")
-    logger.info(f"Arguments: {vars(args)}")
-
+    params = vars(args)
+    logger.info(f"Audio Sortformer benchmark arguments: {params}")
+    result_dict: dict[str, Any] = {"params": params, "metrics": {"is_success": False}, "tasks": []}
     success_code = 1
-    result_dict: dict[str, Any] = {
-        "params": vars(args),
-        "metrics": {"is_success": False},
-        "tasks": [],
-    }
     try:
-        result_dict.update(run_audio_sortformer_benchmark(**vars(args)))
-        success_code = 0 if result_dict["metrics"]["is_success"] else 1
+        result_dict.update(run_audio_sortformer_benchmark(**params))
+        success_code = 0
     except Exception as e:
-        error_traceback = traceback.format_exc()
         logger.error(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
+        result_dict["metrics"]["error_message"] = str(e)
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
     return success_code
