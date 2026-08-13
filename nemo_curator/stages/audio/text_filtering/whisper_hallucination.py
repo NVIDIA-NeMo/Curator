@@ -85,7 +85,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             output_path=/tmp/whisper_hallucination_output.jsonl
     """
 
-    common_hall_file: str = ""
+    common_hall_file: str
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
     long_word_rel_threshold: float = 3.0
@@ -101,11 +101,9 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _phrases: set[str] = field(default_factory=set, init=False, repr=False)
-    _setup_called: bool = field(default=False, init=False, repr=False)
 
     # Phrases shorter than this are matched exactly; longer ones also match
-    # as prefixes. Keep this out of the dataclass constructor/YAML surface:
-    # lowering it can make common short phrases match unrelated transcripts.
+    # as prefixes. Keep this out of the dataclass constructor/YAML surface.
     _PREFIX_MATCH_MIN_LEN: ClassVar[int] = 8
 
     def __post_init__(self) -> None:
@@ -124,7 +122,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         with open(self.common_hall_file, encoding="utf-8") as f:
             phrases = {line.strip() for line in f if line.strip()}
         self._phrases = phrases
-        self._setup_called = True
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -170,13 +167,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
 
     def process(self, task: AudioTask) -> AudioTask:
-        if not self._setup_called:
-            logger.warning(
-                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
-
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             self._set_note(task.data, "skipped (flagged)")

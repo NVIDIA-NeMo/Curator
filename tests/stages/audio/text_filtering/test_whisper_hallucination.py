@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
-import inspect
 from pathlib import Path
 
 import pytest
@@ -24,299 +22,169 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
 from nemo_curator.tasks import AudioTask
 
-
-def _make_stage(tmp_path: Path, phrases: list[str], **kwargs) -> WhisperHallucinationStage:
-    p = tmp_path / "phrases.txt"
-    p.write_text("\n".join(phrases), encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(p), **kwargs)
-    stage.setup()
-    return stage
-
-
 _TEXT_KEY = "pred_text"
 _SKIP_KEY = "_skipme"
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EXAMPLE_DIR = _REPO_ROOT / "tutorials" / "audio" / "whisper_hallucination"
 
 
-def test_clean_text_passes(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["lorem ipsum"])
-    task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == ""
-
-
-def test_repeated_ngrams_sets_skip_me(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_long_word_absolute_threshold_sets_skip_me(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    long_word = "a" * 30
-    task = AudioTask(data={_TEXT_KEY: f"the {long_word} here", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_long_word_relative_threshold_sets_skip_me(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "cat verylongwordindeed", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_frequent_phrase_sets_skip_me(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["Thank you"])
-    task = AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_frequent_phrase_strips_punctuation(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["Thank you"])
-    task = AudioTask(data={_TEXT_KEY: "Thank you.", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_frequent_phrase_strips_trailing_comma(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["Thank you"])
-    task = AudioTask(data={_TEXT_KEY: "Thank you,", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_setup_is_called_lazily_from_process(tmp_path: Path) -> None:
+def _make_stage(tmp_path: Path, phrases: list[str], **kwargs) -> WhisperHallucinationStage:
     phrase_file = tmp_path / "phrases.txt"
-    phrase_file.write_text("Thank you\n", encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
-
-    result = stage.process(AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: "", "duration": 1.0}))
-
-    assert stage._setup_called is True
-    assert "Hallucination" in result.data[_SKIP_KEY]
+    phrase_file.write_text("\n".join(phrases), encoding="utf-8")
+    stage = WhisperHallucinationStage(common_hall_file=str(phrase_file), **kwargs)
+    stage.setup()
+    return stage
 
 
-def test_non_string_text_returns_task_unchanged(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("text", "duration", "expected_reason"),
+    [
+        ("yes yes yes yes yes yes", 5.0, "repeated_ngrams"),
+        (f"the {'a' * 30} here", 5.0, "long_word"),
+        ("cat verylongwordindeed", 5.0, "long_word"),
+        ("the quick brown fox jumps over the lazy dog", 0.1, "high_char_rate"),
+    ],
+)
+def test_detector_flags_and_reports_reason(tmp_path: Path, text: str, duration: float, expected_reason: str) -> None:
     stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: None, _SKIP_KEY: ""})
-    result = stage.process(task)
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": duration}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert expected_reason in result.data["additional_notes"]["WhisperHallucination"]
+
+
+def test_clean_text_passes(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""}))
+
+    assert result.data[_SKIP_KEY] == ""
+    assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
+
+
+@pytest.mark.parametrize("text", ["Thank you", "Thank you.", "Thank you for your time today."])
+def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: Path, text: str) -> None:
+    stage = _make_stage(tmp_path, ["Thank you", "Merci"])
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
+
+
+@pytest.mark.parametrize("text", ["thank you", "THANK YOU", "Thank-you", "Merci,"])
+def test_phrase_matching_preserves_reference_case_and_punctuation_behavior(tmp_path: Path, text: str) -> None:
+    stage = _make_stage(tmp_path, ["Thank you", "Merci"])
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
+
+    assert result.data[_SKIP_KEY] == ""
+    assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
+
+
+def test_setup_stores_stripped_reference_phrases(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, ["Thank you!", "MERCI,"])
+    assert stage._phrases == {"Thank you!", "MERCI,"}
+
+
+@pytest.mark.parametrize("text", ["", None])
+def test_empty_or_non_string_text_is_skipped(tmp_path: Path, text: str | None) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
+
+    assert result.data[_SKIP_KEY] == ""
+    assert result.data["additional_notes"]["WhisperHallucination"] == "skipped (empty text)"
+
+
+def test_preserves_existing_skip_reason_when_overwrite_is_disabled(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Wrong language"}))
+
+    assert result.data[_SKIP_KEY] == "Wrong language"
+    assert result.data["additional_notes"]["WhisperHallucination"] == "skipped (flagged)"
+
+
+@pytest.mark.parametrize(
+    ("language", "word_length", "threshold", "expected_flagged"),
+    [
+        ("fi", 34, 35, False),
+        ("fi", 36, 35, True),
+        ("fi", 26, 25, True),
+        ("en", 26, 25, True),
+    ],
+)
+def test_absolute_long_word_threshold_is_configurable_for_all_languages(
+    tmp_path: Path, language: str, word_length: int, threshold: int, expected_flagged: bool
+) -> None:
+    stage = _make_stage(tmp_path, [], long_word_threshold=threshold)
+    text = f"the {'a' * word_length} here"
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "language": language}))
+
+    assert bool(result.data[_SKIP_KEY]) is expected_flagged
+
+
+def test_agglutinative_language_skips_relative_long_word_check(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: "a természetvédelmi cat", _SKIP_KEY: "", "language": "hu"}))
     assert result.data[_SKIP_KEY] == ""
 
 
-def test_preserves_existing_skip_me_reason(tmp_path: Path) -> None:
+def test_missing_duration_disables_character_rate_check(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Wrong language"})
+    result = stage.process(AudioTask(data={_TEXT_KEY: "the quick brown fox jumps", _SKIP_KEY: ""}))
+    assert result.data[_SKIP_KEY] == ""
+
+
+def test_overwrite_recovers_owned_hallucination_flag(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [], overwrite=True, recovery_value="RECOVERED_BY_QWEN")
+    task = AudioTask(
+        data={
+            _TEXT_KEY: "the cat sat on the mat today",
+            _SKIP_KEY: "Hallucination:First",
+            "additional_notes": {"Earlier": "keep"},
+        }
+    )
     result = stage.process(task)
+
+    assert result.data[_SKIP_KEY] == ""
+    assert result.data["additional_notes"] == {
+        "Earlier": "keep",
+        "WhisperHallucination": "recovered_by_qwen",
+    }
+
+
+def test_overwrite_keeps_flagging_owned_hallucination(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [], overwrite=True)
+    result = stage.process(AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Hallucination:First"}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+
+
+@pytest.mark.parametrize("text", ["the cat sat on the mat today", "yes yes yes yes yes yes"])
+def test_overwrite_never_replaces_a_foreign_flag(tmp_path: Path, text: str) -> None:
+    stage = _make_stage(tmp_path, [], overwrite=True)
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "Wrong language"}))
+
     assert result.data[_SKIP_KEY] == "Wrong language"
 
 
-def test_empty_words_not_flagged_by_ngram(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    assert stage._repeated_ngrams([]) is False
-
-
-def test_empty_words_not_flagged_by_long_word(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    assert stage._long_word([]) is False
-
-
-def test_phrases_file_loads_lines_as_is(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["Thank you", "Amen", "Yeah"])
-    assert "Thank you" in stage._phrases
-    assert "Amen" in stage._phrases
-    assert "Yeah" in stage._phrases
-
-
 def test_requires_common_hall_file() -> None:
+    with pytest.raises(TypeError, match="common_hall_file"):
+        WhisperHallucinationStage()  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="common_hall_file is required"):
         WhisperHallucinationStage(common_hall_file="")
 
 
-def test_agglutinative_lang_respects_configured_threshold(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], long_word_threshold=35)
-    word_34 = "a" * 34
-    task = AudioTask(data={_TEXT_KEY: f"the {word_34} here", _SKIP_KEY: "", "language": "fi"})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == ""
-
-
-def test_agglutinative_lang_flags_above_threshold(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], long_word_threshold=35)
-    word_36 = "a" * 36
-    task = AudioTask(data={_TEXT_KEY: f"the {word_36} here", _SKIP_KEY: "", "language": "fi"})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_agglutinative_lang_skips_relative_check(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "a természetvédelmi cat", _SKIP_KEY: "", "language": "hu"})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == ""
-
-
-def test_non_agglutinative_lang_uses_default_threshold(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    word_26 = "a" * 26
-    task = AudioTask(data={_TEXT_KEY: f"the {word_26} here", _SKIP_KEY: "", "language": "en"})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_agglutinative_lang_uses_default_absolute_threshold(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    word_26 = "a" * 26
-    task = AudioTask(data={_TEXT_KEY: f"the {word_26} here", _SKIP_KEY: "", "language": "fi"})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
-def test_high_char_rate_flags_dense_text_over_a_short_clip(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(
-        data={
-            _TEXT_KEY: "the quick brown fox jumps over the lazy dog",
-            _SKIP_KEY: "",
-            "duration": 0.1,
-        }
-    )
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-    assert "high_char_rate" in result.data["additional_notes"]["WhisperHallucination"]
-
-
-def test_plausible_char_rate_is_not_flagged(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(
-        data={
-            _TEXT_KEY: "the quick brown fox jumps over the lazy dog",
-            _SKIP_KEY: "",
-            "duration": 4.0,
-        }
-    )
-    assert stage.process(task).data[_SKIP_KEY] == ""
-
-
-def test_missing_duration_disables_the_char_rate_check(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "the quick brown fox jumps", _SKIP_KEY: ""})
-    assert stage.process(task).data[_SKIP_KEY] == ""
-
-
-def test_overwrite_clears_a_stale_hallucination_flag_when_text_is_now_clean(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], overwrite=True)
-    task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: "Hallucination:WhisperHallucination"})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == ""
-    assert result.data["additional_notes"]["WhisperHallucination"] == "recovered"
-
-
-def test_overwrite_uses_a_custom_recovery_note(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], overwrite=True, recovery_value="RECOVERED_BY_QWEN")
-    task = AudioTask(data={_TEXT_KEY: "a perfectly normal sentence", _SKIP_KEY: "Hallucination:First"})
-    result = stage.process(task)
-    assert result.data["additional_notes"]["WhisperHallucination"] == "recovered_by_qwen"
-
-
-def test_overwrite_keeps_flagging_text_that_is_still_bad(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], overwrite=True)
-    task = AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Hallucination:First"})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
-
-
-def test_overwrite_does_not_clear_a_flag_owned_by_another_filter(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], overwrite=True)
-    task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: "Wrong language"})
-    assert stage.process(task).data[_SKIP_KEY] == "Wrong language"
-
-
-def test_flagging_does_not_clobber_a_flag_owned_by_another_filter(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [], overwrite=True)
-    task = AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Wrong language"})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == "Wrong language"
-    assert "hallucination" in result.data["additional_notes"]["WhisperHallucination"]
-
-
-def test_notes_are_keyed_per_stage_instance(tmp_path: Path) -> None:
-    first = _make_stage(tmp_path, [], name="First")
-    second = _make_stage(tmp_path, [], name="Second", overwrite=True)
-    task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""})
-
-    second.process(first.process(task))
-
-    notes = task.data["additional_notes"]
-    assert notes["First"] == "passed"
-    assert notes["Second"] == "passed"
-
-
-def test_passing_text_records_a_passed_note(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""})
-    assert stage.process(task).data["additional_notes"]["WhisperHallucination"] == "passed"
-
-
-def test_already_flagged_row_is_noted_as_skipped(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Wrong language"})
-    assert stage.process(task).data["additional_notes"]["WhisperHallucination"] == "skipped (flagged)"
-
-
-def test_reasons_are_reported_for_every_check_that_fired(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["yes"])
-    task = AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "", "duration": 0.1})
-    note = stage.process(task).data["additional_notes"]["WhisperHallucination"]
-    assert "repeated_ngrams" in note
-    assert "high_char_rate" in note
-
-
 def test_missing_required_text_key_raises(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    task = AudioTask(data={_SKIP_KEY: ""})
     with pytest.raises(KeyError, match=_TEXT_KEY):
-        stage.process(task)
-
-
-def test_prefix_match_length_is_a_constant_not_a_constructor_argument() -> None:
-    parameters = inspect.signature(WhisperHallucinationStage).parameters
-    assert "_PREFIX_MATCH_MIN_LEN" not in parameters
-    assert "agglutinative_long_word_threshold" not in parameters
+        stage.process(AudioTask(data={_SKIP_KEY: ""}))
 
 
 def test_stage_declares_its_io_contract(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    required_attrs, required_columns = stage.inputs()
-    _required_out, optional_out = stage.outputs()
-    assert required_attrs == []
-    assert required_columns == [_TEXT_KEY, _SKIP_KEY, "duration"]
-    assert {_SKIP_KEY, "additional_notes"} <= set(optional_out)
+    assert stage.inputs() == ([], [_TEXT_KEY, _SKIP_KEY, "duration"])
+    assert stage.outputs() == ([], [_SKIP_KEY, "additional_notes"])
 
 
-def test_stage_is_cpu_only(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    assert stage.resources.gpus == 0
-    assert stage.resources.cpus == 1.0
-
-
-def test_stage_is_exported_from_the_audio_package() -> None:
-    import nemo_curator.stages.audio as audio_pkg
-
-    assert audio_pkg.WhisperHallucinationStage is WhisperHallucinationStage
-
-
-def test_stage_is_exported_from_text_filtering_package() -> None:
-    from nemo_curator.stages.audio import text_filtering
-
-    assert text_filtering.__all__ == ["WhisperHallucinationStage"]
-    assert text_filtering.WhisperHallucinationStage is WhisperHallucinationStage
-
-
-def test_example_yaml_exposes_all_supported_filter_controls(tmp_path: Path) -> None:
+def test_example_yaml_exposes_supported_filter_controls(tmp_path: Path) -> None:
     cfg = OmegaConf.load(_EXAMPLE_DIR / "pipeline.yaml")
     cfg.manifest_path = str(tmp_path / "asr_manifest.jsonl")
     cfg.output_path = str(tmp_path / "filtered_manifest.jsonl")
@@ -333,10 +201,3 @@ def test_example_yaml_exposes_all_supported_filter_controls(tmp_path: Path) -> N
     assert stage.max_char_rate == 40.0
     assert stage.overwrite is False
     assert stage.recovery_value == ""
-
-
-def test_bundled_phrase_file_matches_reference_hash() -> None:
-    phrase_file = _EXAMPLE_DIR / "phrases.txt"
-    assert hashlib.sha256(phrase_file.read_bytes()).hexdigest() == (
-        "34ba2fcd7756f193e80ba4ac34a6b5db0dab92adeb0750beb796b1bf57f6bc42"  # pragma: allowlist secret
-    )

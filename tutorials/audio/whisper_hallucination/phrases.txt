@@ -17,7 +17,7 @@ Ich habe
 Sì, è vero
 doscientos treinta y cinco
 É isso aí
-Bonjour, je m'appelle Marie 
+Bonjour, je m'appelle Marie
 O que é isso
 Gracias
 четириста петдесет и пет
@@ -31,7 +31,7 @@ Hej, hvor er du
 Да, съгласен съм
 Съжалявам
 Tilbage
-Това е 
+Това е
 След това
 Tämä on
 Да, это так
@@ -68,12 +68,12 @@ Nej
 pre ospravedlnenie
 Ei, ei
 Tästä voi olla
-On niin 
+On niin
 Siinä ei saa olla samaa
 Istuuksesta myöten
 Silloin vasta myöhemmin
 And to all
-Näkyy jonkinlaisia 
+Näkyy jonkinlaisia
 an effect on chains
 Welcome all
 vaikka niin

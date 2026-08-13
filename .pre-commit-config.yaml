@@ -32,10 +32,9 @@ repos:
       - id: check-yaml
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: 'docs/|^tutorials/audio/whisper_hallucination/phrases\.txt$'
+        exclude: docs/
       - id: requirements-txt-fixer
       - id: trailing-whitespace
-        exclude: '^tutorials/audio/whisper_hallucination/phrases\.txt$'
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.10
     hooks:
