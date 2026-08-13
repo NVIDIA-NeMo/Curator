@@ -614,14 +614,12 @@ entries:
       --batch-size=100
       --reader-num-threads=4
       --fuse-reader-embedding
-      --fused-reader-embedding-workers=32
       --embedding-batch-size=500
       --embedding-gpus-per-worker=0.25
       --remove-image-data-after-embedding
       --aesthetic-batch-size=500
       --aesthetic-task-batch-size=5
       --aesthetic-gpus-per-worker=0.0
-      --aesthetic-workers=16
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
