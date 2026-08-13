@@ -52,7 +52,9 @@ TIMEOUT="${TIMEOUT:-30m}"
 SCRIPT="$(dirname "$0")/run_shard.py"
 
 for k in "${SHARDS[@]}"; do
-    hf jobs uv run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" \
+    # --quiet pins the output format regardless of TTY, so the id= line is stable;
+    # stderr stays visible so launch failures are not swallowed by the pipe
+    hf jobs uv run --detach --quiet --flavor "$FLAVOR" --timeout "$TIMEOUT" \
         -s HF_TOKEN \
         -e NEMO_CURATOR_SLURM_ARRAY_ENABLED=1 \
         -e NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX="$k" \
@@ -60,6 +62,6 @@ for k in "${SHARDS[@]}"; do
         -e TUTORIAL_SHARE="${TUTORIAL_SHARE:-/mnt/tutorial}" \
         -v "$BUCKET:/mnt" \
         --name "curator-tutorial-shard-$k" \
-        "$SCRIPT" 2>&1 | grep -o "id=\S*"
+        "$SCRIPT" | grep -o "id=\S*"
     sleep 10   # space out firings: the mount driver can fail on freshly-allocated nodes
 done
