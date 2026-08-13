@@ -621,7 +621,6 @@ entries:
       --aesthetic-batch-size=500
       --aesthetic-task-batch-size=5
       --aesthetic-gpus-per-worker=0.0
-      --aesthetic-workers=16
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
