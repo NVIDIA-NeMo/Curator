@@ -49,13 +49,10 @@ class RayServeBackend(InferenceBackend):
             import ray
             from ray import serve
 
-            self._clear_ray_serve_client_cache()
             with ray.init(ignore_reinit_error=True):
                 serve.shutdown()
         except Exception:  # noqa: BLE001
             logger.debug("serve.shutdown() failed (cluster may already be gone)")
-        finally:
-            self._clear_ray_serve_client_cache()
 
         logger.info("Ray Serve stopped")
 
@@ -114,21 +111,6 @@ class RayServeBackend(InferenceBackend):
     def _configure_ray_serve_haproxy() -> None:
         """Set Ray Serve HAProxy defaults before importing Ray Serve."""
         os.environ.setdefault("RAY_SERVE_ENABLE_HA_PROXY", "1")
-        if not os.environ.get("RAY_SERVE_HAPROXY_BINARY_PATH"):
-            os.environ.setdefault("RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY", "1")
-
-    @staticmethod
-    def _clear_ray_serve_client_cache() -> None:
-        """Clear Ray Serve's cached controller client before reconnecting for shutdown.
-
-        TODO: Remove this workaround once https://github.com/ray-project/ray/issues/64647 is fixed.
-        """
-        try:
-            from ray.serve.context import _set_global_client
-        except (ImportError, AttributeError):
-            return
-
-        _set_global_client(None)
 
     @staticmethod
     def _to_llm_config(model: RayServeModelConfig, quiet_runtime_env: dict[str, Any] | None = None) -> "LLMConfig":

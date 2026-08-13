@@ -52,9 +52,9 @@ The stack uses:
 
 - CUDA 12.9.1 in the NeMo Curator container.
 - PyTorch 2.11.
-- Ray Serve 2.56.1 or later.
+- Ray Serve 2.57.0 or later.
 - vLLM 0.22.0 with CUDA 12.9.
-- A public ai-dynamo release 1.3.0 or later and NIXL 0.10.0 or later for the
+- A public ai-dynamo release 1.3.1 or later and NIXL 0.10.0 or later for the
   Dynamo backend.
 
 Start or connect to a Ray cluster before creating the server. The examples below use `RayClient`; an externally managed Ray cluster works as well.
@@ -375,9 +375,9 @@ Dynamo creates detached, named placement groups and actors. On startup, it remov
 
 ## HAProxy Ingress
 
-The NeMo Curator container includes HAProxy and `socat`. When both binaries are available, local Ray cluster initialization enables Ray Serve's HAProxy ingress and assigns a free metrics port. If either binary is unavailable, Ray Serve uses its default Python proxy.
+Ray Serve's Linux dependencies include the bundled `ray-haproxy` binary. Local Ray cluster initialization enables HAProxy ingress when that package or an explicit `RAY_SERVE_HAPROXY_BINARY_PATH` is available and assigns free metrics and statistics ports. Otherwise, Ray Serve uses its default Python proxy.
 
-No HAProxy configuration is required in `InferenceServer`. To confirm the optimized path, check startup logs for `Ray Serve HAProxy ingress enabled`.
+No additional proxy package installation or HAProxy configuration is required for `InferenceServer`, which enables HAProxy when starting Ray Serve. To confirm that a local cluster discovered the packaged binary, check startup logs for `Ray Serve HAProxy ingress enabled`.
 
 ## Use with NeMo Curator Clients
 
