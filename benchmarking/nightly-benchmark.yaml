@@ -610,12 +610,11 @@ entries:
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=ray_data
       --tar-files-per-partition=1
-      --input-partition-limit=500
+      --input-partition-limit=850
       --batch-size=100
       --reader-num-threads=4
       --fuse-reader-embedding
       --fused-reader-embedding-workers=32
-      --fused-output-batch-size=1000
       --embedding-batch-size=500
       --embedding-gpus-per-worker=0.25
       --remove-image-data-after-embedding
@@ -636,11 +635,11 @@ entries:
           - U020C9VC05N  # Ao Tang
 
     requirements:
-      # 500 deterministic shards x 1,000 unique images per shard.
+      # 850 deterministic shards x 1,000 unique images per shard.
       - metric: num_images_processed
-        exact_value: 500000
+        exact_value: 850000
       - metric: throughput_images_per_sec
-        min_value: 350.0
+        min_value: 900.0
 
   - name: image_curation_xenna
     enabled: true

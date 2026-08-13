@@ -36,7 +36,6 @@ class ImageReaderEmbeddingStage(ProcessingStage[FileGroupTask, ImageBatch]):
     reader_num_threads: int = 4
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 500
-    output_batch_size: int | None = None
     remove_image_data: bool = True
     verbose: bool = False
     batch_size: int = 1
@@ -45,9 +44,6 @@ class ImageReaderEmbeddingStage(ProcessingStage[FileGroupTask, ImageBatch]):
     _embedder: ImageEmbeddingStage = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.output_batch_size is not None and self.output_batch_size <= 0:
-            msg = f"output_batch_size must be positive, got {self.output_batch_size}"
-            raise ValueError(msg)
         self.resources = Resources(gpus=self.num_gpus_per_worker)
         self._reader = ImageReaderStage(
             dali_batch_size=self.dali_batch_size,
@@ -79,21 +75,6 @@ class ImageReaderEmbeddingStage(ProcessingStage[FileGroupTask, ImageBatch]):
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         self._embedder.setup(worker_metadata)
 
-    def _coalesce_output_batches(self, batches: list[ImageBatch]) -> list[ImageBatch]:
-        """Coalesce compact embedded records without increasing DALI decode memory."""
-        if self.output_batch_size is None or not batches:
-            return batches
-
-        images = [image for batch in batches for image in batch.data]
-        dataset_name = batches[0].dataset_name
-        return [
-            ImageBatch(
-                dataset_name=dataset_name,
-                data=images[start : start + self.output_batch_size],
-            )
-            for start in range(0, len(images), self.output_batch_size)
-        ]
-
     def process(self, task: FileGroupTask) -> list[ImageBatch]:
         with self._time_metric("reader_process_time"):
             batches = self._reader.process(task)
@@ -103,7 +84,7 @@ class ImageReaderEmbeddingStage(ProcessingStage[FileGroupTask, ImageBatch]):
             self._embedder.process_batch(batches)
 
         self._log_metric("num_images_processed", num_images)
-        return self._coalesce_output_batches(batches)
+        return batches
 
 
 __all__ = ["ImageReaderEmbeddingStage"]

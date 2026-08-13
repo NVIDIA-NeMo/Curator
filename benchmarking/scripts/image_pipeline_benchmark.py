@@ -62,7 +62,6 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
             reader_num_threads=args.reader_num_threads,
             num_gpus_per_worker=args.embedding_gpus_per_worker,
             model_inference_batch_size=args.embedding_batch_size,
-            output_batch_size=args.fused_output_batch_size,
             remove_image_data=args.remove_image_data_after_embedding,
             verbose=args.verbose,
         )
@@ -197,7 +196,6 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "reader_workers": args.reader_workers,
             "fuse_reader_embedding": args.fuse_reader_embedding,
             "fused_reader_embedding_workers": args.fused_reader_embedding_workers,
-            "fused_output_batch_size": args.fused_output_batch_size,
             "embedding_batch_size": args.embedding_batch_size,
             "embedding_task_batch_size": args.embedding_task_batch_size,
             "embedding_gpus_per_worker": args.embedding_gpus_per_worker,
@@ -291,12 +289,6 @@ def main() -> int:
         type=int,
         default=None,
         help="Fixed number of fused reader/embedding workers",
-    )
-    parser.add_argument(
-        "--fused-output-batch-size",
-        type=int,
-        default=None,
-        help="Coalesce embedded records into transport batches of this size after decoded pixels are dropped",
     )
 
     # Embedding stage arguments
