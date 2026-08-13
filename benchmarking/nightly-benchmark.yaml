@@ -868,7 +868,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5602
+        exact_value: 7600
       - metric: throughput_clips_per_sec
         min_value: 8.0
 
@@ -892,7 +892,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5602
+        exact_value: 7600
       - metric: throughput_clips_per_sec
         min_value: 4.0
 
@@ -917,7 +917,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5602
+        exact_value: 7600
       - metric: throughput_clips_per_sec
         min_value: 5.0
 
@@ -942,7 +942,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5602
+        exact_value: 7600
       - metric: throughput_clips_per_sec
         min_value: 3.0
 
@@ -958,7 +958,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=4000
+      --video-limit=256
       --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
@@ -985,7 +985,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=4000
+      --video-limit=256
       --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
@@ -1086,7 +1086,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 308
+        exact_value: 526
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
@@ -1114,7 +1114,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 308
+        exact_value: 526
       - metric: throughput_clips_per_sec
         min_value: 0.1
 
