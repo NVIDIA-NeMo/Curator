@@ -611,7 +611,7 @@ entries:
       --executor=ray_data
       --tar-files-per-partition=1
       --input-partition-limit=500
-      --batch-size=1000
+      --batch-size=500
       --reader-num-threads=4
       --fuse-reader-embedding
       --fused-reader-embedding-workers=32
