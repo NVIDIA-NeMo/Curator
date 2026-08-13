@@ -612,16 +612,17 @@ entries:
       --tar-files-per-partition=1
       --input-partition-limit=500
       --batch-size=100
-      --reader-workers=8
+      --reader-gpus-per-worker=0.25
+      --reader-workers=4
       --embedding-batch-size=500
       --embedding-task-batch-size=5
       --embedding-gpus-per-worker=0.25
-      --embedding-workers=24
+      --embedding-workers=27
       --remove-image-data-after-embedding
       --aesthetic-batch-size=500
       --aesthetic-task-batch-size=5
-      --aesthetic-gpus-per-worker=0.0
-      --aesthetic-workers=16
+      --aesthetic-gpus-per-worker=0.25
+      --aesthetic-workers=1
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
