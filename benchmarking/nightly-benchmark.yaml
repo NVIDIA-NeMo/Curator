@@ -1131,56 +1131,6 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.1
 
-  - name: multimodal_mint1t_xenna
-    enabled: true
-    script: multimodal_mint1t_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --executor=xenna
-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --files-per-partition=2
-      --mode=overwrite
-      --no-materialize-on-write
-      --output-max-batch-bytes=2000000
-    timeout_s: 1800
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_rows_per_sec
-          - num_rows
-          - num_output_files
-          - materialize_error_count
-        ping_on_failure:
-          - UGFRT88RE  # Vibhu Jawa
-    ray:
-      num_gpus: 0
-
-  - name: multimodal_mint1t_xenna_materialize
-    enabled: true
-    script: multimodal_mint1t_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --executor=xenna
-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --files-per-partition=2
-      --mode=overwrite
-      --materialize-on-write
-      --output-max-batch-bytes=2000000
-    timeout_s: 1800
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_rows_per_sec
-          - num_rows
-          - num_output_files
-          - materialize_error_count
-        ping_on_failure:
-          - UGFRT88RE  # Vibhu Jawa
-    ray:
-      num_gpus: 0
-
   # Consumes the pre-staged AMI data and local PyAnnote snapshot produced by
   # benchmarking/data_prep/prepare_audio_tagging_data.py. Nightly passes
   # --no-auto-download and does not require HF_TOKEN or network access.
@@ -1288,19 +1238,20 @@ entries:
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
-  - name: interleaved_filter_xenna
+  - name: interleaved_filter_raydata_materialize
     enabled: true
     script: interleaved_filter_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --executor=xenna
+      --executor=ray_data
       --input-path={dataset:multimodal_mint1t,wds_tar_dir}
       --output-path={session_entry_dir}/scratch/output
       --clip-model-dir={dataset:mscoco_model_weights,files}
+      --num-files=1000
       --files-per-partition=2
       --mode=overwrite
-      --no-materialize-on-write
-      --output-max-batch-bytes=2000000
+      --materialize-on-write
+      --output-max-batch-bytes=64000000
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1311,6 +1262,14 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
+    requirements:
+      # Allow +/-0.01% around the observed 318,062 images and 716,038 rows.
+      - metric: output_num_images
+        min_value: 318031
+        max_value: 318093
+      - metric: output_num_rows
+        min_value: 715967
+        max_value: 716109
 
 
   - name: interleaved_filter_xenna_materialize
@@ -1322,10 +1281,11 @@ entries:
       --input-path={dataset:multimodal_mint1t,wds_tar_dir}
       --output-path={session_entry_dir}/scratch/output
       --clip-model-dir={dataset:mscoco_model_weights,files}
+      --num-files=1000
       --files-per-partition=2
       --mode=overwrite
       --materialize-on-write
-      --output-max-batch-bytes=2000000
+      --output-max-batch-bytes=64000000
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1336,6 +1296,14 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
+    requirements:
+      # Allow +/-0.01% around the observed 318,062 images and 716,038 rows.
+      - metric: output_num_images
+        min_value: 318031
+        max_value: 318093
+      - metric: output_num_rows
+        min_value: 715967
+        max_value: 716109
 
 
   - name: nemotron_parse_pdf_xenna
