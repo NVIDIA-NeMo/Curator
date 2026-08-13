@@ -68,11 +68,6 @@ COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
 
-# Use the ray-haproxy wheel so Ray Serve's HAProxy ingress mode can discover
-# the packaged binary without compiling HAProxy in the image.
-ENV RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY=1
-
-
 FROM nemo_curator_dep AS nemo_curator
 
 ARG CURATOR_EXTRA=all
@@ -90,13 +85,6 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
     fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
-    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
-    # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
-    # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
-    find /opt/venv -name "ray_dist.jar" -delete && \
-    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
-        echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
-    fi && \
     # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
     (uv pip uninstall opencv-python-headless || true)
 

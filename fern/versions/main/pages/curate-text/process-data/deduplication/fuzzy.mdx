@@ -115,24 +115,24 @@ When fuzzy duplicate IDs are auto-generated, use the same `input_blocksize` valu
 
 Control matching strictness with `num_bands` and `minhashes_per_band`:
 
-- **More strict matching**: Increase `num_bands` or decrease `minhashes_per_band`
-- **Less strict matching**: Decrease `num_bands` or increase `minhashes_per_band`
+- **More strict matching**: Decrease `num_bands` or increase `minhashes_per_band`
+- **Less strict matching**: Increase `num_bands` or decrease `minhashes_per_band`
 
-Default (`num_bands=20`, `minhashes_per_band=13`) provides a balanced trade-off between recall and precision for many datasets. The exact similarity at which pairs are detected depends on your data distribution.
+Default (`num_bands=20`, `minhashes_per_band=13`) provides a balanced trade-off between recall and precision for many datasets. As a rule of thumb, the similarity threshold is approximately `(1 / num_bands) ** (1 / minhashes_per_band)`. The exact similarity at which pairs are detected depends on your data distribution.
 
 <Accordion title="Custom Similarity Threshold">
 
 ```python
 # Example: stricter matching (fewer pairs detected, higher required similarity)
 fuzzy_workflow = FuzzyDeduplicationWorkflow(
-    num_bands=25,           # More bands = stricter matching
-    minhashes_per_band=10  # Fewer hashes per band = stricter matching
+    num_bands=15,           # Fewer bands = stricter matching
+    minhashes_per_band=15  # More hashes per band = stricter matching
 )
 
 # Example: less strict matching (more pairs detected, lower required similarity)
 fuzzy_workflow = FuzzyDeduplicationWorkflow(
-    num_bands=15,           # Fewer bands = less strict matching
-    minhashes_per_band=15  # More hashes per band = less strict matching
+    num_bands=25,           # More bands = less strict matching
+    minhashes_per_band=10  # Fewer hashes per band = less strict matching
 )
 ```
 </Accordion>

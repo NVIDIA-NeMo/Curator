@@ -34,7 +34,7 @@ constraints = [
     { name = "cryptography", specifier = ">=46.0.6" },
     { name = "nbconvert", specifier = ">=7.17.0" },
     { name = "pillow", specifier = ">=12.1.1" },
-    { name = "protobuf", specifier = ">=5.29.6,<7.0" },
+    { name = "protobuf", specifier = ">=5.29.6" },
     { name = "pyasn1", specifier = ">=0.6.2" },
     { name = "pyopenssl", specifier = ">=26.0.0" },
     { name = "python-multipart", specifier = ">=0.0.22" },
@@ -54,7 +54,7 @@ overrides = [
     { name = "nixl-cu12", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = ">=0.10.0", index = "https://pypi.org/simple" },
     { name = "numba", specifier = "==0.65.0" },
     { name = "numpy", specifier = ">=2.0.0,<=2.2.0" },
-    { name = "protobuf", specifier = ">=5.29.5,<7.0" },
+    { name = "protobuf", specifier = ">=5.29.5" },
     { name = "setuptools", specifier = ">=80.10.1" },
     { name = "sqlfluff", specifier = ">=4.2.0" },
     { name = "torch", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu129" },
@@ -93,7 +93,7 @@ wheels = [
 
 [[package]]
 name = "ai-dynamo"
-version = "1.3.0.post1"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ai-dynamo-runtime" },
@@ -107,20 +107,20 @@ dependencies = [
     { name = "zstandard" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/18/ef/8c0d3bef0f555f375a18a968d607be4af40dcf51144866db5cb5f70c51fd/ai_dynamo-1.3.0.post1-py3-none-any.whl", hash = "sha256:cd855d8e567752ebac92a8a6746963efcdc90bce02d944580ef8d0f6f9739847", size = 2681107, upload-time = "2026-07-22T04:11:48.476Z" },
+    { url = "https://files.pythonhosted.org/packages/03/a7/a0bcd88fd898d08f84857184c98249668e5d8d67b22f640f70005be17c06/ai_dynamo-1.3.1-py3-none-any.whl", hash = "sha256:49ba9eba3d08eb22c2ebf8a5fd21b6a1f516775b839058d0120cc0cf66968d1d", size = 2680972, upload-time = "2026-08-05T23:11:06.169Z" },
 ]
 
 [[package]]
 name = "ai-dynamo-runtime"
-version = "1.3.0.post1"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "uvloop" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/f1/6b468ac39afdb0292d69c9c3b99ca165c9ed97493b9f0fd66b325e1255d4/ai_dynamo_runtime-1.3.0.post1-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:45ca602fe4afca166c66150f2eccf2161dc39c1d0055914bef2a66c9bc0844dc", size = 46554625, upload-time = "2026-07-22T04:36:11.066Z" },
-    { url = "https://files.pythonhosted.org/packages/7d/2a/a3f4247b4b36ba0414ca8a06bcecddc5913d267bfb9c2a79464bf195fcfe/ai_dynamo_runtime-1.3.0.post1-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:c6da59d250da41f2bde33641649edbca800186e2cec0aede8763c6c6de35b877", size = 47106907, upload-time = "2026-07-22T04:35:26.366Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/d6/87b74be5572fc161e1ec0f4f6d74effea57ecf5661c73cb8cceb0b2f4114/ai_dynamo_runtime-1.3.1-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:4d5c0a25b4d0bcaf2a88f9fd0fb5c9ea27261b6b0fcba94c15195bf208e4be00", size = 46571190, upload-time = "2026-08-05T23:08:20.653Z" },
+    { url = "https://files.pythonhosted.org/packages/39/b6/cafb913e991359448c62c106aac71cf17c68d58a56dbb74620123e3e9363/ai_dynamo_runtime-1.3.1-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:75ff5632372ad3278bcc3da6e2320e12f29fd663f93aba0db0127fac446e2a7b", size = 47082292, upload-time = "2026-08-05T23:04:34.808Z" },
 ]
 
 [[package]]
@@ -2205,8 +2205,8 @@ name = "dynet38"
 version = "2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cython", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "cython" },
+    { name = "numpy" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fd/c3/46f879632262817aced0889c15c694d327173b3f75467994201d9ddc1f38/dyNET38-2.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8963383d935e802941c8f9d778403798452e172150c3b4b5dee288d50b62ecc8", size = 6961879, upload-time = "2024-01-23T10:31:51.197Z" },
@@ -2555,12 +2555,12 @@ name = "flask"
 version = "3.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "blinker", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "click", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "itsdangerous", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "jinja2", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "markupsafe", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "werkzeug", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "blinker" },
+    { name = "click" },
+    { name = "itsdangerous" },
+    { name = "jinja2" },
+    { name = "markupsafe" },
+    { name = "werkzeug" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/26/00/35d85dcce6c57fdc871f3867d465d780f302a175ea360f62533f12b27e2b/flask-3.1.3.tar.gz", hash = "sha256:0ef0e52b8a9cd932855379197dd8f94047b359ca0a78695144304cb45f87c9eb", size = 759004, upload-time = "2026-02-19T05:00:57.678Z" }
 wheels = [
@@ -2941,34 +2941,34 @@ name = "gradio"
 version = "6.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "anyio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "audioop-lts", marker = "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "brotli", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "fastapi", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "gradio-client", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "groovy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "hf-gradio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "httpx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "huggingface-hub", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "jinja2", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "markupsafe", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "orjson", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "packaging", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pandas", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pillow", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pydantic", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pydub", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "python-multipart", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pytz", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyyaml", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "safehttpx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "semantic-version", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "starlette", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tomlkit", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "typer", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "typing-extensions", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "uvicorn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "anyio" },
+    { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
+    { name = "brotli" },
+    { name = "fastapi" },
+    { name = "gradio-client" },
+    { name = "groovy" },
+    { name = "hf-gradio" },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
+    { name = "jinja2" },
+    { name = "markupsafe" },
+    { name = "numpy" },
+    { name = "orjson" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pydub" },
+    { name = "python-multipart" },
+    { name = "pytz" },
+    { name = "pyyaml" },
+    { name = "safehttpx" },
+    { name = "semantic-version" },
+    { name = "starlette" },
+    { name = "tomlkit" },
+    { name = "typer" },
+    { name = "typing-extensions" },
+    { name = "uvicorn" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f8/96/3618f8a189180ab3d4e5f8b258fd92e419eda9f49b6ab4dd50c6782cda33/gradio-6.20.0.tar.gz", hash = "sha256:8672866e9225a1f8297325a6742bb525a3a0ddc8aa4d75d99beb10a27ea2915f", size = 44844340, upload-time = "2026-07-07T18:53:57.402Z" }
 wheels = [
@@ -2980,11 +2980,11 @@ name = "gradio-client"
 version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "httpx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "huggingface-hub", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "packaging", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "typing-extensions", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "fsspec" },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
+    { name = "packaging" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e8/e6/6b6029f5fe2ad7f1211105d530e34d991014c2cae463f9223033031cfc4f/gradio_client-2.5.0.tar.gz", hash = "sha256:4cde99bad62149595c30c90876ca2e405e3a13687ecf895474f3412cb476673d", size = 59013, upload-time = "2026-04-20T23:16:21.518Z" }
 wheels = [
@@ -3109,8 +3109,8 @@ name = "hf-gradio"
 version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "gradio-client", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "typer", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "gradio-client" },
+    { name = "typer" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ce/86/c9694b7cfada5780e75769e60dc161a161f4dd7fc91b61db5e3a3338bef9/hf_gradio-0.4.1.tar.gz", hash = "sha256:a017d942618f0d495a58ee4563047fa04bef614c00e0cb789a9a6d0633cffa7b", size = 6560, upload-time = "2026-04-22T14:01:32.334Z" }
 wheels = [
@@ -5264,9 +5264,9 @@ name = "nagisa"
 version = "0.2.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "dynet38", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "six", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "dynet38" },
+    { name = "numpy" },
+    { name = "six" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e1/71/1cc63f4fde1c1ca491ea69b46c3c5bd6bb06f3efa8262f34b227fe25dbf5/nagisa-0.2.11.tar.gz", hash = "sha256:213e8f837c6f7391ea1f56f4fa6047612d117e3f0e9c4f6b93a3a77f78ba6e6f", size = 20930765, upload-time = "2024-01-28T17:32:49.924Z" }
 wheels = [
@@ -5413,7 +5413,6 @@ all = [
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "ray", extra = ["serve"] },
-    { name = "ray-haproxy", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "requests" },
     { name = "resiliparse" },
     { name = "s3fs" },
@@ -5539,7 +5538,6 @@ inference-server = [
     { name = "nixl-cu12", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "nvidia-ml-py" },
     { name = "ray", extra = ["serve"] },
-    { name = "ray-haproxy", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, extra = ["otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 interleaved-cpu = [
@@ -5622,7 +5620,6 @@ sdg-cuda12 = [
     { name = "nixl-cu12", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "nvidia-ml-py" },
     { name = "ray", extra = ["serve"] },
-    { name = "ray-haproxy", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, extra = ["otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 text-cpu = [
@@ -5773,7 +5770,7 @@ test = [
 requires-dist = [
     { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
     { name = "accelerate", marker = "extra == 'audio-common'", specifier = ">=1.12.0" },
-    { name = "ai-dynamo", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'inference-server') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'inference-server')", specifier = ">=1.3.0" },
+    { name = "ai-dynamo", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'inference-server') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'inference-server')", specifier = ">=1.3.1" },
     { name = "aiohttp", marker = "extra == 'translation-nmt'", specifier = ">=3.13.3" },
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==17.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
@@ -5885,9 +5882,8 @@ requires-dist = [
     { name = "qwen-omni-utils", marker = "extra == 'audio-cuda12'", specifier = ">=0.0.9" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
-    { name = "ray", extras = ["data", "default"], specifier = ">=2.56.1" },
-    { name = "ray", extras = ["serve"], marker = "extra == 'inference-server'", specifier = ">=2.56.1" },
-    { name = "ray-haproxy", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'inference-server') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'inference-server')", specifier = "==2.8.20" },
+    { name = "ray", extras = ["data", "default"], specifier = ">=2.57.0" },
+    { name = "ray", extras = ["serve"], marker = "extra == 'inference-server'", specifier = ">=2.57.0" },
     { name = "requests", marker = "extra == 'translation-nmt'" },
     { name = "resiliparse", marker = "extra == 'text-cpu'" },
     { name = "s3fs", marker = "extra == 'interleaved-cpu'", specifier = ">=2024.12.0" },
@@ -9037,17 +9033,17 @@ name = "qwen-asr"
 version = "0.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "accelerate", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "flask", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "gradio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "librosa", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "nagisa", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pytz", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "qwen-omni-utils", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "soundfile", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "sox", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "soynlp", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "transformers", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "accelerate" },
+    { name = "flask" },
+    { name = "gradio" },
+    { name = "librosa" },
+    { name = "nagisa" },
+    { name = "pytz" },
+    { name = "qwen-omni-utils" },
+    { name = "soundfile" },
+    { name = "sox" },
+    { name = "soynlp" },
+    { name = "transformers" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7f/5b/56c5175d1a4d6ed8602003385570304305e4ae9c40b999d12d75a70c0561/qwen_asr-0.0.6.tar.gz", hash = "sha256:294893f2340dc2d58d1f1d1cb8ce26ac0a79f254805ab432dda2892bd5c8d13c", size = 146666, upload-time = "2026-01-30T03:24:02.697Z" }
 wheels = [
@@ -9159,7 +9155,7 @@ wheels = [
 
 [[package]]
 name = "ray"
-version = "2.56.1"
+version = "2.57.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -9172,17 +9168,17 @@ dependencies = [
     { name = "requests" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/61/4374f94492dd5927f30bb0f4c2ef8419faefbd85636b7d991f83056d2c02/ray-2.56.1-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:5eebd776cd461edebc5874d2dfba3005147b6b45645d8a16a6549311c5efffea", size = 66356353, upload-time = "2026-07-17T21:28:19.148Z" },
-    { url = "https://files.pythonhosted.org/packages/79/3c/787e104f7b167e99e8283fac59b37938999ce44cd7312aab7e327bbec071/ray-2.56.1-cp311-cp311-manylinux2014_aarch64.whl", hash = "sha256:4df45f33cc176b11c69191efdcfb4aceaeea22fecfa784f6485b6504ef8c8b26", size = 73301425, upload-time = "2026-07-17T21:28:24.269Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/bd/4a704cfe4321d732c363093bb03798b027982f3828495b27bfbbb86c0fc5/ray-2.56.1-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:e7003a47a42ef2ad33ec0b34dc5b6afb03f63fe59465e6f4c8f6d05492d9e4a6", size = 74145394, upload-time = "2026-07-17T21:28:29.532Z" },
-    { url = "https://files.pythonhosted.org/packages/e3/7b/6d61abe6d7b6ef1a4846bcf5eb381d6c8c4ffe827cd583f72fa9a64cd772/ray-2.56.1-cp311-cp311-win_amd64.whl", hash = "sha256:c102fb09e82c2e10828d5c21cfb744e27bca690b287c7d0a77d0d883c0c86907", size = 28392678, upload-time = "2026-07-17T21:28:34.279Z" },
-    { url = "https://files.pythonhosted.org/packages/50/d9/a17feef16a123f5d32d4c5fa7de853c59ba702f8404cf452a7ce20faca13/ray-2.56.1-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:44bc0000c5bfad85b2ff6e0ef91e95f901d1a2d2fdd72f94f08a046eb494cd61", size = 66346989, upload-time = "2026-07-17T21:28:39.4Z" },
-    { url = "https://files.pythonhosted.org/packages/05/19/c3b1bcccd09decaf2a2e3370041ae67070bb1a8638f2665d36edfbb0261d/ray-2.56.1-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:8fdd6b096215906cf1f9acdc7898c9d6140606f2d27245778b8385a9f19e6cb0", size = 73319289, upload-time = "2026-07-17T21:28:44.502Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/7f/577a61bf2c8eff26e942afe53a6b03f4dbf5b4f233b832c228417d0c954e/ray-2.56.1-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:e5d3173696831134c76bd09451dfe95c32d72c271253b0d6b09d2df9994aa660", size = 74194147, upload-time = "2026-07-17T21:28:50.567Z" },
-    { url = "https://files.pythonhosted.org/packages/00/e9/0fd1223597f9ca98ec496ec726043918a5301547789b1be95a635ec82649/ray-2.56.1-cp312-cp312-win_amd64.whl", hash = "sha256:8052573ee5ef8c4fdd7aeb6a257c80542e69c48f3f6d117101f95c970ffdc7e2", size = 28373294, upload-time = "2026-07-17T21:28:55.122Z" },
-    { url = "https://files.pythonhosted.org/packages/dd/58/fab4cf69ec9be22210a6634f9310acf0b40c1c5a0f65d380f8cd11aa661e/ray-2.56.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:93dedab658334af81877b6ed840c4e5f85e2e0b1b3641b20eaaee37cad835cc6", size = 66291122, upload-time = "2026-07-17T21:28:59.906Z" },
-    { url = "https://files.pythonhosted.org/packages/68/9b/622d4f77fc65e9e2ee1a9d2480a1bde4b244edf65eda1f0c488dc8818e57/ray-2.56.1-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:7fdc47de4e230f0db7c6c668a9e161f864dac548bd32230986e0b0c36e386eb5", size = 73253432, upload-time = "2026-07-17T21:29:05.445Z" },
-    { url = "https://files.pythonhosted.org/packages/43/ab/649395a3b286c4be86cfe4e8072a746f4d6b6dc68d78396f462d8b94795e/ray-2.56.1-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:81f2db202cc31bc3f5c4acf9ef154d10f1f39ece602d9d2d3108875c49bf01c3", size = 74131273, upload-time = "2026-07-17T21:29:10.547Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/de/46be4f29a6019887b9475fd02182cb5866f7cbefc29bb8fae2a918e533d2/ray-2.57.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:a016d6258b53571952f2a8251571b2d73d8f6b0981be6c61e160cc901b711871", size = 66760925, upload-time = "2026-08-11T00:20:58.097Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/31/57cb492f26e5c6ec364b695b2e95a2f5fdd31fd7cecbc7b035c340b39eed/ray-2.57.0-cp311-cp311-manylinux2014_aarch64.whl", hash = "sha256:7a9826e33bfaf465219ab329e05f03e3f6a919fce5d21692f5ac566a44277cb3", size = 76867063, upload-time = "2026-08-11T00:21:03.51Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/87/e26df6649b3143100f1ea3ad797bb1c1c7e2a922503229ff6889d563f9e4/ray-2.57.0-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:b0cc3d435bef6e7ffe848816e7369d30ee297e88c4c1abc6323cc9383ff3826f", size = 77837420, upload-time = "2026-08-11T00:21:08.907Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/aa/497593f7a0cd83b2ce84512124bf3b499aa531b85ce4650d345e04f45993/ray-2.57.0-cp311-cp311-win_amd64.whl", hash = "sha256:9aea302a3f6bcb74cc6e1e458256ce6a2770632b0c0f39540e7bb4111fc3af85", size = 28705314, upload-time = "2026-08-11T00:21:13.174Z" },
+    { url = "https://files.pythonhosted.org/packages/29/95/1350323300f88673d8d53f825d482834daddab9614c600855dc1a0189b33/ray-2.57.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:8ef591575c531793feb7f77744c52c34509ff58b48b30d0a3bcb6a1666256b02", size = 66747412, upload-time = "2026-08-11T00:21:19.219Z" },
+    { url = "https://files.pythonhosted.org/packages/80/bf/63da261f0424039171745ae62f9804fb6e55b7aa61a50e886d2069e0d77f/ray-2.57.0-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:eeb1d1adb61bd1d8affdc5fb555af0494fed8fec53b83576d4c60f811e06be94", size = 76886725, upload-time = "2026-08-11T00:21:24.801Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/3f/a580c1a8d9574372f83d4b97cd11ae64fdfa1c099c4728ec5197470cf094/ray-2.57.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:595d088b1fd1add64654c6cebe203e25903787b650d35c4a3dc008d451e48a41", size = 77891434, upload-time = "2026-08-11T00:21:29.991Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/8d/85c3a1ad54f6fa9cc1d1261cc5087435d03761fd50980cabe15a8ccd6f71/ray-2.57.0-cp312-cp312-win_amd64.whl", hash = "sha256:b9f26334a862fac660f70b125474d5c7b72d16e23b3ebfefeacd72659aa36af6", size = 28684792, upload-time = "2026-08-11T00:21:34.788Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/c0/f67121caa9685b10d207dec33cd29ab8eaf81338a989edbcb8a87a28271b/ray-2.57.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:21b67eddc751ba8c65deee8654075c2b42851104c936ce42ca7944c4b6ec4799", size = 66692716, upload-time = "2026-08-11T00:21:40.072Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/6c/bd35db22279a8697fc6bfdfb62447bbb0d0f14243e57cb298cf8d80fec85/ray-2.57.0-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:5e2d9258f751676f7581dc0ad307c2d91290825442366128c9ed0ccd0f60b845", size = 76825638, upload-time = "2026-08-11T00:21:45.476Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/29/3022974371111b3641fbddb4cf9344cb514b7bb45ca5cf0806c5a427b087/ray-2.57.0-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:71aa1c52fe7800cd217b601bf9ff557c2a3ffe5fad5b00f6792da9a678b2c914", size = 77832409, upload-time = "2026-08-11T00:21:50.988Z" },
 ]
 
 [package.optional-dependencies]
@@ -9222,6 +9218,7 @@ serve = [
     { name = "prometheus-client" },
     { name = "py-spy" },
     { name = "pydantic" },
+    { name = "ray-haproxy", marker = "sys_platform == 'linux'" },
     { name = "requests" },
     { name = "smart-open" },
     { name = "starlette" },
@@ -9232,11 +9229,11 @@ serve = [
 
 [[package]]
 name = "ray-haproxy"
-version = "2.8.20"
+version = "2.8.25"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/6a/8c85971673090b0ea5786ca32f1bf4e276fa25b00685e5eb442e336dbc4a/ray_haproxy-2.8.20-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:a955cbb370c9b9a4dadecd265ddff3ac6d007ad70eae293f05ef753a22b5e1f2", size = 3956874, upload-time = "2026-04-14T01:03:49.431Z" },
-    { url = "https://files.pythonhosted.org/packages/cc/47/a5e789edb188ae1fc456e13f7cc4ab2c62109462772f3003306730561ee7/ray_haproxy-2.8.20-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:da23d7d28c39247826466ddfe3c166db7cef5dcd44d8a64b8f9eb91e7089076c", size = 4108876, upload-time = "2026-04-14T01:03:51.481Z" },
+    { url = "https://files.pythonhosted.org/packages/31/78/4cdca49514f94ced71525c5662e0b62fc64d625f4536910304dc71c680e9/ray_haproxy-2.8.25-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:a63902c2fe7eb51fbcb502980228d743b79da6cecab230c4c24674517b1ac3ac", size = 3962434, upload-time = "2026-06-29T21:49:54.611Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/48/bef71a3bd4fa4b467299a9b859fac0a7660eefbc56d47b4b0f2b7c34491a/ray_haproxy-2.8.25-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:51671f11afb571ed5b37042f9287daf48de235f2d32ad18b732ee9587e9ad076", size = 4115278, upload-time = "2026-06-29T21:49:56.244Z" },
 ]
 
 [[package]]
@@ -9780,7 +9777,7 @@ name = "safehttpx"
 version = "0.1.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "httpx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "httpx" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/89/d1/4282284d9cf1ee873607a46442da977fc3c985059315ab23610be31d5885/safehttpx-0.1.7.tar.gz", hash = "sha256:db201c0978c41eddb8bb480f3eee59dd67304fdd91646035e9d9a720049a9d23", size = 10385, upload-time = "2025-10-24T18:30:09.783Z" }
 wheels = [
@@ -10198,10 +10195,10 @@ name = "soynlp"
 version = "0.0.493"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "psutil", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "scikit-learn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "scipy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "numpy" },
+    { name = "psutil" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7d/05/fb3f0c9248e60a0224e77198c31517b93b92d6060873b641caf474d42993/soynlp-0.0.493.tar.gz", hash = "sha256:4b20b825edbcadb9ebd494de54d8ca50b0ee317fe58d090e8b509d733422136a", size = 405393, upload-time = "2019-08-25T05:28:00.755Z" }
 wheels = [
