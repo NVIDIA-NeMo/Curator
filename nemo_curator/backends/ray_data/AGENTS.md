@@ -15,29 +15,15 @@ may differ in later Ray releases.
 
 ## Curator task and Ray block model
 
-Ray Data normally schedules map work over blocks and block bundles. Curator makes
-its own `Task` the independent unit of work by constructing the initial dataset with
-`from_items(tasks, override_num_blocks=len(tasks))`: one opaque `Task` row per
-initial block. A fanout stage restores one row per block with
-`repartition(target_num_rows_per_block=1)`.
+Ray Data parallelizes map work over blocks, then forms row batches within those
+blocks. Curator instead makes each `Task` its independent unit of work:
+`from_items(tasks, override_num_blocks=len(tasks))` creates one opaque Task row per
+block, and fanout stages repartition their outputs back to one row per block. In
+practice, **one row = one block = one Task**.
 
-Each stage passes its `batch_size` to `map_batches`; the default `batch_size=1`
-therefore means one **Task**, not one document. A `DocumentBatch` can still contain
-many documents inside that single opaque row. Ray may rebatch blocks or buffer stage
-outputs, so physical block boundaries are not guaranteed to remain unchanged across
-the whole pipeline, but the practical Curator scheduling granularity is usually the
-Task.
-
-This representation changes how to interpret Ray's automatic block and batch sizing:
-
-- `target_max_block_size` cannot split one large Task row or the documents inside a
-  `DocumentBatch`. After identifying a task-granularity or per-task memory bottleneck,
-  tune Curator task partitioning and per-task payload size.
-- Stage `batch_size` controls how many Task rows are presented to one stage call. It
-  does not directly control a model's internal document batch size.
-- Use Ray block-size knobs only after confirming that the relevant stage actually has
-  multiple Task rows per block. Smaller tasks/blocks expose more parallelism and
-  lower per-task memory, but increase scheduling and serialization overhead.
+The default stage `batch_size=1` therefore passes one Task to each stage call, not
+one document. A `DocumentBatch` may contain many documents inside that opaque Task,
+so tune task partitioning and per-task payload size rather than Ray block-size knobs.
 
 ---
 
@@ -70,13 +56,6 @@ computes:
    operator that has consumed beyond its reserved floor reduces the remaining
    shared pool for other operators on that cycle.
 
-In Ray 2.57, operators downstream of the first unfinished materializing operator
-(for example, shuffle, all-to-all/repartition, or zip) are excluded from the eligible
-resource-allocation set until that boundary finishes. This can change reservations
-around Curator fanout stages compared with Ray 2.56.1; do not assume every operator
-in the full logical DAG is sharing the reservation pool at the same time.
-
-
 ---
 
 ## Autoscaler — actor pool scaling (Actor stages only)
@@ -87,7 +66,7 @@ Task stages (stateless, CPU-only readers/filters/writers) use `TaskPoolStrategy`
 If `num_workers()` is set, concurrency is capped at that value; otherwise the pool
 is uncapped (bounded only by backpressure policies). They have no ramp-up cost,
 no actor pool autoscaling complexity, and
-General Rules 1–4 below do not apply to them. Note: Task stages still
+General Rules 1–3 below do not apply to them. Note: Task stages still
 participate in the resource budget system (they consume CPU from the shared
 pool) but the autoscaler never fires for them.
 
@@ -103,28 +82,16 @@ class (default `1`). `max_tasks_in_flight_per_actor` defaults to
 `2 × max_concurrency`, so actors can queue 2 tasks while running 1 — meaning
 util routinely exceeds 1.0 without every actor being fully saturated.
 
-These two settings must be tuned together. For an autoscaling pool to reach the
-default scale-up threshold, it must be possible for:
+Tune these settings together: the in-flight limit divided by concurrency must be at
+least the `1.75` scale-up threshold. For example, `max_concurrency=2` with an
+in-flight limit of `2` cannot scale up because utilization cannot exceed `1.0`; the
+default limit of `4` allows it to reach `2.0`. Resource or backpressure limits can
+still suppress scaling.
 
-```
-max_tasks_in_flight_per_actor / max_actor_concurrency >= 1.75
-```
-
-For example, `max_concurrency=2` with an explicit in-flight cap of `2` has a
-maximum utilization of `1.0`, so it cannot trigger scale-up at the default
-threshold. Leaving the in-flight cap unset would default it to `4` for that
-concurrency and allow utilization to reach `2.0`. This condition is necessary but
-not sufficient: resource budgets and downstream backpressure can still suppress
-scale-up.
-
-`max_concurrency` is not automatically the number of simultaneous model calls.
-With Ray 2.57's default `enable_true_multi_threading=False`, Ray can overlap the
-input-batching and output-batching portions of multiple actor task envelopes, but
-serializes the synchronous callable UDF within an actor. Moving from concurrency 1
-to 2 can hide task handoff and batching latency, but it can also increase CPU work,
-queued inputs, object-store pressure, and GPU memory pressure. Treat it as a
-controlled per-stage experiment; compare processing time and idle gaps as well as
-end-to-end wall time.
+With the default `enable_true_multi_threading=False`, concurrency above 1 overlaps
+input/output batching but still serializes the stage UDF. It can hide handoff latency
+at the cost of more CPU, queued data, and object-store or GPU-memory pressure. Compare
+concurrency 1 and 2 as a controlled per-stage experiment.
 
 **Scale-up decision (in order):**
 1. If `op.has_completed()` OR (`op._inputs_complete` AND queue is empty) → scale
@@ -247,8 +214,6 @@ and `pending_output_estimate` in `ray_data_resource_budget_admission` events.
 - `RayClient(object_store_memory=N)` — increase total object store capacity
 - Curator task partitioning and stage `batch_size` — reduce per-task payloads or
   control how many Task rows a stage receives at once
-- `DataContext.get_current().target_max_block_size` — a secondary lever when
-  blocks contain multiple Task rows; it cannot split a single opaque Task row
 
 ### Heap memory
 
@@ -290,27 +255,21 @@ When downstream capacity backpressure fires, `max_task_output_bytes_to_read`
 returns `0`, which stops the upstream operator from pulling new output blocks in
 addition to blocking new task admission.
 
-Ray changed the default capacity ratio from `10.0` in 2.56.1 to `2.0` in 2.57.0.
-The lower ratio can throttle a fast producer sooner and may also suppress or
-downscale a downstream actor pool by reducing admitted work. Its effect is
-pipeline-specific. When investigating a 2.57 regression, compare ratios `2` and
-`10` on the same workload and cluster, and correlate wall time with admission
-transitions, blocked duration, operator timing, object-store categories, and GPU
-utilization. Do not restore `10` globally based on wall time alone.
+Lowering the ratio throttles a fast producer sooner and can reduce downstream actor
+utilization by admitting less work. Tune it only with controlled runs, correlating
+wall time with admission transitions, blocked duration, operator timing, object-store
+categories, and GPU utilization.
 
-### Metadata fetching in Ray 2.57
+### Metadata fetching
 
-`RAY_DATA_METADATA_PREFETCH_ON_THREAD` defaults to true in Ray 2.57. The threaded
-path moves `ray.get()` of block metadata off the scheduling/executor thread while
-preserving per-operator emission order. It does **not** prefetch block contents,
-run the stage UDF concurrently, or remove input/output batching work.
+Ray fetches block metadata on a background thread by default
+(`RAY_DATA_METADATA_PREFETCH_ON_THREAD=1`), keeping its `ray.get()` off the
+scheduling thread. This does **not** prefetch block contents, run the stage UDF
+concurrently, or remove input/output batching work.
 
-Do not assume this default improves Curator throughput: a controlled comparison may
-show no change when metadata retrieval is not the bottleneck. To compare with the
-old inline path, set the environment variable to `0` before Ray Data is imported and
-restart the driver. Curator's diagnostics do not time metadata fetching directly, so
-use the comparison to rule the path in or out rather than assigning causality from
-the flag alone.
+Curator's diagnostics do not time metadata fetching. Change this default only in a
+controlled experiment when other evidence points to metadata retrieval as the
+bottleneck.
 
 ---
 
@@ -433,10 +392,11 @@ These structural invariants apply to **Actor stages** (`ActorPoolStrategy`) and
 are derived directly from the scheduler source. Task stages (`TaskPoolStrategy`)
 are not subject to actor pool autoscaling and these rules do not apply to them.
 
-### 1. `max_size` is the configured actor-pool ceiling
+### 1. `MAX_WORKERS` is the configured actor-pool ceiling
 
-Setting `max_size=N` on an operator guarantees it can never hold more than N
-actors. In the autoscaler: `delta = min(budget_max_scale_up,
+Set `RayStageSpecKeys.MAX_WORKERS=N` to map Curator's worker limit to Ray's
+`max_size`; the actor pool cannot exceed N actors. In the autoscaler:
+`delta = min(budget_max_scale_up,
 actor_pool_max_upscaling_delta, max_size - current_actors)`. When
 `current_actors == max_size`, the third term is 0, making delta=0 regardless of
 utilization or budget. Set it when the actor count must not exceed a known bound.
@@ -456,8 +416,7 @@ all `initial_size` actors are now running but only 1 task is in flight,
 → step 7 downscales immediately. The pool drains 8→7→6→...→1 and then must
 slowly ramp back up one actor per tick.
 
-To actually hold a fixed pool: use `min_size=max_size=N` (equivalently `size=N`),
-not `initial_size=N` alone.
+To hold a fixed Curator pool, use `num_workers=N`, not `INITIAL_WORKERS=N` alone.
 
 **Curator example — single GPU stage on an 8-GPU cluster:**
 ```python
@@ -471,15 +430,7 @@ Use `num_workers=N` when a fixed pool is intentional and the stage can keep all 
 actors fed. Prefer bounded autoscaling when the useful actor count depends on the
 workload or downstream capacity.
 
-### 3. `min_size == max_size` holds a fixed pool during active processing
-
-With equal bounds, the pool cannot scale up (`max_size - current = 0` →
-delta=0) or scale down (`current_size <= min_size` → no-op). During active processing the pool stays exactly at that size. At end-of-pipeline,
-step 1 (inputs consumed) uses `force=True` which bypasses the min_size floor
-and will drain actors one per tick. Useful for GPU stages where the right actor
-count is known in advance.
-
-### 4. Scale-up occurs in bounded increments
+### 3. Scale-up occurs in bounded increments
 
 With `actor_pool_max_upscaling_delta=1` (default), at most one actor is added per
 autoscaling decision. The scheduling loop waits for task completion for **up to**
@@ -488,7 +439,7 @@ a fixed actor-per-second rate. Large pools can nevertheless ramp gradually becau
 each decision adds only one actor; use diagnostics to measure the actual cadence for
 the workload.
 
-### 5. Stage fusion requires a TaskPool upstream — ActorPool→ActorPool never fuses
+### 4. Stage fusion requires a TaskPool upstream — ActorPool→ActorPool never fuses
 
 From `FuseOperators._can_fuse()`, the upstream operator must be a
 `TaskPoolMapOperator`. `ActorPoolMapOperator → ActorPoolMapOperator` is not a
@@ -509,7 +460,7 @@ via `stage.with_(ray_stage_spec={RayStageSpecKeys.IS_ACTOR_STAGE: True/False})`.
 Task stages (TaskPool) can participate in fusion with an upstream Task; Actor stages
 cannot be fused as an upstream.
 
-### 6. `num_cpus=0` operators consume zero CPU budget but still count in `num_eligible_ops`
+### 5. `num_cpus=0` operators consume zero CPU budget but still count in `num_eligible_ops`
 
 `min_max_resource_requirements()` returns `max_resource_usage.cpu=0` when
 `num_cpus=0`. Both `_update_reservation` and `update_budgets` cap this
@@ -536,7 +487,7 @@ Curator wrapper and require setting `DataContext` directly before pipeline execu
 | Knob | Curator API | What it controls |
 |---|---|---|
 | Fixed actor pool | `stage.with_(num_workers=N)` | Sets `min_size=max_size=N`, holding N actors during active processing. Use when the desired actor count is known and can stay fed. |
-| Autoscaling bounds | `stage.with_(ray_stage_spec={RayStageSpecKeys.MIN_WORKERS: N, RayStageSpecKeys.MAX_WORKERS: M})` | `min_size=N`, `max_size=M`. `MAX_WORKERS` is a hard ceiling that prevents shared pool theft. |
+| Autoscaling bounds | `stage.with_(ray_stage_spec={RayStageSpecKeys.MIN_WORKERS: N, RayStageSpecKeys.MAX_WORKERS: M})` | Maps to Ray's `min_size=N`, `max_size=M`; `MAX_WORKERS` is the actor-pool ceiling. |
 | Force actor or task | `stage.with_(ray_stage_spec={RayStageSpecKeys.IS_ACTOR_STAGE: True/False})` | Override the adapter's automatic Task/Actor decision. |
 | Actor task-envelope concurrency | `stage.with_(ray_stage_spec={RayStageSpecKeys.RAY_REMOTE_ARGS: {"max_concurrency": N}})` | Allows input/output batching for up to N actor task envelopes to overlap. With the default serialized UDF, this does not mean N concurrent model calls. |
 
@@ -547,7 +498,6 @@ Curator wrapper and require setting `DataContext` directly before pipeline execu
 | CPU / GPU per actor | `Resources(cpus=N, gpus=N)` on the stage class | Sets `num_cpus` / `num_gpus` in Ray Data — affects budget accounting and utilization denominator |
 | CPU override for Ray Data only | `stage.with_(ray_stage_spec={RayStageSpecKeys.RAY_NUM_CPUS: 1.0})` | Overrides `num_cpus` for Ray Data without changing `resources.cpus` used by other executors (e.g., set to `1.0` to enable stage fusion) |
 | Object store memory | `RayClient(object_store_memory=N)` / `SlurmRayClient(object_store_memory=N)` | Total object store memory cluster-wide (passed to `ray.init()` internally); affects pending output budgets |
-| Block size | *(advanced)* `DataContext.get_current().target_max_block_size` | Target block size in bytes (default 128 MB). It can affect blocks containing multiple Task rows but cannot split one opaque Task or its internal documents. |
 
 ### Autoscaler thresholds *(advanced — DataContext only)*
 
@@ -558,5 +508,5 @@ Curator wrapper and require setting `DataContext` directly before pipeline execu
 | Max actors per tick | `DataContext.get_current().autoscaling_config.actor_pool_max_upscaling_delta` or `RAY_DATA_DEFAULT_ACTOR_POOL_MAX_UPSCALING_DELTA` | Max actors added per scheduling tick (default `1`) |
 | Max tasks in flight per actor | `DataContext.get_current().max_tasks_in_flight_per_actor = N` | Global cap on submitted tasks per actor, affecting every actor stage. If unset, defaults to `2 × max_concurrency`; keep its ratio to concurrency compatible with the scale-up threshold. Diagnostics do not log this cap or `max_concurrency`, so inspect configuration when interpreting utilization. |
 | Reserved fraction | `DataContext.get_current().op_resource_reservation_ratio` or `RAY_DATA_OP_RESERVATION_RATIO` | Fraction of total resources (CPU, GPU, object store, heap) reserved per operator vs. shared pool (default `0.5`) |
-| Downstream capacity ratio | `DataContext.get_current().downstream_capacity_backpressure_ratio` or `RAY_DATA_DOWNSTREAM_CAPACITY_BACKPRESSURE_RATIO` | Queue/capacity ratio threshold before upstream is throttled (default `2.0` in Ray 2.57). |
+| Downstream capacity ratio | `DataContext.get_current().downstream_capacity_backpressure_ratio` or `RAY_DATA_DOWNSTREAM_CAPACITY_BACKPRESSURE_RATIO` | Queue/capacity ratio threshold before upstream is throttled (default `2.0`). |
 | Object store utilization threshold | `RAY_DATA_DOWNSTREAM_CAPACITY_OBJECT_STORE_BUDGET_UTIL_THRESHOLD` | Object store utilization fraction above which downstream capacity backpressure becomes active (default `0.5`). Change only as a controlled experiment after confirming downstream-capacity blocking. |
