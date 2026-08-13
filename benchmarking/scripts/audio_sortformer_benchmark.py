@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -47,18 +46,6 @@ DEFAULT_FIFO_LEN = 188
 DEFAULT_SPKCACHE_UPDATE_PERIOD = 144
 DEFAULT_SPKCACHE_LEN = 188
 SORTFORMER_STAGE_NAME = "Sortformer_inference"
-
-
-def _finite_float(value: object, label: str) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as e:
-        msg = f"{label} must be a finite number, got {value!r}"
-        raise RuntimeError(msg) from e
-    if not math.isfinite(number):
-        msg = f"{label} must be a finite number, got {value!r}"
-        raise RuntimeError(msg)
-    return number
 
 
 def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:
@@ -117,9 +104,9 @@ def _validate_manifest_contract(rows: list[dict[str, Any]], label: str) -> None:
             raise RuntimeError(msg)
         seen_ids.add(audio_item_id)
 
-        duration = _finite_float(row.get("duration"), f"{label} line {line_number} duration")
-        if duration <= 0:
-            msg = f"{label} line {line_number} duration must be positive"
+        duration = row.get("duration")
+        if not isinstance(duration, (int, float)) or duration <= 0:
+            msg = f"{label} line {line_number} must contain a positive duration"
             raise RuntimeError(msg)
 
 
@@ -154,9 +141,9 @@ def _validate_segment(segment: object, label: str) -> None:
     if not isinstance(segment, Mapping):
         msg = f"{label} must be a mapping"
         raise TypeError(msg)
-    start = _finite_float(segment.get("start"), f"{label} start")
-    end = _finite_float(segment.get("end"), f"{label} end")
-    if start < 0 or end <= start:
+    start = segment.get("start")
+    end = segment.get("end")
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or start < 0 or end <= start:
         msg = f"{label} has invalid timestamps"
         raise RuntimeError(msg)
     if not isinstance(segment.get("speaker"), str) or not segment["speaker"]:
@@ -174,9 +161,9 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
     num_segments = 0
     stage_items = 0
     for task_index, task in enumerate(tasks):
-        duration = _finite_float(task.data.get("duration"), f"task {task_index} duration")
-        if duration <= 0:
-            msg = f"task {task_index} duration must be positive"
+        duration = task.data.get("duration")
+        if not isinstance(duration, (int, float)) or duration <= 0:
+            msg = f"task {task_index} must contain a positive duration"
             raise RuntimeError(msg)
         total_duration_s += duration
 
