@@ -611,10 +611,11 @@ entries:
       --executor=ray_data
       --tar-files-per-partition=1
       --input-partition-limit=500
-      --batch-size=500
+      --batch-size=100
       --reader-num-threads=4
       --fuse-reader-embedding
       --fused-reader-embedding-workers=32
+      --fused-output-batch-size=1000
       --embedding-batch-size=500
       --embedding-gpus-per-worker=0.25
       --remove-image-data-after-embedding

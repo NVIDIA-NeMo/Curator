@@ -14,6 +14,8 @@
 
 from unittest.mock import Mock
 
+import pytest
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.image.embedders.reader_embedder import ImageReaderEmbeddingStage
 from nemo_curator.tasks import FileGroupTask, ImageBatch, ImageObject
@@ -72,3 +74,24 @@ def test_process_decodes_and_embeds_one_shard_without_transport_boundary() -> No
     assert metrics["num_images_processed"] == 3
     assert metrics["reader_process_time"] >= 0
     assert metrics["embedding_process_time"] >= 0
+
+
+def test_process_coalesces_only_after_embedding() -> None:
+    stage = ImageReaderEmbeddingStage(model_dir="models", output_batch_size=3)
+    task = FileGroupTask(dataset_name="images", data=["shard-000.tar"])
+    batches = [
+        ImageBatch(dataset_name="images", data=[ImageObject(), ImageObject()]),
+        ImageBatch(dataset_name="images", data=[ImageObject(), ImageObject()]),
+    ]
+    stage._reader.process = Mock(return_value=batches)
+    stage._embedder.process_batch = Mock(return_value=batches)
+
+    result = stage.process(task)
+
+    assert [len(batch.data) for batch in result] == [3, 1]
+    stage._embedder.process_batch.assert_called_once_with(batches)
+
+
+def test_rejects_non_positive_output_batch_size() -> None:
+    with pytest.raises(ValueError, match="output_batch_size must be positive"):
+        ImageReaderEmbeddingStage(output_batch_size=0)
