@@ -859,7 +859,7 @@ entries:
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=4000
       --transcode-encoder=libopenh264
-    timeout_s: 900
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
