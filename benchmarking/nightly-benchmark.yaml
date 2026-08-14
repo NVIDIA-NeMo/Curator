@@ -629,8 +629,6 @@ entries:
       --aesthetic-batch-size=500
       --aesthetic-threshold=0.9
       --verbose
-    # The 375k-image calibration took 614.84s end-to-end; scaling to 850k
-    # projects to about 23 minutes, so allow measured-variance headroom.
     timeout_s: 1800
     sink_data:
       - name: slack
