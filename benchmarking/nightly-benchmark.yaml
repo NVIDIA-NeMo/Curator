@@ -1022,7 +1022,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=256
+      --video-limit=512
       --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
@@ -1049,7 +1049,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=256
+      --video-limit=512
       --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
