@@ -759,9 +759,10 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
 
 The Xenna and Ray Data nightly entries use the same prepared manifest. Each
 rewrites its own per-run copy so the audio paths resolve in the active
-environment, then processes all 34 unique rows once with eight one-GPU workers.
-As in the audio-tagging benchmark, both check input/output row counts, nonempty
-well-formed segments, stage execution, audio duration, and throughput.
+environment, then processes all 34 unique rows once with one worker per GPU
+available to Ray (eight in nightly). As in the audio-tagging benchmark, both
+check input/output row counts, nonempty well-formed segments, stage execution,
+audio duration, and throughput.
 
 The nightly selects the published 1.04-second low-latency profile (chunk
 `6/1/7`, FIFO `188`, speaker-cache update/length `144/188`). Applying NVIDIA's
@@ -781,7 +782,6 @@ python benchmarking/scripts/audio_sortformer_benchmark.py \
   --scratch-output-path /tmp/audio-sortformer-scratch \
   --raw-data-dir /path/to/datasets/audio_sortformer_ami_sdm \
   --model-path /path/to/model_weights/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo \
-  --gpu-stage-num-workers 8 \
   --chunk-len 6 \
   --chunk-left-context 1 \
   --chunk-right-context 7 \
@@ -792,7 +792,8 @@ python benchmarking/scripts/audio_sortformer_benchmark.py \
   --rttm-out-dir /tmp/audio-sortformer-results/rttm
 ```
 
-For a functional smoke test on one GPU, use `--gpu-stage-num-workers 1`.
+Worker count is detected from Ray resources. Use `--gpu-stage-num-workers 1` to
+override it for a functional smoke test.
 
 ---
 

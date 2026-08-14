@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
@@ -121,7 +122,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     scratch_output_path: str,
     raw_data_dir: str,
     model_path: str,
-    gpu_stage_num_workers: int = 1,
+    gpu_stage_num_workers: int | None = None,
     chunk_len: int = DEFAULT_CHUNK_LEN,
     chunk_left_context: int = DEFAULT_CHUNK_LEFT_CONTEXT,
     chunk_right_context: int = DEFAULT_CHUNK_RIGHT_CONTEXT,
@@ -132,6 +133,10 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     executor: str = "xenna",
 ) -> dict[str, Any]:
     """Run Sortformer on pre-staged audio and collect structural and throughput metrics."""
+    if gpu_stage_num_workers is None:
+        _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
+        gpu_stage_num_workers = int(available_gpus)
+        logger.info(f"Using one Sortformer worker per available GPU: {gpu_stage_num_workers}")
     if gpu_stage_num_workers < 1:
         msg = "gpu_stage_num_workers must be at least 1"
         raise ValueError(msg)
@@ -191,7 +196,12 @@ def main() -> int:
     parser.add_argument("--scratch-output-path", required=True, help="Path for the rewritten input manifest")
     parser.add_argument("--raw-data-dir", required=True, help="Directory containing manifest.jsonl and audio/")
     parser.add_argument("--model-path", required=True, help="Pre-staged local Sortformer .nemo checkpoint")
-    parser.add_argument("--gpu-stage-num-workers", type=int, default=1)
+    parser.add_argument(
+        "--gpu-stage-num-workers",
+        type=int,
+        default=None,
+        help="Override the worker count; defaults to one worker per GPU available to Ray",
+    )
     parser.add_argument("--chunk-len", type=int, default=DEFAULT_CHUNK_LEN)
     parser.add_argument("--chunk-left-context", type=int, default=DEFAULT_CHUNK_LEFT_CONTEXT)
     parser.add_argument("--chunk-right-context", type=int, default=DEFAULT_CHUNK_RIGHT_CONTEXT)
