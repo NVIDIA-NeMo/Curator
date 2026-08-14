@@ -1,0 +1,70 @@
+network = "NeMo Curator"
+protocol = ".stewards/PROTOCOL.md"
+max_active_bytes = 24576
+coverage_roots = [
+  "nemo_curator/stages",
+]
+layer_sources = [
+  ".stewards/layers/repository.toml",
+  ".stewards/layers/pipeline.toml",
+  ".stewards/layers/backends.toml",
+  ".stewards/layers/deduplication.toml",
+  ".stewards/layers/synthetic.toml",
+  ".stewards/layers/text.toml",
+  ".stewards/layers/video.toml",
+  ".stewards/layers/tests.toml",
+  ".stewards/layers/docs.toml",
+  ".stewards/layers/performance.toml",
+  ".stewards/layers/tutorials.toml",
+]
+
+[coverage_exemptions]
+"nemo_curator/stages/audio" = "Inherits the pipeline constitution until audio has a dedicated steward map."
+"nemo_curator/stages/image" = "Inherits the pipeline constitution until image has a dedicated steward map."
+"nemo_curator/stages/interleaved" = "Inherits the pipeline constitution until interleaved data has a dedicated steward map."
+"nemo_curator/stages/math" = "Inherits the pipeline constitution until math curation has a dedicated steward map."
+
+[check.steward-tools]
+invoke = "python -m unittest discover -s tests/stewards -p 'test_*.py' -v"
+location = "tests/stewards/test_steward_tools.py"
+proof_contains = "test_repository_steward_network_is_current_and_covered"
+
+[check.stage-descriptors]
+invoke = "uv run pytest tests/stages/common/test_base.py -q -m 'not gpu'"
+location = "tests/stages/common/test_base.py"
+proof_contains = "class TestProcessingStageOverriddenProperties"
+
+[check.backend-sample]
+invoke = "uv run pytest tests/backends/test_integration.py -q -m 'not gpu'"
+location = "tests/backends/test_integration.py"
+proof_contains = "class TestBackendIntegrations"
+
+[check.resume-sample]
+invoke = "uv run pytest tests/backends/test_resumability_functional.py -q -m 'not gpu'"
+location = "tests/backends/test_resumability_functional.py"
+proof_contains = "class TestResumeLoop"
+
+[check.gpu-test-coverage]
+invoke = "python .github/scripts/check_gpu_test_coverage.py"
+location = ".github/scripts/check_gpu_test_coverage.py"
+proof_contains = "GPU test files are covered by gpu_test_groups.json"
+
+[check.video-task]
+invoke = "uv run pytest tests/tasks/test_video.py -q -m 'not gpu'"
+location = "tests/tasks/test_video.py"
+proof_contains = "class TestVideoTask"
+
+[check.synthetic-base]
+invoke = "uv run pytest tests/stages/synthetic/omni/test_base.py -q -m 'not gpu'"
+location = "tests/stages/synthetic/omni/test_base.py"
+proof_contains = "class TestModelProcessingStage"
+
+[check.benchmark-session]
+invoke = "uv run pytest tests/benchmarking/runner/test_session.py -q -m 'not gpu'"
+location = "tests/benchmarking/runner/test_session.py"
+proof_contains = "def test_session_defaults_max_timeout_s"
+
+[check.task-postprocess]
+invoke = "uv run pytest tests/backends/test_task_id_postprocess.py -q -m 'not gpu'"
+location = "tests/backends/test_task_id_postprocess.py"
+proof_contains = "class TestPostProcessTaskIds"

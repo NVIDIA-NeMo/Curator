@@ -1,0 +1,37 @@
+[layer]
+id = "tutorials"
+target = "tutorials"
+kind = "domain"
+owners = [
+  "@NVIDIA-NeMo/curator_reviewers",
+]
+
+[[steward]]
+id = "tutorials"
+path = "tutorials/AGENTS.md"
+point_of_view = "Protect runnable, dependency-explicit examples that teach current public APIs without hidden environment assumptions."
+guardrails = [
+  "Tutorial setup names the relevant optional extra and does not rely on undeclared local state.",
+  "Run Ruff on changed tutorial Python without implying that tutorial execution is covered by the unit-test matrix.",
+]
+owns = { docs = ["tutorials"] }
+edges = [
+  { type = "teaches", to = "pipeline", what = "public workflow construction" },
+  { type = "collaborates-with", to = "docs", what = "published conceptual guidance" },
+]
+
+[[invariant]]
+id = "tutorial-extra-names"
+steward = "tutorials"
+statement = "Tutorial dependency instructions use optional-extra names declared by the package."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "text_cpu = ["
+
+[[invariant]]
+id = "tutorial-runnability"
+steward = "tutorials"
+statement = "Tutorial examples use current public imports and state their data, network, credential, and hardware prerequisites."
+severity = "P2"
+verification = "none"

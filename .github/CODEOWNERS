@@ -4,12 +4,27 @@
 # Default: all PRs require review from the curator_reviewers team (round-robin assignment)
 * @NVIDIA-NeMo/curator_reviewers
 
+# Steward guidance control plane and owner-editable layers
+.stewards/ @NVIDIA-NeMo/curator_reviewers
+.stewards/layers/repository.toml @NVIDIA-NeMo/curator_reviewers
+.stewards/layers/pipeline.toml @NVIDIA-NeMo/curator_reviewers
+.stewards/layers/backends.toml @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
+.stewards/layers/deduplication.toml @ayushdg @praateekmahajan
+.stewards/layers/synthetic.toml @huvunvidia
+.stewards/layers/text.toml @sarahyurick @praateekmahajan @VibhuJawa
+.stewards/layers/video.toml @suiyoubi @abhinavg4
+.stewards/layers/tests.toml @NVIDIA-NeMo/curator_reviewers
+.stewards/layers/docs.toml @NVIDIA-NeMo/docs_team
+.stewards/layers/performance.toml @rlratzel @praateekmahajan @sarahyurick @ayushdg
+.stewards/layers/tutorials.toml @NVIDIA-NeMo/curator_reviewers
+
 # Deduplication
 nemo_curator/stages/deduplication/ @ayushdg @praateekmahajan
 tests/stages/deduplication/ @ayushdg @praateekmahajan
 
 # Documentation
 docs/ @NVIDIA-NeMo/docs_team
+fern/ @NVIDIA-NeMo/docs_team
 
 # CI/CD and Build Configuration
 .github/ @NVIDIA-NeMo/automation

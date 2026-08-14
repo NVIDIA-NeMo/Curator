@@ -58,6 +58,22 @@ jobs:
         run: |
           echo "Running CI tests"
 
+  steward-network:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Verify generated steward maps
+        run: python3 .stewards/project.py --check
+      - name: Verify steward graph and coverage
+        run: python3 .stewards/verify.py --coverage
+      - name: Test steward tooling
+        run: python3 -m unittest discover -s tests/stewards -p 'test_*.py' -v
+
   cicd-cpu-tests:
     strategy:
       fail-fast: false
@@ -221,6 +237,7 @@ jobs:
   Nemo_CICD_Test:
     needs:
       - pre-flight
+      - steward-network
       - cicd-cpu-tests
       - cicd-gpu-tests
     if: |
