@@ -20,6 +20,11 @@ or Slurm) over streams of `Task` objects.
   Do not make heavyweight dependencies unconditional.
 - **Fern docs**: user-facing documentation lives in `fern/`, not `docs/`. Edit
   MDX files there; do not add docs to the `docs/` directory.
+- **Avoid local narration**: comments should explain only non-obvious, durable
+  constraints—not narrate the current task, test setup, or implementation.
+- **Reuse before adding**: search Curator for existing implementations,
+  utilities, and patterns before writing new code; reuse or extend them when
+  they fit.
 - **Tests**: prefer narrowest-scope tests (unit > integration > GPU). GPU tests
   must be registered separately.
 
