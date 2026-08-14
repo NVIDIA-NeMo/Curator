@@ -25,8 +25,13 @@ or Slurm) over streams of `Task` objects.
 - **Reuse before adding**: search Curator for existing implementations,
   utilities, and patterns before writing new code; reuse or extend them when
   they fit.
-- **Tests**: prefer narrowest-scope tests (unit > integration > GPU). GPU tests
-  must be registered separately.
+- **Tests**: keep unit-test files in a one-to-one mapping with source files so
+  coverage is easy to trace. Test user-visible behavior and real integration
+  boundaries; avoid tests that merely enumerate defaults or mock away the
+  dependency being validated. Prefer narrowest-scope tests (unit > integration
+  > GPU). GPU tests must be registered separately.
+- **Commits and PRs**: use Conventional Commits style for commit messages and
+  PR titles, and run the repository's pre-commit hooks before submitting.
 
 ## Backend-scoped guidance
 
