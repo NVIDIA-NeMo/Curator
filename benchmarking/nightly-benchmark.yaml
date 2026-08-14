@@ -870,7 +870,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 7600
       - metric: throughput_clips_per_sec
-        min_value: 8.0
+        min_value: 12.0
 
   - name: video_embedding_raydata
     enabled: true
@@ -894,7 +894,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 7600
       - metric: throughput_clips_per_sec
-        min_value: 4.0
+        min_value: 12.0
 
   - name: video_transcoding_xenna
     enabled: true
@@ -919,7 +919,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 7600
       - metric: throughput_clips_per_sec
-        min_value: 5.0
+        min_value: 15.5
 
   - name: video_transcoding_raydata
     enabled: true
@@ -944,7 +944,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 7600
       - metric: throughput_clips_per_sec
-        min_value: 3.0
+        min_value: 17.5
 
   - name: video_captioning_xenna
     enabled: true
@@ -969,9 +969,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 722
+        exact_value: 509
       - metric: throughput_clips_per_sec
-        min_value: 0.5
+        min_value: 0.75
 
   - name: video_captioning_raydata
     enabled: true
@@ -996,9 +996,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 722
+        exact_value: 509
       - metric: throughput_clips_per_sec
-        min_value: 0.5
+        min_value: 0.6
 
   - name: ndd_dynamo_dp8
     enabled: true
@@ -1088,7 +1088,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 526
       - metric: throughput_clips_per_sec
-        min_value: 0.25
+        min_value: 0.75
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_raydata
     enabled: true
@@ -1116,7 +1116,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 526
       - metric: throughput_clips_per_sec
-        min_value: 0.1
+        min_value: 0.65
 
   - name: multimodal_mint1t_xenna
     enabled: false
