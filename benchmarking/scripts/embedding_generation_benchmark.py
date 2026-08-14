@@ -231,9 +231,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--input-format",
-        default="parquet",
+        default="jsonl",
         choices=["parquet", "jsonl"],
-        help="Input file format (default: parquet)",
+        help="Input file format (default: jsonl)",
     )
     parser.add_argument(
         "--cache-dir",
