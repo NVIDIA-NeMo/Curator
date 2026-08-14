@@ -18,7 +18,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch, Task
 
@@ -36,6 +36,51 @@ class MockTask(Task[dict]):
 
     def validate(self) -> bool:
         return True
+
+
+class AlternateMockTask(MockTask):
+    """Second mock task type for input-spec dispatch tests."""
+
+
+class ChildMockTask(AlternateMockTask):
+    """More specific mock task type for MRO dispatch tests."""
+
+
+class ForeignTask(Task[object]):
+    """Task outside the MockTask hierarchy for unsupported-type tests."""
+
+    @property
+    def num_items(self) -> int:
+        return 1
+
+    def validate(self) -> bool:
+        return True
+
+
+class AttrData:
+    """Simple data object whose fields can be validated with hasattr()."""
+
+    def __init__(self, **attrs: object) -> None:
+        for name, value in attrs.items():
+            setattr(self, name, value)
+
+
+class DictInputStage(ProcessingStage[MockTask, MockTask]):
+    """Stage whose inputs can be configured per test."""
+
+    name = "DictInputStage"
+
+    def __init__(self, input_specs: StageInputSpecs):
+        self._input_specs = input_specs
+
+    def process(self, task: MockTask) -> MockTask:
+        return task
+
+    def inputs(self) -> StageInputSpecs:
+        return self._input_specs
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
 
 
 class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
@@ -348,6 +393,75 @@ class TestProcessingStageWith:
         assert stage_new.num_workers() is None
 
 
+class TestProcessingStageInputSpecs:
+    """Test legacy and task-type-specific input specs."""
+
+    def test_legacy_tuple_input_spec_validation_still_works(self) -> None:
+        stage = DictInputStage((["data"], ["text"]))
+
+        assert stage.input_spec_for_task(MockTask(data=AttrData(text="hello"))) == (["data"], ["text"])
+        assert stage.validate_input(MockTask(data=AttrData(text="hello"))) is True
+        assert stage.validate_input(MockTask(data=AttrData())) is False
+
+    def test_dict_input_spec_selects_matching_task_type(self) -> None:
+        stage = DictInputStage(
+            {
+                MockTask: (["data"], ["text"]),
+                AlternateMockTask: (["data"], ["title"]),
+            }
+        )
+
+        assert stage.validate_input(MockTask(data=AttrData(text="hello"))) is True
+        assert stage.validate_input(MockTask(data=AttrData(title="hello"))) is False
+        assert stage.validate_input(AlternateMockTask(data=AttrData(title="hello"))) is True
+        assert stage.validate_input(AlternateMockTask(data=AttrData(text="hello"))) is False
+
+    def test_dict_input_spec_uses_most_specific_task_type(self) -> None:
+        stage = DictInputStage(
+            {
+                AlternateMockTask: (["data"], ["parent_col"]),
+                ChildMockTask: (["data"], ["child_col"]),
+            }
+        )
+
+        assert stage.input_spec_for_task(ChildMockTask(data=AttrData(child_col="value"))) == (
+            ["data"],
+            ["child_col"],
+        )
+        assert stage.validate_input(ChildMockTask(data=AttrData(child_col="value"))) is True
+        assert stage.validate_input(ChildMockTask(data=AttrData(parent_col="value"))) is False
+
+    def test_dict_input_spec_rejects_unsupported_task_type(self) -> None:
+        stage = DictInputStage({MockTask: (["data"], [])})
+        task = ForeignTask(dataset_name="foreign", data=AttrData())
+
+        with pytest.raises(TypeError, match="does not support input task type ForeignTask"):
+            stage.input_spec_for_task(task)
+        assert stage.validate_input(task) is False
+
+    def test_invalid_legacy_tuple_input_spec_fails_validation(self) -> None:
+        stage = DictInputStage((["data"],))
+
+        with pytest.raises(TypeError, match=r"inputs\(\) must be a tuple"):
+            stage.input_spec_for_task(MockTask(data=AttrData()))
+        assert stage.validate_input(MockTask(data=AttrData())) is False
+
+    def test_invalid_dict_input_spec_fails_validation(self) -> None:
+        stage = DictInputStage({MockTask: (["data"],)})
+
+        with pytest.raises(TypeError, match=r"inputs\(\)\[MockTask\] must be a tuple"):
+            stage.input_spec_for_task(MockTask(data=AttrData()))
+        assert stage.validate_input(MockTask(data=AttrData())) is False
+
+    def test_default_process_batch_uses_dict_input_spec_validation(self) -> None:
+        stage = DictInputStage({MockTask: (["data"], ["text"])})
+        task = MockTask(data=AttrData(text="hello"))
+
+        assert stage.process_batch([task]) == [task]
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([MockTask(data=AttrData())])
+
+
 class TestProcessingStageOverriddenProperties:
     """Test that ProcessingStage raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
 
@@ -550,6 +664,20 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+
+class MockFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockFanoutStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class MockOptionalFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockOptionalFanoutStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
 
 
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
@@ -772,3 +900,23 @@ class TestCompositeStageWith:
             "xenna_only": True,
         }
         assert modified_stages[0].num_workers() == 4
+
+
+class TestProcessingStageFanoutDetection:
+    def test_base_ray_stage_spec_marks_non_list_outputs_as_non_fanout(self):
+        stage = MockStageA()
+
+        assert stage.is_fanout_stage() is False
+        assert stage.ray_stage_spec()["is_fanout_stage"] is False
+
+    def test_base_ray_stage_spec_marks_list_outputs_as_fanout(self):
+        stage = MockFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
+    def test_base_ray_stage_spec_marks_union_list_outputs_as_fanout(self):
+        stage = MockOptionalFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True

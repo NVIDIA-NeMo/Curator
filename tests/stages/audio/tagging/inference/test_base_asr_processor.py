@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import BaseASRProcessorStage
 from nemo_curator.tasks import AudioTask
@@ -94,3 +99,25 @@ class TestBaseASRProcessorStagePrepareSegmentBatch:
         assert result == []
         result = stage._prepare_segment_batch_with_metadata([{}], cut_audio_segments=False)
         assert result == []
+
+    def test_cuts_segments_with_torchaudio(self, tmp_path: Path) -> None:
+        sample_rate = 8000
+        audio = np.linspace(-0.25, 0.25, sample_rate, dtype=np.float32)
+        audio_path = tmp_path / "source.wav"
+        sf.write(audio_path, audio, sample_rate, subtype="FLOAT")
+        stage = ConcreteASRProcessor(min_len=0.1)
+
+        result = stage._prepare_segment_batch_with_metadata(
+            [
+                {
+                    "resampled_audio_filepath": str(audio_path),
+                    "segments": [{"start": 0.25, "end": 0.75}],
+                }
+            ],
+            cut_audio_segments=True,
+        )
+
+        assert len(result) == 1
+        assert result[0]["metadata_idx"] == 0
+        assert result[0]["segment_idx"] == 0
+        np.testing.assert_array_equal(result[0]["audio_segment"], audio[2000:6000])

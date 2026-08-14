@@ -1,0 +1,94 @@
+---
+description: "How NeMo Curator allocates CPUs, GPUs, and memory across pipeline stages"
+categories: ["architecture"]
+tags: ["deep-dive", "resources", "gpu", "cpu", "allocation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Scaling Up with Ray Resource Allocation
+
+NeMo Curator makes resource allocation across pipeline stages straightforward — both CPUs and GPUs. Each stage declares its own resource requirements, and the executor schedules work accordingly.
+
+This design improves performance on CPU-only stages in pipelines that also use GPUs, because CPU stages no longer block GPU resources.
+
+## How It Works
+
+Every `ProcessingStage` can specify a `Resources` object that declares its CPU and GPU needs:
+
+```python
+from nemo_curator.stages.core import ProcessingStage
+from nemo_curator.stages.function_definitions import processing_stage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import DocumentBatch
+
+
+class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name: str = "TokenizerStage"
+    resources: Resources = Resources(cpus=1.0)  # CPU-only — no GPU needed
+
+    def __init__(self):
+        super().__init__()
+        # ... stage logic ...
+
+
+class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name: str = "ModelStage"
+
+    def __init__(self, model_path: str):
+        super().__init__()
+        # ... stage logic ...
+        pass
+
+
+@processing_stage(name="custom_filter", resources=Resources(cpus=1))
+def custom_filter_stage(task: DocumentBatch) -> DocumentBatch:
+    # ... filter logic ...
+    pass
+
+
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=1))
+```
+
+When a pipeline runs, the executor reads each stage's resource declaration and schedules tasks to satisfy those constraints. Stages that need GPUs are placed on GPU-equipped nodes; CPU-only stages can run on any available worker.
+
+## Key Concepts
+
+### CPU-Only vs. GPU Stages
+
+The most impactful optimization is correctly separating CPU and GPU work. In a mixed pipeline, CPU-only stages (tokenization, text parsing, filtering) should not request GPU resources — this frees GPUs for inference stages that actually need them:
+
+```python
+# CPU-only: tokenization, filtering, I/O
+# Runs on any worker, doesn't block GPU resources
+@processing_stage(name="tokenizer", resources=Resources(cpus=1))
+def tokenizer_stage(task: DocumentBatch) -> DocumentBatch:
+    pass
+
+# GPU: model inference, embeddings
+# Scheduled only on GPU-equipped nodes
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=1))
+```
+
+### Fractional GPU Allocation
+
+Some GPU stages don't need an entire GPU. You can use fractional allocation via `Resources(gpus=0.25)` or reserve a specific amount of GPU memory with `Resources(gpu_memory_gb=10)`:
+
+```python
+# 4 workers share one GPU via fractional allocation
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=0.25))
+
+# Or reserve a specific amount of GPU memory
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpu_memory_gb=10))
+```
+
+This is useful for inference stages where the model fits in a fraction of GPU memory, allowing you to increase parallelism without requiring more hardware. Note that `gpu_memory_gb` sets GPU memory for a single GPU.
+
+## Best Practices
+
+- **Start with defaults.** Most stages have sensible default resource declarations. Override only when you observe resource contention or underutilization.
+- **Separate CPU and GPU stages.** This is the single highest-impact optimization — it allows the executor to parallelize across heterogeneous hardware.
+- **Profile before tuning.** Use Ray Dashboard or stage performance stats to identify bottlenecks before adjusting allocations.
+- **Match hardware to workload.** If your pipeline is mostly CPU-bound (text filtering), you may not need GPU nodes at all.

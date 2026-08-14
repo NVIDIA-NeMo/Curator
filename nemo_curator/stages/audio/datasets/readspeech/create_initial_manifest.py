@@ -16,11 +16,9 @@ import glob
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -67,9 +65,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.text_key]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def download_and_extract(self) -> str:
         """Download and extract DNS Challenge Read Speech dataset (~4.88 GB)."""

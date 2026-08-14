@@ -58,7 +58,7 @@ class TestVLLMEmbeddingModelStage:
         assert stage.model_identifier == TEST_MODEL
         assert stage.text_field == "text"
         assert stage.embedding_field == "embeddings"
-        assert stage.pretokenize is False
+        assert stage.pretokenize is True
         assert stage.verbose is False
         assert stage.model is None
         assert stage.tokenizer is None

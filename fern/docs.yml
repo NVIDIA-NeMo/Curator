@@ -23,12 +23,16 @@ redirects:
     destination: "/nemo/curator/latest"
   - source: "/nemo/curator/main/index.html"
     destination: "/nemo/curator/main"
+  - source: "/nemo/curator/v26.07/index.html"
+    destination: "/nemo/curator/v26.07"
   - source: "/nemo/curator/v26.04/index.html"
     destination: "/nemo/curator/v26.04"
   - source: "/nemo/curator/v26.02/index.html"
     destination: "/nemo/curator/v26.02"
   - source: "/nemo/curator/v25.09/index.html"
     destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/26.07/index.html"
+    destination: "/nemo/curator/v26.07"
   - source: "/nemo/curator/26.04/index.html"
     destination: "/nemo/curator/v26.04"
   - source: "/nemo/curator/26.02/index.html"
@@ -37,6 +41,8 @@ redirects:
     destination: "/nemo/curator/v25.09"
   - source: "/nemo/curator/latest/:path*/index.html"
     destination: "/nemo/curator/latest/:path*"
+  - source: "/nemo/curator/26.07/:path*/index.html"
+    destination: "/nemo/curator/v26.07/:path*"
   - source: "/nemo/curator/26.04/:path*/index.html"
     destination: "/nemo/curator/v26.04/:path*"
   - source: "/nemo/curator/26.02/:path*/index.html"
@@ -56,6 +62,10 @@ redirects:
     destination: "/nemo/curator/v26.04"
   - source: "/nemo/curator/26.04/:path*"
     destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/26.07"
+    destination: "/nemo/curator/v26.07"
+  - source: "/nemo/curator/26.07/:path*"
+    destination: "/nemo/curator/v26.07/:path*"
   # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
   - source: "/nemo/curator/:path*/index.html"
     destination: "/nemo/curator/:path*"
@@ -66,8 +76,29 @@ redirects:
     destination: "/nemo/curator/v26.02/:path*"
   - source: "/nemo/curator/26.04/:path*.html"
     destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/26.07/:path*.html"
+    destination: "/nemo/curator/v26.07/:path*"
   - source: "/nemo/curator/:path*.html"
     destination: "/nemo/curator/:path*"
+  # Pages removed in 26.07: the Dask-era SLURM image-curation walkthrough and the
+  # experimental-executors reference (nemo_curator.backends.experimental no longer exists).
+  # Older trains still host both pages, so only the unversioned/latest/main/v26.07 URLs redirect.
+  - source: "/nemo/curator/admin/deployment/slurm-image"
+    destination: "/nemo/curator/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/latest/admin/deployment/slurm-image"
+    destination: "/nemo/curator/latest/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/main/admin/deployment/slurm-image"
+    destination: "/nemo/curator/main/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/v26.07/admin/deployment/slurm-image"
+    destination: "/nemo/curator/v26.07/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/reference/infra/execution-backends"
+  - source: "/nemo/curator/latest/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/latest/reference/infra/execution-backends"
+  - source: "/nemo/curator/main/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/main/reference/infra/execution-backends"
+  - source: "/nemo/curator/v26.07/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/v26.07/reference/infra/execution-backends"
   # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
   - source: "/about/concepts/audio/curation/pipeline"
     destination: "/about/concepts/audio/curation-pipeline"
@@ -154,7 +185,7 @@ logo:
   right-text: NeMo Curator
 
 versions:
-  - display-name: "Latest · v1.2.0 (26.04)"
+  - display-name: "Latest · v1.3.0 (26.07)"
     path: versions/latest.yml
     slug: latest
     availability: stable
@@ -162,6 +193,10 @@ versions:
     path: versions/main.yml
     slug: main
     availability: beta
+  - display-name: "26.07 · v1.3.0"
+    path: versions/v26.07.yml
+    slug: v26.07
+    availability: stable
   - display-name: "26.04 · v1.2.0"
     path: versions/v26.04.yml
     slug: v26.04

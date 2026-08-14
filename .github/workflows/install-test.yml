@@ -37,7 +37,7 @@ env:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.80.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@cf5acebace78c7c339bc1f804357a991336f1c4d # v1.8.10
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
@@ -52,7 +52,7 @@ jobs:
     outputs:
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Extract CUDA config
@@ -75,7 +75,7 @@ jobs:
       matrix:
         installer: [pip, uv]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -83,13 +83,13 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
       - name: Set up uv
         if: matrix.installer == 'uv'
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           python-version: "3.13"
           enable-cache: false  # We use isolated venvs with uv cache clean
@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: cpu-status-${{ matrix.installer }}
           path: cpu-status/
@@ -220,17 +220,17 @@ jobs:
             sleep 10
           done
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
       - name: Setup uv
         if: matrix.installer == 'uv'
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           python-version: "3.13"
           enable-cache: false
@@ -241,12 +241,22 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12" "inference_server")
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12")
           RESULTS=""
           FAILED=0
 
           for extra in "${GPU_EXTRAS[@]}"; do
             echo "::group::🎮 Testing: $extra ($INSTALLER) - Install Only"
+
+            # Standard pip cannot resolve vLLM 0.22's numba==0.65.0 with
+            # RAPIDS 25.10's numba<0.62 requirement. uv pip is tested below
+            # with Curator's explicit override file.
+            if [ "$INSTALLER" = "pip" ] && [ "$extra" = "text_cuda12" ]; then
+              echo "⏭️ $extra: standard pip is not supported; use uv pip with the Curator override"
+              RESULTS="$RESULTS\n| $extra | ⏭️ Not supported |"
+              echo "::endgroup::"
+              continue
+            fi
 
             # Setup isolated environment
             if [ "$INSTALLER" = "pip" ]; then
@@ -256,11 +266,23 @@ jobs:
             else
               rm -rf .venv
               uv cache clean
+              if [ "$extra" = "text_cuda12" ]; then
+                uv venv --python 3.13
+              fi
             fi
 
             # Install
             if [ "$INSTALLER" = "pip" ]; then
-              INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
+              INSTALL_CMD="pip install --no-cache-dir \
+                --extra-index-url https://download.pytorch.org/whl/cu129 \
+                --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+                '.[$extra]'"
+            elif [ "$extra" = "text_cuda12" ]; then
+              INSTALL_CMD="uv pip install --no-cache \
+                --override requirements/text_cuda12-overrides.txt \
+                --torch-backend cu129 \
+                --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+                '.[text_cuda12]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi
@@ -318,7 +340,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: gpu-status-${{ matrix.installer }}
           path: gpu-status/
@@ -346,17 +368,17 @@ jobs:
   #     - name: Install dependencies for setup-python
   #       run: apt-get update && apt-get install -y --no-install-recommends git curl
 
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
   #       with:
   #         submodules: recursive
 
-  #     - uses: actions/setup-python@v6
+  #     - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
   #       with:
   #         python-version: "${{ matrix.python-version }}"
 
   #     - name: Setup uv
   #       if: matrix.installer == 'uv'
-  #       uses: astral-sh/setup-uv@v6
+  #       uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
   #       with:
   #         python-version: "${{ matrix.python-version }}"
   #         enable-cache: false
@@ -416,7 +438,7 @@ jobs:
     runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}
     name: "ALL Extras - Install + Import (uv) - Py3.13"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -478,7 +500,7 @@ jobs:
     steps:
       - name: Download CPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: cpu-status-*
           merge-multiple: true
@@ -486,7 +508,7 @@ jobs:
 
       - name: Download GPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: gpu-status-*
           merge-multiple: true

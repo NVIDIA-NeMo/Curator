@@ -135,6 +135,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/about/release-notes/index.mdx
                 slug: ""
+              - page: 26.07 Migration Checklist
+                path: ./main/pages/about/release-notes/26-07-migration.mdx
+                slug: 26-07-migration
               - page: Migration FAQ
                 path: ./main/pages/about/release-notes/migration-faq.mdx
                 slug: migration-faq
@@ -603,9 +606,6 @@ navigation:
               - page: Requirements
                 path: ./main/pages/admin/deployment/requirements.mdx
                 slug: requirements
-              - page: Deploy Image Curation on Slurm
-                path: ./main/pages/admin/deployment/slurm/image.mdx
-                slug: slurm-image
               - page: Multi-Node Ray on Slurm
                 path: ./main/pages/admin/deployment/slurm/multi-node-ray.mdx
                 slug: slurm-multi-node-ray
@@ -696,9 +696,6 @@ navigation:
               - page: XennaExecutor
                 path: ./main/pages/api-reference/executors/xenna-executor.mdx
                 slug: xenna-executor
-              - page: Experimental
-                path: ./main/pages/api-reference/executors/experimental.mdx
-                slug: experimental
           - page: Resources
             path: ./main/pages/api-reference/resources.mdx
             slug: resources

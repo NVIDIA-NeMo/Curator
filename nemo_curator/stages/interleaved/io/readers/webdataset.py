@@ -25,7 +25,7 @@ import fsspec
 import pyarrow as pa
 from loguru import logger
 
-from nemo_curator.core.utils import split_table_by_group_max_bytes
+from nemo_curator.core.utils import split_table_by_group
 from nemo_curator.stages.interleaved.utils import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_JSON_EXTENSIONS,
@@ -453,7 +453,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
             # Empty tables use _empty_output_schema(); passthrough columns get
             # pa.null() type which is intentional (no data to infer from).
             table = pa.Table.from_pylist([], schema=self._empty_output_schema())
-        splits = split_table_by_group_max_bytes(table, "sample_id", self.max_batch_bytes)
+        splits = split_table_by_group(table, "sample_id", max_batch_bytes=self.max_batch_bytes)
         batches: list[InterleavedBatch] = []
         for idx, split in enumerate(splits):
             f"{task.task_id}_processed" if len(splits) == 1 else f"{task.task_id}_processed_{idx:05d}"

@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt
 
 # Install uv
-ENV UV_VERSION="0.8.22"
+ENV UV_VERSION="0.12.1"
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -67,13 +67,6 @@ FROM build AS nemo_curator_dep
 COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
-
-# Install HAProxy so Ray Serve's HAProxy ingress mode (RAY_SERVE_ENABLE_HA_PROXY=1) has the binary on PATH
-COPY docker/common/install_haproxy.sh .
-RUN bash install_haproxy.sh && \
-    rm install_haproxy.sh
-ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
-
 
 FROM nemo_curator_dep AS nemo_curator
 
@@ -92,13 +85,6 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
     fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
-    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
-    # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
-    # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
-    find /opt/venv -name "ray_dist.jar" -delete && \
-    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
-        echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
-    fi && \
     # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
     (uv pip uninstall opencv-python-headless || true)
 

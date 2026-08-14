@@ -31,7 +31,7 @@ from utils import setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
@@ -109,7 +109,16 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
                 auto_download=auto_download,
             ).with_(batch_size=4)
         )
-        pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
+        pipeline.add_stage(
+            ASRStage(
+                adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                model_id=model_name,
+                audio_filepath_key="audio_filepath",
+                batch_size=16,
+                fail_on_audio_error=True,
+                adapter_kwargs={"use_cuda_graph_decoder": False},
+            ).with_(resources=Resources(gpus=gpus))
+        )
         pipeline.add_stage(
             GetPairwiseWerStage(
                 text_key="text",
@@ -192,7 +201,7 @@ def main() -> int:
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
-    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
+    parser.add_argument("--gpus", type=int, choices=[0, 1], default=1, help="GPUs per NeMo ASR worker")
     parser.add_argument(
         "--raw-data-dir",
         default=None,
@@ -207,10 +216,7 @@ def main() -> int:
         "--no-auto-download",
         dest="auto_download",
         action="store_false",
-        help=(
-            "Disable runtime Hugging Face download; read pre-staged data from "
-            "<raw-data-dir>/<lang>/ instead."
-        ),
+        help=("Disable runtime Hugging Face download; read pre-staged data from <raw-data-dir>/<lang>/ instead."),
     )
     parser.set_defaults(auto_download=True)
     parser.add_argument(

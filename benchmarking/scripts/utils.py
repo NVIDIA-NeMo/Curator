@@ -128,8 +128,12 @@ def _collect_file_size_metrics(output_path: Path, extensions: list[str]) -> tupl
     return file_paths, len(file_paths), total_size_bytes
 
 
-def _resolve_paths(path: Path, extension: str) -> tuple[list[str], int, int]:
-    """Return (file_paths, num_files, total_size_bytes) for a single file or a directory."""
+def _resolve_paths(path: Path | str | list[str], extension: str) -> tuple[list[str], int, int]:
+    """Return file paths and size metrics for a file, directory, or file list."""
+    if isinstance(path, list):
+        return path, len(path), sum(Path(file_path).stat().st_size for file_path in path)
+
+    path = Path(path)
     if path.is_file():
         return [str(path)], 1, path.stat().st_size
     return _collect_file_size_metrics(path, [extension])
@@ -142,9 +146,9 @@ def _accumulate_modality_counts(column: pa.ChunkedArray, into: dict[str, int]) -
         into[key] = into.get(key, 0) + int(row["counts"])
 
 
-def collect_interleaved_parquet_metrics(path: Path | str) -> dict[str, Any]:
+def collect_interleaved_parquet_metrics(path: Path | str | list[str]) -> dict[str, Any]:
     """Collect metrics for interleaved parquet files — neutral keys, caller adds input_/output_ prefix."""
-    parquet_files, num_files, total_size_bytes = _resolve_paths(Path(path), ".parquet")
+    parquet_files, num_files, total_size_bytes = _resolve_paths(path, ".parquet")
     num_rows = 0
     num_samples = 0
     modality_counts: dict[str, int] = {}
@@ -205,9 +209,9 @@ def _collect_wds_modality_counts(tar_paths: list[str]) -> tuple[int, dict[str, i
     return counts.get("metadata", 0), counts
 
 
-def collect_interleaved_wds_metrics(path: Path | str) -> dict[str, Any]:
+def collect_interleaved_wds_metrics(path: Path | str | list[str]) -> dict[str, Any]:
     """Collect metrics for interleaved WebDataset tar archives — neutral keys, caller adds input_/output_ prefix."""
-    tar_paths, num_files, total_size_bytes = _resolve_paths(Path(path), ".tar")
+    tar_paths, num_files, total_size_bytes = _resolve_paths(path, ".tar")
     num_samples, modality_counts = _collect_wds_modality_counts(tar_paths)
     total_rows = sum(modality_counts.values())
     return {
@@ -399,19 +403,37 @@ class RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
     """Multiply each AudioTask N times for scale testing.
 
     Duplicates entries in-memory after reading so the file is only read once.
+    When ``unique_id_key`` is set, every copy receives a deterministic identifier
+    so downstream writers do not overwrite repeated inputs.
     """
 
     name = "repeat_entries"
 
-    def __init__(self, repeat_factor: int = 1) -> None:
+    def __init__(self, repeat_factor: int = 1, unique_id_key: str | None = None) -> None:
+        if repeat_factor < 1:
+            msg = "repeat_factor must be at least 1"
+            raise ValueError(msg)
         self._repeat_factor = repeat_factor
+        self._unique_id_key = unique_id_key
 
     def process(self, task: AudioTask) -> list[AudioTask]:
-        return [
-            AudioTask(
-                data=task.data.copy(),
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
+        results = []
+        for repeat_index in range(self._repeat_factor):
+            data = task.data.copy()
+            if self._unique_id_key is not None:
+                source_id = data.get(self._unique_id_key)
+                if source_id is None or source_id == "":
+                    msg = f"Cannot repeat entry without '{self._unique_id_key}'"
+                    raise ValueError(msg)
+                data[self._unique_id_key] = f"{source_id}_repeat_{repeat_index}"
+
+            results.append(
+                AudioTask(
+                    dataset_name=task.dataset_name,
+                    data=data,
+                    filepath_key=task.filepath_key,
+                    _metadata=task._metadata,
+                    _stage_perf=list(task._stage_perf),
+                )
             )
-            for _ in range(self._repeat_factor)
-        ]
+        return results

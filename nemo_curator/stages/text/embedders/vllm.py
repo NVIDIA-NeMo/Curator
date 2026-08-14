@@ -39,10 +39,7 @@ from nemo_curator.tasks import DocumentBatch
 if TYPE_CHECKING:
     from transformers import AutoTokenizer
 
-_VLLM_INSTALL_HINT = (
-    "vLLM is required for VLLMEmbeddingModelStage. "
-    "Install with: pip install nemo_curator[vllm]"
-)
+_VLLM_INSTALL_HINT = "vLLM is required for VLLMEmbeddingModelStage. Install with: pip install nemo_curator[vllm]"
 
 
 class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -51,7 +48,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         model_identifier: str,
         vllm_init_kwargs: dict[str, Any] | None = None,
         text_field: str = "text",
-        pretokenize: bool = False,
+        pretokenize: bool = True,
         embedding_field: str = "embeddings",
         max_chars: int | None = None,
         cache_dir: str | None = None,
