@@ -38,8 +38,8 @@ class PerplexityFilter(DocumentFilter):
     ) -> None:
         """
         Args:
-            model_path (str): Path to the directory containing the KenLM binary
-                model ({lang}.arpa.bin) and SentencePiece model ({lang}.sp.model).
+            model_path (str): Path to a directory containing the KenLM binary model
+                ({lang}.arpa.bin) and SentencePiece model ({lang}.sp.model).
             min_perplexity (float): Minimum perplexity threshold (inclusive). Documents
                 with perplexity below this value are discarded.
             max_perplexity (float): Maximum perplexity threshold (inclusive). Documents
@@ -51,18 +51,35 @@ class PerplexityFilter(DocumentFilter):
             punctuation (int): Punctuation handling mode — 1 replaces Unicode punctuation
                 with ASCII equivalents, 2 removes it entirely, 0 disables. Defaults to 1.
         """
+        if min_perplexity < 0 or max_perplexity < 0:
+            msg = "Perplexity thresholds must be non-negative"
+            raise ValueError(msg)
+        if min_perplexity > max_perplexity:
+            msg = "min_perplexity must be less than or equal to max_perplexity"
+            raise ValueError(msg)
+        if punctuation not in (0, 1, 2):
+            msg = "punctuation must be one of 0 (disabled), 1 (replace), or 2 (remove)"
+            raise ValueError(msg)
+
         super().__init__()
-        self.model = KenlmModel(
-            model_path=model_path,
-            language=lang,
-            lower_case=lower_case,
-            remove_accents=remove_accents,
-            normalize_numbers=normalize_numbers,
-            punctuation=punctuation,
-        )
+        self.model_path=model_path
+        self.language=lang
+        self.lower_case=lower_case
+        self.remove_accents=remove_accents
+        self.normalize_numbers=normalize_numbers
+        self.punctuation=punctuation
         self.min_perplexity = min_perplexity
         self.max_perplexity = max_perplexity
 
+    def load_model(self) -> None:
+        self._kenlm_model = KenlmModel(
+            model_path=self.model_path,
+            language=self.language,
+            lower_case=self.lower_case,
+            remove_accents=self.remove_accents,
+            normalize_numbers=self.normalize_numbers,
+            punctuation=self.punctuation
+        )
     def score_document(self, text: str) -> float:
         """
         Compute the KenLM perplexity score for the given text.
@@ -74,7 +91,7 @@ class PerplexityFilter(DocumentFilter):
             float: The perplexity score. Lower values indicate text more similar
                 to the language model's training corpus.
         """
-        return self.model.get_perplexity(text, normalize=True)
+        return self._kenlm_model.get_perplexity(text, normalize=True)
 
     def keep_document(self, score: float) -> bool:
         """

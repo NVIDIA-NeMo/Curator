@@ -43,7 +43,7 @@ class KenlmModel:
         "”": '"',  # Right double quotation mark
         "«": '"',  # French opening quote
         "»": '"',  # French closing quote
-        "１": '"',  # Fullwidth digit one
+        "１": '1',  # Fullwidth digit one
         "」": '"',  # Japanese closing quote
         "「": '"',  # Japanese opening quote
         "《": '"',  # Chinese opening quote
