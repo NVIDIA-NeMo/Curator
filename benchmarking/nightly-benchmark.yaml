@@ -623,13 +623,15 @@ entries:
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=ray_data
       --tar-files-per-partition=1
-      --input-partition-limit=375
+      --input-partition-limit=850
       --batch-size=1000
       --embedding-batch-size=500
       --aesthetic-batch-size=500
       --aesthetic-threshold=0.9
       --verbose
-    timeout_s: 1500
+    # The 375k-image calibration took 614.84s end-to-end; scaling to 850k
+    # projects to about 23 minutes, so allow measured-variance headroom.
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -640,9 +642,9 @@ entries:
           - U020C9VC05N  # Ao Tang
 
     requirements:
-      # 375 deterministic shards x 1,000 unique images per shard.
+      # 850 deterministic shards x 1,000 unique images per shard.
       - metric: num_images_processed
-        exact_value: 375000
+        exact_value: 850000
       - metric: throughput_images_per_sec
         min_value: 350.0
 
