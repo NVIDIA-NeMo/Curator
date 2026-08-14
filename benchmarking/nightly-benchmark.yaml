@@ -139,8 +139,7 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
-  # Public, ungated CC-BY-4.0 AMI SDM validation and test splits: 34 unique
-  # meetings, 2,034,736,248 source bytes, and about 18.73 audio hours.
+  # Public AMI SDM validation and test splits: 34 meetings, about 18.73 audio hours.
   - name: "audio_sortformer_ami_sdm"
     formats:
     - type: "files"
@@ -957,12 +956,7 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
-  # The Sortformer low-latency profile is published at RTF=0.093. Processing the
-  # ~18.73-hour public validation and test splits once gives an estimated
-  # 13.064-minute run across eight one-GPU workers. Both entries intentionally
-  # inherit the global 8-GPU Ray default instead of overriding it. Provision their
-  # shared public inputs once via benchmarking/nightly-data-setup.yaml; scheduled
-  # per-entry CI reuses those persistent inputs and does not run setup.
+  # 18.73 audio hours at published RTF 0.093 on 8 nightly GPUs is about 13 minutes.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
@@ -971,7 +965,6 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
       --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
-      --gpu-stage-num-workers=8
       --chunk-len=6
       --chunk-left-context=1
       --chunk-right-context=7
@@ -984,14 +977,7 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
-          - num_input_rows
-          - num_output_rows
-          - input_output_row_count_match
-          - num_tasks_processed
-          - num_tasks_with_segments
           - num_segments_processed
-          - stage_execution_coverage_ratio
-          - total_audio_duration_hours
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
@@ -1021,7 +1007,6 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
       --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
-      --gpu-stage-num-workers=8
       --chunk-len=6
       --chunk-left-context=1
       --chunk-right-context=7
@@ -1034,14 +1019,7 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
-          - num_input_rows
-          - num_output_rows
-          - input_output_row_count_match
-          - num_tasks_processed
-          - num_tasks_with_segments
           - num_segments_processed
-          - stage_execution_coverage_ratio
-          - total_audio_duration_hours
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
