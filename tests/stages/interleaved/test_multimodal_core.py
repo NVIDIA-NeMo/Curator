@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
+import tarfile
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -30,7 +30,6 @@ from nemo_curator.stages.interleaved.stages import (
 )
 from nemo_curator.stages.interleaved.utils.materialization import (
     _classify_rows,
-    _read_direct_file,
     materialize_task_binary_content,
 )
 from nemo_curator.tasks import InterleavedBatch
@@ -41,24 +40,10 @@ from .conftest import build_multi_frame_tiff, make_image_row, make_image_task, w
 
 def test_with_parsed_source_ref_columns(single_row_task: InterleavedBatch) -> None:
     df = single_row_task.with_parsed_source_ref_columns()
-    assert df.loc[0, "_src_path"] == "/dataset/shard.tar"
+    assert df.loc[0, "_src_uri"] == "/dataset/shard.tar"
     assert df.loc[0, "_src_member"] == "s1.json"
-    assert df.loc[0, "_src_byte_offset"] == 10
-    assert df.loc[0, "_src_byte_size"] == 20
-
-
-def test_parse_source_ref_ignores_legacy_keys() -> None:
-    legacy_format = json.dumps({"content_path": "/old/path.tar", "content_key": "old.json"})
-    parsed = InterleavedBatch.parse_source_ref(legacy_format)
-    assert parsed["path"] is None
-    assert parsed["member"] is None
-    assert parsed["byte_offset"] is None
-    assert parsed["byte_size"] is None
-
-
-def test_parse_source_ref_empty_values() -> None:
-    assert InterleavedBatch.parse_source_ref(None)["path"] is None
-    assert InterleavedBatch.parse_source_ref("")["path"] is None
+    assert df.loc[0, "_src_offset"] == 10
+    assert df.loc[0, "_src_size"] == 20
 
 
 # --- classify_rows tests ---
@@ -67,9 +52,10 @@ def test_parse_source_ref_empty_values() -> None:
 @pytest.mark.parametrize(
     ("src_path", "src_member", "byte_range", "expected_bucket", "expected_missing"),
     [
-        pytest.param("/img.jpg", None, None, "direct_read", [], id="direct_read"),
+        pytest.param("/img.jpg", None, None, "range_read", [], id="whole_file"),
         pytest.param("/shard.tar", "img.jpg", None, "tar_extract", [], id="tar_extract"),
         pytest.param("/shard.tar", "img.jpg", (512, 1024), "range_read", [], id="range_read"),
+        pytest.param("/shard.tar", None, (512, 1024), "range_read", [], id="range_read_without_member"),
         pytest.param(None, None, None, None, [0], id="missing_path"),
     ],
 )
@@ -83,40 +69,46 @@ def test_classify_rows(
     byte_offset, byte_size = byte_range if byte_range else (None, None)
     df = pd.DataFrame(
         {
-            "_src_path": [src_path],
+            "_src_uri": [src_path],
             "_src_member": [src_member],
-            "_src_byte_offset": [byte_offset],
-            "_src_byte_size": [byte_size],
+            "_src_offset": [byte_offset],
+            "_src_size": [byte_size],
         }
     )
     result = _classify_rows(df, pd.Series([True]))
     assert result.missing == expected_missing
     if expected_bucket is not None:
         assert src_path in getattr(result, expected_bucket)
-        for other in {"direct_read", "tar_extract", "range_read"} - {expected_bucket}:
+        for other in {"tar_extract", "range_read"} - {expected_bucket}:
             assert not getattr(result, other)
         if expected_bucket == "range_read":
-            assert result.range_read[src_path][0] == (0, src_member, byte_offset, byte_size, None)
+            assert result.range_read[src_path][0] == (
+                0,
+                src_member or src_path,
+                0 if byte_offset is None else byte_offset,
+                byte_size,
+                None,
+            )
 
 
 def test_classify_rows_mixed_batch() -> None:
     df = pd.DataFrame(
         {
-            "_src_path": ["/img.jpg", "/shard.tar", "/shard.tar", None],
+            "_src_uri": ["/img.jpg", "/shard.tar", "/shard.tar", None],
             "_src_member": [None, "a.jpg", "b.jpg", None],
-            "_src_byte_offset": [None, None, 100, None],
-            "_src_byte_size": [None, None, 200, None],
+            "_src_offset": [None, None, 100, None],
+            "_src_size": [None, None, 200, None],
         }
     )
     mask = pd.Series([True, True, True, True])
     result = _classify_rows(df, mask)
-    assert len(result.direct_read["/img.jpg"]) == 1
+    assert len(result.range_read["/img.jpg"]) == 1
     assert len(result.tar_extract["/shard.tar"]) == 1
     assert len(result.range_read["/shard.tar"]) == 1
     assert result.missing == [3]
 
 
-# --- materialize: direct read ---
+# --- materialize: whole-file read ---
 
 
 def test_materialize_fills_binary_from_direct_path(tmp_path: Path) -> None:
@@ -158,14 +150,13 @@ def test_materialize_tar_extract_missing_member(tmp_path: Path) -> None:
 # --- materialize: range read (with byte_offset/byte_size) ---
 
 
-def test_materialize_fills_binary_from_range_read(tmp_path: Path) -> None:
+def test_materialize_fills_binary_from_tar_range_without_member(tmp_path: Path) -> None:
     payload = b"range-read-image-bytes"
-    raw_file = tmp_path / "data.bin"
-    raw_file.write_bytes(b"HEADER" + payload + b"FOOTER")
+    tar_path = write_tar(tmp_path / "shard.tar", {"image.jpg": payload})
+    with tarfile.open(tar_path) as tf:
+        info = tf.getmember("image.jpg")
 
-    task = make_image_task(
-        [make_image_row(path=str(raw_file), member="data.bin", byte_offset=6, byte_size=len(payload))]
-    )
+    task = make_image_task([make_image_row(path=tar_path, byte_offset=info.offset_data, byte_size=info.size)])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == payload
@@ -756,23 +747,9 @@ def test_webdataset_reader_composite_decompose(tmp_path: Path) -> None:
 # --- exception broadening in materialization ---
 
 
-def test_read_direct_file_handles_non_oserror_exceptions() -> None:
-    """_read_direct_file must gracefully return None for non-OSError exceptions
-    (e.g. RuntimeError from fsspec plugins) instead of crashing.
-    """
-    with patch(
-        "nemo_curator.stages.interleaved.utils.materialization.fsspec.open", side_effect=RuntimeError("plugin error")
-    ):
-        result = _read_direct_file("/some/path.jpg", {})
-    assert result is None
-
-
-def test_materialize_records_error_for_non_oserror_on_direct_read() -> None:
-    """Non-OSError exceptions during direct-read materialization must be
-    recorded as materialize_error, not crash the pipeline.
-    """
+def test_materialize_records_error_for_non_oserror_on_file_read() -> None:
     task = make_image_task([make_image_row(path="/fake/path.jpg")])
-    with patch("nemo_curator.stages.interleaved.utils.materialization.fsspec.open", side_effect=RuntimeError("boom")):
+    with patch("nemo_curator.stages.interleaved.utils.materialization.url_to_fs", side_effect=RuntimeError("boom")):
         result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert isinstance(df.loc[0, "materialize_error"], str)
@@ -820,7 +797,7 @@ def test_iter_materialized_bytes_only_yields_masked_rows(tmp_path: Path) -> None
             "content_type": "image/jpeg",
             "text_content": None,
             "binary_content": None,
-            "source_ref": InterleavedBatch.build_source_ref(path=str(file_a), member=None),
+            "source_ref": InterleavedBatch.build_source_ref(str(file_a)),
             "materialize_error": None,
         },
         {
@@ -830,7 +807,7 @@ def test_iter_materialized_bytes_only_yields_masked_rows(tmp_path: Path) -> None
             "content_type": "image/jpeg",
             "text_content": None,
             "binary_content": None,
-            "source_ref": InterleavedBatch.build_source_ref(path=str(file_b), member=None),
+            "source_ref": InterleavedBatch.build_source_ref(str(file_b)),
             "materialize_error": None,
         },
     ]
@@ -868,7 +845,7 @@ def test_iter_materialized_bytes_preserves_original_indices(tmp_path: Path) -> N
             "content_type": "image/jpeg",
             "text_content": None,
             "binary_content": None,
-            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "source_ref": InterleavedBatch.build_source_ref(str(img_path)),
             "materialize_error": None,
         },
     ]
@@ -905,11 +882,9 @@ def test_materialize_extracts_individual_tiff_frames(tmp_path: Path) -> None:
                 "content_type": "image/tiff",
                 "text_content": None,
                 "binary_content": None,
-                "source_ref": InterleavedBatch.build_source_ref(
-                    path=tar_path,
-                    member="doc.tiff",
-                    frame_index=i,
-                ),
+                "source_ref": InterleavedBatch.build_source_ref(tar_path),
+                "source_member": "doc.tiff",
+                "source_frame_index": i,
                 "materialize_error": None,
             }
         )

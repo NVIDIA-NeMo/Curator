@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
+from nemo_curator.utils.storage_utils import FILE_REFERENCE_TYPE
 
 _SAMPLE_ROW = {
     "sample_id": "s1",
@@ -128,43 +127,27 @@ def test_add_rows_and_delete_rows_not_implemented() -> None:
         task.delete_rows(pd.Series([True]))
 
 
-# --- parse_source_ref edge cases ---
+# --- source_ref ---
 
 
-def test_parse_source_ref_non_dict_raises() -> None:
-    with pytest.raises(TypeError, match="source_ref must decode to a JSON object"):
-        InterleavedBatch.parse_source_ref("[1, 2]")
+def test_source_ref_uses_exact_file_children() -> None:
+    ref = InterleavedBatch.build_source_ref("/a.tar", offset=10, size=20)
+    assert FILE_REFERENCE_TYPE.names == ["uri", "offset", "size", "content_type", "checksum", "inline"]
+    assert ref == {**dict.fromkeys(FILE_REFERENCE_TYPE.names), "uri": "/a.tar", "offset": 10, "size": 20}
 
 
-def test_parse_source_ref_with_frame_index() -> None:
-    ref = json.dumps({"path": "/a.tar", "member": "m.jpg", "byte_offset": 10, "byte_size": 20, "frame_index": 5})
-    parsed = InterleavedBatch.parse_source_ref(ref)
-    assert parsed["path"] == "/a.tar"
-    assert parsed["member"] == "m.jpg"
-    assert parsed["byte_offset"] == 10
-    assert parsed["byte_size"] == 20
-    assert parsed["frame_index"] == 5
+@pytest.mark.parametrize(("offset", "size"), [(-1, 1), (1, -1), (1, None)])
+def test_build_source_ref_rejects_invalid_ranges(offset: int, size: int | None) -> None:
+    with pytest.raises(ValueError, match="source_ref"):
+        InterleavedBatch.build_source_ref(uri="/a", offset=offset, size=size)
 
 
-# --- build_source_ref ---
-
-
-@pytest.mark.parametrize(
-    ("frame_index", "key_present"),
-    [
-        pytest.param(3, True, id="with_frame_index"),
-        pytest.param(None, False, id="without_frame_index"),
-    ],
-)
-def test_build_source_ref_frame_index(frame_index: int | None, key_present: bool) -> None:
-    ref_str = InterleavedBatch.build_source_ref(
-        path="/a.tar",
-        member="m.jpg",
-        byte_offset=10,
-        byte_size=20,
-        frame_index=frame_index,
-    )
-    parsed = json.loads(ref_str)
-    assert ("frame_index" in parsed) is key_present
-    if key_present:
-        assert parsed["frame_index"] == frame_index
+def test_source_metadata_is_adjacent_to_file() -> None:
+    row = {
+        **_SAMPLE_ROW,
+        "source_ref": InterleavedBatch.build_source_ref(uri="/a.tar", offset=10, size=20),
+        "source_member": "m.tiff",
+        "source_frame_index": 5,
+    }
+    parsed = _make_batch(pd.DataFrame([row])).with_parsed_source_ref_columns()
+    assert (parsed.loc[0, "_src_member"], parsed.loc[0, "_src_frame_index"]) == ("m.tiff", 5)
