@@ -33,17 +33,17 @@ Example:
     )
 """
 
-import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
-import numpy as np
 import torch
 import torchaudio
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import load_audio_file
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._residency import residency_read_specs, resolve_audio
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -51,45 +51,60 @@ from nemo_curator.tasks import AudioTask
 _UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
 _UTMOS_ENTRYPOINT = "utmos22_strong"
 _UTMOS_TARGET_SR = 16000
+_VALID_MODES = {"task", "segments", "auto"}
+_VALID_ACTIONS = {"filter", "annotate"}
 
 
-def _load_waveform_tensor(item: dict[str, Any], task_id: str) -> tuple[torch.Tensor, int] | None:
+def _load_waveform_tensor(  # noqa: PLR0913 (complexity accepted: keyword-only residency/key knobs mirror the stage fields)
+    item: dict[str, Any],
+    task_id: str,
+    *,
+    input_residency: Literal["file", "waveform", "auto"] = "auto",
+    audio_filepath_key: str = "audio_filepath",
+    waveform_key: str = "waveform",
+    sample_rate_key: str = "sample_rate",
+) -> tuple[torch.Tensor, int] | None:
     """
     Extract a mono waveform tensor (1, N) and sample_rate from an item.
 
     Supports waveform (Tensor/ndarray) + sample_rate or audio_filepath.
     Returns None if unavailable.
     """
-    waveform = item.get("waveform")
-    sample_rate = item.get("sample_rate")
-
-    if waveform is not None and sample_rate is not None:
-        if not torch.is_tensor(waveform):
-            waveform = torch.from_numpy(np.asarray(waveform, dtype=np.float32))
-        if waveform.dim() == 1:
-            waveform = waveform.unsqueeze(0)
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-        return waveform, int(sample_rate)
-
-    if waveform is not None and sample_rate is None:
-        logger.warning(f"[{task_id}] Waveform present but 'sample_rate' missing - item skipped")
+    # Thin wrapper over the shared resolver (_residency.resolve_audio): delegate
+    # file/waveform resolution, then force mono (1, N). Two behaviors are kept
+    # to match the original exactly: (1) a waveform present without sample_rate
+    # is unusable (no file fallback for it); (2) audio-file load errors are
+    # swallowed and reported as None.
+    if input_residency != "file" and item.get(waveform_key) is not None and item.get(sample_rate_key) is None:
+        logger.warning(f"[{task_id}] Waveform present but {sample_rate_key!r} missing - item skipped")
         return None
 
-    path = item.get("audio_filepath")
-    if path and os.path.isfile(path):
-        try:
-            return load_audio_file(path, mono=True)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[{task_id}] Failed to load audio file: {e}")
-            return None
+    try:
+        resolved = resolve_audio(
+            item,
+            residency=input_residency,
+            audio_filepath_key=audio_filepath_key,
+            waveform_key=waveform_key,
+            sample_rate_key=sample_rate_key,
+            mono=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[{task_id}] Failed to load audio file: {e}")
+        return None
 
-    logger.warning(f"[{task_id}] No waveform+sample_rate or valid audio_filepath found")
-    return None
+    if resolved is None:
+        if input_residency == "waveform":
+            logger.warning(f"[{task_id}] No {waveform_key}+{sample_rate_key} found")
+        else:
+            logger.warning(f"[{task_id}] No {waveform_key}+{sample_rate_key} or valid {audio_filepath_key} found")
+        return None
+
+    waveform, sample_rate = resolved
+    return ensure_mono(ensure_waveform_2d(waveform)), int(sample_rate)
 
 
 @dataclass
-class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
+class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     UTMOS quality assessment filter stage.
 
@@ -100,6 +115,18 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         mos_threshold: Minimum MOS score to pass (None to disable)
         sample_rate: Target sample rate for UTMOS inference (default 16000)
+        input_residency: Which input to use — "waveform" (in-memory only), "file"
+            (audio_filepath only), or "auto" (waveform first, file fallback; default).
+        mode: Where to score — "task" (top-level audio), "segments" (nested segments list),
+            or "auto" (segments when segments_key is present, else task; default). Setting
+            "task" or "segments" overrides the auto-detection.
+        action: "filter" drops items below mos_threshold; "annotate" keeps every item —
+            including items that fail or cannot be scored — and only writes score_key.
+        audio_filepath_key: Key in data dict for the input audio file path.
+        waveform_key: Key in data dict for the in-memory waveform tensor.
+        sample_rate_key: Key in data dict for the waveform sample rate.
+        segments_key: Key in data dict holding the nested segments list (segments/auto mode).
+        score_key: Key where the UTMOS MOS score is written.
 
     Note:
         GPU assignment is handled by the executor via _resources.
@@ -108,6 +135,14 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     mos_threshold: float | None = 3.5
     sample_rate: int = _UTMOS_TARGET_SR
+    input_residency: Literal["file", "waveform", "auto"] = "auto"
+    mode: Literal["task", "segments", "auto"] = "auto"
+    action: Literal["filter", "annotate"] = "filter"
+    audio_filepath_key: str = "audio_filepath"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    segments_key: str = "segments"
+    score_key: str = "utmos_mos"
 
     name: str = "UTMOSFilter"
     batch_size: int = 1
@@ -115,6 +150,12 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
+        if self.mode not in _VALID_MODES:
+            msg = f"mode must be one of {_VALID_MODES!r}, got {self.mode!r}"
+            raise ValueError(msg)
+        if self.action not in _VALID_ACTIONS:
+            msg = f"action must be one of {_VALID_ACTIONS!r}, got {self.action!r}"
+            raise ValueError(msg)
         self._model = None
         self._model_failed = False
         self._resamplers: dict[int, Any] = {}
@@ -123,7 +164,24 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["utmos_mos"]
+        return [], [self.score_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads_one_of=[
+                *residency_read_specs(
+                    self.input_residency,
+                    audio_filepath_key=self.audio_filepath_key,
+                    waveform_key=self.waveform_key,
+                    sample_rate_key=self.sample_rate_key,
+                ),
+                IOSpec(data_keys=[self.segments_key]),
+            ],
+            writes=IOSpec(data_keys=[self.score_key], segment_data_keys=[self.score_key]),
+            cardinality="filter" if self.action == "filter" else "1:1",
+            cardinality_options=["filter", "annotate"],
+            gates=Gates(requires_gpu=self.resources.gpus > 0, requires_internet_first_run=True),
+        )
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -194,25 +252,36 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"UTMOS model loaded on {device}")
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """Process a single AudioTask and filter by UTMOS MOS score.
+        """Process a single AudioTask and filter or annotate by UTMOS MOS score.
 
-        When ``task.data`` contains a ``"segments"`` key (nested mode from VAD),
-        each segment is evaluated individually and only survivors are kept.
+        Segment mode applies when ``mode="segments"``, or when ``mode="auto"``
+        (default) and ``task.data`` contains the ``segments_key``; each segment is
+        then evaluated individually. With ``action="filter"`` only survivors are
+        kept; with ``action="annotate"`` every item is kept — including items that
+        fail mos_threshold or cannot be scored — and only the score is written.
         """
-        if "segments" in task.data:
+        use_segments = self.mode == "segments" or (self.mode == "auto" and self.segments_key in task.data)
+        if use_segments:
             survivors = []
-            for seg in task.data["segments"]:
+            for seg in task.data.get(self.segments_key, []):
                 temp = AudioTask(data=seg)
                 result = self._process_single(temp)
-                if result is not None:
+                if result is not None or self.action == "annotate":
                     survivors.append(temp.data)
-            task.data["segments"] = survivors
-            return task if survivors else []
-        return self._process_single(task) or []
+            task.data[self.segments_key] = survivors
+            return task if survivors or self.action == "annotate" else []
+        return self._process_single(task) or (task if self.action == "annotate" else [])
 
     def _process_single(self, task: AudioTask) -> AudioTask | None:
         """Run UTMOS scoring on a single (non-nested) task."""
-        audio_result = _load_waveform_tensor(task.data, task.task_id)
+        audio_result = _load_waveform_tensor(
+            task.data,
+            task.task_id,
+            input_residency=self.input_residency,
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
         if audio_result is None:
             return None
         waveform, sr = audio_result
@@ -239,9 +308,10 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
         logger.debug(f"[{task.task_id}] UTMOS MOS={mos:.3f}")
 
+        task.data[self.score_key] = mos
+
         if self.mos_threshold is not None and mos < self.mos_threshold:
             logger.info(f"[{task.task_id}] UTMOS FAILED: MOS {mos:.3f} < {self.mos_threshold}")
-            return None
+            return task if self.action == "annotate" else None
 
-        task.data["utmos_mos"] = mos
         return task
