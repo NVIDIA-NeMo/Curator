@@ -21,12 +21,13 @@ import librosa
 import numpy as np
 from loguru import logger
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
+class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that estimates audio bandwidth by analyzing power spectra.
 
@@ -52,6 +53,8 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
     frequency_threshold: float = -50.0
     audio_filepath_key: str = "audio_filepath"
     segments_key: str = "segments"
+    duration_key: str = "duration"
+    metrics_key: str = "metrics"
 
     # Stage metadata
     name: str = "BandwidthEstimation"
@@ -60,17 +63,28 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "metrics"]
+        return [], [self.audio_filepath_key, self.metrics_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads_one_of=[
+                IOSpec(data_keys=[self.audio_filepath_key, self.segments_key], accepts=["file"]),
+                IOSpec(data_keys=[self.audio_filepath_key, self.duration_key], accepts=["file"]),
+            ],
+            writes=IOSpec(data_keys=[self.metrics_key], segment_data_keys=[self.metrics_key]),
+        )
 
     def validate_input(self, task: AudioTask) -> bool:
         """OR-shaped: needs audio_filepath AND (segments OR duration)."""
         data = task.data
-        if not hasattr(data, self.audio_filepath_key):
+        if self.audio_filepath_key not in data:
             logger.error(f"Task {task.task_id} missing '{self.audio_filepath_key}'")
             return False
-        if hasattr(data, self.segments_key) or hasattr(data, "duration"):
+        if self.segments_key in data or self.duration_key in data:
             return True
-        logger.error(f"Task {task.task_id} missing required attributes: need '{self.segments_key}' OR 'duration'")
+        logger.error(
+            f"Task {task.task_id} missing required attributes: need '{self.segments_key}' OR '{self.duration_key}'"
+        )
         return False
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
@@ -112,10 +126,10 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
         segment_audio_array = audio[int(start * sample_rate) : int(end * sample_rate)]
         bandwidth = self._estimate_bandwidth(segment_audio_array, sample_rate)
 
-        if "metrics" not in audio_segment:
-            audio_segment["metrics"] = {}
+        if self.metrics_key not in audio_segment:
+            audio_segment[self.metrics_key] = {}
 
-        audio_segment["metrics"]["bandwidth"] = int(bandwidth)
+        audio_segment[self.metrics_key]["bandwidth"] = int(bandwidth)
 
     def process(self, task: AudioTask) -> AudioTask:
         """Estimate bandwidth for audio entry."""
@@ -139,7 +153,7 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
                     self.get_bandwidth(segment, audio, sample_rate)
                 except ValueError as ex:
                     logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
-                    segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
+                    segment.setdefault(self.metrics_key, {})["metric_skip_reason"] = str(ex)
         else:
             self.get_bandwidth(data_entry, audio, sample_rate)
 
