@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+from itertools import chain
 from pathlib import Path
 
 import soundfile as sf
@@ -63,14 +64,18 @@ def stage_dataset(  # noqa: PLR0913
     selected_duration_s = 0.0
     clips = 0
 
-    dataset = load_dataset(
-        hf_repo_id,
-        hf_config,
-        split=hf_split,
-        revision=hf_revision,
-        cache_dir=cache_dir,
-        streaming=True,
-    ).cast_column("audio", Audio(decode=False))
+    datasets = (
+        load_dataset(
+            hf_repo_id,
+            hf_config,
+            split=split,
+            revision=hf_revision,
+            cache_dir=cache_dir,
+            streaming=True,
+        ).cast_column("audio", Audio(decode=False))
+        for split in hf_split.split("+")
+    )
+    dataset = chain.from_iterable(datasets)
 
     try:
         with temporary_manifest.open("w", encoding="utf-8") as manifest_file:
