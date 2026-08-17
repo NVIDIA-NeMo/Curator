@@ -109,11 +109,11 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
-  # Shared 192-hour LibriSpeech train.360 manifest for both executors.
-  - name: "librispeech_clean_192h"
+  # Shared 600-hour LibriSpeech training manifest for both executors.
+  - name: "librispeech_all_600h"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/librispeech_clean_train360_192h_71cacbfb/manifest.jsonl"
+      path: "{datasets_path}/librispeech_all_train_600h_71cacbfb/manifest.jsonl"
   # AMI SDM meetings up to 60 minutes, totaling at least 30 hours.
   - name: "audio_tagging_ami_sdm"
     formats:
@@ -976,14 +976,13 @@ entries:
       - metric: num_files_processed
         min_value: 1
 
-  # 192.0028 hours: 905.11s wall / 888.17s processing on 8×A100.
-  # Eight workers were resident; Xenna backpressure concentrated work on GPUs 0–1.
+  # Fixed eight-worker Xenna pool over the shared real-data manifest.
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:librispeech_clean_192h,jsonl}
+      --input-manifest={dataset:librispeech_all_600h,jsonl}
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
       --gpus=1
@@ -1002,19 +1001,18 @@ entries:
       - metric: num_tasks_processed
         min_value: 1
       - metric: total_audio_duration_hours
-        min_value: 192.0
-        max_value: 192.02
+        min_value: 600.0
+        max_value: 600.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # Same input: 243.42s wall / 228.01s processing; all eight GPUs stayed >=10% active for 120s.
-  # Ray Data is the lower-side exception because both executors retain the same real input.
+  # Same real input and fixed eight-worker pool as Xenna.
   - name: audio_librispeech_raydata
     enabled: true
     script: audio_librispeech_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:librispeech_clean_192h,jsonl}
+      --input-manifest={dataset:librispeech_all_600h,jsonl}
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
       --gpus=1
@@ -1032,8 +1030,8 @@ entries:
       - metric: num_tasks_processed
         min_value: 1
       - metric: total_audio_duration_hours
-        min_value: 192.0
-        max_value: 192.02
+        min_value: 600.0
+        max_value: 600.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 

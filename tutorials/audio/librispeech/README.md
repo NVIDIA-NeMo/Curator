@@ -35,7 +35,7 @@ Use `audio_cpu` instead for a very small CPU-only smoke run.
 
 ## Prepare real LibriSpeech data
 
-The shared preparation script streams the pinned `openslr/librispeech_asr` `clean` / `train.360` source, stages FLAC files without re-encoding them, and writes `manifest.jsonl`. This source is English and released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+The shared preparation script streams the pinned `openslr/librispeech_asr` training splits, stages FLAC files without re-encoding them, and writes `manifest.jsonl`. It defaults to clean-100, clean-360, and other-500. This source is English and released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 Prepare 15 minutes for a local tutorial run:
 
