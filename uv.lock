@@ -5498,6 +5498,9 @@ audio-cuda12 = [
     { name = "transformers" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
+audio-sed = [
+    { name = "torchlibrosa" },
+]
 cuda12 = [
     { name = "gpustat" },
     { name = "nvidia-ml-py" },
@@ -5910,6 +5913,7 @@ requires-dist = [
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'audio-common') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'audio-common')", index = "https://download.pytorch.org/whl/cu129" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'video-cuda12') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'video-cuda12')", index = "https://download.pytorch.org/whl/cu129" },
     { name = "torchcodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", index = "https://pypi.org/simple", conflict = { package = "nemo-curator", extra = "audio-common" } },
+    { name = "torchlibrosa", marker = "extra == 'audio-sed'", specifier = ">=0.1.0" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'image-cpu') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'image-cpu')" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'video-cpu') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'video-cpu')" },
     { name = "torchvision", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'image-cpu') or (sys_platform == 'darwin' and extra == 'image-cpu')", index = "https://pypi.org/simple" },
@@ -5925,7 +5929,7 @@ requires-dist = [
     { name = "warcio", marker = "extra == 'text-cpu'" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=3.8.4" },
 ]
-provides-extras = ["cuda12", "cv2", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "lance", "text-cuda12", "video-cpu", "video-cuda12", "video-media", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "cv2", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-sed", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "lance", "text-cuda12", "video-cpu", "video-cuda12", "video-media", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -10903,6 +10907,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/82/48/683114a4ed6b59f76b6919532a5db0f4068787be26bab92cc18a1dfa6794/torchcodec-0.11.1-cp312-cp312-win_amd64.whl", hash = "sha256:3fd2d10e0e0a5f455c1c87dc1380b3bd43b77dd5eeeaf479470643b1c04a2dd2", size = 1921066, upload-time = "2026-04-14T18:24:57.102Z" },
     { url = "https://files.pythonhosted.org/packages/5d/b2/85ad7a81f387e40983c21bc94da0c333974afb41f38c3a85d25875274187/torchcodec-0.11.1-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:5eee69971cec1147a03b8a6b678b5dfbeff0b2c71ed7929e488391f9fbcd630c", size = 2332721, upload-time = "2026-04-14T18:25:02.518Z" },
     { url = "https://files.pythonhosted.org/packages/ad/ca/5c66f21d2a12039450e9dd4d9d7c480019dfbe9e8a87696a3c3a827c1e37/torchcodec-0.11.1-cp313-cp313-win_amd64.whl", hash = "sha256:67b34e5733636588ebe0f15082bbb90a8ce1472ccb8bb1a656ec28958a208919", size = 1920990, upload-time = "2026-04-14T18:25:04.269Z" },
+]
+
+[[package]]
+name = "torchlibrosa"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "librosa" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a4/67/e4c79da3f15777b9bc2b655d47dac553fc31e40360500fef5e66d6877ce8/torchlibrosa-0.1.0.tar.gz", hash = "sha256:62a8beedf9c9b4141a06234df3f10229f7ba86e67678ccee02489ec4ef044028", size = 11719, upload-time = "2023-02-21T09:40:54.968Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/af/ccf007edf442c3c0cd3a98be2c82bc99edc957c04436a759b6e1e01077e0/torchlibrosa-0.1.0-py3-none-any.whl", hash = "sha256:89b65fd28b833ceb6bc74a3d0d87e2924ddc5a845d0a246b194952a4e12a38cb", size = 11741, upload-time = "2023-02-21T09:40:52.58Z" },
 ]
 
 [[package]]
