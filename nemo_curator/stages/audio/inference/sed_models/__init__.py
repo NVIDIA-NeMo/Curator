@@ -14,10 +14,8 @@
 
 """Sound-event-detection model architectures.
 
-The concrete CNN14 architectures are vendored third-party code under
-``third_party/panns``; this module only maps checkpoint names to them.
-Resolution is lazy so that importing the SED stage does not require
-``torchlibrosa`` until a model is actually built.
+Resolution is lazy so importing the SED stage does not require
+``torchlibrosa`` until a model is built.
 """
 
 from __future__ import annotations
@@ -47,6 +45,6 @@ def get_model_class(model_type: str) -> type[nn.Module]:
         msg = f"Unknown SED model_type {model_type!r}; expected one of {list(_MODEL_CLASS_NAMES)}"
         raise ValueError(msg)
 
-    from nemo_curator.stages.audio.inference.sed_models.third_party import panns
+    from nemo_curator.stages.audio.inference.sed_models import cnn14
 
-    return getattr(panns.cnn14, class_name)
+    return getattr(cnn14, class_name)

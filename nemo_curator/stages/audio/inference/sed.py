@@ -20,7 +20,7 @@ per-frame class probabilities (T x 527 AudioSet classes) are passed to the
 next stage via task data.  Optionally, results can also be saved as compressed
 NPZ sidecar files (``save_npz=True``).
 
-Requires: ``pip install torchlibrosa`` (``librosa`` only needed if input sample rate differs from model target)
+Install the ``audio_sed`` extra to provide the CNN14 audio frontend.
 """
 
 from __future__ import annotations
@@ -39,6 +39,8 @@ from nemo_curator.utils.hash_utils import get_deterministic_hash
 if TYPE_CHECKING:
     import numpy as np
 
+    from nemo_curator.backends.base import WorkerMetadata
+
 
 @dataclass
 class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
@@ -49,7 +51,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     Expects each ``AudioTask.data`` to carry:
 
-    - ``waveform``: 1-D mono numpy float32 array (any sample rate)
+    - ``waveform``: mono or channel-first NumPy/Torch waveform (any sample rate)
     - ``sample_rate``: int
 
     These are produced by ``NemoTarShardReaderStage`` which decodes audio
@@ -105,7 +107,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     def num_workers(self) -> int | None:
         return self.num_workers_override
 
-    def setup(self, _worker_metadata: object | None = None) -> None:
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load CNN14 model from checkpoint."""
         import torch
 
@@ -180,7 +182,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
         x = torch.from_numpy(padded).to(self._device)
         with torch.no_grad():
-            out = self._model(x, None)
+            out = self._model(x)
 
         all_framewise: np.ndarray = out["framewise_output"].cpu().numpy()
         fps = float(self.sample_rate) / self.hop_size

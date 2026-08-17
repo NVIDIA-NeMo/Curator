@@ -36,7 +36,7 @@ class _FakeSEDModel:
     def __init__(self) -> None:
         self.calls: list[tuple[int, int]] = []
 
-    def __call__(self, x: "torch.Tensor", _mixup: object = None) -> dict[str, "torch.Tensor"]:
+    def __call__(self, x: "torch.Tensor") -> dict[str, "torch.Tensor"]:
         batch, samples = x.shape
         self.calls.append((batch, samples))
         frames = samples // _HOP
