@@ -584,11 +584,13 @@ Current audio setup commands:
 
 ```bash
 python benchmarking/data_prep/prepare_librispeech_data.py \
-  --output-path {datasets_path}/librispeech_clean_train360_192h_71cacbfb \
+  --output-path {datasets_path}/librispeech_all_train_600h_71cacbfb \
   --cache-dir {datasets_path}/_hf_cache/librispeech \
   --hf-repo-id openslr/librispeech_asr \
   --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
-  --hf-config clean --hf-split train.360 --target-audio-hours 192.0
+  --hf-config all \
+  --hf-split train.clean.100+train.clean.360+train.other.500 \
+  --target-audio-hours 600.0
 
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
@@ -605,7 +607,7 @@ pipeline outputs without rescanning or downloading the staged corpus.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |
-| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 55,284-row / 192.0028h `openslr/librispeech_asr` manifest (CC BY 4.0): Xenna 905.11s wall / 888.17s processing (15m05s / 14m48s), target achieved; Ray Data 243.42s / 228.01s (4m03s / 3m48s), same-input lower-side exception. Both had exact path-set and WER coverage; Ray sustained all eight GPUs at >=10% utilization for 120s |
+| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 600h `openslr/librispeech_asr` manifest (CC BY 4.0) from the clean-100, clean-360, and other-500 training splits; no repeated rows |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
