@@ -149,7 +149,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return False
 
     def _frequent_single_word(self, text: str) -> bool:
-        cleaned = text.strip().replace(".", "").replace("?", "").replace("!", "")
+        cleaned = text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "").replace("-", " ")
         if cleaned in self._phrases:
             return True
         return any(

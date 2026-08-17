@@ -61,7 +61,7 @@ def test_clean_text_passes(tmp_path: Path) -> None:
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
 
 
-@pytest.mark.parametrize("text", ["Thank you", "Thank you.", "Thank you for your time today."])
+@pytest.mark.parametrize("text", ["Thank you", "Thank you.", "Thank-you", "Merci,", "Thank you for your time today."])
 def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
@@ -70,8 +70,8 @@ def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: P
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
 
 
-@pytest.mark.parametrize("text", ["thank you", "THANK YOU", "Thank-you", "Merci,"])
-def test_phrase_matching_preserves_reference_case_and_punctuation_behavior(tmp_path: Path, text: str) -> None:
+@pytest.mark.parametrize("text", ["thank you", "THANK YOU"])
+def test_phrase_matching_remains_case_sensitive(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
 
