@@ -29,7 +29,7 @@ torch = pytest.importorskip("torch")
 
 from nemo_curator.config.run import _instantiate_stage  # noqa: E402
 from nemo_curator.models.sed.base import SEDResult  # noqa: E402
-from nemo_curator.stages.audio.inference.sed import SEDInferenceStage  # noqa: E402
+from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage  # noqa: E402
 from nemo_curator.stages.resources import Resources  # noqa: E402
 from nemo_curator.tasks import AudioTask  # noqa: E402
 
@@ -365,10 +365,10 @@ def test_example_yaml_instantiates_the_stage_adapter_contract() -> None:
 
 
 def test_module_docstring_contains_the_exact_yaml_command() -> None:
-    from nemo_curator.stages.audio.inference import sed
+    from nemo_curator.stages.audio.inference.sed import stage
 
-    assert "tutorials/audio/sed" in sed.__doc__
-    assert "--config-name pipeline" in sed.__doc__
-    assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in sed.__doc__
-    assert "Cnn14_mAP=0.431.pth" in sed.__doc__
-    assert "clip-level audio tagging" in sed.__doc__
+    assert "tutorials/audio/sed" in stage.__doc__
+    assert "--config-name pipeline" in stage.__doc__
+    assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in stage.__doc__
+    assert "Cnn14_mAP=0.431.pth" in stage.__doc__
+    assert "clip-level audio tagging" in stage.__doc__

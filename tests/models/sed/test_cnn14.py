@@ -51,7 +51,7 @@ def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
     """
     probe = (
         "import sys;"
-        "import nemo_curator.stages.audio.inference.sed;"
+        "import nemo_curator.stages.audio.inference.sed.stage;"
         "import nemo_curator.models.sed as m;"
         "m.SUPPORTED_MODEL_TYPES;"
         "print('torchlibrosa' in sys.modules)"

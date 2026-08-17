@@ -176,7 +176,9 @@ def test_unload_releases_model_and_device() -> None:
 
 
 def test_model_specific_loading_is_absent_from_the_stage_source() -> None:
-    stage_source = Path(__file__).parents[3] / "nemo_curator" / "stages" / "audio" / "inference" / "sed.py"
+    stage_source = (
+        Path(__file__).parents[3] / "nemo_curator" / "stages" / "audio" / "inference" / "sed" / "stage.py"
+    )
     source = stage_source.read_text()
     assert "torch.load" not in source
     assert "get_model_class" not in source

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generic sound-event-detection stage with a pluggable model adapter.
+"""Adapter-backed sound-event-detection stage with a pluggable model runtime.
 
 The stage owns Curator task I/O, audio loading, mono conversion, resampling,
 resume behavior, and output storage. The adapter selected by ``adapter_target``

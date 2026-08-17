@@ -18,7 +18,7 @@ import pytest
 
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
-from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
+from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 
 
 def test_asr_and_sed_inherit_one_adapter_stage_base() -> None:

@@ -36,7 +36,7 @@ stages:
     manifest_path: ${manifest_path}
     files_per_partition: 1
 
-  - _target_: nemo_curator.stages.audio.inference.sed.SEDInferenceStage
+  - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
     adapter_target: nemo_curator.models.sed.panns.PANNsSEDAdapter
     checkpoint_path: ${checkpoint_path}
     # Match the published Cnn14_DecisionLevelMax checkpoint frontend.
