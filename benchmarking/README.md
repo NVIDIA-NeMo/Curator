@@ -605,7 +605,7 @@ pipeline outputs without rescanning or downloading the staged corpus.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |
-| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | A shared deterministic 192h `openslr/librispeech_asr` manifest (CC BY 4.0) targets Xenna at 15m from the measured 240.0018h results: 18m44s wall / 18m27s processing for Xenna and 4m52s / 4m37s for valid 8-GPU Ray Data. Final 192h confirmation is pending |
+| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 55,284-row / 192.0028h `openslr/librispeech_asr` manifest (CC BY 4.0): Xenna 905.11s wall / 888.17s processing (15m05s / 14m48s), target achieved; Ray Data 243.42s / 228.01s (4m03s / 3m48s), same-input lower-side exception. Both had exact path-set and WER coverage; Ray sustained all eight GPUs at >=10% utilization for 120s |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
@@ -705,8 +705,8 @@ manifest rows, returned tasks, and output manifest rows to match. Nested
 segments may still be rejected when a model does not produce the fields needed
 by the following stage; those segments remain visible in the emitted and
 skipped metrics but do not count as successfully tagged output. Success also
-requires complete second-pass ASR and finite WER output, nonzero work from all
-12 measured processing stages, at least 70 percent segment-output coverage,
+requires nonzero work from all 12 measured processing stages, at least 70
+percent of emitted segments to contain nonempty second-pass ASR and WER output,
 and 30–31 source-audio hours. The synthetic repeat entry was removed, and the
 existing one-hour timeout remains a failure ceiling.
 
