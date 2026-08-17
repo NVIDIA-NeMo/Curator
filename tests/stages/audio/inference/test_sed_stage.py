@@ -181,9 +181,18 @@ def test_padding_short_clips_can_be_disabled() -> None:
     assert samples == 16
 
 
-def test_a_stereo_waveform_is_mixed_down_to_mono() -> None:
+@pytest.mark.parametrize(
+    "waveform",
+    [
+        np.zeros(_SR, dtype=np.float32),
+        torch.zeros(_SR, dtype=torch.float32),
+        np.zeros((2, _SR), dtype=np.float32),
+        torch.zeros((2, _SR), dtype=torch.float32),
+    ],
+)
+def test_main_waveform_contract_is_normalized_to_mono(waveform: object) -> None:
     stage, model = _stage()
-    task = AudioTask(data={"waveform": np.zeros((_SR, 2), dtype=np.float32), "sample_rate": _SR})
+    task = AudioTask(data={"waveform": waveform, "sample_rate": _SR})
     stage.process_batch([task])
     _batch, samples = model.calls[0]
     assert samples == _SR
@@ -320,11 +329,15 @@ def test_declared_outputs_match_what_process_batch_writes() -> None:
 
 
 def test_worker_count_is_left_to_the_backend_by_default() -> None:
-    assert "num_workers" not in SEDInferenceStage().xenna_stage_spec()
+    stage = SEDInferenceStage()
+    assert stage.num_workers() is None
+    assert stage.xenna_stage_spec() == {}
 
 
 def test_worker_count_can_be_pinned() -> None:
-    assert SEDInferenceStage(num_workers_override=4).xenna_stage_spec()["num_workers"] == 4
+    stage = SEDInferenceStage(num_workers_override=4)
+    assert stage.num_workers() == 4
+    assert stage.xenna_stage_spec() == {}
 
 
 # ----------------------------------------------------------------------

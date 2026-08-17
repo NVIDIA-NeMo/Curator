@@ -25,16 +25,16 @@ Requires: ``pip install torchlibrosa`` (``librosa`` only needed if input sample 
 
 from __future__ import annotations
 
-import hashlib
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
     import numpy as np
@@ -104,12 +104,6 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def num_workers(self) -> int | None:
         return self.num_workers_override
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        spec: dict[str, Any] = {}
-        if self.num_workers_override is not None:
-            spec["num_workers"] = self.num_workers_override
-        return spec
 
     def setup(self, _worker_metadata: object | None = None) -> None:
         """Load CNN14 model from checkpoint."""
@@ -274,6 +268,8 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         """
         import numpy as np
 
+        from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+
         valid_indices: list[int] = []
         waveforms: list[np.ndarray] = []
         original_samples: list[int] = []
@@ -291,9 +287,8 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
                 continue
 
             src_sr = int(task.data.get(self.sample_rate_key, self.sample_rate))
-            wav = np.asarray(wav, dtype=np.float32)
-            if wav.ndim > 1:
-                wav = wav.mean(axis=1)
+            wav_tensor = ensure_mono(ensure_waveform_2d(wav))
+            wav = np.ascontiguousarray(wav_tensor.squeeze(0).cpu().numpy(), dtype=np.float32)
 
             if src_sr != self.sample_rate:
                 import librosa
@@ -321,8 +316,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         os.makedirs(framewise_dir, exist_ok=True)
 
         stem = os.path.splitext(os.path.basename(audio_path))[0]
-        # Disambiguates same-named files from different directories; not security.
-        h = hashlib.md5(audio_path.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+        h = get_deterministic_hash([audio_path])[:8]
         npz_path = os.path.join(framewise_dir, f"{stem}__{h}.npz")
 
         np.savez_compressed(
