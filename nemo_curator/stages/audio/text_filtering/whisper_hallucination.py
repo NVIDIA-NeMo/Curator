@@ -118,9 +118,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             task_data[self.notes_key] = notes
         notes[self.name] = value
 
+    @staticmethod
+    def _normalize_phrase(text: str) -> str:
+        return text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "").replace("-", " ")
+
     def setup(self, _worker_metadata: object | None = None) -> None:
         with open(self.common_hall_file, encoding="utf-8") as f:
-            phrases = {line.strip() for line in f if line.strip()}
+            phrases = {self._normalize_phrase(line) for line in f if line.strip()}
         self._phrases = phrases
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
 
@@ -149,7 +153,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return False
 
     def _frequent_single_word(self, text: str) -> bool:
-        cleaned = text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "").replace("-", " ")
+        cleaned = self._normalize_phrase(text)
         if cleaned in self._phrases:
             return True
         return any(

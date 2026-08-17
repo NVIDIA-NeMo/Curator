@@ -79,9 +79,24 @@ def test_phrase_matching_remains_case_sensitive(tmp_path: Path, text: str) -> No
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
 
 
-def test_setup_stores_stripped_reference_phrases(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, ["Thank you!", "MERCI,"])
-    assert stage._phrases == {"Thank you!", "MERCI,"}
+@pytest.mark.parametrize(
+    ("phrase", "text"),
+    [
+        ("Fifty-four", "Fifty-four"),
+        ("Sì, è vero", "Sì, è vero"),
+    ],
+)
+def test_punctuated_corpus_phrases_remain_reachable(tmp_path: Path, phrase: str, text: str) -> None:
+    stage = _make_stage(tmp_path, [phrase])
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
+
+
+def test_setup_normalizes_reference_phrases(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, ["Thank you!", "MERCI,", "Fifty-four"])
+    assert stage._phrases == {"Thank you", "MERCI", "Fifty four"}
 
 
 @pytest.mark.parametrize("text", ["", None])
