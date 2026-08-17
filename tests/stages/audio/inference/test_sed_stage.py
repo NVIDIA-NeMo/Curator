@@ -370,3 +370,5 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     assert "tutorials/audio/sed" in sed.__doc__
     assert "--config-name pipeline" in sed.__doc__
     assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in sed.__doc__
+    assert "Cnn14_mAP=0.431.pth" in sed.__doc__
+    assert "clip-level audio tagging" in sed.__doc__

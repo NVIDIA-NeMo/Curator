@@ -10,6 +10,9 @@
 #     manifest_path=/absolute/path/to/input.jsonl \
 #     'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\=0.385.pth' \
 #     output_dir=/absolute/path/to/sed_output
+#
+# Cnn14_mAP=0.431.pth is a clip-level audio-tagging checkpoint, not a
+# framewise SED checkpoint. Use the decision-level checkpoint shown above.
 
 defaults:
   - _self_

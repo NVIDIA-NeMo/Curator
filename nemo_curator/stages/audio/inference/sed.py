@@ -33,6 +33,11 @@ Curator repository root with the full command below::
 The example configuration is ``tutorials/audio/sed/pipeline.yaml``. Its PANNs
 adapter produces a ``(frames, 527)`` AudioSet probability matrix per task at
 approximately 100 fps. ``sed_valid_frames`` excludes any model padding.
+
+Use a decision-level checkpoint with this framewise stage. The published
+``Cnn14_mAP=0.431.pth`` checkpoint is trained for clip-level audio tagging;
+its tensor layout can load into CNN14, but its weights are not trained for
+framewise sound-event detection.
 """
 
 from __future__ import annotations
