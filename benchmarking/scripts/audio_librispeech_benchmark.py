@@ -32,7 +32,6 @@ from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestRead
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
@@ -73,10 +72,8 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
     input_manifest: str,
     model_name: str,
     wer_threshold: float,
-    gpus: int,
     executor: str = "xenna",
     execution_mode: str | None = None,
-    asr_stage_num_workers: int | None = None,
 ) -> dict[str, Any]:
     """Run the timed LibriSpeech pipeline and collect output-derived metrics."""
     benchmark_results_path = Path(benchmark_results_path)
@@ -95,9 +92,6 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             logger.info(f"Execution mode: {execution_mode}")
         logger.info(f"Model: {model_name}")
         logger.info(f"WER threshold: {wer_threshold}")
-        logger.info(f"GPUs per ASR worker: {gpus}")
-        worker_count = asr_stage_num_workers if asr_stage_num_workers is not None else "executor default"
-        logger.info(f"ASR stage workers: {worker_count}")
         with Path(input_manifest).open(encoding="utf-8") as input_file:
             num_input_tasks = sum(bool(line.strip()) for line in input_file)
         if num_input_tasks == 0:
@@ -115,7 +109,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
                 batch_size=asr_batch_size,
                 fail_on_audio_error=True,
                 adapter_kwargs={"use_cuda_graph_decoder": False},
-            ).with_(resources=Resources(gpus=gpus), num_workers=asr_stage_num_workers)
+            )
         )
         pipeline.add_stage(
             GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct").with_(
@@ -164,8 +158,6 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             "input_manifest": input_manifest,
             "model_name": model_name,
             "wer_threshold": wer_threshold,
-            "gpus": gpus,
-            "asr_stage_num_workers": asr_stage_num_workers,
             "benchmark_results_path": str(benchmark_results_path),
         },
         "metrics": {
@@ -195,8 +187,6 @@ def main() -> int:
         help="Permissive workload-preservation threshold; WER remains measured for every output.",
     )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
-    parser.add_argument("--gpus", type=int, choices=[0, 1], default=1, help="GPUs per NeMo ASR worker")
-    parser.add_argument("--asr-stage-num-workers", type=int, default=None)
     parser.add_argument("--execution-mode", choices=["streaming", "batch"], default=None)
     args = parser.parse_args()
 
