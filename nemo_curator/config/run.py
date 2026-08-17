@@ -76,7 +76,6 @@ def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
 
     stage_resources = cfg_dict.pop("resources", None)
-
     stage = hydra.utils.instantiate(cfg_dict)
 
     if stage_resources:
@@ -131,7 +130,7 @@ def main(cfg: DictConfig) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
+    pipeline.run() if executor is None else pipeline.run(executor=executor)
 
     print("\nPipeline completed!")
 

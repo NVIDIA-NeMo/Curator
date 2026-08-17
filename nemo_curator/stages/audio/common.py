@@ -14,20 +14,61 @@
 
 import json
 import os
+import posixpath
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import soundfile
 import torch
 from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.io.manifest_writer_utils import (
+    AudioManifestWriterMetrics,
+    TerminalAudioPerformanceWriterMixin,
+)
+from nemo_curator.stages.audio.metrics.performance import _valid_audio_duration
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.utils.file_utils import write_json_file_streaming_array
+
+if TYPE_CHECKING:
+    import fsspec
+
+    from nemo_curator.utils.performance_utils import StagePerfStats
+
+
+def _normalized_filesystem_path(fs: "fsspec.AbstractFileSystem", path: str) -> str:
+    if isinstance(fs, LocalFileSystem):
+        return os.path.realpath(os.path.abspath(path))
+    return posixpath.normpath(path)
+
+
+def _same_filesystem_path(left_url: str, right_url: str) -> bool:
+    """Return whether two URLs identify the same normalized fsspec destination."""
+    left_fs, left_path = url_to_fs(left_url)
+    right_fs, right_path = url_to_fs(right_url)
+    same_filesystem = left_fs is right_fs or (
+        type(left_fs) is type(right_fs)
+        and left_fs.protocol == right_fs.protocol
+        and left_fs.storage_options == right_fs.storage_options
+    )
+    return same_filesystem and _normalized_filesystem_path(left_fs, left_path) == _normalized_filesystem_path(
+        right_fs, right_path
+    )
+
+
+def _append_slurm_shard_suffix(path: str, shard_index: int, total_shards: int) -> str:
+    """Derive a deterministic per-shard filename without changing its directory."""
+    parent, filename = posixpath.split(path)
+    stem, suffix = posixpath.splitext(filename)
+    sharded_filename = f"{stem}.shard-{shard_index:05d}-of-{total_shards:05d}{suffix}"
+    return posixpath.join(parent, sharded_filename) if parent else sharded_filename
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -141,6 +182,7 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """
 
     name: str = "manifest_reader_stage"
+    duration_key: str = "duration"
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
@@ -162,11 +204,19 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         )
                         count += 1
             logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+        duration_values = [
+            duration
+            for item in results
+            if (duration := _valid_audio_duration(item.data, self.duration_key)) is not None
+        ]
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,
                 "manifests_read": len(paths),
                 "entries_read": len(results),
+                "pipeline_input_rows": len(results),
+                "pipeline_input_audio_s": sum(duration_values),
+                "pipeline_input_duration_rows": len(duration_values),
             }
         )
         return results
@@ -189,6 +239,8 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
         blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
         file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
+        duration_key: Manifest field containing audio duration in seconds.
+            Defaults to ``"duration"``.
     """
 
     manifest_path: str | list[str]
@@ -197,6 +249,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
+    duration_key: str = "duration"
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -213,7 +266,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            ManifestReaderStage(),
+            ManifestReaderStage(duration_key=self.duration_key),
         ]
 
     def get_description(self) -> str:
@@ -226,7 +279,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
 
 
 @dataclass
-class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[AudioTask, AudioTask]):
     """Append a single AudioTask to a JSONL manifest file.
 
     The output file is truncated once in ``setup()`` (called on the driver)
@@ -243,24 +296,68 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        performance_report_path: Optional JSON destination for all raw
+            pipeline invocation metrics. Supports local and cloud paths through
+            fsspec.
+        write_perf_stats: Write one terminal ``perf_summary.json`` for each
+            successful pipeline run. Disabled by default.
+        duration_key: Output manifest field containing audio seconds.
+        perf_summary_path: Optional explicit summary path. Defaults to
+            ``perf_summary.json`` beside ``output_path``.
+        perf_run_id: Optional caller-owned run identifier. When blank inside a
+            ``Pipeline``, Curator generates one for the run.
+        perf_executor: Optional executor label. When blank inside a ``Pipeline``,
+            Curator uses the concrete executor class name.
+        perf_pipeline_metadata: Optional JSON-serializable metadata. Values are
+            written as supplied and are not redacted.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    performance_report_path: str | None = None
+    write_perf_stats: bool = False
+    duration_key: str = "duration"
+    perf_summary_path: str | None = None
+    perf_run_id: str = ""
+    perf_executor: str = ""
+    perf_pipeline_metadata: dict[str, Any] | None = None
+    _writer_metrics: AudioManifestWriterMetrics = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
+        self._reset_writer_metrics()
+        if self.performance_report_path is not None and _same_filesystem_path(
+            self.output_path, self.performance_report_path
+        ):
+            msg = "performance_report_path must not resolve to the manifest output_path"
+            raise ValueError(msg)
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Truncate the output file once on the driver before processing starts."""
+    def requests_performance_records(self) -> bool:
+        """A configured raw report requires complete invocation collection."""
+        return self.performance_report_path is not None
+
+    def _prepare_output_path(self) -> None:
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
         with self._fs.open(self._path, "w", encoding="utf-8"):
             pass
+
+    def prepare_performance_report(self) -> None:
+        """Prepare driver-owned output paths and clean run-scoped state."""
+        self._reset_writer_metrics()
+        self._prepare_output_path()
+        self._remove_existing_perf_summary()
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Initialize one writer worker with fresh run-scoped metrics."""
+        self._reset_writer_metrics()
+        self._prepare_output_path()
+        if not self._curator_run_id:
+            self._remove_existing_perf_summary()
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -275,14 +372,84 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             self._fs.makedirs(parent_dir, exist_ok=True)
 
     def process(self, task: AudioTask) -> AudioTask:
+        write_t0 = time.perf_counter()
         with self._fs.open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+        if self.write_perf_stats:
+            writer_metrics = self._writer_metrics.record_output_invocation(
+                [task],
+                manifest_write_time_s=time.perf_counter() - write_t0,
+            )
+            invocation_metrics = getattr(self, "_custom_metrics", None) or {}
+            self._log_metrics({key: invocation_metrics.get(key, 0.0) + value for key, value in writer_metrics.items()})
         return AudioTask(
             dataset_name=task.dataset_name,
             data=task.data,
             _metadata=task._metadata,
             _stage_perf=list(task._stage_perf),
         )
+
+    def _default_perf_summary_path(self) -> str:
+        parent, separator, _filename = self.output_path.rpartition("/")
+        return f"{parent}{separator}perf_summary.json" if separator else "perf_summary.json"
+
+    def finalize_performance_report(
+        self,
+        _tasks: list[AudioTask],
+        *,
+        performance_records: list["StagePerfStats"],
+        wall_time_s: float,
+    ) -> None:
+        """Write all driver-collected invocation metrics through the existing writer."""
+        self._write_raw_performance_report(
+            performance_records=performance_records,
+            wall_time_s=wall_time_s,
+        )
+        self._finalize_audio_performance_summary(
+            _tasks,
+            performance_records=performance_records,
+            wall_time_s=wall_time_s,
+        )
+
+    def _write_raw_performance_report(
+        self,
+        *,
+        performance_records: list["StagePerfStats"],
+        wall_time_s: float,
+    ) -> None:
+        """Persist the raw report so specialized writers can reuse the contract."""
+        if self.performance_report_path is None:
+            return
+        report_fs, report_path = url_to_fs(self.performance_report_path)
+        shard_index = self._curator_slurm_array_shard_index
+        total_shards = self._curator_slurm_array_total_shards
+        if shard_index is not None and total_shards is not None:
+            report_path = _append_slurm_shard_suffix(report_path, shard_index, total_shards)
+        iter_dicts = getattr(performance_records, "iter_dicts", None)
+        record_dicts = (
+            iter_dicts() if callable(iter_dicts) else (record.to_extended_dict() for record in performance_records)
+        )
+        write_json_file_streaming_array(
+            report_path,
+            {
+                "schema_version": 1,
+                "pipeline_name": str((self._curator_pipeline_metadata or {}).get("pipeline_name", "")),
+                "run_id": self._curator_run_id,
+                "executor": self._curator_executor,
+                "pipeline": self._curator_pipeline_metadata or {},
+                "wall_time_s": wall_time_s,
+                "record_count": len(performance_records),
+                "slurm_array": (
+                    {"shard_index": shard_index, "total_shards": total_shards}
+                    if shard_index is not None and total_shards is not None
+                    else None
+                ),
+            },
+            array_key="records",
+            items=record_dicts,
+            fs=report_fs,
+        )
+        logger.info(f"ManifestWriterStage: wrote performance report to {report_path}")
 
     def num_workers(self) -> int | None:
         return 1

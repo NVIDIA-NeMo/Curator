@@ -192,6 +192,30 @@ class TestManifestReaderStage:
         paths = [r.data["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
 
+    def test_emits_input_boundary_rows_and_duration_coverage(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "a.wav", "duration": 2.5}),
+                    json.dumps({"audio_filepath": "b.wav", "duration": 1.5}),
+                    json.dumps({"audio_filepath": "c.wav"}),
+                    json.dumps({"audio_filepath": "d.wav", "duration": "inf"}),
+                    json.dumps({"audio_filepath": "e.wav", "duration": -1}),
+                    json.dumps({"audio_filepath": "f.wav", "duration": True}),
+                ]
+            )
+        )
+        stage = ManifestReaderStage()
+
+        result = stage.process(_make_file_group_task([str(manifest)]))
+        metrics = stage._consume_custom_metrics()
+
+        assert len(result) == 6
+        assert metrics["pipeline_input_rows"] == 6.0
+        assert metrics["pipeline_input_audio_s"] == 4.0
+        assert metrics["pipeline_input_duration_rows"] == 2.0
+
     def test_one_audio_entry_per_line(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]
         manifest = tmp_path / "input.jsonl"
@@ -296,12 +320,14 @@ class TestManifestReaderDirectory:
 
     def test_composite_discovers_nested_directory(self) -> None:
         nested = self._nested_dir()
-        composite = ManifestReader(manifest_path=str(nested))
+        composite = ManifestReader(manifest_path=str(nested), duration_key="seconds")
         stages = composite.decompose()
 
         partitioner = stages[0]
+        reader = stages[1]
         assert partitioner.file_paths == str(nested)
         assert partitioner.file_extensions == [".jsonl", ".json"]
+        assert reader.duration_key == "seconds"
 
     def test_ignores_non_jsonl_files(self) -> None:
         nested = self._nested_dir()
