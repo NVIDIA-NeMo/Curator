@@ -27,12 +27,12 @@ Curator repository root with the full command below::
       --config-path ../../tutorials/audio/sed \\
       --config-name pipeline \\
       manifest_path=/absolute/path/to/input.jsonl \\
-      checkpoint_path=/absolute/path/to/Cnn14_mAP=0.431.pth \\
+      'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth' \\
       output_dir=/absolute/path/to/sed_output
 
 The example configuration is ``tutorials/audio/sed/pipeline.yaml``. Its PANNs
 adapter produces a ``(frames, 527)`` AudioSet probability matrix per task at
-approximately 50 fps. ``sed_valid_frames`` excludes any model padding.
+approximately 100 fps. ``sed_valid_frames`` excludes any model padding.
 """
 
 from __future__ import annotations
@@ -216,7 +216,10 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Prepare task audio, delegate one batch, and assemble results."""
-        if not tasks:
+        # Ray Data presents its object column as a NumPy array. Avoid testing
+        # the truth value of the whole batch because multi-element arrays have
+        # no unambiguous boolean value.
+        if len(tasks) == 0:
             return []
 
         skip_indices = self._resume_indices(tasks)

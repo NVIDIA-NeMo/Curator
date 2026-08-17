@@ -89,6 +89,17 @@ def test_an_empty_batch_returns_an_empty_list() -> None:
     assert stage.process_batch([]) == []
 
 
+def test_a_ray_data_numpy_batch_is_processed() -> None:
+    stage, adapter = _stage()
+    tasks: Any = np.asarray([_task(), _task()], dtype=object)
+
+    results = stage.process_batch(tasks)
+
+    assert len(results) == 2
+    assert len(adapter.calls[0]) == 2
+    assert all("_sed_framewise" in task.data for task in results)
+
+
 def test_every_task_gets_the_canonical_sed_outputs() -> None:
     stage, _ = _stage()
     results = stage.process_batch([_task(), _task()])
@@ -348,6 +359,7 @@ def test_example_yaml_instantiates_the_stage_adapter_contract() -> None:
     stage = _instantiate_stage(cfg.stages[1])
     assert isinstance(stage, SEDInferenceStage)
     assert stage.adapter_target == _ADAPTER_TARGET
+    assert stage.sample_rate == 32000
     assert stage.adapter_kwargs["model_type"] == "Cnn14_DecisionLevelMax"
     assert stage.save_npz is True
 
@@ -357,4 +369,4 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
 
     assert "tutorials/audio/sed" in sed.__doc__
     assert "--config-name pipeline" in sed.__doc__
-    assert "checkpoint_path=/absolute/path/to/Cnn14_mAP=0.431.pth" in sed.__doc__
+    assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in sed.__doc__
