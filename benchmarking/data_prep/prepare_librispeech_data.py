@@ -64,18 +64,14 @@ def stage_dataset(  # noqa: PLR0913
     selected_duration_s = 0.0
     clips = 0
 
-    datasets = (
-        load_dataset(
-            hf_repo_id,
-            hf_config,
-            split=split,
-            revision=hf_revision,
-            cache_dir=cache_dir,
-            streaming=True,
-        ).cast_column("audio", Audio(decode=False))
-        for split in hf_split.split("+")
-    )
-    dataset = chain.from_iterable(datasets)
+    datasets = load_dataset(
+        hf_repo_id,
+        hf_config,
+        revision=hf_revision,
+        cache_dir=cache_dir,
+        streaming=True,
+    ).cast_column("audio", Audio(decode=False))
+    dataset = chain.from_iterable(datasets[split] for split in hf_split.split("+"))
 
     try:
         with temporary_manifest.open("w", encoding="utf-8") as manifest_file:
