@@ -122,11 +122,11 @@ def test_valid_frames_belong_to_each_real_waveform() -> None:
     assert short.data["_sed_framewise"].shape == long.data["_sed_framewise"].shape
 
 
-def test_process_delegates_to_the_batch_path() -> None:
+def test_process_rejects_non_batch_execution() -> None:
     stage, adapter = _stage()
-    task = stage.process(_task())
-    assert task.data["_sed_framewise"] is not None
-    assert len(adapter.calls[0]) == 1
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        stage.process(_task())
+    assert adapter.calls == []
 
 
 def test_a_flagged_task_is_passed_through_untouched() -> None:
@@ -368,6 +368,7 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     from nemo_curator.stages.audio.inference.sed import stage
 
     assert "tutorials/audio/sed" in stage.__doc__
+    assert "--extra audio_cuda12" in stage.__doc__
     assert "--config-name pipeline" in stage.__doc__
     assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in stage.__doc__
     assert "Cnn14_mAP=0.431.pth" in stage.__doc__

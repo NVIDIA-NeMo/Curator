@@ -119,7 +119,7 @@ def test_load_model_uses_cpu_and_restricted_checkpoint_loading() -> None:
     model = MagicMock()
     model_cls = MagicMock(return_value=model)
     with (
-        patch("nemo_curator.models.sed.get_model_class", return_value=model_cls),
+        patch("nemo_curator.models.sed.panns.get_model_class", return_value=model_cls),
         patch("torch.load", return_value={"model": {"weight": "value"}}) as torch_load,
         patch("torch.cuda.is_available", return_value=False),
     ):
@@ -145,7 +145,7 @@ def test_load_model_forwards_checkpoint_frontend_configuration() -> None:
     )
     model_cls = MagicMock(return_value=MagicMock())
     with (
-        patch("nemo_curator.models.sed.get_model_class", return_value=model_cls) as resolver,
+        patch("nemo_curator.models.sed.panns.get_model_class", return_value=model_cls) as resolver,
         patch("torch.load", return_value={"model": {}}),
     ):
         adapter.load_model(num_gpus=0)
@@ -176,9 +176,7 @@ def test_unload_releases_model_and_device() -> None:
 
 
 def test_model_specific_loading_is_absent_from_the_stage_source() -> None:
-    stage_source = (
-        Path(__file__).parents[3] / "nemo_curator" / "stages" / "audio" / "inference" / "sed" / "stage.py"
-    )
+    stage_source = Path(__file__).parents[3] / "nemo_curator" / "stages" / "audio" / "inference" / "sed" / "stage.py"
     source = stage_source.read_text()
     assert "torch.load" not in source
     assert "get_model_class" not in source

@@ -14,8 +14,6 @@
 
 """Architecture tests for shared adapter-backed audio inference behavior."""
 
-import pytest
-
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
@@ -47,10 +45,3 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
     assert asr.num_workers() is None
     assert sed.with_(num_workers=3).num_workers() == 3
     assert asr.with_(num_workers=3).num_workers() == 3
-
-
-def test_shared_base_rejects_an_empty_adapter_target() -> None:
-    with pytest.raises(ValueError, match=r"SEDInferenceStage\.adapter_target must be non-empty"):
-        SEDInferenceStage(adapter_target="", checkpoint_path="/checkpoint.pth")
-    with pytest.raises(ValueError, match=r"ASRStage\.adapter_target must be non-empty"):
-        ASRStage(adapter_target="", model_id="model")

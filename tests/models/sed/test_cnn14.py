@@ -44,7 +44,7 @@ def test_the_error_lists_what_is_available() -> None:
 
 
 def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
-    """The stage must import without the audio_sed extra; only building a model needs it.
+    """The stage must import without audio_cuda12; only building a model needs torchlibrosa.
 
     Checked in a clean interpreter, since another test in this session may
     already have imported torchlibrosa.
@@ -117,7 +117,7 @@ def test_framewise_output_is_a_probability() -> None:
 def test_a_missing_torchlibrosa_names_the_extra_to_install() -> None:
     """The import guard has to be actionable; 'no module named torchlibrosa' is not."""
     source = _CNN14_SOURCE.read_text(encoding="utf-8")
-    assert "audio_sed" in source
+    assert "audio_cuda12" in source
     assert "raise ImportError" in source
 
 
@@ -130,4 +130,5 @@ def test_the_vendored_model_carries_its_upstream_mit_license() -> None:
 
 def test_the_vendored_model_names_its_upstream_source() -> None:
     source = _CNN14_SOURCE.read_text(encoding="utf-8")
-    assert "qiuqiangkong/audioset_tagging_cnn" in source
+    assert "audioset_tagging_cnn/blob/d2f4b8c18eab44737fcc0de1248ae21eb43f6aa4/pytorch/models.py" in source
+    assert "audioset_tagging_cnn/blob/d2f4b8c18eab44737fcc0de1248ae21eb43f6aa4/pytorch/pytorch_utils.py" in source

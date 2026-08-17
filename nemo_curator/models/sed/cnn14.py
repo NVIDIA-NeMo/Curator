@@ -36,11 +36,15 @@
 
 """CNN14 decision-level model implementations for Sound Event Detection.
 
-Vendored from the PANNs reference implementation at
-https://github.com/qiuqiangkong/audioset_tagging_cnn (MIT, copyright
-2018-2020 Qiuqiang Kong), whose license is reproduced above. See
-Kong et al., "PANNs: Large-Scale Pretrained Audio Neural Networks for Audio
-Pattern Recognition" (2020).
+Vendored from the PANNs reference implementation at immutable commit
+``d2f4b8c18eab44737fcc0de1248ae21eb43f6aa4`` (MIT, copyright 2018-2020
+Qiuqiang Kong), whose license is reproduced above. The model blocks and three
+decision-level CNN14 variants come from:
+https://github.com/qiuqiangkong/audioset_tagging_cnn/blob/d2f4b8c18eab44737fcc0de1248ae21eb43f6aa4/pytorch/models.py
+The interpolation and frame-padding helpers come from:
+https://github.com/qiuqiangkong/audioset_tagging_cnn/blob/d2f4b8c18eab44737fcc0de1248ae21eb43f6aa4/pytorch/pytorch_utils.py
+See Kong et al., "PANNs: Large-Scale Pretrained Audio Neural Networks for
+Audio Pattern Recognition" (2020).
 
 Only the three decision-level variants are included because SED needs
 framewise output; the base ``Cnn14`` emits clip-level output only. The code
@@ -48,7 +52,7 @@ adds typing, factors shared helpers, and removes an unused training argument;
 the architecture and tensor semantics are unchanged, so published checkpoints
 load as-is.
 
-Requires ``torchlibrosa``, which arrives with the ``audio_sed`` extra.
+Requires ``torchlibrosa``, which arrives with the ``audio_cuda12`` extra.
 """
 
 from __future__ import annotations
@@ -61,7 +65,7 @@ try:
     from torchlibrosa.augmentation import SpecAugmentation
     from torchlibrosa.stft import LogmelFilterBank, Spectrogram
 except ModuleNotFoundError as exc:
-    msg = "SED models require torchlibrosa. Install it with: pip install nemo-curator[audio_sed]"
+    msg = "SED models require torchlibrosa. Install it with: pip install nemo-curator[audio_cuda12]"
     raise ImportError(msg) from exc
 
 

@@ -23,7 +23,7 @@ The included YAML reads a JSONL manifest whose rows contain
 framewise NPZ files. Install the optional dependency and run it from the
 Curator repository root with the full command below::
 
-    uv run --extra audio_sed python nemo_curator/config/run.py \\
+    uv run --extra audio_cuda12 python nemo_curator/config/run.py \\
       --config-path ../../tutorials/audio/sed \\
       --config-name pipeline \\
       manifest_path=/absolute/path/to/input.jsonl \\
@@ -44,12 +44,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 from loguru import logger
 
 from nemo_curator.models.sed.base import SEDAdapter
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.utils.hash_utils import get_deterministic_hash
@@ -103,7 +104,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
     save_npz: bool = False
     output_dir: str = "sed_output"
-    framewise_dtype: str = "float16"
+    framewise_dtype: Literal["float16", "float32"] = "float16"
     skip_if_output_exists: bool = False
 
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -112,9 +113,6 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if not self.checkpoint_path:
-            msg = "SEDInferenceStage.checkpoint_path must be non-empty"
-            raise ValueError(msg)
         if not isinstance(self.sample_rate, int) or isinstance(self.sample_rate, bool) or self.sample_rate <= 0:
             msg = f"SEDInferenceStage.sample_rate must be a positive integer, got {self.sample_rate!r}"
             raise ValueError(msg)
@@ -146,8 +144,6 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
         """Return contiguous mono float32 samples at the adapter sample rate."""
-        from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
-
         source_sample_rate = int(sample_rate)
         if source_sample_rate <= 0:
             msg = f"sample rate must be positive, got {source_sample_rate}"
@@ -167,8 +163,8 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         return prepared
 
     def process(self, task: AudioTask) -> AudioTask:
-        """Run one task through the same batch path used by executors."""
-        return self.process_batch([task])[0]
+        msg = f"{type(self).__name__} only supports process_batch"
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Prepare task audio, delegate one batch, and assemble results."""

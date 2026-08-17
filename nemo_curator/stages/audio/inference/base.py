@@ -66,9 +66,6 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
     _adapter: AdapterT | None
 
     def __post_init__(self) -> None:
-        if not self.adapter_target:
-            msg = f"{type(self).__name__}.adapter_target must be non-empty"
-            raise ValueError(msg)
         self._adapter = None
 
     def _adapter_class(self) -> type:
@@ -79,10 +76,7 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
         """Return the physical GPU count represented by the resource request."""
         requested_gpus = float(self.resources.gpus)
         if requested_gpus < 0 or not math.isfinite(requested_gpus):
-            msg = (
-                f"{type(self).__name__}.resources.gpus must be a finite non-negative value, "
-                f"got {requested_gpus}"
-            )
+            msg = f"{type(self).__name__}.resources.gpus must be a finite non-negative value, got {requested_gpus}"
             raise ValueError(msg)
         return math.ceil(requested_gpus)
 

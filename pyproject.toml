@@ -138,11 +138,6 @@ audio_cuda12 = [
     # Do not use qwen-asr[vllm], whose vLLM 0.14.0 pin conflicts with Curator's shared vLLM version.
     "qwen-asr==0.0.6; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "qwen-omni-utils>=0.0.9",
-]
-
-# Sound event detection; opt-in because torchlibrosa is only used by the CNN14
-# SED front-end and nothing else in the audio stack needs it.
-audio_sed = [
     "torchlibrosa>=0.1.0",
 ]
 

@@ -26,8 +26,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import torch
 from loguru import logger
 
+from nemo_curator.models.sed import get_model_class
 from nemo_curator.models.sed.base import SEDResult
 
 
@@ -55,9 +57,6 @@ class PANNsSEDAdapter:
     _device: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not self.checkpoint_path:
-            msg = "checkpoint_path is required for PANNsSEDAdapter"
-            raise ValueError(msg)
         for field_name in ("sample_rate", "window_size", "hop_size", "mel_bins", "classes_num"):
             value = getattr(self, field_name)
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
@@ -71,10 +70,6 @@ class PANNsSEDAdapter:
         if not isinstance(num_gpus, int) or isinstance(num_gpus, bool) or num_gpus not in {0, 1}:
             msg = f"PANNsSEDAdapter supports zero or one physical GPU, got {num_gpus!r}"
             raise ValueError(msg)
-
-        import torch
-
-        from nemo_curator.models.sed import get_model_class
 
         model_cls = get_model_class(self.model_type)
         use_cuda = num_gpus == 1 and torch.cuda.is_available()
@@ -101,8 +96,6 @@ class PANNsSEDAdapter:
         self._device = None
         gc.collect()
         try:
-            import torch
-
             torch.cuda.empty_cache()
         except Exception as exc:  # noqa: BLE001
             logger.debug("CUDA cache clear skipped: {}", exc)
@@ -140,8 +133,6 @@ class PANNsSEDAdapter:
         if self._model is None or self._device is None:
             msg = "PANNsSEDAdapter model is not loaded"
             raise RuntimeError(msg)
-
-        import torch
 
         waveforms = [self._waveform(item) for item in items]
         padded = self._pad_to_rectangle(waveforms)
