@@ -1033,9 +1033,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 509
+        exact_value: 1013
       - metric: throughput_clips_per_sec
-        min_value: 0.75
+        min_value: 0.85
 
   - name: video_captioning_raydata
     enabled: true
@@ -1060,9 +1060,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 509
+        exact_value: 1013
       - metric: throughput_clips_per_sec
-        min_value: 0.6
+        min_value: 0.7
 
   - name: ndd_dynamo_dp8
     enabled: true
