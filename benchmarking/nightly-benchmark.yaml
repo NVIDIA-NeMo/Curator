@@ -101,18 +101,10 @@ datasets:
     formats:
     - type: "wds_tar_dir"
       path: "{datasets_path}/multimodal/mint1t"
-  - name: "finemath4plus"
+  - name: "finemath4plus_enriched_pdx_10x"
     formats:
     - type: "parquet"
-      path: "{datasets_path}/finemath4plus/enriched"
-  - name: "cc_index_query_dataset"
-    formats:
-    - type: "parquet"
-      path: "{datasets_path}/cc_index_benchmark/dataset/megamath_web/megamath-web"
-  - name: "cc_index_partitions"
-    formats:
-    - type: "parquet"
-      path: "{datasets_path}/cc_index_benchmark/cc_index"
+      path: "{datasets_path}/finemath4plus/enriched_pdx_10x"
   - name: "read_speech"
     formats:
     - type: "wav"
@@ -352,9 +344,248 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        # 59,226,133 is expected, ensure +/- 1%
-        min_value: 58633871
-        max_value: 59818394
+        exact_value: 59226133
+
+  - name: minhash_file_group_task_ray_actors
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_actors
+      --dataset-size-ratio=1
+      --input-task-type=FileGroupTask
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+    timeout_s: 512
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 1046344809
+      - metric: throughput_docs_per_sec
+        min_value: 2000000
+      - metric: minhash_compute_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.24
+      # FileGroupTask input prep measures cuDF reading the source files.
+      - metric: minhash_input_prep_worker_time_s_mean
+        min_value: 0.22
+        max_value: 0.35
+      - metric: minhash_write_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.35
+
+  - name: minhash_file_group_task_xenna
+    enabled: false
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --dataset-size-ratio=1
+      --input-task-type=FileGroupTask
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+    timeout_s: 512
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 1046344809
+      - metric: throughput_docs_per_sec
+        min_value: 2000000
+      - metric: minhash_compute_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.24
+      # FileGroupTask input prep measures cuDF reading the source files.
+      - metric: minhash_input_prep_worker_time_s_mean
+        min_value: 0.22
+        max_value: 0.35
+      - metric: minhash_write_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.35
+
+  - name: minhash_file_group_task_ray_data
+    enabled: false
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=1
+      --input-task-type=FileGroupTask
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+    timeout_s: 512
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 1046344809
+      - metric: throughput_docs_per_sec
+        min_value: 2000000
+      - metric: minhash_compute_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.24
+      # FileGroupTask input prep measures cuDF reading the source files.
+      - metric: minhash_input_prep_worker_time_s_mean
+        min_value: 0.22
+        max_value: 0.35
+      - metric: minhash_write_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.35
+
+  - name: minhash_document_batch_xenna
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --dataset-size-ratio=1
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+    timeout_s: 620
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 1046344809
+      - metric: throughput_docs_per_sec
+        min_value: 1600000
+      - metric: minhash_compute_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.24
+      # DocumentBatch input prep measures host-to-device transfer.
+      - metric: minhash_input_prep_worker_time_s_mean
+        min_value: 0.08
+        max_value: 0.18
+      - metric: minhash_write_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.35
+
+  - name: minhash_document_batch_ray_data
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=1
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+    timeout_s: 1400
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 1046344809
+      - metric: throughput_docs_per_sec
+        min_value: 800000
+      - metric: minhash_compute_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.24
+      # DocumentBatch input prep measures host-to-device transfer.
+      - metric: minhash_input_prep_worker_time_s_mean
+        min_value: 0.08
+        max_value: 0.18
+      - metric: minhash_write_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.35
+
+  - name: minhash_document_batch_ray_data_num_workers_8
+    enabled: false
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=1
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+    timeout_s: 1400
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 1046344809
+      - metric: throughput_docs_per_sec
+        min_value: 800000
+      - metric: minhash_compute_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.24
+      # DocumentBatch input prep measures host-to-device transfer.
+      - metric: minhash_input_prep_worker_time_s_mean
+        min_value: 0.08
+        max_value: 0.18
+      - metric: minhash_write_worker_time_s_mean
+        min_value: 0.12
+        max_value: 0.35
 
   - name: semdedup_identification_xenna_dataset_size_ratio
     enabled: true
@@ -1558,112 +1789,52 @@ entries:
       - metric: total_filtered_windows
         min_value: 1
 
-  - name: math_preprocess
+  # Keep this executor comparison focused on the streaming-only pipeline:
+  # ParquetReader -> MathExtractStage -> JsonlWriter.
+  - name: math_preprocess_raydata
     enabled: true
     script: math_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:finemath4plus,parquet}
+      --input-path={dataset:finemath4plus_enriched_pdx_10x,parquet}
       --output-path={session_entry_dir}/scratch/output
-      --executor=xenna
-    timeout_s: 600
+      --executor=ray_data
+    timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - type_html_count
-          - extraction_success_rate
         ping_on_failure:
-          - U07AZ1HPL1X  # Ranjit Rajan
-          - U0849HBGCLD  # Sukrit Rao
+          - UGFRT88RE  # Vibhu Jawa
+          - U6SH64WDC  # Hongsheng Fang
     ray:
       num_gpus: 0
     requirements:
       - metric: num_input_documents
-        exact_value: 1300
-      - metric: extraction_success_rate
-        min_value: 1.0
+        exact_value: 5233987
+      - metric: num_output_documents
+        exact_value: 5233987
 
-  - name: math_preprocess_classifier
+  - name: math_preprocess_xenna
     enabled: true
     script: math_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:finemath4plus,parquet}
+      --input-path={dataset:finemath4plus_enriched_pdx_10x,parquet}
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
-      --run-classifier
-    timeout_s: 900
+    timeout_s: 7200
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - mean_finemath_score
-          - classifier_percent_time
         ping_on_failure:
-          - U07AZ1HPL1X  # Ranjit Rajan
-          - U0849HBGCLD  # Sukrit Rao
-
-    requirements:
-      - metric: num_input_documents
-        exact_value: 1300
-      - metric: docs_score_ge_3
-        exact_value: 1057
-
-  - name: math_preprocess_llm_cleanup
-    enabled: true
-    script: math_pipeline_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:finemath4plus,parquet}
-      --output-path={session_entry_dir}/scratch/output
-      --executor=xenna
-      --run-llm-cleanup
-      --model=microsoft/phi-4
-      --prompt=HTML_TO_TEXT_PROMPT
-      --chunk-data
-      --chunk-length=4096
-    timeout_s: 1800
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_docs_per_sec
-          - num_output_documents_post_merge
-          - llm_cleanup_percent_time
-        ping_on_failure:
-          - U07AZ1HPL1X  # Ranjit Rajan
-          - U0849HBGCLD  # Sukrit Rao
-
-    requirements:
-      - metric: num_input_documents
-        exact_value: 1300
-      - metric: num_output_documents_post_merge
-        exact_value: 1300
-
-  - name: math_cc_index_lookup
-    enabled: true
-    script: cc_index_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --query-dataset-path={dataset:cc_index_query_dataset,parquet}
-      --cc-index-path={dataset:cc_index_partitions,parquet}
-      --output-path={session_entry_dir}/scratch/output
-      --executor=xenna
-    timeout_s: 1200
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_gb_per_sec
-          - total_cc_index_rows_scanned
-          - total_matched_rows
-          - match_rate
-        ping_on_failure:
-          - U07AZ1HPL1X  # Ranjit Rajan
-          - U0849HBGCLD  # Sukrit Rao
+          - UGFRT88RE  # Vibhu Jawa
+          - U6SH64WDC  # Hongsheng Fang
     ray:
-      num_gpus: 8
+      num_gpus: 0
     requirements:
-      - metric: total_matched_rows
-        exact_value: 2384
-      - metric: num_cc_index_files
-        exact_value: 50
+      - metric: num_input_documents
+        exact_value: 5233987
+      - metric: num_output_documents
+        exact_value: 5233987
