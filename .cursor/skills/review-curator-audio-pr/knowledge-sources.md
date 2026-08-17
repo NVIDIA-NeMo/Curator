@@ -303,11 +303,16 @@ disk. Rerun the pull; it reuses unchanged PRs and automatically refreshes
 entries whose `updatedAt` changed. Then render today's file:
 
 ```bash
+# Set this once to one absolute workspace path shared by every review bundle.
+export CURATOR_PR_REVIEW_CACHE_ROOT=/absolute/workspace/reviews/.cache/curator-pr-review
+
 # 1) discover post-#1608 audio PRs and pull reviews + inline comments
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
 
 # 2) render one consolidated reviewer-comment corpus
-.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus \
+  --since 1608 \
+  --outdir <CURRENT_REVIEW_DIR>/audio-corpus
 ```
 
 `pull_audio_pr_corpus.sh` lists PRs with number greater than `--since`
@@ -319,8 +324,21 @@ the PR in scope.
 It paginates the complete PR history. Reruns reuse cached PRs only while their
 GitHub `updatedAt` value is unchanged; `--refresh` forces every in-scope PR to be
 re-fetched.
-`build_corpus.py` writes
-`.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md`: one section per
+The raw per-PR JSON and discovery indexes live once in a shared cache, not in
+the current review directory. By default that cache is under
+`$XDG_CACHE_HOME/nemo-curator-pr-review/` (falling back to `~/.cache/`) and is
+keyed by GitHub repository. Set `CURATOR_PR_REVIEW_CACHE_ROOT` to a stable
+workspace path when reviews must remain inside that workspace, or pass the same
+`--cache-dir` to both commands. Never copy, seed, or hard-link this cache into a
+per-PR review bundle. Corpus refreshes and render reads coordinate through one
+advisory lock; a command waits until an incompatible operation finishes. Cache
+payloads are published by atomic rename, with the selection manifest last, so a
+failed refresh preserves the previous complete corpus. Selection manifests are
+keyed by `--since` and the audio path filter; use the same `--since` for pull
+and build.
+
+`build_corpus.py` reads the shared cache and writes only
+`<CURRENT_REVIEW_DIR>/audio-corpus/audio_pr_corpus_<date>.md`: one section per
 audio PR with every reviewer comment verbatim and anchored to `path:line`.
 
 Read the corpus as evidence to recognize patterns reviewers repeatedly raise
@@ -344,7 +362,8 @@ supplies the audio path filter, area rules, and corpus labels:
 .cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh pull <N> [--outdir DIR] [--repo OWNER/REPO]
 .cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh digest <N> [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD] \
   [--prev-head SHA] [--baseline-ts TS]
-.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD]
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus [--cache-dir DIR] [--outdir DIR] \
+  [--repo OWNER/REPO] [--since N] [--today YYYY-MM-DD]
 ```
 
 `ensure-repo` reuses an existing Curator checkout or shallow-clones one and
@@ -368,8 +387,11 @@ GraphQL thread payload does. The digest builder joins them by comment
 an older thread dump lacks `databaseId`.
 
 `.cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh
-[--since N] [--outdir DIR] [--repo OWNER/REPO] [--refresh]` and the full-path
+[--since N] [--cache-dir DIR] [--repo OWNER/REPO] [--refresh]` and the full-path
 `review_audio_pr.sh build-corpus` command above **must** run before
 every review to build the post-#1608 corpus (section 4; SKILL.md step 3).
 
-Default outdir: `.curator-pr-review/` (scratch; gitignored, safe to delete).
+Target pull/digest default outdir: `.curator-pr-review/` (scratch; gitignored,
+safe to delete). The corpus cache is shared and separate; the `--outdir` option
+on `build-corpus` controls only where its rendered Markdown is written. Cache
+and output paths may not equal or contain each other.

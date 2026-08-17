@@ -95,6 +95,13 @@ The skill writes two helper files into a scratch directory (default
    a condensed list of the threads other reviewers left that are still
    unresolved on the current head. Scan it before writing your own comments.
 
+Raw JSON for the cross-PR corpus is **not** a per-review artifact. It is stored
+once in a shared, repository-keyed cache and reused across review directories
+and Curator checkouts. A review directory contains only the target PR pull,
+digest/queue, your review notes, and (when requested) one rendered corpus
+Markdown file. Never copy, seed, or hard-link the raw corpus cache into an
+individual review directory.
+
 See [templates.md](templates.md) for the exact layout and how to phrase your
 review comments. The review lenses and every doc/code reference live in
 [knowledge-sources.md](knowledge-sources.md).
@@ -163,13 +170,29 @@ automatically refreshes cached PRs whose `updatedAt` changed, and renders a fres
 consolidated file for today's review:
 
 ```bash
+# Set this once to one absolute workspace path shared by every review bundle.
+export CURATOR_PR_REVIEW_CACHE_ROOT=/absolute/workspace/reviews/.cache/curator-pr-review
+
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
-.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus --today <YYYY-MM-DD>
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus \
+  --since 1608 \
+  --outdir <CURRENT_REVIEW_DIR>/audio-corpus \
+  --today <YYYY-MM-DD>
 ```
 
-Confirm `.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md` exists and
-read it before writing findings. If the pull scripts fail, stop and fix the
-failure - do not proceed with a review that skipped the corpus. See
+The puller keeps raw JSON in one shared cache. Its default is the XDG user cache
+(`$XDG_CACHE_HOME/nemo-curator-pr-review/`, or `~/.cache/` when XDG is unset),
+keyed by `OWNER_REPO`. To keep the shared cache inside a workspace instead, set
+`CURATOR_PR_REVIEW_CACHE_ROOT` once as shown above.
+
+Both commands also accept `--cache-dir <SHARED_CACHE_DIR>`. Do not use the
+current review's `--outdir` as that cache directory; the renderer rejects
+equal or nested cache/output paths. Keep `--since` identical on the pull and
+build commands; the selection manifest is keyed by that value and the audio
+path filter so different review scopes cannot replace one another. Confirm the rendered
+`<CURRENT_REVIEW_DIR>/audio-corpus/audio_pr_corpus_<date>.md` exists and read it
+before writing findings. If the pull scripts fail, stop and fix the failure -
+do not proceed with a review that skipped the corpus. See
 [knowledge-sources.md](knowledge-sources.md) section 4 for details.
 
 ### Step 4 - Read the diff

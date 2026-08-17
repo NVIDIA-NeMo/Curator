@@ -14,10 +14,10 @@
 # limitations under the License.
 """Consolidate a modality PR review corpus pulled by a corpus-pull script.
 
-Reads per-PR JSON in the corpus dir and writes one markdown file with reviewer
-comments grouped by pull request and file.
+Reads per-PR JSON from a corpus cache and writes one Markdown file to a separate
+output directory, with reviewer comments grouped by pull request and file.
 
-Usage: build_corpus.py [--outdir DIR] [--numbers-file FILE]
+Usage: build_corpus.py --cache-dir DIR [--outdir DIR] [--numbers-file FILE]
                         [--repo OWNER/REPO] [--today YYYY-MM-DD]
                         [--title TITLE] [--intro INTRO] [--output-prefix PREFIX]
 """
@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fcntl
 import json
 from pathlib import Path
+from typing import TextIO
 
 UTC = dt.timezone.utc  # noqa: UP017 - Python 3.10 compatibility
 
@@ -35,7 +37,14 @@ BOT_LOGINS = {"greptile-apps[bot]", "copy-pr-bot[bot]", "github-actions[bot]"}
 
 
 def load(p: Path) -> object:
-    return json.loads(p.read_text()) if p.exists() else []
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        msg = f"missing corpus cache file: {p}; rerun the corpus pull script"
+        raise SystemExit(msg) from None
+    except json.JSONDecodeError as exc:
+        msg = f"invalid JSON in corpus cache file {p}: {exc}; rerun the corpus pull script"
+        raise SystemExit(msg) from exc
 
 
 def blockquote(s: str | None) -> str:
@@ -44,9 +53,25 @@ def blockquote(s: str | None) -> str:
     return "\n".join(f"  > {line}" for line in lines)
 
 
-def main() -> None:  # noqa: C901, PLR0915
+def acquire_cache_read_lock(cache_dir: Path) -> TextIO:
+    """Hold a shared advisory lock until the returned file is closed."""
+    lock_file = (cache_dir / ".corpus.lock").open("a+", encoding="utf-8")
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+    return lock_file
+
+
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     ap = argparse.ArgumentParser()
-    ap.add_argument("--outdir", default=".curator-pr-review/corpus")
+    ap.add_argument(
+        "--cache-dir",
+        required=True,
+        help="shared directory containing raw per-PR corpus JSON",
+    )
+    ap.add_argument(
+        "--outdir",
+        default=".curator-pr-review/corpus",
+        help="directory for the rendered corpus Markdown only",
+    )
     ap.add_argument("--numbers-file", default="_pr_numbers.txt")
     ap.add_argument("--repo", default="NVIDIA-NeMo/Curator")
     ap.add_argument("--today", default=None)
@@ -64,9 +89,23 @@ def main() -> None:  # noqa: C901, PLR0915
 
     today = args.today or dt.datetime.now(UTC).date().isoformat()
     outdir = Path(args.outdir)
+    cache_dir = Path(args.cache_dir)
+    resolved_cache = cache_dir.resolve()
+    resolved_outdir = outdir.resolve()
+    if (
+        resolved_cache == resolved_outdir
+        or resolved_cache in resolved_outdir.parents
+        or resolved_outdir in resolved_cache.parents
+    ):
+        msg = f"cache and output directories must not overlap: {cache_dir} / {outdir}"
+        raise SystemExit(msg)
+    if not cache_dir.is_dir():
+        msg = f"corpus cache directory does not exist: {cache_dir}"
+        raise SystemExit(msg)
+    cache_lock = acquire_cache_read_lock(cache_dir)
     nums_file = Path(args.numbers_file)
     if not nums_file.is_absolute():
-        nums_file = outdir / nums_file
+        nums_file = cache_dir / nums_file
     if not nums_file.exists():
         msg = f"no {nums_file}; run the corpus pull script first"
         raise SystemExit(msg)
@@ -82,12 +121,12 @@ def main() -> None:  # noqa: C901, PLR0915
     per_pr_sections: list[str] = []
     total_comments = 0
     for n in numbers:
-        gh = load(outdir / f"pr{n}_gh.json")
+        gh = load(cache_dir / f"pr{n}_gh.json")
         if isinstance(gh, list):
             gh = gh[0] if gh else {}
-        reviews = load(outdir / f"pr{n}_reviews.json")
-        rcomments = load(outdir / f"pr{n}_review_comments.json")
-        icomments = load(outdir / f"pr{n}_issue_comments.json")
+        reviews = load(cache_dir / f"pr{n}_reviews.json")
+        rcomments = load(cache_dir / f"pr{n}_review_comments.json")
+        icomments = load(cache_dir / f"pr{n}_issue_comments.json")
 
         author = (gh.get("author") or {}).get("login", "?")
         state = gh.get("state", "?")
@@ -141,8 +180,10 @@ def main() -> None:  # noqa: C901, PLR0915
     out.append("---\n")
     out.extend(per_pr_sections)
 
+    outdir.mkdir(parents=True, exist_ok=True)
     outpath = outdir / f"{args.output_prefix}_{date_us}.md"
     outpath.write_text("\n".join(out) + "\n", encoding="utf-8")
+    cache_lock.close()
     print(f"wrote {outpath}  ({outpath.stat().st_size} bytes; {len(numbers)} PRs)")
 
 

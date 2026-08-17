@@ -45,15 +45,16 @@ by their first component.
 
 ```bash
 .cursor/scripts/curator-pr-review/build_corpus.py \
-  [--outdir DIR] [--numbers-file FILE] [--repo OWNER/REPO] \
+  --cache-dir DIR [--outdir DIR] [--numbers-file FILE] [--repo OWNER/REPO] \
   [--today YYYY-MM-DD] [--title TITLE] [--intro INTRO] \
   [--output-prefix PREFIX]
 ```
 
-Consolidates per-PR JSON from a corpus pull into one markdown file with complete,
-verbatim comment bodies grouped by pull request and file. Relative
-`--numbers-file` values are resolved under `--outdir`; generic defaults are
-`.curator-pr-review/corpus/` and `_pr_numbers.txt`.
+Reads per-PR JSON from `--cache-dir` and writes one Markdown file to `--outdir`
+with complete, verbatim comment bodies grouped by pull request and file.
+Relative `--numbers-file` values are resolved under `--cache-dir`. The two
+directories are required to be disjoint: neither may equal or contain the
+other, which keeps raw cross-PR data out of per-review artifacts.
 
 ## pull_review_threads.py
 

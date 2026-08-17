@@ -30,7 +30,8 @@ Commands:
   pull <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
   digest <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD]
          [--prev-head SHA] [--baseline-ts TS]
-  build-corpus [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD]
+  build-corpus [--cache-dir DIR] [--outdir DIR] [--repo OWNER/REPO] [--since N]
+               [--today YYYY-MM-DD]
 USAGE
 }
 
@@ -54,14 +55,33 @@ case "${command}" in
             --area-rules "${SCRIPT_DIR}/../area_rules.json"
         ;;
     build-corpus)
+        repo="NVIDIA-NeMo/Curator"
+        since=1608
+        cache_dir=""
+        outdir=".curator-pr-review/audio-corpus"
+        forwarded=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --cache-dir) cache_dir="$2"; shift 2 ;;
+                --outdir)    outdir="$2";    shift 2 ;;
+                --repo)      repo="$2";      shift 2 ;;
+                --since)     since="$2";     shift 2 ;;
+                *)           forwarded+=("$1"); shift ;;
+            esac
+        done
+        if [[ -z "${cache_dir}" ]]; then
+            cache_dir="$(audio_corpus_cache_dir "${repo}")"
+        fi
+        numbers_file="$(audio_corpus_numbers_file "${since}")"
         exec "${SHARED_DIR}/build_corpus.py" \
-            --outdir ".curator-pr-review/audio-corpus" \
-            --numbers-file "_audio_pr_numbers.txt" \
-            --repo "NVIDIA-NeMo/Curator" \
-            --title "Audio PR review corpus (post-#1608)" \
-            --intro "Consolidated reviewer feedback on audio PRs opened after the #1608 AudioTask framework redesign (open + closed/merged). Read-only pre-review context: recognise patterns reviewers repeatedly raise, and check the PR in front of you against them." \
+            --cache-dir "${cache_dir}" \
+            --outdir "${outdir}" \
+            --numbers-file "${numbers_file}" \
+            --repo "${repo}" \
+            --title "Audio PR review corpus (post-#${since})" \
+            --intro "Consolidated reviewer feedback on audio PRs opened after #${since} (open + closed/merged). Read-only pre-review context: recognise patterns reviewers repeatedly raise, and check the PR in front of you against them." \
             --output-prefix "audio_pr_corpus" \
-            "$@"
+            "${forwarded[@]}"
         ;;
     -h|--help|help)
         usage

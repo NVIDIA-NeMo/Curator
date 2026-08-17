@@ -18,3 +18,56 @@
 # PR but do not make an unrelated Fern PR audio-specific by themselves.
 AUDIO_PATH_REGEX='^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|benchmarking/.*([Aa]udio|ALM|alm)|fern/versions/[^/]+/pages/(get-started/audio\.mdx|curate-audio/|about/concepts/audio/|api-reference/tasks/audio-task\.mdx))'
 AUDIO_MODALITY_LABEL='audio'
+
+# Return the one shared raw-corpus cache for this repository. Per-review output
+# directories must never contain these files: a corpus cache contains raw
+# comments and metadata for every in-scope audio PR, not only the PR currently
+# being reviewed.
+audio_corpus_cache_dir() {
+    local repo="${1:-NVIDIA-NeMo/Curator}"
+    local cache_root="${CURATOR_PR_REVIEW_CACHE_ROOT:-}"
+
+    if [[ ! "${repo}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        echo "error: invalid GitHub repository name for corpus cache: ${repo}" >&2
+        return 2
+    fi
+
+    if [[ -z "${cache_root}" ]]; then
+        if [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+            cache_root="${XDG_CACHE_HOME}/nemo-curator-pr-review"
+        elif [[ -n "${HOME:-}" ]]; then
+            cache_root="${HOME}/.cache/nemo-curator-pr-review"
+        else
+            echo "error: set CURATOR_PR_REVIEW_CACHE_ROOT (or XDG_CACHE_HOME/HOME)" >&2
+            return 2
+        fi
+    fi
+
+    local repo_key="${repo//\//_}"
+    printf '%s/%s/audio-corpus\n' "${cache_root%/}" "${repo_key}"
+}
+
+# Identify one corpus-selection scope. The PR data cache is shared, while each
+# --since/path-filter combination keeps its own selection manifest.
+audio_corpus_scope_key() {
+    local since="${1:-1608}"
+
+    if [[ ! "${since}" =~ ^[0-9]+$ ]]; then
+        echo "error: --since must be a non-negative integer: ${since}" >&2
+        return 2
+    fi
+
+    python3 - "${since}" "${AUDIO_PATH_REGEX}" <<'PY'
+import hashlib
+import sys
+
+scope = f"since={sys.argv[1]}\0path_regex={sys.argv[2]}".encode()
+print(f"since{sys.argv[1]}_{hashlib.sha256(scope).hexdigest()[:16]}")
+PY
+}
+
+audio_corpus_numbers_file() {
+    local scope_key
+    scope_key="$(audio_corpus_scope_key "${1:-1608}")"
+    printf '_audio_pr_numbers_%s.txt\n' "${scope_key}"
+}

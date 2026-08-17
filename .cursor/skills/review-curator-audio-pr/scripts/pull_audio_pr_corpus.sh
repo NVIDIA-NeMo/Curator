@@ -16,7 +16,7 @@
 # Discover every post-#1608 audio PR and pull complete review conversations.
 # Cached data is reused only while the PR's GitHub updatedAt value is unchanged.
 #
-# Usage: pull_audio_pr_corpus.sh [--since N] [--outdir DIR]
+# Usage: pull_audio_pr_corpus.sh [--since N] [--cache-dir DIR]
 #        [--repo OWNER/REPO] [--refresh]
 set -euo pipefail
 
@@ -29,42 +29,97 @@ source "${SHARED_DIR}/lib/gh_paginate.sh"
 
 REPO="NVIDIA-NeMo/Curator"
 SINCE=1608
-OUTDIR=".curator-pr-review/audio-corpus"
+CACHE_DIR=""
 REFRESH=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --since)   SINCE="$2";  shift 2 ;;
-        --outdir)  OUTDIR="$2"; shift 2 ;;
-        --repo)    REPO="$2";   shift 2 ;;
-        --refresh) REFRESH=1;    shift ;;
+        --since)     SINCE="$2";     shift 2 ;;
+        --cache-dir) CACHE_DIR="$2"; shift 2 ;;
+        --outdir)
+            echo "error: corpus --outdir was replaced by --cache-dir so raw comments are not written into a per-review output directory" >&2
+            exit 2 ;;
+        --repo)      REPO="$2";      shift 2 ;;
+        --refresh)   REFRESH=1;       shift ;;
         -h|--help)
-            echo "Usage: pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO] [--refresh]"
+            echo "Usage: pull_audio_pr_corpus.sh [--since N] [--cache-dir DIR] [--repo OWNER/REPO] [--refresh]"
             exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
 
 command -v gh >/dev/null || { echo "error: gh (GitHub CLI) not found" >&2; exit 2; }
-mkdir -p "${OUTDIR}"
-
-NONAUDIO_CACHE="${OUTDIR}/_non_audio_prs.tsv"
-PATH_REGEX_CACHE="${OUTDIR}/_audio_path_regex.txt"
-PATH_FILTER_CHANGED=1
-if [[ -f "${PATH_REGEX_CACHE}" && "$(<"${PATH_REGEX_CACHE}")" == "${AUDIO_PATH_REGEX}" ]]; then
-    PATH_FILTER_CHANGED=0
+if [[ -z "${CACHE_DIR}" ]]; then
+    CACHE_DIR="$(audio_corpus_cache_dir "${REPO}")"
 fi
-touch "${NONAUDIO_CACHE}"
+SCOPE_KEY="$(audio_corpus_scope_key "${SINCE}")"
+NUMBERS_FILE="_audio_pr_numbers_${SCOPE_KEY}.txt"
+NUMBERS_PATH="${CACHE_DIR}/${NUMBERS_FILE}"
+NONAUDIO_CACHE="${CACHE_DIR}/_non_audio_prs_${SCOPE_KEY}.tsv"
+mkdir -p "${CACHE_DIR}"
+
+# The cache is shared across review directories and checkouts. Hold an
+# exclusive advisory lock for the complete discovery/refresh transaction.
+# build_corpus.py takes a shared lock on this same file while reading, so a
+# review can never render a partially refreshed cache. Because the open file
+# description belongs to this shell, the lock is released even after a signal.
+LOCK_FILE="${CACHE_DIR}/.corpus.lock"
+exec 9>>"${LOCK_FILE}"
+python3 - <<'PYLOCK'
+import fcntl
+
+fcntl.flock(9, fcntl.LOCK_EX)
+PYLOCK
+
+TEMP_FILES=()
+cleanup_temporary_files() {
+    local temp_file
+    for temp_file in "${TEMP_FILES[@]}"; do
+        rm -f -- "${temp_file}"
+    done
+}
+trap cleanup_temporary_files EXIT
+
+atomic_pull_paginated_json() {
+    local label="$1" target="$2" temp
+    shift 2
+    temp="${target}.tmp.$$"
+    TEMP_FILES+=("${temp}")
+    pull_paginated_json "${label}" "${temp}" "$@"
+    mv -- "${temp}" "${target}"
+}
+
+cached_updated_at() {
+    python3 - "$1" <<'PY'
+import json
+import sys
+
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("updatedAt", ""))
+except (OSError, AttributeError, json.JSONDecodeError):
+    print("")
+PY
+}
+
+declare -A CACHED_AUDIO=()
+if [[ -f "${NUMBERS_PATH}" ]]; then
+    while read -r number; do
+        [[ -n "${number}" ]] && CACHED_AUDIO["${number}"]=1
+    done < "${NUMBERS_PATH}"
+fi
+
 declare -A NONAUDIO_UPDATED=()
-while IFS=$'\t' read -r number updated_at; do
-    [[ -n "${number}" ]] && NONAUDIO_UPDATED["${number}"]="${updated_at:-}"
-done < "${NONAUDIO_CACHE}"
+if [[ -f "${NONAUDIO_CACHE}" ]]; then
+    while IFS=$'\t' read -r number updated_at; do
+        [[ -n "${number}" ]] && NONAUDIO_UPDATED["${number}"]="${updated_at:-}"
+    done < "${NONAUDIO_CACHE}"
+fi
 
 echo "=== corpus discovery: all ${REPO} PRs > #${SINCE} (state=all) ===" >&2
-LOG="" pull_paginated_json "all pull requests" "${OUTDIR}/_all_prs.json" \
+LOG="" atomic_pull_paginated_json "all pull requests" "${CACHE_DIR}/_all_prs.json" \
     "repos/${REPO}/pulls?state=all&sort=created&direction=desc&per_page=100"
 
-mapfile -t CANDIDATES < <(python3 - "${OUTDIR}/_all_prs.json" "${SINCE}" <<'PYDATA'
+mapfile -t CANDIDATES < <(python3 - "${CACHE_DIR}/_all_prs.json" "${SINCE}" <<'PYDATA'
 import json, sys
 prs = json.load(open(sys.argv[1])); since = int(sys.argv[2])
 rows = ((p["number"], p["updated_at"]) for p in prs if p["number"] > since)
@@ -79,31 +134,34 @@ AUDIO_NUMS=()
 for row in "${CANDIDATES[@]}"; do
     IFS=$'\t' read -r n updated_at <<< "${row}"
     UPDATED_AT["${n}"]="${updated_at}"
-    cached_gh="${OUTDIR}/pr${n}_gh.json"
+    cached_gh="${CACHE_DIR}/pr${n}_gh.json"
     cached_updated=""
     if [[ -f "${cached_gh}" ]]; then
-        cached_updated="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("updatedAt", ""))' "${cached_gh}")"
+        cached_updated="$(cached_updated_at "${cached_gh}")"
     fi
 
-    if [[ ${REFRESH} -eq 0 && ${PATH_FILTER_CHANGED} -eq 0 \
+    if [[ ${REFRESH} -eq 0 && "${CACHED_AUDIO[$n]:-}" == 1 \
           && "${cached_updated}" == "${updated_at}" \
-          && -f "${OUTDIR}/pr${n}_reviews.json" \
-          && -f "${OUTDIR}/pr${n}_review_comments.json" \
-          && -f "${OUTDIR}/pr${n}_issue_comments.json" ]]; then
+          && -f "${CACHE_DIR}/pr${n}_reviews.json" \
+          && -f "${CACHE_DIR}/pr${n}_review_comments.json" \
+          && -f "${CACHE_DIR}/pr${n}_issue_comments.json" ]]; then
         AUDIO_NUMS+=("${n}")
         echo "  pr${n}: AUDIO (cache current)" >&2
         continue
     fi
-    if [[ ${REFRESH} -eq 0 && ${PATH_FILTER_CHANGED} -eq 0 \
+    if [[ ${REFRESH} -eq 0 \
           && "${NONAUDIO_UPDATED[$n]:-}" == "${updated_at}" ]]; then
         echo "  pr${n}: non-audio (cache current)" >&2
         continue
     fi
 
-    files_json="${OUTDIR}/pr${n}_files.json"
-    pull_paginated_json "pulls/${n}/files" "${files_json}" \
+    files_json="${CACHE_DIR}/pr${n}_files.json"
+    files_temp="${files_json}.tmp.$$"
+    TEMP_FILES+=("${files_temp}")
+    pull_paginated_json "pulls/${n}/files" "${files_temp}" \
         "repos/${REPO}/pulls/${n}/files"
-    if "${SHARED_DIR}/path_matches.py" "${files_json}" --regex "${AUDIO_PATH_REGEX}"; then
+    if "${SHARED_DIR}/path_matches.py" "${files_temp}" --regex "${AUDIO_PATH_REGEX}"; then
+        mv -- "${files_temp}" "${files_json}"
         AUDIO_NUMS+=("${n}")
         unset 'NONAUDIO_UPDATED[$n]'
         echo "  pr${n}: AUDIO" >&2
@@ -113,48 +171,76 @@ for row in "${CANDIDATES[@]}"; do
             echo "error: path matching failed for PR ${n}" >&2
             exit "${status}"
         fi
+        rm -f -- "${files_temp}"
         rm -f "${files_json}"
         NONAUDIO_UPDATED["${n}"]="${updated_at}"
         echo "  pr${n}: non-audio" >&2
     fi
 done
 
-printf '%s' "${AUDIO_PATH_REGEX}" > "${PATH_REGEX_CACHE}"
-: > "${NONAUDIO_CACHE}"
-for n in "${!NONAUDIO_UPDATED[@]}"; do
-    printf '%s\t%s\n' "${n}" "${NONAUDIO_UPDATED[$n]}"
-done | sort -n > "${NONAUDIO_CACHE}"
-
-printf '%s\n' "${AUDIO_NUMS[@]}" > "${OUTDIR}/_audio_pr_numbers.txt"
 echo "audio PRs in scope: ${#AUDIO_NUMS[@]}" >&2
 
 pulled=0
 skipped=0
 for n in "${AUDIO_NUMS[@]}"; do
     cached_updated=""
-    if [[ -f "${OUTDIR}/pr${n}_gh.json" ]]; then
-        cached_updated="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("updatedAt", ""))' "${OUTDIR}/pr${n}_gh.json")"
+    if [[ -f "${CACHE_DIR}/pr${n}_gh.json" ]]; then
+        cached_updated="$(cached_updated_at "${CACHE_DIR}/pr${n}_gh.json")"
     fi
     if [[ ${REFRESH} -eq 0 && "${cached_updated}" == "${UPDATED_AT[$n]}" \
-          && -f "${OUTDIR}/pr${n}_reviews.json" \
-          && -f "${OUTDIR}/pr${n}_review_comments.json" \
-          && -f "${OUTDIR}/pr${n}_issue_comments.json" ]]; then
+          && -f "${CACHE_DIR}/pr${n}_reviews.json" \
+          && -f "${CACHE_DIR}/pr${n}_review_comments.json" \
+          && -f "${CACHE_DIR}/pr${n}_issue_comments.json" ]]; then
         echo "--- pr${n}: cache current, skip ---" >&2
         skipped=$((skipped + 1))
         continue
     fi
 
     echo "--- pulling pr${n} reviews/comments ---" >&2
+    gh_temp="${CACHE_DIR}/pr${n}_gh.json.tmp.$$"
+    reviews_temp="${CACHE_DIR}/pr${n}_reviews.json.tmp.$$"
+    review_comments_temp="${CACHE_DIR}/pr${n}_review_comments.json.tmp.$$"
+    issue_comments_temp="${CACHE_DIR}/pr${n}_issue_comments.json.tmp.$$"
+    TEMP_FILES+=("${gh_temp}" "${reviews_temp}" "${review_comments_temp}" "${issue_comments_temp}")
+
     gh pr view "${n}" --repo "${REPO}" \
         --json number,title,state,author,createdAt,updatedAt,mergedAt,closedAt,url,body \
-        > "${OUTDIR}/pr${n}_gh.json"
-    pull_paginated_json "pulls/${n}/reviews" "${OUTDIR}/pr${n}_reviews.json" \
+        > "${gh_temp}"
+    python3 - "${gh_temp}" <<'PYJSON'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as infile:
+    payload = json.load(infile)
+if not isinstance(payload, dict):
+    raise TypeError("gh pr view did not return a JSON object")
+PYJSON
+    pull_paginated_json "pulls/${n}/reviews" "${reviews_temp}" \
         "repos/${REPO}/pulls/${n}/reviews"
-    pull_paginated_json "pulls/${n}/comments" "${OUTDIR}/pr${n}_review_comments.json" \
+    pull_paginated_json "pulls/${n}/comments" "${review_comments_temp}" \
         "repos/${REPO}/pulls/${n}/comments"
-    pull_paginated_json "issues/${n}/comments" "${OUTDIR}/pr${n}_issue_comments.json" \
+    pull_paginated_json "issues/${n}/comments" "${issue_comments_temp}" \
         "repos/${REPO}/issues/${n}/comments"
+
+    # Publish the metadata marker last. If an interruption happens between
+    # renames, its old updatedAt forces the next invocation to refresh again.
+    mv -- "${reviews_temp}" "${CACHE_DIR}/pr${n}_reviews.json"
+    mv -- "${review_comments_temp}" "${CACHE_DIR}/pr${n}_review_comments.json"
+    mv -- "${issue_comments_temp}" "${CACHE_DIR}/pr${n}_issue_comments.json"
+    mv -- "${gh_temp}" "${CACHE_DIR}/pr${n}_gh.json"
     pulled=$((pulled + 1))
 done
 
-echo "AUDIO_PR_CORPUS_PULL_DONE  outdir=${OUTDIR}  audio_prs=${#AUDIO_NUMS[@]}  pulled=${pulled}  skipped=${skipped}  refresh=${REFRESH}" >&2
+# Publish scope state only after every selected PR has complete JSON. The
+# numbers manifest is the commit marker consumed by build-corpus.
+nonaudio_temp="${NONAUDIO_CACHE}.tmp.$$"
+numbers_temp="${NUMBERS_PATH}.tmp.$$"
+TEMP_FILES+=("${nonaudio_temp}" "${numbers_temp}")
+for n in "${!NONAUDIO_UPDATED[@]}"; do
+    printf '%s\t%s\n' "${n}" "${NONAUDIO_UPDATED[$n]}"
+done | sort -n > "${nonaudio_temp}"
+printf '%s\n' "${AUDIO_NUMS[@]}" > "${numbers_temp}"
+mv -- "${nonaudio_temp}" "${NONAUDIO_CACHE}"
+mv -- "${numbers_temp}" "${NUMBERS_PATH}"
+
+echo "AUDIO_PR_CORPUS_PULL_DONE  cache_dir=${CACHE_DIR}  scope=${SCOPE_KEY}  audio_prs=${#AUDIO_NUMS[@]}  pulled=${pulled}  skipped=${skipped}  refresh=${REFRESH}" >&2
