@@ -975,7 +975,8 @@ entries:
       - metric: num_files_processed
         min_value: 1
 
-  # 192 hours targets a 15-minute Xenna wall time from the measured 240-hour run.
+  # 192.0028 hours: 905.11s wall / 888.17s processing on 8×A100.
+  # Eight workers were resident; Xenna backpressure concentrated work on GPUs 0–1.
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
@@ -1004,8 +1005,8 @@ entries:
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # The shared input targets Xenna at 15 minutes; Ray Data is the lower-side runtime exception.
-  # Scaling for Ray Data would push Xenna beyond the target, so both retain the same real input.
+  # Same input: 243.42s wall / 228.01s processing; all eight GPUs stayed >=10% active for 120s.
+  # Ray Data is the lower-side exception because both executors retain the same real input.
   - name: audio_librispeech_raydata
     enabled: true
     script: audio_librispeech_benchmark.py
