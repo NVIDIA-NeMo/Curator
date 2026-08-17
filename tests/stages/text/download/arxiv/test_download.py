@@ -36,6 +36,10 @@ class TestArxivDownloader:
     """Test suite for ArxivDownloader."""
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_num_workers_per_node_default(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
+        assert ArxivDownloader(str(tmp_path)).num_workers_per_node() == 2
+
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
     @pytest.mark.parametrize("verbose", [True, False])
     def test_download_to_path(

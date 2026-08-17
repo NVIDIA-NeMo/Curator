@@ -71,6 +71,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         """
         return ["data"], ["source_bytes", "metadata"]
 
+    def num_workers_per_node(self) -> int | None:
+        return 2
+
     def process(self, task: FileGroupTask) -> VideoTask:
         """Process a video task by reading file bytes and extracting metadata.
 

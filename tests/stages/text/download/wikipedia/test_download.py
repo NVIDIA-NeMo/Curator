@@ -27,6 +27,9 @@ def _wget_command(url: str, path: str) -> list[str]:
 class TestWikipediaDownloader:
     """Test suite for WikipediaDownloader."""
 
+    def test_num_workers_per_node_default(self, tmp_path: Path):
+        assert WikipediaDownloader(str(tmp_path)).num_workers_per_node() == 2
+
     def test_init_default_values(self, tmp_path: Path):
         """Test initialization with default values."""
         downloader = WikipediaDownloader(str(tmp_path))

@@ -13,15 +13,21 @@
 # limitations under the License.
 
 import copy
+import math
 from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
-from ray.data import Dataset, TaskPoolStrategy
+from ray.data import ActorPoolStrategy, Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    get_stage_num_workers_per_node,
+    get_worker_metadata_and_node_id,
+)
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.utils.ray_utils import get_alive_ray_node_count
 
 from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
 
@@ -39,8 +45,9 @@ class RayDataStageAdapter(BaseStageAdapter):
         c. Else we use tasks
     """
 
-    def __init__(self, stage: ProcessingStage):
+    def __init__(self, stage: ProcessingStage, ignore_head_node: bool = False):
         super().__init__(stage)
+        self.ignore_head_node = ignore_head_node
 
         self._batch_size = self.stage.batch_size
         if self._batch_size is None and self.stage.resources.gpus > 0:
@@ -73,21 +80,68 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def _build_resource_kwargs(self, ray_stage_spec: dict) -> dict[str, float]:
-        """Build num_cpus/num_gpus kwargs for map_batches.
+    def _total_pool_size(self) -> int | None:
+        """Total (cluster-wide) pool size implied by ``num_workers_per_node()``, or None if unset.
 
-        Checks ray_stage_spec for RAY_NUM_CPUS first so stages can request a
-        different CPU reservation for Ray Data (e.g. cpus=1.0 to enable stage
-        fusion) without changing resources.cpus used by other executors.
+        A Ray Data pool ``size`` is the total replica count, so we scale the per-node request by
+        the node count (``num_workers_per_node * num_nodes``) and pair it with SPREAD scheduling
+        in ``process_dataset`` to land ~``num_workers_per_node`` replicas on each node. Mutual
+        exclusion with ``num_workers()`` and actor-pool sizing keys is enforced at stage
+        construction (``ProcessingStage._validate_worker_sizing``).
         """
-        kwargs: dict[str, float] = {}
+        num_workers_per_node = get_stage_num_workers_per_node(self.stage)
+        if num_workers_per_node is None:
+            return None
+        node_count = get_alive_ray_node_count(ignore_head_node=self.ignore_head_node)
+        if node_count <= 0:
+            msg = f"No alive Ray nodes available for num_workers_per_node sizing on stage {self.stage.name}."
+            raise ValueError(msg)
+        return max(1, math.ceil(num_workers_per_node * node_count))
+
+    def _managed_map_batches_kwargs(
+        self, ray_stage_spec: dict, stage_is_actor: bool, total_pool_size: int | None
+    ) -> dict:
+        """Build the Curator-managed map_batches kwargs: compute strategy plus CPU/GPU reservations.
+
+        Actor stages always use an actor pool; task stages use a task pool only when sized
+        explicitly (per-node or num_workers), otherwise Ray Data's default. ``RAY_NUM_CPUS``
+        in ``ray_stage_spec`` overrides ``resources.cpus`` for Ray Data only (e.g. cpus=1.0 to
+        enable stage fusion) without affecting other executors.
+        """
+        kwargs: dict[str, object] = {}
+
+        if stage_is_actor:
+            kwargs["compute"] = (
+                ActorPoolStrategy(size=total_pool_size)
+                if total_pool_size is not None
+                else get_actor_compute_strategy_for_stage(self.stage)
+            )
+        else:
+            num_workers = self.stage.num_workers()
+            if total_pool_size is not None:
+                kwargs["compute"] = TaskPoolStrategy(size=total_pool_size)
+            elif num_workers is not None and num_workers > 0:
+                kwargs["compute"] = TaskPoolStrategy(size=num_workers)
+
+            # Actor-pool sizing keys don't apply to task stages, so surface them if present.
+            sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
+            if sizing_keys:
+                logger.warning(
+                    f"Ignoring ray_stage_spec worker sizing keys {sizing_keys} "
+                    f"for Ray Data task stage {self.stage.name}; these keys only apply to actor stages."
+                )
+            max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER)
+            if max_calls is not None:
+                kwargs["max_calls"] = max_calls
+
         ray_num_cpus = ray_stage_spec.get(RayStageSpecKeys.RAY_NUM_CPUS)
         if ray_num_cpus is not None:
-            kwargs["num_cpus"] = ray_num_cpus  # type: ignore[reportArgumentType]
+            kwargs["num_cpus"] = ray_num_cpus
         elif self.stage.resources.cpus > 0:
-            kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+            kwargs["num_cpus"] = self.stage.resources.cpus
         if self.stage.resources.gpus > 0:
-            kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+            kwargs["num_gpus"] = self.stage.resources.gpus
+
         return kwargs
 
     def process_dataset(self, dataset: Dataset) -> Dataset:
@@ -101,30 +155,11 @@ class RayDataStageAdapter(BaseStageAdapter):
         """
         ray_stage_spec = self.stage.ray_stage_spec()
         stage_is_actor = ray_stage_spec.get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
+        total_pool_size = self._total_pool_size()
 
-        if stage_is_actor:
-            map_batches_fn = create_actor_from_stage(self.stage)
-            map_batches_kwargs = {"compute": get_actor_compute_strategy_for_stage(self.stage)}
-        else:
-            map_batches_fn = create_task_from_stage(self.stage)
-            map_batches_kwargs = {}
-
-            actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
-            if actor_pool_sizing_keys:
-                logger.warning(
-                    f"Ignoring ray_stage_spec worker sizing keys {actor_pool_sizing_keys} "
-                    f"for Ray Data task stage {self.stage.name}; these keys only apply to actor stages."
-                )
-
-            num_workers = self.stage.num_workers()
-            if num_workers is not None and num_workers > 0:
-                map_batches_kwargs["compute"] = TaskPoolStrategy(size=num_workers)
-
-            max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER)
-            if max_calls is not None:
-                map_batches_kwargs["max_calls"] = max_calls
-
-        map_batches_kwargs.update(self._build_resource_kwargs(ray_stage_spec))
+        stage_factory = create_actor_from_stage if stage_is_actor else create_task_from_stage
+        map_batches_fn = stage_factory(self.stage, ignore_head_node=self.ignore_head_node)
+        map_batches_kwargs = self._managed_map_batches_kwargs(ray_stage_spec, stage_is_actor, total_pool_size)
 
         # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
         ray_remote_args = copy.deepcopy(ray_stage_spec.get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
@@ -141,6 +176,10 @@ class RayDataStageAdapter(BaseStageAdapter):
             )
             raise ValueError(msg)
 
+        # When sizing by num_workers_per_node, SPREAD spreads the total pool evenly across nodes.
+        if total_pool_size is not None:
+            map_batches_kwargs.setdefault("scheduling_strategy", "SPREAD")
+
         map_batches_kwargs.update(ray_remote_args)
 
         # Let Ray Data apply the selected compute strategy and resource requirements.
@@ -154,7 +193,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         return processed_dataset
 
 
-def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]:
+def create_actor_from_stage(stage: ProcessingStage, ignore_head_node: bool = False) -> type[RayDataStageAdapter]:
     """Create a StageProcessor class with the proper stage name for display."""
 
     class RayDataStageActorAdapter(RayDataStageAdapter):
@@ -162,7 +201,7 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
 
         def __init__(self):
             """Initialize the stage processor."""
-            super().__init__(stage)
+            super().__init__(stage, ignore_head_node=ignore_head_node)
             self.setup_done = False
             node_info, worker_metadata = get_worker_metadata_and_node_id()
             self.setup_on_node(node_info, worker_metadata)
@@ -179,7 +218,9 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
     return RayDataStageActorAdapter
 
 
-def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def create_task_from_stage(
+    stage: ProcessingStage, ignore_head_node: bool = False
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Create a named Ray Data stage adapter function.
 
     This creates a standalone function that wraps the stage processing logic
@@ -192,7 +233,7 @@ def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]],
         Callable: A function that can be used directly with Ray Data's map_batches
     """
     # Create the adapter instance
-    adapter = RayDataStageAdapter(stage)
+    adapter = RayDataStageAdapter(stage, ignore_head_node=ignore_head_node)
 
     # Create a standalone function that wraps the adapter's processing logic
     def stage_map_fn(batch: dict[str, Any]) -> dict[str, Any]:

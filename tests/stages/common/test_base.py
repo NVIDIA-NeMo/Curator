@@ -392,6 +392,38 @@ class TestProcessingStageWith:
         assert stage.num_workers() == 2
         assert stage_new.num_workers() is None
 
+    def test_num_workers_per_node_override_accepts_none_as_explicit_override(self):
+        """Test num_workers_per_node can be overridden with the generic with_ helper."""
+        stage = ConcreteProcessingStage()
+
+        stage_new = stage.with_(num_workers_per_node=2)
+        stage_reset = stage_new.with_(num_workers_per_node=None)
+
+        assert stage.num_workers_per_node() is None
+        assert stage_new.num_workers_per_node() == 2
+        assert stage_reset.num_workers_per_node() is None
+
+    def test_worker_sizing_rejects_num_workers_with_num_workers_per_node(self):
+        """Test generic worker sizing rejects fixed and per-node worker counts together."""
+        stage = ConcreteProcessingStage()
+
+        with pytest.raises(ValueError, match=r"num_workers.*num_workers_per_node"):
+            stage.with_(num_workers=2, num_workers_per_node=2)
+
+    def test_worker_sizing_rejects_zero_num_workers_with_num_workers_per_node(self):
+        """Test generic worker sizing rejects any explicit fixed worker count with per-node sizing."""
+        stage = ConcreteProcessingStage()
+
+        with pytest.raises(ValueError, match=r"num_workers.*num_workers_per_node"):
+            stage.with_(num_workers=0, num_workers_per_node=2)
+
+    def test_worker_sizing_rejects_existing_num_workers_with_num_workers_per_node(self):
+        """Test with_ rejects per-node sizing when the stage already declares fixed workers."""
+        stage = BackendConfiguredStage()
+
+        with pytest.raises(ValueError, match=r"num_workers.*num_workers_per_node"):
+            stage.with_(num_workers_per_node=2)
+
 
 class TestProcessingStageInputSpecs:
     """Test legacy and task-type-specific input specs."""

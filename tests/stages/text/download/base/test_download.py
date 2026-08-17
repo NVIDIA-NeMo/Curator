@@ -42,6 +42,11 @@ class MockDocumentDownloader(DocumentDownloader):
 class TestBaseDocumentDownloader:
     """Base test class for DocumentDownloader temporary file logic."""
 
+    def test_num_workers_per_node_defaults_to_unbounded(self, tmp_path: Path) -> None:
+        downloader = MockDocumentDownloader(str(tmp_path))
+
+        assert downloader.num_workers_per_node() is None
+
     @mock.patch.object(MockDocumentDownloader, "_download_to_path")
     @pytest.mark.parametrize("verbose", [True, False])
     def test_download_existing_file(
@@ -185,6 +190,20 @@ class TestBaseDocumentDownloader:
 
 class TestDocumentDownloadStage:
     """Test class for DocumentDownloadStage functionality."""
+
+    def test_num_workers_per_node_delegates_to_downloader(self, tmp_path: Path) -> None:
+        class PerNodeMockDownloader(MockDocumentDownloader):
+            def num_workers_per_node(self) -> int | None:
+                return 4
+
+        stage = DocumentDownloadStage(PerNodeMockDownloader(str(tmp_path)))
+
+        assert stage.num_workers_per_node() == 4
+
+    def test_num_workers_per_node_can_be_overridden_with_stage_with(self, tmp_path: Path) -> None:
+        stage = DocumentDownloadStage(MockDocumentDownloader(str(tmp_path))).with_(num_workers_per_node=4)
+
+        assert stage.num_workers_per_node() == 4
 
     def test_stage_properties(self, tmp_path: Path) -> None:
         """Test that stage properties are correctly defined."""
