@@ -160,12 +160,14 @@ def test_resume_returns_before_the_adapter_when_all_tasks_are_done() -> None:
     assert adapter.calls == []
 
 
-def test_resume_with_sidecars_requires_the_npz_path_field() -> None:
-    stage, adapter = _stage(skip_if_output_exists=True, save_npz=True)
+def test_resume_with_sidecars_requires_the_npz_path_field(tmp_path: Path) -> None:
+    stage, adapter = _stage(skip_if_output_exists=True, save_npz=True, output_dir=str(tmp_path))
     partial = _task()
+    partial._set_task_id("manifest", 0)
     partial.data.update(_sed_framewise=np.zeros((5, _CLASSES)), sed_valid_frames=5, sed_fps=50.0)
     stage.process_batch([partial])
     assert adapter.calls
+    assert Path(partial.data["npz_filepath"]).is_file()
 
 
 @pytest.mark.parametrize(
@@ -250,6 +252,61 @@ def test_a_sidecar_round_trips_the_adapter_result(tmp_path: Path) -> None:
         assert npz["framewise"].shape[1] == _CLASSES
         assert float(npz["fps"]) == _SR / _HOP
         assert int(npz["valid_frames"]) == task.data["sed_valid_frames"]
+
+
+def test_waveform_mode_writes_a_sidecar_without_an_audio_filepath(tmp_path: Path) -> None:
+    stage, adapter = _stage(save_npz=True, output_dir=str(tmp_path))
+    task = _task()
+    task._set_task_id("manifest", 0)
+
+    (result,) = stage.process_batch([task])
+
+    assert len(adapter.calls) == 1
+    assert set(stage.outputs()[1]) <= set(result.data)
+    npz_path = Path(result.data["npz_filepath"])
+    assert npz_path.is_file()
+    assert npz_path.parent == tmp_path / "framewise"
+    with np.load(npz_path) as npz:
+        np.testing.assert_array_equal(npz["framewise"], result.data["_sed_framewise"])
+        assert float(npz["fps"]) == _SR / _HOP
+        assert npz["audio_filepath"].item() == ""
+        assert int(npz["original_num_samples"]) == _SR
+        assert int(npz["valid_frames"]) == result.data["sed_valid_frames"]
+
+
+def test_waveform_sidecar_makes_the_task_resumable(tmp_path: Path) -> None:
+    first_stage, first_adapter = _stage(save_npz=True, output_dir=str(tmp_path))
+    task = _task()
+    task._set_task_id("manifest", 0)
+    (completed,) = first_stage.process_batch([task])
+    original_path = completed.data["npz_filepath"]
+    assert len(first_adapter.calls) == 1
+
+    resume_stage, resume_adapter = _stage(
+        save_npz=True,
+        skip_if_output_exists=True,
+        output_dir=str(tmp_path),
+    )
+    (resumed,) = resume_stage.process_batch([completed])
+
+    assert resume_adapter.calls == []
+    assert resumed.data["npz_filepath"] == original_path
+
+
+def test_waveform_sidecar_paths_use_the_task_identity(tmp_path: Path) -> None:
+    stage, _ = _stage(save_npz=True, output_dir=str(tmp_path))
+    first = _task()
+    first._set_task_id("manifest", 0)
+    second = _task()
+    second._set_task_id("manifest", 1)
+    first, second = stage.process_batch([first, second])
+    assert first.data["npz_filepath"] != second.data["npz_filepath"]
+
+    rerun, _ = _stage(save_npz=True, output_dir=str(tmp_path))
+    same_identity = _task()
+    same_identity._set_task_id("manifest", 0)
+    (same_identity,) = rerun.process_batch([same_identity])
+    assert same_identity.data["npz_filepath"] == first.data["npz_filepath"]
 
 
 def test_same_basenames_get_distinct_stable_sidecar_paths(tmp_path: Path) -> None:

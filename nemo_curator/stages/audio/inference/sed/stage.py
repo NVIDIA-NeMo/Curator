@@ -82,7 +82,8 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         sample_rate: Sample rate supplied to the adapter after resampling.
         waveform_key: In-memory waveform field, or ``None`` to load files.
         sample_rate_key: Source sample-rate field for in-memory waveforms.
-        audio_filepath_key: File field used for loading and NPZ naming.
+        audio_filepath_key: File field used for loading and NPZ naming when
+            available. Waveform-only tasks use their Curator task ID instead.
         adapter_kwargs: Model-specific constructor options. For PANNs these
             include ``model_type``, frontend settings, class count, and padding.
     """
@@ -257,11 +258,19 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         for task_index, result, audio_path in zip(valid_indices, results, audio_paths, strict=True):
             task = tasks[task_index]
             framewise = np.asarray(result.framewise_output, dtype=dtype)
+            npz_path = None
+            if self.save_npz:
+                npz_path = self._save_npz(
+                    result=result,
+                    framewise=framewise,
+                    audio_path=audio_path,
+                    task_id=task.task_id,
+                )
             task.data[self.framewise_output_key] = framewise
             task.data[self.valid_frames_key] = int(result.valid_frames)
             task.data[self.fps_key] = float(result.fps)
-            if self.save_npz and audio_path:
-                task.data[self.npz_filepath_key] = self._save_npz(result, framewise, audio_path)
+            if npz_path is not None:
+                task.data[self.npz_filepath_key] = npz_path
 
     def _already_has_output(self, task: AudioTask) -> bool:
         keys = (self.framewise_output_key, self.valid_frames_key, self.fps_key)
@@ -269,13 +278,27 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             return False
         return not self.save_npz or task.data.get(self.npz_filepath_key) is not None
 
-    def _save_npz(self, result: SEDResult, framewise: np.ndarray, audio_path: str) -> str:
-        """Write one deterministic compressed sidecar and return its path."""
+    def _save_npz(self, result: SEDResult, framewise: np.ndarray, audio_path: str, task_id: str) -> str:
+        """Write one deterministic compressed sidecar and return its path.
+
+        File-backed tasks retain their path-based identity. In-memory tasks do
+        not require an audio path, so their framework-assigned task ID provides
+        the stable, collision-resistant identity instead.
+        """
+        sidecar_identity = audio_path or task_id
+        if not sidecar_identity:
+            msg = "SED NPZ output requires either an audio filepath or a framework-assigned task ID"
+            raise ValueError(msg)
+
         framewise_dir = os.path.join(self.output_dir, "framewise")
         os.makedirs(framewise_dir, exist_ok=True)
 
-        stem = os.path.splitext(os.path.basename(audio_path))[0]
-        path_hash = get_deterministic_hash([audio_path])[:8]
+        if audio_path:
+            stem = os.path.splitext(os.path.basename(audio_path))[0]
+            path_hash = get_deterministic_hash([sidecar_identity])[:8]
+        else:
+            stem = "task"
+            path_hash = get_deterministic_hash([sidecar_identity])
         npz_path = os.path.join(framewise_dir, f"{stem}__{path_hash}.npz")
         np.savez_compressed(
             npz_path,
