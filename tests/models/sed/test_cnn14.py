@@ -25,11 +25,6 @@ from nemo_curator.models import sed
 _CNN14_SOURCE = Path(sed.__file__).parent / "cnn14.py"
 
 
-# ----------------------------------------------------------------------
-# Registry
-# ----------------------------------------------------------------------
-
-
 def test_the_three_decision_level_variants_are_supported() -> None:
     assert set(sed.SUPPORTED_MODEL_TYPES) == {
         "Cnn14_DecisionLevelMax",
@@ -69,11 +64,6 @@ def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
 
 def test_listing_supported_types_needs_no_heavy_dependency() -> None:
     assert tuple(sed._MODEL_CLASS_NAMES) == sed.SUPPORTED_MODEL_TYPES
-
-
-# ----------------------------------------------------------------------
-# Vendored architectures
-# ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("model_type", ["Cnn14_DecisionLevelMax", "Cnn14_DecisionLevelAvg", "Cnn14_DecisionLevelAtt"])
@@ -129,11 +119,6 @@ def test_a_missing_torchlibrosa_names_the_extra_to_install() -> None:
     source = _CNN14_SOURCE.read_text(encoding="utf-8")
     assert "audio_sed" in source
     assert "raise ImportError" in source
-
-
-# ----------------------------------------------------------------------
-# Upstream attribution
-# ----------------------------------------------------------------------
 
 
 def test_the_vendored_model_carries_its_upstream_mit_license() -> None:

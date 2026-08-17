@@ -65,11 +65,6 @@ except ModuleNotFoundError as exc:
     raise ImportError(msg) from exc
 
 
-# ---------------------------------------------------------------------------
-# Utility functions (from PANNs pytorch_utils.py)
-# ---------------------------------------------------------------------------
-
-
 def init_layer(layer: nn.Module) -> None:
     """Initialize a Linear or Conv layer."""
     nn.init.xavier_uniform_(layer.weight)
@@ -101,11 +96,6 @@ def pad_framewise_output(framewise_output: torch.Tensor, frames_num: int) -> tor
     """Pad framewise output to match input frame count."""
     pad = framewise_output[:, -1:, :].repeat(1, frames_num - framewise_output.shape[1], 1)
     return torch.cat((framewise_output, pad), dim=1)
-
-
-# ---------------------------------------------------------------------------
-# Building blocks
-# ---------------------------------------------------------------------------
 
 
 class ConvBlock(nn.Module):
@@ -153,11 +143,6 @@ class AttBlock(nn.Module):
         if self.activation == "sigmoid":
             return torch.sigmoid(x)
         return x
-
-
-# ---------------------------------------------------------------------------
-# Shared CNN14 backbone
-# ---------------------------------------------------------------------------
 
 
 def _cnn14_backbone(  # noqa: PLR0913 - parameters define the checkpoint-compatible audio frontend
@@ -226,11 +211,6 @@ def _cnn14_encode(  # noqa: PLR0913 - shared encoder dependencies are explicit f
         x = blk(x, pool_size=ps, pool_type="avg")
         x = functional.dropout(x, p=0.2, training=training)
     return torch.mean(x, dim=3), frames_num
-
-
-# ---------------------------------------------------------------------------
-# Decision-Level models (produce framewise output)
-# ---------------------------------------------------------------------------
 
 
 class Cnn14DecisionLevelMax(nn.Module):
