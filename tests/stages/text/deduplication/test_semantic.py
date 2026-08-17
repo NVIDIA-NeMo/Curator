@@ -205,6 +205,9 @@ class TestTextSemanticDeduplicationWorkflow:
             n_clusters=3,  # Use fewer clusters to group similar documents
             eps=0.1,  # Set epsilon to identify duplicates
             which_to_keep="hard",  # Keep harder examples (less similar to others)
+            pairwise_batch_size="auto",
+            pairwise_compute_dtype="float32",
+            pairwise_profile=True,
             use_id_generator=use_id_generator,
             id_field="id" if not use_id_generator else "_curator_dedup_id",
             input_filetype="parquet",

@@ -153,7 +153,9 @@ Compare semantic deduplication with other methods:
 | `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of files used to fit K-means in `TextSemanticDeduplicationWorkflow`; enables the memory-efficient two-pass path |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
-| `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
+| `pairwise_compute_dtype` | str | `"auto"` | Pairwise multiplication precision: `"auto"`, `"float16"`, or `"float32"` |
+| `pairwise_batch_size` | int \| str | `1024` | Positive batch size for similarity computation, or `"auto"` for memory-derived sizing |
+| `pairwise_profile` | bool | `False` | Record synchronized read, prepare, similarity, output, and write timings |
 | `distance_metric` | str | `"cosine"` | Distance metric for similarity ("cosine" or "l2") |
 | `perform_removal` | bool | `True` | Whether to perform duplicate removal |
 | `text_field` | str | `"text"` | Name of the text field in input data |
@@ -164,6 +166,14 @@ Compare semantic deduplication with other methods:
 The same discovery rules apply to `TextSemanticDeduplicationWorkflow`, the pre-computed-embedding `SemanticDeduplicationWorkflow`, and `TextDuplicatesRemovalWorkflow`. The extension filter does not infer the reader format: keep `input_filetype="parquet"` when reading a custom Parquet suffix such as `.pq`. See [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery) for examples and recursion details.
 
 The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` use the parameter name `fit_data_fraction` for the same behavior.
+
+### Control Pairwise memory and precision
+
+Pairwise comparison keeps a reusable `N x B` similarity workspace, where `N` is the cluster size and `B` is `pairwise_batch_size`. Set the batch size to `"auto"` to derive a bounded width from currently free GPU memory. Only earlier-ranked rows are valid neighbors; equal similarity scores deterministically choose the earliest-ranked row. The `cosine_sim_score` output is always float32, independent of multiplication precision.
+
+Storage decoding and multiplication precision are separate controls. The lower-level Pairwise stage accepts `input_embedding_dtype`: `"float16"` expects embeddings stored as uint16 FP16 bit patterns, while `"float32"` expects native float32 list leaves. `"auto"` detects these representations and also normalizes legacy float64 list leaves to float32. The workflows expose `pairwise_compute_dtype`; `"auto"` retains the decoded precision, while `"float16"` or `"float32"` casts once before multiplication.
+
+Pairwise always records the cluster row count and resolved batch size. Enable `pairwise_profile=True` to additionally record synchronized read, prepare, similarity, output, and write timings. Overall stage time is already available as the built-in `process_time` metric. Profiling is opt-in because accurate phase boundaries synchronize GPU work and can measurably affect small clusters.
 
 ### Reduce K-means fitting memory
 
@@ -387,7 +397,7 @@ The workflow produces these output files:
    - **Important**: Contains only the IDs of documents to remove, not the full document content
    - When `perform_removal=True`, clean dataset is saved to `output_path/deduplicated/`
 
- 
+
 
 <Accordion title="Performance Considerations">
 

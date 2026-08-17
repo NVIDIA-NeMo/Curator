@@ -64,7 +64,9 @@ workflow:
       _target_: nemo_curator.stages.deduplication.semantic.RankingStrategy
       metadata_cols: ["cosine_dist_to_cent"]
       ascending: True
+    pairwise_compute_dtype: auto
     pairwise_batch_size: 1024
+    pairwise_profile: False
     # ID generator parameters
     # For large scale data removal we should set use_id_generator to True
     use_id_generator: False

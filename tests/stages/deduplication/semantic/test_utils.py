@@ -45,6 +45,68 @@ def test_get_array_from_df() -> None:
     cp.testing.assert_allclose(result, expected_array, rtol=1e-5, atol=1e-5)
 
 
+@pytest.mark.gpu
+@pytest.mark.parametrize(
+    ("leaf_dtype", "storage_dtype", "expected_dtype"),
+    [
+        ("uint16", "auto", "float16"),
+        ("uint16", "float16", "float16"),
+        ("float32", "auto", "float32"),
+        ("float32", "float32", "float32"),
+        ("float64", "auto", "float32"),
+    ],
+)
+def test_decode_embedding_array(
+    leaf_dtype: str,
+    storage_dtype: str,
+    expected_dtype: str,
+) -> None:
+    import cudf
+    import cupy as cp
+
+    from nemo_curator.stages.deduplication.semantic.utils import decode_embedding_array
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+
+    values = cp.asarray([[0.25, -0.5], [1.0, 0.125]], dtype=expected_dtype)
+    stored_values = values.view(cp.uint16) if leaf_dtype == "uint16" else values.astype(leaf_dtype)
+    df = cudf.DataFrame(index=cudf.RangeIndex(len(values)))
+    df["embedding"] = create_list_series_from_1d_or_2d_ar(stored_values, index=df.index)
+
+    decoded = decode_embedding_array(df, "embedding", storage_dtype)
+
+    assert decoded.dtype == cp.dtype(expected_dtype)
+    cp.testing.assert_array_equal(decoded, values)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize(
+    ("leaf_dtype", "storage_dtype", "error_type"),
+    [
+        ("float32", "float16", TypeError),
+        ("uint16", "float32", TypeError),
+        ("int32", "auto", TypeError),
+        ("float32", "bfloat16", ValueError),
+    ],
+)
+def test_decode_embedding_array_rejects_invalid_storage(
+    leaf_dtype: str,
+    storage_dtype: str,
+    error_type: type[Exception],
+) -> None:
+    import cudf
+    import cupy as cp
+
+    from nemo_curator.stages.deduplication.semantic.utils import decode_embedding_array
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+
+    values = cp.asarray([[1, 2]], dtype=leaf_dtype)
+    df = cudf.DataFrame(index=cudf.RangeIndex(len(values)))
+    df["embedding"] = create_list_series_from_1d_or_2d_ar(values, index=df.index)
+
+    with pytest.raises(error_type):
+        decode_embedding_array(df, "embedding", storage_dtype)
+
+
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
 class TestBreakParquetPartitionIntoGroups:
     @patch("pyarrow.parquet.read_metadata", return_value=Mock(num_rows=10_000))

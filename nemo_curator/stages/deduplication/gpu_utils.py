@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+
 import pynvml
 import ray
+from loguru import logger
 
 
 def align_down_to_256(memory_size: int) -> int:
@@ -37,3 +40,61 @@ def get_device_free_memory() -> int | None:
         return pynvml.nvmlDeviceGetMemoryInfo(handle).free
     except pynvml.NVMLError:
         return None
+
+
+def release_cached_gpu_memory(*, reset_owned_rmm_pool: bool = False) -> None:
+    """Best-effort release of Python and GPU allocator caches.
+
+    Args:
+        reset_owned_rmm_pool: Replace a non-releasable pooled RMM resource only
+            when the caller created and therefore owns that process-global pool.
+    """
+
+    def release_torch_cache() -> None:
+        import torch
+
+        torch.cuda.empty_cache()
+
+    def release_cupy_device_cache() -> None:
+        import cupy as cp
+
+        cp.get_default_memory_pool().free_all_blocks()
+
+    def release_cupy_pinned_cache() -> None:
+        import cupy as cp
+
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+
+    def release_rmm_cache() -> None:
+        import rmm
+
+        resource = rmm.mr.get_current_device_resource()
+        release = getattr(resource, "release", None)
+        if callable(release):
+            release()
+        elif type(resource).__name__ in {"CudaAsyncMemoryResource", "CudaAsyncViewMemoryResource"}:
+            import torch
+
+            torch.cuda.synchronize()
+        elif reset_owned_rmm_pool and type(resource).__name__ in {
+            "ArenaMemoryResource",
+            "BinningMemoryResource",
+            "FixedSizeMemoryResource",
+            "PoolMemoryResource",
+        }:
+            # These RMM pools do not expose a trim operation. Only their owner
+            # may replace the process-global resource after live objects die.
+            rmm.reinitialize(pool_allocator=False)
+
+    cleanup_actions = (
+        ("Python", gc.collect),
+        ("Torch", release_torch_cache),
+        ("CuPy device", release_cupy_device_cache),
+        ("CuPy pinned", release_cupy_pinned_cache),
+        ("RMM", release_rmm_cache),
+    )
+    for allocator, action in cleanup_actions:
+        try:
+            action()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to release {allocator} allocator cache: {exc}")
