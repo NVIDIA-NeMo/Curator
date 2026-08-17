@@ -34,17 +34,18 @@ def test_applies_ordered_rules_and_normalizes_whitespace(tmp_path: Path) -> None
         regex_params_yaml=_rules(
             tmp_path,
             [
-                {"pattern": r"\bum\b", "repl": ""},
-                {"pattern": r"\bN V I D I A\b", "repl": "NVIDIA"},
+                {"pattern": r"\bfoo\b", "repl": "A P I"},
+                {"pattern": r"\bA P I\b", "repl": "G P U"},
+                {"pattern": r"\bG P U\b", "repl": "GPU"},
             ],
         )
     )
     stage.setup()
-    task = AudioTask(data={"pred_text": "um  N V I D I A builds GPUs"})
+    task = AudioTask(data={"pred_text": "  foo   acceleration  "})
 
     stage.process(task)
 
-    assert task.data["text"] == "NVIDIA builds GPUs"
+    assert task.data["text"] == "GPU acceleration"
 
 
 def test_preserves_skipped_rows(tmp_path: Path) -> None:
@@ -104,6 +105,71 @@ def test_inherited_batch_processing_and_default_stage_chain(tmp_path: Path) -> N
     results = abbreviation_stage.process_batch(normalized)
 
     assert [task.data["text"] for task in results] == ["API on GPU", "NVIDIA"]
+
+
+# Golden outputs verified against nithinraok/Curator@1f1e770b with
+# branch-neutral field names and the current-main stage lifecycle.
+@pytest.mark.parametrize(
+    ("rules", "raw", "language", "expected"),
+    [
+        ([{"pattern": "’", "repl": "'"}], "we’re  A P I", "en", ("we're A P I", "we're API")),  # noqa: RUF001
+        (
+            [
+                {"pattern": r"\bfoo\b", "repl": "A P I"},
+                {"pattern": r"\bA P I\b", "repl": "G P U"},
+            ],
+            "foo",
+            "en",
+            ("G P U", "GPU"),
+        ),
+        ([], "  А Б В  ", "ru", ("А Б В", "АБВ")),  # noqa: RUF001
+    ],
+)
+def test_reference_compatible_stage_chain(
+    tmp_path: Path,
+    rules: list[dict[str, object]],
+    raw: str,
+    language: str,
+    expected: tuple[str, str],
+) -> None:
+    regex_stage = RegexSubstitutionStage(
+        regex_params_yaml=_rules(tmp_path, rules),
+        text_key="raw",
+        output_text_key="cleaned",
+        skip_me_key="skip_reason",
+    )
+    abbreviation_stage = AbbreviationConcatStage(
+        text_key="cleaned",
+        output_text_key="normalized",
+        skip_me_key="skip_reason",
+        source_lang_key="language",
+    )
+    regex_stage.setup()
+    tasks = [AudioTask(data={"raw": raw, "language": language, "skip_reason": ""})]
+
+    cleaned = regex_stage.process_batch(tasks)
+    results = abbreviation_stage.process_batch(cleaned)
+    expected_cleaned, expected_normalized = expected
+
+    assert results[0].data["raw"] == raw
+    assert results[0].data["cleaned"] == expected_cleaned
+    assert results[0].data["normalized"] == expected_normalized
+    assert results[0].data["skip_reason"] == ""
+
+
+def test_non_string_input_stabilizes_output_schema(tmp_path: Path) -> None:
+    stage = RegexSubstitutionStage(
+        regex_params_yaml=_rules(tmp_path, []),
+        text_key="raw",
+        output_text_key="cleaned",
+    )
+    stage.setup()
+    task = AudioTask(data={"raw": None})
+
+    stage.process(task)
+
+    assert task.data["raw"] is None
+    assert task.data["cleaned"] == ""
 
 
 def test_rejects_non_list_yaml(tmp_path: Path) -> None:
