@@ -339,7 +339,7 @@ def test_sidecar_output_is_declared_only_when_enabled() -> None:
 
 def test_worker_count_is_backend_selected_or_explicitly_pinned() -> None:
     default, _ = _stage()
-    pinned, _ = _stage(num_workers_override=4)
+    pinned = default.with_(num_workers=4)
     assert default.num_workers() is None
     assert pinned.num_workers() == 4
 
