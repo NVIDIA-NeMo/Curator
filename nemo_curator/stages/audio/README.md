@@ -558,7 +558,7 @@ of entry size.  All memory is in `task.data`:
 
 | Entry type | JSON on disk | `dict` in memory | `AudioTask` total | Wrapper overhead |
 |---|---|---|---|---|
-| Simple FLEURS (2 keys) | ~120 B | 394 B | 741 B | 347 B |
+| Simple ASR manifest row (2 keys) | ~120 B | 394 B | 741 B | 347 B |
 | Median ALM manifest row | ~1.2 MB | ~4 MB | ~4 MB | 347 B |
 | Largest ALM manifest row | 10.8 MB | 39.3 MB | 39.3 MB | 349 B |
 
@@ -620,163 +620,108 @@ memory (soundfile, editdistance, etc. are lightweight).
 **GPU stages** (e.g. `ASRStage` + `NeMoASRAdapter`): Peak memory is
 dominated by **model VRAM**, not task data.  A NeMo ASR
 FastConformer-TDT model uses ~2–4 GB of VRAM.  The task data
-(`batch_size × entry_size`) is negligible in comparison — 16 FLEURS
+(`batch_size × entry_size`) is negligible in comparison — 16 simple ASR
 entries is 16 × 741 B ≈ 12 KB, while even 16 large ALM entries is
 16 × 4 MB ≈ 64 MB (still small vs the model).
 
-## End-to-end `AudioTask` trace (FLEURS pipeline)
+## End-to-end `AudioTask` trace (LibriSpeech pipeline)
 
-Below is a single English FLEURS entry flowing through every stage in
-`tutorials/audio/fleurs/main.py`. All values are **real output** from running
-`lang=en_us stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2
-data_split=dev wer_threshold=75`.
+The active ASR tutorial in `tutorials/audio/librispeech/` separates data
+preparation from processing. The preparation script writes `manifest.jsonl`
+and FLAC files once; the pipeline then runs:
 
-Pipeline: download → ASR → WER → duration → filter → convert → write.
+`ManifestReader` → ASR → WER → duration → filter → convert → write.
 
-### Stage 1: `CreateInitialManifestFleursStage`
+The following values illustrate how one prepared LibriSpeech row changes.
+Exact paths, transcripts, predictions, WER, and duration depend on the selected
+rows and model run.
 
-Downloads the FLEURS `dev` split, parses the TSV transcript, and emits
-one `AudioTask` per line (394 entries for `en_us` dev).
+### Stage 1: `ManifestReader`
 
-**Output** (one of 394 entries):
+`ManifestReader` decomposes into `FilePartitioningStage` and
+`ManifestReaderStage`. It streams the prepared JSONL and emits an `AudioTask`
+for each row:
 
-```
+```text
 AudioTask(
-  task_id      = "task_id_/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
-  dataset_name = "Fleurs_en_us_dev_./example_audio/fleurs_en",
-  filepath_key = "audio_filepath",
+  dataset_name = "manifest",
   data = {
-    "audio_filepath": "/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
-    "text": "The major religion in Moldova is Orthodox Christian."
+    "audio_filepath": "/data/librispeech/audio/6930-75918-0000.flac",
+    "text": "A LIBRISPEECH REFERENCE TRANSCRIPT"
   }
 )
 ```
 
-*(Only 2 keys: `audio_filepath` and `text`.)*
+The manifest comes from
+`benchmarking/data_prep/prepare_librispeech_data.py`; download and staging do
+not happen inside the pipeline.
 
 ### Stage 2: `ASRStage` + `NeMoASRAdapter` (GPU)
 
-The generic stage loads and normalizes each current-batch waveform; the NeMo
-adapter loads `nvidia/parakeet-tdt-0.6b-v2` onto the GPU and runs one batched
-`transcribe()` call for 16 `AudioTask`s. The stage writes predictions back
-**in-place**.
-
-**Output** — `data` gains `pred_text`:
+The generic stage loads and normalizes each current-batch waveform. The adapter
+loads `nvidia/parakeet-tdt-0.6b-v2`, runs batched `transcribe()`, and writes
+`pred_text` back in place:
 
 ```json
 {
-  "audio_filepath": "/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
-  "text": "The major religion in Moldova is Orthodox Christian.",
-  "pred_text": "The major religion in Moldova is Orthodox Christian."
+  "audio_filepath": "/data/librispeech/audio/6930-75918-0000.flac",
+  "text": "A LIBRISPEECH REFERENCE TRANSCRIPT",
+  "pred_text": "a librispeech reference transcript"
 }
 ```
-
-*(3 keys now.  `pred_text` is the model's hypothesis — perfect match here.)*
 
 ### Stage 3: `GetPairwiseWerStage`
 
-Computes word-error-rate between `text` and `pred_text`.
-
-**Output** — `data` gains `wer`:
+The stage compares `text` and `pred_text` as supplied and adds `wer_pct` as a
+percentage. LibriSpeech references are uppercase and unpunctuated, while model
+output may use different casing and punctuation. Choose a threshold only after
+deciding how those strings should be normalized.
 
 ```json
 {
   "audio_filepath": "...",
-  "text": "The major religion in Moldova is Orthodox Christian.",
-  "pred_text": "The major religion in Moldova is Orthodox Christian.",
-  "wer": 0.0
+  "text": "A LIBRISPEECH REFERENCE TRANSCRIPT",
+  "pred_text": "a librispeech reference transcript",
+  "wer_pct": 100.0
 }
 ```
-
-*(4 keys.  WER is in percent — 0.0% means a perfect transcription.)*
 
 ### Stage 4: `GetAudioDurationStage`
 
-Opens the WAV file with `soundfile`, reads `shape[0] / samplerate`.
-
-**Output** — `data` gains `duration`:
-
-```json
-{
-  "audio_filepath": "...",
-  "text": "The major religion in Moldova is Orthodox Christian.",
-  "pred_text": "The major religion in Moldova is Orthodox Christian.",
-  "wer": 0.0,
-  "duration": 4.92
-}
-```
-
-*(5 keys.  Duration is 4.92 seconds.)*
+The stage reads the FLAC header with `soundfile` and adds the measured runtime
+`duration`.
 
 ### Stage 5: `PreserveByValueStage`
 
-Filters: keep only entries where `wer <= 75.0`.
-
-- This entry has `wer = 0.0` → **kept** (returns same task).
-- An entry with `wer = 88.5` would be **dropped** (returns `None`).
-
-In this run all 394 entries passed (max WER was 50.0% — the Parakeet
-model transcribes English FLEURS very accurately).
-
-**Output**: unchanged task, or entry removed from pipeline.
+The tutorial keeps entries where `wer_pct <= wer_threshold`. The supplied
+default is deliberately permissive so the first run retains rows despite raw
+case and punctuation differences. A stricter threshold can drop entries.
 
 ### Stage 6: `AudioToDocumentStage`
 
-Converts the `AudioTask` into a `DocumentBatch` for downstream text
-stages (e.g. `JsonlWriter`).  With `batch_size=1` the output is a
-single-row `pd.DataFrame`:
-
-```
-DocumentBatch(
-  task_id      = "task_id_/home/user/.../10146705666908229607.wav,...",
-  dataset_name = "Fleurs_en_us_dev_./example_audio/fleurs_en",
-  data = pd.DataFrame({
-    "audio_filepath": ["/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav"],
-    "text":           ["The major religion in Moldova is Orthodox Christian."],
-    "pred_text":      ["The major religion in Moldova is Orthodox Christian."],
-    "wer":            [0.0],
-    "duration":       [4.92]
-  })
-)
-```
+The stage converts batches of `AudioTask` objects into `DocumentBatch`
+DataFrames while preserving the serializable manifest fields and metrics.
 
 ### Stage 7: `JsonlWriter`
 
-Writes each row of the DataFrame as one JSON line to
-`./example_audio/fleurs_en/result/`:
+The writer emits each DataFrame row as one JSON line below
+`./example_audio/librispeech/result/`:
 
 ```json
-{"audio_filepath": "/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav", "text": "The major religion in Moldova is Orthodox Christian.", "pred_text": "The major religion in Moldova is Orthodox Christian.", "wer": 0.0, "duration": 4.92}
+{"audio_filepath":"/data/librispeech/audio/6930-75918-0000.flac","text":"A LIBRISPEECH REFERENCE TRANSCRIPT","duration":4.2,"pred_text":"a librispeech reference transcript","wer_pct":100.0}
 ```
 
 ### Summary table
 
-| Stage | Keys in `data` | Type out |
+| Stage | Main effect | Type out |
 |---|---|---|
-| `CreateInitialManifestFleursStage` | `audio_filepath`, `text` | `AudioTask` |
-| `ASRStage` + `NeMoASRAdapter` | + `pred_text` | `AudioTask` |
-| `GetPairwiseWerStage` | + `wer` | `AudioTask` |
-| `GetAudioDurationStage` | + `duration` | `AudioTask` |
-| `PreserveByValueStage` | (unchanged or dropped) | `AudioTask` |
-| `AudioToDocumentStage` | (all 5 keys) | `DocumentBatch` |
-| `JsonlWriter` | — | file on disk |
-
-### Contrast: high-WER entry
-
-For comparison, here is a real entry where the model struggled (WER = 50%):
-
-```json
-{
-  "text": "The Tibetan Buddhism is based on the teachings of Buddha, but were extended by the mahayana path of love and by a lot of techniques from Indian Yoga.",
-  "pred_text": "The Tibetan Buddhism is based on the teachings of Buddha but were extended by Mahayana by the Mahayana Deputy Buddha.",
-  "wer": 50.0,
-  "duration": 8.88
-}
-```
-
-With `--wer_threshold 75`, this entry still passes.  At a stricter
-threshold like `--wer_threshold 30`, it would be dropped by
-`PreserveByValueStage`.
+| `ManifestReader` | Loads prepared manifest fields | `AudioTask` |
+| `ASRStage` + `NeMoASRAdapter` | Adds `pred_text` | `AudioTask` |
+| `GetPairwiseWerStage` | Adds `wer_pct` | `AudioTask` |
+| `GetAudioDurationStage` | Measures `duration` | `AudioTask` |
+| `PreserveByValueStage` | Keeps or drops each row | `AudioTask` |
+| `AudioToDocumentStage` | Converts task batches | `DocumentBatch` |
+| `JsonlWriter` | Writes JSONL | file on disk |
 
 ## End-to-end `AudioTask` trace (ALM pipeline)
 

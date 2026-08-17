@@ -12,28 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-FLEURS audio curation pipeline for NeMo Curator.
-
-Downloads a FLEURS split, runs ASR, scores WER, filters by threshold, and
-writes a JSONL manifest — all driven by ``pipeline.yaml`` via Hydra.
-
-Usage (from Curator repo root)::
-
-    python tutorials/audio/fleurs/main.py \\
-        --config-path . \\
-        --config-name pipeline \\
-        raw_data_dir=./example_audio/fleurs
-
-    python tutorials/audio/fleurs/main.py \\
-        --config-path . \\
-        --config-name pipeline \\
-        raw_data_dir=./example_audio/fleurs \\
-        lang=en_us \\
-        stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2 \\
-        wer_threshold=25.0 \\
-        backend=ray_data
-"""
+"""Run the LibriSpeech ASR and WER tutorial pipeline."""
 
 import importlib
 
@@ -59,7 +38,7 @@ def _create_executor(backend: str) -> object:
 
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
-    """Run the FLEURS pipeline using Hydra configuration."""
+    """Run the LibriSpeech pipeline using Hydra configuration."""
     ray_client = RayClient()
     try:
         ray_client.start()
@@ -67,8 +46,6 @@ def main(cfg: DictConfig) -> None:
         pipeline = create_pipeline_from_yaml(cfg, log_config=False)
 
         logger.info(pipeline.describe())
-        logger.info("\n" + "=" * 50 + "\n")
-
         backend = cfg.get("backend", "xenna")
         if backend not in _EXECUTOR_FACTORIES:
             msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
@@ -76,10 +53,9 @@ def main(cfg: DictConfig) -> None:
         logger.info(f"Using backend: {backend}")
         executor = _create_executor(backend)
 
-        logger.info("Starting pipeline execution...")
+        logger.info("Starting pipeline")
         pipeline.run(executor)
-
-        logger.info("\nPipeline completed!")
+        logger.info("Pipeline completed")
     finally:
         ray_client.stop()
 

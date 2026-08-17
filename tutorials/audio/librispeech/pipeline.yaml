@@ -1,0 +1,55 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Run ASR, score WER, filter by threshold, and write a LibriSpeech manifest.
+
+manifest_path: ???
+output_dir: ./example_audio/librispeech/result
+wer_threshold: 1000.0
+backend: xenna
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt-0.6b-v2
+    audio_filepath_key: audio_filepath
+    target_sample_rate: 16000
+    batch_size: 16
+    adapter_kwargs:
+      use_cuda_graph_decoder: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 1.0
+
+  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
+    text_key: text
+    pred_text_key: pred_text
+    wer_key: wer_pct
+
+  - _target_: nemo_curator.stages.audio.common.GetAudioDurationStage
+    audio_filepath_key: audio_filepath
+    duration_key: duration
+
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
+    input_value_key: wer_pct
+    target_value: ${wer_threshold}
+    operator: le
+
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}
+    write_kwargs:
+      force_ascii: false
