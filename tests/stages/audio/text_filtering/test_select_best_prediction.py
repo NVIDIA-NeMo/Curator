@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from copy import deepcopy
+
 from nemo_curator.stages.audio.text_filtering.select_best_prediction import SelectBestPredictionStage
 from nemo_curator.tasks import AudioTask
 
@@ -359,3 +361,139 @@ def test_keeps_primary_by_default() -> None:
     SelectBestPredictionStage().process_batch(tasks)
 
     assert [task.data["best_prediction"] for task in tasks] == ["one", "two"]
+
+
+def test_reference_decision_parity_precedence_and_fallthrough() -> None:
+    """Golden decisions from reference selector commit 8469455fbd18de74928f21e1cc241358fc8d9e08."""
+    cases = [
+        (
+            "short audio precedes force and recovery",
+            {
+                "primary_model_prediction": "primary transcript",
+                "fallback_model_prediction": "fallback transcript",
+                "reference": "ground truth",
+                "duration": 0.25,
+                "_skipme": "Hallucination",
+                "additional_notes": {"fallback_check": "Recovered"},
+            },
+            {
+                "reference_text_key": "reference",
+                "primary_model_type": "qwen_omni",
+                "force_reference": True,
+                "recovery_note_key": "fallback_check",
+            },
+            (
+                "ground truth",
+                "ground_truth",
+                "",
+                None,
+                "Ground Truth (short audio 0.25s < 1.0s)",
+            ),
+        ),
+        (
+            "ground truth precedes both-models-unsupported",
+            {
+                "primary_model_prediction": "",
+                "fallback_model_prediction": "",
+                "reference": "ground truth",
+                "_skipme": "language_not_supported",
+                "additional_notes": {
+                    "primary_model_prediction": "lang_not_supported:xx",
+                    "fallback_model_prediction": "lang_not_supported:xx",
+                },
+            },
+            {"reference_text_key": "reference"},
+            ("ground truth", "ground_truth", "", None, "Ground Truth"),
+        ),
+        (
+            "scoped recovery alias precedes reference and agreement",
+            {
+                "primary_model_prediction": "selected fallback",
+                "fallback_model_prediction": "ignored fallback",
+                "asr_prediction": "selected fallback",
+                "reference": "ground truth",
+                "_skipme": "Hallucination",
+                "additional_notes": {"fallback_check": "Recovered:ASR"},
+            },
+            {
+                "asr_text_key": "asr_prediction",
+                "recovery_note_key": "fallback_check",
+                "reference_text_key": "reference",
+                "use_reference_on_hallucination": True,
+            },
+            ("selected fallback", "fallback", "", None, "used fallback"),
+        ),
+        (
+            "reference recovery precedes agreement",
+            {
+                "primary_model_prediction": "Hello, world!",
+                "fallback_model_prediction": "hello world",
+                "reference": "ground truth",
+                "_skipme": "Hallucination",
+            },
+            {
+                "reference_text_key": "reference",
+                "use_reference_on_hallucination": True,
+            },
+            (
+                "ground truth",
+                "reference",
+                "",
+                None,
+                "recovered:reference_text (hallucination_detected, fallback=reference)",
+            ),
+        ),
+        (
+            "empty reference falls through short and reference recovery",
+            {
+                "primary_model_prediction": "Hello, world!",
+                "fallback_model_prediction": "hello world",
+                "reference": "   ",
+                "duration": 0.25,
+                "_skipme": "Hallucination",
+            },
+            {
+                "reference_text_key": "reference",
+                "primary_model_type": "qwen_omni",
+                "use_reference_on_hallucination": True,
+            },
+            (
+                "Hello, world!",
+                "primary",
+                "",
+                0.0,
+                "recovered:cross_model_agreement (wer=0.0%)",
+            ),
+        ),
+        (
+            "fallback is ignored without a selection signal",
+            {
+                "primary_model_prediction": "primary transcript",
+                "fallback_model_prediction": "fallback transcript",
+            },
+            {},
+            ("primary transcript", "primary", None, None, "used primary"),
+        ),
+    ]
+
+    for name, data, stage_kwargs, expected in cases:
+        task = AudioTask(data=deepcopy(data))
+        stage = SelectBestPredictionStage(
+            agreement_wer_key="omni_asr_agreement_wer",
+            **stage_kwargs,
+        )
+
+        stage.process(task)
+
+        expected_text, expected_source, expected_skip, expected_wer, expected_note = expected
+        assert task.data["best_prediction"] == expected_text, name
+        assert task.data["best_prediction_source"] == expected_source, name
+        if expected_skip is None:
+            assert "_skipme" not in task.data, name
+        else:
+            assert task.data["_skipme"] == expected_skip, name
+        if expected_wer is None:
+            assert "omni_asr_agreement_wer" not in task.data, name
+        else:
+            assert task.data["omni_asr_agreement_wer"] == expected_wer, name
+        assert task.data["additional_notes"]["SelectBestPrediction"] == expected_note, name
