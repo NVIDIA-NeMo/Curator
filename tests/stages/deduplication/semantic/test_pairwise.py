@@ -16,7 +16,7 @@
 
 from contextlib import suppress
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
@@ -36,6 +36,7 @@ with suppress(ImportError):
     )
     from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
     from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
     from nemo_curator.tasks import FileGroupTask
 
 
@@ -58,43 +59,117 @@ class TestPairwiseCosineSimilarityBatched:
         self.expected_pairwise_similarity = np.array([0.0000, 0.974631, 0.998190, 0.999618, 1.0000, 1.0000])
         self.expected_indices = np.array([0, 0, 1, 2, 0, 0])
 
-    @pytest.mark.parametrize("batch_size", [1, 2, 3, 4, 5, 6])
-    def test_pairwise_cosine_similarity_batched(self, batch_size: int) -> None:
-        """Test pairwise cosine similarity with different batch sizes."""
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(self.input_embeddings, batch_size)
+    @pytest.mark.parametrize(
+        ("input_dtype", "compute_dtype", "batch_size", "output_dtype"),
+        [
+            (torch.float32, "auto", 1, "float32"),
+            (torch.float32, "float16", 2, "float16"),
+            (torch.float16, "auto", 6, "float16"),
+            (torch.float16, "float16", 3, "float16"),
+        ],
+    )
+    def test_pairwise_cosine_similarity_batched(
+        self,
+        input_dtype: torch.dtype,
+        compute_dtype: str,
+        batch_size: int,
+        output_dtype: str,
+    ) -> None:
+        """Fixed batches preserve compute precision and earlier-rank behavior."""
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(
+            self.input_embeddings.to(input_dtype), batch_size, compute_dtype
+        )
         np.testing.assert_allclose(
             max_similarity.tolist(),
             self.expected_pairwise_similarity,
-            rtol=1e-6,
-            atol=1e-6,
+            rtol=2e-3 if input_dtype == torch.float16 or output_dtype == "float16" else 1e-6,
+            atol=2e-3 if input_dtype == torch.float16 or output_dtype == "float16" else 1e-6,
         )
         np.testing.assert_array_equal(max_indices.tolist(), self.expected_indices)
+        assert max_similarity.dtype == cp.dtype(output_dtype)
 
-    @pytest.mark.parametrize("batch_size", [100, 512, 1024, 2048])
+    def test_rejects_upcasting_fp16_embeddings(self) -> None:
+        with pytest.raises(ValueError, match="float16 embeddings"):
+            pairwise_cosine_similarity_batched(self.input_embeddings.to(torch.float16), compute_dtype="float32")
+
+    @pytest.mark.parametrize("batch_size", [7, 64])
     def test_pairwise_cosine_similarity_batched_rand_array(self, batch_size: int) -> None:
-        """Test with random arrays to ensure consistency across batch sizes."""
-        n, d = 1024, 512
+        """Test fixed batching against a full-matrix reference."""
+        torch.manual_seed(42)
+        n, d = 64, 32
         rand_arr = torch.randn(n, d, device="cuda")
+        reference = rand_arr @ rand_arr.T
+        valid_neighbors = torch.ones((n, n), dtype=torch.bool, device="cuda").tril_(diagonal=-1)
+        reference.masked_fill_(~valid_neighbors, -torch.inf)
+        expected_similarity, expected_indices = torch.max(reference, dim=1)
+        expected_similarity[0] = 0.0
+        expected_indices[0] = 0
 
-        # Compare with batch_size=1024 as reference
-        max_similarity_ref, max_indices_ref = pairwise_cosine_similarity_batched(rand_arr, batch_size=1024)
-        max_similarity_test, max_indices_test = pairwise_cosine_similarity_batched(rand_arr, batch_size=batch_size)
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(rand_arr, batch_size=batch_size)
 
-        np.testing.assert_allclose(
-            max_similarity_ref.tolist(),
-            max_similarity_test.tolist(),
-            rtol=1e-5,
-            atol=1e-5,
+        np.testing.assert_allclose(max_similarity.tolist(), expected_similarity.tolist(), rtol=1e-5, atol=1e-5)
+        np.testing.assert_array_equal(max_indices.tolist(), expected_indices.tolist())
+
+    def test_fp16_and_fp32_agree_on_non_tie_neighbor_ids(self) -> None:
+        """FP16 and FP32 select the same unique neighbors for a four-row chain.
+
+        A points along x; B is closest to A; C is closest to B; and D is
+        closest to C. The expected earlier-neighbor indices are [0, 0, 1, 2].
+        """
+        embeddings = torch.tensor(
+            [[1.0, 0.0, 0.0], [0.8, 0.6, 0.0], [0.1, 0.9, 0.4], [-0.2, 0.1, 0.97]],
+            device="cuda",
         )
-        np.testing.assert_array_equal(max_indices_ref.tolist(), max_indices_test.tolist())
+        embeddings = embeddings / torch.linalg.vector_norm(embeddings, dim=1, keepdim=True)
+
+        fp16_scores, fp16_indices = pairwise_cosine_similarity_batched(embeddings.to(torch.float16), 2)
+        fp32_scores, fp32_indices = pairwise_cosine_similarity_batched(embeddings, 2)
+
+        assert fp16_scores.dtype == cp.float16
+        assert fp32_scores.dtype == cp.float32
+        np.testing.assert_array_equal(fp16_indices.tolist(), fp32_indices.tolist())
+        np.testing.assert_allclose(fp16_scores.tolist(), fp32_scores.tolist(), rtol=2e-3, atol=2e-3)
+
+    @pytest.mark.parametrize("batch_size", [1, 2])
+    def test_negative_similarity_is_not_replaced_by_masked_zero(self, batch_size: int) -> None:
+        """Masking future rows must not beat a valid negative earlier-row similarity."""
+        embeddings = torch.tensor([[1.0, 0.0], [-1.0, 0.0]], dtype=torch.float32)
+
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(embeddings, batch_size)
+
+        np.testing.assert_array_equal(max_indices.tolist(), [0, 0])
+        np.testing.assert_allclose(max_similarity.tolist(), [0.0, -1.0])
 
 
 @pytest.mark.gpu
 class TestPairwiseCosineSimilarityStage:
     """Test cases for PairwiseCosineSimilarityStage."""
 
-    def test_single_item_cluster(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"pairwise_batch_size": 0}, "positive integer"),
+            ({"pairwise_batch_size": True}, "positive integer"),
+            ({"compute_dtype": "bfloat16"}, "Unsupported compute_dtype"),
+        ],
+    )
+    def test_rejects_invalid_stage_settings(self, kwargs: dict[str, object], message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            PairwiseCosineSimilarityStage(
+                id_field="id",
+                embedding_field="embedding",
+                output_path="/unused",
+                ranking_strategy=RankingStrategy.random(),
+                **kwargs,
+            )
+
+    def test_single_item_cluster(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test processing a cluster with a single item."""
+        release = Mock()
+        monkeypatch.setattr(
+            "nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory",
+            release,
+        )
         # Create test data with single embedding
         test_data = cudf.DataFrame({"id": [1], "embedding": [[0.1, 0.2, 0.3]]})
 
@@ -144,72 +219,94 @@ class TestPairwiseCosineSimilarityStage:
         assert "max_id" in result_df.columns
         assert "cosine_sim_score" in result_df.columns
         assert result_df["cosine_sim_score"].iloc[0] == 0.0
+        assert result_df["cosine_sim_score"].dtype == np.dtype("float32")
+        stage.teardown()
+        release.assert_called_once_with()
 
-    def test_multi_item_cluster(self, tmp_path: Path) -> None:
-        """Test processing a cluster with multiple items."""
-        # Create test data with multiple embeddings (similar to setup_method in test_semdedup.py)
-        embeddings = [
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [1.0, 2.0, 3.0],  # Duplicate of first
-        ]
-        # Normalize embeddings
-        embeddings_tensor = torch.tensor(embeddings, dtype=torch.float32)
-        embeddings_tensor = embeddings_tensor / torch.norm(embeddings_tensor, dim=1, keepdim=True)
-        embeddings_normalized = embeddings_tensor.tolist()
+    @pytest.mark.parametrize(
+        "case",
+        [
+            ("float16", "auto", 2, 2),
+            ("float32", "auto", 8, 4),
+            ("float32", "float16", 2, 2),
+        ],
+    )
+    def test_multi_item_cluster(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        case: tuple[str, str, int, int],
+    ) -> None:
+        """Exercise storage/compute precision, file groups, ranking, ties, and metrics together."""
+        storage_dtype, compute_dtype, batch_size, expected_batch_size = case
+        embeddings = cp.asarray(
+            [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.8, 0.6, 0.0]],
+            dtype=cp.float32,
+        )
+        if storage_dtype == "float16":
+            embeddings = embeddings.astype(cp.float16).view(cp.uint16)
 
-        test_data = cudf.DataFrame({"id": [1, 2, 3], "embedding": embeddings_normalized})
+        input_files = []
+        for file_index, row_slice in enumerate((slice(0, 2), slice(2, 4))):
+            frame = cudf.DataFrame(
+                {
+                    "document_key": [30, 10, 40, 20][row_slice],
+                    "quality_rank": [3, 1, 4, 2][row_slice],
+                }
+            )
+            frame["embedding"] = create_list_series_from_1d_or_2d_ar(embeddings[row_slice], index=frame.index)
+            input_file = tmp_path / f"multi_item_{file_index}.parquet"
+            frame.to_parquet(input_file)
+            input_files.append(str(input_file))
 
-        # Save to parquet file
-        input_file = tmp_path / "multi_item.parquet"
-        test_data.to_parquet(input_file)
-        # Create output directory
+        monkeypatch.setattr(
+            "nemo_curator.stages.deduplication.semantic.pairwise.break_parquet_partition_into_groups",
+            lambda _: [[path] for path in input_files],
+        )
         output_dir = tmp_path / "output"
         output_dir.mkdir()
-
-        # Create stage with default ranking strategy
-        ranking_strategy = RankingStrategy.random()
         stage = PairwiseCosineSimilarityStage(
-            id_field="id",
+            id_field="document_key",
             embedding_field="embedding",
             output_path=str(output_dir),
-            ranking_strategy=ranking_strategy,
-            pairwise_batch_size=2,  # Small batch size for testing
-            read_kwargs={},
-            write_kwargs={},
-        )
-        stage.setup()
-
-        # Create task
-        task = FileGroupTask(
-            dataset_name="test",
-            data=[str(input_file)],
-            _metadata={"centroid_id": 1, "filetype": "parquet"},
+            ranking_strategy=RankingStrategy.metadata_based(["quality_rank"], ascending=True),
+            pairwise_batch_size=batch_size,
+            compute_dtype=compute_dtype,
         )
 
-        # Process task
-        result = stage.process(task)
+        stage.process(
+            FileGroupTask(
+                dataset_name="test",
+                data=input_files,
+                _metadata={"centroid_id": 7, "filetype": "parquet"},
+            )
+        )
 
-        # Verify result
-        assert isinstance(result, FileGroupTask)
-        assert result._metadata["centroid_id"] == 1
-        assert len(result.data) == 1
+        result_df = cudf.read_parquet(output_dir / "cluster_7.parquet")
+        assert result_df["id"].to_arrow().to_pylist() == [10, 20, 30, 40]
+        assert result_df["max_id"].to_arrow().to_pylist() == [10, 10, 20, 10]
+        assert result_df["cosine_sim_score"].dtype == np.dtype("float32")
+        np.testing.assert_allclose(
+            result_df["cosine_sim_score"].to_numpy(),
+            [0.0, 0.8, 0.6, 0.0],
+            rtol=2e-3 if storage_dtype == "float16" or compute_dtype == "float16" else 1e-6,
+            atol=2e-3 if storage_dtype == "float16" or compute_dtype == "float16" else 1e-6,
+        )
 
-        # Check output file
-        output_file = output_dir / "cluster_1.parquet"
-        assert output_file.exists()
-
-        # Read and verify output
-        result_df = cudf.read_parquet(output_file)
-        assert len(result_df) == 3
-        assert "id" in result_df.columns
-        assert "max_id" in result_df.columns
-        assert "cosine_sim_score" in result_df.columns
-
-        # The first and third embeddings are identical, so they should have high similarity
-        # with each other (cosine_sim_score close to 1.0)
-        similarities = result_df["cosine_sim_score"].to_arrow().to_pylist()
-        assert any(sim > 0.9 for sim in similarities), "Should have high similarity between identical embeddings"
+        metrics = stage._consume_custom_metrics()
+        assert metrics.keys() == {
+            "pairwise_footer_scan_time",
+            "pairwise_read_time",
+            "pairwise_rank_time",
+            "pairwise_conversion_time",
+            "pairwise_compute_time",
+            "pairwise_write_time",
+            "pairwise_num_rows",
+            "pairwise_resolved_batch_size",
+        }
+        assert all(metrics[name] >= 0 for name in metrics if name.endswith("_time"))
+        assert metrics["pairwise_num_rows"] == 4
+        assert metrics["pairwise_resolved_batch_size"] == expected_batch_size
 
     def test_pairwise_stage_with_custom_metadata_ranking(self, tmp_path: Path) -> None:
         """Test PairwiseCosineSimilarityStage with custom metadata-based ranking."""
@@ -267,14 +364,17 @@ class TestPairwiseCosineSimilarityStage:
         # Read and verify output - should be ranked by priority asc, then score desc
         result_df = cudf.read_parquet(output_file)
         assert len(result_df) == 3
+        assert result_df["id"].to_arrow().to_pylist() == [2, 3, 1]
 
-        # Expected order: priority=1 (ID 2), priority=2 (ID 3), priority=3 (ID 1)
-        expected_id_order = [2, 3, 1]
-        actual_id_order = result_df["id"].to_arrow().to_pylist()
-        assert actual_id_order == expected_id_order
-
-    def test_pairwise_stage_ranking_fails_on_missing_columns(self, tmp_path: Path) -> None:
+    def test_pairwise_stage_ranking_fails_on_missing_columns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that ranking fails when required columns are missing."""
+        release = Mock()
+        monkeypatch.setattr(
+            "nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory",
+            release,
+        )
         # Create test data without distance columns
         embeddings = [[1.0, 0.0], [0.0, 1.0]]
         embeddings_tensor = torch.tensor(embeddings, dtype=torch.float32)
@@ -321,6 +421,7 @@ class TestPairwiseCosineSimilarityStage:
         # Process task - should fail due to missing distance columns
         with pytest.raises(KeyError, match="cosine_dist_to_cent"):
             stage.process(task)
+        release.assert_called_once_with()
 
 
 @pytest.mark.gpu

@@ -107,6 +107,8 @@ class TestSemanticDeduplicationWorkflow:
             which_to_keep=which_to_keep,
             eps=0.01,
             random_state=42,
+            kmeans_embedding_output_dtype="float32",
+            pairwise_compute_dtype="float32",
             verbose=False,
         )
 
