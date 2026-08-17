@@ -1006,7 +1006,7 @@ entries:
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # Same real input and worker count: 637.06s processing on 8xA100.
+  # Same real input and worker count as Xenna.
   - name: audio_librispeech_raydata
     enabled: true
     script: audio_librispeech_benchmark.py

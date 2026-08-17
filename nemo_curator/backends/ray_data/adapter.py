@@ -149,8 +149,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
 
         if ray_stage_spec.get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
-            target_rows_per_block = ray_stage_spec.get(RayStageSpecKeys.FANOUT_TARGET_ROWS_PER_BLOCK, 1)
-            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=target_rows_per_block)
+            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset
 
