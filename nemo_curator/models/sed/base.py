@@ -60,9 +60,8 @@ class SEDAdapter(Protocol):
     checkpoint path asks the adapter to resolve its registered default.
 
     ``infer_batch`` receives stage-normalized items in input order. Each item
-    contains a contiguous mono float32 ``waveform``, integer ``sample_rate``,
-    and optional ``task_id``. The adapter must return exactly one ``SEDResult``
-    per item, in the same order.
+    contains one contiguous mono float32 ``waveform``. The adapter must return
+    exactly one ``SEDResult`` per item, in the same order.
     """
 
     checkpoint_path: str | None

@@ -48,9 +48,9 @@ Audio Pattern Recognition" (2020).
 
 Only the three decision-level variants are included because SED needs
 framewise output; the base ``Cnn14`` emits clip-level output only. The code
-adds typing, factors shared helpers, and removes an unused training argument;
-the architecture and tensor semantics are unchanged, so published checkpoints
-load as-is.
+adds typing and factors shared helpers while retaining the reference forward
+call contract; the architecture and tensor semantics are unchanged, so
+published checkpoints load as-is.
 
 Requires ``torchlibrosa``, which arrives with the ``audio_cuda12`` extra.
 """
@@ -211,7 +211,7 @@ def _cnn14_encode(  # noqa: PLR0913 - shared encoder dependencies are explicit f
     if training:
         x = aug(x)
     pool_sizes = [(2, 2)] * 5 + [(1, 1)]
-    for blk, ps in zip(blocks, pool_sizes, strict=True):
+    for blk, ps in zip(blocks, pool_sizes):  # noqa: B905 - both internal sequences have six fixed entries
         x = blk(x, pool_size=ps, pool_type="avg")
         x = functional.dropout(x, p=0.2, training=training)
     return torch.mean(x, dim=3), frames_num
@@ -254,9 +254,13 @@ class Cnn14DecisionLevelMax(nn.Module):
             self.conv_block6,
         ]
 
-    def forward(self, waveform: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        input: torch.Tensor,  # noqa: A002 - exact published PANNs API name
+        mixup_lambda: torch.Tensor | None = None,  # noqa: ARG002 - retained for PANNs API compatibility
+    ) -> dict[str, torch.Tensor]:
         x, frames_num = _cnn14_encode(
-            waveform,
+            input,
             self.spectrogram_extractor,
             self.logmel_extractor,
             self.spec_augmenter,
@@ -315,9 +319,13 @@ class Cnn14DecisionLevelAvg(nn.Module):
             self.conv_block6,
         ]
 
-    def forward(self, waveform: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        input: torch.Tensor,  # noqa: A002 - exact published PANNs API name
+        mixup_lambda: torch.Tensor | None = None,  # noqa: ARG002 - retained for PANNs API compatibility
+    ) -> dict[str, torch.Tensor]:
         x, frames_num = _cnn14_encode(
-            waveform,
+            input,
             self.spectrogram_extractor,
             self.logmel_extractor,
             self.spec_augmenter,
@@ -375,9 +383,13 @@ class Cnn14DecisionLevelAtt(nn.Module):
             self.conv_block6,
         ]
 
-    def forward(self, waveform: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        input: torch.Tensor,  # noqa: A002 - exact published PANNs API name
+        mixup_lambda: torch.Tensor | None = None,  # noqa: ARG002 - retained for PANNs API compatibility
+    ) -> dict[str, torch.Tensor]:
         x, frames_num = _cnn14_encode(
-            waveform,
+            input,
             self.spectrogram_extractor,
             self.logmel_extractor,
             self.spec_augmenter,

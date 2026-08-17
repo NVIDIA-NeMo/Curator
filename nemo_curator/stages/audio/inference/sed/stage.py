@@ -63,9 +63,6 @@ if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
 
 
-_CHANNEL_FIRST_DIMENSIONS = 2
-
-
 @dataclass
 class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     """Run sound-event detection through a YAML-selectable adapter.
@@ -143,7 +140,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         )
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        output_keys = [self.framewise_output_key, self.valid_frames_key, self.fps_key]
+        output_keys = [self.framewise_output_key, self.valid_frames_key, self.fps_key, self.skip_me_key]
         if self.save_npz:
             output_keys.append(self.npz_filepath_key)
         return [], output_keys
@@ -156,17 +153,13 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             raise ValueError(msg)
 
         tensor = ensure_waveform_2d(waveform)
-        if tensor.ndim != _CHANNEL_FIRST_DIMENSIONS:
-            msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
-            raise ValueError(msg)
         tensor = ensure_mono(tensor)
-        prepared = np.ascontiguousarray(tensor.squeeze(0).cpu().numpy(), dtype=np.float32)
+        prepared = tensor.squeeze(0).cpu().numpy()
         if source_sample_rate != self.sample_rate:
             import librosa
 
             prepared = librosa.resample(prepared, orig_sr=source_sample_rate, target_sr=self.sample_rate)
-            prepared = np.ascontiguousarray(prepared, dtype=np.float32)
-        return prepared
+        return np.ascontiguousarray(prepared, dtype=np.float32)
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = f"{type(self).__name__} only supports process_batch"
@@ -174,25 +167,14 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Prepare task audio, delegate one batch, and assemble results."""
-        # Ray Data presents its object column as a NumPy array. Avoid testing
-        # the truth value of the whole batch because multi-element arrays have
-        # no unambiguous boolean value.
-        if len(tasks) == 0:
-            return []
-
-        skip_indices = self._resume_indices(tasks)
-        if len(skip_indices) == len(tasks):
-            return tasks
-
+        skip_indices = {index for index, task in enumerate(tasks) if task.data.get(self.skip_me_key)}
+        skip_indices.update(self._resume_indices(tasks))
         valid_indices, items, audio_paths = self._prepare_items(tasks, skip_indices)
         if not items:
             logger.info("SED batch: all {} tasks skipped", len(tasks))
             return tasks
-        if self._adapter is None:
-            msg = "SED adapter not initialized - setup() was not called"
-            raise RuntimeError(msg)
 
-        results = self._adapter.infer_batch(items)
+        results = cast("SEDAdapter", self._adapter).infer_batch(items)
         if len(results) != len(items):
             msg = f"SED adapter returned {len(results)} results for {len(items)} items (must match 1:1)"
             raise RuntimeError(msg)
@@ -223,12 +205,9 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         audio_paths: list[str] = []
 
         for index, task in enumerate(tasks):
-            if index in skip_indices or task.data.get(self.skip_me_key):
+            if index in skip_indices:
                 continue
             audio_path = str(task.data.get(self.audio_filepath_key, "") or "")
-            if not self.waveform_key and not audio_path:
-                logger.warning("SED: task {} is missing {!r}", task.task_id, self.audio_filepath_key)
-                continue
             try:
                 if self.waveform_key:
                     waveform = task.data[self.waveform_key]
@@ -238,18 +217,23 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
                 waveform = self._prepare_waveform(waveform, source_sample_rate)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("SED: failed to prepare task {} from {}: {}", task.task_id, audio_path, exc)
+                self._mark_preparation_failure(task)
                 continue
 
             valid_indices.append(index)
             items.append(
                 {
                     "waveform": waveform,
-                    "sample_rate": self.sample_rate,
-                    "task_id": task.task_id,
                 }
             )
             audio_paths.append(audio_path)
         return valid_indices, items, audio_paths
+
+    def _mark_preparation_failure(self, task: AudioTask) -> None:
+        """Mark an audio preparation failure as terminal for resumability."""
+        for key in (self.framewise_output_key, self.valid_frames_key, self.fps_key, self.npz_filepath_key):
+            task.data.pop(key, None)
+        task.data[self.skip_me_key] = "audio_load_error"
 
     def _write_results(
         self,
@@ -260,12 +244,13 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     ) -> None:
         """Write canonical adapter results back to their original tasks."""
         dtype = np.float16 if self.framewise_dtype == "float16" else np.float32
-        for task_index, result, audio_path in zip(valid_indices, results, audio_paths, strict=True):
+        for task_index, result, audio_path in zip(  # noqa: B905 - result count and item metadata lengths are established
+            valid_indices, results, audio_paths
+        ):
             task = tasks[task_index]
             framewise = np.asarray(result.framewise_output, dtype=dtype)
-            npz_path = None
             if self.save_npz:
-                npz_path = self._save_npz(
+                task.data[self.npz_filepath_key] = self._save_npz(
                     result=result,
                     framewise=framewise,
                     audio_path=audio_path,
@@ -274,8 +259,6 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             task.data[self.framewise_output_key] = framewise
             task.data[self.valid_frames_key] = int(result.valid_frames)
             task.data[self.fps_key] = float(result.fps)
-            if npz_path is not None:
-                task.data[self.npz_filepath_key] = npz_path
 
     def _already_has_output(self, task: AudioTask) -> bool:
         keys = (self.framewise_output_key, self.valid_frames_key, self.fps_key)

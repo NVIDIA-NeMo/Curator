@@ -92,7 +92,9 @@ def test_each_variant_emits_framewise_and_clipwise_output(model_type: str) -> No
     ).eval()
 
     with torch.no_grad():
-        out = model(torch.zeros(2, 16000))
+        # The nkoluguri reference stage passes the unused mixup argument
+        # positionally; preserve that exact callable contract.
+        out = model(torch.zeros(2, 16000), None)
 
     assert out["framewise_output"].shape[0] == 2
     assert out["framewise_output"].shape[2] == classes_num

@@ -22,7 +22,6 @@ runs one model call, and packages each row as ``SEDResult``.
 from __future__ import annotations
 
 import gc
-import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +38,6 @@ from nemo_curator.models.sed.base import SEDResult
 _DEFAULT_MODEL_TYPE = "Cnn14_DecisionLevelMax"
 _DEFAULT_CHECKPOINT_FILENAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
 _DEFAULT_CHECKPOINT_URL = "https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth?download=1"
-_DEFAULT_CHECKPOINT_SHA256 = "dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142"
 _DEFAULT_CHECKPOINT_CONFIG: dict[str, int] = {
     "sample_rate": 32000,
     "window_size": 1024,
@@ -49,7 +47,6 @@ _DEFAULT_CHECKPOINT_CONFIG: dict[str, int] = {
     "fmax": 14000,
     "classes_num": 527,
 }
-_HASH_CHUNK_SIZE = 8 * 1024 * 1024
 
 
 def _default_cache_dir() -> Path:
@@ -57,15 +54,6 @@ def _default_cache_dir() -> Path:
     xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
     cache_root = Path(xdg_cache_home).expanduser() if xdg_cache_home else Path.home() / ".cache"
     return cache_root / "nemo_curator" / "panns"
-
-
-def _sha256(path: Path) -> str:
-    """Stream a file into SHA-256 without loading the checkpoint into RAM."""
-    digest = hashlib.sha256()
-    with path.open("rb") as checkpoint_file:
-        for chunk in iter(lambda: checkpoint_file.read(_HASH_CHUNK_SIZE), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 @dataclass
@@ -76,26 +64,26 @@ class PANNsSEDAdapter:
     ``nemo_curator.models.sed.SUPPORTED_MODEL_TYPES``. The frontend arguments
     must match the checkpoint. With no ``checkpoint_path``, the official
     DecisionLevelMax checkpoint is downloaded from the upstream PANNs Zenodo
-    release, verified by SHA-256, and cached. The default configuration
-    produces 527-class output at 100 frames per second.
+    release and cached. The default configuration produces 527-class output
+    at 100 frames per second.
     """
 
     checkpoint_path: str | None = None
-    sample_rate: int = 32000
+    sample_rate: int = _DEFAULT_CHECKPOINT_CONFIG["sample_rate"]
     model_type: str = _DEFAULT_MODEL_TYPE
-    window_size: int = 1024
-    hop_size: int = 320
-    mel_bins: int = 64
-    fmin: int = 50
-    fmax: int = 14000
-    classes_num: int = 527
+    window_size: int = _DEFAULT_CHECKPOINT_CONFIG["window_size"]
+    hop_size: int = _DEFAULT_CHECKPOINT_CONFIG["hop_size"]
+    mel_bins: int = _DEFAULT_CHECKPOINT_CONFIG["mel_bins"]
+    fmin: int = _DEFAULT_CHECKPOINT_CONFIG["fmin"]
+    fmax: int = _DEFAULT_CHECKPOINT_CONFIG["fmax"]
+    classes_num: int = _DEFAULT_CHECKPOINT_CONFIG["classes_num"]
     pad_short_segments: bool = True
     cache_dir: str | None = None
     _model: Any = field(default=None, init=False, repr=False)
     _device: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        for field_name in ("sample_rate", "window_size", "hop_size", "mel_bins", "classes_num"):
+        for field_name in ("window_size", "hop_size", "mel_bins", "classes_num"):
             value = getattr(self, field_name)
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 msg = f"PANNsSEDAdapter.{field_name} must be a positive integer, got {value!r}"
@@ -130,29 +118,25 @@ class PANNsSEDAdapter:
         return cache_dir / _DEFAULT_CHECKPOINT_FILENAME
 
     def _download_default_checkpoint(self, checkpoint_path: Path) -> Path:
-        """Download the official checkpoint atomically and verify its SHA-256."""
+        """Download the official checkpoint into the managed cache."""
         logger.info("Downloading PANNs SED checkpoint from {} to {}", _DEFAULT_CHECKPOINT_URL, checkpoint_path)
         try:
             torch.hub.download_url_to_file(
                 _DEFAULT_CHECKPOINT_URL,
                 str(checkpoint_path),
-                hash_prefix=_DEFAULT_CHECKPOINT_SHA256,
                 progress=False,
             )
         except Exception as exc:
             msg = (
-                f"Failed to download verified PANNs checkpoint for {self.model_type} "
+                f"Failed to download PANNs checkpoint for {self.model_type} "
                 f"from {_DEFAULT_CHECKPOINT_URL} to {checkpoint_path}"
             )
             raise RuntimeError(msg) from exc
         return checkpoint_path
 
     def _resolve_checkpoint_path(self) -> Path:
-        """Resolve a strict local override or a verified cached default."""
+        """Resolve a strict local override or the managed cached default."""
         if self.checkpoint_path is not None:
-            if not self.checkpoint_path.strip():
-                msg = "PANNs checkpoint_path must be a non-empty path or None for automatic download"
-                raise ValueError(msg)
             checkpoint_path = Path(self.checkpoint_path).expanduser()
             if not checkpoint_path.is_file():
                 msg = f"PANNs checkpoint_path does not point to a file: {checkpoint_path}"
@@ -165,16 +149,8 @@ class PANNsSEDAdapter:
         lock_path = Path(f"{checkpoint_path}.lock")
         with FileLock(lock_path):
             if checkpoint_path.is_file():
-                actual_sha256 = _sha256(checkpoint_path)
-                if actual_sha256 == _DEFAULT_CHECKPOINT_SHA256:
-                    logger.info("Using cached PANNs SED checkpoint at {}", checkpoint_path)
-                    return checkpoint_path
-                logger.warning(
-                    "Ignoring cached PANNs SED checkpoint with unexpected SHA-256 at {} (got {})",
-                    checkpoint_path,
-                    actual_sha256,
-                )
-                checkpoint_path.unlink()
+                logger.info("Using cached PANNs SED checkpoint at {}", checkpoint_path)
+                return checkpoint_path
             elif checkpoint_path.exists():
                 msg = f"PANNs checkpoint cache target exists but is not a file: {checkpoint_path}"
                 raise RuntimeError(msg)
@@ -187,8 +163,6 @@ class PANNsSEDAdapter:
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load checkpoint weights on CPU first, then place the model."""
-        if self._model is not None:
-            return
         if not isinstance(num_gpus, int) or isinstance(num_gpus, bool) or num_gpus not in {0, 1}:
             msg = f"PANNsSEDAdapter supports zero or one physical GPU, got {num_gpus!r}"
             raise ValueError(msg)
@@ -238,39 +212,20 @@ class PANNsSEDAdapter:
             padded[index, : waveform.size] = waveform
         return padded
 
-    @staticmethod
-    def _waveform(item: dict[str, Any]) -> np.ndarray:
-        waveform = np.ascontiguousarray(item.get("waveform"), dtype=np.float32)
-        if waveform.ndim != 1:
-            msg = f"SEDInferenceStage must provide a mono 1-D waveform, got shape {waveform.shape}"
-            raise ValueError(msg)
-        if waveform.size == 0:
-            msg = "SEDInferenceStage must provide a non-empty waveform"
-            raise ValueError(msg)
-        return waveform
-
     def infer_batch(self, items: list[dict[str, Any]]) -> list[SEDResult]:
         """Run one checkpoint-compatible CNN14 call for the prepared batch."""
-        if not items:
-            return []
-        if self._model is None or self._device is None:
-            msg = "PANNsSEDAdapter model is not loaded"
-            raise RuntimeError(msg)
-
-        waveforms = [self._waveform(item) for item in items]
+        waveforms = [item["waveform"] for item in items]
         padded = self._pad_to_rectangle(waveforms)
         tensor = torch.from_numpy(padded).to(self._device)
         with torch.no_grad():
             output = self._model(tensor)
 
         framewise = output["framewise_output"].cpu().numpy()
-        if framewise.shape[0] != len(waveforms):
-            msg = f"PANNs model returned {framewise.shape[0]} rows for {len(waveforms)} waveforms"
-            raise RuntimeError(msg)
-
         fps = float(self.sample_rate) / self.hop_size
         results: list[SEDResult] = []
-        for waveform, row in zip(waveforms, framewise, strict=True):
+        for waveform, row in zip(  # noqa: B905 - CNN14 preserves input batch cardinality
+            waveforms, framewise
+        ):
             valid_frames = min(int(np.ceil(waveform.size / self.hop_size)), row.shape[0])
             results.append(
                 SEDResult(

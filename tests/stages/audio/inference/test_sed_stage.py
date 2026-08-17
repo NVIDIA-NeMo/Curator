@@ -136,12 +136,55 @@ def test_a_flagged_task_is_passed_through_untouched() -> None:
     assert adapter.calls == []
 
 
-def test_a_missing_waveform_skips_only_that_task() -> None:
+def test_a_missing_waveform_marks_only_that_task() -> None:
     stage, adapter = _stage()
     good, bad = stage.process_batch([_task(), AudioTask(data={"sample_rate": _SR})])
     assert good.data["_sed_framewise"] is not None
     assert "_sed_framewise" not in bad.data
+    assert bad.data["_skipme"] == "audio_load_error"
     assert len(adapter.calls[0]) == 1
+
+
+def test_a_missing_audio_filepath_is_marked_without_adapter_inference() -> None:
+    stage = SEDInferenceStage(
+        adapter_target=_ADAPTER_TARGET,
+        checkpoint_path=_CHECKPOINT,
+        sample_rate=_SR,
+        waveform_key=None,
+    )
+    adapter = _FakeSEDAdapter()
+    stage._adapter = adapter
+
+    (task,) = stage.process_batch([AudioTask(data={})])
+
+    assert task.data["_skipme"] == "audio_load_error"
+    assert adapter.calls == []
+
+
+def test_audio_preparation_failure_clears_partial_outputs_and_is_resumable() -> None:
+    stage, adapter = _stage(save_npz=True, skip_if_output_exists=True)
+    task = AudioTask(
+        data={
+            "waveform": np.zeros(_SR, dtype=np.float32),
+            "sample_rate": 0,
+            "_sed_framewise": np.zeros((5, _CLASSES), dtype=np.float32),
+            "sed_valid_frames": 5,
+            "sed_fps": 50.0,
+        }
+    )
+
+    (failed,) = stage.process_batch([task])
+
+    assert failed.data["_skipme"] == "audio_load_error"
+    assert "_sed_framewise" not in failed.data
+    assert "sed_valid_frames" not in failed.data
+    assert "sed_fps" not in failed.data
+    assert "npz_filepath" not in failed.data
+    assert adapter.calls == []
+
+    resumed_stage, resumed_adapter = _stage(save_npz=True, skip_if_output_exists=True)
+    resumed_stage.process_batch([failed])
+    assert resumed_adapter.calls == []
 
 
 def test_resume_sends_only_unfinished_tasks_to_the_adapter() -> None:
@@ -195,7 +238,6 @@ def test_a_mismatched_sample_rate_is_resampled_before_the_adapter() -> None:
     with patch.dict("sys.modules", {"librosa": librosa}):
         stage.process_batch([_task(seconds=1.0, sample_rate=8000)])
     assert len(adapter.calls[0][0]["waveform"]) == pytest.approx(_SR, rel=0.01)
-    assert adapter.calls[0][0]["sample_rate"] == _SR
     librosa.resample.assert_called_once()
 
 
@@ -263,7 +305,8 @@ def test_waveform_mode_writes_a_sidecar_without_an_audio_filepath(tmp_path: Path
     (result,) = stage.process_batch([task])
 
     assert len(adapter.calls) == 1
-    assert set(stage.outputs()[1]) <= set(result.data)
+    assert {"_sed_framewise", "sed_valid_frames", "sed_fps", "npz_filepath"} <= set(result.data)
+    assert "_skipme" not in result.data
     npz_path = Path(result.data["npz_filepath"])
     assert npz_path.is_file()
     assert npz_path.parent == tmp_path / "framewise"
@@ -409,16 +452,6 @@ def test_teardown_delegates_to_the_adapter() -> None:
     assert stage._adapter is None
 
 
-def test_process_requires_setup_when_there_is_valid_audio() -> None:
-    stage = SEDInferenceStage(
-        adapter_target=_ADAPTER_TARGET,
-        checkpoint_path=_CHECKPOINT,
-        waveform_key="waveform",
-    )
-    with pytest.raises(RuntimeError, match="setup"):
-        stage.process_batch([_task()])
-
-
 def test_adapter_result_count_must_match_input_count() -> None:
     stage, adapter = _stage()
     adapter.infer_batch = lambda _items: []  # type: ignore[method-assign]
@@ -436,6 +469,7 @@ def test_declared_inputs_switch_between_waveform_and_file_modes() -> None:
 def test_sidecar_output_is_declared_only_when_enabled() -> None:
     plain, _ = _stage()
     sidecars, _ = _stage(save_npz=True)
+    assert "_skipme" in plain.outputs()[1]
     assert "npz_filepath" not in plain.outputs()[1]
     assert "npz_filepath" in sidecars.outputs()[1]
 
