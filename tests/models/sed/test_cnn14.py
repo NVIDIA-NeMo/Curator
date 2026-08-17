@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.inference import sed_models
+from nemo_curator.models import sed
 
-_CNN14_SOURCE = Path(sed_models.__file__).parent / "cnn14.py"
+_CNN14_SOURCE = Path(sed.__file__).parent / "cnn14.py"
 
 
 # ----------------------------------------------------------------------
@@ -31,7 +31,7 @@ _CNN14_SOURCE = Path(sed_models.__file__).parent / "cnn14.py"
 
 
 def test_the_three_decision_level_variants_are_supported() -> None:
-    assert set(sed_models.SUPPORTED_MODEL_TYPES) == {
+    assert set(sed.SUPPORTED_MODEL_TYPES) == {
         "Cnn14_DecisionLevelMax",
         "Cnn14_DecisionLevelAvg",
         "Cnn14_DecisionLevelAtt",
@@ -40,12 +40,12 @@ def test_the_three_decision_level_variants_are_supported() -> None:
 
 def test_an_unknown_model_type_is_rejected_by_name() -> None:
     with pytest.raises(ValueError, match="Unknown SED model_type 'NotAModel'"):
-        sed_models.get_model_class("NotAModel")
+        sed.get_model_class("NotAModel")
 
 
 def test_the_error_lists_what_is_available() -> None:
     with pytest.raises(ValueError, match="Cnn14_DecisionLevelMax"):
-        sed_models.get_model_class("NotAModel")
+        sed.get_model_class("NotAModel")
 
 
 def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
@@ -57,7 +57,7 @@ def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
     probe = (
         "import sys;"
         "import nemo_curator.stages.audio.inference.sed;"
-        "import nemo_curator.stages.audio.inference.sed_models as m;"
+        "import nemo_curator.models.sed as m;"
         "m.SUPPORTED_MODEL_TYPES;"
         "print('torchlibrosa' in sys.modules)"
     )
@@ -68,7 +68,7 @@ def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
 
 
 def test_listing_supported_types_needs_no_heavy_dependency() -> None:
-    assert tuple(sed_models._MODEL_CLASS_NAMES) == sed_models.SUPPORTED_MODEL_TYPES
+    assert tuple(sed._MODEL_CLASS_NAMES) == sed.SUPPORTED_MODEL_TYPES
 
 
 # ----------------------------------------------------------------------
@@ -81,7 +81,7 @@ def test_each_variant_resolves_to_a_torch_module(model_type: str) -> None:
     pytest.importorskip("torchlibrosa")
     from torch import nn
 
-    assert issubclass(sed_models.get_model_class(model_type), nn.Module)
+    assert issubclass(sed.get_model_class(model_type), nn.Module)
 
 
 @pytest.mark.parametrize("model_type", ["Cnn14_DecisionLevelMax", "Cnn14_DecisionLevelAvg", "Cnn14_DecisionLevelAtt"])
@@ -91,7 +91,7 @@ def test_each_variant_emits_framewise_and_clipwise_output(model_type: str) -> No
     import torch
 
     classes_num = 8
-    model = sed_models.get_model_class(model_type)(
+    model = sed.get_model_class(model_type)(
         sample_rate=16000,
         window_size=1024,
         hop_size=320,
@@ -113,7 +113,7 @@ def test_framewise_output_is_a_probability() -> None:
     pytest.importorskip("torchlibrosa")
     import torch
 
-    model = sed_models.get_model_class("Cnn14_DecisionLevelMax")(
+    model = sed.get_model_class("Cnn14_DecisionLevelMax")(
         sample_rate=16000, window_size=1024, hop_size=320, mel_bins=64, fmin=50, fmax=7800, classes_num=8
     ).eval()
 

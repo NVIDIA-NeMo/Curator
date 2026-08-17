@@ -34,7 +34,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CNN14 decision-level model variants for Sound Event Detection.
+"""CNN14 decision-level model implementations for Sound Event Detection.
 
 Vendored from the PANNs reference implementation at
 https://github.com/qiuqiangkong/audioset_tagging_cnn (MIT, copyright

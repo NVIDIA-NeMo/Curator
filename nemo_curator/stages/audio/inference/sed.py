@@ -12,23 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sound Event Detection (SED) inference stage using AudioSet-pretrained CNN models.
+"""Generic sound-event-detection stage with a pluggable model adapter.
 
-Wraps PANNs (Pretrained Audio Neural Networks) CNN14 variants as a Curator
-ProcessingStage.  Each audio file is processed through the CNN model and the
-per-frame class probabilities (T x 527 AudioSet classes) are passed to the
-next stage via task data.  Optionally, results can also be saved as compressed
-NPZ sidecar files (``save_npz=True``).
+The stage owns Curator task I/O, audio loading, mono conversion, resampling,
+resume behavior, and output storage. The adapter selected by ``adapter_target``
+owns model construction, checkpoint loading, batch padding, and inference.
 
-Install the ``audio_sed`` extra to provide the CNN14 audio frontend.
+The included YAML reads a JSONL manifest whose rows contain
+``{"audio_filepath": "/absolute/path/to/audio.wav"}`` and writes compressed
+framewise NPZ files. Install the optional dependency and run it from the
+Curator repository root with the full command below::
+
+    uv run --extra audio_sed python nemo_curator/config/run.py \\
+      --config-path ../../tutorials/audio/sed \\
+      --config-name pipeline \\
+      manifest_path=/absolute/path/to/input.jsonl \\
+      checkpoint_path=/absolute/path/to/Cnn14_mAP=0.431.pth \\
+      output_dir=/absolute/path/to/sed_output
+
+The example configuration is ``tutorials/audio/sed/pipeline.yaml``. Its PANNs
+adapter produces a ``(frames, 527)`` AudioSet probability matrix per task at
+approximately 50 fps. ``sed_valid_frames`` excludes any model padding.
 """
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import hydra.utils
+import numpy as np
+import soundfile
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -37,296 +53,281 @@ from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.models.sed.base import SEDAdapter, SEDResult
+
+
+_CHANNEL_FIRST_DIMENSIONS = 2
 
 
 @dataclass
 class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
-    """Run Sound Event Detection on each audio task.
+    """Run sound-event detection through a YAML-selectable adapter.
 
-    The model produces a ``(T, classes_num)`` probability matrix for each audio
-    (default 527 AudioSet classes at ~50 fps for 16 kHz / hop_size 320).
+    Set ``waveform_key`` to consume in-memory audio plus ``sample_rate_key``.
+    Leave it as ``None`` to load ``audio_filepath_key`` inside the worker. Both
+    paths are normalized to contiguous mono float32 audio at ``sample_rate``
+    before the adapter is called.
 
-    Expects each ``AudioTask.data`` to carry:
-
-    - ``waveform``: mono or channel-first NumPy/Torch waveform (any sample rate)
-    - ``sample_rate``: int
-
-    These are produced by ``NemoTarShardReaderStage`` which decodes audio
-    in memory.  The stage resamples to the target sample rate internally.
-
-    By default, results are passed to the next stage in-memory via task data
-    keys (``_sed_framewise``, ``sed_fps``, ``sed_valid_frames``).  Set
-    ``save_npz=True`` to also write compressed NPZ sidecar files.
+    The stage writes a frame-by-class matrix, its frames-per-second value, and
+    the number of valid leading frames. It can additionally write an NPZ
+    sidecar while retaining the in-memory matrix for a downstream consumer.
 
     Args:
-        checkpoint_path: Path to the PANNs ``.pth`` checkpoint file.
-        model_type: CNN14 variant name (see ``sed_models.SUPPORTED_MODEL_TYPES``).
-        sample_rate: Model target sample rate. Defaults to 16000.
-        window_size: STFT window size. Defaults to 1024.
-        hop_size: STFT hop size. Defaults to 320.
-        mel_bins: Number of mel filter banks. Defaults to 64.
-        fmin: Minimum frequency for mel filters. Defaults to 50.
-        fmax: Maximum frequency for mel filters. Defaults to 14000.
-        classes_num: Number of AudioSet classes. Defaults to 527.
-        save_npz: Write NPZ sidecar files to ``output_dir``. Defaults to False.
-        output_dir: Directory to write NPZ sidecar files (only used when ``save_npz=True``).
-        framewise_dtype: Float dtype for framewise output. Defaults to ``"float16"``.
-        pad_short_segments: Zero-pad audio shorter than minimum model input. Defaults to True.
-        waveform_key: Key in task data for the waveform array. Defaults to ``"waveform"``.
-        sample_rate_key: Key in task data for the sample rate. Defaults to ``"sample_rate"``.
-        filepath_key: Key in task data for the audio path (used for NPZ naming). Defaults to ``"audio_filepath"``.
+        adapter_target: Import path of a class implementing ``SEDAdapter``.
+        checkpoint_path: Model checkpoint passed unchanged to the adapter.
+        sample_rate: Sample rate supplied to the adapter after resampling.
+        waveform_key: In-memory waveform field, or ``None`` to load files.
+        sample_rate_key: Source sample-rate field for in-memory waveforms.
+        audio_filepath_key: File field used for loading and NPZ naming.
+        adapter_kwargs: Model-specific constructor options. For PANNs these
+            include ``model_type``, frontend settings, class count, and padding.
     """
 
-    checkpoint_path: str = ""
-    model_type: str = "Cnn14_DecisionLevelMax"
+    adapter_target: str
+    checkpoint_path: str
+    name: str = "SEDInference"
+
     sample_rate: int = 16000
-    window_size: int = 1024
-    hop_size: int = 320
-    mel_bins: int = 64
-    fmin: int = 50
-    fmax: int = 14000
-    classes_num: int = 527
+    waveform_key: str | None = None
+    sample_rate_key: str = "sample_rate"
+    audio_filepath_key: str = "audio_filepath"
+    skip_me_key: str = "_skipme"
+
+    framewise_output_key: str = "_sed_framewise"
+    valid_frames_key: str = "sed_valid_frames"
+    fps_key: str = "sed_fps"
+    npz_filepath_key: str = "npz_filepath"
+
     save_npz: bool = False
     output_dir: str = "sed_output"
     framewise_dtype: str = "float16"
-    pad_short_segments: bool = True
-    waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
-    filepath_key: str = "audio_filepath"
-    skip_me_key: str = "_skipme"
-
     skip_if_output_exists: bool = False
-    name: str = "SEDInference"
+
+    adapter_kwargs: dict[str, Any] = field(default_factory=dict)
     batch_size: int = 32
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
 
+    def __post_init__(self) -> None:
+        if not self.adapter_target:
+            msg = "SEDInferenceStage.adapter_target must be non-empty"
+            raise ValueError(msg)
+        if not self.checkpoint_path:
+            msg = "SEDInferenceStage.checkpoint_path must be non-empty"
+            raise ValueError(msg)
+        if not isinstance(self.sample_rate, int) or isinstance(self.sample_rate, bool) or self.sample_rate <= 0:
+            msg = f"SEDInferenceStage.sample_rate must be a positive integer, got {self.sample_rate!r}"
+            raise ValueError(msg)
+        if not isinstance(self.batch_size, int) or isinstance(self.batch_size, bool) or self.batch_size <= 0:
+            msg = f"SEDInferenceStage.batch_size must be a positive integer, got {self.batch_size!r}"
+            raise ValueError(msg)
+        if self.framewise_dtype not in {"float16", "float32"}:
+            msg = f"SEDInferenceStage.framewise_dtype must be 'float16' or 'float32', got {self.framewise_dtype!r}"
+            raise ValueError(msg)
+        self.adapter_kwargs = dict(self.adapter_kwargs)
+        self._adapter: SEDAdapter | None = None
+
     def num_workers(self) -> int | None:
         return self.num_workers_override
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Load CNN14 model from checkpoint."""
-        import torch
+    def _adapter_class(self) -> type:
+        """Resolve the configured adapter without importing its model eagerly."""
+        return hydra.utils.get_class(self.adapter_target)
 
-        from nemo_curator.stages.audio.inference.sed_models import get_model_class
-
-        if not self.checkpoint_path:
-            msg = "checkpoint_path is required for SEDInferenceStage."
+    def _adapter_gpu_count(self) -> int:
+        """Return the physical GPU count represented by the resource request."""
+        requested_gpus = float(self.resources.gpus)
+        if requested_gpus < 0 or not math.isfinite(requested_gpus):
+            msg = f"SEDInferenceStage.resources.gpus must be finite and non-negative, got {requested_gpus}"
             raise ValueError(msg)
+        return math.ceil(requested_gpus)
 
-        model_cls = get_model_class(self.model_type)
-        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._model = model_cls(
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Construct and load the worker-local adapter."""
+        if self._adapter is not None:
+            return
+        adapter_cls = self._adapter_class()
+        adapter = adapter_cls(
+            checkpoint_path=self.checkpoint_path,
             sample_rate=self.sample_rate,
-            window_size=self.window_size,
-            hop_size=self.hop_size,
-            mel_bins=self.mel_bins,
-            fmin=self.fmin,
-            fmax=self.fmax,
-            classes_num=self.classes_num,
+            **self.adapter_kwargs,
         )
-        # Always load to CPU first, then move — avoids CUDA conflicts with vLLM
-        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
-        self._model.load_state_dict(checkpoint["model"])
-        self._model.to(self._device)
-        self._model.eval()
-        logger.info(f"Loaded {self.model_type} from {self.checkpoint_path} on {self._device}")
+        try:
+            adapter.load_model(num_gpus=self._adapter_gpu_count())
+        except Exception:
+            try:
+                adapter.unload_model()
+            except Exception as teardown_exc:  # noqa: BLE001
+                logger.warning("SED adapter cleanup after setup failure also failed: {}", teardown_exc)
+            raise
+        self._adapter = adapter
+        logger.info("SED adapter ready on worker ({})", self.adapter_target)
 
     def teardown(self) -> None:
-        if hasattr(self, "_model") and self._model is not None:
-            del self._model
-            self._model = None
+        if self._adapter is not None:
+            self._adapter.unload_model()
+            self._adapter = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        if self.waveform_key:
+            return [], [self.waveform_key, self.sample_rate_key]
+        return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        out_keys = [self.filepath_key, "_sed_framewise", "sed_valid_frames", "sed_fps"]
+        output_keys = [self.framewise_output_key, self.valid_frames_key, self.fps_key]
         if self.save_npz:
-            out_keys.append("npz_filepath")
-        return ["data"], out_keys
+            output_keys.append(self.npz_filepath_key)
+        return [], output_keys
+
+    @staticmethod
+    def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
+        """Load one file and convert sample-major multichannel data to channel-first."""
+        waveform, sample_rate = soundfile.read(audio_filepath, dtype="float32")
+        if waveform.ndim == _CHANNEL_FIRST_DIMENSIONS:
+            waveform = waveform.T
+        return np.ascontiguousarray(waveform, dtype=np.float32), int(sample_rate)
+
+    def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
+        """Return contiguous mono float32 samples at the adapter sample rate."""
+        from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+
+        source_sample_rate = int(sample_rate)
+        if source_sample_rate <= 0:
+            msg = f"sample rate must be positive, got {source_sample_rate}"
+            raise ValueError(msg)
+
+        tensor = ensure_waveform_2d(waveform)
+        if tensor.ndim != _CHANNEL_FIRST_DIMENSIONS:
+            msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
+            raise ValueError(msg)
+        tensor = ensure_mono(tensor)
+        prepared = np.ascontiguousarray(tensor.squeeze(0).cpu().numpy(), dtype=np.float32)
+        if source_sample_rate != self.sample_rate:
+            import librosa
+
+            prepared = librosa.resample(prepared, orig_sr=source_sample_rate, target_sr=self.sample_rate)
+            prepared = np.ascontiguousarray(prepared, dtype=np.float32)
+        return prepared
 
     def process(self, task: AudioTask) -> AudioTask:
-        """Run SED on a single task (delegates to process_batch)."""
+        """Run one task through the same batch path used by executors."""
         return self.process_batch([task])[0]
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """Run batched SED inference on the GPU for all tasks at once."""
-        if len(tasks) == 0:
+        """Prepare task audio, delegate one batch, and assemble results."""
+        if not tasks:
             return []
 
-        _skip_indices: set[int] | None = None
-        if self.skip_if_output_exists:
-            _skip_indices = {i for i, t in enumerate(tasks) if self._already_has_output(t)}
-            if len(_skip_indices) == len(tasks):
-                return tasks
-            if _skip_indices:
-                logger.info(f"SED: {len(_skip_indices)}/{len(tasks)} tasks already have output, processing remaining")
-
-        import torch
-
-        valid_indices, waveforms, original_samples_list, audio_paths = self._preprocess_waveforms(
-            tasks, skip_indices=_skip_indices
-        )
-
-        if not valid_indices:
-            reason = "output already exists" if _skip_indices else "no valid waveforms"
-            logger.info(f"SED batch: all {len(tasks)} tasks skipped ({reason})")
+        skip_indices = self._resume_indices(tasks)
+        if len(skip_indices) == len(tasks):
             return tasks
 
-        padded = self._pad_to_rectangle(waveforms)
-        max_len = padded.shape[1]
+        valid_indices, items, audio_paths = self._prepare_items(tasks, skip_indices)
+        if not items:
+            logger.info("SED batch: all {} tasks skipped", len(tasks))
+            return tasks
+        if self._adapter is None:
+            msg = "SED adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
 
-        x = torch.from_numpy(padded).to(self._device)
-        with torch.no_grad():
-            out = self._model(x)
+        results = self._adapter.infer_batch(items)
+        if len(results) != len(items):
+            msg = f"SED adapter returned {len(results)} results for {len(items)} items (must match 1:1)"
+            raise RuntimeError(msg)
+        self._write_results(tasks, valid_indices, results, audio_paths)
 
-        all_framewise: np.ndarray = out["framewise_output"].cpu().numpy()
-        fps = float(self.sample_rate) / self.hop_size
-
-        self._write_results(
-            tasks,
-            valid_indices=valid_indices,
-            all_framewise=all_framewise,
-            original_samples_list=original_samples_list,
-            audio_paths=audio_paths,
-            fps=fps,
-        )
-
-        n_skipped = len(tasks) - len(valid_indices)
-        if n_skipped:
-            logger.info(f"SED batch: skipped {n_skipped}/{len(tasks)} tasks (already flagged or missing waveform)")
-        logger.info(f"SED batch: processed {len(valid_indices)} samples (max_len={max_len}, fps={fps:.1f})")
+        skipped_count = len(tasks) - len(valid_indices)
+        if skipped_count:
+            logger.info("SED batch: skipped {}/{} tasks", skipped_count, len(tasks))
+        logger.info("SED batch: generated {} predictions", len(results))
         return tasks
 
-    def _pad_to_rectangle(self, waveforms: list[np.ndarray]) -> np.ndarray:
-        """Zero-pad a ragged batch into one (B, max_len) float32 array.
+    def _resume_indices(self, tasks: list[AudioTask]) -> set[int]:
+        if not self.skip_if_output_exists:
+            return set()
+        indices = {index for index, task in enumerate(tasks) if self._already_has_output(task)}
+        if indices:
+            logger.info("SED: reusing existing output for {}/{} tasks", len(indices), len(tasks))
+        return indices
 
-        Clips below the model's minimum input are padded up first, otherwise the
-        STFT front-end has too few samples to produce a frame.
-        """
-        import numpy as np
-
-        min_input = max(self.window_size, self.hop_size * 32)
-        if self.pad_short_segments:
-            waveforms = [
-                np.pad(w, (0, min_input - w.shape[0]), mode="constant") if w.shape[0] < min_input else w
-                for w in waveforms
-            ]
-
-        max_len = max(w.shape[0] for w in waveforms)
-        padded = np.zeros((len(waveforms), max_len), dtype=np.float32)
-        for i, w in enumerate(waveforms):
-            padded[i, : w.shape[0]] = w
-        return padded
-
-    def _write_results(  # noqa: PLR0913 - internal helper threading one batch's parallel arrays
+    def _prepare_items(
         self,
         tasks: list[AudioTask],
-        *,
-        valid_indices: list[int],
-        all_framewise: np.ndarray,
-        original_samples_list: list[int],
-        audio_paths: list[str],
-        fps: float,
-    ) -> None:
-        """Attach each row's framewise output back onto its originating task."""
-        import numpy as np
-
-        dtype = np.float16 if self.framewise_dtype == "float16" else np.float32
-
-        for vi, task_idx in enumerate(valid_indices):
-            task = tasks[task_idx]
-            orig_samples = original_samples_list[vi]
-            framewise_i = all_framewise[vi]
-            # Batch padding can extend past the real audio; trim to what was real.
-            valid_frames = min(int(np.ceil(orig_samples / self.hop_size)), framewise_i.shape[0])
-            fw = framewise_i.astype(dtype)
-
-            task.data["_sed_framewise"] = fw
-            task.data["sed_valid_frames"] = int(valid_frames)
-            task.data["sed_fps"] = fps
-
-            if self.save_npz and audio_paths[vi]:
-                task.data["npz_filepath"] = self._save_npz(fw, fps, audio_paths[vi], orig_samples, valid_frames)
-
-    def _already_has_output(self, task: AudioTask) -> bool:
-        """Whether a previous run left a complete SED result on this task."""
-        if any(task.data.get(key) is None for key in ("_sed_framewise", "sed_valid_frames", "sed_fps")):
-            return False
-        return not self.save_npz or task.data.get("npz_filepath") is not None
-
-    def _preprocess_waveforms(
-        self, tasks: list[AudioTask], skip_indices: set[int] | None = None
-    ) -> tuple[list[int], list[np.ndarray], list[int], list[str]]:
-        """Extract, mono-mix, and resample waveforms from valid (non-skipped) tasks.
-
-        Returns:
-            ``(valid_indices, waveforms, original_samples, audio_paths)`` where
-            *valid_indices* maps each waveform back to its position in *tasks*.
-        """
-        import numpy as np
-
-        from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
-
+        skip_indices: set[int],
+    ) -> tuple[list[int], list[dict[str, Any]], list[str]]:
+        """Normalize valid task audio into the canonical adapter item schema."""
         valid_indices: list[int] = []
-        waveforms: list[np.ndarray] = []
-        original_samples: list[int] = []
+        items: list[dict[str, Any]] = []
         audio_paths: list[str] = []
 
-        for i, task in enumerate(tasks):
-            if skip_indices and i in skip_indices:
+        for index, task in enumerate(tasks):
+            if index in skip_indices or task.data.get(self.skip_me_key):
                 continue
-            if task.data.get(self.skip_me_key):
+            audio_path = str(task.data.get(self.audio_filepath_key, "") or "")
+            if not self.waveform_key and not audio_path:
+                logger.warning("SED: task {} is missing {!r}", task.task_id, self.audio_filepath_key)
+                continue
+            try:
+                if self.waveform_key:
+                    waveform = task.data[self.waveform_key]
+                    source_sample_rate = task.data[self.sample_rate_key]
+                else:
+                    waveform, source_sample_rate = self._load_audio(audio_path)
+                waveform = self._prepare_waveform(waveform, source_sample_rate)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("SED: failed to prepare task {} from {}: {}", task.task_id, audio_path, exc)
                 continue
 
-            wav = task.data.get(self.waveform_key)
-            if wav is None:
-                logger.warning(f"Missing {self.waveform_key!r} in task {task.task_id}, skipping SED")
-                continue
+            valid_indices.append(index)
+            items.append(
+                {
+                    "waveform": waveform,
+                    "sample_rate": self.sample_rate,
+                    "task_id": task.task_id,
+                }
+            )
+            audio_paths.append(audio_path)
+        return valid_indices, items, audio_paths
 
-            src_sr = int(task.data.get(self.sample_rate_key, self.sample_rate))
-            wav_tensor = ensure_mono(ensure_waveform_2d(wav))
-            wav = np.ascontiguousarray(wav_tensor.squeeze(0).cpu().numpy(), dtype=np.float32)
-
-            if src_sr != self.sample_rate:
-                import librosa
-
-                wav = librosa.resample(wav, orig_sr=src_sr, target_sr=self.sample_rate)
-
-            valid_indices.append(i)
-            waveforms.append(wav)
-            original_samples.append(wav.shape[0])
-            audio_paths.append(task.data.get(self.filepath_key, ""))
-
-        return valid_indices, waveforms, original_samples, audio_paths
-
-    def _save_npz(
+    def _write_results(
         self,
-        fw: np.ndarray,
-        fps: float,
-        audio_path: str,
-        original_samples: int,
-        valid_frames: int,
-    ) -> str:
-        import numpy as np
+        tasks: list[AudioTask],
+        valid_indices: list[int],
+        results: list[SEDResult],
+        audio_paths: list[str],
+    ) -> None:
+        """Write canonical adapter results back to their original tasks."""
+        dtype = np.float16 if self.framewise_dtype == "float16" else np.float32
+        for task_index, result, audio_path in zip(valid_indices, results, audio_paths, strict=True):
+            task = tasks[task_index]
+            framewise = np.asarray(result.framewise_output, dtype=dtype)
+            task.data[self.framewise_output_key] = framewise
+            task.data[self.valid_frames_key] = int(result.valid_frames)
+            task.data[self.fps_key] = float(result.fps)
+            if self.save_npz and audio_path:
+                task.data[self.npz_filepath_key] = self._save_npz(result, framewise, audio_path)
 
+    def _already_has_output(self, task: AudioTask) -> bool:
+        keys = (self.framewise_output_key, self.valid_frames_key, self.fps_key)
+        if any(task.data.get(key) is None for key in keys):
+            return False
+        return not self.save_npz or task.data.get(self.npz_filepath_key) is not None
+
+    def _save_npz(self, result: SEDResult, framewise: np.ndarray, audio_path: str) -> str:
+        """Write one deterministic compressed sidecar and return its path."""
         framewise_dir = os.path.join(self.output_dir, "framewise")
         os.makedirs(framewise_dir, exist_ok=True)
 
         stem = os.path.splitext(os.path.basename(audio_path))[0]
-        h = get_deterministic_hash([audio_path])[:8]
-        npz_path = os.path.join(framewise_dir, f"{stem}__{h}.npz")
-
+        path_hash = get_deterministic_hash([audio_path])[:8]
+        npz_path = os.path.join(framewise_dir, f"{stem}__{path_hash}.npz")
         np.savez_compressed(
             npz_path,
-            framewise=fw,
-            fps=np.float32(fps),
+            framewise=framewise,
+            fps=np.float32(result.fps),
             audio_filepath=str(audio_path),
-            original_num_samples=np.int32(original_samples),
-            valid_frames=np.int32(valid_frames),
+            original_num_samples=np.int32(result.original_num_samples),
+            valid_frames=np.int32(result.valid_frames),
         )
         return npz_path

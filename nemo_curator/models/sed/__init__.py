@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sound-event-detection model architectures.
+"""Sound-event-detection model architectures and lazy PANNs registry.
 
 Resolution is lazy so importing the SED stage does not require
 ``torchlibrosa`` until a model is built.
@@ -45,6 +45,6 @@ def get_model_class(model_type: str) -> type[nn.Module]:
         msg = f"Unknown SED model_type {model_type!r}; expected one of {list(_MODEL_CLASS_NAMES)}"
         raise ValueError(msg)
 
-    from nemo_curator.stages.audio.inference.sed_models import cnn14
+    from nemo_curator.models.sed import cnn14
 
     return getattr(cnn14, class_name)
