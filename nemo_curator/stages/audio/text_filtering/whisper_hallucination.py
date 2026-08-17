@@ -87,7 +87,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             output_path=/tmp/whisper_hallucination_output.jsonl
     """
 
-    common_hall_file: str = ""
+    common_hall_file: str
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
     agglutinative_long_word_threshold: int = 35
@@ -104,18 +104,12 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _phrases: set[str] = field(default_factory=set, init=False, repr=False)
-    _setup_called: bool = field(default=False, init=False, repr=False)
     _n_processed: int = field(default=0, init=False, repr=False)
     _n_flagged: int = field(default=0, init=False, repr=False)
 
     # Long phrases such as "Thank you" intentionally match their common
     # Whisper-generated continuations.
     _PREFIX_MATCH_MIN_LEN: int = 8
-
-    def __post_init__(self) -> None:
-        if not self.common_hall_file:
-            msg = "common_hall_file is required for WhisperHallucinationStage"
-            raise ValueError(msg)
 
     def _set_note(self, task_data: dict[str, Any], value: str) -> None:
         notes = task_data.get(self.notes_key)
@@ -140,7 +134,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         with open(self.common_hall_file, encoding="utf-8") as f:
             phrases = {self._normalize_corpus_phrase(line) for line in f if line.strip()}
         self._phrases = phrases
-        self._setup_called = True
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -234,21 +227,9 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
-        if not self._setup_called:
-            logger.warning(
-                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
         return self._process_single(task)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not self._setup_called:
-            logger.warning(
-                f"WhisperHallucinationStage ({self.name}): setup() was not called before process_batch(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
         return [self._process_single(task) for task in tasks]
 
     def teardown(self) -> None:

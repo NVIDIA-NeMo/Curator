@@ -192,27 +192,6 @@ def test_overwrite_never_replaces_a_foreign_flag(tmp_path: Path, text: str) -> N
     assert result.data[_SKIP_KEY] == "Wrong language"
 
 
-def test_requires_common_hall_file() -> None:
-    with pytest.raises(ValueError, match="common_hall_file is required"):
-        WhisperHallucinationStage()
-    with pytest.raises(ValueError, match="common_hall_file is required"):
-        WhisperHallucinationStage(common_hall_file="")
-
-
-def test_setup_is_called_lazily_for_single_and_batch_processing(tmp_path: Path) -> None:
-    phrase_file = tmp_path / "phrases.txt"
-    phrase_file.write_text("Thank you\n", encoding="utf-8")
-
-    single_stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
-    single = single_stage.process(AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""}))
-    assert single.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
-
-    batch_stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
-    batch = batch_stage.process_batch([AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""})])
-    assert batch[0].data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
-    assert batch_stage.supports_batch_processing() is True
-
-
 def test_prefix_minimum_and_counters_match_reference_contract(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, ["Thank you"], _PREFIX_MATCH_MIN_LEN=20)
     result = stage.process(AudioTask(data={_TEXT_KEY: "Thank you for watching", _SKIP_KEY: ""}))
