@@ -5376,6 +5376,7 @@ all = [
     { name = "easydict" },
     { name = "einops" },
     { name = "fasttext" },
+    { name = "filelock" },
     { name = "ftfy" },
     { name = "google-cloud-translate" },
     { name = "gpustat" },
@@ -5440,6 +5441,7 @@ all = [
 ]
 audio-common = [
     { name = "accelerate" },
+    { name = "filelock" },
     { name = "librosa" },
     { name = "nemo-text-processing", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nemo-toolkit", extra = ["asr"], marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5457,6 +5459,7 @@ audio-common = [
 ]
 audio-cpu = [
     { name = "accelerate" },
+    { name = "filelock" },
     { name = "librosa" },
     { name = "nemo-text-processing", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nemo-toolkit", extra = ["asr"], marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5477,6 +5480,7 @@ audio-cuda12 = [
     { name = "accelerate" },
     { name = "cuda-python", version = "12.9.4", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "cuda-python", version = "12.9.5", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform != 'linux'" },
+    { name = "filelock" },
     { name = "gpustat" },
     { name = "librosa" },
     { name = "nemo-text-processing", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5789,6 +5793,7 @@ requires-dist = [
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
+    { name = "filelock", marker = "extra == 'audio-common'", specifier = ">=3.12" },
     { name = "fsspec" },
     { name = "ftfy", marker = "extra == 'text-cpu'", specifier = ">=6.3.1" },
     { name = "google-cloud-translate", marker = "extra == 'translation-google'" },

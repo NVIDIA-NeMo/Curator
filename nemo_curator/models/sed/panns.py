@@ -22,15 +22,50 @@ runs one model call, and packages each row as ``SEDResult``.
 from __future__ import annotations
 
 import gc
+import hashlib
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
+from filelock import FileLock
 from loguru import logger
 
 from nemo_curator.models.sed import get_model_class
 from nemo_curator.models.sed.base import SEDResult
+
+_DEFAULT_MODEL_TYPE = "Cnn14_DecisionLevelMax"
+_DEFAULT_CHECKPOINT_FILENAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
+_DEFAULT_CHECKPOINT_URL = "https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth?download=1"
+_DEFAULT_CHECKPOINT_SHA256 = "dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142"
+_DEFAULT_CHECKPOINT_CONFIG: dict[str, int] = {
+    "sample_rate": 32000,
+    "window_size": 1024,
+    "hop_size": 320,
+    "mel_bins": 64,
+    "fmin": 50,
+    "fmax": 14000,
+    "classes_num": 527,
+}
+_HASH_CHUNK_SIZE = 8 * 1024 * 1024
+
+
+def _default_cache_dir() -> Path:
+    """Return the platform cache location used for downloaded PANNs weights."""
+    xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
+    cache_root = Path(xdg_cache_home).expanduser() if xdg_cache_home else Path.home() / ".cache"
+    return cache_root / "nemo_curator" / "panns"
+
+
+def _sha256(path: Path) -> str:
+    """Stream a file into SHA-256 without loading the checkpoint into RAM."""
+    digest = hashlib.sha256()
+    with path.open("rb") as checkpoint_file:
+        for chunk in iter(lambda: checkpoint_file.read(_HASH_CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @dataclass
@@ -39,13 +74,15 @@ class PANNsSEDAdapter:
 
     ``model_type`` must be one of the checkpoint names exposed by
     ``nemo_curator.models.sed.SUPPORTED_MODEL_TYPES``. The frontend arguments
-    must match the checkpoint. The default configuration produces 527-class
-    output at 50 frames per second.
+    must match the checkpoint. With no ``checkpoint_path``, the official
+    DecisionLevelMax checkpoint is downloaded from the upstream PANNs Zenodo
+    release, verified by SHA-256, and cached. The default configuration
+    produces 527-class output at 100 frames per second.
     """
 
-    checkpoint_path: str
-    sample_rate: int = 16000
-    model_type: str = "Cnn14_DecisionLevelMax"
+    checkpoint_path: str | None = None
+    sample_rate: int = 32000
+    model_type: str = _DEFAULT_MODEL_TYPE
     window_size: int = 1024
     hop_size: int = 320
     mel_bins: int = 64
@@ -53,6 +90,7 @@ class PANNsSEDAdapter:
     fmax: int = 14000
     classes_num: int = 527
     pad_short_segments: bool = True
+    cache_dir: str | None = None
     _model: Any = field(default=None, init=False, repr=False)
     _device: Any = field(default=None, init=False, repr=False)
 
@@ -62,6 +100,90 @@ class PANNsSEDAdapter:
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 msg = f"PANNsSEDAdapter.{field_name} must be a positive integer, got {value!r}"
                 raise ValueError(msg)
+
+    def _validate_default_checkpoint_config(self) -> None:
+        """Reject automatic weights when the configured frontend is incompatible."""
+        if self.model_type != _DEFAULT_MODEL_TYPE:
+            msg = (
+                f"No automatic PANNs checkpoint is registered for model_type={self.model_type!r}; "
+                "provide checkpoint_path for this model"
+            )
+            raise ValueError(msg)
+
+        mismatches = {
+            name: (getattr(self, name), expected)
+            for name, expected in _DEFAULT_CHECKPOINT_CONFIG.items()
+            if getattr(self, name) != expected
+        }
+        if mismatches:
+            details = ", ".join(
+                f"{name}={actual!r} (expected {expected!r})" for name, (actual, expected) in mismatches.items()
+            )
+            msg = (
+                f"The automatic {_DEFAULT_CHECKPOINT_FILENAME} checkpoint requires its published frontend: "
+                f"{details}. Provide a compatible checkpoint_path for custom settings."
+            )
+            raise ValueError(msg)
+
+    def _cached_checkpoint_path(self) -> Path:
+        cache_dir = Path(self.cache_dir).expanduser() if self.cache_dir else _default_cache_dir()
+        return cache_dir / _DEFAULT_CHECKPOINT_FILENAME
+
+    def _download_default_checkpoint(self, checkpoint_path: Path) -> Path:
+        """Download the official checkpoint atomically and verify its SHA-256."""
+        logger.info("Downloading PANNs SED checkpoint from {} to {}", _DEFAULT_CHECKPOINT_URL, checkpoint_path)
+        try:
+            torch.hub.download_url_to_file(
+                _DEFAULT_CHECKPOINT_URL,
+                str(checkpoint_path),
+                hash_prefix=_DEFAULT_CHECKPOINT_SHA256,
+                progress=False,
+            )
+        except Exception as exc:
+            msg = (
+                f"Failed to download verified PANNs checkpoint for {self.model_type} "
+                f"from {_DEFAULT_CHECKPOINT_URL} to {checkpoint_path}"
+            )
+            raise RuntimeError(msg) from exc
+        return checkpoint_path
+
+    def _resolve_checkpoint_path(self) -> Path:
+        """Resolve a strict local override or a verified cached default."""
+        if self.checkpoint_path is not None:
+            if not self.checkpoint_path.strip():
+                msg = "PANNs checkpoint_path must be a non-empty path or None for automatic download"
+                raise ValueError(msg)
+            checkpoint_path = Path(self.checkpoint_path).expanduser()
+            if not checkpoint_path.is_file():
+                msg = f"PANNs checkpoint_path does not point to a file: {checkpoint_path}"
+                raise FileNotFoundError(msg)
+            return checkpoint_path.resolve()
+
+        self._validate_default_checkpoint_config()
+        checkpoint_path = self._cached_checkpoint_path()
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = Path(f"{checkpoint_path}.lock")
+        with FileLock(lock_path):
+            if checkpoint_path.is_file():
+                actual_sha256 = _sha256(checkpoint_path)
+                if actual_sha256 == _DEFAULT_CHECKPOINT_SHA256:
+                    logger.info("Using cached PANNs SED checkpoint at {}", checkpoint_path)
+                    return checkpoint_path
+                logger.warning(
+                    "Ignoring cached PANNs SED checkpoint with unexpected SHA-256 at {} (got {})",
+                    checkpoint_path,
+                    actual_sha256,
+                )
+                checkpoint_path.unlink()
+            elif checkpoint_path.exists():
+                msg = f"PANNs checkpoint cache target exists but is not a file: {checkpoint_path}"
+                raise RuntimeError(msg)
+
+            return self._download_default_checkpoint(checkpoint_path)
+
+    def download_weights_on_node(self) -> None:
+        """Warm or validate the checkpoint cache without constructing the model."""
+        self._resolve_checkpoint_path()
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load checkpoint weights on CPU first, then place the model."""
@@ -83,12 +205,13 @@ class PANNsSEDAdapter:
             fmax=self.fmax,
             classes_num=self.classes_num,
         )
-        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
+        checkpoint_path = self._resolve_checkpoint_path()
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         model.load_state_dict(checkpoint["model"])
         model.to(self._device)
         model.eval()
         self._model = model
-        logger.info("Loaded {} from {} on {}", self.model_type, self.checkpoint_path, self._device)
+        logger.info("Loaded {} from {} on {}", self.model_type, checkpoint_path, self._device)
 
     def unload_model(self) -> None:
         """Release the model and any reclaimable CUDA cache state."""

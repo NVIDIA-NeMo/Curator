@@ -213,6 +213,7 @@ def test_file_mode_loads_the_yaml_manifest_contract(tmp_path: Path) -> None:
     stage = SEDInferenceStage(
         adapter_target=_ADAPTER_TARGET,
         checkpoint_path=_CHECKPOINT,
+        sample_rate=_SR,
         waveform_key=None,
     )
     adapter = _FakeSEDAdapter()
@@ -324,13 +325,17 @@ class _LifecycleAdapter:
 
     instance: _LifecycleAdapter | None = None
 
-    def __init__(self, checkpoint_path: str, sample_rate: int, marker: str) -> None:
+    def __init__(self, checkpoint_path: str | None, sample_rate: int, marker: str) -> None:
         self.checkpoint_path = checkpoint_path
         self.sample_rate = sample_rate
         self.marker = marker
+        self.download_calls = 0
         self.load_calls: list[int] = []
         self.unloaded = False
         type(self).instance = self
+
+    def download_weights_on_node(self) -> None:
+        self.download_calls += 1
 
     def load_model(self, *, num_gpus: int) -> None:
         self.load_calls.append(num_gpus)
@@ -351,9 +356,50 @@ def test_setup_constructs_and_loads_the_selected_adapter() -> None:
     adapter = _LifecycleAdapter.instance
     assert adapter is not None
     assert adapter.checkpoint_path == _CHECKPOINT
-    assert adapter.sample_rate == _SR
+    assert adapter.sample_rate == 32000
     assert adapter.marker == "from-yaml"
     assert adapter.load_calls == [0]
+
+
+def test_setup_on_node_prefetches_without_loading_the_model() -> None:
+    stage = SEDInferenceStage(
+        adapter_target="package.Adapter",
+        checkpoint_path=None,
+        adapter_kwargs={"marker": "auto"},
+    )
+    with patch("hydra.utils.get_class", return_value=_LifecycleAdapter):
+        stage.setup_on_node()
+    adapter = _LifecycleAdapter.instance
+    assert adapter is not None
+    assert adapter.checkpoint_path is None
+    assert adapter.download_calls == 1
+    assert adapter.load_calls == []
+
+
+def test_setup_on_node_raises_on_prefetch_failure_by_default() -> None:
+    stage = SEDInferenceStage(
+        adapter_target="package.Adapter",
+        adapter_kwargs={"marker": "auto"},
+    )
+    with (
+        patch("hydra.utils.get_class", return_value=_LifecycleAdapter),
+        patch.object(_LifecycleAdapter, "download_weights_on_node", side_effect=RuntimeError("offline")),
+        pytest.raises(RuntimeError, match="download_weights_on_node failed"),
+    ):
+        stage.setup_on_node()
+
+
+def test_setup_on_node_can_warn_and_retry_during_worker_setup() -> None:
+    stage = SEDInferenceStage(
+        adapter_target="package.Adapter",
+        adapter_kwargs={"marker": "auto"},
+        prefetch_fail_on_error=False,
+    )
+    with (
+        patch("hydra.utils.get_class", return_value=_LifecycleAdapter),
+        patch.object(_LifecycleAdapter, "download_weights_on_node", side_effect=RuntimeError("offline")),
+    ):
+        stage.setup_on_node()
 
 
 def test_teardown_delegates_to_the_adapter() -> None:
@@ -411,14 +457,23 @@ def test_valid_frames_and_fps_recover_real_duration() -> None:
 def test_example_yaml_instantiates_the_stage_adapter_contract() -> None:
     cfg = OmegaConf.load(_PIPELINE_YAML)
     cfg.manifest_path = "/input.jsonl"
-    cfg.checkpoint_path = _CHECKPOINT
     cfg.output_dir = "/output"
     stage = _instantiate_stage(cfg.stages[1])
     assert isinstance(stage, SEDInferenceStage)
     assert stage.adapter_target == _ADAPTER_TARGET
+    assert stage.checkpoint_path is None
     assert stage.sample_rate == 32000
     assert stage.adapter_kwargs["model_type"] == "Cnn14_DecisionLevelMax"
     assert stage.save_npz is True
+
+
+def test_example_yaml_accepts_an_offline_checkpoint_override() -> None:
+    cfg = OmegaConf.load(_PIPELINE_YAML)
+    cfg.manifest_path = "/input.jsonl"
+    cfg.checkpoint_path = _CHECKPOINT
+    cfg.output_dir = "/output"
+    stage = _instantiate_stage(cfg.stages[1])
+    assert stage.checkpoint_path == _CHECKPOINT
 
 
 def test_module_docstring_contains_the_exact_yaml_command() -> None:
@@ -427,6 +482,8 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     assert "tutorials/audio/sed" in stage.__doc__
     assert "--extra audio_cuda12" in stage.__doc__
     assert "--config-name pipeline" in stage.__doc__
+    default_command = stage.__doc__.split("For offline execution", maxsplit=1)[0]
+    assert "checkpoint_path=" not in default_command
     assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in stage.__doc__
     assert "Cnn14_mAP=0.431.pth" in stage.__doc__
     assert "clip-level audio tagging" in stage.__doc__

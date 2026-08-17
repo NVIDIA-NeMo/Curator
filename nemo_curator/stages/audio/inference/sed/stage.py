@@ -20,15 +20,18 @@ owns model construction, checkpoint loading, batch padding, and inference.
 
 The included YAML reads a JSONL manifest whose rows contain
 ``{"audio_filepath": "/absolute/path/to/audio.wav"}`` and writes compressed
-framewise NPZ files. Install the optional dependency and run it from the
-Curator repository root with the full command below::
+framewise NPZ files. The official PANNs checkpoint is downloaded once into
+``~/.cache/nemo_curator/panns`` and reused. Install the optional dependency and
+run it from the Curator repository root with the full command below::
 
     uv run --extra audio_cuda12 python nemo_curator/config/run.py \\
       --config-path ../../tutorials/audio/sed \\
       --config-name pipeline \\
       manifest_path=/absolute/path/to/input.jsonl \\
-      'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth' \\
       output_dir=/absolute/path/to/sed_output
+
+For offline execution, pre-download the checkpoint and append
+``'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth'``.
 
 The example configuration is ``tutorials/audio/sed/pipeline.yaml``. Its PANNs
 adapter produces a ``(frames, 527)`` AudioSet probability matrix per task at
@@ -78,7 +81,8 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
     Args:
         adapter_target: Import path of a class implementing ``SEDAdapter``.
-        checkpoint_path: Model checkpoint passed unchanged to the adapter.
+        checkpoint_path: Optional local checkpoint override. When ``None``,
+            the adapter downloads and caches its registered default.
         sample_rate: Sample rate supplied to the adapter after resampling.
         waveform_key: In-memory waveform field, or ``None`` to load files.
         sample_rate_key: Source sample-rate field for in-memory waveforms.
@@ -89,10 +93,10 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     """
 
     adapter_target: str
-    checkpoint_path: str
+    checkpoint_path: str | None = None
     name: str = "SEDInference"
 
-    sample_rate: int = 16000
+    sample_rate: int = 32000
     waveform_key: str | None = None
     sample_rate_key: str = "sample_rate"
     audio_filepath_key: str = "audio_filepath"
@@ -107,6 +111,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     output_dir: str = "sed_output"
     framewise_dtype: Literal["float16", "float32"] = "float16"
     skip_if_output_exists: bool = False
+    prefetch_fail_on_error: bool = True
 
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
     batch_size: int = 32

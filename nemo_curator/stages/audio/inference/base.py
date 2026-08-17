@@ -29,7 +29,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.stages.resources import Resources
 
 
@@ -38,6 +38,10 @@ _CHANNEL_FIRST_DIMENSIONS = 2
 
 class InferenceAdapter(Protocol):
     """Lifecycle shared by model adapters hosted in an inference stage."""
+
+    def download_weights_on_node(self) -> None:
+        """Cache model weights without allocating worker-local model state."""
+        ...
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load worker-local model state."""
@@ -63,6 +67,7 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
     sample_rate_key: str
     audio_filepath_key: str
     resources: Resources
+    prefetch_fail_on_error: bool
     _adapter: AdapterT | None
 
     def __post_init__(self) -> None:
@@ -84,6 +89,21 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
     def _create_adapter(self) -> AdapterT:
         """Construct one unloaded adapter from the subclass configuration."""
         ...
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        """Cache adapter-owned model weights once per node."""
+        try:
+            self._create_adapter().download_weights_on_node()
+            logger.info("{} weights cached on node ({})", type(self).__name__, self.adapter_target)
+        except Exception as exc:
+            msg = f"{type(self).__name__}: download_weights_on_node failed for {self.adapter_target}"
+            if self.prefetch_fail_on_error:
+                raise RuntimeError(msg) from exc
+            logger.warning("{}; setup() will retry: {}", msg, exc)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Construct and load the worker-local adapter once."""

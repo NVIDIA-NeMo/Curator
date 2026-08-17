@@ -108,6 +108,7 @@ deduplication_cuda12 = [
 
 audio_common = [
     # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
+    "filelock>=3.12",
     "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",

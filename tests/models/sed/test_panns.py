@@ -14,6 +14,8 @@
 
 """Tests for the PANNs implementation of the SED adapter contract."""
 
+import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +24,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from nemo_curator.models.sed import panns  # noqa: E402
 from nemo_curator.models.sed.panns import PANNsSEDAdapter  # noqa: E402
 
 _SR = 16000
@@ -114,8 +117,149 @@ def test_adapter_rejects_non_mono_or_empty_stage_inputs() -> None:
         adapter.infer_batch([{"waveform": np.zeros(0, dtype=np.float32)}])
 
 
-def test_load_model_uses_cpu_and_restricted_checkpoint_loading() -> None:
-    adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT)
+def test_explicit_checkpoint_bypasses_automatic_download(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "custom.pth"
+    checkpoint_path.touch()
+    adapter = PANNsSEDAdapter(checkpoint_path=str(checkpoint_path))
+    with patch("torch.hub.download_url_to_file") as download:
+        adapter.download_weights_on_node()
+    download.assert_not_called()
+
+
+def test_missing_explicit_checkpoint_never_falls_back_to_network(tmp_path: Path) -> None:
+    adapter = PANNsSEDAdapter(checkpoint_path=str(tmp_path / "missing.pth"))
+    with (
+        patch("torch.hub.download_url_to_file") as download,
+        pytest.raises(FileNotFoundError, match="does not point to a file"),
+    ):
+        adapter.download_weights_on_node()
+    download.assert_not_called()
+
+
+def test_empty_explicit_checkpoint_is_rejected_without_network() -> None:
+    adapter = PANNsSEDAdapter(checkpoint_path="  ")
+    with (
+        patch("torch.hub.download_url_to_file") as download,
+        pytest.raises(ValueError, match="non-empty path or None"),
+    ):
+        adapter.download_weights_on_node()
+    download.assert_not_called()
+
+
+def test_valid_automatic_checkpoint_cache_is_reused(tmp_path: Path) -> None:
+    payload = b"verified checkpoint"
+    expected_sha256 = hashlib.sha256(payload).hexdigest()
+    checkpoint_path = tmp_path / panns._DEFAULT_CHECKPOINT_FILENAME
+    checkpoint_path.write_bytes(payload)
+    adapter = PANNsSEDAdapter(cache_dir=str(tmp_path))
+
+    with (
+        patch.object(panns, "_DEFAULT_CHECKPOINT_SHA256", expected_sha256),
+        patch("torch.hub.download_url_to_file") as download,
+    ):
+        adapter.download_weights_on_node()
+
+    download.assert_not_called()
+
+
+def test_automatic_checkpoint_is_downloaded_with_full_sha256(tmp_path: Path) -> None:
+    payload = b"downloaded checkpoint"
+    expected_sha256 = hashlib.sha256(payload).hexdigest()
+    checkpoint_path = tmp_path / panns._DEFAULT_CHECKPOINT_FILENAME
+
+    def _download(_url: str, destination: str, **_kwargs: object) -> None:
+        Path(destination).write_bytes(payload)
+
+    adapter = PANNsSEDAdapter(cache_dir=str(tmp_path))
+    with (
+        patch.object(panns, "_DEFAULT_CHECKPOINT_SHA256", expected_sha256),
+        patch("torch.hub.download_url_to_file", side_effect=_download) as download,
+    ):
+        adapter.download_weights_on_node()
+
+    download.assert_called_once_with(
+        panns._DEFAULT_CHECKPOINT_URL,
+        str(checkpoint_path),
+        hash_prefix=expected_sha256,
+        progress=False,
+    )
+    assert checkpoint_path.read_bytes() == payload
+
+
+def test_corrupt_automatic_checkpoint_is_replaced(tmp_path: Path) -> None:
+    payload = b"replacement checkpoint"
+    expected_sha256 = hashlib.sha256(payload).hexdigest()
+    checkpoint_path = tmp_path / panns._DEFAULT_CHECKPOINT_FILENAME
+    checkpoint_path.write_bytes(b"corrupt")
+
+    def _download(_url: str, destination: str, **_kwargs: object) -> None:
+        assert not Path(destination).exists()
+        Path(destination).write_bytes(payload)
+
+    adapter = PANNsSEDAdapter(cache_dir=str(tmp_path))
+    with (
+        patch.object(panns, "_DEFAULT_CHECKPOINT_SHA256", expected_sha256),
+        patch("torch.hub.download_url_to_file", side_effect=_download) as download,
+    ):
+        adapter.download_weights_on_node()
+
+    download.assert_called_once()
+    assert checkpoint_path.read_bytes() == payload
+
+
+def test_failed_automatic_download_leaves_no_final_checkpoint(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / panns._DEFAULT_CHECKPOINT_FILENAME
+    adapter = PANNsSEDAdapter(cache_dir=str(tmp_path))
+    with (
+        patch("torch.hub.download_url_to_file", side_effect=RuntimeError("offline")),
+        pytest.raises(RuntimeError, match="Failed to download verified PANNs checkpoint"),
+    ):
+        adapter.download_weights_on_node()
+    assert not checkpoint_path.exists()
+
+
+def test_unsupported_model_requires_an_explicit_checkpoint(tmp_path: Path) -> None:
+    adapter = PANNsSEDAdapter(model_type="Cnn14_DecisionLevelAvg", cache_dir=str(tmp_path))
+    with (
+        patch("torch.hub.download_url_to_file") as download,
+        pytest.raises(ValueError, match="provide checkpoint_path"),
+    ):
+        adapter.download_weights_on_node()
+    download.assert_not_called()
+
+
+def test_automatic_checkpoint_rejects_frontend_mismatch(tmp_path: Path) -> None:
+    adapter = PANNsSEDAdapter(sample_rate=16000, cache_dir=str(tmp_path))
+    with (
+        patch("torch.hub.download_url_to_file") as download,
+        pytest.raises(ValueError, match="published frontend"),
+    ):
+        adapter.download_weights_on_node()
+    download.assert_not_called()
+
+
+def test_concurrent_automatic_resolution_downloads_once(tmp_path: Path) -> None:
+    payload = b"shared checkpoint"
+    expected_sha256 = hashlib.sha256(payload).hexdigest()
+
+    def _download(_url: str, destination: str, **_kwargs: object) -> None:
+        Path(destination).write_bytes(payload)
+
+    adapters = [PANNsSEDAdapter(cache_dir=str(tmp_path)), PANNsSEDAdapter(cache_dir=str(tmp_path))]
+    with (
+        patch.object(panns, "_DEFAULT_CHECKPOINT_SHA256", expected_sha256),
+        patch("torch.hub.download_url_to_file", side_effect=_download) as download,
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        list(executor.map(lambda adapter: adapter.download_weights_on_node(), adapters))
+
+    download.assert_called_once()
+
+
+def test_load_model_uses_cpu_and_restricted_checkpoint_loading(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "custom.pth"
+    checkpoint_path.touch()
+    adapter = PANNsSEDAdapter(checkpoint_path=str(checkpoint_path))
     model = MagicMock()
     model_cls = MagicMock(return_value=model)
     with (
@@ -125,15 +269,18 @@ def test_load_model_uses_cpu_and_restricted_checkpoint_loading() -> None:
     ):
         adapter.load_model(num_gpus=0)
 
+    assert torch_load.call_args.args == (checkpoint_path.resolve(),)
     assert torch_load.call_args.kwargs == {"map_location": "cpu", "weights_only": True}
     model.load_state_dict.assert_called_once_with({"weight": "value"})
     model.to.assert_called_once_with(torch.device("cpu"))
     model.eval.assert_called_once_with()
 
 
-def test_load_model_forwards_checkpoint_frontend_configuration() -> None:
+def test_load_model_forwards_checkpoint_frontend_configuration(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "custom.pth"
+    checkpoint_path.touch()
     adapter = PANNsSEDAdapter(
-        checkpoint_path=_CHECKPOINT,
+        checkpoint_path=str(checkpoint_path),
         sample_rate=22050,
         model_type="Cnn14_DecisionLevelAvg",
         window_size=2048,

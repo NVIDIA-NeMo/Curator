@@ -56,7 +56,8 @@ class SEDAdapter(Protocol):
     """Structural protocol implemented by every sound-event adapter.
 
     Constructor contract: the stage creates an adapter as
-    ``cls(checkpoint_path=..., sample_rate=..., **adapter_kwargs)``.
+    ``cls(checkpoint_path=..., sample_rate=..., **adapter_kwargs)``. A ``None``
+    checkpoint path asks the adapter to resolve its registered default.
 
     ``infer_batch`` receives stage-normalized items in input order. Each item
     contains a contiguous mono float32 ``waveform``, integer ``sample_rate``,
@@ -64,8 +65,12 @@ class SEDAdapter(Protocol):
     per item, in the same order.
     """
 
-    checkpoint_path: str
+    checkpoint_path: str | None
     sample_rate: int
+
+    def download_weights_on_node(self) -> None:
+        """Cache model weights without allocating worker-local model state."""
+        ...
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load worker-local model state for the requested physical GPU count."""

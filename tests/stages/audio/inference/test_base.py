@@ -29,6 +29,7 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
         "_adapter_class",
         "_adapter_gpu_count",
         "inputs",
+        "setup_on_node",
         "setup",
         "teardown",
     }

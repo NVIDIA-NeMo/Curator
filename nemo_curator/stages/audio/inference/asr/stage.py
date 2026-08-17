@@ -34,7 +34,6 @@ from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.tasks import AudioTask
 
 
@@ -187,25 +186,6 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                 **self.adapter_kwargs,
             ),
         )
-
-    def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
-    ) -> None:
-        """Cache model weights once per node (no GPU allocation)."""
-        try:
-            self._create_adapter().download_weights_on_node()
-            logger.info(
-                "ASR weights cached on node for {} ({})",
-                self.model_id,
-                self.adapter_target,
-            )
-        except Exception as exc:
-            msg = f"ASRStage: download_weights_on_node failed for {self.model_id}"
-            if self.prefetch_fail_on_error:
-                raise RuntimeError(msg) from exc
-            logger.warning("{}; setup() will retry: {}", msg, exc)
 
     def outputs(self) -> tuple[list[str], list[str]]:
         optional_outputs = [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
