@@ -976,7 +976,7 @@ entries:
       - metric: num_files_processed
         min_value: 1
 
-  # Fixed eight-worker Xenna pool over the shared real-data manifest.
+  # 600.0028 hours / 173,029 clips: 642.52s processing on 8xA100.
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
@@ -1006,7 +1006,7 @@ entries:
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # Same real input and fixed eight-worker pool as Xenna.
+  # Same real input and worker count: 637.06s processing on 8xA100.
   - name: audio_librispeech_raydata
     enabled: true
     script: audio_librispeech_benchmark.py
