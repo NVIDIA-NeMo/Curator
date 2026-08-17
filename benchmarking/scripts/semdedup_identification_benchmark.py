@@ -47,6 +47,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     which_to_keep: str = "hard",
     pairwise_batch_size: int = 1024,
     fit_data_fraction: float | None = None,
+    pairwise_compute_dtype: str = "float16",
+    kmeans_embedding_output_dtype: str = "float16",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the semantic duplicate identification benchmark and collect comprehensive metrics.
@@ -63,7 +65,9 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         input_filetype: Input file type ("parquet" or "jsonl")
         eps: Epsilon value for duplicate identification threshold (cosine_sim >= 1-eps)
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
-        pairwise_batch_size: Batch size for pairwise similarity computation
+        kmeans_embedding_output_dtype: Precision used for KMeans embedding output
+        pairwise_compute_dtype: Multiplication precision used by Pairwise
+        pairwise_batch_size: Positive Pairwise batch size for the bounded similarity workspace
         fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit KMeans. When None,
             Parquet auto-sizes the sample from free GPU memory, while JSONL fits all input files.
         **kwargs: Additional arguments (ignored)
@@ -93,6 +97,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         input_filetype=input_filetype,
         eps=eps,
         which_to_keep=which_to_keep,
+        kmeans_embedding_output_dtype=kmeans_embedding_output_dtype,
+        pairwise_compute_dtype=pairwise_compute_dtype,
         pairwise_batch_size=pairwise_batch_size,
         fit_data_fraction=fit_data_fraction,
     )
@@ -148,6 +154,20 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         "kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean",
         kmeans_fit_time + kmeans_predict_time,
     )
+    pairwise_metric_prefix = "pairwise_PairwiseCosineSimilarityStage_custom"
+    pairwise_metrics = {
+        "pairwise_footer_scan_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_footer_scan_time_sum", 0),
+        "pairwise_read_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_read_time_sum", 0),
+        "pairwise_rank_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_rank_time_sum", 0),
+        "pairwise_conversion_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_conversion_time_sum", 0),
+        "pairwise_compute_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_compute_time_sum", 0),
+        "pairwise_write_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_write_time_sum", 0),
+        "pairwise_num_rows": int(task_metrics.get(f"{pairwise_metric_prefix}.pairwise_num_rows_sum", 0)),
+        "pairwise_rows_per_cluster_mean": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_num_rows_mean", 0),
+        "pairwise_resolved_batch_size_mean": task_metrics.get(
+            f"{pairwise_metric_prefix}.pairwise_resolved_batch_size_mean", 0
+        ),
+    }
     if workflow_total_time:
         # this is different than kmeans_time because kmeans_time also includes setting up actors
         # while this is just sum of mean time taken across actors across the three steps
@@ -183,6 +203,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "kmeans_actual_fit_percent": kmeans_actual_fit_percent,
             "kmeans_fit_data_fraction": kmeans_fit_data_fraction,
             "kmeans_fit_file_fraction": kmeans_fit_file_fraction,
+            **pairwise_metrics,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,
             "kmeans_write_percent_time": kmeans_write_percent_time,
@@ -225,7 +246,22 @@ def main() -> int:
         help="Strategy for ranking within clusters",
     )
     parser.add_argument(
-        "--pairwise-batch-size", type=int, default=1024, help="Batch size for pairwise similarity computation"
+        "--kmeans-embedding-output-dtype",
+        choices=["float16", "float32"],
+        default="float16",
+        help="Precision used to store KMeans embedding output",
+    )
+    parser.add_argument(
+        "--pairwise-compute-dtype",
+        choices=["auto", "float16", "float32"],
+        default="float16",
+        help="Multiplication precision used by Pairwise",
+    )
+    parser.add_argument(
+        "--pairwise-batch-size",
+        type=int,
+        default=1024,
+        help="Positive Pairwise batch size for the bounded similarity workspace",
     )
     parser.add_argument(
         "--fit-data-fraction",

@@ -50,6 +50,13 @@ from loguru import logger
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.6
+KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
+
+
+def validate_embedding_output_dtype(embedding_output_dtype: object) -> None:
+    if embedding_output_dtype not in {"float16", "float32"}:
+        msg = f"embedding_output_dtype must be 'float16' or 'float32', got {embedding_output_dtype!r}"
+        raise ValueError(msg)
 
 
 class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], DeduplicationIO):
@@ -77,6 +84,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         cache_path: str | None = None,
         read_kwargs: dict[dict] | None = None,
         write_kwargs: dict[dict] | None = None,
+        embedding_output_dtype: KMeansEmbeddingOutputDtype = "float16",
     ):
         """KMeans clustering stage that requires RAFT for distributed processing.
 
@@ -100,6 +108,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
+            embedding_output_dtype: Precision used to store embeddings in KMeans output files.
         """
         self.id_field = id_field
         self.embedding_field = embedding_field
@@ -123,6 +132,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             raise ValueError(msg)
         self.fit_data_fraction = fit_data_fraction
         self.cache_path = cache_path
+        validate_embedding_output_dtype(embedding_output_dtype)
+        self.embedding_output_dtype = embedding_output_dtype
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs.copy() if write_kwargs is not None else {}
 
@@ -332,6 +343,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
         frame["centroid"] = labels
         frame = self._assign_distances(frame, self.embedding_field, centroids)
+        self._set_output_embeddings(frame, embeddings)
         self.write_parquet(
             frame,
             self.output_path,
@@ -341,6 +353,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             storage_options=self.output_storage_options,
             **self.write_kwargs,
         )
+
+    def _set_output_embeddings(self, frame: "cudf.DataFrame", embeddings: "cp.ndarray") -> None:
+        """Store FP16 as uint16 bit patterns until cuDF supports numeric FP16 columns."""
+        if self.embedding_output_dtype == "float16":
+            frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(
+                embeddings.astype(cp.float16).view(cp.uint16),
+                index=frame.index,
+            )
 
     def _save_centroids(self, centroids: "cp.ndarray") -> None:
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
@@ -390,6 +410,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
 
         df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
+        self._set_output_embeddings(df, embeddings)
         self.write_parquet(
             df,
             self.output_path,
@@ -497,6 +518,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         labels = self.kmeans.predict(embeddings).astype(cp.int32)
         df["centroid"] = labels
         df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
+        self._set_output_embeddings(df, embeddings)
         self.write_parquet(
             df,
             self.output_path,
@@ -598,6 +620,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
     max_samples_per_batch: int = 1 << 15
     fit_data_fraction: float | None = None
     cache_path: str | None = None
+    embedding_output_dtype: KMeansEmbeddingOutputDtype = "float16"
     """KMeans clustering stage that requires RAFT for distributed processing.
 
     Args:
@@ -622,6 +645,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
             sizes the sample automatically from free GPU memory, while JSONL fits all input files in
             one pass.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
+        embedding_output_dtype: Precision used to store embeddings in KMeans output files.
     """
 
     def __post_init__(self):
@@ -640,6 +664,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
                 "fit_data_fraction=None fits all JSONL input in one pass; automatic GPU-memory sizing is only "
                 "available for Parquet input"
             )
+        validate_embedding_output_dtype(self.embedding_output_dtype)
 
     def decompose(self) -> list[ProcessingStage]:
         # Set default file extensions based on input_filetype if not provided
@@ -671,5 +696,6 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
                 cache_path=self.cache_path,
+                embedding_output_dtype=self.embedding_output_dtype,
             ),
         ]

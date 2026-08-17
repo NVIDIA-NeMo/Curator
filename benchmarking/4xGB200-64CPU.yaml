@@ -68,7 +68,19 @@ entries:
   - name: semdedup_identification_xenna_dataset_size_ratio
     timeout_s: 2400
 
+  - name: semdedup_identification_xenna_dataset_size_ratio_kmeans_fp32_pairwise_fp16
+    timeout_s: 2400
+
+  - name: semdedup_identification_xenna_dataset_size_ratio_kmeans_fp32_pairwise_fp32
+    timeout_s: 2400
+
   - name: semdedup_identification_xenna_fit_data_fraction
+    timeout_s: 3600
+
+  - name: semdedup_identification_xenna_fit_data_fraction_kmeans_fp32_pairwise_fp16
+    timeout_s: 3600
+
+  - name: semdedup_identification_xenna_fit_data_fraction_kmeans_fp32_pairwise_fp32
     timeout_s: 3600
 
   - name: dedup_removal_raydata
