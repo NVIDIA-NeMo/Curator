@@ -151,7 +151,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         # Break files into subgroups to avoid cudf row limits
         if self.filetype == "parquet":
-            groups = break_parquet_partition_into_groups(all_files, embedding_dim=self.embedding_dim)
+            groups = break_parquet_partition_into_groups(
+                all_files,
+                embedding_dim=self.embedding_dim,
+                storage_options=self.input_storage_options,
+            )
         elif self.filetype == "jsonl":
             # For JSONL files, just group all files together since we can't easily estimate size
             groups = [all_files]
@@ -317,7 +321,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         fit_files = rng.sample(all_files, n_files)
 
         if self.filetype == "parquet":
-            fit_groups = break_parquet_partition_into_groups(fit_files, embedding_dim=self.embedding_dim)
+            fit_groups = break_parquet_partition_into_groups(
+                fit_files,
+                embedding_dim=self.embedding_dim,
+                storage_options=self.input_storage_options,
+            )
         else:  # jsonl
             fit_groups = [fit_files]
 

@@ -491,7 +491,7 @@ class TestKMeansReadFitWriteStage:
             results = stage.process_batch(all_tasks)
 
             if expect_break:
-                mock_break.assert_called_once_with(all_files, embedding_dim=32)
+                mock_break.assert_called_once_with(all_files, embedding_dim=32, storage_options=None)
             else:
                 mock_break.assert_not_called()
 
@@ -606,6 +606,34 @@ class TestKMeansReadFitWriteStage:
                 stage.process_batch([task])
             assert sp.called is expect_single
             assert tp.called is not expect_single
+
+    def test_parquet_grouping_forwards_storage_options_for_initial_and_fractional_fit(
+        self, tmp_path: Path, make_stage: "KMeansReadFitWriteStage"
+    ) -> None:
+        """Both Parquet grouping paths use input storage options without changing local paths."""
+        storage_options = {"client_kwargs": {"endpoint_url": "https://object-store.example.com"}}
+        expected_storage_options = {"client_kwargs": {"endpoint_url": "https://object-store.example.com"}}
+        read_kwargs = {"storage_options": storage_options}
+        local_file = str(tmp_path / "input.parquet")
+        stage = make_stage(fit_data_fraction=0.5, read_kwargs=read_kwargs)
+        task = FileGroupTask(dataset_name="d", data=[local_file])
+        df = cudf.DataFrame({"embeddings": [[1.0, 0.0]]})
+
+        with (
+            patch("nemo_curator.stages.deduplication.semantic.utils.open_parquet_file") as mock_open,
+            patch("nemo_curator.stages.deduplication.semantic.utils.pq.read_metadata", return_value=Mock(num_rows=1)),
+            patch.object(stage, "_process_batch_two_pass", return_value=[]),
+            patch.object(stage, "_read_group", return_value=df),
+        ):
+            stage.process_batch([task])
+            stage._fit_pass([[local_file]])
+
+        assert [call.args[0] for call in mock_open.call_args_list] == [local_file, local_file]
+        assert [call.kwargs["storage_options"] for call in mock_open.call_args_list] == [
+            expected_storage_options,
+            expected_storage_options,
+        ]
+        assert read_kwargs == {"storage_options": expected_storage_options}
 
     @pytest.mark.parametrize(
         ("groups", "fraction", "expected_count"),
