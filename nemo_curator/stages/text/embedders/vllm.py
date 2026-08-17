@@ -17,7 +17,7 @@ from __future__ import annotations
 import gc
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pyarrow as pa
@@ -285,28 +285,27 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def _collect_embeddings(self, text_column: pa.ChunkedArray, num_rows: int) -> tuple[np.ndarray, dict[str, float]]:
         """Embed bounded chunks and assemble one ordered float32 matrix."""
-        prepared_chunks = iter(self._iter_prepared_chunks(text_column, num_rows))
-        first_offset, first_chunk_size, first_input_data, tokenization_time = next(prepared_chunks)
-        first_embedding_matrix, first_metrics = self._embed_chunk(first_input_data, first_chunk_size)
-        embedding_matrix = np.empty(
-            (num_rows, first_embedding_matrix.shape[1]),
-            dtype=np.float32,
-        )
-        embedding_matrix[first_offset : first_offset + first_chunk_size] = first_embedding_matrix
-        del first_embedding_matrix
+        embedding_matrix: np.ndarray | None = None
+        tokenization_time = 0.0
+        vllm_embedding_time = 0.0
+        input_tokens = 0.0
 
-        vllm_embedding_time = first_metrics["vllm_embedding_time"]
-        input_tokens = first_metrics["input_tokens"]
-
-        for offset, chunk_size, input_data, chunk_tokenization_time in prepared_chunks:
+        for offset, chunk_size, input_data, chunk_tokenization_time in self._iter_prepared_chunks(
+            text_column, num_rows
+        ):
             tokenization_time += chunk_tokenization_time
             chunk_embedding_matrix, chunk_metrics = self._embed_chunk(input_data, chunk_size)
             vllm_embedding_time += chunk_metrics["vllm_embedding_time"]
             input_tokens += chunk_metrics["input_tokens"]
+            if embedding_matrix is None:
+                embedding_matrix = np.empty(
+                    (num_rows, chunk_embedding_matrix.shape[1]),
+                    dtype=np.float32,
+                )
             embedding_matrix[offset : offset + chunk_size] = chunk_embedding_matrix
             del chunk_embedding_matrix
 
-        return embedding_matrix, {
+        return cast("np.ndarray", embedding_matrix), {
             "tokenization_time": tokenization_time,
             "vllm_embedding_time": vllm_embedding_time,
             "input_tokens": input_tokens,
