@@ -17,9 +17,9 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import shutil
-from itertools import chain
 from pathlib import Path
 
 import soundfile as sf
@@ -71,19 +71,27 @@ def stage_dataset(  # noqa: PLR0913
         cache_dir=cache_dir,
         streaming=True,
     ).cast_column("audio", Audio(decode=False))
-    dataset = chain.from_iterable(datasets[split] for split in hf_split.split("+"))
-
     try:
         with temporary_manifest.open("w", encoding="utf-8") as manifest_file:
-            for row in dataset:
-                audio_item_id = str(row["id"]).replace("/", "-")
-                audio_path = audio_dir / f"{audio_item_id}.flac"
-                duration_s = _copy_audio(row["audio"], audio_path)
-                manifest_file.write(
-                    json.dumps({"audio_filepath": str(audio_path), "text": row["text"]}, separators=(",", ":")) + "\n"
-                )
-                clips += 1
-                selected_duration_s += duration_s
+            for split in hf_split.split("+"):
+                dataset_iterator = iter(datasets[split])
+                try:
+                    for row in dataset_iterator:
+                        audio_item_id = str(row["id"]).replace("/", "-")
+                        audio_path = audio_dir / f"{audio_item_id}.flac"
+                        duration_s = _copy_audio(row["audio"], audio_path)
+                        manifest_file.write(
+                            json.dumps({"audio_filepath": str(audio_path), "text": row["text"]}, separators=(",", ":"))
+                            + "\n"
+                        )
+                        clips += 1
+                        selected_duration_s += duration_s
+                        if selected_duration_s >= target_duration_s:
+                            break
+                finally:
+                    dataset_iterator.close()
+                    # Work around apache/arrow#45214 on PyArrow <=24.
+                    gc.collect()
                 if selected_duration_s >= target_duration_s:
                     break
         if selected_duration_s < target_duration_s:
