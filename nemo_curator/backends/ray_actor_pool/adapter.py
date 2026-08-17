@@ -15,11 +15,12 @@
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import PerformanceTelemetryAdapterMixin
 from nemo_curator.backends.utils import get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
 
-class RayActorPoolStageAdapter(BaseStageAdapter):
+class RayActorPoolStageAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
     """Adapts ProcessingStage to Ray actors for use with ActorPool.
 
     This adapter is designed to work with Ray's ActorPool for better
@@ -29,15 +30,16 @@ class RayActorPoolStageAdapter(BaseStageAdapter):
     def __init__(self, stage: ProcessingStage):
         super().__init__(stage)
 
-        # Get runtime context for worker metadata
-        node_info, worker_metadata = get_worker_metadata_and_node_id()
+        node_info, worker_metadata = get_worker_metadata_and_node_id(
+            str(stage.name) if getattr(stage, "extended_performance_metrics", False) else None,
+            requires_gpu=stage.resources.requires_gpu,
+        )
 
         # Create WorkerMetadata with actor information
         self.worker_metadata = worker_metadata
         self.node_info = node_info
 
-        # Setup the stage when the actor is created
-        self.stage.setup(worker_metadata)
+        super().setup(worker_metadata)
 
         self._batch_size = self.stage.batch_size
         if self._batch_size is None:

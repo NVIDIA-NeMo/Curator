@@ -125,6 +125,13 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
+    # Framework-owned execution identity populated by ``Pipeline``.
+    _curator_stage_id: str = ""
+    _curator_run_id: str = ""
+    _curator_executor: str = ""
+    _curator_pipeline_metadata: dict[str, Any] | None = None
+    _curator_slurm_array_shard_index: int | None = None
+    _curator_slurm_array_total_shards: int | None = None
 
     # Source / sink role flags. User-overridable on the stage class or
     # instance. If neither is set explicitly on any stage in the pipeline,
@@ -135,6 +142,9 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # resumability layer to mark the counter-decrement boundary.
     is_source_stage: bool = False
     is_sink_stage: bool = False
+    # Opt-in backend identity and hardware sampling. Terminal performance
+    # consumers may independently request complete invocation collection.
+    extended_performance_metrics: bool = False
     # Whether this stage is safe to run under resumability (``checkpoint_path``).
     # Defaults to True; set False only on stages whose input→output mapping isn't
     # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
@@ -383,6 +393,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         ray_stage_spec: dict[str, Any] | None = None,
         xenna_stage_spec: dict[str, Any] | None = None,
         num_workers: int | None | _UnsetType = _UNSET,
+        extended_performance_metrics: bool | None = None,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -397,6 +408,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             xenna_stage_spec: Merge overrides into the Xenna stage spec. User-provided keys win.
                 Use num_workers instead of setting num_workers in xenna_stage_spec.
             num_workers: Override the num_workers() result. Passing None explicitly resets to executor default behavior.
+            extended_performance_metrics: Enable backend identity and hardware telemetry.
         """
         new_instance = copy.deepcopy(self)
 
@@ -432,6 +444,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         if num_workers is not _UNSET:
             new_instance.num_workers = _num_workers_method(cast("int | None", num_workers))
+        if extended_performance_metrics is not None:
+            new_instance.extended_performance_metrics = extended_performance_metrics
 
         return new_instance
 
@@ -515,6 +529,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         metrics: dict[str, float] = dict(self._custom_metrics)
         del self._custom_metrics
         return metrics
+
+    def requests_performance_records(self) -> bool:
+        """Return whether this stage requires a complete run-scoped record set."""
+        return False
 
 
 class CompositeStage(ProcessingStage[X, Y], ABC):

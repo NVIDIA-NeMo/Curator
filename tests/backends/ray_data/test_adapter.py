@@ -17,7 +17,9 @@ from unittest import mock
 import pytest
 from ray.data import ActorPoolStrategy, TaskPoolStrategy
 
-from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.perf_identity import WorkerPerfIdentity
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter, create_actor_from_stage, create_task_from_stage
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage, Resources
 from nemo_curator.tasks import EmptyTask
@@ -71,6 +73,47 @@ class ConfigurableTaskStage(ConfigurableActorStage):
 
 
 class TestRayDataStageAdapter:
+    @pytest.mark.parametrize(("enabled", "stage_name"), [(False, None), (True, "configurable_actor")])
+    def test_actor_worker_perf_identity_is_opt_in(self, enabled: bool, stage_name: str | None):
+        metadata = (NodeInfo(node_id="node"), WorkerMetadata(worker_id="worker"))
+        stage = ConfigurableActorStage()
+        stage.extended_performance_metrics = enabled
+
+        with mock.patch(
+            "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id",
+            return_value=metadata,
+        ) as get_metadata:
+            create_actor_from_stage(stage)()
+
+        get_metadata.assert_called_once_with(stage_name, requires_gpu=False)
+
+    def test_task_worker_initializes_extended_perf_identity_once(self):
+        stage = ConfigurableTaskStage()
+        stage.extended_performance_metrics = True
+        metadata = (
+            NodeInfo(node_id="node-a"),
+            WorkerMetadata(
+                worker_id="worker-a",
+                perf_identity=WorkerPerfIdentity(
+                    actor_id="configurable_task:actor-worker-a",
+                    node_id="node-a",
+                ),
+            ),
+        )
+        stage_map_fn = create_task_from_stage(stage)
+
+        with mock.patch(
+            "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id",
+            return_value=metadata,
+        ) as perf_metadata:
+            first = stage_map_fn({"item": [EmptyTask()]})["item"][0]
+            second = stage_map_fn({"item": [EmptyTask()]})["item"][0]
+
+        perf_metadata.assert_called_once_with(stage.name, requires_gpu=False)
+        assert first._stage_perf[-1].node_id == "node-a"
+        assert first._stage_perf[-1].actor_id == "configurable_task:actor-worker-a"
+        assert second._stage_perf[-1].node_id == "node-a"
+
     def test_process_dataset_uses_compute_for_actor_stages_and_ray_default_for_task_stages(self):
         fixed_actor_kwargs = _map_batches_kwargs(ConfigurableActorStage(num_workers=3))
         autoscaling_actor_kwargs = _map_batches_kwargs(

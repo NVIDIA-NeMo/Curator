@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 from dataclasses import dataclass, field
 
@@ -65,6 +66,10 @@ class AudioTask(Task[dict]):
     @property
     def num_items(self) -> int:
         return 1
+
+    def input_data_size_bytes(self) -> int:
+        """Return the UTF-8 JSON size of this manifest-row payload."""
+        return len(json.dumps(self.data, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"))
 
     def validate(self) -> bool:
         """Validate the task data."""

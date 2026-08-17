@@ -18,6 +18,7 @@ hydra:
 
 manifest_path: ???
 output_path: ./qwen_omni_output.jsonl
+performance_report_path: ./qwen_omni_performance.json
 workspace_dir: /tmp/qwen_omni_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
@@ -45,6 +46,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
+    extended_performance_metrics: true
     model_id: ${model_id}
     default_language: ${default_language}
     supported_language_codes: ${supported_language_codes}
@@ -83,3 +85,4 @@ stages:
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${output_path}
+    performance_report_path: ${performance_report_path}
