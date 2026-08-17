@@ -12,10 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import gc
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+import pyarrow as pa
 import torch
 from huggingface_hub import snapshot_download
 
@@ -30,16 +35,22 @@ except ImportError:
         pass
 
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
 from nemo_curator.tasks import DocumentBatch
+from nemo_curator.utils.vllm_utils import create_vllm_llm_with_retry
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from concurrent.futures import Future
+
     from transformers import AutoTokenizer
 
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+
 _VLLM_INSTALL_HINT = "vLLM is required for VLLMEmbeddingModelStage. Install with: pip install nemo_curator[vllm]"
+_EMBEDDING_MATRIX_NDIM = 2
 
 
 class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -54,6 +65,9 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         cache_dir: str | None = None,
         hf_token: str | None = None,
         verbose: bool = False,
+        *,
+        metadata_fields: list[str] | None = None,
+        model_inference_batch_size: int = 10_000,
     ):
         self.model_identifier = model_identifier
         self.vllm_init_kwargs = vllm_init_kwargs or {}
@@ -61,6 +75,15 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.text_field = text_field
         self.pretokenize = pretokenize
         self.embedding_field = embedding_field
+        self.metadata_fields = list(dict.fromkeys(metadata_fields)) if metadata_fields is not None else None
+        if (
+            isinstance(model_inference_batch_size, bool)
+            or not isinstance(model_inference_batch_size, int)
+            or model_inference_batch_size <= 0
+        ):
+            msg = f"model_inference_batch_size must be a positive integer, got {model_inference_batch_size}"
+            raise ValueError(msg)
+        self.model_inference_batch_size = model_inference_batch_size
         self.max_chars = max_chars
 
         self.cache_dir = cache_dir
@@ -81,7 +104,10 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field, self.embedding_field]
+        output_fields = list(self.metadata_fields) if self.metadata_fields is not None else [self.text_field]
+        if self.embedding_field not in output_fields:
+            output_fields.append(self.embedding_field)
+        return ["data"], output_fields
 
     def _initialize_vllm(self, local_files_only: bool) -> None:
         """Download (or locate) the model and initialize vLLM.
@@ -115,7 +141,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if not self.verbose and "disable_log_stats" not in vllm_init_kwargs:
             vllm_init_kwargs["disable_log_stats"] = True
 
-        self.model = LLM(model=model_path, **vllm_init_kwargs)
+        self.model = create_vllm_llm_with_retry(model=model_path, **vllm_init_kwargs)
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if not self.verbose:
@@ -149,27 +175,75 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 local_files_only=True,
             )
 
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
-        df = batch.to_pandas()
+    def _prepare_input_chunk(
+        self, text_column: pa.ChunkedArray, offset: int, chunk_size: int
+    ) -> tuple[list[Any], float]:
+        input_data = text_column.slice(offset, chunk_size).to_pylist()
         if self.max_chars is not None:
-            df[self.text_field] = df[self.text_field].str.slice(0, self.max_chars)
-        input_data = df[self.text_field].tolist()
-        metrics = {}
+            input_data = [text[: self.max_chars] if text is not None else None for text in input_data]
+        if not self.pretokenize:
+            return input_data, 0.0
 
-        if self.pretokenize:
-            from vllm.inputs import TokensPrompt
+        if self.tokenizer is None:
+            msg = "Tokenizer is not initialized. Please call setup() before processing or set pretokenize to False."
+            raise ValueError(msg)
+        if self.model is None:
+            msg = "vLLM model is not initialized. Please call setup() before processing."
+            raise ValueError(msg)
 
-            if self.tokenizer is None:
-                msg = (
-                    "Tokenizer is not initialized. Please call setup() before processing or set pretokenize to False."
-                )
-                raise ValueError(msg)
+        from vllm.inputs import TokensPrompt
 
-            t0 = time.perf_counter()
-            max_model_len = self.model.model_config.max_model_len
-            tokenized_data = self.tokenizer.batch_encode_plus(input_data, truncation=True, max_length=max_model_len)
-            input_data = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
-            metrics["tokenization_time"] = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        tokenized_data = self.tokenizer.batch_encode_plus(
+            input_data,
+            truncation=True,
+            max_length=self.model.model_config.max_model_len,
+        )
+        prompts = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
+        return prompts, time.perf_counter() - t0
+
+    def _iter_prepared_chunks(
+        self, text_column: pa.ChunkedArray, num_rows: int
+    ) -> Iterator[tuple[int, int, list[Any], float]]:
+        """Prepare one chunk ahead while the caller embeds the current chunk."""
+        chunk_specs = iter(
+            (offset, min(self.model_inference_batch_size, num_rows - offset))
+            for offset in range(0, num_rows, self.model_inference_batch_size)
+        )
+        pending_offset, pending_chunk_size = next(chunk_specs)
+
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="vllm-tokenizer") as executor:
+            pending_input: Future[tuple[list[Any], float]] = executor.submit(
+                self._prepare_input_chunk,
+                text_column,
+                pending_offset,
+                pending_chunk_size,
+            )
+            while True:
+                input_data, tokenization_time = pending_input.result()
+                try:
+                    next_offset, next_chunk_size = next(chunk_specs)
+                except StopIteration:
+                    next_input = None
+                else:
+                    next_input = executor.submit(
+                        self._prepare_input_chunk,
+                        text_column,
+                        next_offset,
+                        next_chunk_size,
+                    )
+
+                yield pending_offset, pending_chunk_size, input_data, tokenization_time
+                if next_input is None:
+                    break
+                pending_offset = next_offset
+                pending_chunk_size = next_chunk_size
+                pending_input = next_input
+
+    def _embed_chunk(self, input_data: list[Any], expected_size: int) -> tuple[np.ndarray, dict[str, float]]:
+        if self.model is None:
+            msg = "vLLM model is not initialized. Please call setup() before processing."
+            raise ValueError(msg)
 
         t0 = time.perf_counter()
         vllm_output = self.model.embed(
@@ -177,15 +251,110 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             tokenization_kwargs={"truncate_prompt_tokens": -1},
             use_tqdm=self.verbose,
         )
-        metrics["vllm_embedding_time"] = time.perf_counter() - t0
+        elapsed = time.perf_counter() - t0
+        if len(vllm_output) != expected_size:
+            msg = f"vLLM returned {len(vllm_output)} embeddings for a {expected_size}-row input chunk"
+            raise ValueError(msg)
 
-        df[self.embedding_field] = [e.outputs.embedding for e in vllm_output]
+        chunk_embedding_matrix = np.asarray(
+            [output.outputs.embedding for output in vllm_output],
+            dtype=np.float32,
+        )
+        if chunk_embedding_matrix.ndim != _EMBEDDING_MATRIX_NDIM:
+            msg = f"Expected a two-dimensional embedding matrix, got shape {chunk_embedding_matrix.shape}"
+            raise ValueError(msg)
+        return chunk_embedding_matrix, {
+            "vllm_embedding_time": elapsed,
+            "input_tokens": float(sum(len(output.prompt_token_ids) for output in vllm_output)),
+        }
+
+    def _select_output_table(self, input_table: pa.Table) -> pa.Table:
+        """Validate the input and select columns retained beside embeddings."""
+        if self.text_field not in input_table.column_names:
+            msg = f"Input batch is missing required text field {self.text_field!r}"
+            raise ValueError(msg)
+
+        metadata_fields = self.metadata_fields if self.metadata_fields is not None else input_table.column_names
+        missing_fields = [field for field in metadata_fields if field not in input_table.column_names]
+        if missing_fields:
+            msg = f"Input batch is missing metadata fields: {missing_fields}"
+            raise ValueError(msg)
+        return input_table.select(metadata_fields)
+
+    def _collect_embeddings(self, text_column: pa.ChunkedArray, num_rows: int) -> tuple[np.ndarray, dict[str, float]]:
+        """Embed bounded chunks and assemble one ordered float32 matrix."""
+        embedding_matrix: np.ndarray | None = None
+        tokenization_time = 0.0
+        vllm_embedding_time = 0.0
+        input_tokens = 0.0
+
+        for offset, chunk_size, input_data, chunk_tokenization_time in self._iter_prepared_chunks(
+            text_column, num_rows
+        ):
+            tokenization_time += chunk_tokenization_time
+            chunk_embedding_matrix, chunk_metrics = self._embed_chunk(input_data, chunk_size)
+            vllm_embedding_time += chunk_metrics["vllm_embedding_time"]
+            input_tokens += chunk_metrics["input_tokens"]
+            if embedding_matrix is None:
+                embedding_matrix = np.empty(
+                    (num_rows, chunk_embedding_matrix.shape[1]),
+                    dtype=np.float32,
+                )
+            elif embedding_matrix.shape[1] != chunk_embedding_matrix.shape[1]:
+                msg = (
+                    f"vLLM embedding dimension changed from {embedding_matrix.shape[1]} "
+                    f"to {chunk_embedding_matrix.shape[1]}"
+                )
+                raise ValueError(msg)
+            embedding_matrix[offset : offset + chunk_size] = chunk_embedding_matrix
+            del chunk_embedding_matrix
+
+        if embedding_matrix is None:
+            msg = "vLLM did not return embeddings for a non-empty document batch"
+            raise RuntimeError(msg)
+        return embedding_matrix, {
+            "tokenization_time": tokenization_time,
+            "vllm_embedding_time": vllm_embedding_time,
+            "input_tokens": input_tokens,
+        }
+
+    @staticmethod
+    def _to_arrow_embeddings(embedding_matrix: np.ndarray) -> pa.ListArray:
+        """Convert a dense float32 matrix to an Arrow list array."""
+        embedding_values = pa.array(embedding_matrix.reshape(-1), type=pa.float32(), from_pandas=False)
+        embedding_offsets = pa.array(
+            np.arange(
+                0,
+                (embedding_matrix.shape[0] + 1) * embedding_matrix.shape[1],
+                embedding_matrix.shape[1],
+                dtype=np.int64,
+            )
+        )
+        return pa.ListArray.from_arrays(embedding_offsets, embedding_values)
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        if self.model is None:
+            msg = "vLLM model is not initialized. Please call setup() before processing."
+            raise ValueError(msg)
+        input_table = batch.to_pyarrow()
+        if input_table.num_rows == 0:
+            msg = "Cannot generate embeddings for an empty document batch"
+            raise ValueError(msg)
+
+        output_table = self._select_output_table(input_table)
+        embedding_matrix, metrics = self._collect_embeddings(input_table[self.text_field], input_table.num_rows)
+        embedding_array = self._to_arrow_embeddings(embedding_matrix)
+        if self.embedding_field in output_table.column_names:
+            embedding_index = output_table.column_names.index(self.embedding_field)
+            output_table = output_table.set_column(embedding_index, self.embedding_field, embedding_array)
+        else:
+            output_table = output_table.append_column(self.embedding_field, embedding_array)
 
         self._log_metrics(metrics)
 
         return DocumentBatch(
             dataset_name=batch.dataset_name,
-            data=df,
+            data=output_table,
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
