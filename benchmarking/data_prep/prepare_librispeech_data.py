@@ -20,6 +20,7 @@ import argparse
 import gc
 import json
 import shutil
+import time
 from pathlib import Path
 
 import soundfile as sf
@@ -92,6 +93,7 @@ def stage_dataset(  # noqa: PLR0913
                     dataset_iterator.close()
                     # Work around apache/arrow#45214 on PyArrow <=24.
                     gc.collect()
+                    time.sleep(5)
                 if selected_duration_s >= target_duration_s:
                     break
         if selected_duration_s < target_duration_s:
