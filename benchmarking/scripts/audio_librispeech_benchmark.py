@@ -128,9 +128,21 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
                 adapter_kwargs={"use_cuda_graph_decoder": False},
             ).with_(resources=Resources(gpus=gpus), num_workers=asr_stage_num_workers)
         )
-        pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct"))
-        pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
-        pipeline.add_stage(PreserveByValueStage(input_value_key="wer_pct", target_value=wer_threshold, operator="le"))
+        pipeline.add_stage(
+            GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct").with_(
+                batch_size=asr_batch_size
+            )
+        )
+        pipeline.add_stage(
+            GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration").with_(
+                batch_size=asr_batch_size
+            )
+        )
+        pipeline.add_stage(
+            PreserveByValueStage(input_value_key="wer_pct", target_value=wer_threshold, operator="le").with_(
+                batch_size=asr_batch_size
+            )
+        )
         pipeline.add_stage(AudioToDocumentStage())
         pipeline.add_stage(JsonlWriter(path=results_dir, write_kwargs={"force_ascii": False}))
 

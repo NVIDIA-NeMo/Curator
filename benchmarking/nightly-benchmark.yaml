@@ -986,6 +986,7 @@ entries:
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
       --gpus=1
+      --asr-stage-num-workers=8
       --executor=xenna
       --execution-mode=streaming
 
