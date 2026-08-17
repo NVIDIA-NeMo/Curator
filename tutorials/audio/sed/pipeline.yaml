@@ -10,8 +10,8 @@
 #     manifest_path=/absolute/path/to/input.jsonl \
 #     output_dir=/absolute/path/to/sed_output
 #
-# The official DecisionLevelMax checkpoint is downloaded automatically to
-# ~/.cache/nemo_curator/panns. For offline use, append this optional override:
+# The official DecisionLevelMax checkpoint is downloaded automatically through
+# PyTorch Hub and reused from its checkpoint cache. For offline use, append:
 #   'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\=0.385.pth'
 #
 # Cnn14_mAP=0.431.pth is a clip-level audio-tagging checkpoint, not a

@@ -21,7 +21,7 @@ owns model construction, checkpoint loading, batch padding, and inference.
 The included YAML reads a JSONL manifest whose rows contain
 ``{"audio_filepath": "/absolute/path/to/audio.wav"}`` and writes compressed
 framewise NPZ files. The official PANNs checkpoint is downloaded once into
-``~/.cache/nemo_curator/panns`` and reused. Install the optional dependency and
+PyTorch Hub's checkpoint cache and reused. Install the optional dependency and
 run it from the Curator repository root with the full command below::
 
     uv run --extra audio_cuda12 python nemo_curator/config/run.py \\
