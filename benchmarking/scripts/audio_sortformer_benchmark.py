@@ -113,7 +113,7 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
         "num_tasks_processed": len(tasks),
         "num_tasks_with_segments": num_tasks_with_segments,
         "num_segments_processed": num_segments,
-        "stage_execution_coverage_ratio": 1.0,
+        "stage_execution_coverage_ratio": stage_items / num_input_rows,
     }
 
 
