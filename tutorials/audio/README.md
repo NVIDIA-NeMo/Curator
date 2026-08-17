@@ -47,7 +47,7 @@ python nemo_curator/config/run.py \
 | I want to... | Tutorial | GPU | Data |
 |---|---|---|---|
 | Transcribe a manifest with NeMo FastConformer through the shared ASR adapter | [**nemo_fastconformer/**](nemo_fastconformer/) | Recommended (1 per ASR actor) | Bundled sample or your own manifest |
-| Curate real English ASR data (prepare, transcribe, filter by WER) | [**librispeech/**](librispeech/) | Yes (~4 GB VRAM) | Prepared from open Hugging Face data |
+| Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
@@ -61,7 +61,7 @@ python nemo_curator/config/run.py \
 | Tutorial | Auto-download | Size | Notes |
 |---|---|---|---|
 | `nemo_fastconformer/` | Model only | Two bundled audio files | Downloads the configured NeMo ASR checkpoint on first use |
-| `librispeech/` | Yes, via preparation script | User-selected audio duration | Streams pinned Hugging Face `openslr/librispeech_asr`; CC BY 4.0 |
+| `fleurs/` | Yes | ~50 MB per language split | Downloads from HuggingFace `google/fleurs` |
 | `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
 | `qwen_asr/` | Model only | Two bundled audio files | Downloads Qwen3-ASR weights on first use |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
@@ -83,7 +83,7 @@ sudo apt-get install -y ffmpeg
 | Tutorial | System packages | Pip extras |
 |---|---|---|
 | `nemo_fastconformer/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
-| `librispeech/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
+| `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `alm/` | `ffmpeg` | `audio_cpu` |

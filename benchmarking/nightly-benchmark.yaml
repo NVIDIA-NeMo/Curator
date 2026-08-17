@@ -975,7 +975,7 @@ entries:
       - metric: num_files_processed
         min_value: 1
 
-  # 600.0028 hours / 173,029 clips: 642.52s processing on 8xA100.
+  # Shared 600.0028-hour / 173,029-clip workload; the executor selects workers.
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
@@ -984,8 +984,6 @@ entries:
       --input-manifest={dataset:librispeech_all_600h,jsonl}
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
-      --gpus=1
-      --asr-stage-num-workers=8
       --executor=xenna
       --execution-mode=streaming
 
@@ -1005,7 +1003,7 @@ entries:
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # Same real input and worker count as Xenna.
+  # Same real input as Xenna.
   - name: audio_librispeech_raydata
     enabled: true
     script: audio_librispeech_benchmark.py
@@ -1014,8 +1012,6 @@ entries:
       --input-manifest={dataset:librispeech_all_600h,jsonl}
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
-      --gpus=1
-      --asr-stage-num-workers=8
       --executor=ray_data
 
     sink_data:

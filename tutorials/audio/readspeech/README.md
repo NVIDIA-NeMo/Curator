@@ -515,7 +515,7 @@ The readspeech pipeline output (JSONL manifest with quality scores) can be chain
 
 - **`single_speaker_filter/`** — Further filter the manifest to retain only single-speaker segments.
 - **`alm/`** — Use the filtered manifest as input for Audio Language Model training window construction.
-- **`librispeech/`** — Compare quality-filtered DNS data with English LibriSpeech ASR data curated from a prepared manifest.
+- **`fleurs/`** — Compare quality-filtered DNS data against FLEURS ASR evaluation data.
 
 The output manifest follows the standard NeMo audio manifest format (`audio_filepath`, `duration`, metadata fields), making it directly usable as training data for NeMo ASR or TTS models.
 
