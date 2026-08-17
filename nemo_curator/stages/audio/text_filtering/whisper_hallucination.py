@@ -120,7 +120,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
     @staticmethod
     def _normalize_phrase(text: str) -> str:
-        return text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "").replace("-", " ")
+        return text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "").replace("-", "")
 
     def setup(self, _worker_metadata: object | None = None) -> None:
         with open(self.common_hall_file, encoding="utf-8") as f:

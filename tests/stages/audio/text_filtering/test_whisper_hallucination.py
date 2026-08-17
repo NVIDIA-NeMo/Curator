@@ -61,7 +61,7 @@ def test_clean_text_passes(tmp_path: Path) -> None:
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
 
 
-@pytest.mark.parametrize("text", ["Thank you", "Thank you.", "Thank-you", "Merci,", "Thank you for your time today."])
+@pytest.mark.parametrize("text", ["Thank you", "Thank you.", "Merci,", "Thank you for your time today."])
 def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
@@ -70,7 +70,7 @@ def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: P
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
 
 
-@pytest.mark.parametrize("text", ["thank you", "THANK YOU"])
+@pytest.mark.parametrize("text", ["thank you", "THANK YOU", "Thank-you"])
 def test_phrase_matching_remains_case_sensitive(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
@@ -94,9 +94,17 @@ def test_punctuated_corpus_phrases_remain_reachable(tmp_path: Path, phrase: str,
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
 
 
+def test_hyphen_normalization_does_not_broaden_prefix_matches(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, ["Fifty-four"])
+    result = stage.process(AudioTask(data={_TEXT_KEY: "Fifty four dollars", _SKIP_KEY: "", "duration": 5.0}))
+
+    assert result.data[_SKIP_KEY] == ""
+    assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
+
+
 def test_setup_normalizes_reference_phrases(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, ["Thank you!", "MERCI,", "Fifty-four"])
-    assert stage._phrases == {"Thank you", "MERCI", "Fifty four"}
+    assert stage._phrases == {"Thank you", "MERCI", "Fiftyfour"}
 
 
 @pytest.mark.parametrize("text", ["", None])
