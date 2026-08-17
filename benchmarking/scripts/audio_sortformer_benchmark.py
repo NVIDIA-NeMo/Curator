@@ -26,11 +26,11 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
@@ -84,7 +84,6 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
 
     num_tasks_with_segments = 0
     num_segments = 0
-    stage_items = 0
     for task_index, task in enumerate(tasks):
         segments = task.data.get("diar_segments")
         if not isinstance(segments, list):
@@ -95,10 +94,7 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
         num_segments += len(segments)
         num_tasks_with_segments += bool(segments)
 
-        for perf in task._stage_perf:
-            if perf.stage_name == SORTFORMER_STAGE_NAME:
-                stage_items += perf.num_items_processed
-
+    stage_items = TaskPerfUtils.get_aggregated_stage_stat(tasks, SORTFORMER_STAGE_NAME, "num_items_processed")
     if num_segments == 0:
         msg = "Sortformer produced no diarization segments"
         raise RuntimeError(msg)
@@ -132,13 +128,6 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     executor: str = "xenna",
 ) -> dict[str, Any]:
     """Run Sortformer on pre-staged audio and collect structural and throughput metrics."""
-    _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
-    num_gpu_workers = int(available_gpus)
-    if num_gpu_workers < 1:
-        msg = "Ray must expose at least one GPU"
-        raise RuntimeError(msg)
-    logger.info(f"Using one Sortformer worker per available GPU: {num_gpu_workers}")
-
     data_dir = Path(raw_data_dir)
     source_manifest = data_dir / "manifest.jsonl"
     audio_dir = data_dir / "audio"
@@ -163,7 +152,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
             fifo_len=fifo_len,
             spkcache_update_period=spkcache_update_period,
             spkcache_len=spkcache_len,
-        ).with_(resources=Resources(gpus=1), num_workers=num_gpu_workers)
+        ).with_(resources=Resources(gpus=1))
     )
     logger.info(pipeline.describe())
     results = pipeline.run(exc)
