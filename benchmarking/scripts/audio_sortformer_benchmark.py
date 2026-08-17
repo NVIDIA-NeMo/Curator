@@ -122,7 +122,6 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     scratch_output_path: str,
     raw_data_dir: str,
     model_path: str,
-    gpu_stage_num_workers: int | None = None,
     chunk_len: int = DEFAULT_CHUNK_LEN,
     chunk_left_context: int = DEFAULT_CHUNK_LEFT_CONTEXT,
     chunk_right_context: int = DEFAULT_CHUNK_RIGHT_CONTEXT,
@@ -133,13 +132,12 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     executor: str = "xenna",
 ) -> dict[str, Any]:
     """Run Sortformer on pre-staged audio and collect structural and throughput metrics."""
-    if gpu_stage_num_workers is None:
-        _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
-        gpu_stage_num_workers = int(available_gpus)
-        logger.info(f"Using one Sortformer worker per available GPU: {gpu_stage_num_workers}")
-    if gpu_stage_num_workers < 1:
-        msg = "gpu_stage_num_workers must be at least 1"
-        raise ValueError(msg)
+    _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
+    num_gpu_workers = int(available_gpus)
+    if num_gpu_workers < 1:
+        msg = "Ray must expose at least one GPU"
+        raise RuntimeError(msg)
+    logger.info(f"Using one Sortformer worker per available GPU: {num_gpu_workers}")
 
     data_dir = Path(raw_data_dir)
     source_manifest = data_dir / "manifest.jsonl"
@@ -165,7 +163,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
             fifo_len=fifo_len,
             spkcache_update_period=spkcache_update_period,
             spkcache_len=spkcache_len,
-        ).with_(resources=Resources(gpus=1), num_workers=gpu_stage_num_workers)
+        ).with_(resources=Resources(gpus=1), num_workers=num_gpu_workers)
     )
     logger.info(pipeline.describe())
     results = pipeline.run(exc)
@@ -196,12 +194,6 @@ def main() -> int:
     parser.add_argument("--scratch-output-path", required=True, help="Path for the rewritten input manifest")
     parser.add_argument("--raw-data-dir", required=True, help="Directory containing manifest.jsonl and audio/")
     parser.add_argument("--model-path", required=True, help="Pre-staged local Sortformer .nemo checkpoint")
-    parser.add_argument(
-        "--gpu-stage-num-workers",
-        type=int,
-        default=None,
-        help="Override the worker count; defaults to one worker per GPU available to Ray",
-    )
     parser.add_argument("--chunk-len", type=int, default=DEFAULT_CHUNK_LEN)
     parser.add_argument("--chunk-left-context", type=int, default=DEFAULT_CHUNK_LEFT_CONTEXT)
     parser.add_argument("--chunk-right-context", type=int, default=DEFAULT_CHUNK_RIGHT_CONTEXT)
