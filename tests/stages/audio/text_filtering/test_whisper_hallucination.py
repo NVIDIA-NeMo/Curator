@@ -61,8 +61,11 @@ def test_clean_text_passes(tmp_path: Path) -> None:
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
 
 
-@pytest.mark.parametrize("text", ["Thank you", "Thank you.", "Merci,", "Thank you for your time today."])
-def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: Path, text: str) -> None:
+@pytest.mark.parametrize(
+    "text",
+    ["Thank you", "Thank you.", "Merci,", "Thank-you", "Thank you for your time today.", "Thank-you for watching"],
+)
+def test_phrase_matching_covers_expected_exact_and_prefix_behavior(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
 
@@ -70,7 +73,7 @@ def test_phrase_matching_matches_reference_exact_and_prefix_behavior(tmp_path: P
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
 
 
-@pytest.mark.parametrize("text", ["thank you", "THANK YOU", "Thank-you"])
+@pytest.mark.parametrize("text", ["thank you", "THANK YOU"])
 def test_phrase_matching_remains_case_sensitive(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
@@ -94,17 +97,18 @@ def test_punctuated_corpus_phrases_remain_reachable(tmp_path: Path, phrase: str,
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
 
 
-def test_hyphen_normalization_does_not_broaden_prefix_matches(tmp_path: Path) -> None:
+@pytest.mark.parametrize("text", ["Fifty four dollars", "Fiftyfour dollars"])
+def test_hyphen_normalization_does_not_broaden_prefix_matches(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Fifty-four"])
-    result = stage.process(AudioTask(data={_TEXT_KEY: "Fifty four dollars", _SKIP_KEY: "", "duration": 5.0}))
+    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
 
     assert result.data[_SKIP_KEY] == ""
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
 
 
-def test_setup_normalizes_reference_phrases(tmp_path: Path) -> None:
+def test_setup_only_normalizes_commas_in_reference_phrases(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, ["Thank you!", "MERCI,", "Fifty-four"])
-    assert stage._phrases == {"Thank you", "MERCI", "Fiftyfour"}
+    assert stage._phrases == {"Thank you!", "MERCI", "Fifty-four"}
 
 
 @pytest.mark.parametrize("text", ["", None])
@@ -125,18 +129,18 @@ def test_preserves_existing_skip_reason_when_overwrite_is_disabled(tmp_path: Pat
 
 
 @pytest.mark.parametrize(
-    ("language", "word_length", "threshold", "expected_flagged"),
+    ("language", "word_length", "kwargs", "expected_flagged"),
     [
-        ("fi", 34, 35, False),
-        ("fi", 36, 35, True),
-        ("fi", 26, 25, True),
-        ("en", 26, 25, True),
+        ("fi", 34, {}, False),
+        ("fi", 36, {}, True),
+        ("fi", 26, {"agglutinative_long_word_threshold": 25}, True),
+        ("en", 26, {"long_word_threshold": 25}, True),
     ],
 )
-def test_absolute_long_word_threshold_is_configurable_for_all_languages(
-    tmp_path: Path, language: str, word_length: int, threshold: int, expected_flagged: bool
+def test_language_appropriate_absolute_long_word_threshold_is_configurable(
+    tmp_path: Path, language: str, word_length: int, kwargs: dict[str, int], expected_flagged: bool
 ) -> None:
-    stage = _make_stage(tmp_path, [], long_word_threshold=threshold)
+    stage = _make_stage(tmp_path, [], **kwargs)
     text = f"the {'a' * word_length} here"
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "language": language}))
 
@@ -189,10 +193,33 @@ def test_overwrite_never_replaces_a_foreign_flag(tmp_path: Path, text: str) -> N
 
 
 def test_requires_common_hall_file() -> None:
-    with pytest.raises(TypeError, match="common_hall_file"):
-        WhisperHallucinationStage()  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="common_hall_file is required"):
+        WhisperHallucinationStage()
     with pytest.raises(ValueError, match="common_hall_file is required"):
         WhisperHallucinationStage(common_hall_file="")
+
+
+def test_setup_is_called_lazily_for_single_and_batch_processing(tmp_path: Path) -> None:
+    phrase_file = tmp_path / "phrases.txt"
+    phrase_file.write_text("Thank you\n", encoding="utf-8")
+
+    single_stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
+    single = single_stage.process(AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""}))
+    assert single.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+
+    batch_stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
+    batch = batch_stage.process_batch([AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""})])
+    assert batch[0].data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert batch_stage.supports_batch_processing() is True
+
+
+def test_prefix_minimum_and_counters_match_reference_contract(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, ["Thank you"], _PREFIX_MATCH_MIN_LEN=20)
+    result = stage.process(AudioTask(data={_TEXT_KEY: "Thank you for watching", _SKIP_KEY: ""}))
+
+    assert result.data[_SKIP_KEY] == ""
+    assert stage._n_processed == 1
+    assert stage._n_flagged == 0
 
 
 def test_missing_required_text_key_raises(tmp_path: Path) -> None:
@@ -220,6 +247,7 @@ def test_example_yaml_exposes_supported_filter_controls(tmp_path: Path) -> None:
     assert stage.common_hall_file == "tutorials/audio/whisper_hallucination/phrases.txt"
     assert stage.unique_words_threshold == 0.4
     assert stage.long_word_threshold == 25
+    assert stage.agglutinative_long_word_threshold == 35
     assert stage.long_word_rel_threshold == 3.0
     assert stage.max_char_rate == 40.0
     assert stage.overwrite is False

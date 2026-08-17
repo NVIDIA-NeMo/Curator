@@ -27,6 +27,7 @@ common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
 
 unique_words_threshold: 0.4
 long_word_threshold: 25
+agglutinative_long_word_threshold: 35
 long_word_rel_threshold: 3.0
 max_char_rate: 40.0
 overwrite: false
@@ -44,6 +45,7 @@ stages:
     common_hall_file: ${common_hall_file}
     unique_words_threshold: ${unique_words_threshold}
     long_word_threshold: ${long_word_threshold}
+    agglutinative_long_word_threshold: ${agglutinative_long_word_threshold}
     long_word_rel_threshold: ${long_word_rel_threshold}
     max_char_rate: ${max_char_rate}
     overwrite: ${overwrite}
