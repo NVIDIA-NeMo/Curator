@@ -449,7 +449,7 @@ tests/stages/audio/
 | `test_skips_blank_lines` | Blank/whitespace-only lines in JSONL are ignored |
 | `test_empty_manifest` | Empty file returns `[]` |
 | `test_preserves_nested_data` | Nested `segments[].metrics.bandwidth` survives round-trip |
-| `test_duplicate_manifests_for_repeat` | Same path repeated 3x produces 3 batches (repeat-factor pattern) |
+| `test_duplicate_manifests_for_repeat` | Same manifest path supplied 3x produces 3 batches |
 
 **`TestManifestReaderDirectory`**:
 
@@ -562,7 +562,7 @@ These ratios depend heavily on your data. Conversations with many speakers and l
 ### General notes
 
 - Both stages use parallelism via the selected backend (`xenna` or `ray_data`)
-- For large manifests, consider processing in batches or using `--repeat-factor` for scale testing
+- For large manifests, consider processing the real source data in batches
 
 ## Composability
 

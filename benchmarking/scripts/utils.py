@@ -28,8 +28,6 @@ import pyarrow.parquet as pq
 from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
@@ -397,43 +395,3 @@ def convert_paths_to_strings(obj: object) -> object:
     else:
         retval = obj
     return retval
-
-
-class RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
-    """Multiply each AudioTask N times for scale testing.
-
-    Duplicates entries in-memory after reading so the file is only read once.
-    When ``unique_id_key`` is set, every copy receives a deterministic identifier
-    so downstream writers do not overwrite repeated inputs.
-    """
-
-    name = "repeat_entries"
-
-    def __init__(self, repeat_factor: int = 1, unique_id_key: str | None = None) -> None:
-        if repeat_factor < 1:
-            msg = "repeat_factor must be at least 1"
-            raise ValueError(msg)
-        self._repeat_factor = repeat_factor
-        self._unique_id_key = unique_id_key
-
-    def process(self, task: AudioTask) -> list[AudioTask]:
-        results = []
-        for repeat_index in range(self._repeat_factor):
-            data = task.data.copy()
-            if self._unique_id_key is not None:
-                source_id = data.get(self._unique_id_key)
-                if source_id is None or source_id == "":
-                    msg = f"Cannot repeat entry without '{self._unique_id_key}'"
-                    raise ValueError(msg)
-                data[self._unique_id_key] = f"{source_id}_repeat_{repeat_index}"
-
-            results.append(
-                AudioTask(
-                    dataset_name=task.dataset_name,
-                    data=data,
-                    filepath_key=task.filepath_key,
-                    _metadata=task._metadata,
-                    _stage_perf=list(task._stage_perf),
-                )
-            )
-        return results

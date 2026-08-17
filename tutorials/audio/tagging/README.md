@@ -455,5 +455,5 @@ export HF_TOKEN=your_hf_token
 
 - [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html)
 - [ALM Data Pipeline Tutorial](../alm/)
-- [FLEURS Dataset Tutorial](../fleurs/)
+- [LibriSpeech ASR Curation Tutorial](../librispeech/)
 - [NeMo Curator Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html)
