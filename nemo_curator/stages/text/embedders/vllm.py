@@ -67,7 +67,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         verbose: bool = False,
         *,
         metadata_fields: list[str] | None = None,
-        model_inference_batch_size: int = 10_000,
+        model_inference_batch_size: int | None = 8192,
     ):
         self.model_identifier = model_identifier
         self.vllm_init_kwargs = vllm_init_kwargs or {}
@@ -75,13 +75,13 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.text_field = text_field
         self.pretokenize = pretokenize
         self.embedding_field = embedding_field
-        self.metadata_fields = list(dict.fromkeys(metadata_fields)) if metadata_fields is not None else None
-        if (
+        self.metadata_fields = list(dict.fromkeys(metadata_fields or []))
+        if model_inference_batch_size is not None and (
             isinstance(model_inference_batch_size, bool)
             or not isinstance(model_inference_batch_size, int)
             or model_inference_batch_size <= 0
         ):
-            msg = f"model_inference_batch_size must be a positive integer, got {model_inference_batch_size}"
+            msg = f"model_inference_batch_size must be a positive integer or None, got {model_inference_batch_size}"
             raise ValueError(msg)
         self.model_inference_batch_size = model_inference_batch_size
         self.max_chars = max_chars
@@ -104,7 +104,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        output_fields = list(self.metadata_fields) if self.metadata_fields is not None else [self.text_field]
+        output_fields = list(self.metadata_fields)
         if self.embedding_field not in output_fields:
             output_fields.append(self.embedding_field)
         return ["data"], output_fields
@@ -205,10 +205,17 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _iter_prepared_chunks(
         self, text_column: pa.ChunkedArray, num_rows: int
     ) -> Iterator[tuple[int, int, list[Any], float]]:
-        """Prepare one chunk ahead while the caller embeds the current chunk."""
+        """Prepare one chunk ahead while the caller embeds the current chunk.
+
+        The sole executor worker tokenizes only the next chunk. ``Future.result``
+        blocks until that work is ready, so this generator does not poll or spin.
+        While the caller embeds a yielded chunk on the GPU, the worker prepares
+        the following chunk on the CPU.
+        """
+        inference_batch_size = self.model_inference_batch_size or num_rows
         chunk_specs = iter(
-            (offset, min(self.model_inference_batch_size, num_rows - offset))
-            for offset in range(0, num_rows, self.model_inference_batch_size)
+            (offset, min(inference_batch_size, num_rows - offset))
+            for offset in range(0, num_rows, inference_batch_size)
         )
         pending_offset, pending_chunk_size = next(chunk_specs)
 
@@ -219,26 +226,22 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 pending_offset,
                 pending_chunk_size,
             )
-            while True:
+            for next_offset, next_chunk_size in chunk_specs:
                 input_data, tokenization_time = pending_input.result()
-                try:
-                    next_offset, next_chunk_size = next(chunk_specs)
-                except StopIteration:
-                    next_input = None
-                else:
-                    next_input = executor.submit(
-                        self._prepare_input_chunk,
-                        text_column,
-                        next_offset,
-                        next_chunk_size,
-                    )
+                next_input = executor.submit(
+                    self._prepare_input_chunk,
+                    text_column,
+                    next_offset,
+                    next_chunk_size,
+                )
 
                 yield pending_offset, pending_chunk_size, input_data, tokenization_time
-                if next_input is None:
-                    break
                 pending_offset = next_offset
                 pending_chunk_size = next_chunk_size
                 pending_input = next_input
+
+            input_data, tokenization_time = pending_input.result()
+            yield pending_offset, pending_chunk_size, input_data, tokenization_time
 
     def _embed_chunk(self, input_data: list[Any], expected_size: int) -> tuple[np.ndarray, dict[str, float]]:
         if self.model is None:
@@ -274,44 +277,35 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             msg = f"Input batch is missing required text field {self.text_field!r}"
             raise ValueError(msg)
 
-        metadata_fields = self.metadata_fields if self.metadata_fields is not None else input_table.column_names
-        missing_fields = [field for field in metadata_fields if field not in input_table.column_names]
+        missing_fields = [field for field in self.metadata_fields if field not in input_table.column_names]
         if missing_fields:
             msg = f"Input batch is missing metadata fields: {missing_fields}"
             raise ValueError(msg)
-        return input_table.select(metadata_fields)
+        return input_table.select(self.metadata_fields)
 
     def _collect_embeddings(self, text_column: pa.ChunkedArray, num_rows: int) -> tuple[np.ndarray, dict[str, float]]:
         """Embed bounded chunks and assemble one ordered float32 matrix."""
-        embedding_matrix: np.ndarray | None = None
-        tokenization_time = 0.0
-        vllm_embedding_time = 0.0
-        input_tokens = 0.0
+        prepared_chunks = iter(self._iter_prepared_chunks(text_column, num_rows))
+        first_offset, first_chunk_size, first_input_data, tokenization_time = next(prepared_chunks)
+        first_embedding_matrix, first_metrics = self._embed_chunk(first_input_data, first_chunk_size)
+        embedding_matrix = np.empty(
+            (num_rows, first_embedding_matrix.shape[1]),
+            dtype=np.float32,
+        )
+        embedding_matrix[first_offset : first_offset + first_chunk_size] = first_embedding_matrix
+        del first_embedding_matrix
 
-        for offset, chunk_size, input_data, chunk_tokenization_time in self._iter_prepared_chunks(
-            text_column, num_rows
-        ):
+        vllm_embedding_time = first_metrics["vllm_embedding_time"]
+        input_tokens = first_metrics["input_tokens"]
+
+        for offset, chunk_size, input_data, chunk_tokenization_time in prepared_chunks:
             tokenization_time += chunk_tokenization_time
             chunk_embedding_matrix, chunk_metrics = self._embed_chunk(input_data, chunk_size)
             vllm_embedding_time += chunk_metrics["vllm_embedding_time"]
             input_tokens += chunk_metrics["input_tokens"]
-            if embedding_matrix is None:
-                embedding_matrix = np.empty(
-                    (num_rows, chunk_embedding_matrix.shape[1]),
-                    dtype=np.float32,
-                )
-            elif embedding_matrix.shape[1] != chunk_embedding_matrix.shape[1]:
-                msg = (
-                    f"vLLM embedding dimension changed from {embedding_matrix.shape[1]} "
-                    f"to {chunk_embedding_matrix.shape[1]}"
-                )
-                raise ValueError(msg)
             embedding_matrix[offset : offset + chunk_size] = chunk_embedding_matrix
             del chunk_embedding_matrix
 
-        if embedding_matrix is None:
-            msg = "vLLM did not return embeddings for a non-empty document batch"
-            raise RuntimeError(msg)
         return embedding_matrix, {
             "tokenization_time": tokenization_time,
             "vllm_embedding_time": vllm_embedding_time,
