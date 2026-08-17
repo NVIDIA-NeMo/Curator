@@ -126,7 +126,6 @@ class RayStageSpecKeys(str, Enum):
 
     IS_ACTOR_STAGE = "is_actor_stage"
     IS_FANOUT_STAGE = "is_fanout_stage"
-    FANOUT_TARGET_ROWS_PER_BLOCK = "fanout_target_rows_per_block"
     IS_RAFT_ACTOR = "is_raft_actor"
     IS_LSH_STAGE = "is_lsh_stage"
     IS_SHUFFLE_STAGE = "is_shuffle_stage"

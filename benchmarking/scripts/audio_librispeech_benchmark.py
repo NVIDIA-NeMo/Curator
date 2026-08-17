@@ -27,7 +27,6 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader, PreserveByValueStage
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
@@ -107,17 +106,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
 
         pipeline = Pipeline(name="audio_librispeech", description="LibriSpeech ASR, WER, and duration pipeline")
         asr_batch_size = 16
-        pipeline.add_stage(
-            ManifestReader(manifest_path=input_manifest).with_(
-                {
-                    "manifest_reader_stage": {
-                        "ray_stage_spec": {
-                            RayStageSpecKeys.FANOUT_TARGET_ROWS_PER_BLOCK: asr_batch_size,
-                        }
-                    }
-                }
-            )
-        )
+        pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
         pipeline.add_stage(
             ASRStage(
                 adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
