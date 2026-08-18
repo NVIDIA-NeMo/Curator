@@ -52,6 +52,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
+| Produce word-level TextGrid/RTTM/CTM alignments with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
@@ -66,6 +67,7 @@ python nemo_curator/config/run.py \
 | `qwen_asr/` | Model only | Two bundled audio files | Downloads Qwen3-ASR weights on first use |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
 | `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
+| `alignment/` | No | Varies | Bring your own JSONL manifest with `audio_filepath`/`text`; requires separately-installed MFA models |
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
@@ -91,6 +93,7 @@ sudo apt-get install -y ffmpeg
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
+| `alignment/` | none (MFA installed separately via conda/micromamba) | `audio_cpu` or `audio_cuda12` |
 
 Install pip extras from the repo root:
 

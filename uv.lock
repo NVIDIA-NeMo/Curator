@@ -5399,6 +5399,7 @@ all = [
     { name = "opencc-python-reimplemented" },
     { name = "peft" },
     { name = "pillow" },
+    { name = "praatio" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pycld2" },
     { name = "pycuda" },
@@ -5444,6 +5445,7 @@ audio-common = [
     { name = "nemo-toolkit", extra = ["asr"], marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "onnx" },
     { name = "opencc-python-reimplemented" },
+    { name = "praatio" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pydub" },
     { name = "scipy" },
@@ -5462,6 +5464,7 @@ audio-cpu = [
     { name = "onnx" },
     { name = "onnxruntime" },
     { name = "opencc-python-reimplemented" },
+    { name = "praatio" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pydub" },
     { name = "scipy" },
@@ -5486,6 +5489,7 @@ audio-cuda12 = [
     { name = "onnx" },
     { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64'" },
     { name = "opencc-python-reimplemented" },
+    { name = "praatio" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pydub" },
     { name = "qwen-asr", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5867,6 +5871,7 @@ requires-dist = [
     { name = "peft", marker = "extra == 'text-cpu'" },
     { name = "pillow", marker = "extra == 'image-cpu'" },
     { name = "pillow", marker = "extra == 'interleaved-cpu'" },
+    { name = "praatio", marker = "extra == 'audio-common'", specifier = ">=6.0" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=4.0.0" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
@@ -7831,6 +7836,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4d/d0/cda2fc582f09510c84cd6b7d7b9e22a02d4e45dbad2b2ef1c6edd7847e00/portpicker-1.6.0.tar.gz", hash = "sha256:bd507fd6f96f65ee02781f2e674e9dc6c99bbfa6e3c39992e3916204c9d431fa", size = 25676, upload-time = "2023-08-15T04:37:08.865Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/2d/440e4d7041fff89f28f483733eb617127aa866135c2dc719e05893f089e1/portpicker-1.6.0-py3-none-any.whl", hash = "sha256:b2787a41404cf7edbe29b07b9e0ed863b09f2665dcc01c1eb0c2261c1e7d0755", size = 16613, upload-time = "2023-08-15T04:37:07.327Z" },
+]
+
+[[package]]
+name = "praatio"
+version = "6.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/fa/be0bab2b2da04427204f84cd5e54bd3364937456adf03d98f0f2cfb8f402/praatio-6.2.2.tar.gz", hash = "sha256:ed8fdee6121bdae142817879ed9a50cc8334e72c03c110162e21ed8160180d2a", size = 2176936, upload-time = "2026-01-16T09:21:52.888Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/12/59f3928dc6583d652798758b513ab6062e4dddbbf624623d0ec02e7bbb23/praatio-6.2.2-py3-none-any.whl", hash = "sha256:d097b0e6991715559d68537c6af1baba86a0e0f9ad077e6d078e3d21c510743f", size = 82261, upload-time = "2026-01-16T09:21:50.124Z" },
 ]
 
 [[package]]
