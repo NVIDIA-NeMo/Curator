@@ -21,7 +21,7 @@ import shutil
 import sys
 import time
 import traceback
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
@@ -235,6 +235,44 @@ def run_data_setups(
         if not overall_success:
             break
     return overall_success
+
+
+def _call_sink_hook(sink: object, hook_name: str, *, context: str = "", **kwargs: object) -> bool:
+    """Call a sink hook without letting reporting failures affect benchmarks."""
+    sink_name = sink.__class__.__name__
+    try:
+        getattr(sink, hook_name)(**kwargs)
+    except Exception as e:
+        context_msg = f" while {context}" if context else ""
+        logger.exception(
+            "Sink {}.{} failed{}; benchmark execution will continue: {}",
+            sink_name,
+            hook_name,
+            context_msg,
+            e,
+        )
+        return False
+    return True
+
+
+def _initialize_sinks(
+    sinks: Sequence[object], *, session_name: str, session: Session, env_dict: dict[str, Any]
+) -> list[object]:
+    """Initialize sinks, returning only those safe to use for later hooks."""
+    active_sinks = []
+    for sink in sinks:
+        if _call_sink_hook(
+            sink,
+            "initialize",
+            context="initializing benchmark reporting sinks",
+            session_name=session_name,
+            session=session,
+            env_dict=env_dict,
+        ):
+            active_sinks.append(sink)
+        else:
+            logger.warning("Disabling sink {} for the remainder of this session", sink.__class__.__name__)
+    return active_sinks
 
 
 def run_entry(  # noqa: PLR0913
@@ -545,8 +583,7 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         logger.error("Data setup failed; benchmark entries will not be run.")
         return 1
 
-    for sink in session.sinks:
-        sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
+    active_sinks = _initialize_sinks(session.sinks, session_name=session_name, session=session, env_dict=env_dict)
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
@@ -571,8 +608,14 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         entry_log_id = logger.add(entry_stdouterr_path, mode="a", colorize=False)
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
 
-        for sink in session.sinks:
-            sink.register_benchmark_entry_starting(result_dict=result_data, benchmark_entry=entry)
+        for sink in active_sinks:
+            _call_sink_hook(
+                sink,
+                "register_benchmark_entry_starting",
+                context=f"registering {entry.name} as starting",
+                result_dict=result_data,
+                benchmark_entry=entry,
+            )
 
         try:
             run_success = run_entry(
@@ -598,13 +641,19 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             )
 
         finally:
-            logger.remove(entry_log_id)
             session_overall_success &= run_success
-            for sink in session.sinks:
-                sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)
+            for sink in active_sinks:
+                _call_sink_hook(
+                    sink,
+                    "register_benchmark_entry_finished",
+                    context=f"registering {entry.name} as finished",
+                    result_dict=result_data,
+                    benchmark_entry=entry,
+                )
+            logger.remove(entry_log_id)
 
-    for sink in session.sinks:
-        sink.finalize()
+    for sink in active_sinks:
+        _call_sink_hook(sink, "finalize", context="finalizing benchmark reporting sinks")
     logger.info(f"Session {session_name} completed with overall success: {session_overall_success}")
     return 0 if session_overall_success else 1
 
