@@ -19,7 +19,7 @@ from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParque
 from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
 
 _LAZY = {
-    "InterleavedLanceReader": "nemo_curator.stages.interleaved.lance",
+    "InterleavedLanceReader": "..lance",
 }
 
 __all__ = [
@@ -36,4 +36,4 @@ def __getattr__(name: str) -> object:
     if target is None:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
-    return getattr(import_module(target), name)
+    return getattr(import_module(target, package=__name__), name)
