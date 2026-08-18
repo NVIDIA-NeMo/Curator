@@ -66,7 +66,7 @@ datasets:
   - name: "videos"
     formats:
     - type: "mp4"
-      path: "{datasets_path}/videos"
+      path: "{datasets_path}/sample4k"
   - name: "videos_model_weights"
     formats:
     - type: "files"
