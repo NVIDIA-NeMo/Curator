@@ -155,3 +155,46 @@ python caption_clipscore.py \
 ```
 
 Compare the new model score against the cached baseline scores directly.
+
+---
+
+## MSR-VTT Retrieval Benchmark
+
+`bench_msrvtt_retrieval.py` evaluates `CosmosEmbed1` on the standard
+[MSR-VTT](https://huggingface.co/datasets/friedrichor/MSR-VTT) text-to-video
+retrieval benchmark (test-1k split, 1000 videos, 5000 captions).
+
+**Metrics**: R@1, R@5, R@K, MedR, MeanR, MRR, NDCG@K — both text→video (T2V)
+and video→text (V2T) directions.
+
+**Baseline (CosmosEmbed1-336p, test-1k)**:
+
+| Direction | R@1 | R@5 | R@10 | MedR | MeanR | MRR | NDCG@10 |
+|-----------|-------|-------|-------|------|-------|--------|---------|
+| T2V | 0.468 | 0.728 | 0.822 | 2.0 | 16.5 | 0.5876 | 0.6385 |
+| V2T | 0.468 | 0.734 | 0.827 | 2.0 | 11.9 | 0.5884 | 0.6399 |
+
+### Quick Start
+
+Videos are downloaded automatically from HF Hub on first run (≈6 GB). To use a
+local copy, pass `--video-dir`:
+
+```bash
+# Full test-1k evaluation (default)
+python eval/video/bench_msrvtt_retrieval.py \
+    --model-dir /path/to/models \
+    --variant 336p \
+    --output results.json
+
+# Smoke test — first 50 captions only
+python eval/video/bench_msrvtt_retrieval.py \
+    --model-dir /path/to/models \
+    --variant 224p \
+    --limit 50
+
+# Pre-downloaded videos
+python eval/video/bench_msrvtt_retrieval.py \
+    --model-dir /path/to/models \
+    --video-dir /path/to/msrvtt_videos \
+    --output results.json
+```
