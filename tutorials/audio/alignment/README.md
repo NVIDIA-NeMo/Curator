@@ -2,18 +2,31 @@
 
 Forced alignment of audio with transcripts using the [Montreal Forced Aligner (MFA)](https://montreal-forced-aligner.readthedocs.io/).
 
-This pipeline takes a JSONL audio manifest (audio files + transcripts), runs MFA batch alignment, and produces word-level TextGrid files with optional RTTM (speech activity) and CTM (word timing) outputs.
+## Overview
 
-## What is MFA?
+This tutorial takes a JSONL audio manifest (audio files + transcripts), runs MFA batch alignment, and produces word-level TextGrid files with optional RTTM (speech activity) and CTM (word timing) outputs.
 
-Montreal Forced Aligner is a tool that aligns orthographic transcriptions to audio recordings, producing **word-level** and **phone-level** time boundaries stored in Praat TextGrid files.
-
-The `MFAAlignmentStage` wraps MFA as a NeMo Curator processing stage, enabling:
+Montreal Forced Aligner is a tool that aligns orthographic transcriptions to audio recordings, producing **word-level** and **phone-level** time boundaries stored in Praat TextGrid files. The `MFAAlignmentStage` wraps MFA as a NeMo Curator processing stage, enabling:
 
 - **Batch alignment** -- groups of audio files are aligned in a single `mfa align` call for efficiency
 - **TextGrid output** -- the native MFA alignment format
 - **RTTM output** -- speech activity segments derived from word boundaries (useful for diarization pipelines)
 - **CTM output** -- word-level timing in NIST CTM format (useful for ASR evaluation)
+
+The tutorial uses the generic YAML runner in `nemo_curator/config/run.py`; no
+tutorial-specific Python runner is needed. The YAML selects the executor
+backend and, for Xenna, its execution mode; the generic runner constructs that
+executor and passes it to `Pipeline.run()`.
+
+### Pipeline flow
+
+```
+┌──────────────┐    ┌───────────────────┐    ┌────────────────┐
+│ManifestReader│───▶│ MFAAlignmentStage │───▶│ ManifestWriter │
+│ (turn JSONL) │    │ (align + convert) │    │ (result.jsonl) │
+└──────────────┘    └───────────────────┘    └────────────────┘
+  manifest input      TextGrid/RTTM/CTM        enriched output
+```
 
 ## Prerequisites
 
@@ -39,10 +52,10 @@ conda create -n mfa -c conda-forge montreal-forced-aligner
 conda activate mfa
 ```
 
-If MFA is in a separate conda environment, provide the full path to the binary via `--mfa-command`:
+If MFA is in a separate conda environment, provide the full path to the binary via `mfa_command`:
 
 ```bash
---mfa-command /path/to/micromamba/envs/mfa/bin/mfa
+mfa_command=/path/to/micromamba/envs/mfa/bin/mfa
 ```
 
 ### 3. Download MFA models
@@ -56,31 +69,7 @@ mfa model download dictionary english_us_arpa
 mfa model download g2p english_us_arpa
 ```
 
-Models are stored under `~/.mfa/pretrained_models/` by default. Override with `--mfa-root-dir` or the `MFA_ROOT_DIR` environment variable.
-
-## Quick Start
-
-```bash
-# Basic alignment with RTTM + CTM output
-python tutorials/audio/alignment/pipeline.py \
-    --input-manifest /data/manifest.jsonl \
-    --output-dir /data/aligned
-
-# TextGrid-only output (no RTTM/CTM conversion)
-python tutorials/audio/alignment/pipeline.py \
-    --input-manifest /data/manifest.jsonl \
-    --output-dir /data/aligned \
-    --no-rttm --no-ctm
-
-# Custom MFA binary and models
-python tutorials/audio/alignment/pipeline.py \
-    --input-manifest /data/manifest.jsonl \
-    --output-dir /data/aligned \
-    --mfa-command /opt/micromamba/envs/mfa/bin/mfa \
-    --mfa-root-dir /shared/mfa_models \
-    --acoustic-model english_us_arpa \
-    --dictionary english_us_arpa
-```
+Models are stored under `~/.mfa/pretrained_models/` by default. Override with `mfa_root_dir` or the `MFA_ROOT_DIR` environment variable.
 
 ## Input Format
 
@@ -97,52 +86,97 @@ The pipeline expects a JSONL manifest where each line is a JSON object with at l
 | `speaker` | No | Speaker label (used in RTTM output; defaults to `"unknown"`) |
 | `duration` | No | Audio duration in seconds (computed automatically if missing) |
 
-The key names are configurable via `--text-key`, `--audio-filepath-key`, and `--speaker-key`.
+The key names are configurable via `text_key`, `audio_filepath_key`, and `speaker_key`.
 
-## Pipeline Architecture
+## Quick Start
 
-```
-Input JSONL Manifest
-    |
-    v
-MFAAlignmentStage (process_batch)
-    |-- Prepares temporary corpus (symlinked WAVs + .txt files)
-    |-- Runs single `mfa align` subprocess
-    |-- Parses resulting TextGrid files
-    |-- Converts to RTTM (if create_rttm=True)
-    |-- Converts to CTM (if create_ctm=True)
-    |-- Adds output paths to task.data
-    |
-    v
-AudioToDocumentStage
-    |
-    v
-JsonlWriter -> Output JSONL Manifest
+From the Curator repository root:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alignment \
+  --config-name pipeline \
+  input_manifest=/data/manifest.jsonl \
+  output_dir=/data/aligned
 ```
 
-## CLI Options
+`--config-path` is relative to `nemo_curator/config/run.py`, while manifest
+and output paths are resolved from the current working directory. Run the
+command from the repository root as shown.
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--input-manifest` | *required* | Path to input JSONL manifest |
-| `--output-dir` | *required* | Root output directory |
-| `--mfa-command` | `mfa` | Path to the MFA binary |
-| `--mfa-root-dir` | `~/.mfa` | MFA root directory with pretrained models |
-| `--acoustic-model` | `english_us_arpa` | MFA acoustic model name or path |
-| `--dictionary` | `english_us_arpa` | MFA dictionary name or path |
-| `--g2p-model` | `english_us_arpa` | MFA G2P model (empty string to disable) |
-| `--text-key` | `text` | Manifest key for transcript text |
-| `--audio-filepath-key` | `audio_filepath` | Manifest key for audio file path |
-| `--speaker-key` | `speaker` | Manifest key for speaker label |
-| `--beam` | `100` | MFA beam size |
-| `--retry-beam` | `400` | MFA retry beam for failed alignments |
-| `--num-jobs` | `1` | Parallel MFA jobs passed to MFA ``-j`` |
-| `--batch-size` | `256` | Files per `mfa align` invocation |
-| `--no-rttm` | `false` | Skip RTTM generation |
-| `--no-ctm` | `false` | Skip CTM generation |
-| `--backend` | `ray_data` | Execution backend (`ray_data` or `xenna`) |
-| `--overwrite-results` | `false` | Delete/overwrite the existing result manifest directory (distinct from the MFA stage's own `--clean`/temp cleanup) |
-| `--verbose` | `false` | Enable DEBUG logging |
+See `pipeline.yaml` for all configurable parameters. Override any top-level field from the command line:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alignment \
+  --config-name pipeline \
+  input_manifest=/data/manifest.jsonl \
+  output_dir=/data/aligned \
+  acoustic_model=english_mfa \
+  dictionary=english_mfa \
+  batch_size=512
+```
+
+Results are written to `/data/aligned/result.jsonl`.
+
+## All configurable settings (`pipeline.yaml`)
+
+| Setting | Default | Description |
+|---|---|---|
+| `input_manifest` | *(required)* | Path to input JSONL manifest |
+| `output_dir` | *(required)* | Root output directory; result manifest is `${output_dir}/result.jsonl` |
+| `backend` | `ray_data` | Execution backend: `xenna` or `ray_data` |
+| `batch_size` | `256` | Files aligned per `mfa align` invocation (`MFAAlignmentStage.batch_size`) |
+| `acoustic_model` | `english_us_arpa` | MFA acoustic model name or path |
+| `dictionary` | `english_us_arpa` | MFA dictionary name or path |
+| `g2p_model` | `english_us_arpa` | MFA G2P model (empty string to disable) |
+| `num_jobs` | `1` | Parallel MFA jobs passed to MFA `-j`; also sizes the stage's CPU reservation |
+| `beam` | `100` | MFA beam size |
+| `retry_beam` | `400` | MFA retry beam for failed alignments |
+| `align_timeout_seconds` | `3600.0` | Hard timeout for each `mfa align` subprocess |
+| `create_rttm` | `true` | Whether to generate RTTM speech-activity files |
+| `create_ctm` | `true` | Whether to generate CTM word-timing files |
+
+Override any setting on the command line, e.g. `num_jobs=8`.
+
+## Choosing a backend
+
+| Backend | Description | When to use |
+|---|---|---|
+| `ray_data` | Default for this tutorial. `MFAAlignmentStage` forces a single actor cluster-wide (`num_workers()` returns `1`) so MFA/Kaldi never runs concurrently against a shared model directory. | **Recommended.** |
+| `xenna` | Cosmos-Xenna streaming engine. `xenna_stage_spec()` requests exactly one MFA worker per node instead. | Multi-node runs where Xenna's per-node scheduling is preferred. |
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alignment \
+  --config-name pipeline \
+  input_manifest=/data/manifest.jsonl \
+  output_dir=/data/aligned \
+  backend=xenna \
+  execution_mode=streaming
+```
+
+`execution_mode` applies only to Xenna and is ignored when `backend` is `ray_data`.
+
+## Pipeline stages
+
+### Stage 1: `ManifestReader`
+
+Reads the JSONL manifest line-by-line and emits one `AudioTask` per entry (no Pandas; ~1x file-size memory).
+
+### Stage 2: `MFAAlignmentStage`
+
+- Prepares a temporary MFA corpus (symlinked WAVs + `.txt` transcript files) per batch
+- Runs a single `mfa align` subprocess per batch, bounded by `align_timeout_seconds`
+- Parses resulting TextGrid files
+- Converts to RTTM (if `create_rttm=true`) and CTM (if `create_ctm=true`)
+- Adds output paths to `task.data`
+
+A per-task pre-flight failure (invalid input, empty text, missing file) marks that entry with `mfa_skipped=true` and empty fallback outputs instead of aborting the whole batch, so one malformed manifest row never discards the rest of a batch.
+
+### Stage 3: `ManifestWriterStage`
+
+Appends each enriched entry to `${output_dir}/result.jsonl`. The output file is truncated once when the pipeline starts, so re-running with an unchanged manifest overwrites the previous result instead of accumulating shards.
 
 ## Output Format
 
@@ -156,9 +190,18 @@ The output manifest JSONL contains all original fields plus:
   "duration": 1.23,
   "textgrid_filepath": "/data/aligned/textgrids/abc123/utt001.TextGrid",
   "rttm_filepath": "/data/aligned/rttms/utt001.rttm",
-  "ctm_filepath": "/data/aligned/ctms/utt001.ctm"
+  "ctm_filepath": "/data/aligned/ctms/utt001.ctm",
+  "mfa_skipped": false
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `textgrid_filepath` | string | Path to the TextGrid alignment file (empty if MFA skipped this file) |
+| `rttm_filepath` | string | Path to the RTTM speech-activity file (if `create_rttm=true`) |
+| `ctm_filepath` | string | Path to the CTM word-timing file (if `create_ctm=true`) |
+| `mfa_skipped` | bool | `true` if MFA silently dropped this file (see below) |
+| `duration` | float | Audio duration in seconds (computed if missing from input) |
 
 ### Output directory structure
 
@@ -169,10 +212,9 @@ output_dir/
 │       └── utt001.TextGrid
 ├── rttms/              # RTTM speech activity files (if enabled)
 │   └── utt001.rttm
-├── ctms/               # CTM word timing files (if enabled)
+├── ctms/                # CTM word timing files (if enabled)
 │   └── utt001.ctm
-└── result/             # Output JSONL manifest
-    └── *.jsonl
+└── result.jsonl         # Output JSONL manifest
 ```
 
 ### RTTM format
@@ -194,31 +236,12 @@ utt001 1 0.510 0.390 world
 
 Fields: `<file-id> <channel> <start> <duration> <word>`
 
-## Using with Hydra
-
-```bash
-python tutorials/audio/alignment/run.py \
-    --config-path=. --config-name=pipeline \
-    output_dir=/data/aligned
-```
-
-See `pipeline.yaml` for all configurable parameters. Override any field from the command line:
-
-```bash
-python tutorials/audio/alignment/run.py \
-    --config-path=. --config-name=pipeline \
-    output_dir=/data/aligned \
-    processors.0.acoustic_model=english_mfa \
-    processors.0.dictionary=english_mfa \
-    batch_size=512
-```
-
 ## Multi-Node / Distributed Execution
 
 When running on multiple nodes (e.g., via Xenna or Ray cluster), `MFAAlignmentStage` handles distributed MFA gracefully:
 
-- **`setup_on_node()`** copies MFA pretrained models from shared storage (NFS/Lustre) to each node's local storage (e.g., `/tmp`). This avoids file-locking issues that Kaldi (used internally by MFA) has with network filesystems.
-- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node, since MFA itself uses internal parallelism via ``num_jobs`` (MFA ``-j``).
+- **`setup_on_node()`** copies MFA pretrained models from shared storage (NFS/Lustre) to each node's local storage (e.g., `/tmp`), namespaced by a digest of the resolved source root plus the requested acoustic/dictionary/G2P model identity. The cache is populated atomically under a lock and validated against a completeness marker before reuse, so a stale, wrong-source, or interrupted copy is never silently served. This avoids file-locking issues that Kaldi (used internally by MFA) has with network filesystems.
+- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node under Xenna; the Ray Data backend instead forces a single MFA actor cluster-wide via `num_workers()`. Either way, MFA's internal parallelism is controlled via `num_jobs` (MFA `-j`).
 - Set `copy_models_to_local=False` if MFA models are already on local storage.
 
 ## Non-English Languages
@@ -236,12 +259,14 @@ mfa model download g2p german_mfa
 2. Pass them to the pipeline:
 
 ```bash
-python tutorials/audio/alignment/pipeline.py \
-    --input-manifest /data/german_manifest.jsonl \
-    --output-dir /data/aligned_de \
-    --acoustic-model german_mfa \
-    --dictionary german_mfa \
-    --g2p-model german_mfa
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alignment \
+  --config-name pipeline \
+  input_manifest=/data/german_manifest.jsonl \
+  output_dir=/data/aligned_de \
+  acoustic_model=german_mfa \
+  dictionary=german_mfa \
+  g2p_model=german_mfa
 ```
 
 ## MFA-Skipped Files
@@ -258,12 +283,13 @@ You can filter these entries downstream or audit them separately.
 
 | Issue | Solution |
 |-------|----------|
-| `mfa: command not found` | Provide the full path via `--mfa-command /path/to/mfa` |
+| `mfa: command not found` | Provide the full path via `mfa_command=/path/to/mfa` |
 | `praatio` import error | Run `uv sync --extra audio_cuda12` (or `audio_cpu`) from the Curator repo root |
-| `Kaldi error: cannot lock file` | Enable `copy_models_to_local=True` (default) or use local storage for `--mfa-root-dir` |
+| `Kaldi error: cannot lock file` | Enable `copy_models_to_local=true` (default) or use local storage for `mfa_root_dir` |
 | Many files silently skipped | Check for OOV words; provide a G2P model or expand the dictionary |
-| `mfa align` OOM | Reduce `--batch-size` to process fewer files per invocation |
-| Slow alignment | Increase `--num-jobs` or ensure MFA has access to all CPU cores |
+| `mfa align` OOM | Reduce `batch_size` to process fewer files per invocation |
+| Slow alignment | Increase `num_jobs` or ensure MFA has access to all CPU cores |
+| A single `mfa align` subprocess hangs | Reduce `align_timeout_seconds` to fail fast; the whole process group is killed on expiry |
 
 ## License
 

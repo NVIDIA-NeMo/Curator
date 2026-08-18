@@ -27,7 +27,12 @@ files to RTTM and/or CTM format depending on configuration.
 Node-level isolation
     ``setup_on_node()`` copies MFA models from shared storage to a node-local
     directory.  This avoids NFS/Lustre race conditions and Kaldi errors when
-    multiple distributed nodes share the same model directory.
+    multiple distributed nodes share the same model directory.  The node-local
+    cache directory is namespaced by a digest of the resolved shared source
+    root plus the requested acoustic/dictionary/g2p model identity, and is
+    only ever populated atomically (staged, then published via ``os.replace``)
+    under a per-cache file lock -- so a stale, wrong-source, or interrupted
+    copy is never silently reused.
 
 Worker scheduling
     MFA/Kaldi is not safe to run concurrently against a shared model directory,
@@ -42,9 +47,14 @@ Worker scheduling
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import hashlib
+import json
 import os
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
@@ -59,6 +69,7 @@ from praatio import textgrid as praatio_textgrid
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 _DEFAULT_SILENCE_MARKERS = ("", "sp", "sil", "spn", "<eps>")
@@ -70,6 +81,10 @@ _PHONE_TIER_NAMES = frozenset({
     "phoneme",
     "phons",
 })
+# Written into a local model cache directory only after it has been fully and
+# successfully populated (see ``_setup_local_mfa``). Its presence -- plus a
+# matching identity -- is the sole signal that a cache is safe to reuse.
+_MFA_CACHE_MARKER_NAME = ".mfa_cache_complete.json"
 
 
 @dataclass
@@ -97,7 +112,9 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         max_gap_for_merge: Maximum gap (seconds) between speech intervals
             before they are merged in the RTTM output.
         num_jobs: Number of parallel MFA jobs (``-j`` flag passed to MFA).
-            Set explicitly for your deployment; not inferred by the stage.
+            Must be positive. Also determines the stage's default CPU
+            reservation (see ``resources``) unless ``resources`` is set
+            explicitly.
         beam: MFA beam size for alignment search.
         retry_beam: MFA retry beam when initial alignment fails.
         single_speaker: Pass ``--single_speaker`` to MFA.
@@ -105,6 +122,13 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         use_mp: Pass ``--use_mp`` to MFA (use multiprocessing).
         output_format: MFA output format (``long_textgrid`` or
             ``short_textgrid``).
+        align_timeout_seconds: Hard timeout (seconds) for each ``mfa align``
+            subprocess invocation. Must be positive. On expiry, the entire
+            MFA process group is killed (not just the immediate process) so
+            no orphaned Kaldi/MFA worker processes survive, and a bounded
+            ``TimeoutError`` is raised. This stage runs as a single worker
+            cluster-wide (see module docstring), so a wedged MFA process
+            would otherwise stall the whole pipeline indefinitely.
         mfa_root_dir: MFA root directory containing pretrained models, or
             ``None`` to use ``MFA_ROOT_DIR`` / ``~/.mfa``.
         local_mfa_base_dir: Base directory for node-local model copies, or
@@ -114,6 +138,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         silence_markers: Labels to treat as silence when converting TextGrids.
         create_rttm: Whether to convert TextGrids to RTTM files.
         create_ctm: Whether to convert TextGrids to CTM files.
+        resources: Executor resource reservation for this stage. Defaults to
+            ``Resources(cpus=num_jobs)`` so the executor reserves CPUs
+            proportional to the ``-j`` jobs MFA actually forks; pass an
+            explicit value to override.
     """
 
     output_dir: str
@@ -134,18 +162,35 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
     clean: bool = True
     use_mp: bool = True
     output_format: str = "long_textgrid"
+    align_timeout_seconds: float = 3600.0
     mfa_root_dir: str | None = None
     local_mfa_base_dir: str | None = None
     copy_models_to_local: bool = True
     silence_markers: tuple[str, ...] = _DEFAULT_SILENCE_MARKERS
     create_rttm: bool = True
     create_ctm: bool = True
+    batch_size: int = 256
+    resources: Resources | None = None
 
     # Set during lifecycle hooks -- not user-configurable
     _mfa_root: str = field(default="", init=False, repr=False)
     _textgrid_mod: Any = field(default=praatio_textgrid, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.num_jobs <= 0:
+            msg = f"num_jobs must be positive, got {self.num_jobs}"
+            raise ValueError(msg)
+        if self.align_timeout_seconds <= 0:
+            msg = f"align_timeout_seconds must be positive, got {self.align_timeout_seconds}"
+            raise ValueError(msg)
+
+        # Reserve CPUs proportional to the -j jobs MFA forks, so Ray/Xenna
+        # don't schedule this as a one-CPU task while MFA itself uses
+        # num_jobs cores. Only applied when the caller hasn't already
+        # supplied an explicit override.
+        if self.resources is None:
+            self.resources = Resources(cpus=float(self.num_jobs))
+
         self._effective_mfa_root = self.mfa_root_dir or os.environ.get(
             "MFA_ROOT_DIR", os.path.expanduser("~/.mfa")
         )
@@ -160,7 +205,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, self.text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        data_keys = ["textgrid_filepath", "mfa_skipped"]
+        data_keys = ["textgrid_filepath", "mfa_skipped", self.duration_key]
         if self.create_rttm:
             data_keys.append("rttm_filepath")
         if self.create_ctm:
@@ -194,12 +239,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         if not self.copy_models_to_local:
             self._mfa_root = self._effective_mfa_root
             return
-        hostname = socket.gethostname()
-        self._mfa_root = self._setup_local_mfa(
-            self._effective_mfa_root, hostname
-        )
+        self._mfa_root = self._setup_local_mfa()
         logger.info(
-            f"[setup_on_node] MFA root set to {self._mfa_root} on {hostname}"
+            f"[setup_on_node] MFA root set to {self._mfa_root} on "
+            f"{socket.gethostname()}"
         )
 
     def setup(
@@ -209,20 +252,17 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         """Resolve the MFA root and create output directories."""
         if not self._mfa_root:
             if self.copy_models_to_local:
-                hostname = socket.gethostname()
-                local_candidate = (
-                    Path(self._effective_local_base) / f"mfa_models_{hostname}"
-                )
-                if local_candidate.exists():
+                local_candidate = self._local_cache_dir()
+                if self._cache_is_valid(local_candidate):
                     self._mfa_root = str(local_candidate)
                     logger.info(
-                        f"[setup] Re-using local MFA root: {self._mfa_root}"
+                        f"[setup] Re-using local MFA cache: {self._mfa_root}"
                     )
                 else:
                     self._mfa_root = self._effective_mfa_root
                     logger.info(
-                        f"[setup] Local copy not found; using shared MFA root: "
-                        f"{self._mfa_root}"
+                        "[setup] Valid local MFA cache not found; using shared "
+                        f"MFA root: {self._mfa_root}"
                     )
             else:
                 self._mfa_root = self._effective_mfa_root
@@ -251,7 +291,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         The returned list has the same length and order as ``tasks``; every
         task is mutated in place, so cardinality is preserved.
         """
-        if not tasks:
+        if len(tasks) == 0:
             return []
 
         stem_to_task: dict[str, AudioTask] = {}
@@ -266,7 +306,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         # All tasks failed pre-flight; nothing to align.
         if not stem_to_task:
-            return tasks
+            return list(tasks)
 
         batch_uuid = uuid.uuid4().hex[:12]
         tg_out_path = self._textgrid_dir / batch_uuid
@@ -308,7 +348,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                         file_stem, task, all_tg[file_stem]
                     )
 
-        return tasks
+        return list(tasks)
 
     def _preflight_task(
         self, task: AudioTask, stem_to_task: dict[str, AudioTask]
@@ -479,13 +519,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         logger.info(f"Running MFA align: {' '.join(cmd)}")
 
-        result = subprocess.run(  # noqa: S603
-            cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = self._run_mfa_subprocess(cmd, env)
 
         if result.stdout and result.stdout.strip():
             logger.info(
@@ -503,6 +537,52 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 f"STDERR:\n{result.stderr}"
             )
             raise RuntimeError(msg)
+
+    def _run_mfa_subprocess(
+        self, cmd: list[str], env: dict[str, str]
+    ) -> subprocess.CompletedProcess:
+        """Run the ``mfa align`` command with a hard timeout.
+
+        Unlike ``subprocess.run(..., timeout=...)`` -- whose own internal
+        timeout handling only kills the immediate child process -- this
+        starts ``cmd`` in its own process group (``start_new_session=True``)
+        and, on expiry, kills the *entire* group via ``os.killpg``. That
+        covers any Kaldi/MFA worker processes MFA itself forked (e.g. via
+        ``-j``), which would otherwise be orphaned and keep running. This
+        stage runs as a single worker cluster-wide, so a wedged MFA process
+        would otherwise block every remaining row indefinitely.
+        """
+        process = subprocess.Popen(  # noqa: S603
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=self.align_timeout_seconds)
+        except subprocess.TimeoutExpired:
+            logger.error(
+                f"mfa align exceeded timeout of {self.align_timeout_seconds:.0f}s "
+                f"(pid={process.pid}); killing its process group."
+            )
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+            msg = (
+                f"mfa align timed out after {self.align_timeout_seconds:.0f}s "
+                "and its process group was killed.\n"
+                f"STDOUT (last 2000 chars):\n{(stdout or '')[-2000:]}\n"
+                f"STDERR (last 2000 chars):\n{(stderr or '')[-2000:]}"
+            )
+            raise TimeoutError(msg) from None
+
+        return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
 
     def _get_word_alignment_tier(self, tg: Any, textgrid_path: Path) -> Any:  # noqa: ANN401
         """Select the word-level tier, avoiding phone-level tiers when possible."""
@@ -549,10 +629,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             return True
         try:
             mfa_root = Path(self._mfa_root).resolve()
-            local_mfa = (
-                Path(self._effective_local_base)
-                / f"mfa_models_{socket.gethostname()}"
-            ).resolve()
+            local_mfa = self._local_cache_dir().resolve()
         except OSError:
             return False
         return mfa_root == local_mfa or local_mfa in mfa_root.parents
@@ -653,30 +730,120 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 for i, word in enumerate(words)
             )
 
-    def _setup_local_mfa(self, shared_mfa_root: str, hostname: str) -> str:
-        local_mfa_root = Path(self._effective_local_base) / f"mfa_models_{hostname}"
+    def _cache_identity(self) -> dict[str, str]:
+        """Identity that must match for a node-local model cache to be reused.
 
-        if local_mfa_root.exists():
-            has_models = (
-                (local_mfa_root / "pretrained_models").exists()
-                or (local_mfa_root / "extracted_models").exists()
-            )
-            if has_models:
-                logger.info(
-                    f"Using existing local MFA root: {local_mfa_root}"
+        Includes the *resolved* shared source root (so two distinct sources
+        never collide on a shared hostname/local-base) plus the specific
+        acoustic/dictionary/g2p model identity requested by this stage
+        instance (so a cache built for one model set is never silently
+        handed to a run that asked for a different one).
+        """
+        resolved_source = str(Path(self._effective_mfa_root).resolve())
+        return {
+            "source": resolved_source,
+            "acoustic_model": self.acoustic_model,
+            "dictionary": self.dictionary,
+            "g2p_model": self.g2p_model or "",
+        }
+
+    def _cache_digest(self) -> str:
+        canonical = json.dumps(self._cache_identity(), sort_keys=True)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+    def _local_cache_dir(self) -> Path:
+        """Node-local cache directory, namespaced by hostname + source/model identity."""
+        digest = self._cache_digest()
+        return (
+            Path(self._effective_local_base)
+            / f"mfa_models_{socket.gethostname()}_{digest}"
+        )
+
+    def _read_cache_marker(self, cache_dir: Path) -> dict[str, Any] | None:
+        marker_path = cache_dir / _MFA_CACHE_MARKER_NAME
+        try:
+            return json.loads(marker_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _cache_is_valid(self, cache_dir: Path) -> bool:
+        """True only if ``cache_dir`` was fully populated for our exact identity.
+
+        A missing/corrupt marker means either the cache was never fully built
+        (e.g. an interrupted previous copy) or it belongs to a different
+        source/model identity, either way it must not be trusted.
+        """
+        marker = self._read_cache_marker(cache_dir)
+        return marker is not None and marker.get("complete") is True and marker.get("identity") == self._cache_identity()
+
+    @contextlib.contextmanager
+    def _cache_lock(self, cache_dir: Path):  # noqa: ANN202
+        """Serialize concurrent check-and-populate of the same cache directory.
+
+        Guards against two stage instances on the same node (e.g. separate
+        actors, or a retried ``setup_on_node``) racing to copy into -- and
+        publish -- the same node-local cache simultaneously.
+        """
+        lock_path = Path(f"{cache_dir}.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _setup_local_mfa(self) -> str:
+        """Copy MFA models from shared storage to a node-local, identity-namespaced cache.
+
+        The cache directory name embeds a digest of the resolved source root
+        plus the requested acoustic/dictionary/g2p model identity (see
+        :meth:`_cache_identity`), so two different sources -- or two
+        different requested models -- sharing a hostname/local base never
+        collide. The copy is staged in a sibling temp directory and a
+        completeness marker recording that identity is written *inside* the
+        staging directory before it is atomically published via
+        ``os.replace``. A reader therefore only ever observes the final
+        cache directory in a fully-populated, marker-validated state; a
+        crash or interruption mid-copy simply leaves an orphaned staging
+        directory behind rather than a partially-populated cache that could
+        be silently (and incorrectly) reused. A per-cache file lock
+        serializes concurrent populators on the same node.
+        """
+        cache_dir = self._local_cache_dir()
+        with self._cache_lock(cache_dir):
+            if cache_dir.exists() and self._cache_is_valid(cache_dir):
+                logger.info(f"Using existing local MFA cache: {cache_dir}")
+                return str(cache_dir)
+
+            if cache_dir.exists():
+                logger.warning(
+                    f"Local MFA cache at {cache_dir} has no valid completeness "
+                    "marker (e.g. from an interrupted previous copy); rebuilding."
                 )
-                return str(local_mfa_root)
+                shutil.rmtree(cache_dir, ignore_errors=True)
 
-        logger.info(f"Copying MFA models to local storage: {local_mfa_root}")
-        local_mfa_root.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Copying MFA models to local cache: {cache_dir}")
+            staging_dir = cache_dir.with_name(f"{cache_dir.name}.tmp-{uuid.uuid4().hex[:8]}")
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            staging_dir.mkdir(parents=True)
+            try:
+                src = Path(self._effective_mfa_root)
+                for subdir in ("pretrained_models", "extracted_models"):
+                    src_path = src / subdir
+                    if src_path.exists():
+                        logger.info(f"  Copying {subdir}...")
+                        shutil.copytree(src_path, staging_dir / subdir)
 
-        src = Path(shared_mfa_root)
-        for subdir in ("pretrained_models", "extracted_models"):
-            src_path = src / subdir
-            dst_path = local_mfa_root / subdir
-            if src_path.exists() and not dst_path.exists():
-                logger.info(f"  Copying {subdir}...")
-                shutil.copytree(src_path, dst_path)
+                marker = {"identity": self._cache_identity(), "complete": True}
+                marker_tmp = staging_dir / f"{_MFA_CACHE_MARKER_NAME}.tmp"
+                marker_tmp.write_text(json.dumps(marker), encoding="utf-8")
+                marker_tmp.replace(staging_dir / _MFA_CACHE_MARKER_NAME)
 
-        logger.info(f"Local MFA setup complete: {local_mfa_root}")
-        return str(local_mfa_root)
+                os.replace(staging_dir, cache_dir)
+            except BaseException:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                raise
+
+            logger.info(f"Local MFA cache populated: {cache_dir}")
+            return str(cache_dir)
