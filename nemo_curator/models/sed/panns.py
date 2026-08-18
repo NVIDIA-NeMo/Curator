@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import gc
 from dataclasses import dataclass, field
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -53,13 +54,15 @@ class PANNsSEDAdapter:
 
     ``model_type`` must be one of the checkpoint names exposed by
     ``nemo_curator.models.sed.SUPPORTED_MODEL_TYPES``. The frontend arguments
-    must match the checkpoint. With no ``checkpoint_path``, the official
-    DecisionLevelMax checkpoint is downloaded from the upstream PANNs Zenodo
-    release and cached. The default configuration produces 527-class output
-    at 100 frames per second.
+    must match the checkpoint. ``checkpoint_path`` can point to an existing
+    checkpoint anywhere on the filesystem. With no local override, the
+    official DecisionLevelMax checkpoint is downloaded from the upstream
+    PANNs Zenodo release; ``cache_dir`` selects its cache directory. The
+    default configuration produces 527-class output at 100 frames per second.
     """
 
     checkpoint_path: str | None = None
+    cache_dir: str | None = None
     sample_rate: int = _DEFAULT_CHECKPOINT_CONFIG["sample_rate"]
     model_type: str = _DEFAULT_MODEL_TYPE
     window_size: int = _DEFAULT_CHECKPOINT_CONFIG["window_size"]
@@ -117,6 +120,7 @@ class PANNsSEDAdapter:
         self._validate_default_checkpoint_config()
         return torch.hub.load_state_dict_from_url(
             _DEFAULT_CHECKPOINT_URL,
+            model_dir=self.cache_dir,
             map_location="cpu",
             progress=False,
             file_name=_DEFAULT_CHECKPOINT_FILENAME,
@@ -124,19 +128,26 @@ class PANNsSEDAdapter:
         )
 
     def download_weights_on_node(self) -> None:
-        """Populate PyTorch Hub's cache for the registered default checkpoint."""
+        """Populate the configured PyTorch Hub cache for the default checkpoint."""
         if self.checkpoint_path is None:
             self._load_checkpoint()
 
     def load_model(self, *, num_gpus: int) -> None:
-        """Load checkpoint weights on CPU first, then place the model."""
-        if not isinstance(num_gpus, int) or isinstance(num_gpus, bool) or num_gpus not in {0, 1}:
-            msg = f"PANNsSEDAdapter supports zero or one physical GPU, got {num_gpus!r}"
+        """Load one single-device model on CPU or CUDA.
+
+        Like the direct audio GPU stages, zero selects CPU and any positive
+        worker GPU allocation selects CUDA. PANNs remains single-device even
+        when a worker reserves more than one GPU.
+        """
+        if isinstance(num_gpus, bool) or not isinstance(num_gpus, Integral) or num_gpus < 0:
+            msg = f"PANNsSEDAdapter requires a non-negative integer num_gpus, got {num_gpus!r}"
             raise ValueError(msg)
+        if num_gpus > 0 and not torch.cuda.is_available():
+            msg = f"PANNsSEDAdapter received num_gpus={num_gpus}, but CUDA is not available"
+            raise RuntimeError(msg)
 
         model_cls = get_model_class(self.model_type)
-        use_cuda = num_gpus == 1 and torch.cuda.is_available()
-        self._device = torch.device("cuda" if use_cuda else "cpu")
+        self._device = torch.device("cuda" if num_gpus > 0 else "cpu")
         model = model_cls(
             sample_rate=self.sample_rate,
             window_size=self.window_size,

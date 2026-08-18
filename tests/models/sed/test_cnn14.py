@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
+from torch import nn
 
 from nemo_curator.models import sed
 
@@ -66,20 +68,16 @@ def test_listing_supported_types_needs_no_heavy_dependency() -> None:
     assert tuple(sed._MODEL_CLASS_NAMES) == sed.SUPPORTED_MODEL_TYPES
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("model_type", ["Cnn14_DecisionLevelMax", "Cnn14_DecisionLevelAvg", "Cnn14_DecisionLevelAtt"])
 def test_each_variant_resolves_to_a_torch_module(model_type: str) -> None:
-    pytest.importorskip("torchlibrosa")
-    from torch import nn
-
     assert issubclass(sed.get_model_class(model_type), nn.Module)
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("model_type", ["Cnn14_DecisionLevelMax", "Cnn14_DecisionLevelAvg", "Cnn14_DecisionLevelAtt"])
 def test_each_variant_emits_framewise_and_clipwise_output(model_type: str) -> None:
     """SED needs framewise output; the base Cnn14 gives clip-level only."""
-    pytest.importorskip("torchlibrosa")
-    import torch
-
     classes_num = 8
     model = sed.get_model_class(model_type)(
         sample_rate=16000,
@@ -101,10 +99,8 @@ def test_each_variant_emits_framewise_and_clipwise_output(model_type: str) -> No
     assert out["clipwise_output"].shape == (2, classes_num)
 
 
+@pytest.mark.gpu
 def test_framewise_output_is_a_probability() -> None:
-    pytest.importorskip("torchlibrosa")
-    import torch
-
     model = sed.get_model_class("Cnn14_DecisionLevelMax")(
         sample_rate=16000, window_size=1024, hop_size=320, mel_bins=64, fmin=50, fmax=7800, classes_num=8
     ).eval()

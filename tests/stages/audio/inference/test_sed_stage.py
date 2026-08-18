@@ -23,15 +23,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import soundfile
+import torch
 from omegaconf import OmegaConf
 
-torch = pytest.importorskip("torch")
-
-from nemo_curator.config.run import _instantiate_stage  # noqa: E402
-from nemo_curator.models.sed.base import SEDResult  # noqa: E402
-from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage  # noqa: E402
-from nemo_curator.stages.resources import Resources  # noqa: E402
-from nemo_curator.tasks import AudioTask  # noqa: E402
+from nemo_curator.config.run import _instantiate_stage
+from nemo_curator.models.sed.base import SEDResult
+from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
 
 _SR = 16000
 _HOP = 320
@@ -134,6 +133,14 @@ def test_a_flagged_task_is_passed_through_untouched() -> None:
     (task,) = stage.process_batch([_task(_skipme="bad audio")])
     assert "_sed_framewise" not in task.data
     assert adapter.calls == []
+
+
+def test_a_partially_skipped_batch_emits_a_warning() -> None:
+    stage, _ = _stage()
+    with patch("nemo_curator.stages.audio.inference.sed.stage.logger.warning") as warning:
+        stage.process_batch([_task(), _task(_skipme="bad audio")])
+
+    warning.assert_called_once_with("SED batch: skipped {}/{} tasks", 1, 2)
 
 
 def test_a_missing_waveform_marks_only_that_task() -> None:
@@ -496,6 +503,7 @@ def test_example_yaml_instantiates_the_stage_adapter_contract() -> None:
     assert isinstance(stage, SEDInferenceStage)
     assert stage.adapter_target == _ADAPTER_TARGET
     assert stage.checkpoint_path is None
+    assert stage.adapter_kwargs["cache_dir"] is None
     assert stage.sample_rate == 32000
     assert stage.adapter_kwargs["model_type"] == "Cnn14_DecisionLevelMax"
     assert stage.save_npz is True
@@ -510,12 +518,21 @@ def test_example_yaml_accepts_an_offline_checkpoint_override() -> None:
     assert stage.checkpoint_path == _CHECKPOINT
 
 
+def test_example_yaml_accepts_a_custom_checkpoint_cache() -> None:
+    cfg = OmegaConf.load(_PIPELINE_YAML)
+    cfg.manifest_path = "/input.jsonl"
+    cfg.cache_dir = "/model-cache"
+    stage = _instantiate_stage(cfg.stages[1])
+    assert stage.adapter_kwargs["cache_dir"] == "/model-cache"
+
+
 def test_module_docstring_contains_the_exact_yaml_command() -> None:
     from nemo_curator.stages.audio.inference.sed import stage
 
     assert "tutorials/audio/sed" in stage.__doc__
     assert "--extra audio_cuda12" in stage.__doc__
     assert "--config-name pipeline" in stage.__doc__
+    assert "cache_dir=/absolute/path/to/model_cache" in stage.__doc__
     default_command = stage.__doc__.split("For offline execution", maxsplit=1)[0]
     assert "checkpoint_path=" not in default_command
     assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in stage.__doc__

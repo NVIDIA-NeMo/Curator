@@ -19,11 +19,10 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import torch
 
-torch = pytest.importorskip("torch")
-
-from nemo_curator.models.sed import panns  # noqa: E402
-from nemo_curator.models.sed.panns import PANNsSEDAdapter  # noqa: E402
+from nemo_curator.models.sed import panns
+from nemo_curator.models.sed.panns import PANNsSEDAdapter
 
 _SR = 16000
 _HOP = 320
@@ -101,7 +100,7 @@ def test_default_adapter_matches_the_registered_checkpoint_frontend() -> None:
 
 
 def test_explicit_checkpoint_bypasses_default_prefetch() -> None:
-    adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT)
+    adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT, cache_dir="/model-cache")
     with (
         patch("torch.hub.load_state_dict_from_url") as download,
         patch("torch.load") as load,
@@ -133,12 +132,28 @@ def test_download_weights_on_node_prefetches_default_without_constructing_model(
 
     download.assert_called_once_with(
         panns._DEFAULT_CHECKPOINT_URL,
+        model_dir=None,
         map_location="cpu",
         progress=False,
         file_name=panns._DEFAULT_CHECKPOINT_FILENAME,
         weights_only=True,
     )
     model_resolver.assert_not_called()
+
+
+def test_default_checkpoint_can_use_a_custom_cache_directory(tmp_path: Path) -> None:
+    adapter = PANNsSEDAdapter(cache_dir=str(tmp_path))
+    with patch("torch.hub.load_state_dict_from_url", return_value={"model": {}}) as download:
+        adapter.download_weights_on_node()
+
+    download.assert_called_once_with(
+        panns._DEFAULT_CHECKPOINT_URL,
+        model_dir=str(tmp_path),
+        map_location="cpu",
+        progress=False,
+        file_name=panns._DEFAULT_CHECKPOINT_FILENAME,
+        weights_only=True,
+    )
 
 
 def test_default_prefetch_propagates_provider_failure() -> None:
@@ -179,7 +194,7 @@ def test_load_model_uses_cpu_and_restricted_checkpoint_loading(tmp_path: Path) -
     with (
         patch("nemo_curator.models.sed.panns.get_model_class", return_value=model_cls),
         patch("torch.load", return_value={"model": {"weight": "value"}}) as torch_load,
-        patch("torch.cuda.is_available", return_value=False),
+        patch("torch.cuda.is_available", return_value=True),
     ):
         adapter.load_model(num_gpus=0)
 
@@ -205,6 +220,7 @@ def test_load_model_resolves_the_default_through_the_provider_cache() -> None:
 
     download.assert_called_once_with(
         panns._DEFAULT_CHECKPOINT_URL,
+        model_dir=None,
         map_location="cpu",
         progress=False,
         file_name=panns._DEFAULT_CHECKPOINT_FILENAME,
@@ -246,10 +262,44 @@ def test_load_model_forwards_checkpoint_frontend_configuration(tmp_path: Path) -
     )
 
 
-def test_panns_adapter_rejects_multi_gpu_loading() -> None:
+@pytest.mark.parametrize("num_gpus", [1, 2])
+def test_load_model_uses_cuda_for_any_positive_gpu_count(tmp_path: Path, num_gpus: int) -> None:
+    checkpoint_path = tmp_path / "custom.pth"
+    checkpoint_path.touch()
+    adapter = PANNsSEDAdapter(checkpoint_path=str(checkpoint_path))
+    model = MagicMock()
+    with (
+        patch("nemo_curator.models.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("torch.load", return_value={"model": {}}),
+        patch("torch.cuda.is_available", return_value=True),
+    ):
+        adapter.load_model(num_gpus=num_gpus)
+
+    assert adapter._device == torch.device("cuda")
+    model.to.assert_called_once_with(torch.device("cuda"))
+
+
+@pytest.mark.parametrize("num_gpus", [-1, 1.5, True])
+def test_panns_adapter_rejects_invalid_worker_gpu_counts(num_gpus: object) -> None:
     adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT)
-    with pytest.raises(ValueError, match="zero or one"):
-        adapter.load_model(num_gpus=2)
+    with (
+        patch("nemo_curator.models.sed.panns.get_model_class") as model_resolver,
+        pytest.raises(ValueError, match="requires a non-negative integer num_gpus"),
+    ):
+        adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]
+    model_resolver.assert_not_called()
+
+
+@pytest.mark.parametrize("num_gpus", [1, 2])
+def test_panns_adapter_requires_cuda_for_positive_gpu_counts(num_gpus: int) -> None:
+    adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT)
+    with (
+        patch("torch.cuda.is_available", return_value=False),
+        patch("nemo_curator.models.sed.panns.get_model_class") as model_resolver,
+        pytest.raises(RuntimeError, match=rf"num_gpus={num_gpus}.*CUDA is not available"),
+    ):
+        adapter.load_model(num_gpus=num_gpus)
+    model_resolver.assert_not_called()
 
 
 def test_unload_releases_model_and_device() -> None:

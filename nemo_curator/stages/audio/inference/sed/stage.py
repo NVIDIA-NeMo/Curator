@@ -30,7 +30,9 @@ run it from the Curator repository root with the full command below::
       manifest_path=/absolute/path/to/input.jsonl \\
       output_dir=/absolute/path/to/sed_output
 
-For offline execution, pre-download the checkpoint and append
+To place the automatic download in another directory, append
+``cache_dir=/absolute/path/to/model_cache``. For offline execution, pre-download
+the checkpoint and append
 ``'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth'``.
 
 The example configuration is ``tutorials/audio/sed/pipeline.yaml``. Its PANNs
@@ -86,7 +88,8 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         audio_filepath_key: File field used for loading and NPZ naming when
             available. Waveform-only tasks use their Curator task ID instead.
         adapter_kwargs: Model-specific constructor options. For PANNs these
-            include ``model_type``, frontend settings, class count, and padding.
+            include ``cache_dir``, ``model_type``, frontend settings, class
+            count, and padding.
     """
 
     adapter_target: str
@@ -182,7 +185,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
         skipped_count = len(tasks) - len(valid_indices)
         if skipped_count:
-            logger.info("SED batch: skipped {}/{} tasks", skipped_count, len(tasks))
+            logger.warning("SED batch: skipped {}/{} tasks", skipped_count, len(tasks))
         logger.info("SED batch: generated {} predictions", len(results))
         return tasks
 
