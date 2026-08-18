@@ -259,6 +259,20 @@ class SlackParentMessage(SlackMessageBase):
             ]
         )
 
+    def _get_run_status_text(self, markdown: bool) -> str:
+        """Format the overall session status for Slack blocks or fallback text."""
+        counts = self._get_entry_status_counts()
+        if counts["running"] or counts["waiting"]:
+            status = "▶️ running"
+        elif counts["failed"]:
+            status = "❌ complete with failures"
+        else:
+            status = "✅ complete"
+
+        if markdown:
+            return f"*Run status:* {status}"
+        return f"Run status: {status}"
+
     def to_slack_blocks(self) -> list[dict[str, Any]]:
         """Convert the parent message data to Slack blocks format.
 
@@ -282,6 +296,15 @@ class SlackParentMessage(SlackMessageBase):
                 "text": {
                     "type": "mrkdwn",
                     "text": self._get_entry_status_summary_text(markdown=True),
+                },
+            }
+        )
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": self._get_run_status_text(markdown=True),
                 },
             }
         )
@@ -310,6 +333,7 @@ class SlackParentMessage(SlackMessageBase):
             f"Curator Benchmark Summary - {self.session_name}",
             "",
             self._get_entry_status_summary_text(markdown=False),
+            self._get_run_status_text(markdown=False),
         ]
         if self.viewer_url:
             lines.append(f"Results viewer: {self.session_name} ({self.viewer_url})")
