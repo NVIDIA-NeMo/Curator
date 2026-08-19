@@ -70,6 +70,18 @@ def test_marks_rows_that_clean_to_empty(tmp_path: Path) -> None:
     assert task.data["_skipme"] == "Empty after regex cleaning"
 
 
+@pytest.mark.parametrize("pred_text", ["", "   "])
+def test_does_not_mark_rows_already_empty(tmp_path: Path, pred_text: str) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [{"pattern": r"\w+", "repl": ""}]))
+    stage.setup()
+    task = AudioTask(data={"pred_text": pred_text, "_skipme": ""})
+
+    stage.process(task)
+
+    assert task.data["text"] == ""
+    assert task.data["_skipme"] == ""
+
+
 def test_rejects_invalid_rule_shape(tmp_path: Path) -> None:
     stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [{"pattern": "foo"}]))
 
@@ -107,7 +119,7 @@ def test_inherited_batch_processing_and_default_stage_chain(tmp_path: Path) -> N
     assert [task.data["text"] for task in results] == ["API on GPU", "NVIDIA"]
 
 
-# Golden outputs verified against nithinraok/Curator@1f1e770b with
+# Golden outputs verified against nithinraok/Curator@a1df5ec9 with
 # branch-neutral field names and the current-main stage lifecycle.
 @pytest.mark.parametrize(
     ("rules", "raw", "language", "expected"),

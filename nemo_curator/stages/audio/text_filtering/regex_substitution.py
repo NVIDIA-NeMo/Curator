@@ -31,7 +31,8 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     Each rule must define ``pattern`` and ``repl`` and may define the
     standard ``re.sub`` ``count`` limit. Rules run in file order before
     whitespace is collapsed. Rows carrying an existing skip reason are not
-    normalized.
+    normalized. The empty-result skip is set only when cleaning removes
+    non-whitespace input; already-empty input remains unskipped.
     """
 
     regex_params_yaml: str = ""
@@ -76,6 +77,7 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
         if not isinstance(text, str):
             task.data.setdefault(self.output_text_key, "")
             return task
+        had_text = bool(text.strip())
 
         result = f" {text} "
         for rule in self._rules:
@@ -87,6 +89,6 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
             )
         result = re.sub(r"\s+", " ", result).strip()
         task.data[self.output_text_key] = result
-        if not result:
+        if not result and had_text:
             task.data[self.skip_me_key] = "Empty after regex cleaning"
         return task
