@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "benchmarking"))
 
-from runner.sinks.slack_sink import SlackParentMessage
+from runner.sinks.slack_sink import SlackParentMessage, SlackSink
 
 
 def _section_texts(blocks: list[dict[str, Any]]) -> list[str]:
@@ -78,3 +81,28 @@ def test_slack_parent_message_fallback_reports_entry_status_counts() -> None:
     assert "Run status: ❌ complete with failures" in fallback_text
     assert "Benchmark Entries:" not in fallback_text
     assert "passed_entry" not in fallback_text
+
+
+def _slack_sink(monkeypatch: pytest.MonkeyPatch, **config_overrides: object) -> SlackSink:
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "test-token")
+    return SlackSink(
+        {
+            "channel_id": "C123",
+            "default_metrics": ["exec_time_s"],
+            **config_overrides,
+        }
+    )
+
+
+def test_slack_sink_posts_entry_replies_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    sink = _slack_sink(monkeypatch)
+
+    assert sink._should_post_benchmark_entry_message({"success": True}, []) is True
+
+
+def test_slack_sink_can_limit_entry_replies_to_failures_or_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
+    sink = _slack_sink(monkeypatch, thread_replies_for_failures_or_warnings_only=True)
+
+    assert sink._should_post_benchmark_entry_message({"success": True}, []) is False
+    assert sink._should_post_benchmark_entry_message({"success": True}, ["warning"])
+    assert sink._should_post_benchmark_entry_message({"success": False}, [])

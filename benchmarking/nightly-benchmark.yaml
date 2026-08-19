@@ -158,6 +158,7 @@ sinks:
   - name: slack
     enabled: true
     live_updates: true
+    thread_replies_for_failures_or_warnings_only: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
     ping_users_on_failure: true

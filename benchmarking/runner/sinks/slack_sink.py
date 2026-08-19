@@ -522,6 +522,12 @@ class SlackSink(Sink):
         # to remove the per-entry lists. Default True preserves existing behavior.
         self.ping_users_on_failure: bool = sink_config.get("ping_users_on_failure", True)
 
+        # When true, post threaded per-entry replies only for failures or entries
+        # with warnings. The parent summary is still updated for every entry.
+        self.thread_replies_for_failures_or_warnings_only: bool = sink_config.get(
+            "thread_replies_for_failures_or_warnings_only", False
+        )
+
         # Optional legacy sink-level run-viewer URL. Prefer Session.viewer_url for
         # new callers so the value is available to any sink, not just Slack.
         self.viewer_url: str | None = sink_config.get("viewer_url")
@@ -646,14 +652,15 @@ class SlackSink(Sink):
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
         warnings = result_dict.get("warnings", [])
 
-        # Create a new message for the entry to post in the thread.
-        msg = self._create_benchmark_entry_message(
-            benchmark_entry,
-            (self.default_metrics + additional_metrics, result_dict),
-            pings,
-            warnings,
-        )
-        self._child_messages.append(msg)
+        if self._should_post_benchmark_entry_message(result_dict, warnings):
+            # Create a new message for the entry to post in the thread.
+            msg = self._create_benchmark_entry_message(
+                benchmark_entry,
+                (self.default_metrics + additional_metrics, result_dict),
+                pings,
+                warnings,
+            )
+            self._child_messages.append(msg)
         # Update the session summary message with the new entry status.
         self._update_parent_entry(benchmark_entry.name, status_text)
 
@@ -712,6 +719,12 @@ class SlackSink(Sink):
             pings=pings,
             warnings=warnings,
         )
+
+    def _should_post_benchmark_entry_message(self, result_dict: dict[str, Any], warnings: list[str]) -> bool:
+        """Return whether to post a threaded per-entry Slack reply."""
+        if not self.thread_replies_for_failures_or_warnings_only:
+            return True
+        return not result_dict["success"] or bool(warnings)
 
     def _update_parent_entry(self, entry_name: str, status: str) -> None:
         """Update a single entry's status in the shared state file and post the update to Slack.
