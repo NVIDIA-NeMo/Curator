@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmarking"))
 
-import run as benchmark_run
+from runner.sinks.sink import call_sink_hook, initialize_sinks
 
 
 class _Sink:
@@ -49,7 +49,7 @@ class _Sink:
 def test_call_sink_hook_returns_false_when_sink_raises() -> None:
     sink = _Sink(fail_hooks={"register_benchmark_entry_starting"})
 
-    success = benchmark_run._call_sink_hook(
+    success = call_sink_hook(
         sink,
         "register_benchmark_entry_starting",
         context="marking an entry as running",
@@ -64,7 +64,7 @@ def test_call_sink_hook_returns_false_when_sink_raises() -> None:
 def test_call_sink_hook_returns_true_when_sink_succeeds() -> None:
     sink = _Sink()
 
-    success = benchmark_run._call_sink_hook(sink, "finalize", context="finalizing sinks")
+    success = call_sink_hook(sink, "finalize", context="finalizing sinks")
 
     assert success is True
     assert sink.calls == [("finalize", {})]
@@ -74,7 +74,7 @@ def test_initialize_sinks_filters_failed_initialization() -> None:
     failing_sink = _Sink(fail_hooks={"initialize"})
     working_sink = _Sink()
 
-    active_sinks = benchmark_run._initialize_sinks(
+    active_sinks = initialize_sinks(
         [failing_sink, working_sink],
         session_name="test-session",
         session=object(),
