@@ -41,10 +41,10 @@ def test_slack_parent_message_reports_entry_status_counts() -> None:
     blocks = message.to_slack_blocks()
     section_texts = _section_texts(blocks)
 
-    assert section_texts[0] == (
+    assert section_texts[0] == "*Run status:* ▶️ running"
+    assert section_texts[1] == (
         "*Total entries:* 4  •  *passed ✅:* 1  •  *failed ❌:* 1  •  *running ▶️:* 1  •  *waiting ⏳:* 1"
     )
-    assert section_texts[1] == "*Run status:* ▶️ running"
     assert all("Overall Status" not in text for text in section_texts)
     assert all(block.get("type") != "table" for block in blocks)
 
@@ -58,7 +58,7 @@ def test_slack_parent_message_labels_viewer_link_with_session_name() -> None:
 
     section_texts = _section_texts(message.to_slack_blocks())
 
-    assert section_texts[1] == "*Run status:* ✅ complete"
+    assert section_texts[0] == "*Run status:* ✅ complete"
     assert section_texts[2] == "*Results viewer:* <http://viewer.example.com/run?name=test-session|test-session>"
 
 
@@ -69,6 +69,7 @@ def test_slack_parent_message_fallback_reports_entry_status_counts() -> None:
 
     fallback_text = message.to_fallback_text()
 
+    assert fallback_text.splitlines()[2] == "Run status: ❌ complete with failures"
     assert "Total entries: 2" in fallback_text
     assert "passed ✅: 1" in fallback_text
     assert "failed ❌: 1" in fallback_text

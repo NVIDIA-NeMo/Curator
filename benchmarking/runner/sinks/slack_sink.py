@@ -295,7 +295,7 @@ class SlackParentMessage(SlackMessageBase):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": self._get_entry_status_summary_text(markdown=True),
+                    "text": self._get_run_status_text(markdown=True),
                 },
             }
         )
@@ -304,7 +304,7 @@ class SlackParentMessage(SlackMessageBase):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": self._get_run_status_text(markdown=True),
+                    "text": self._get_entry_status_summary_text(markdown=True),
                 },
             }
         )
@@ -332,8 +332,8 @@ class SlackParentMessage(SlackMessageBase):
         lines = [
             f"Curator Benchmark Summary - {self.session_name}",
             "",
-            self._get_entry_status_summary_text(markdown=False),
             self._get_run_status_text(markdown=False),
+            self._get_entry_status_summary_text(markdown=False),
         ]
         if self.viewer_url:
             lines.append(f"Results viewer: {self.session_name} ({self.viewer_url})")
