@@ -46,6 +46,10 @@ from nemo_curator.tasks import AudioTask
         ("I\u2018m A B", "en", "I\u2018m AB"),
         ("'A B C", "en", "'ABC"),
         ("\u2018A B C\u2019", "en", "\u2018ABC\u2019"),
+        ("\u2019A B C\u2019", "en", "\u2019A BC\u2019"),
+        ("x'A B", "en", "x'AB"),
+        ("x\u2018A B", "en", "x\u2018AB"),
+        ("x\u2019A B", "en", "x\u2019A B"),
         ("A B I'm", "en", "AB I'm"),
         ("A B i'm", "en", "AB i'm"),
         ("A B I\u2019m", "en", "AB I\u2019m"),
@@ -79,6 +83,8 @@ def test_concat_abbreviations(text: str, language: str, expected: str) -> None:
         ("A P I and G P U", ["API", "GPU"]),
         ("a A P I", ["API"]),
         ("A P Is", ["AP"]),
+        ("\u2019A B C\u2019", ["BC"]),
+        ("x'A B", ["AB"]),
     ],
 )
 def test_reports_each_changed_abbreviation(text: str, expected: list[str]) -> None:
