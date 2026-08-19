@@ -180,7 +180,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(task.data.get(self.language_key, "")).lower().strip()
         return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
 
-    def _process_single(self, task: AudioTask) -> AudioTask:
+    def process(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             self._set_note(task.data, "skipped (flagged)")
@@ -225,13 +225,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         else:
             self._set_note(task.data, "passed")
         return task
-
-    def process(self, task: AudioTask) -> AudioTask:
-        msg = f"{type(self).__name__} only supports process_batch"
-        raise NotImplementedError(msg)
-
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        return [self._process_single(task) for task in tasks]
 
     def teardown(self) -> None:
         logger.info(f"[{self.name}] done — processed={self._n_processed}, flagged={self._n_flagged}")
