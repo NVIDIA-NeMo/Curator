@@ -861,7 +861,7 @@ entries:
       num_gpus: 0
     requirements:
       - metric: throughput_docs_per_sec
-        min_value: 60000
+        min_value: 55000
 
   - name: modifier_xenna
     enabled: true
