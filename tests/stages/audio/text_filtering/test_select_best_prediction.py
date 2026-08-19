@@ -14,7 +14,7 @@
 
 from copy import deepcopy
 
-from nemo_curator.stages.audio.text_filtering.select_best_prediction import SelectBestPredictionStage
+from nemo_curator.stages.audio.text_filtering import SelectBestPredictionStage
 from nemo_curator.tasks import AudioTask
 
 

@@ -14,8 +14,10 @@
 
 """Audio transcript filtering stages."""
 
+from .select_best_prediction import SelectBestPredictionStage
 from .whisper_hallucination import WhisperHallucinationStage
 
 __all__ = [
+    "SelectBestPredictionStage",
     "WhisperHallucinationStage",
 ]
