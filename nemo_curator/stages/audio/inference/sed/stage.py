@@ -20,9 +20,11 @@ owns model construction, checkpoint loading, batch padding, and inference.
 
 The included YAML reads a JSONL manifest whose rows contain
 ``{"audio_filepath": "/absolute/path/to/audio.wav"}`` and writes compressed
-framewise NPZ files. The official PANNs checkpoint is downloaded once into
-PyTorch Hub's checkpoint cache and reused. Install the optional dependency and
-run it from the Curator repository root with the full command below::
+framewise NPZ files. With no checkpoint path, the standard PyTorch Hub
+checkpoint file is used. It follows the same rule as an explicit path: load it
+when it exists, otherwise validate and download the official PANNs checkpoint
+there. Install the optional dependency and run it from the Curator repository
+root with the full command below::
 
     uv run --extra audio_cuda12 python nemo_curator/config/run.py \\
       --config-path ../../tutorials/audio/sed \\
@@ -30,10 +32,10 @@ run it from the Curator repository root with the full command below::
       manifest_path=/absolute/path/to/input.jsonl \\
       output_dir=/absolute/path/to/sed_output
 
-To place the automatic download in another directory, append
-``cache_dir=/absolute/path/to/model_cache``. For offline execution, pre-download
-the checkpoint and append
+To choose the exact download file or reuse an existing local checkpoint, append
 ``'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth'``.
+When that file exists it is loaded without network access; when it is missing,
+the registered default checkpoint is downloaded to that exact path.
 
 The example configuration is ``tutorials/audio/sed/pipeline.yaml``. Its PANNs
 adapter produces a ``(frames, 527)`` AudioSet probability matrix per task at
@@ -80,16 +82,17 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
     Args:
         adapter_target: Import path of a class implementing ``SEDAdapter``.
-        checkpoint_path: Optional local checkpoint override. When ``None``,
-            the adapter downloads and caches its registered default.
+        checkpoint_path: Optional checkpoint file. An existing file is loaded;
+            a missing path is populated with the adapter's registered default.
+            When ``None``, the adapter applies those same rules to its standard
+            provider-cache file.
         sample_rate: Sample rate supplied to the adapter after resampling.
         waveform_key: In-memory waveform field, or ``None`` to load files.
         sample_rate_key: Source sample-rate field for in-memory waveforms.
         audio_filepath_key: File field used for loading and NPZ naming when
             available. Waveform-only tasks use their Curator task ID instead.
         adapter_kwargs: Model-specific constructor options. For PANNs these
-            include ``cache_dir``, ``model_type``, frontend settings, class
-            count, and padding.
+            include ``model_type``, frontend settings, class count, and padding.
     """
 
     adapter_target: str

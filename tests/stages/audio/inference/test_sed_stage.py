@@ -503,13 +503,12 @@ def test_example_yaml_instantiates_the_stage_adapter_contract() -> None:
     assert isinstance(stage, SEDInferenceStage)
     assert stage.adapter_target == _ADAPTER_TARGET
     assert stage.checkpoint_path is None
-    assert stage.adapter_kwargs["cache_dir"] is None
     assert stage.sample_rate == 32000
     assert stage.adapter_kwargs["model_type"] == "Cnn14_DecisionLevelMax"
     assert stage.save_npz is True
 
 
-def test_example_yaml_accepts_an_offline_checkpoint_override() -> None:
+def test_example_yaml_accepts_a_checkpoint_file_path() -> None:
     cfg = OmegaConf.load(_PIPELINE_YAML)
     cfg.manifest_path = "/input.jsonl"
     cfg.checkpoint_path = _CHECKPOINT
@@ -518,23 +517,16 @@ def test_example_yaml_accepts_an_offline_checkpoint_override() -> None:
     assert stage.checkpoint_path == _CHECKPOINT
 
 
-def test_example_yaml_accepts_a_custom_checkpoint_cache() -> None:
-    cfg = OmegaConf.load(_PIPELINE_YAML)
-    cfg.manifest_path = "/input.jsonl"
-    cfg.cache_dir = "/model-cache"
-    stage = _instantiate_stage(cfg.stages[1])
-    assert stage.adapter_kwargs["cache_dir"] == "/model-cache"
-
-
 def test_module_docstring_contains_the_exact_yaml_command() -> None:
     from nemo_curator.stages.audio.inference.sed import stage
 
     assert "tutorials/audio/sed" in stage.__doc__
     assert "--extra audio_cuda12" in stage.__doc__
     assert "--config-name pipeline" in stage.__doc__
-    assert "cache_dir=/absolute/path/to/model_cache" in stage.__doc__
-    default_command = stage.__doc__.split("For offline execution", maxsplit=1)[0]
+    default_command = stage.__doc__.split("To choose the exact download file", maxsplit=1)[0]
     assert "checkpoint_path=" not in default_command
     assert "checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\\=0.385.pth" in stage.__doc__
+    assert "downloaded to that exact path" in stage.__doc__
+    assert "loaded without network access" in stage.__doc__
     assert "Cnn14_mAP=0.431.pth" in stage.__doc__
     assert "clip-level audio tagging" in stage.__doc__
