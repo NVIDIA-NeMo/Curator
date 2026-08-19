@@ -32,7 +32,7 @@ def test_uses_recovery_prediction_after_hallucination_recheck() -> None:
 
     assert task.data["best_prediction"] == "a valid transcript"
     assert task.data["best_prediction_source"] == "fallback"
-    assert task.data["_skipme"] == ""
+    assert task.data["_skipme"] == "Hallucination"
 
 
 def test_falls_back_when_primary_language_is_unsupported() -> None:
@@ -49,10 +49,10 @@ def test_falls_back_when_primary_language_is_unsupported() -> None:
 
     assert task.data["best_prediction"] == "bonjour"
     assert task.data["best_prediction_source"] == "fallback"
-    assert task.data["_skipme"] == ""
+    assert task.data["_skipme"] == "language_not_supported"
 
 
-def test_marks_unsupported_primary_without_fallback_as_unusable() -> None:
+def test_unsupported_primary_without_fallback_matches_reference_fallthrough() -> None:
     task = AudioTask(
         data={
             "primary_model_prediction": "",
@@ -65,8 +65,8 @@ def test_marks_unsupported_primary_without_fallback_as_unusable() -> None:
     SelectBestPredictionStage().process(task)
 
     assert task.data["best_prediction"] == ""
-    assert task.data["best_prediction_source"] == "none"
-    assert task.data["_skipme"] == "not_supported"
+    assert task.data["best_prediction_source"] == "primary"
+    assert task.data["_skipme"] == "language_not_supported"
 
 
 def test_accepts_reference_asr_key_name() -> None:
@@ -83,7 +83,7 @@ def test_accepts_reference_asr_key_name() -> None:
 
     assert task.data["best_prediction"] == "a valid transcript"
     assert task.data["best_prediction_source"] == "fallback"
-    assert task.data["_skipme"] == ""
+    assert task.data["_skipme"] == "Hallucination"
 
 
 def test_uses_reference_when_no_model_supports_language() -> None:
@@ -298,7 +298,7 @@ def test_cross_model_disagreement_preserves_hallucination_skip() -> None:
     assert task.data["primary_fallback_agreement_wer"] > 20.0
 
 
-def test_recovery_note_key_ignores_unrelated_recovery_notes() -> None:
+def test_scans_all_recovery_notes_like_reference() -> None:
     task = AudioTask(
         data={
             "primary_model_prediction": "primary transcript",
@@ -309,15 +309,13 @@ def test_recovery_note_key_ignores_unrelated_recovery_notes() -> None:
             },
         }
     )
-    stage = SelectBestPredictionStage(recovery_note_key="fallback_recheck")
+    SelectBestPredictionStage().process(task)
 
-    stage.process(task)
-
-    assert task.data["best_prediction"] == "primary transcript"
-    assert task.data["best_prediction_source"] == "primary"
+    assert task.data["best_prediction"] == "fallback transcript"
+    assert task.data["best_prediction_source"] == "fallback"
 
 
-def test_rerunning_cross_model_agreement_is_idempotent() -> None:
+def test_rerunning_cross_model_agreement_scans_the_prior_recovery_note() -> None:
     task = AudioTask(
         data={
             "primary_model_prediction": "Hello, world!",
@@ -330,11 +328,11 @@ def test_rerunning_cross_model_agreement_is_idempotent() -> None:
     stage.process(task)
     stage.process(task)
 
-    assert task.data["best_prediction"] == "Hello, world!"
-    assert task.data["best_prediction_source"] == "primary"
+    assert task.data["best_prediction"] == "hello world"
+    assert task.data["best_prediction_source"] == "fallback"
     assert task.data["_skipme"] == ""
     assert "primary_fallback_agreement_wer" not in task.data
-    assert task.data["additional_notes"]["SelectBestPrediction"] == "used primary"
+    assert task.data["additional_notes"]["SelectBestPrediction"] == "used fallback"
 
 
 def test_declares_every_mutated_output_key() -> None:
@@ -380,7 +378,6 @@ def test_reference_decision_parity_precedence_and_fallthrough() -> None:
                 "reference_text_key": "reference",
                 "primary_model_type": "qwen_omni",
                 "force_reference": True,
-                "recovery_note_key": "fallback_check",
             },
             (
                 "ground truth",
@@ -406,7 +403,7 @@ def test_reference_decision_parity_precedence_and_fallthrough() -> None:
             ("ground truth", "ground_truth", "", None, "Ground Truth"),
         ),
         (
-            "scoped recovery alias precedes reference and agreement",
+            "recovery alias precedes reference and agreement",
             {
                 "primary_model_prediction": "selected fallback",
                 "fallback_model_prediction": "ignored fallback",
@@ -417,11 +414,10 @@ def test_reference_decision_parity_precedence_and_fallthrough() -> None:
             },
             {
                 "asr_text_key": "asr_prediction",
-                "recovery_note_key": "fallback_check",
                 "reference_text_key": "reference",
                 "use_reference_on_hallucination": True,
             },
-            ("selected fallback", "fallback", "", None, "used fallback"),
+            ("selected fallback", "fallback", "Hallucination", None, "used fallback"),
         ),
         (
             "reference recovery precedes agreement",
