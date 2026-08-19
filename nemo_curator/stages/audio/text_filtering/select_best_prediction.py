@@ -54,7 +54,7 @@ def _word_error_rate_percent(reference: str, hypothesis: str) -> float:
                 )
             )
         previous = current
-    return round(100.0 * previous[-1] / len(ref), 2)
+    return round(previous[-1] / len(ref) * 100.0, 2)
 
 
 @dataclass
@@ -68,9 +68,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     the stage handles unsupported languages, recovered fallback predictions,
     reference recovery, cross-model agreement, and the normal primary result.
     ``asr_text_key`` is a compatibility alias that overrides
-    ``fallback_text_key`` when supplied. ``recovery_note_key`` can scope
-    fallback recovery to one producer's note; otherwise all notes except this
-    stage's prior decision note are inspected.
+    ``fallback_text_key`` when supplied.
     """
 
     primary_text_key: str = "primary_model_prediction"
@@ -80,7 +78,6 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     source_key: str = "best_prediction_source"
     notes_key: str = "additional_notes"
     skip_me_key: str = "_skipme"
-    recovery_note_key: str | None = None
     duration_key: str = "duration"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "primary_fallback_agreement_wer"
@@ -167,17 +164,9 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
             _set_note(task.data, self.name, "skipped:both_models_lang_not_supported", self.notes_key)
             return task
 
-        if primary_unsupported and not fallback:
-            task.data[self.output_key] = ""
-            task.data[self.source_key] = "none"
-            task.data[self.skip_me_key] = "not_supported"
-            _set_note(task.data, self.name, "skipped:primary_lang_not_supported_no_fallback", self.notes_key)
-            return task
-
         if primary_unsupported and fallback:
             task.data[self.output_key] = fallback
             task.data[self.source_key] = self.fallback_source_label
-            task.data[self.skip_me_key] = ""
             _set_note(
                 task.data,
                 self.name,
@@ -186,14 +175,10 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
             )
             return task
 
-        if self.recovery_note_key:
-            recovered = "recovered" in str(notes.get(self.recovery_note_key, "")).lower()
-        else:
-            recovered = any(key != self.name and "recovered" in str(value).lower() for key, value in notes.items())
+        recovered = any("recovered" in str(value).lower() for value in notes.values())
         if recovered and fallback:
             task.data[self.output_key] = fallback
             task.data[self.source_key] = self.fallback_source_label
-            task.data[self.skip_me_key] = ""
             _set_note(task.data, self.name, f"used {self.fallback_source_label}", self.notes_key)
             return task
 
