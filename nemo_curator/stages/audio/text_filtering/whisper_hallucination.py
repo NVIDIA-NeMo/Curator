@@ -120,7 +120,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
     @staticmethod
     def _normalize_corpus_phrase(text: str) -> str:
-        return text.strip().replace(",", "")
+        return text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "")
 
     @staticmethod
     def _transcript_candidates(text: str) -> set[str]:
@@ -227,7 +227,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
-        return self._process_single(task)
+        msg = f"{type(self).__name__} only supports process_batch"
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         return [self._process_single(task) for task in tasks]

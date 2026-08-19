@@ -36,6 +36,10 @@ def _make_stage(tmp_path: Path, phrases: list[str], **kwargs) -> WhisperHallucin
     return stage
 
 
+def _process_one(stage: WhisperHallucinationStage, task: AudioTask) -> AudioTask:
+    return stage.process_batch([task])[0]
+
+
 @pytest.mark.parametrize(
     ("text", "duration", "expected_reason"),
     [
@@ -47,7 +51,7 @@ def _make_stage(tmp_path: Path, phrases: list[str], **kwargs) -> WhisperHallucin
 )
 def test_detector_flags_and_reports_reason(tmp_path: Path, text: str, duration: float, expected_reason: str) -> None:
     stage = _make_stage(tmp_path, [])
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": duration}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": duration}))
 
     assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
     assert expected_reason in result.data["additional_notes"]["WhisperHallucination"]
@@ -55,7 +59,7 @@ def test_detector_flags_and_reports_reason(tmp_path: Path, text: str, duration: 
 
 def test_clean_text_passes(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    result = stage.process(AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""}))
 
     assert result.data[_SKIP_KEY] == ""
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
@@ -67,7 +71,7 @@ def test_clean_text_passes(tmp_path: Path) -> None:
 )
 def test_phrase_matching_covers_expected_exact_and_prefix_behavior(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
 
     assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
@@ -76,7 +80,7 @@ def test_phrase_matching_covers_expected_exact_and_prefix_behavior(tmp_path: Pat
 @pytest.mark.parametrize("text", ["thank you", "THANK YOU"])
 def test_phrase_matching_remains_case_sensitive(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Thank you", "Merci"])
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
 
     assert result.data[_SKIP_KEY] == ""
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
@@ -87,11 +91,13 @@ def test_phrase_matching_remains_case_sensitive(tmp_path: Path, text: str) -> No
     [
         ("Fifty-four", "Fifty-four"),
         ("Sì, è vero", "Sì, è vero"),
+        ("Това е първият въпрос.", "Това е първият въпрос."),  # noqa: RUF001
+        ("¿Y qué tal?", "¿Y qué tal?"),
     ],
 )
 def test_punctuated_corpus_phrases_remain_reachable(tmp_path: Path, phrase: str, text: str) -> None:
     stage = _make_stage(tmp_path, [phrase])
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
 
     assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
     assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
@@ -100,21 +106,21 @@ def test_punctuated_corpus_phrases_remain_reachable(tmp_path: Path, phrase: str,
 @pytest.mark.parametrize("text", ["Fifty four dollars", "Fiftyfour dollars"])
 def test_hyphen_normalization_does_not_broaden_prefix_matches(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, ["Fifty-four"])
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
 
     assert result.data[_SKIP_KEY] == ""
     assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
 
 
-def test_setup_only_normalizes_commas_in_reference_phrases(tmp_path: Path) -> None:
+def test_setup_normalizes_supported_corpus_punctuation(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, ["Thank you!", "MERCI,", "Fifty-four"])
-    assert stage._phrases == {"Thank you!", "MERCI", "Fifty-four"}
+    assert stage._phrases == {"Thank you", "MERCI", "Fifty-four"}
 
 
 @pytest.mark.parametrize("text", ["", None])
 def test_empty_or_non_string_text_is_skipped(tmp_path: Path, text: str | None) -> None:
     stage = _make_stage(tmp_path, [])
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: ""}))
 
     assert result.data[_SKIP_KEY] == ""
     assert result.data["additional_notes"]["WhisperHallucination"] == "skipped (empty text)"
@@ -122,7 +128,7 @@ def test_empty_or_non_string_text_is_skipped(tmp_path: Path, text: str | None) -
 
 def test_preserves_existing_skip_reason_when_overwrite_is_disabled(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    result = stage.process(AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Wrong language"}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Wrong language"}))
 
     assert result.data[_SKIP_KEY] == "Wrong language"
     assert result.data["additional_notes"]["WhisperHallucination"] == "skipped (flagged)"
@@ -142,20 +148,22 @@ def test_language_appropriate_absolute_long_word_threshold_is_configurable(
 ) -> None:
     stage = _make_stage(tmp_path, [], **kwargs)
     text = f"the {'a' * word_length} here"
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "language": language}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "language": language}))
 
     assert bool(result.data[_SKIP_KEY]) is expected_flagged
 
 
 def test_agglutinative_language_skips_relative_long_word_check(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    result = stage.process(AudioTask(data={_TEXT_KEY: "a természetvédelmi cat", _SKIP_KEY: "", "language": "hu"}))
+    result = _process_one(
+        stage, AudioTask(data={_TEXT_KEY: "a természetvédelmi cat", _SKIP_KEY: "", "language": "hu"})
+    )
     assert result.data[_SKIP_KEY] == ""
 
 
 def test_missing_duration_disables_character_rate_check(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    result = stage.process(AudioTask(data={_TEXT_KEY: "the quick brown fox jumps", _SKIP_KEY: ""}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: "the quick brown fox jumps", _SKIP_KEY: ""}))
     assert result.data[_SKIP_KEY] == ""
 
 
@@ -168,7 +176,7 @@ def test_overwrite_recovers_owned_hallucination_flag(tmp_path: Path) -> None:
             "additional_notes": {"Earlier": "keep"},
         }
     )
-    result = stage.process(task)
+    result = _process_one(stage, task)
 
     assert result.data[_SKIP_KEY] == ""
     assert result.data["additional_notes"] == {
@@ -179,7 +187,9 @@ def test_overwrite_recovers_owned_hallucination_flag(tmp_path: Path) -> None:
 
 def test_overwrite_keeps_flagging_owned_hallucination(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [], overwrite=True)
-    result = stage.process(AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Hallucination:First"}))
+    result = _process_one(
+        stage, AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: "Hallucination:First"})
+    )
 
     assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
 
@@ -187,14 +197,14 @@ def test_overwrite_keeps_flagging_owned_hallucination(tmp_path: Path) -> None:
 @pytest.mark.parametrize("text", ["the cat sat on the mat today", "yes yes yes yes yes yes"])
 def test_overwrite_never_replaces_a_foreign_flag(tmp_path: Path, text: str) -> None:
     stage = _make_stage(tmp_path, [], overwrite=True)
-    result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "Wrong language"}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "Wrong language"}))
 
     assert result.data[_SKIP_KEY] == "Wrong language"
 
 
 def test_prefix_minimum_and_counters_match_reference_contract(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, ["Thank you"], _PREFIX_MATCH_MIN_LEN=20)
-    result = stage.process(AudioTask(data={_TEXT_KEY: "Thank you for watching", _SKIP_KEY: ""}))
+    result = _process_one(stage, AudioTask(data={_TEXT_KEY: "Thank you for watching", _SKIP_KEY: ""}))
 
     assert result.data[_SKIP_KEY] == ""
     assert stage._n_processed == 1
@@ -204,7 +214,13 @@ def test_prefix_minimum_and_counters_match_reference_contract(tmp_path: Path) ->
 def test_missing_required_text_key_raises(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
     with pytest.raises(KeyError, match=_TEXT_KEY):
-        stage.process(AudioTask(data={_SKIP_KEY: ""}))
+        _process_one(stage, AudioTask(data={_SKIP_KEY: ""}))
+
+
+def test_single_task_processing_is_not_supported(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        stage.process(AudioTask(data={_TEXT_KEY: "the cat sat on the mat", _SKIP_KEY: ""}))
 
 
 def test_stage_declares_its_io_contract(tmp_path: Path) -> None:
