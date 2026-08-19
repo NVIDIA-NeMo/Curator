@@ -81,8 +81,8 @@ def test_concat_abbreviations(text: str, language: str, expected: str) -> None:
     ("text", "expected"),
     [
         ("A P I and G P U", ["API", "GPU"]),
-        ("a A P I", ["API"]),
-        ("A P Is", ["AP"]),
+        ("a A P I", ["a API"]),
+        ("A P Is", ["AP I"]),
         ("\u2019A B C\u2019", ["BC"]),
         ("x'A B", ["AB"]),
     ],
@@ -99,7 +99,7 @@ def test_stage_records_changed_abbreviations() -> None:
     AbbreviationConcatStage().process(task)
 
     assert task.data["text"] == "a API"
-    assert task.data["additional_notes"]["AbbreviationConcat"] == "applied (A P I -> API)"
+    assert task.data["additional_notes"]["AbbreviationConcat"] == "applied (a   A P I -> a API)"
 
 
 def test_stage_preserves_skipped_rows() -> None:

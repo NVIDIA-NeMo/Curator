@@ -181,12 +181,9 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
         else:
             joined = _join_match(match, particles)
         if joined != raw:
-            raw_parts = raw.split()
-            abbreviation = next(
-                (part for part in joined.split() if part not in raw_parts),
-                joined.strip(),
-            )
-            found.append(abbreviation)
+            abbreviation = joined.strip().rstrip("’s").rstrip("’s")  # noqa: RUF001
+            if abbreviation:
+                found.append(abbreviation)
         return joined
 
     return _pattern(language).sub(replace, text), found
