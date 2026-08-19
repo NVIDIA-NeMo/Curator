@@ -26,7 +26,7 @@ from fsspec.implementations.local import LocalFileSystem
 from fsspec.utils import infer_storage_options
 from loguru import logger
 
-from nemo_curator.utils.atomic_io import write_json_atomically
+from nemo_curator.utils.atomic_io import write_json_atomically, write_text_atomically
 from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
@@ -73,6 +73,45 @@ def write_json_file(path: str, payload: dict[str, Any], fs: fsspec.AbstractFileS
     if parent:
         fs.makedirs(parent, exist_ok=True)
     fs.write_text(path, f"{json.dumps(payload, sort_keys=True)}\n", encoding="utf-8")
+
+
+def write_json_file_streaming_array(
+    path: str,
+    payload: dict[str, Any],
+    *,
+    array_key: str,
+    items: Iterable[Any],
+    fs: fsspec.AbstractFileSystem,
+) -> None:
+    """Write one JSON array incrementally while keeping the surrounding object."""
+    if array_key in payload:
+        msg = f"{array_key!r} must not already exist in the JSON payload"
+        raise ValueError(msg)
+
+    def _write(output: Any) -> None:  # noqa: ANN401
+        output.write("{")
+        for index, (key, value) in enumerate(sorted(payload.items())):
+            if index:
+                output.write(",")
+            output.write(f"{json.dumps(key)}:{json.dumps(value, sort_keys=True)}")
+        if payload:
+            output.write(",")
+        output.write(f"{json.dumps(array_key)}:[")
+        for index, item in enumerate(items):
+            if index:
+                output.write(",")
+            json.dump(item, output, sort_keys=True)
+        output.write("]}\n")
+
+    if isinstance(fs, LocalFileSystem):
+        write_text_atomically(Path(path), _write)
+        return
+
+    parent = posixpath.dirname(path)
+    if parent:
+        fs.makedirs(parent, exist_ok=True)
+    with fs.open(path, "w", encoding="utf-8") as output:
+        _write(output)
 
 
 def is_not_empty(
