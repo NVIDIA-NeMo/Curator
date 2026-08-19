@@ -101,12 +101,22 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
     def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         self.output_conversations_dir.mkdir(parents=True, exist_ok=True)
 
-    def teardown(self) -> None:
-        pass
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath", "speaker", "conversation_id", "turn_index"]
 
-    # ------------------------------------------------------------------
-    # ProcessingStage interface
-    # ------------------------------------------------------------------
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [
+            "conversation_id",
+            "audio_filepath",
+            "rttm_filepath",
+            "ctm_filepath",
+            "seglst_filepath",
+            "duration",
+            "num_speakers",
+            "offset",
+            "mfa_fallback",
+            "speaker_references",
+        ]
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = "MergeConversationSDPStage only supports process_batch"
@@ -121,12 +131,15 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 ``conversation_id``.
 
         Returns:
-            A single-element list containing one AudioTask with the merged
-            conversation metadata, or an empty list on failure.
+            A single-element list containing the first input AudioTask,
+            mutated in place with the merged conversation data (preserving
+            its provenance/_metadata/_stage_perf), or an empty list on
+            failure.
         """
-        if not tasks:
+        if len(tasks) == 0:
             return []
 
+        tasks = list(tasks)
         entries = [task.data for task in tasks]
         conversation_id = entries[0].get("conversation_id", "unknown")
 
@@ -142,20 +155,13 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         merged_entry = self._merge_conversation(conversation_id, sorted_turns)
 
         if merged_entry is not None:
-            return [
-                AudioTask(
-                    data=merged_entry,
-                    task_id=tasks[0].task_id,
-                    dataset_name=tasks[0].dataset_name,
-                )
-            ]
+            survivor = tasks[0]
+            survivor.data.clear()
+            survivor.data.update(merged_entry)
+            return [survivor]
 
         logger.error(f"Failed to merge conversation {conversation_id}")
         return []
-
-    # ------------------------------------------------------------------
-    # Parsing helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_rttm_timestamps(rttm_path: str) -> list[tuple[float, float]]:
@@ -216,10 +222,6 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 best_idx, best_dist = idx, dist
         return best_idx
 
-    # ------------------------------------------------------------------
-    # Speaking-segment extraction (SDP logic)
-    # ------------------------------------------------------------------
-
     def extract_speaking_segments(
         self,
         audio_filepath: str,
@@ -273,10 +275,6 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             return None, None
 
         return np.concatenate(segments), sr
-
-    # ------------------------------------------------------------------
-    # Unified timeline computation (shared by RTTM + CTM merging)
-    # ------------------------------------------------------------------
 
     def _compute_timeline(
         self,
@@ -342,10 +340,6 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                     current_time_offset = offset_before + local_offset
 
         return timeline
-
-    # ------------------------------------------------------------------
-    # Top-level merge orchestrator
-    # ------------------------------------------------------------------
 
     def _merge_conversation(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -453,14 +447,13 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             }
 
         except (OSError, RuntimeError):
+            # Degrade gracefully: one bad conversation must not abort the
+            # whole batch/pipeline (mirrors the alignment-stage convention
+            # of returning a per-item failure sentinel instead of raising).
             logger.exception(f"Error merging conversation {conversation_id}")
-            raise
+            return None
         else:
             return merged_entry
-
-    # ------------------------------------------------------------------
-    # Audio merging -- per-speaker buffers
-    # ------------------------------------------------------------------
 
     def _merge_audio_files(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -599,10 +592,6 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         )
         return actual_overlaps
 
-    # ------------------------------------------------------------------
-    # RTTM merging -- per-speaker + combined
-    # ------------------------------------------------------------------
-
     def _merge_rttm_files(
         self,
         conv_dir: Path,
@@ -666,10 +655,6 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
         return per_turn_merged_segments
 
-    # ------------------------------------------------------------------
-    # CTM merging -- per-speaker + combined
-    # ------------------------------------------------------------------
-
     def _merge_ctm_files(
         self,
         conv_dir: Path,
@@ -722,10 +707,6 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             all_entries.sort(key=lambda x: x[0])
             with open(conv_dir / "all.ctm", "w", encoding="utf-8") as f:
                 f.writelines(ctm_line + "\n" for _, ctm_line in all_entries)
-
-    # ------------------------------------------------------------------
-    # Segment list generation from RTTM
-    # ------------------------------------------------------------------
 
     def _generate_seglst(
         self,
