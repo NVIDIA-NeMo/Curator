@@ -75,12 +75,10 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.text_field = text_field
         self.pretokenize = pretokenize
         self.embedding_field = embedding_field
+        # Retained columns are opt-in so large source-text columns are not carried
+        # alongside embeddings unless a caller explicitly requests them.
         self.metadata_fields = list(dict.fromkeys(metadata_fields or []))
-        if model_inference_batch_size is not None and (
-            isinstance(model_inference_batch_size, bool)
-            or not isinstance(model_inference_batch_size, int)
-            or model_inference_batch_size <= 0
-        ):
+        if model_inference_batch_size is not None and model_inference_batch_size <= 0:
             msg = f"model_inference_batch_size must be a positive integer or None, got {model_inference_batch_size}"
             raise ValueError(msg)
         self.model_inference_batch_size = model_inference_batch_size
@@ -184,20 +182,15 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if not self.pretokenize:
             return input_data, 0.0
 
-        if self.tokenizer is None:
-            msg = "Tokenizer is not initialized. Please call setup() before processing or set pretokenize to False."
-            raise ValueError(msg)
-        if self.model is None:
-            msg = "vLLM model is not initialized. Please call setup() before processing."
-            raise ValueError(msg)
-
         from vllm.inputs import TokensPrompt
 
+        tokenizer = cast("AutoTokenizer", self.tokenizer)
+        model = cast("LLM", self.model)
         t0 = time.perf_counter()
-        tokenized_data = self.tokenizer.batch_encode_plus(
+        tokenized_data = tokenizer.batch_encode_plus(
             input_data,
             truncation=True,
-            max_length=self.model.model_config.max_model_len,
+            max_length=model.model_config.max_model_len,
         )
         prompts = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
         return prompts, time.perf_counter() - t0
@@ -207,10 +200,11 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     ) -> Iterator[tuple[int, int, list[Any], float]]:
         """Prepare one chunk ahead while the caller embeds the current chunk.
 
-        The sole executor worker tokenizes only the next chunk. ``Future.result``
-        blocks until that work is ready, so this generator does not poll or spin.
-        While the caller embeds a yielded chunk on the GPU, the worker prepares
-        the following chunk on the CPU.
+        One worker is intentional: this is a single-producer prefetch pipeline,
+        not parallel tokenization. While the caller embeds the current chunk on
+        the GPU, that worker prepares only the immediately following chunk on the
+        CPU. This overlaps CPU and GPU work without allowing an unbounded queue of
+        prepared chunks. ``Future.result`` blocks, so the generator never polls.
         """
         inference_batch_size = self.model_inference_batch_size or num_rows
         chunk_specs = iter(
@@ -244,12 +238,9 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             yield pending_offset, pending_chunk_size, input_data, tokenization_time
 
     def _embed_chunk(self, input_data: list[Any], expected_size: int) -> tuple[np.ndarray, dict[str, float]]:
-        if self.model is None:
-            msg = "vLLM model is not initialized. Please call setup() before processing."
-            raise ValueError(msg)
-
+        model = cast("LLM", self.model)
         t0 = time.perf_counter()
-        vllm_output = self.model.embed(
+        vllm_output = model.embed(
             input_data,
             tokenization_kwargs={"truncate_prompt_tokens": -1},
             use_tqdm=self.verbose,
@@ -268,7 +259,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise ValueError(msg)
         return chunk_embedding_matrix, {
             "vllm_embedding_time": elapsed,
-            "input_tokens": float(sum(len(output.prompt_token_ids) for output in vllm_output)),
+            "input_tokens": sum(len(output.prompt_token_ids) for output in vllm_output),
         }
 
     def _select_output_table(self, input_table: pa.Table) -> pa.Table:
@@ -288,7 +279,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         embedding_matrix: np.ndarray | None = None
         tokenization_time = 0.0
         vllm_embedding_time = 0.0
-        input_tokens = 0.0
+        input_tokens = 0
 
         for offset, chunk_size, input_data, chunk_tokenization_time in self._iter_prepared_chunks(
             text_column, num_rows
@@ -326,9 +317,6 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return pa.ListArray.from_arrays(embedding_offsets, embedding_values)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        if self.model is None:
-            msg = "vLLM model is not initialized. Please call setup() before processing."
-            raise ValueError(msg)
         input_table = batch.to_pyarrow()
         if input_table.num_rows == 0:
             msg = "Cannot generate embeddings for an empty document batch"
