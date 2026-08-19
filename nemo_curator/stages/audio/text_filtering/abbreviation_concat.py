@@ -201,14 +201,14 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_text_key, self.notes_key]
 
-    def _process_single(self, task: AudioTask) -> None:
+    def process(self, task: AudioTask) -> AudioTask:
         if task.data.get(self.skip_me_key, ""):
             task.data.setdefault(self.output_text_key, "")
-            return
+            return task
         text = task.data.get(self.text_key, "")
         if not isinstance(text, str) or not text.strip():
             task.data.setdefault(self.output_text_key, text if isinstance(text, str) else "")
-            return
+            return task
 
         language_value = task.data.get(self.source_lang_key) or self.default_language
         language = str(language_value).strip().lower()
@@ -218,7 +218,4 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
             logger.trace("AbbreviationConcat: {!r} -> {!r} abbrevs={}", text, result, found)
             changes = ", ".join(f"{' '.join(abbreviation)} -> {abbreviation}" for abbreviation in found)
             _set_note(task.data, self.name, f"applied ({changes})", self.notes_key)
-
-    def process(self, task: AudioTask) -> AudioTask:
-        self._process_single(task)
         return task
