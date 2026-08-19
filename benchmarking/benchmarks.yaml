@@ -4,7 +4,7 @@
 # and performance requirements are calibrated for the default 8-GPU H100 nightly
 # environment. To run the same benchmark suite on another SKU, pass this file
 # first and then pass a SKU override file, for example:
-#   --config benchmarking/benchmarks.yaml --config benchmarking/4xH100.yaml
+#   --config benchmarking/benchmarks.yaml --config benchmarking/4xGB200-ptyche.yaml
 #
 # The "paths" section defines files and directories used by the benchmarks.
 # Each entry requires a "name" and a "host_path". Paths must exist on the host.

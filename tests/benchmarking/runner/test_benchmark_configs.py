@@ -38,17 +38,19 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     entries = _entries(config)
 
     assert config["ray"] == {"num_cpus": 128, "num_gpus": 8, "enable_object_spilling": False}
+    assert config["object_store_size"] == 536870912000
     assert config["max_timeout_s"] == 14340
     assert "--gpu-stage-num-workers=8" in entries["audio_tagging_tts_xenna"]["args"]
     replica_8_arg = '--autoscaling-config=\'{"min_replicas": 8, "max_replicas": 8}\''
     assert replica_8_arg in entries["ndd_dynamo_dp8"]["args"]
 
 
-def test_4xh100_override_updates_resources_and_caps_timeouts() -> None:
-    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xH100.yaml"])
+def test_4xgb200_ptyche_override_updates_resources_and_caps_timeouts() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-ptyche.yaml"])
     entries = _entries(config)
 
     assert config["ray"] == {"num_cpus": 64, "num_gpus": 4, "enable_object_spilling": False}
+    assert config["object_store_size"] == 429496729600
     assert config["default_timeout_s"] == 14340
     assert config["max_timeout_s"] == 14340
     assert all(
@@ -65,8 +67,8 @@ def test_4xh100_override_updates_resources_and_caps_timeouts() -> None:
         assert entries[entry_name]["ray"]["num_cpus"] == 16
 
 
-def test_4xh100_override_sets_known_video_performance_baselines() -> None:
-    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xH100.yaml"])
+def test_4xgb200_ptyche_override_sets_known_video_performance_baselines() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-ptyche.yaml"])
     entries = _entries(config)
 
     expected_min_values = {
