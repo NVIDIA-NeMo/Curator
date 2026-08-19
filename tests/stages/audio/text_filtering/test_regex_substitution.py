@@ -82,8 +82,9 @@ def test_does_not_mark_rows_already_empty(tmp_path: Path, pred_text: str) -> Non
     assert task.data["_skipme"] == ""
 
 
-def test_rejects_invalid_rule_shape(tmp_path: Path) -> None:
-    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [{"pattern": "foo"}]))
+@pytest.mark.parametrize("rule", [{"pattern": "foo"}, {"repl": "bar"}])
+def test_rejects_invalid_rule_shape(tmp_path: Path, rule: dict[str, str]) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [rule]))
 
     with pytest.raises(ValueError, match="pattern and repl"):
         stage.setup()
@@ -117,6 +118,17 @@ def test_inherited_batch_processing_and_default_stage_chain(tmp_path: Path) -> N
     results = abbreviation_stage.process_batch(normalized)
 
     assert [task.data["text"] for task in results] == ["API on GPU", "NVIDIA"]
+
+
+def test_stage_chain_preserves_contraction_pronoun(tmp_path: Path) -> None:
+    regex_stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [{"pattern": "\u2019", "repl": "'"}]))
+    regex_stage.setup()
+    task = AudioTask(data={"pred_text": "A B I’m ready"})  # noqa: RUF001
+
+    regex_stage.process(task)
+    AbbreviationConcatStage().process(task)
+
+    assert task.data["text"] == "AB I'm ready"
 
 
 # Golden outputs verified against nithinraok/Curator@a1df5ec9 with
@@ -184,15 +196,93 @@ def test_non_string_input_stabilizes_output_schema(tmp_path: Path) -> None:
     assert task.data["cleaned"] == ""
 
 
-def test_rejects_non_list_yaml(tmp_path: Path) -> None:
-    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, {"pattern": "foo", "repl": "bar"}))
+@pytest.mark.parametrize("document", [None, False, 0, {}, ""])
+def test_rejects_falsey_non_list_yaml(tmp_path: Path, document: object) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, document))
 
     with pytest.raises(TypeError, match="must contain a list"):
         stage.setup()
 
 
+@pytest.mark.parametrize("document", [{"pattern": "foo", "repl": "bar"}, "not a list", 1])
+def test_rejects_truthy_non_list_yaml(tmp_path: Path, document: object) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, document))
+
+    with pytest.raises(TypeError, match="must contain a list"):
+        stage.setup()
+
+
+def test_rejects_blank_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "blank.yaml"
+    path.write_text("", encoding="utf-8")
+    stage = RegexSubstitutionStage(regex_params_yaml=str(path))
+
+    with pytest.raises(TypeError, match="must contain a list"):
+        stage.setup()
+
+
+def test_rejects_non_mapping_rule(tmp_path: Path) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, ["not a rule"]))
+
+    with pytest.raises(TypeError, match="must be a mapping"):
+        stage.setup()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pattern", None),
+        ("pattern", 1),
+        ("repl", None),
+        ("repl", ["replacement"]),
+    ],
+)
+def test_rejects_non_string_pattern_or_repl(tmp_path: Path, field: str, value: object) -> None:
+    rule: dict[str, object] = {"pattern": "foo", "repl": "bar"}
+    rule[field] = value
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [rule]))
+
+    with pytest.raises(TypeError, match=rf"{field} must be a string"):
+        stage.setup()
+
+
+@pytest.mark.parametrize("count", [None, "1", 1.0, True])
+def test_rejects_non_integer_count(tmp_path: Path, count: object) -> None:
+    stage = RegexSubstitutionStage(
+        regex_params_yaml=_rules(tmp_path, [{"pattern": "foo", "repl": "bar", "count": count}])
+    )
+
+    with pytest.raises(TypeError, match="count must be an integer"):
+        stage.setup()
+
+
+def test_rejects_negative_count(tmp_path: Path) -> None:
+    stage = RegexSubstitutionStage(
+        regex_params_yaml=_rules(tmp_path, [{"pattern": "foo", "repl": "bar", "count": -1}])
+    )
+
+    with pytest.raises(ValueError, match="count must be non-negative"):
+        stage.setup()
+
+
 def test_rejects_invalid_regex(tmp_path: Path) -> None:
     stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [{"pattern": "[", "repl": ""}]))
+
+    with pytest.raises(re.error):
+        stage.setup()
+
+
+def test_rejects_malformed_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "malformed.yaml"
+    path.write_text("- pattern: [\n", encoding="utf-8")
+    stage = RegexSubstitutionStage(regex_params_yaml=str(path))
+
+    with pytest.raises(yaml.YAMLError):
+        stage.setup()
+
+
+def test_rejects_invalid_replacement(tmp_path: Path) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, [{"pattern": "(foo)", "repl": r"\2"}]))
 
     with pytest.raises(re.error):
         stage.setup()
