@@ -106,7 +106,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key, self.source_key, self.skip_me_key, self.agreement_wer_key, self.notes_key]
 
-    def _select(self, task: AudioTask) -> None:  # noqa: C901, PLR0911, PLR0912, PLR0915
+    def process(self, task: AudioTask) -> AudioTask:  # noqa: C901, PLR0911, PLR0912, PLR0915
         task.data.pop(self.agreement_wer_key, None)
 
         if (
@@ -131,7 +131,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                         f"Ground Truth (short audio {duration:.2f}s < {self.short_audio_threshold}s)",
                         self.notes_key,
                     )
-                    return
+                    return task
 
         resolved_fallback_text_key = self.asr_text_key or self.fallback_text_key
         primary = str(task.data.get(self.primary_text_key, "") or "")
@@ -146,7 +146,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.source_key] = self.ground_truth_source_label
             task.data[self.skip_me_key] = ""
             _set_note(task.data, self.name, "forced:ground_truth", self.notes_key)
-            return
+            return task
 
         primary_unsupported = "lang_not_supported" in str(notes.get(self.primary_text_key, ""))
         fallback_unsupported = "lang_not_supported" in str(notes.get(resolved_fallback_text_key, ""))
@@ -158,21 +158,21 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.source_key] = self.ground_truth_source_label
                 task.data[self.skip_me_key] = ""
                 _set_note(task.data, self.name, "Ground Truth", self.notes_key)
-                return
+                return task
 
         if primary_unsupported and fallback_unsupported:
             task.data[self.output_key] = ""
             task.data[self.source_key] = "none"
             task.data[self.skip_me_key] = "not_supported"
             _set_note(task.data, self.name, "skipped:both_models_lang_not_supported", self.notes_key)
-            return
+            return task
 
         if primary_unsupported and not fallback:
             task.data[self.output_key] = ""
             task.data[self.source_key] = "none"
             task.data[self.skip_me_key] = "not_supported"
             _set_note(task.data, self.name, "skipped:primary_lang_not_supported_no_fallback", self.notes_key)
-            return
+            return task
 
         if primary_unsupported and fallback:
             task.data[self.output_key] = fallback
@@ -184,7 +184,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 f"used {self.fallback_source_label} (primary lang unsupported)",
                 self.notes_key,
             )
-            return
+            return task
 
         if self.recovery_note_key:
             recovered = "recovered" in str(notes.get(self.recovery_note_key, "")).lower()
@@ -195,7 +195,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.source_key] = self.fallback_source_label
             task.data[self.skip_me_key] = ""
             _set_note(task.data, self.name, f"used {self.fallback_source_label}", self.notes_key)
-            return
+            return task
 
         if self.use_reference_on_hallucination and self.reference_text_key and skip_reason.startswith("Hallucination"):
             reference = str(task.data.get(self.reference_text_key, "") or "").strip()
@@ -209,7 +209,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     f"recovered:reference_text (hallucination_detected, fallback={self.reference_text_key})",
                     self.notes_key,
                 )
-                return
+                return task
 
         if skip_reason.startswith("Hallucination") and primary and fallback:
             wer = _word_error_rate_percent(primary, fallback)
@@ -224,12 +224,9 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     f"recovered:cross_model_agreement (wer={wer:.1f}%)",
                     self.notes_key,
                 )
-                return
+                return task
 
         task.data[self.output_key] = primary
         task.data[self.source_key] = self.primary_source_label
         _set_note(task.data, self.name, f"used {self.primary_source_label}", self.notes_key)
-
-    def process(self, task: AudioTask) -> AudioTask:
-        self._select(task)
         return task
