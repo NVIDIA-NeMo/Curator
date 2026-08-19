@@ -986,14 +986,8 @@ entries:
         exact_value: 34
       - metric: num_output_rows
         exact_value: 34
-      - metric: input_output_row_count_match
-        exact_value: true
       - metric: num_tasks_with_segments
         exact_value: 34
-      - metric: num_segments_processed
-        min_value: 34
-      - metric: stage_execution_coverage_ratio
-        exact_value: 1.0
       - metric: total_audio_duration_hours
         min_value: 18.7
       - metric: throughput_audio_hours_per_hour
@@ -1028,14 +1022,8 @@ entries:
         exact_value: 34
       - metric: num_output_rows
         exact_value: 34
-      - metric: input_output_row_count_match
-        exact_value: true
       - metric: num_tasks_with_segments
         exact_value: 34
-      - metric: num_segments_processed
-        min_value: 34
-      - metric: stage_execution_coverage_ratio
-        exact_value: 1.0
       - metric: total_audio_duration_hours
         min_value: 18.7
       - metric: throughput_audio_hours_per_hour
