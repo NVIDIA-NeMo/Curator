@@ -78,7 +78,10 @@ def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> N
 @functools.lru_cache(maxsize=32)
 def _pattern(language: str) -> re.Pattern[str]:
     char_class = _LANG_CHAR_CLASS.get(language, _LANG_CHAR_CLASS["en"])
-    return re.compile(rf"(?<!\w)(?<!\w[{_APOSTROPHES}])({char_class}(?: {char_class}){{1,}}s?)(?!\w)")
+    # ASCII and left-curly apostrophes are token boundaries except after the pronoun I.
+    return re.compile(
+        rf"(?<![\w’ʼ])(?<![Ii]['‘])({char_class}(?: {char_class}){{1,}}s?)(?!\w)"  # noqa: RUF001
+    )
 
 
 def _strip_particles(raw: str, particles: frozenset[str]) -> str:
