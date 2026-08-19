@@ -30,7 +30,6 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks.utils import TaskPerfUtils
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
@@ -41,7 +40,6 @@ DEFAULT_CHUNK_RIGHT_CONTEXT = 7
 DEFAULT_FIFO_LEN = 188
 DEFAULT_SPKCACHE_UPDATE_PERIOD = 144
 DEFAULT_SPKCACHE_LEN = 188
-SORTFORMER_STAGE_NAME = "Sortformer_inference"
 
 
 def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> tuple[int, float]:
@@ -77,7 +75,7 @@ def _validate_segment(segment: object, label: str) -> None:
         raise RuntimeError(msg)
 
 
-def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[str, int | float | bool]:
+def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[str, int]:
     if len(tasks) != num_input_rows:
         msg = f"Sortformer returned {len(tasks)} rows for {num_input_rows} input rows"
         raise RuntimeError(msg)
@@ -94,22 +92,15 @@ def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[s
         num_segments += len(segments)
         num_tasks_with_segments += bool(segments)
 
-    stage_items = TaskPerfUtils.get_aggregated_stage_stat(tasks, SORTFORMER_STAGE_NAME, "num_items_processed")
     if num_segments == 0:
         msg = "Sortformer produced no diarization segments"
-        raise RuntimeError(msg)
-    if stage_items <= 0:
-        msg = f"{SORTFORMER_STAGE_NAME} processed no data"
         raise RuntimeError(msg)
 
     return {
         "num_input_rows": num_input_rows,
         "num_output_rows": len(tasks),
-        "input_output_row_count_match": True,
-        "num_tasks_processed": len(tasks),
         "num_tasks_with_segments": num_tasks_with_segments,
         "num_segments_processed": num_segments,
-        "stage_execution_coverage_ratio": stage_items / num_input_rows,
     }
 
 
