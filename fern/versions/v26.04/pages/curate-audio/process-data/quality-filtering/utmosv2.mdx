@@ -1,0 +1,67 @@
+---
+description: "Score audio quality using UTMOSv2 Mean Opinion Score prediction"
+categories: ["audio-processing"]
+tags: ["utmosv2", "mos", "mean-opinion-score", "quality", "audio-metrics"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# UTMOSv2 Scoring
+
+Compute per-utterance Mean Opinion Score (MOS) predictions using the [UTMOSv2](https://github.com/sarulab-speech/UTMOSv2) model. Unlike `UTMOSFilterStage` (which uses the older `utmos22_strong`), this stage supports in-memory waveforms, local files, and remote audio (S3/AIS/HTTP).
+
+## Understanding UTMOSv2
+
+UTMOSv2 predicts a MOS score on the standard 1.0–5.0 scale. It handles multiple audio formats (WAV, OPUS, FLAC, MP3) and three input modes:
+
+| Mode | Input | Best For |
+|------|-------|----------|
+| In-memory waveform | `waveform` + `sample_rate` keys | NeMo tarred / AIS-streamed pipelines |
+| Local file path | `audio_filepath` on disk | Pre-downloaded datasets |
+| Remote URL | `s3://` / `ais://` / `http://` | Cloud-hosted audio |
+
+## Basic Usage
+
+```python
+from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
+
+utmos = GetUtmosv2ScoreStage(
+    score_key="utmosv2_score",
+    sample_rate=16000,
+)
+pipeline.add_stage(utmos)
+```
+
+The stage adds a `utmosv2_score` field to each entry. Entries where audio cannot be loaded receive `NaN`.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `score_key` | str | `"utmosv2_score"` | Output key for the MOS score |
+| `audio_filepath_key` | str | `"audio_filepath"` | Input key for file paths |
+| `waveform_key` | str | `"waveform"` | Input key for in-memory waveforms |
+| `audio_root` | str | `""` | Root directory prepended to relative paths |
+| `sample_rate` | int | 16000 | Target sample rate for inference |
+| `inference_batch_size` | int | 16 | Batch size for `model.predict()` |
+| `num_repetitions` | int | 1 | Test-time augmentation repetitions |
+
+## When to Use UTMOSv2 vs UTMOS
+
+- **UTMOS** (`UTMOSFilterStage`) — older `utmos22_strong` model, integrated threshold-based filtering, simpler API.
+- **UTMOSv2** (`GetUtmosv2ScoreStage`) — newer model, supports remote files and in-memory waveforms, scoring only (filter downstream).
+
+For new pipelines, prefer UTMOSv2 for its flexibility. Apply filtering in a subsequent stage based on the score.
+
+## Best Practices
+
+- **GPU recommended** — allocate 1 GPU per stage instance for inference speed.
+- **Score first, filter later** — run with no threshold to inspect the MOS distribution before choosing a cutoff.
+- **Waveforms are stripped** from output — the `waveform` key is removed after scoring to keep JSONL output clean.
+
+## Related Topics
+
+- [UTMOS Filter](/curate-audio/process-data/quality-filtering/utmos) — threshold-based filtering with the older model
+- [SCOTCH Clustering](/curate-audio/process-data/quality-filtering/scotch-clustering) — combine quality scores with speaker clustering

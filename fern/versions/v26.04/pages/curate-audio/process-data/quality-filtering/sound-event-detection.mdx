@@ -1,0 +1,137 @@
+---
+description: "Label audio with sound events (speech, music, noise) using CNN14/PANNs framewise inference and threshold-based event detection"
+categories: ["audio-processing"]
+tags: ["audio-labeling", "sound-event-detection", "sed", "cnn14", "panns", "audioset"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Sound Event Detection
+
+Label audio with the sound events it contains — speech, music, and several noise categories — using an AudioSet-pretrained [CNN14 (PANNs)](https://github.com/qiuqiangkong/audioset_tagging_cnn) model. SED annotates each utterance with time-stamped event spans, which downstream stages can use to filter or route data (for example, keeping speech-dominant segments for ASR/TTS curation).
+
+## Understanding Sound Event Detection
+
+SED runs as **two stages** that communicate through in-memory task data:
+
+| Stage | Device | Reads | Writes |
+|-------|--------|-------|--------|
+| `SEDInferenceStage` | GPU | `waveform` + `sample_rate` | `_sed_framewise` (T × 527 class probabilities), `sed_fps`, `sed_valid_frames` |
+| `SEDPostprocessingStage` | CPU | `_sed_framewise` (or an NPZ sidecar) | `sed_events` (list of labeled event spans) |
+
+The inference stage produces a per-frame probability matrix over the 527 [AudioSet](https://research.google.com/audioset/) classes (≈50 fps at 16 kHz / hop 320). The postprocessing stage aggregates those classes into **superclass groups** and converts each group's probability curve into discrete events by thresholding, optional smoothing, and gap-merging.
+
+### Superclass Groups
+
+By default each detected event is labeled with one of these superclass groups:
+
+| Group | Example AudioSet classes |
+|-------|--------------------------|
+| `speech` | Speech, Male/Female/Child speech, Conversation, Narration |
+| `music` | Music, guitar, banjo, sitar |
+| `natural_noise` | Rain, thunder, wind, waves |
+| `urban_noise` | Vehicle, car, boat, vehicle horn |
+| `animal` | Dog, bark, howl, cat, purr |
+| `impulse_noise` | Gunshot, machine gun, fireworks, firecracker |
+| `indoor_noise` | Dishes, cutlery, chopping/frying food, blender |
+| `background_noise` | Static, mains hum, pink noise, tick, pop |
+| `vocal_nonverbal` | Laughter, giggle, chuckle, crying |
+
+Set `emit_subcategories=True` to instead label each event with the individual AudioSet class (e.g. `electric_guitar`) and its parent `superclass`.
+
+## Basic Usage
+
+SED needs an in-memory `waveform` and `sample_rate` on each task (as produced by an upstream reader/decoder). Chain the two stages back to back:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.inference import SEDInferenceStage
+from nemo_curator.stages.audio.postprocessing import SEDPostprocessingStage
+
+pipeline = Pipeline(name="sound_event_detection")
+
+# 1. Framewise inference (GPU). checkpoint_path points at a PANNs
+#    Cnn14_DecisionLevelMax .pth (e.g. from the qiuqiangkong/PANNs release).
+pipeline.add_stage(
+    SEDInferenceStage(
+        checkpoint_path="/models/Cnn14_DecisionLevelMax_mAP=0.385.pth",
+        sample_rate=16000,
+    )
+)
+
+# 2. Convert framewise probabilities into labeled event spans (CPU).
+pipeline.add_stage(
+    SEDPostprocessingStage(
+        threshold=0.5,
+        min_duration_sec=0.3,
+    )
+)
+```
+
+Each output task carries `sed_events`, a list sorted by `start_time`:
+
+```python
+[
+    {"start_time": 2.0, "end_time": 4.0, "mean_confidence": 0.91, "max_confidence": 0.98, "label": "speech"},
+    {"start_time": 5.1, "end_time": 6.4, "mean_confidence": 0.62, "max_confidence": 0.77, "label": "music"},
+]
+```
+
+### Persisting Framewise Output
+
+Set `save_npz=True` to also write a compressed `(T, 527)` NPZ sidecar per file (useful for re-running postprocessing with different thresholds without repeating GPU inference):
+
+```python
+SEDInferenceStage(checkpoint_path=..., save_npz=True, output_dir="./sed_output")
+```
+
+The postprocessing stage automatically falls back to reading `npz_filepath` when `_sed_framewise` is not present in task data.
+
+## Parameters
+
+### `SEDInferenceStage`
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `checkpoint_path` | str | `""` | **Required.** Path to the PANNs `.pth` checkpoint. |
+| `model_type` | str | `"Cnn14_DecisionLevelMax"` | CNN14 variant: `Cnn14_DecisionLevelMax`, `Cnn14_DecisionLevelAvg`, or `Cnn14_DecisionLevelAtt`. |
+| `sample_rate` | int | `16000` | Model target sample rate; input is resampled to match. |
+| `window_size` | int | `1024` | STFT window size. |
+| `hop_size` | int | `320` | STFT hop size (frame rate = `sample_rate / hop_size`). |
+| `mel_bins` | int | `64` | Number of mel filter banks. |
+| `fmin` / `fmax` | int | `50` / `14000` | Mel filter frequency range. |
+| `classes_num` | int | `527` | Number of AudioSet classes. |
+| `save_npz` | bool | `False` | Also write `(T, 527)` NPZ sidecar files. |
+| `output_dir` | str | `"sed_output"` | Directory for NPZ sidecars (when `save_npz=True`). |
+| `framewise_dtype` | str | `"float16"` | Dtype for framewise output (`"float16"` or `"float32"`). |
+| `pad_short_segments` | bool | `True` | Zero-pad audio shorter than the minimum model input. |
+| `batch_size` | int | `32` | Waveforms per GPU forward pass. |
+| `xenna_num_workers` | int \| None | `None` | Cap workers cluster-wide (Xenna backend). |
+
+### `SEDPostprocessingStage`
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `agg_mode` | str | `"noisy_or"` | How class probabilities are aggregated per group: `"noisy_or"`, `"max"`, or `"mean"`. |
+| `threshold` | float | `0.5` | Probability threshold for event detection. |
+| `min_duration_sec` | float | `0.3` | Drop events shorter than this. |
+| `smoothing_window_sec` | float | `0.0` | Median-filter window in seconds (`0` disables; requires SciPy). |
+| `hysteresis_low` / `hysteresis_high` | float \| None | `None` | Dual-threshold hysteresis (both `None` = simple threshold). |
+| `merge_gap_sec` | float | `0.0` | Merge events separated by gaps smaller than this. |
+| `emit_subcategories` | bool | `False` | Label per individual AudioSet class (with parent `superclass`) instead of per group. |
+
+## Best Practices
+
+- **Supply the checkpoint explicitly**: the stage does not download weights. Point `checkpoint_path` at a PANNs `Cnn14_DecisionLevelMax` `.pth` and keep `sample_rate`/`hop_size` consistent with how it was trained (event timestamps are derived from `sample_rate / hop_size`).
+- **Save framewise output when tuning thresholds**: run inference once with `save_npz=True`, then iterate on `SEDPostprocessingStage` parameters against the sidecars — no need to repeat GPU inference.
+- **Tune `threshold` and `min_duration_sec` to your data**: lower `threshold` (e.g. `0.2`) increases recall; raise `min_duration_sec` to suppress spurious short detections.
+- **Use `noisy_or` for speech coverage**: the default aggregation pools the seven speech classes, which is more robust than any single class for detecting speech presence.
+- **SED is a labeling stage, not a filter**: it attaches `sed_events` and passes every task through. Add a downstream filter stage to act on the labels.
+
+## Related Topics
+
+- **[UTMOS Filter](/curate-audio/process-data/quality-filtering/utmos)** — perceptual-quality scoring, commonly combined with SED-based content labeling.
+- **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — voice-activity segmentation that pairs well with SED speech-event labels.
+- **[Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation)** — another content-analysis stage in the audio curation pipeline.

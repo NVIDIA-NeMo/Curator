@@ -115,6 +115,7 @@ audio_common = [
     "onnx>=1.19.0",
     "silero-vad",
     "librosa",
+    "torchlibrosa",  # CNN14/PANNs front-end (Spectrogram/LogmelFilterBank) for SED inference
     "scipy",
     "pydub>=0.25.1",
     "transformers>=4.57.6,<5.0",
@@ -444,6 +445,15 @@ fixable = ["ALL"]
 
 [tool.ruff.lint.extend-per-file-ignores]
 "nemo_curator/__init__.py" = ["F401"]
+# Vendored PANNs CNN14 models (github.com/qiuqiangkong/audioset_tagging_cnn) —
+# kept faithful to upstream, so tolerate its idioms rather than diverge.
+"nemo_curator/stages/audio/inference/sed_models/*.py" = [
+    "A002",    # forward(input=...): upstream signature
+    "ARG002",  # forward(mixup_lambda): kept for API parity (unused at inference)
+    "B905",    # zip() over equal-length module/pool lists
+    "N812",    # `import torch.nn.functional as F` (conventional)
+    "PLR0913", # CNN14 constructors take many STFT/mel hyperparameters
+]
 "examples/**" = [
     "INP001", # no __init__.py is required
 ]

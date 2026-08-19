@@ -22,6 +22,7 @@ _LAZY_IMPORTS = {
     "ComputeWERStage": "nemo_curator.stages.audio.metrics.wer",
     "GetPairwiseWerStage": "nemo_curator.stages.audio.metrics.wer",
     "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.metrics.squim",
+    "GetUtmosv2ScoreStage": "nemo_curator.stages.audio.metrics.utmosv2_score",
 }
 
 _cache: dict[str, Any] = {}
