@@ -58,6 +58,7 @@ _LANG_PARTICLES: dict[str, frozenset[str]] = {
     "es": frozenset({"a"}),
 }
 _CONTRACTION_SUFFIXES = ("m", "ll", "ve", "d", "re", "ma")
+_APOSTROPHES = "'’‘ʼ"  # noqa: RUF001
 _VOWELS = frozenset("AEIOUaeiou")
 
 _TAIL_SLICE = 2
@@ -77,9 +78,7 @@ def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> N
 @functools.lru_cache(maxsize=32)
 def _pattern(language: str) -> re.Pattern[str]:
     char_class = _LANG_CHAR_CLASS.get(language, _LANG_CHAR_CLASS["en"])
-    return re.compile(
-        rf"(?<![\w’’’ʼ])({char_class}(?: {char_class}){{1,}}(?:(?<=[A-Z])s)?)(?!\w)"  # noqa: RUF001
-    )
+    return re.compile(rf"(?<!\w)(?<!\w[{_APOSTROPHES}])({char_class}(?: {char_class}){{1,}}s?)(?!\w)")
 
 
 def _strip_particles(raw: str, particles: frozenset[str]) -> str:
@@ -104,12 +103,13 @@ def _is_mixed_case_pair(letters: str) -> bool:
 
 def _join_match(match: re.Match[str], particles: frozenset[str]) -> str:  # noqa: C901, PLR0911
     raw = match.group(0)
+    original = raw
     if raw == "I I":
-        return raw
+        return original
 
     parts = raw.split(" ")
     if any(len(part) >= _MULTI_CHAR_LEN for part in parts):
-        return raw
+        return original
 
     # Keep trailing words such as "Is", "As", and "Os" separate while
     # still allowing consonant plural suffixes such as "Xs".
@@ -118,37 +118,40 @@ def _join_match(match: re.Match[str], particles: frozenset[str]) -> str:  # noqa
         len(parts) >= _MIN_PARTS
         and len(parts[-1]) == _PLURAL_SUFFIX_LEN
         and parts[-1][1] == "s"
-        and parts[-1][0] in _VOWELS
+        and (parts[-1][0] in _VOWELS or not parts[-1][0].isupper())
     ):
         tail = " " + parts.pop()
         if len(parts) < _MIN_PARTS:
-            return raw
+            return original
         raw = " ".join(parts)
 
     if sum(1 for part in parts if len(part) == 1) < _MIN_PARTS:
         has_plural_suffix = any(
-            len(part) == _PLURAL_SUFFIX_LEN and part[1] == "s" and part[0].lower() not in "aeiou" for part in parts
+            len(part) == _PLURAL_SUFFIX_LEN and part[1] == "s" and part[0].isupper() and part[0].lower() not in "aeiou"
+            for part in parts
         )
         if not has_plural_suffix:
-            return raw
+            return original
 
     if len(parts) == _MIN_PARTS and particles and any(part in particles for part in parts):
-        return raw
+        return original
 
     letters = raw.replace(" ", "")
     if len(set(letters.upper())) <= 1:
-        return raw
+        return original
     if _is_mixed_case_pair(letters):
-        return raw
+        return original
 
     stripped = _strip_particles(raw, particles)
     if stripped == raw:
         return letters + tail
     if len(stripped.replace(" ", "")) < _MIN_PARTS:
-        return raw
+        return original
 
-    prefix = raw[: raw.index(stripped[0])]
-    suffix = raw[raw.rindex(stripped[-1]) + 1 :]
+    stripped_start = raw.index(stripped)
+    stripped_end = stripped_start + len(stripped)
+    prefix = raw[:stripped_start]
+    suffix = raw[stripped_end:]
     return prefix + stripped.replace(" ", "") + suffix + tail
 
 
@@ -159,17 +162,21 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
 
     def replace(match: re.Match[str]) -> str:
         raw = match.group(0)
-        joined = _join_match(match, particles)
         end = match.end()
-        if (
-            joined != raw
-            and joined[-1:].upper() == "I"
-            and len(joined) >= _MULTI_CHAR_LEN
+        contraction_tail = (
+            raw[-2:-1] == " "
+            and raw[-1:].upper() == "I"
             and end < len(text)
-            and text[end] in "’’’ʼ"  # noqa: RUF001
+            and text[end] in _APOSTROPHES
             and text[end + 1 : end + 4].lower().startswith(_CONTRACTION_SUFFIXES)
-        ):
-            joined = joined[:-1]
+        )
+        if contraction_tail:
+            core = raw[:-2]
+            core_match = _pattern(language).fullmatch(core)
+            joined_core = _join_match(core_match, particles) if core_match else core
+            joined = joined_core + " " + raw[-1] if joined_core != core else raw
+        else:
+            joined = _join_match(match, particles)
         if joined != raw:
             raw_parts = raw.split()
             abbreviation = next(

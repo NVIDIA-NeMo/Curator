@@ -41,10 +41,29 @@ from nemo_curator.tasks import AudioTask
         ("D N a and R N a", "en", "DNa and RNa"),
         ("I I and A A", "en", "I I and A A"),
         ("x I and A x", "en", "x I and A x"),
-        ("A B I\u2019m", "en", "AB\u2019m"),
+        ("I'm A B", "en", "I'm AB"),
+        ("i'm A B", "en", "i'm AB"),
+        ("I\u2018m A B", "en", "I\u2018m AB"),
+        ("'A B C", "en", "'ABC"),
+        ("\u2018A B C\u2019", "en", "\u2018ABC\u2019"),
+        ("A B I'm", "en", "AB I'm"),
+        ("A B i'm", "en", "AB i'm"),
+        ("A B I\u2019m", "en", "AB I\u2019m"),
+        ("A B i\u2019m", "en", "AB i\u2019m"),
+        ("A B I\u2018m", "en", "AB I\u2018m"),
+        ("A A I'm", "en", "A A I'm"),
         ("A B I\u2019s", "en", "ABI\u2019s"),
+        ("A A Is", "en", "A A Is"),
+        ("a A Is", "en", "a A Is"),
+        ("a a B", "en", "a aB"),
+        ("B a a", "en", "Ba a"),
+        ("A B bs", "en", "AB bs"),
+        ("a bs", "en", "a bs"),
         ("А Б В", "ru", "АБВ"),  # noqa: RUF001
+        ("А Б Вs", "ru", "АБВs"),  # noqa: RUF001
+        ("Ä Ö Üs", "de", "ÄÖÜs"),
         ("Α Β Γ", "el", "ΑΒΓ"),  # noqa: RUF001
+        ("Α Β Γs", "el", "ΑΒΓs"),  # noqa: RUF001
         ("a cat sat nearby", "en", "a cat sat nearby"),
     ],
 )

@@ -28,11 +28,12 @@ from nemo_curator.tasks import AudioTask
 class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     """Apply an ordered YAML list of regex substitutions to one transcript field.
 
-    Each rule must define ``pattern`` and ``repl`` and may define the
-    standard ``re.sub`` ``count`` limit. Rules run in file order before
-    whitespace is collapsed. Rows carrying an existing skip reason are not
-    normalized. The empty-result skip is set only when cleaning removes
-    non-whitespace input; already-empty input remains unskipped.
+    The YAML document must be a list. Each rule must define string
+    ``pattern`` and ``repl`` values and may define a non-negative integer
+    ``count`` limit. Rules run in file order before whitespace is collapsed.
+    Rows carrying an existing skip reason are not normalized. The empty-result
+    skip is set only when cleaning removes non-whitespace input; already-empty
+    input remains unskipped.
     """
 
     regex_params_yaml: str = ""
@@ -51,15 +52,34 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: object | None = None) -> None:
         with Path(self.regex_params_yaml).open(encoding="utf-8") as stream:
-            raw_rules = yaml.safe_load(stream) or []
+            raw_rules = yaml.safe_load(stream)
         if not isinstance(raw_rules, list):
             msg = "Regex substitution YAML must contain a list of rules"
             raise TypeError(msg)
         for index, rule in enumerate(raw_rules):
-            if not isinstance(rule, dict) or "pattern" not in rule or "repl" not in rule:
+            if not isinstance(rule, dict):
+                msg = f"Regex rule {index} must be a mapping"
+                raise TypeError(msg)
+            if "pattern" not in rule or "repl" not in rule:
                 msg = f"Regex rule {index} must define pattern and repl"
                 raise ValueError(msg)
-            re.compile(str(rule["pattern"]))
+            pattern = rule["pattern"]
+            repl = rule["repl"]
+            count = rule.get("count", 0)
+            if not isinstance(pattern, str):
+                msg = f"Regex rule {index} pattern must be a string"
+                raise TypeError(msg)
+            if not isinstance(repl, str):
+                msg = f"Regex rule {index} repl must be a string"
+                raise TypeError(msg)
+            if isinstance(count, bool) or not isinstance(count, int):
+                msg = f"Regex rule {index} count must be an integer"
+                raise TypeError(msg)
+            if count < 0:
+                msg = f"Regex rule {index} count must be non-negative"
+                raise ValueError(msg)
+            compiled = re.compile(pattern)
+            compiled.sub(repl, "", count=count)
         self._rules = raw_rules
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -82,10 +102,10 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
         result = f" {text} "
         for rule in self._rules:
             result = re.sub(
-                str(rule["pattern"]),
-                str(rule["repl"]),
+                rule["pattern"],
+                rule["repl"],
                 result,
-                count=int(rule.get("count", 0)),
+                count=rule.get("count", 0),
             )
         result = re.sub(r"\s+", " ", result).strip()
         task.data[self.output_text_key] = result
