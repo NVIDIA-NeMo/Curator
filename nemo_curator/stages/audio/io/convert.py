@@ -76,12 +76,20 @@ class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
             return []
         df = pd.DataFrame([self._sanitize(t.data) for t in tasks])
         perf = []
+        source_files: list[str] = []
         for t in tasks:
             perf.extend(t._stage_perf)
+            source_files.extend(t._metadata.get("source_files", []))
+        # Without this, writers downstream (e.g. JsonlWriter) never see
+        # source_files in _metadata and always fall back to a fresh random
+        # UUID per run -- identical reruns of the same manifest then produce
+        # a new output shard every time instead of a stable/overwritten one.
+        metadata = {"source_files": list(dict.fromkeys(source_files))} if source_files else {}
         return [
             DocumentBatch(
                 data=df,
                 dataset_name=",".join(dict.fromkeys(t.dataset_name for t in tasks)),
                 _stage_perf=perf,
+                _metadata=metadata,
             )
         ]
