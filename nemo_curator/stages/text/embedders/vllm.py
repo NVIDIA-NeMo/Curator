@@ -17,7 +17,7 @@ from __future__ import annotations
 import gc
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pyarrow as pa
@@ -67,6 +67,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         *,
         metadata_fields: list[str] | None = None,
         model_inference_batch_size: int | None = 8192,
+        embedding_output_dtype: Literal["float16", "float32", "float64"] = "float32",
     ):
         self.model_identifier = model_identifier
         self.vllm_init_kwargs = vllm_init_kwargs or {}
@@ -74,11 +75,14 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.text_field = text_field
         self.pretokenize = pretokenize
         self.embedding_field = embedding_field
+        self.embedding_output_dtype = embedding_output_dtype
         # Retained columns are opt-in so large source-text columns are not carried
         # alongside embeddings unless a caller explicitly requests them.
         self.metadata_fields = list(dict.fromkeys(metadata_fields or []))
         if model_inference_batch_size is not None and model_inference_batch_size < 0:
-            msg = f"model_inference_batch_size must be a non-negative integer or None, got {model_inference_batch_size}"
+            msg = (
+                f"model_inference_batch_size must be a non-negative integer or None, got {model_inference_batch_size}"
+            )
             raise ValueError(msg)
         self.model_inference_batch_size = model_inference_batch_size
         self.max_chars = max_chars
@@ -244,7 +248,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         elapsed = time.perf_counter() - t0
         chunk_embedding_matrix = np.asarray(
             [output.outputs.embedding for output in vllm_output],
-            dtype=np.float32,
+            dtype=self.embedding_output_dtype,
         )
         return chunk_embedding_matrix, {
             "vllm_embedding_time": elapsed,
@@ -264,7 +268,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return input_table.select(self.metadata_fields)
 
     def _collect_embeddings(self, text_column: pa.ChunkedArray, num_rows: int) -> tuple[np.ndarray, dict[str, float]]:
-        """Embed bounded chunks and assemble one ordered float32 matrix."""
+        """Embed bounded chunks and assemble one ordered matrix."""
         embedding_matrix: np.ndarray | None = None
         tokenization_time = 0.0
         vllm_embedding_time = 0.0
@@ -280,7 +284,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             if embedding_matrix is None:
                 embedding_matrix = np.empty(
                     (num_rows, chunk_embedding_matrix.shape[1]),
-                    dtype=np.float32,
+                    dtype=self.embedding_output_dtype,
                 )
             embedding_matrix[offset : offset + chunk_size] = chunk_embedding_matrix
             del chunk_embedding_matrix
@@ -293,8 +297,12 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     @staticmethod
     def _to_arrow_embeddings(embedding_matrix: np.ndarray) -> pa.ListArray:
-        """Convert a dense float32 matrix to an Arrow list array."""
-        embedding_values = pa.array(embedding_matrix.reshape(-1), type=pa.float32(), from_pandas=False)
+        """Convert a dense matrix to an Arrow list array with the same dtype."""
+        embedding_values = pa.array(
+            embedding_matrix.reshape(-1),
+            type=pa.from_numpy_dtype(embedding_matrix.dtype),
+            from_pandas=False,
+        )
         embedding_offsets = pa.array(
             np.arange(
                 0,

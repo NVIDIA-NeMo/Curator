@@ -63,6 +63,7 @@ class TestVLLMEmbeddingModelStage:
         assert stage.model_identifier == TEST_MODEL
         assert stage.text_field == "text"
         assert stage.embedding_field == "embeddings"
+        assert stage.embedding_output_dtype == "float32"
         assert stage.metadata_fields == []
         assert stage.model_inference_batch_size == 8192
         assert stage.pretokenize is True
@@ -79,6 +80,7 @@ class TestVLLMEmbeddingModelStage:
             model_identifier=TEST_MODEL,
             text_field="content",
             embedding_field="emb",
+            embedding_output_dtype="float16",
             metadata_fields=["id", "content", "id"],
             model_inference_batch_size=17,
             pretokenize=True,
@@ -90,6 +92,7 @@ class TestVLLMEmbeddingModelStage:
         assert stage.model_identifier == TEST_MODEL
         assert stage.text_field == "content"
         assert stage.embedding_field == "emb"
+        assert stage.embedding_output_dtype == "float16"
         assert stage.metadata_fields == ["id", "content"]
         assert stage.model_inference_batch_size == 17
         assert stage.pretokenize is True
@@ -171,15 +174,20 @@ class TestVLLMEmbeddingModelStage:
             with pytest.raises(ValueError, match=message):
                 stage.process(DocumentBatch(dataset_name="test_dataset", data=table))
 
-    @pytest.mark.parametrize("pretokenize", [True, False])
+    @pytest.mark.parametrize(
+        "embedding_case",
+        [(True, "float16", pa.float16()), (False, "float32", pa.float32())],
+        ids=["pretokenized-float16", "raw-text-float32"],
+    )
     def test_process_batches_real_model_equivalent_to_unbatched(
         self,
         sample_data: DocumentBatch,
-        pretokenize: bool,
+        embedding_case: tuple[bool, str, pa.DataType],
         reference_model: "SentenceTransformer",
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Bounded batches preserve embeddings, Arrow metadata, and aggregate metrics."""
+        pretokenize, embedding_output_dtype, arrow_dtype = embedding_case
 
         class _RecordingStage(VLLMEmbeddingModelStage):
             embedded_chunk_sizes: list[int]
@@ -198,6 +206,7 @@ class TestVLLMEmbeddingModelStage:
         vllm_stage = _RecordingStage(
             model_identifier=TEST_MODEL,
             pretokenize=pretokenize,
+            embedding_output_dtype=embedding_output_dtype,
             metadata_fields=["id", "nested"],
             model_inference_batch_size=None,
             verbose=False,
@@ -218,7 +227,8 @@ class TestVLLMEmbeddingModelStage:
             cosine_sim = torch.nn.functional.cosine_similarity(
                 torch.tensor(unbatched_embeddings), torch.tensor(reference_embeddings), dim=1
             )
-            assert torch.allclose(cosine_sim, torch.ones_like(cosine_sim), atol=1e-5)
+            reference_atol = 5e-5 if embedding_output_dtype == "float16" else 1e-5
+            assert torch.allclose(cosine_sim, torch.ones_like(cosine_sim), atol=reference_atol)
 
             for batch_size, expected_chunk_sizes in [(2, [2, 2, 1]), (3, [3, 2])]:
                 vllm_stage.model_inference_batch_size = batch_size
@@ -232,7 +242,7 @@ class TestVLLMEmbeddingModelStage:
                 for field_name in ["id", "nested"]:
                     assert result.schema.field(field_name).equals(input_table.schema.field(field_name))
                     assert result[field_name].equals(input_table[field_name])
-                assert result.schema.field("embeddings").type == pa.list_(pa.float32())
+                assert result.schema.field("embeddings").type == pa.list_(arrow_dtype)
                 batched_embeddings = np.asarray(result["embeddings"].to_pylist())
                 batch_cosine_sim = torch.nn.functional.cosine_similarity(
                     torch.tensor(batched_embeddings), torch.tensor(unbatched_embeddings), dim=1
