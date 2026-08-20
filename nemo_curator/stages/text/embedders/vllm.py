@@ -67,6 +67,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         *,
         metadata_fields: list[str] | None = None,
         model_inference_batch_size: int | None = 8192,
+        # Keep float32 when feeding semantic dedup; cuDF cannot read nested Float16 Parquet as numeric list values.
         embedding_output_dtype: Literal["float16", "float32", "float64"] = "float32",
     ):
         self.model_identifier = model_identifier
