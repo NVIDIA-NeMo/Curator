@@ -13,10 +13,10 @@
 # limitations under the License.
 
 """
-Create Common Crawl rows for the generic text-extraction LLM-judge example.
+Prepare a Common Crawl extraction-comparison dataset for this LLM-judge example.
 
 Example:
-    python eval/llm_judge/cc_extract.py \
+    python eval/llm_judge/cc_extract_example/prepare_cc_extraction_dataset.py \
         --download-dir data/cc_warcs --output-path data/cc_extractions
 """
 
@@ -114,7 +114,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
         limit=args.url_limit,
     )
 
-    cc_extract = DocumentDownloadExtractStage(
+    extraction_stage = DocumentDownloadExtractStage(
         url_generator=url_generator,
         downloader=CommonCrawlWARCDownloader(
             download_dir=args.download_dir,
@@ -132,7 +132,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
     return Pipeline(
         name="common_crawl_extraction_comparison",
         description="Download Common Crawl WARC files and compare jusText with Trafilatura extraction.",
-        stages=[cc_extract, JsonlWriter(path=args.output_path, fields=OUTPUT_FIELDS)],
+        stages=[extraction_stage, JsonlWriter(path=args.output_path, fields=OUTPUT_FIELDS)],
     )
 
 

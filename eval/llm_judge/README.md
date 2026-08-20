@@ -6,16 +6,16 @@ The included example compares jusText and Trafilatura web-text extractions. The 
 
 ## Quick start
 
-Start by copying and editing the files in `examples/`. The YAML refers to adjacent Jinja files by relative path, so keep them together.
+Start by copying and editing the files in `cc_extract_example/`. The YAML refers to adjacent Jinja files by relative path, so keep them together.
 
-1. Set `models[0].model` in [text_extraction_judge.yaml](examples/text_extraction_judge.yaml) to a model identifier or local model path.
-2. Update [text_extraction_prompt.jinja](examples/text_extraction_prompt.jinja) with the field names from your input rows.
+1. Set `models[0].model` in [text_extraction_judge.yaml](cc_extract_example/text_extraction_judge.yaml) to a model identifier or local model path.
+2. Update [text_extraction_prompt.jinja](cc_extract_example/text_extraction_prompt.jinja) with the field names from your input rows.
 3. Define the rubric outputs under each judge's `scores:` list.
 4. Run a small input first.
 
 ```bash
 python eval/llm_judge/generic_text_judge.py \
-  --judge-config eval/llm_judge/examples/text_extraction_judge.yaml \
+  --judge-config eval/llm_judge/cc_extract_example/text_extraction_judge.yaml \
   --input-path data/extracted.jsonl \
   --input-format jsonl \
   --output-path output/judged \

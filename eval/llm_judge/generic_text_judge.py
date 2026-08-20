@@ -20,7 +20,7 @@ judge returns, and whether groups share or use separate NDD stages.
 
 Example:
     python eval/llm_judge/generic_text_judge.py \
-        --judge-config eval/llm_judge/examples/text_extraction_judge.yaml \
+        --judge-config eval/llm_judge/cc_extract_example/text_extraction_judge.yaml \
         --input-path extracted.jsonl --input-format jsonl \
         --output-path judged --output-format jsonl
 """
