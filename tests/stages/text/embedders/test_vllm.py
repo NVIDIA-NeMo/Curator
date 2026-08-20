@@ -184,9 +184,9 @@ class TestVLLMEmbeddingModelStage:
         class _RecordingStage(VLLMEmbeddingModelStage):
             embedded_chunk_sizes: list[int]
 
-            def _embed_chunk(self, input_data: list[Any], expected_size: int) -> tuple[np.ndarray, dict[str, float]]:
-                self.embedded_chunk_sizes.append(expected_size)
-                return super()._embed_chunk(input_data, expected_size)
+            def _embed_chunk(self, input_data: list[Any]) -> tuple[np.ndarray, dict[str, float]]:
+                self.embedded_chunk_sizes.append(len(input_data))
+                return super()._embed_chunk(input_data)
 
         input_table = sample_data.to_pyarrow()
         texts = input_table["text"].to_pylist()

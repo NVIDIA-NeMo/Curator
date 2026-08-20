@@ -50,7 +50,6 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 _VLLM_INSTALL_HINT = "vLLM is required for VLLMEmbeddingModelStage. Install with: pip install nemo_curator[vllm]"
-_EMBEDDING_MATRIX_NDIM = 2
 
 
 class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -78,8 +77,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # Retained columns are opt-in so large source-text columns are not carried
         # alongside embeddings unless a caller explicitly requests them.
         self.metadata_fields = list(dict.fromkeys(metadata_fields or []))
-        if model_inference_batch_size is not None and model_inference_batch_size <= 0:
-            msg = f"model_inference_batch_size must be a positive integer or None, got {model_inference_batch_size}"
+        if model_inference_batch_size is not None and model_inference_batch_size < 0:
+            msg = f"model_inference_batch_size must be a non-negative integer or None, got {model_inference_batch_size}"
             raise ValueError(msg)
         self.model_inference_batch_size = model_inference_batch_size
         self.max_chars = max_chars
@@ -235,7 +234,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             input_data, tokenization_time = pending_input.result()
             yield pending_offset, pending_chunk_size, input_data, tokenization_time
 
-    def _embed_chunk(self, input_data: list[Any], expected_size: int) -> tuple[np.ndarray, dict[str, float]]:
+    def _embed_chunk(self, input_data: list[Any]) -> tuple[np.ndarray, dict[str, float]]:
         t0 = time.perf_counter()
         vllm_output = self.model.embed(
             input_data,
@@ -243,17 +242,10 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             use_tqdm=self.verbose,
         )
         elapsed = time.perf_counter() - t0
-        if len(vllm_output) != expected_size:
-            msg = f"vLLM returned {len(vllm_output)} embeddings for a {expected_size}-row input chunk"
-            raise ValueError(msg)
-
         chunk_embedding_matrix = np.asarray(
             [output.outputs.embedding for output in vllm_output],
             dtype=np.float32,
         )
-        if chunk_embedding_matrix.ndim != _EMBEDDING_MATRIX_NDIM:
-            msg = f"Expected a two-dimensional embedding matrix, got shape {chunk_embedding_matrix.shape}"
-            raise ValueError(msg)
         return chunk_embedding_matrix, {
             "vllm_embedding_time": elapsed,
             "input_tokens": sum(len(output.prompt_token_ids) for output in vllm_output),
@@ -282,7 +274,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             text_column, num_rows
         ):
             tokenization_time += chunk_tokenization_time
-            chunk_embedding_matrix, chunk_metrics = self._embed_chunk(input_data, chunk_size)
+            chunk_embedding_matrix, chunk_metrics = self._embed_chunk(input_data)
             vllm_embedding_time += chunk_metrics["vllm_embedding_time"]
             input_tokens += chunk_metrics["input_tokens"]
             if embedding_matrix is None:
@@ -315,10 +307,6 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         input_table = batch.to_pyarrow()
-        if input_table.num_rows == 0:
-            msg = "Cannot generate embeddings for an empty document batch"
-            raise ValueError(msg)
-
         output_table = self._select_output_table(input_table)
         embedding_matrix, metrics = self._collect_embeddings(input_table[self.text_field], input_table.num_rows)
         embedding_array = self._to_arrow_embeddings(embedding_matrix)
