@@ -17,7 +17,7 @@ from __future__ import annotations
 import gc
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyarrow as pa
@@ -184,13 +184,11 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         from vllm.inputs import TokensPrompt
 
-        tokenizer = cast("AutoTokenizer", self.tokenizer)
-        model = cast("LLM", self.model)
         t0 = time.perf_counter()
-        tokenized_data = tokenizer.batch_encode_plus(
+        tokenized_data = self.tokenizer.batch_encode_plus(
             input_data,
             truncation=True,
-            max_length=model.model_config.max_model_len,
+            max_length=self.model.model_config.max_model_len,
         )
         prompts = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
         return prompts, time.perf_counter() - t0
@@ -238,9 +236,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             yield pending_offset, pending_chunk_size, input_data, tokenization_time
 
     def _embed_chunk(self, input_data: list[Any], expected_size: int) -> tuple[np.ndarray, dict[str, float]]:
-        model = cast("LLM", self.model)
         t0 = time.perf_counter()
-        vllm_output = model.embed(
+        vllm_output = self.model.embed(
             input_data,
             tokenization_kwargs={"truncate_prompt_tokens": -1},
             use_tqdm=self.verbose,
@@ -296,7 +293,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             embedding_matrix[offset : offset + chunk_size] = chunk_embedding_matrix
             del chunk_embedding_matrix
 
-        return cast("np.ndarray", embedding_matrix), {
+        return embedding_matrix, {
             "tokenization_time": tokenization_time,
             "vllm_embedding_time": vllm_embedding_time,
             "input_tokens": input_tokens,
