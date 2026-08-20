@@ -30,11 +30,10 @@ from __future__ import annotations
 import argparse
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import data_designer.config as dd
 import yaml
-from loguru import logger
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
@@ -45,28 +44,8 @@ from nemo_curator.stages.text.filters import Filter, ScoreFilter
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
-if TYPE_CHECKING:
-    from nemo_curator.tasks import DocumentBatch
-
-
 DataFormat = Literal["jsonl", "parquet"]
 FilterOperator = Literal["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in"]
-
-
-class _LoggingLanguageFilter(ScoreFilter):
-    """Report the number of records retained by the optional FastText gate."""
-
-    def process(self, batch: DocumentBatch) -> DocumentBatch | None:
-        rows_before = len(batch.to_pandas())
-        filtered_batch = super().process(batch)
-        rows_after = len(filtered_batch.to_pandas()) if filtered_batch is not None else 0
-        logger.info(
-            "FastText language filter batch {}: {} -> {} rows",
-            batch.task_id,
-            rows_before,
-            rows_after,
-        )
-        return filtered_batch
 
 
 def _load_yaml(path: Path) -> dict[str, object]:
@@ -187,13 +166,14 @@ def _build_language_filter_stage(
     # FastText is optional, so import it only for jobs that enable this stage.
     from nemo_curator.stages.text.filters.fasttext import FastTextLangId
 
-    return _LoggingLanguageFilter(
+    return ScoreFilter(
         filter_obj=FastTextLangId(
             model_path=model_path,
             min_langid_score=min_score,
             lang=language,
         ),
         text_field=text_field,
+        verbose=True,
     ).with_(name="fasttext_language_filter")
 
 
