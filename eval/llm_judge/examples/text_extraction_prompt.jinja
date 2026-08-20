@@ -1,0 +1,15 @@
+Compare two web-text extraction candidates against their raw source text.
+
+Choose the candidate that best preserves meaningful article or document content while removing navigation, advertising, repeated page chrome, cookie notices, and other boilerplate. Treat the raw text as evidence, not automatically as the desired output.
+
+<raw_text>
+{{ (raw_text or "")[:12000] }}
+</raw_text>
+
+<justext_text>
+{{ (justext_text or "")[:8000] }}
+</justext_text>
+
+<trafilatura_text>
+{{ (trafilatura_text or "")[:8000] }}
+</trafilatura_text>
