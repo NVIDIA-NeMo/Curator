@@ -46,20 +46,6 @@ class SlackMessageBase:
             "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
         },
     ]
-    _THREE_COL_BLANK_ROW: ClassVar[list[dict[str, Any]]] = [
-        {
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-        },
-        {
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-        },
-        {
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-        },
-    ]
 
     def __init__(self):
         """Initialize the base message."""
@@ -161,53 +147,6 @@ class SlackMessageBase:
         ]
 
     @staticmethod
-    def _get_three_column_row(left_text: str, middle_text: str, right_text: str) -> list[dict[str, Any]]:
-        """Create a three-column row for Slack rich text tables."""
-        left_text = left_text or " "
-        middle_text = middle_text or " "
-        right_text = right_text or " "
-        return [
-            {
-                "type": "rich_text",
-                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": left_text}]}],
-            },
-            {
-                "type": "rich_text",
-                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": middle_text}]}],
-            },
-            {
-                "type": "rich_text",
-                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
-            },
-        ]
-
-    @staticmethod
-    def _get_three_column_row_bold(left_text: str, middle_text: str, right_text: str) -> list[dict[str, Any]]:
-        """Create a three-column row with bold left column for Slack rich text tables."""
-        left_text = left_text or " "
-        middle_text = middle_text or " "
-        right_text = right_text or " "
-        return [
-            {
-                "type": "rich_text",
-                "elements": [
-                    {
-                        "type": "rich_text_section",
-                        "elements": [{"type": "text", "text": left_text, "style": {"bold": True}}],
-                    }
-                ],
-            },
-            {
-                "type": "rich_text",
-                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": middle_text}]}],
-            },
-            {
-                "type": "rich_text",
-                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
-            },
-        ]
-
-    @staticmethod
     def _get_formatted_metric_value_tuple(metric: str, result: Any) -> tuple[str, str]:  # noqa: ANN401
         """Format a metric value for display in Slack.
 
@@ -248,8 +187,9 @@ class SlackMessageBase:
 class SlackParentMessage(SlackMessageBase):
     """Represents a parent message in a Slack channel containing benchmark run summary.
 
-    Maintains a list of benchmark entries and their status, along with metadata about the
-    benchmark run such as session name and environment information.
+    Maintains a list of benchmark entries and their status so the parent
+    message can show bounded live summary counts. Detailed per-entry data is
+    reported in threaded replies and the run viewer.
     """
 
     def __init__(self, session_name: str, env_dict: dict[str, Any], viewer_url: str | None = None):
@@ -266,34 +206,19 @@ class SlackParentMessage(SlackMessageBase):
         self.env_dict = env_dict
         self.viewer_url = viewer_url
         self.entries: dict[str, str] = {}  # Dictionary mapping entry_name to status_string
-        self.entry_time_taken_s: dict[str, str] = {}  # Dictionary mapping entry_name to formatted time_taken_s
         self._has_updates: bool = False  # Track if entries have changed since last post
 
-    def update_entry(self, entry_name: str, status: str, time_taken_s: str = "") -> None:
-        """Add or update a benchmark entry status and optional time_taken_s display value.
+    def update_entry(self, entry_name: str, status: str) -> None:
+        """Add or update a benchmark entry status.
 
         Args:
             entry_name: Name of the benchmark entry.
             status: Status string (e.g., "✅ success", "❌ FAILED", "▶️ running", "⏳ waiting to start").
-            time_taken_s: Formatted time_taken_s value for the parent table, or blank when not applicable.
         """
-        # Check if this is actually a change
-        if (
-            entry_name not in self.entries
-            or self.entries[entry_name] != status
-            or self.entry_time_taken_s.get(entry_name, "") != time_taken_s
-        ):
+        # Check if this is actually a change.
+        if entry_name not in self.entries or self.entries[entry_name] != status:
             self.entries[entry_name] = status
-            self.entry_time_taken_s[entry_name] = time_taken_s
             self._has_updates = True
-
-    @classmethod
-    def format_time_taken_s(cls, result_dict: dict[str, Any]) -> str:
-        """Format time_taken_s for the parent summary table when the metric is present."""
-        time_taken_s = find_result(result_dict, "time_taken_s")
-        if time_taken_s is None:
-            return ""
-        return cls._get_formatted_metric_value_tuple("time_taken_s", time_taken_s)[1]
 
     def _get_entry_status_counts(self) -> dict[str, int]:
         """Summarize entry statuses for the parent Slack message."""
@@ -334,6 +259,20 @@ class SlackParentMessage(SlackMessageBase):
             ]
         )
 
+    def _get_run_status_text(self, markdown: bool) -> str:
+        """Format the overall session status for Slack blocks or fallback text."""
+        counts = self._get_entry_status_counts()
+        if counts["running"] or counts["waiting"]:
+            status = "▶️ running"
+        elif counts["failed"]:
+            status = "❌ complete with failures"
+        else:
+            status = "✅ complete"
+
+        if markdown:
+            return f"*Run status:* {status}"
+        return f"Run status: {status}"
+
     def to_slack_blocks(self) -> list[dict[str, Any]]:
         """Convert the parent message data to Slack blocks format.
 
@@ -356,6 +295,15 @@ class SlackParentMessage(SlackMessageBase):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
+                    "text": self._get_run_status_text(markdown=True),
+                },
+            }
+        )
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
                     "text": self._get_entry_status_summary_text(markdown=True),
                 },
             }
@@ -373,34 +321,6 @@ class SlackParentMessage(SlackMessageBase):
                 }
             )
 
-        # Table of benchmark entries, their status, optional time_taken_s, and the environment.
-        blocks.append({"type": "divider"})
-        rows = []
-        indent = "-    "  # start with a dash since leading whitespace is stripped
-        for entry_name, status in self.entries.items():
-            rows.append(
-                self._get_three_column_row_bold(
-                    entry_name,
-                    status,
-                    self.entry_time_taken_s.get(entry_name, ""),
-                )
-            )
-        rows.append(self._THREE_COL_BLANK_ROW)
-        rows.append(self._get_three_column_row_bold("ENVIRONMENT", " ", ""))
-        for var, val in self.env_dict.items():
-            if var in {"pip_freeze_txt", "conda_explicit_txt", "viewer_url"}:
-                continue
-            (fvar, fval) = self._get_formatted_metric_value_tuple(var, val)
-            rows.append(self._get_three_column_row(f"{indent}{fvar}", fval, ""))
-        rows.append(self._THREE_COL_BLANK_ROW)
-
-        blocks.append(
-            {
-                "type": "table",
-                "rows": rows,
-            }
-        )
-
         return blocks
 
     def to_fallback_text(self) -> str:
@@ -412,14 +332,11 @@ class SlackParentMessage(SlackMessageBase):
         lines = [
             f"Curator Benchmark Summary - {self.session_name}",
             "",
+            self._get_run_status_text(markdown=False),
             self._get_entry_status_summary_text(markdown=False),
         ]
-        if self.entries:
-            lines.append("\nBenchmark Entries:")
-            for entry_name, status in self.entries.items():
-                time_taken_s = self.entry_time_taken_s.get(entry_name, "")
-                suffix = f" ({time_taken_s})" if time_taken_s else ""
-                lines.append(f"  • {entry_name}: {status}{suffix}")
+        if self.viewer_url:
+            lines.append(f"Results viewer: {self.session_name} ({self.viewer_url})")
         return "\n".join(lines)
 
     def get_channel_id(self) -> str | None:
@@ -605,6 +522,12 @@ class SlackSink(Sink):
         # to remove the per-entry lists. Default True preserves existing behavior.
         self.ping_users_on_failure: bool = sink_config.get("ping_users_on_failure", True)
 
+        # When true, post threaded per-entry replies only for failures or entries
+        # with warnings. The parent summary is still updated for every entry.
+        self.thread_replies_for_failures_or_warnings_only: bool = sink_config.get(
+            "thread_replies_for_failures_or_warnings_only", False
+        )
+
         # Optional legacy sink-level run-viewer URL. Prefer Session.viewer_url for
         # new callers so the value is available to any sink, not just Slack.
         self.viewer_url: str | None = sink_config.get("viewer_url")
@@ -675,7 +598,6 @@ class SlackSink(Sink):
                     "ts": self._parent_message.get_timestamp(),
                     "channel": self._parent_message.get_channel_id(),
                     "entries": dict(self._parent_message.entries),
-                    "entry_time_taken_s": dict(self._parent_message.entry_time_taken_s),
                 }
                 # NOTE: This is the only time the state file is created.
                 # If the benchmark session is re-run using the same session name
@@ -693,10 +615,8 @@ class SlackSink(Sink):
                     viewer_url=self.viewer_url,
                 )
                 self._parent_message.set_response({"ts": state["ts"], "channel": state["channel"], "ok": True})
-                entry_time_taken_s = state.get("entry_time_taken_s", {})
                 for entry_name, entry_status in state["entries"].items():
                     self._parent_message.entries[entry_name] = entry_status
-                    self._parent_message.entry_time_taken_s[entry_name] = entry_time_taken_s.get(entry_name, "")
         finally:
             if fd is not None:
                 os.close(fd)
@@ -730,20 +650,19 @@ class SlackSink(Sink):
         else:
             pings = sink_data.get("ping_on_failure", [])
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
-        time_taken_s_text = SlackParentMessage.format_time_taken_s(result_dict)
-
         warnings = result_dict.get("warnings", [])
 
-        # Create a new message for the entry to post in the thread.
-        msg = self._create_benchmark_entry_message(
-            benchmark_entry,
-            (self.default_metrics + additional_metrics, result_dict),
-            pings,
-            warnings,
-        )
-        self._child_messages.append(msg)
+        if self._should_post_benchmark_entry_message(result_dict, warnings):
+            # Create a new message for the entry to post in the thread.
+            msg = self._create_benchmark_entry_message(
+                benchmark_entry,
+                (self.default_metrics + additional_metrics, result_dict),
+                pings,
+                warnings,
+            )
+            self._child_messages.append(msg)
         # Update the session summary message with the new entry status.
-        self._update_parent_entry(benchmark_entry.name, status_text, time_taken_s=time_taken_s_text)
+        self._update_parent_entry(benchmark_entry.name, status_text)
 
         if self.live_updates:
             self._post_updates()
@@ -801,7 +720,13 @@ class SlackSink(Sink):
             warnings=warnings,
         )
 
-    def _update_parent_entry(self, entry_name: str, status: str, time_taken_s: str = "") -> None:
+    def _should_post_benchmark_entry_message(self, result_dict: dict[str, Any], warnings: list[str]) -> bool:
+        """Return whether to post a threaded per-entry Slack reply."""
+        if not self.thread_replies_for_failures_or_warnings_only:
+            return True
+        return not result_dict["success"] or bool(warnings)
+
+    def _update_parent_entry(self, entry_name: str, status: str) -> None:
         """Update a single entry's status in the shared state file and post the update to Slack.
 
         Acquires an exclusive file lock for the duration of the read-modify-write cycle and
@@ -810,7 +735,6 @@ class SlackSink(Sink):
         Args:
             entry_name: Name of the benchmark entry to update.
             status: New status string for the entry.
-            time_taken_s: Formatted time_taken_s value for the entry, or blank when not applicable.
         """
         if self._state_path is None:
             logger.error("SlackSink: Cannot update parent entry — state path not set. Was initialize() called?")
@@ -823,11 +747,9 @@ class SlackSink(Sink):
         try:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             state = json.load(f)
-            state.setdefault("entry_time_taken_s", {})
             state["entries"][entry_name] = status
-            state["entry_time_taken_s"][entry_name] = time_taken_s
             for name, st in state["entries"].items():
-                self._parent_message.update_entry(name, st, state["entry_time_taken_s"].get(name, ""))
+                self._parent_message.update_entry(name, st)
             try:
                 self._update_message(self._parent_message)
             finally:

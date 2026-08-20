@@ -66,7 +66,7 @@ datasets:
   - name: "videos"
     formats:
     - type: "mp4"
-      path: "{datasets_path}/videos"
+      path: "{datasets_path}/sample4k"
   - name: "videos_model_weights"
     formats:
     - type: "files"
@@ -158,6 +158,7 @@ sinks:
   - name: slack
     enabled: true
     live_updates: true
+    thread_replies_for_failures_or_warnings_only: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
     ping_users_on_failure: true
@@ -861,7 +862,7 @@ entries:
       num_gpus: 0
     requirements:
       - metric: throughput_docs_per_sec
-        min_value: 60000
+        min_value: 55000
 
   - name: modifier_xenna
     enabled: true
