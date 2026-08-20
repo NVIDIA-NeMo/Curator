@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 
+import fsspec
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.deduplication.id_generator import (
@@ -66,6 +69,94 @@ class TestJsonlReaderWithoutIdGenerator:
             assert list(df.columns) == ["text"]
             assert len(df) == 2
 
+    def test_default_reader_uses_pyarrow_fast_path(self, sample_jsonl_files: list[str]) -> None:
+        """The default reader should retain its DataFrame contract with Arrow-backed strings."""
+        task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})
+
+        result = JsonlReaderStage(fields=["text"]).process(task)
+
+        assert isinstance(result.data, pd.DataFrame)
+        assert result.data["text"].dtype.storage == "pyarrow"
+        assert result.data["text"].tolist() == [
+            "Doc 0-1",
+            "Doc 0-2",
+            "Doc 1-1",
+            "Doc 1-2",
+            "Doc 2-1",
+            "Doc 2-2",
+        ]
+
+    def test_auto_reader_falls_back_to_pandas_for_mixed_column_types(self, tmp_path: Path) -> None:
+        """Auto mode should preserve compatibility when PyArrow rejects mixed JSON types."""
+        file_path = tmp_path / "mixed.jsonl"
+        file_path.write_text('{"value":1}\n{"value":"one"}\n', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "auto"}).process(task)
+
+        assert result.data["value"].tolist() == [1, "one"]
+
+    def test_pandas_and_pyarrow_direct_document_inference_difference(self, tmp_path: Path) -> None:
+        """Document when callers need pandas inference instead of the faster direct parser."""
+        file_path = tmp_path / "timestamp.jsonl"
+        expected = pd.Timestamp("2026-08-20T12:34:56Z")
+        pd.DataFrame({"created_at": [expected], "text": ["hello"]}).to_json(
+            file_path,
+            orient="records",
+            lines=True,
+            date_format="iso",
+        )
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        pandas_result = JsonlReaderStage(read_kwargs={"engine": "pandas"}).process(task).data
+        arrow_result = JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct"}).process(task).data
+        auto_with_pandas_option = JsonlReaderStage(read_kwargs={"convert_dates": ["created_at"]}).process(task).data
+
+        # Prefer the default/pyarrow_direct path for throughput. Select pandas when
+        # pandas-specific inference is required; auto also preserves pandas-only options.
+        assert pandas_result["created_at"].tolist() == [expected]
+        assert auto_with_pandas_option["created_at"].tolist() == [expected]
+        assert isinstance(arrow_result["created_at"].iloc[0], str)
+        assert pd.Timestamp(arrow_result["created_at"].iloc[0]) == expected
+
+    def test_pyarrow_direct_does_not_fall_back(self, tmp_path: Path) -> None:
+        """The explicit direct engine should expose unsupported Arrow input instead of silently changing engines."""
+        file_path = tmp_path / "mixed.jsonl"
+        file_path.write_text('{"value":1}\n{"value":"one"}\n', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        with pytest.raises(pa.ArrowInvalid, match="changed from number to string"):
+            JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct"}).process(task)
+
+    def test_pyarrow_direct_grows_block_for_large_record(self, tmp_path: Path) -> None:
+        """A record larger than the initial parse block should be retried with a larger block."""
+        text = "x" * (1024 * 1024 + 64 * 1024)
+        file_path = tmp_path / "large.jsonl"
+        file_path.write_text(json.dumps({"text": text}) + "\n", encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+        stage = JsonlReaderStage(
+            read_kwargs={
+                "engine": "pyarrow_direct",
+                "pyarrow_block_size": 1024 * 1024,
+                "pyarrow_max_block_size": 2 * 1024 * 1024,
+            }
+        )
+
+        result = stage.process(task)
+
+        assert result.data["text"].tolist() == [text]
+
+    def test_pyarrow_direct_reads_fsspec_url(self) -> None:
+        """The direct engine should retain JsonlReader's remote-filesystem behavior."""
+        file_path = "memory://jsonl-reader/direct.jsonl"
+        with fsspec.open(file_path, mode="wt", encoding="utf-8") as stream:
+            stream.write('{"text":"first"}\n{"text":"second"}\n')
+        task = FileGroupTask(dataset_name="ds", data=[file_path], _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct"}).process(task)
+
+        assert result.data["text"].tolist() == ["first", "second"]
+
     def test_storage_options_via_read_kwargs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Reader should use storage options from reader.read_kwargs."""
         # Create a file
@@ -74,7 +165,7 @@ class TestJsonlReaderWithoutIdGenerator:
 
         # Reader uses read_kwargs storage options
         task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
-        stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
+        stage = JsonlReaderStage(read_kwargs={"engine": "pandas", "storage_options": {"auto_mkdir": True}})
 
         seen: dict[str, object] = {}
 
@@ -115,7 +206,7 @@ class TestJsonlReaderWithoutIdGenerator:
 
         monkeypatch.setattr(pd, "read_json", fake_read_json)
         task = FileGroupTask(dataset_name="ds", data=[str(f)], _metadata={})
-        stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
+        stage = JsonlReaderStage(read_kwargs={"engine": "pandas", "storage_options": {"auto_mkdir": True}})
         out = stage.process(task)
         assert seen["storage_options"] == {"auto_mkdir": True}
         df = out.to_pandas()
