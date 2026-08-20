@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import fsspec
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.json as paj
@@ -30,30 +29,10 @@ from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas
 
 from .base import BaseFileReader
 
-AUTO_ENGINE = "auto"
 PANDAS_ENGINE = "pandas"
 PYARROW_DIRECT_ENGINE = "pyarrow_direct"
 DEFAULT_PYARROW_BLOCK_SIZE = 8 * 1024 * 1024
 DEFAULT_PYARROW_MAX_BLOCK_SIZE = 256 * 1024 * 1024
-PYARROW_DIRECT_READ_KWARGS = frozenset(
-    {
-        "compression",
-        "engine",
-        "lines",
-        "pyarrow_block_size",
-        "pyarrow_max_block_size",
-        "storage_options",
-    }
-)
-
-
-def _pyarrow_to_pandas_dtype(arrow_type: pa.DataType) -> pd.StringDtype | None:
-    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-        try:
-            return pd.StringDtype(storage="pyarrow", na_value=np.nan)
-        except TypeError:  # pandas < 3.0
-            return pd.StringDtype(storage="pyarrow")
-    return None
 
 
 def _pyarrow_select_columns(table: pa.Table, fields: list[str] | None, file_path: str) -> pa.Table | None:
@@ -100,7 +79,7 @@ def _read_jsonl_with_pyarrow(
     paths: list[str],
     read_kwargs: dict[str, Any],
     fields: list[str] | None,
-) -> pd.DataFrame:
+) -> pa.Table:
     read_kwargs = dict(read_kwargs)
     read_kwargs.pop("engine", None)
     if read_kwargs.pop("lines", True) is False:
@@ -136,8 +115,7 @@ def _read_jsonl_with_pyarrow(
         logger.error(msg)
         raise ValueError(msg)
 
-    table = pa.concat_tables(tables, promote_options="permissive")
-    return table.to_pandas(types_mapper=_pyarrow_to_pandas_dtype, use_threads=False)
+    return pa.concat_tables(tables, promote_options="permissive")
 
 
 def _read_jsonl_with_pandas(
@@ -146,7 +124,7 @@ def _read_jsonl_with_pandas(
     fields: list[str] | None,
 ) -> pd.DataFrame:
     read_kwargs = dict(read_kwargs)
-    if read_kwargs.get("engine") in {AUTO_ENGINE, PANDAS_ENGINE}:
+    if read_kwargs.get("engine") == PANDAS_ENGINE:
         read_kwargs.pop("engine")
     if read_kwargs.get("lines", True) is False:
         msg = "lines=False is not supported for JSONL reader"
@@ -193,36 +171,19 @@ class JsonlReaderStage(BaseFileReader):
         paths: list[str],
         read_kwargs: dict[str, Any] | None = None,
         fields: list[str] | None = None,
-    ) -> pd.DataFrame:
-        """Read JSONL files into a pandas DataFrame.
+    ) -> pd.DataFrame | pa.Table:
+        """Read JSONL files into an Arrow table or pandas DataFrame.
 
-        The default ``auto`` engine uses PyArrow directly, then falls back to
-        pandas when Arrow cannot parse or combine the input. Use
-        ``engine="pyarrow_direct"`` to disable fallback, or ``engine="pandas"``
-        when pandas-specific parsing and inference are required.
+        The default ``pyarrow_direct`` engine retains Arrow data without a
+        pandas conversion. Use ``engine="pandas"`` when pandas-specific
+        parsing and inference are required.
         """
 
         read_kwargs = {} if read_kwargs is None else dict(read_kwargs)
-        engine = read_kwargs.get("engine", AUTO_ENGINE)
-        if engine not in {AUTO_ENGINE, PYARROW_DIRECT_ENGINE}:
-            return _read_jsonl_with_pandas(paths, read_kwargs, fields)
-
-        if engine == AUTO_ENGINE and not set(read_kwargs).issubset(PYARROW_DIRECT_READ_KWARGS):
-            return _read_jsonl_with_pandas(paths, read_kwargs, fields)
-
+        engine = read_kwargs.get("engine", PYARROW_DIRECT_ENGINE)
         if engine == PYARROW_DIRECT_ENGINE:
             return _read_jsonl_with_pyarrow(paths, read_kwargs, fields)
-
-        try:
-            return _read_jsonl_with_pyarrow(paths, read_kwargs, fields)
-        except pa.ArrowException as error:
-            logger.warning(f"Direct PyArrow JSONL read failed; falling back to pandas for task {paths}: {error}")
-            pandas_kwargs = {
-                key: value
-                for key, value in read_kwargs.items()
-                if key not in {"pyarrow_block_size", "pyarrow_max_block_size"}
-            }
-            return _read_jsonl_with_pandas(paths, pandas_kwargs, fields)
+        return _read_jsonl_with_pandas(paths, read_kwargs, fields)
 
 
 @dataclass

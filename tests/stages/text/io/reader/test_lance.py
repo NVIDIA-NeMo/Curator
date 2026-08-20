@@ -19,6 +19,7 @@ import pyarrow as pa
 import pytest
 from lance.schema import json_to_schema
 
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.text.io.reader.base import BaseReader
 from nemo_curator.stages.text.io.reader.lance import (
     LANCE_FRAGID_COLUMN,
@@ -134,6 +135,28 @@ def test_lance_reader_exposes_stable_row_ids(tmp_path: Path):
     assert batch._metadata["lance"]["has_stable_row_ids"] is True
     assert table[LANCE_ROWID_COLUMN].null_count == 0
     assert len(set(table[LANCE_ROWID_COLUMN].to_pylist())) == table.num_rows
+
+
+@pytest.mark.usefixtures("ray_client_with_id_generator")
+def test_lance_reader_generates_and_assigns_arrow_ids(tmp_path: Path) -> None:
+    """BaseReader should use a stable string key for non-file Arrow read tasks."""
+    dataset_path = tmp_path / "ids.lance"
+    _write_lance_dataset(dataset_path)
+    task = LancePartitioningStage(path=str(dataset_path)).process(EmptyTask())[0]
+
+    generation_stage = LanceReaderStage(fields=["text"], include_lance_metadata=False, _generate_ids=True)
+    assert CURATOR_DEDUP_ID_STR in generation_stage.outputs()[1]
+    generation_stage.setup()
+    generated = generation_stage.process(task)
+
+    assignment_stage = LanceReaderStage(fields=["text"], include_lance_metadata=False, _assign_ids=True)
+    assignment_stage.setup()
+    assigned = assignment_stage.process(task)
+
+    assert isinstance(generated.data, pa.Table)
+    assert isinstance(assigned.data, pa.Table)
+    assert generated.data[CURATOR_DEDUP_ID_STR].to_pylist() == [0, 1, 2, 3]
+    assert assigned.data[CURATOR_DEDUP_ID_STR].to_pylist() == [0, 1, 2, 3]
 
 
 def test_lance_reader_validates_requested_fragments(tmp_path: Path):
