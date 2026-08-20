@@ -1,7 +1,7 @@
 # User-owned evaluation semantics: replace prompts, rubrics, models, and execution mode for another task.
 models:
   - alias: judge
-    model: /raid/syurick/hf_cache/Qwen3.8-27B
+    model: /path/to/your/hf_cache/Qwen3.8-27B
     # Keep the Hugging Face identifier as the API name while serving local weights.
     served_model_name: Qwen/Qwen3.8-27B
     # Passed directly to Curator's local Dynamo + vLLM InferenceServer.
@@ -29,9 +29,6 @@ dynamo_server:
     DYN_SYSTEM_PORT: "0"
 
 execution:
-  # single_stage: all judge groups run as one NDD dependency graph.
-  # multi_stage: each group is a separate NDD stage in the same Curator pipeline.
-  mode: single_stage
   stages:
     - name: extraction_quality
       judges:

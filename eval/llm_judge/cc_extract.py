@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Create Common Crawl rows for the generic text-extraction LLM-judge example.
+"""
+Create Common Crawl rows for the generic text-extraction LLM-judge example.
 
 Example:
     python eval/llm_judge/cc_extract.py \
@@ -22,7 +23,6 @@ Example:
 from __future__ import annotations
 
 import argparse
-from typing import Any
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
@@ -35,7 +35,6 @@ from nemo_curator.stages.text.download.html_extractors import JusTextExtractor, 
 from nemo_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
 from nemo_curator.stages.text.download.utils import decode_html, lang_detect
 from nemo_curator.stages.text.io.writer import JsonlWriter
-
 
 OUTPUT_FIELDS = [
     "url",
@@ -72,7 +71,7 @@ class JusTextTrafilaturaExtractor(DocumentExtractor):
         self.trafilatura = TrafilaturaExtractor()
         self.stop_lists = get_stop_list_dict()
 
-    def extract(self, record: dict[str, Any]) -> dict[str, Any] | None:
+    def extract(self, record: dict[str, object]) -> dict[str, object] | None:
         html = decode_html(record.get("content", b""))
         if html is None:
             return None
@@ -86,7 +85,7 @@ class JusTextTrafilaturaExtractor(DocumentExtractor):
             if stop_words is not None:
                 justext_text = _extract_text(self.justext, html, stop_words, language)
                 trafilatura_text = _extract_text(self.trafilatura, html, stop_words, language)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             # Keep the raw HTML row even when language detection or one extractor fails.
             pass
 
