@@ -107,6 +107,9 @@ class TestSemanticDeduplicationWorkflow:
             which_to_keep=which_to_keep,
             eps=0.01,
             random_state=42,
+            pairwise_batch_size="auto",
+            pairwise_compute_dtype="float32",
+            pairwise_profile=True,
             verbose=False,
         )
 

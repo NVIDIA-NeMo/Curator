@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
+
+import cupy as cp
 
 if TYPE_CHECKING:
     import cudf
-    import cupy as cp
-
-from typing import Any
 
 import pyarrow.parquet as pq
 from fsspec.parquet import open_parquet_file
 from loguru import logger
+
+EmbeddingStorageDtype = Literal["auto", "float16", "float32"]
 
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
@@ -30,6 +31,43 @@ def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
     Convert a column of lists to a 2D array.
     """
     return df[embedding_col].list.leaves.values.reshape(len(df), -1)
+
+
+def decode_embedding_array(
+    df: "cudf.DataFrame",
+    embedding_col: str,
+    storage_dtype: EmbeddingStorageDtype = "auto",
+) -> "cp.ndarray":
+    """Decode embedding storage to FP16 or FP32 independently of compute policy."""
+    if storage_dtype not in {"auto", "float16", "float32"}:
+        msg = f"Unsupported embedding storage dtype: {storage_dtype}"
+        raise ValueError(msg)
+
+    embeddings = get_array_from_df(df, embedding_col)
+    if storage_dtype == "auto":
+        if embeddings.dtype == cp.uint16:
+            storage_dtype = "float16"
+        elif embeddings.dtype == cp.float32:
+            return embeddings
+        elif embeddings.dtype == cp.float64:
+            # Pairwise historically accepted Python-float list columns, whose
+            # leaves cuDF represents as FP64. Keep that input compatible while
+            # normalizing it to the supported FP32 compute/storage contract.
+            return embeddings.astype(cp.float32, copy=False)
+        else:
+            msg = f"Expected uint16 or float32 embedding storage, got {embeddings.dtype}"
+            raise TypeError(msg)
+
+    if storage_dtype == "float16":
+        if embeddings.dtype != cp.uint16:
+            msg = f"Expected uint16 bit storage for float16 embeddings, got {embeddings.dtype}"
+            raise TypeError(msg)
+        return embeddings.view(cp.float16)
+
+    if embeddings.dtype != cp.float32:
+        msg = f"Expected float32 embedding storage, got {embeddings.dtype}"
+        raise TypeError(msg)
+    return embeddings
 
 
 def break_parquet_partition_into_groups(

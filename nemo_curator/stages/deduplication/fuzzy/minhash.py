@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import gc
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -25,6 +24,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
+from nemo_curator.stages.deduplication.gpu_utils import release_cached_gpu_memory
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
@@ -295,9 +295,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
 
     def teardown(self) -> None:
         self.minhash_processor = None
-        gc.collect()
-        if self.pool:
-            rmm.reinitialize(pool_allocator=False)
+        release_cached_gpu_memory(reset_owned_rmm_pool=self.pool)
 
     def inputs(self) -> StageInputSpecs:
         """Define input requirements for each supported input task type."""

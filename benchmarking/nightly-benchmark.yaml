@@ -604,7 +604,8 @@ entries:
       --input-filetype=parquet
       --eps=0.01
       --which-to-keep=hard
-      --pairwise-batch-size=1024
+      --pairwise-batch-size=auto
+      --pairwise-profile
       --dataset-size-ratio=0.20
     timeout_s: 1200
     sink_data:
@@ -643,7 +644,8 @@ entries:
       --input-filetype=parquet
       --eps=0.01
       --which-to-keep=hard
-      --pairwise-batch-size=1024
+      --pairwise-batch-size=auto
+      --pairwise-profile
       --fit-data-fraction=0.20
     timeout_s: 1800
     sink_data:

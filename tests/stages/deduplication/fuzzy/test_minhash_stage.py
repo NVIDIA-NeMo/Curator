@@ -122,6 +122,25 @@ def input_task(
 class TestMinHashStage:
     """Test suite for MinHashStage ProcessingStage."""
 
+    def test_teardown_preserves_unowned_rmm_pool(self, tmp_path: Path) -> None:
+        """A stage configured without pooling must not replace a worker-owned RMM pool."""
+        import rmm
+
+        previous_resource = rmm.mr.get_current_device_resource()
+        external_pool = rmm.mr.PoolMemoryResource(
+            rmm.mr.CudaMemoryResource(),
+            initial_pool_size=1 << 20,
+        )
+        rmm.mr.set_current_device_resource(external_pool)
+        try:
+            stage = MinHashStage(output_path=str(tmp_path / "unowned_pool"), pool=False)
+
+            stage.teardown()
+
+            assert rmm.mr.get_current_device_resource() is external_pool
+        finally:
+            rmm.mr.set_current_device_resource(previous_resource)
+
     @pytest.mark.parametrize("use_64bit_hash", [False, True])
     @pytest.mark.parametrize(
         ("num_hashes", "char_ngrams", "text_field"),

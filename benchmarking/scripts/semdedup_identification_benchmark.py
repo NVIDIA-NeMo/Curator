@@ -33,6 +33,20 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import get_default_file_extensions
 
 
+def _parse_pairwise_batch_size(value: str) -> int | str:
+    if value == "auto":
+        return value
+    try:
+        batch_size = int(value)
+    except ValueError as exc:
+        msg = "pairwise batch size must be a positive integer or 'auto'"
+        raise argparse.ArgumentTypeError(msg) from exc
+    if batch_size <= 0:
+        msg = "pairwise batch size must be a positive integer or 'auto'"
+        raise argparse.ArgumentTypeError(msg)
+    return batch_size
+
+
 def run_semdedup_identification_benchmark(  # noqa: PLR0913
     input_path: str,
     cache_path: str,
@@ -46,8 +60,10 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     input_filetype: str = "parquet",
     eps: float = 0.01,
     which_to_keep: str = "hard",
-    pairwise_batch_size: int = 1024,
+    pairwise_batch_size: int | str = "auto",
     fit_data_fraction: float | None = None,
+    pairwise_compute_dtype: str = "auto",
+    pairwise_profile: bool = False,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the semantic duplicate identification benchmark and collect comprehensive metrics.
@@ -65,7 +81,9 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         input_filetype: Input file type ("parquet" or "jsonl")
         eps: Epsilon value for duplicate identification threshold (cosine_sim >= 1-eps)
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
-        pairwise_batch_size: Batch size for pairwise similarity computation
+        pairwise_compute_dtype: Multiplication precision used by Pairwise
+        pairwise_batch_size: Positive Pairwise batch size, or ``"auto"`` for memory-derived sizing
+        pairwise_profile: Whether to record granular Pairwise phase timings
         fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model.
         **kwargs: Additional arguments (ignored)
 
@@ -95,7 +113,9 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         input_filetype=input_filetype,
         eps=eps,
         which_to_keep=which_to_keep,
+        pairwise_compute_dtype=pairwise_compute_dtype,
         pairwise_batch_size=pairwise_batch_size,
+        pairwise_profile=pairwise_profile,
         fit_data_fraction=fit_data_fraction,
     )
 
@@ -195,7 +215,21 @@ def main() -> int:
         help="Strategy for ranking within clusters",
     )
     parser.add_argument(
-        "--pairwise-batch-size", type=int, default=1024, help="Batch size for pairwise similarity computation"
+        "--pairwise-compute-dtype",
+        choices=["auto", "float16", "float32"],
+        default="auto",
+        help="Multiplication precision used by Pairwise",
+    )
+    parser.add_argument(
+        "--pairwise-batch-size",
+        type=_parse_pairwise_batch_size,
+        default="auto",
+        help="Positive Pairwise batch size or 'auto' for memory-derived sizing",
+    )
+    parser.add_argument(
+        "--pairwise-profile",
+        action="store_true",
+        help="Record granular Pairwise read, prepare, similarity, output, and write timings",
     )
     parser.add_argument(
         "--fit-data-fraction", type=float, default=None, help="Fraction of the dataset to fit the KMeans model"
