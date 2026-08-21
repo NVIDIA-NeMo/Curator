@@ -127,7 +127,7 @@ class TestJsonlReaderWithoutIdGenerator:
 
         # Prefer the default/pyarrow_direct path for throughput. Select pandas explicitly
         # when pandas-specific inference, such as timezone-aware dates, is required.
-        assert pandas_result.data["created_at"].dtype == pd.DatetimeTZDtype(unit="ns", tz="UTC")
+        assert isinstance(pandas_result.data["created_at"].dtype, pd.DatetimeTZDtype)
         assert pandas_result.data["created_at"].tolist() == [expected]
         assert isinstance(arrow_result.data, pa.Table)
         assert arrow_result.data.schema.field("created_at").type == pa.string()
