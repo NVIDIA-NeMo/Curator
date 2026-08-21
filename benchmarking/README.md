@@ -566,10 +566,11 @@ Audio benchmarks that depend on external corpora use the same two-layer setup:
 1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
    machine to populate persistent paths under `{datasets_path}` and, when
    needed, `{model_weights_path}`.
-2. Run nightly entries with `--raw-data-dir` and `--no-auto-download` so the
-   benchmark itself never downloads the corpus during the scheduled run.
+2. Run nightly entries from the staged data and local model paths so the
+   benchmark itself never downloads inputs during the scheduled run. Entries
+   that support a standalone download fallback also pass `--no-auto-download`.
 
-The benchmark scripts keep their standalone auto-download path for ad hoc local
+Benchmarks that expose a standalone auto-download path keep it for ad hoc local
 debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
@@ -589,11 +590,19 @@ python benchmarking/data_prep/prepare_fleurs_data.py \
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --output-path {datasets_path}/audio_tagging_ami_sdm \
   --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path {datasets_path}/audio_sortformer_ami_sdm \
+  --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 ```
 
 After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
 `fleurs_hy_am` and `{datasets_path}/audio_tagging_ami_sdm` as
-`audio_tagging_ami_sdm`. Both nightly benchmark commands pass `--no-auto-download`.
+`audio_tagging_ami_sdm`. It mounts the complete public AMI SDM validation and
+test splits at
+`{datasets_path}/audio_sortformer_ami_sdm` as `audio_sortformer_ami_sdm`.
+FLEURS and audio tagging pass `--no-auto-download`; Sortformer requires its
+staged dataset and local `.nemo` checkpoint directly.
 
 ---
 

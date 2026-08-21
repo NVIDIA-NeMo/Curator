@@ -139,6 +139,11 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
+  # Public AMI SDM validation and test splits: 34 meetings, about 18.73 audio hours.
+  - name: "audio_sortformer_ami_sdm"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/audio_sortformer_ami_sdm"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -952,31 +957,78 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
+  # 18.73 audio hours at published RTF 0.093 on 8 nightly GPUs is about 13 minutes.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
-      --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+      --chunk-len=6
+      --chunk-left-context=1
+      --chunk-right-context=7
+      --fifo-len=188
+      --spkcache-update-period=144
+      --spkcache-len=188
+      --executor=xenna
       --rttm-out-dir={session_entry_dir}/scratch/rttm
     timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
-          - num_files_processed
-          - throughput_files_per_sec
-          - real_time_factor
-          - total_segments_detected
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
-      - metric: num_files_processed
-        min_value: 1
+      - metric: num_input_rows
+        exact_value: 34
+      - metric: num_output_rows
+        exact_value: 34
+      - metric: num_tasks_with_segments
+        exact_value: 34
+      - metric: total_audio_duration_hours
+        min_value: 18.7
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
+
+  - name: audio_sortformer_raydata
+    enabled: true
+    script: audio_sortformer_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+      --chunk-len=6
+      --chunk-left-context=1
+      --chunk-right-context=7
+      --fifo-len=188
+      --spkcache-update-period=144
+      --spkcache-len=188
+      --executor=ray_data
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_input_rows
+        exact_value: 34
+      - metric: num_output_rows
+        exact_value: 34
+      - metric: num_tasks_with_segments
+        exact_value: 34
+      - metric: total_audio_duration_hours
+        min_value: 18.7
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
   - name: audio_fleurs_xenna
     enabled: true
