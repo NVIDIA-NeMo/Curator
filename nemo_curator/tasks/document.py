@@ -24,10 +24,7 @@ from .tasks import Task
 
 def _pyarrow_to_pandas_dtype(arrow_type: pa.DataType) -> pd.StringDtype | None:
     if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-        try:
-            return pd.StringDtype(storage="pyarrow", na_value=np.nan)
-        except TypeError:  # pandas < 3.0
-            return pd.StringDtype(storage="pyarrow")
+        return pd.StringDtype(storage="pyarrow", na_value=np.nan)
     return None
 
 
