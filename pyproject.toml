@@ -206,6 +206,7 @@ text_cpu = [
     "warcio",
     # Filters
     "fasttext==0.9.3",
+    "kenlm",
     "sentencepiece",
     "mwparserfromhell==0.6.5",
     # Aegis
