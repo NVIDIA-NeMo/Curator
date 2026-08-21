@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from nemo_curator.models.client.llm_client import AsyncLLMClient
     from nemo_curator.tasks.image import ImageSampleTask
 
 from nemo_curator.models.omni.base import NVInferenceClient
@@ -152,6 +153,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         dense_dump_prob: float = 0.05,
         batch_size: int | None = None,
         priority_mode: bool = False,
+        client: AsyncLLMClient | None = None,
     ) -> None:
         """Initialise the combined scoring + QA stage.
 
@@ -178,14 +180,20 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
                 underlying coverage warrants.
             batch_size: Override the default batch size of 16.
             priority_mode: Use priority API queue (lower latency, higher cost).
+            client: Override the verifier client. Defaults to
+                :class:`NVInferenceClient`; pass an
+                :class:`OrcaRouterInferenceClient` to route verifier calls
+                through the [OrcaRouter](https://www.orcarouter.ai) gateway.
         """
         self._scoring_model_id = model_id
         self.min_bbox_match = min_bbox_match
         self.max_text_errors = max_text_errors
         self.fail_on_missing_text = fail_on_missing_text
         self.dense_dump_prob = dense_dump_prob
+        if client is None:
+            client = NVInferenceClient(priority_mode=priority_mode)
         super().__init__(
-            client=NVInferenceClient(priority_mode=priority_mode),
+            client=client,
             model_name=model_id,
             max_tokens=max_tokens,
             temperature=temperature,
