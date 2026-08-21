@@ -67,6 +67,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         rmm_pool_size: int | Literal["auto"] | None = "auto",
         spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
+        use_async_memory: bool = True,
     ):
         """
         Configuration for exact duplicates detection.
@@ -111,6 +112,8 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             Size of the RMM GPU memory pool in bytes.
             If "auto", the memory pool is set to 90% of the free GPU memory.
             If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+        use_async_memory: bool = True
+            Whether to use a CUDA asynchronous memory resource for the shuffle.
         spill_memory_limit: int | Literal["auto"] | None = "auto"
             Device memory limit in bytes for spilling to host.
             If "auto", the limit is set to 80% of the RMM pool size.
@@ -133,6 +136,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         self.perform_removal = perform_removal
         self.total_nparts = total_nparts
         self.rmm_pool_size = rmm_pool_size
+        self.use_async_memory = use_async_memory
         self.spill_memory_limit = spill_memory_limit
 
         self.env_vars = env_vars
@@ -176,6 +180,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
                     if self.total_nparts is None
                     else max(1, self.total_nparts),
                     rmm_pool_size=self.rmm_pool_size,
+                    use_async_memory=self.use_async_memory,
                     spill_memory_limit=self.spill_memory_limit,
                 ).with_(batch_size=int(self.identification_batchsize)),
             ],

@@ -97,13 +97,13 @@ inference_server = [
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==25.10.*",
-    "cuml-cu12==25.10.*",
-    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "pylibcugraph-cu12==25.10.*",
-    "pylibraft-cu12==25.10.*",
-    "raft-dask-cu12==25.10.*",
-    "rapidsmpf-cu12==25.10.*",
+    "cudf-cu12==26.8.*",
+    "cudf-streaming-cu12==26.8.*",
+    "cuml-cu12==26.8.*",
+    "pylibcugraph-cu12==26.8.*",
+    "pylibraft-cu12==26.8.*",
+    "raft-dask-cu12==26.8.*",
+    "rapidsmpf-cu12==26.8.*",
 ]
 
 audio_common = [
@@ -325,7 +325,6 @@ test = [
     "pytest-loguru",
     "pyyaml",
     "rich",
-    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs>=2024.12.0", # added for testing cloud fs
     "slack_sdk",
 ]
@@ -358,7 +357,6 @@ override-dependencies = [
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
@@ -369,6 +367,7 @@ override-dependencies = [
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap
+    "pandas>=3.0.0, <= 3.0.4" # Override data-designers constraint of <3
 ]
 
 

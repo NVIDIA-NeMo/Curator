@@ -209,6 +209,18 @@ class TestExactDuplicatesWorkflow:
 
         assert stages[0].file_extensions == [".pq"]
 
+    def test_use_async_memory_is_forwarded_to_shuffler(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            use_async_memory=False,
+        )
+
+        identification_stage = workflow._create_identification_pipeline(num_input_tasks=3).stages[0]
+
+        assert identification_stage.use_async_memory is False
+        assert identification_stage.actor_kwargs["rmm_async"] is False
+
     def test_bad_inputs(self, tmpdir: Path) -> None:
         with pytest.raises(NotImplementedError, match="Removal is not implemented"):
             # Removal is not implemented yet

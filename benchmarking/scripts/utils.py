@@ -18,7 +18,7 @@ import pickle
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -30,9 +30,18 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, parse_bytes_string_to_int
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
+
+
+def parse_memory_size(value: str) -> int | Literal["auto"] | None:
+    """Parse a byte-size string while preserving benchmark memory sentinels."""
+    if value.lower() == "auto":
+        return "auto"
+    if value.lower() == "none":
+        return None
+    return parse_bytes_string_to_int(value)
 
 
 def setup_executor(
