@@ -174,6 +174,19 @@ class TestVLLMEmbeddingModelStage:
             with pytest.raises(ValueError, match=message):
                 stage.process(DocumentBatch(dataset_name="test_dataset", data=table))
 
+    def test_arrow_embeddings_split_before_list_offset_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import nemo_curator.stages.text.embedders.vllm as _vllm_mod
+
+        monkeypatch.setattr(_vllm_mod, "_MAX_LIST_ARRAY_VALUES", 7)
+        embedding_matrix = np.arange(12, dtype=np.float32).reshape(4, 3)
+
+        embeddings = VLLMEmbeddingModelStage._to_arrow_embeddings(embedding_matrix)
+
+        assert isinstance(embeddings, pa.ChunkedArray)
+        assert [len(chunk) for chunk in embeddings.chunks] == [2, 2]
+        assert embeddings.type == pa.list_(pa.float32())
+        assert embeddings.to_pylist() == embedding_matrix.tolist()
+
     @pytest.mark.parametrize(
         "embedding_case",
         [(True, "float16", pa.float16()), (False, "float32", pa.float32())],
@@ -221,6 +234,7 @@ class TestVLLMEmbeddingModelStage:
             unbatched_result = vllm_stage.process(sample_data).to_pyarrow()
             unbatched_metrics = vllm_stage._consume_custom_metrics()
             assert vllm_stage.embedded_chunk_sizes == [5]
+            assert unbatched_result["embeddings"].num_chunks == 1
 
             unbatched_embeddings = np.asarray(unbatched_result["embeddings"].to_pylist())
             reference_embeddings = reference_model.encode(texts)
@@ -238,6 +252,7 @@ class TestVLLMEmbeddingModelStage:
                 metrics = vllm_stage._consume_custom_metrics()
 
                 assert vllm_stage.embedded_chunk_sizes == expected_chunk_sizes
+                assert result["embeddings"].num_chunks == len(expected_chunk_sizes)
                 assert result.column_names == ["id", "nested", "embeddings"]
                 for field_name in ["id", "nested"]:
                     assert result.schema.field(field_name).equals(input_table.schema.field(field_name))

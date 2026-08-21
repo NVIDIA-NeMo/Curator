@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 _VLLM_INSTALL_HINT = "vLLM is required for VLLMEmbeddingModelStage. Install with: pip install nemo_curator[vllm]"
+_MAX_LIST_ARRAY_VALUES = np.iinfo(np.int32).max
 
 
 class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -197,9 +198,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         prompts = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
         return prompts, time.perf_counter() - t0
 
-    def _iter_prepared_chunks(
-        self, text_column: pa.ChunkedArray, num_rows: int
-    ) -> Iterator[tuple[int, int, list[Any], float]]:
+    def _iter_prepared_chunks(self, text_column: pa.ChunkedArray, num_rows: int) -> Iterator[tuple[list[Any], float]]:
         """Prepare one chunk ahead while the caller embeds the current chunk.
 
         One worker is intentional: this is a single-producer prefetch pipeline,
@@ -231,13 +230,13 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     next_chunk_size,
                 )
 
-                yield pending_offset, pending_chunk_size, input_data, tokenization_time
+                yield input_data, tokenization_time
                 pending_offset = next_offset
                 pending_chunk_size = next_chunk_size
                 pending_input = next_input
 
             input_data, tokenization_time = pending_input.result()
-            yield pending_offset, pending_chunk_size, input_data, tokenization_time
+            yield input_data, tokenization_time
 
     def _embed_chunk(self, input_data: list[Any]) -> tuple[np.ndarray, dict[str, float]]:
         t0 = time.perf_counter()
@@ -268,57 +267,49 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise ValueError(msg)
         return input_table.select(self.metadata_fields)
 
-    def _collect_embeddings(self, text_column: pa.ChunkedArray, num_rows: int) -> tuple[np.ndarray, dict[str, float]]:
-        """Embed bounded chunks and assemble one ordered matrix."""
-        embedding_matrix: np.ndarray | None = None
+    def _collect_embeddings(
+        self, text_column: pa.ChunkedArray, num_rows: int
+    ) -> tuple[pa.ChunkedArray, dict[str, float]]:
+        """Embed bounded chunks and assemble one ordered Arrow array."""
+        embedding_chunks: list[pa.Array] = []
         tokenization_time = 0.0
         vllm_embedding_time = 0.0
         input_tokens = 0
 
-        for offset, chunk_size, input_data, chunk_tokenization_time in self._iter_prepared_chunks(
-            text_column, num_rows
-        ):
+        for input_data, chunk_tokenization_time in self._iter_prepared_chunks(text_column, num_rows):
             tokenization_time += chunk_tokenization_time
             chunk_embedding_matrix, chunk_metrics = self._embed_chunk(input_data)
             vllm_embedding_time += chunk_metrics["vllm_embedding_time"]
             input_tokens += chunk_metrics["input_tokens"]
-            if embedding_matrix is None:
-                embedding_matrix = np.empty(
-                    (num_rows, chunk_embedding_matrix.shape[1]),
-                    dtype=self.embedding_output_dtype,
-                )
-            embedding_matrix[offset : offset + chunk_size] = chunk_embedding_matrix
+            embedding_chunks.extend(self._to_arrow_embeddings(chunk_embedding_matrix).chunks)
             del chunk_embedding_matrix
 
-        return embedding_matrix, {
+        return pa.chunked_array(embedding_chunks), {
             "tokenization_time": tokenization_time,
             "vllm_embedding_time": vllm_embedding_time,
             "input_tokens": input_tokens,
         }
 
     @staticmethod
-    def _to_arrow_embeddings(embedding_matrix: np.ndarray) -> pa.ListArray:
-        """Convert a dense matrix to an Arrow list array with the same dtype."""
-        embedding_values = pa.array(
-            embedding_matrix.reshape(-1),
-            type=pa.from_numpy_dtype(embedding_matrix.dtype),
-            from_pandas=False,
-        )
-        embedding_offsets = pa.array(
-            np.arange(
-                0,
-                (embedding_matrix.shape[0] + 1) * embedding_matrix.shape[1],
-                embedding_matrix.shape[1],
-                dtype=np.int64,
+    def _to_arrow_embeddings(embedding_matrix: np.ndarray) -> pa.ChunkedArray:
+        """Convert a dense matrix to bounded Arrow list-array chunks."""
+        embedding_dim = embedding_matrix.shape[1]
+        rows_per_chunk = _MAX_LIST_ARRAY_VALUES // embedding_dim
+        value_type = pa.from_numpy_dtype(embedding_matrix.dtype)
+        chunks = []
+        for offset in range(0, embedding_matrix.shape[0], rows_per_chunk):
+            matrix_chunk = embedding_matrix[offset : offset + rows_per_chunk]
+            values = pa.array(matrix_chunk.reshape(-1), type=value_type, from_pandas=False)
+            offsets = pa.array(
+                np.arange(0, matrix_chunk.size + 1, embedding_dim, dtype=np.int32),
             )
-        )
-        return pa.ListArray.from_arrays(embedding_offsets, embedding_values)
+            chunks.append(pa.ListArray.from_arrays(offsets, values))
+        return pa.chunked_array(chunks, type=pa.list_(value_type))
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         input_table = batch.to_pyarrow()
         output_table = self._select_output_table(input_table)
-        embedding_matrix, metrics = self._collect_embeddings(input_table[self.text_field], input_table.num_rows)
-        embedding_array = self._to_arrow_embeddings(embedding_matrix)
+        embedding_array, metrics = self._collect_embeddings(input_table[self.text_field], input_table.num_rows)
         if self.embedding_field in output_table.column_names:
             embedding_index = output_table.column_names.index(self.embedding_field)
             output_table = output_table.set_column(embedding_index, self.embedding_field, embedding_array)
