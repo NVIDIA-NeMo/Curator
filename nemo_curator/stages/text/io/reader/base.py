@@ -127,6 +127,8 @@ class BaseReader(ProcessingStage[ReaderTask, DocumentBatch]):
     # ID helpers ----------------------------------------------------------------
     @staticmethod
     def _id_generator_key(task: ReaderTask) -> str | list[str]:
+        # TODO(NMCUR-315): Use the deterministic task ID for FileGroupTask as well.
+        # Keep returning file paths for backward compatibility until existing ID registries are migrated.
         if isinstance(task, FileGroupTask):
             return task.data
         return task.get_deterministic_id()
