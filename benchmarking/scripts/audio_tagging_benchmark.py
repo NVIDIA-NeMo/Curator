@@ -16,7 +16,6 @@
 
 import argparse
 import json
-import math
 import os
 import shutil
 import time
@@ -26,8 +25,9 @@ from typing import Any
 
 from huggingface_hub import hf_hub_download
 from loguru import logger
-from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
@@ -50,7 +50,6 @@ AUDIO_TAGGING_HF_FILENAMES = (
     "audio/ES2004c.Array1-01.wav",
     "audio/TS3003a.Array1-01.wav",
 )
-EXPECTED_AUDIO_BASENAMES = {Path(filename).name for filename in AUDIO_TAGGING_HF_FILENAMES[1:]}
 
 _REQUIRED_STAGE_NAMES = (
     "ResampleAudio",
@@ -66,18 +65,6 @@ _REQUIRED_STAGE_NAMES = (
     "ComputeWER",
     "ManifestWriter",
 )
-
-
-def _finite_float(value: object, label: str) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as e:
-        msg = f"{label} must be a finite number, got {value!r}"
-        raise RuntimeError(msg) from e
-    if not math.isfinite(number):
-        msg = f"{label} must be a finite number, got {value!r}"
-        raise RuntimeError(msg)
-    return number
 
 
 def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:
@@ -110,56 +97,8 @@ def _count_jsonl_rows(path: Path, label: str) -> int:
     return len(_load_jsonl_rows(path, label))
 
 
-def _validate_manifest_contract(rows: list[dict[str, Any]], label: str) -> None:
-    if len(rows) != len(EXPECTED_AUDIO_BASENAMES):
-        msg = f"{label} must contain exactly {len(EXPECTED_AUDIO_BASENAMES)} rows, found {len(rows)}"
-        raise RuntimeError(msg)
-
-    seen_audio_basenames: set[str] = set()
-    seen_audio_item_ids: set[str] = set()
-    for line_number, row in enumerate(rows, start=1):
-        audio_filepath = row.get("audio_filepath")
-        if not isinstance(audio_filepath, str) or not audio_filepath:
-            msg = f"{label} line {line_number} must contain audio_filepath"
-            raise RuntimeError(msg)
-
-        audio_basename = Path(audio_filepath).name
-        if audio_basename not in EXPECTED_AUDIO_BASENAMES:
-            msg = (
-                f"{label} line {line_number} references unexpected audio file {audio_basename!r}; "
-                f"expected one of {sorted(EXPECTED_AUDIO_BASENAMES)}"
-            )
-            raise RuntimeError(msg)
-        if audio_basename in seen_audio_basenames:
-            msg = f"{label} contains duplicate audio file {audio_basename!r}"
-            raise RuntimeError(msg)
-        seen_audio_basenames.add(audio_basename)
-
-        audio_item_id = row.get("audio_item_id")
-        if not isinstance(audio_item_id, str) or not audio_item_id:
-            msg = f"{label} line {line_number} must contain a nonempty audio_item_id"
-            raise RuntimeError(msg)
-        if audio_item_id in seen_audio_item_ids:
-            msg = f"{label} contains duplicate audio_item_id {audio_item_id!r}"
-            raise RuntimeError(msg)
-        seen_audio_item_ids.add(audio_item_id)
-
-    if seen_audio_basenames != EXPECTED_AUDIO_BASENAMES:
-        missing = sorted(EXPECTED_AUDIO_BASENAMES - seen_audio_basenames)
-        msg = f"{label} is missing expected audio files: {missing}"
-        raise RuntimeError(msg)
-
-
 def _prestaged_paths(data_dir: Path) -> tuple[Path, Path]:
     return data_dir / "manifest.jsonl", data_dir / "audio"
-
-
-def _missing_expected_audio(audio_dir: Path) -> list[Path]:
-    return [
-        audio_dir / Path(filename).name
-        for filename in AUDIO_TAGGING_HF_FILENAMES[1:]
-        if not (audio_dir / Path(filename).name).is_file()
-    ]
 
 
 def _is_prestaged(data_dir: Path) -> bool:
@@ -186,24 +125,11 @@ def _locate_prestaged_data(data_dir: Path) -> tuple[Path, Path]:
             "or run standalone with auto_download=True and an HF dataset repo."
         )
         raise FileNotFoundError(msg)
-    missing_audio = _missing_expected_audio(audio_dir)
-    if missing_audio:
-        msg = (
-            f"Pre-staged audio-tagging audio files are missing from {audio_dir}: "
-            f"{', '.join(str(path) for path in missing_audio)}. "
-            "Stage the expected AMI SDM WAV files or run standalone with auto_download=True."
-        )
-        raise FileNotFoundError(msg)
-    _validate_manifest_contract(
-        _load_jsonl_rows(manifest_path, "Pre-staged audio-tagging manifest"),
-        "Pre-staged audio-tagging manifest",
-    )
     return manifest_path, audio_dir
 
 
-def _write_staged_manifest(source_manifest: Path, target_manifest: Path, target_audio_dir: Path) -> None:
+def _write_staged_manifest(source_manifest: Path, target_manifest: Path, target_audio_dir: Path) -> int:
     rows = _load_jsonl_rows(source_manifest, "Source audio-tagging manifest")
-    _validate_manifest_contract(rows, "Source audio-tagging manifest")
     target_manifest.parent.mkdir(parents=True, exist_ok=True)
     with target_manifest.open("w", encoding="utf-8") as target_file:
         for line_number, row in enumerate(rows, start=1):
@@ -213,9 +139,10 @@ def _write_staged_manifest(source_manifest: Path, target_manifest: Path, target_
                 raise FileNotFoundError(msg)
             row["audio_filepath"] = str(staged_audio_path)
             target_file.write(json.dumps(row) + "\n")
+    return len(rows)
 
 
-def _download_stage_data(hf_repo_id: str | None, cache_dir: Path, data_dir: Path) -> tuple[Path, Path]:
+def _download_stage_data(hf_repo_id: str | None, cache_dir: Path, data_dir: Path) -> tuple[Path, Path, int]:
     """Download a HF-hosted AMI benchmark payload into scratch for standalone runs."""
     if not hf_repo_id:
         msg = (
@@ -244,8 +171,9 @@ def _download_stage_data(hf_repo_id: str | None, cache_dir: Path, data_dir: Path
     for filename in AUDIO_TAGGING_HF_FILENAMES[1:]:
         downloaded_audio_path = downloaded_files[filename]
         shutil.copy2(downloaded_audio_path, target_audio_dir / downloaded_audio_path.name)
-    _write_staged_manifest(source_manifest, target_manifest, target_audio_dir)
-    return _locate_prestaged_data(data_dir)
+    num_rows = _write_staged_manifest(source_manifest, target_manifest, target_audio_dir)
+    manifest_path, audio_dir = _locate_prestaged_data(data_dir)
+    return manifest_path, audio_dir, num_rows
 
 
 def _resolve_data_dir(
@@ -254,13 +182,13 @@ def _resolve_data_dir(
     auto_download: bool,
     cache_dir: str | None,
     hf_repo_id: str | None,
-) -> tuple[Path, Path, Path | None]:
+) -> tuple[Path, Path, Path | None, int]:
     if raw_data_dir:
         data_dir = Path(raw_data_dir)
         source_manifest, audio_dir = _locate_prestaged_data(data_dir)
         run_manifest = scratch_output_path / DATASET_DIR_NAME / "manifest.jsonl"
-        _write_staged_manifest(source_manifest, run_manifest, audio_dir)
-        return data_dir, run_manifest, None
+        num_rows = _write_staged_manifest(source_manifest, run_manifest, audio_dir)
+        return data_dir, run_manifest, None, num_rows
 
     data_dir = scratch_output_path / DATASET_DIR_NAME
     cache_path = Path(
@@ -268,13 +196,13 @@ def _resolve_data_dir(
     )
     if _is_prestaged(data_dir):
         manifest_path, _audio_dir = _locate_prestaged_data(data_dir)
-        return data_dir, manifest_path, cache_path
+        return data_dir, manifest_path, cache_path, _count_jsonl_rows(manifest_path, "Input manifest")
     if auto_download:
         repo_id = hf_repo_id or os.environ.get("CURATOR_AUDIO_TAGGING_HF_REPO_ID")
-        manifest_path, _audio_dir = _download_stage_data(repo_id, cache_path, data_dir)
-        return data_dir, manifest_path, cache_path
+        manifest_path, _audio_dir, num_rows = _download_stage_data(repo_id, cache_path, data_dir)
+        return data_dir, manifest_path, cache_path, num_rows
     manifest_path, _audio_dir = _locate_prestaged_data(data_dir)
-    return data_dir, manifest_path, cache_path
+    return data_dir, manifest_path, cache_path, _count_jsonl_rows(manifest_path, "Input manifest")
 
 
 def _validate_segment(segment: object, label: str) -> tuple[float, bool, bool]:
@@ -289,8 +217,8 @@ def _validate_segment(segment: object, label: str) -> tuple[float, bool, bool]:
         msg = f"{label} must contain word alignments"
         raise RuntimeError(msg)
 
-    start = _finite_float(segment.get("start"), f"{label} start")
-    end = _finite_float(segment.get("end"), f"{label} end")
+    start = segment["start"]
+    end = segment["end"]
     if start < 0 or end <= start:
         msg = f"{label} has invalid timestamps"
         raise RuntimeError(msg)
@@ -307,8 +235,6 @@ def _validate_segment(segment: object, label: str) -> tuple[float, bool, bool]:
         msg = f"{label} has invalid WER output"
         raise RuntimeError(msg)
     has_wer = isinstance(wer, Mapping)
-    if has_wer:
-        _finite_float(wer.get("wer"), f"{label} WER")
     return end - start, has_second_pass_text, has_wer
 
 
@@ -330,7 +256,7 @@ def _validate_outputs(  # noqa: C901
     stage_items = dict.fromkeys(_REQUIRED_STAGE_NAMES, 0)
 
     for task_index, task in enumerate(tasks):
-        duration = _finite_float(task.data.get("duration"), f"task {task_index} duration")
+        duration = task.data["duration"]
         if duration <= 0:
             msg = f"task {task_index} duration must be positive"
             raise RuntimeError(msg)
@@ -386,17 +312,15 @@ def _validate_outputs(  # noqa: C901
         "segment_output_coverage_ratio": num_segments / num_segments_emitted,
         "num_segments_with_second_pass_asr": num_segments_with_second_pass_asr,
         "num_segments_with_wer": num_segments_with_wer,
-        "stage_execution_coverage_ratio": 1.0,
         "total_audio_duration_hours": total_duration / 3600,
         "tagged_audio_duration_hours": tagged_duration / 3600,
     }
 
 
-def run_audio_tagging_benchmark(  # noqa: PLR0913, PLR0915
+def run_audio_tagging_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
     scratch_output_path: str,
     diarization_model_path: str,
-    repeat_factor: int,
     max_segment_length: float,
     asr_batch_size: int,
     executor: str,
@@ -417,7 +341,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913, PLR0915
     """Run the full audio-tagging pipeline on pre-staged audio and models."""
     benchmark_results_path = Path(benchmark_results_path)
     scratch_output_path = Path(scratch_output_path)
-    data_dir, input_manifest_path, data_cache_dir = _resolve_data_dir(
+    data_dir, input_manifest_path, data_cache_dir, num_input_rows = _resolve_data_dir(
         scratch_output_path=scratch_output_path,
         raw_data_dir=raw_data_dir,
         auto_download=auto_download,
@@ -425,11 +349,11 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913, PLR0915
         hf_repo_id=hf_repo_id,
     )
     diarization_model = Path(diarization_model_path)
-    if repeat_factor < 1:
-        msg = "repeat_factor must be at least 1"
-        raise ValueError(msg)
+    if gpu_stage_num_workers is None:
+        _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
+        gpu_stage_num_workers = int(available_gpus)
     if gpu_stage_num_workers is not None and gpu_stage_num_workers < 1:
-        msg = "gpu_stage_num_workers must be at least 1"
+        msg = "Audio tagging requires at least one available GPU"
         raise ValueError(msg)
     if cpu_stage_num_workers is not None and cpu_stage_num_workers < 1:
         msg = "cpu_stage_num_workers must be at least 1"
@@ -446,7 +370,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913, PLR0915
     logger.info(f"Input manifest: {input_manifest_path}")
     logger.info(f"Diarization model: {diarization_model}")
 
-    num_input_rows = _count_jsonl_rows(input_manifest_path, "Input manifest") * repeat_factor
+    logger.info(f"Selected source workload: {num_input_rows} unique meetings")
     results_dir = benchmark_results_path / "results"
     final_manifest = results_dir / "tagging_output.jsonl"
 
@@ -456,10 +380,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913, PLR0915
     pipeline = Pipeline(name="audio_tagging_benchmark", description="AMI meetings -> full audio tagging")
 
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest_path)))
-    if repeat_factor > 1:
-        pipeline.add_stage(
-            RepeatEntriesStage(repeat_factor=repeat_factor, unique_id_key="audio_item_id").with_(**cpu_worker_config)
-        )
 
     pipeline.add_stage(
         ResampleAudioStage(
@@ -617,7 +537,6 @@ def main() -> int:
             "auto-download. Defaults to $CURATOR_AUDIO_TAGGING_HF_REPO_ID."
         ),
     )
-    parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat each input row this many times")
     parser.add_argument("--max-segment-length", type=float, default=40.0, help="Maximum segment duration in seconds")
     parser.add_argument("--asr-batch-size", type=int, default=100, help="First-pass ASR batch size")
     parser.add_argument("--asr-transcribe-batch-size", type=int, default=32, help="ASR model batch size")
@@ -638,7 +557,7 @@ def main() -> int:
         "--gpu-stage-num-workers",
         type=int,
         default=None,
-        help="Cap each GPU stage to this many workers; defaults to executor autoscaling",
+        help="GPU workers per stage; defaults to the GPUs available to Ray",
     )
     parser.add_argument(
         "--cpu-stage-num-workers",
