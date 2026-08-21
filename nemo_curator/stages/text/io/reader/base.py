@@ -91,12 +91,12 @@ class BaseReader(ProcessingStage[ReaderTask, DocumentBatch]):
 
     def _document_batch(self, task: ReaderTask, output: ReaderOutput) -> DocumentBatch:
         result = output.data
-        # Apply IDs only for Pandas DataFrames
-        if isinstance(result, pd.DataFrame):
+        if self._generate_ids or self._assign_ids:
+            batch_key = self._id_generator_key(task)
             if self._generate_ids:
-                result = self._generate_ids_func(task.data, result)
-            elif self._assign_ids:
-                result = self._assign_ids_func(task.data, result)
+                result = self._generate_ids_func(batch_key, result)
+            else:
+                result = self._assign_ids_func(batch_key, result)
 
         return DocumentBatch(
             dataset_name=task.dataset_name,
@@ -125,26 +125,45 @@ class BaseReader(ProcessingStage[ReaderTask, DocumentBatch]):
         raise NotImplementedError
 
     # ID helpers ----------------------------------------------------------------
-    def _assign_ids_func(self, filepath: str | list[str], df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _id_generator_key(task: ReaderTask) -> str | list[str]:
+        # TODO(NMCUR-315): Use the deterministic task ID for FileGroupTask as well.
+        # Keep returning file paths for backward compatibility until existing ID registries are migrated.
+        if isinstance(task, FileGroupTask):
+            return task.data
+        return task.get_deterministic_id()
+
+    @staticmethod
+    def _append_ids(data: ReaderData, ids: np.ndarray) -> ReaderData:
         from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
-        if CURATOR_DEDUP_ID_STR not in df.columns:
+        if isinstance(data, pd.DataFrame):
+            data[CURATOR_DEDUP_ID_STR] = ids
+            return data
+        return data.append_column(CURATOR_DEDUP_ID_STR, pa.array(ids, type=pa.int64()))
+
+    def _assign_ids_func(self, filepath: str | list[str], data: ReaderData) -> ReaderData:
+        from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+        columns = data.columns if isinstance(data, pd.DataFrame) else data.column_names
+        if CURATOR_DEDUP_ID_STR not in columns:
             min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(filepath, None))
-            df[CURATOR_DEDUP_ID_STR] = np.arange(min_id, max_id + 1)
+            data = self._append_ids(data, np.arange(min_id, max_id + 1))
         else:
             logger.warning(f"Column {CURATOR_DEDUP_ID_STR} already exists in {filepath}, not re-assigning IDs")
-        return df
+        return data
 
-    def _generate_ids_func(self, filepath: str | list[str], df: pd.DataFrame) -> pd.DataFrame:
+    def _generate_ids_func(self, filepath: str | list[str], data: ReaderData) -> ReaderData:
         from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
-        if CURATOR_DEDUP_ID_STR not in df.columns:
-            num_rows = len(df)
+        columns = data.columns if isinstance(data, pd.DataFrame) else data.column_names
+        if CURATOR_DEDUP_ID_STR not in columns:
+            num_rows = len(data)
             min_id = ray.get(self.id_generator.register_batch.remote(filepath, num_rows))
-            df[CURATOR_DEDUP_ID_STR] = np.arange(min_id, min_id + num_rows)
+            data = self._append_ids(data, np.arange(min_id, min_id + num_rows))
         else:
             logger.warning(f"Column {CURATOR_DEDUP_ID_STR} already exists in {filepath}, not generating new IDs")
-        return df
+        return data
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_ACTOR_STAGE: self._generate_ids or self._assign_ids}

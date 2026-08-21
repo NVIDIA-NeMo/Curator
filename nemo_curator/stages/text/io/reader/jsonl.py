@@ -15,15 +15,133 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import fsspec
 import pandas as pd
+import pyarrow as pa
+import pyarrow.json as paj
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import DocumentBatch, EmptyTask
+from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
 from .base import BaseFileReader
+
+PANDAS_ENGINE = "pandas"
+PYARROW_DIRECT_ENGINE = "pyarrow_direct"
+DEFAULT_PYARROW_BLOCK_SIZE = 8 * 1024 * 1024
+DEFAULT_PYARROW_MAX_BLOCK_SIZE = 256 * 1024 * 1024
+
+
+def _pyarrow_select_columns(table: pa.Table, fields: list[str] | None, file_path: str) -> pa.Table | None:
+    if fields is None:
+        return table
+
+    existing_fields = [column for column in fields if column in table.column_names]
+    missing_fields = [column for column in fields if column not in table.column_names]
+    if missing_fields:
+        logger.warning(f"Columns {missing_fields} not found in {file_path}")
+    if existing_fields:
+        return table.select(existing_fields)
+
+    logger.error(f"None of the requested columns found in {file_path}")
+    return None
+
+
+def _read_jsonl_file_with_pyarrow(
+    file_path: str,
+    block_size: int,
+    max_block_size: int,
+    storage_options: dict[str, Any],
+    compression: str | None,
+) -> pa.Table:
+    while True:
+        try:
+            read_options = paj.ReadOptions(block_size=block_size, use_threads=False)
+            if not is_remote_url(file_path) and not storage_options and compression == "infer":
+                return paj.read_json(file_path, read_options=read_options)
+            with fsspec.open(
+                file_path,
+                mode="rb",
+                compression=compression,
+                **storage_options,
+            ) as stream:
+                return paj.read_json(stream, read_options=read_options)
+        except pa.ArrowInvalid as error:
+            if "straddling object" not in str(error) or block_size >= max_block_size:
+                raise
+            block_size = min(block_size * 2, max_block_size)
+
+
+def _read_jsonl_with_pyarrow(
+    paths: list[str],
+    read_kwargs: dict[str, Any],
+    fields: list[str] | None,
+) -> pa.Table:
+    read_kwargs = dict(read_kwargs)
+    read_kwargs.pop("engine", None)
+    if read_kwargs.pop("lines", True) is False:
+        msg = "lines=False is not supported for JSONL reader"
+        raise ValueError(msg)
+
+    block_size = read_kwargs.pop("pyarrow_block_size", DEFAULT_PYARROW_BLOCK_SIZE)
+    max_block_size = read_kwargs.pop("pyarrow_max_block_size", DEFAULT_PYARROW_MAX_BLOCK_SIZE)
+    storage_options = read_kwargs.pop("storage_options", {}) or {}
+    compression = read_kwargs.pop("compression", "infer")
+    if block_size <= 0 or max_block_size < block_size:
+        msg = "pyarrow block sizes must be positive and max block size must be at least the initial size"
+        raise ValueError(msg)
+    if read_kwargs:
+        unsupported = ", ".join(sorted(read_kwargs))
+        msg = f"Unsupported read_kwargs for engine={PYARROW_DIRECT_ENGINE!r}: {unsupported}"
+        raise TypeError(msg)
+
+    tables = []
+    for file_path in paths:
+        table = _read_jsonl_file_with_pyarrow(
+            file_path,
+            block_size,
+            max_block_size,
+            storage_options,
+            compression,
+        )
+        table = _pyarrow_select_columns(table, fields, file_path)
+        if table is not None:
+            tables.append(table)
+    if not tables:
+        msg = f"No data read from files in task {paths} with direct PyArrow JSONL reader"
+        logger.error(msg)
+        raise ValueError(msg)
+
+    return pa.concat_tables(tables, promote_options="permissive")
+
+
+def _read_jsonl_with_pandas(
+    paths: list[str],
+    read_kwargs: dict[str, Any],
+    fields: list[str] | None,
+) -> pd.DataFrame:
+    read_kwargs = dict(read_kwargs)
+    if read_kwargs.get("engine") == PANDAS_ENGINE:
+        read_kwargs.pop("engine")
+    if read_kwargs.get("lines", True) is False:
+        msg = "lines=False is not supported for JSONL reader"
+        raise ValueError(msg)
+    read_kwargs["lines"] = True
+
+    dfs = []
+    for file_path in paths:
+        df = pd.read_json(file_path, **read_kwargs)
+        if fields is not None:
+            df = pandas_select_columns(df, fields, file_path)
+        dfs.append(df)
+    if not dfs:
+        msg = f"No data read from files in task {paths} with read_kwargs {read_kwargs} in JSONL reader"
+        logger.error(msg)
+        raise ValueError(msg)
+    return pd.concat(dfs, ignore_index=True)
 
 
 @dataclass
@@ -53,31 +171,19 @@ class JsonlReaderStage(BaseFileReader):
         paths: list[str],
         read_kwargs: dict[str, Any] | None = None,
         fields: list[str] | None = None,
-    ) -> pd.DataFrame:
-        """Read JSONL files using Pandas."""
+    ) -> pd.DataFrame | pa.Table:
+        """Read JSONL files into an Arrow table or pandas DataFrame.
 
-        # Normalize read_kwargs to a dict to avoid TypeError when None
-        # Work on a copy to avoid mutating caller's dict
+        The default ``pyarrow_direct`` engine retains Arrow data without a
+        pandas conversion. Use ``engine="pandas"`` when pandas-specific
+        parsing and inference are required.
+        """
+
         read_kwargs = {} if read_kwargs is None else dict(read_kwargs)
-        # Default to lines=True if not specified
-        if "lines" in read_kwargs and read_kwargs["lines"] is False:
-            msg = "lines=False is not supported for JSONL reader"
-            raise ValueError(msg)
-        else:
-            read_kwargs["lines"] = True
-
-        dfs = []
-        for file_path in paths:
-            df = pd.read_json(file_path, **read_kwargs)
-            if fields is not None:
-                df = pandas_select_columns(df, fields, file_path)
-            dfs.append(df)
-        # Concatenate all dataframes
-        if not dfs:
-            msg = f"No data read from files in task {paths} with read_kwargs {read_kwargs} in JSONL reader"
-            logger.error(msg)
-            raise ValueError(msg)
-        return pd.concat(dfs, ignore_index=True)
+        engine = read_kwargs.get("engine", PYARROW_DIRECT_ENGINE)
+        if engine == PYARROW_DIRECT_ENGINE:
+            return _read_jsonl_with_pyarrow(paths, read_kwargs, fields)
+        return _read_jsonl_with_pandas(paths, read_kwargs, fields)
 
 
 @dataclass

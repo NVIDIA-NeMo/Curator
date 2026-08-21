@@ -23,6 +23,7 @@ import pytest
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.io.writer import base as writer_base
 from nemo_curator.tasks import DocumentBatch
+from tests.stages.text.io.utils import normalize_string_dtypes
 
 
 class TestParquetWriter:
@@ -90,7 +91,10 @@ class TestParquetWriter:
         # Verify file extension and content
         assert file_path.endswith(".parquet"), "Parquet files should have .parquet extension"
         df = pd.read_parquet(file_path)
-        pd.testing.assert_frame_equal(df, document_batch.to_pandas())
+        pd.testing.assert_frame_equal(
+            normalize_string_dtypes(df),
+            normalize_string_dtypes(document_batch.to_pandas()),
+        )
 
     @pytest.mark.parametrize("document_batch", ["pandas"], indirect=True)
     def test_parquet_writer_overwrite_mode(self, document_batch: DocumentBatch, tmpdir: str):
