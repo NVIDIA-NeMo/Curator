@@ -52,7 +52,6 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def __post_init__(self) -> None:
         import data_designer.config as dd
-        from data_designer.interface import DataDesigner
 
         # Set in __post_init__ so they are not constructor args; use .with_(resources=..., name=...) to customize.
         self.resources = Resources(gpus=0.0)
@@ -69,6 +68,27 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # read config from file if config_builder is not set
         if self.config_builder is None:
             self.config_builder = dd.DataDesignerConfigBuilder.from_config(self.data_designer_config_file)
+        self._init_data_designer()
+
+    def __getstate__(self) -> dict:
+        """Return serializable state without the live Data Designer client.
+
+        Data Designer owns runtime objects such as locks that cannot be copied
+        or serialized by Ray. The stage configuration is serializable, and the
+        client is recreated after deserialization.
+        """
+        state = self.__dict__.copy()
+        state.pop("data_designer", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._init_data_designer()
+
+    def _init_data_designer(self) -> None:
+        """Initialize the process-local Data Designer client."""
+        from data_designer.interface import DataDesigner
+
         if self.model_providers is not None:
             self.data_designer = DataDesigner(model_providers=self.model_providers)
         else:
