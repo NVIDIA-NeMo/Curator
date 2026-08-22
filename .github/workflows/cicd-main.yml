@@ -68,6 +68,7 @@ jobs:
     name: Unit_Test_${{ matrix.folder }}_CPU
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      PYTEST_ADDOPTS: --basetemp=${{ github.workspace }}/pytest-tmp
     environment: nemo-ci
     if: |
       (
