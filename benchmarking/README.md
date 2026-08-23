@@ -616,7 +616,7 @@ pipeline outputs without rescanning or downloading the staged corpus.
 
 ## Audio Tagging Benchmark
 
-The nightly entry processes 56 real AMI single-distant-microphone meetings:
+The nightly entries process 56 real AMI single-distant-microphone meetings:
 30.2032 hours of long, multi-speaker audio with overlap. Stage this corpus and
 the local PyAnnote diarization snapshot once on the benchmark machine:
 

@@ -1426,7 +1426,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.65
 
-  # 56 AMI meetings (30.2032h) measured 12m02s wall / 11m45s processing on DGX 8xA100.
+  # 56 AMI meetings (30.2032h).
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
@@ -1438,7 +1438,46 @@ entries:
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
       --max-segment-length=40
       --asr-batch-size=1
+      --squim-compute-batch-size=8
       --executor=xenna
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U06J49AK7BQ  # Sushmitha Deva
+    requirements:
+      - metric: num_input_rows
+        exact_value: 56
+      - metric: segment_task_coverage_ratio
+        exact_value: 1.0
+      - metric: num_segments_processed
+        min_value: 100
+      - metric: segment_output_coverage_ratio
+        min_value: 0.7
+      - metric: total_audio_duration_hours
+        min_value: 30
+        max_value: 31
+      - metric: tagged_audio_duration_hours
+        min_value: 0.2
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
+
+  - name: audio_tagging_tts_raydata
+    enabled: true
+    script: audio_tagging_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --no-auto-download
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
+      --max-segment-length=40
+      --asr-batch-size=1
+      --squim-compute-batch-size=8
+      --executor=ray_data
     timeout_s: 3600
     sink_data:
       - name: slack
