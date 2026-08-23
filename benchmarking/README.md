@@ -61,18 +61,18 @@ pre-staged model snapshots or caches, such as audio tagging.
   --config ./benchmarking/nightly-data-setup.yaml
 ```
 
-For a 4-GPU GB200/Ptyche environment, layer the SKU override after the full-suite config:
+For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the full-suite config:
 
 ```bash
 ./benchmarking/tools/run.sh \
   --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/4xGB200-ptyche.yaml \
+  --config ./benchmarking/4xGB200-64CPU.yaml \
   --config ./benchmarking/nightly-data-setup.yaml
 ```
 
-The 4xGB200/Ptyche override updates resource counts, timeout values, known 4-GPU video
+The 4xGB200-64CPU override updates resource counts, timeout values, known 4-GPU video
 throughput thresholds, and explicit 8-worker settings. Other performance
-requirements are inherited from `benchmarks.yaml` until GB200/Ptyche-specific
+requirements are inherited from `benchmarks.yaml` until 4xGB200-64CPU-specific
 baselines are measured.
 
 To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
@@ -297,7 +297,7 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference config and is calibrated for the default 8-GPU H100 nightly environment. SKU-specific files such as `benchmarking/4xGB200-ptyche.yaml` should be passed after it to override only the values that differ for that environment.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference config and is calibrated for the default 8-GPU H100 nightly environment. SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed after it to override only the values that differ for that environment.
 
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.

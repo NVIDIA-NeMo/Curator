@@ -45,8 +45,8 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     assert replica_8_arg in entries["ndd_dynamo_dp8"]["args"]
 
 
-def test_4xgb200_ptyche_override_updates_resources_and_caps_timeouts() -> None:
-    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-ptyche.yaml"])
+def test_4xgb200_64cpu_override_updates_resources_and_caps_timeouts() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-64CPU.yaml"])
     entries = _entries(config)
 
     assert config["ray"] == {"num_cpus": 64, "num_gpus": 4, "enable_object_spilling": False}
@@ -67,8 +67,8 @@ def test_4xgb200_ptyche_override_updates_resources_and_caps_timeouts() -> None:
         assert entries[entry_name]["ray"]["num_cpus"] == 16
 
 
-def test_4xgb200_ptyche_override_sets_known_video_performance_baselines() -> None:
-    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-ptyche.yaml"])
+def test_4xgb200_64cpu_override_sets_known_video_performance_baselines() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-64CPU.yaml"])
     entries = _entries(config)
 
     expected_min_values = {

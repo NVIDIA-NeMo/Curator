@@ -1,11 +1,11 @@
-# 4xGB200-ptyche benchmark overrides.
+# 4xGB200-64CPU benchmark overrides.
 #
-# Layer this file after benchmarks.yaml for a 4-GPU, 64-CPU GB200/Ptyche environment.
+# Layer this file after benchmarks.yaml for a 4-GPU, 64-CPU GB200 environment.
 # This override halves the default Ray CPU/GPU resources, increases timeout
 # values within the existing 3h59m job-runtime ceiling, and adjusts explicit
 # GPU-stage worker counts from 8 to 4. Known historical 4-GPU video throughput
 # requirements are included here; other performance requirements are inherited
-# from benchmarks.yaml until GB200/Ptyche-specific baselines are measured and added.
+# from benchmarks.yaml until 4xGB200-64CPU-specific baselines are measured and added.
 #
 # NDD entries retain their current names for continuity, but this file overrides
 # their serving replica count from 8 to 4. Their current 8x performance thresholds
@@ -15,7 +15,7 @@ default_timeout_s: 14340
 max_timeout_s: 14340
 cleanup_timeout_s: 60
 min_timeout_s: 600
-# 400 GiB leaves headroom for 4xGB200/Ptyche jobs whose /dev/shm may be smaller
+# 400 GiB leaves headroom for 4xGB200-64CPU jobs whose /dev/shm may be smaller
 # than the default 500 GiB object store used by benchmarks.yaml.
 object_store_size: 429496729600
 ray:

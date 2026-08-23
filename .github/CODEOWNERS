@@ -41,4 +41,4 @@ benchmarking/ @rlratzel @praateekmahajan @sarahyurick @ayushdg
 # Exclude scripts and benchmark config YAMLs from Rick's review
 benchmarking/scripts/ @NVIDIA-NeMo/curator_reviewers
 benchmarking/benchmarks.yaml @NVIDIA-NeMo/curator_reviewers
-benchmarking/4xGB200-ptyche.yaml @NVIDIA-NeMo/curator_reviewers
+benchmarking/4xGB200-64CPU.yaml @NVIDIA-NeMo/curator_reviewers
