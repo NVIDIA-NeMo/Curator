@@ -74,6 +74,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
     wer_threshold: float,
     executor: str = "xenna",
     execution_mode: str | None = None,
+    asr_stage_num_workers: int | None = None,
 ) -> dict[str, Any]:
     """Run the timed LibriSpeech pipeline and collect output-derived metrics."""
     benchmark_results_path = Path(benchmark_results_path)
@@ -92,6 +93,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             logger.info(f"Execution mode: {execution_mode}")
         logger.info(f"Model: {model_name}")
         logger.info(f"WER threshold: {wer_threshold}")
+        logger.info(f"ASR stage workers: {asr_stage_num_workers or 'executor default'}")
         with Path(input_manifest).open(encoding="utf-8") as input_file:
             num_input_tasks = sum(bool(line.strip()) for line in input_file)
         if num_input_tasks == 0:
@@ -101,16 +103,17 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
         pipeline = Pipeline(name="audio_librispeech", description="LibriSpeech ASR, WER, and duration pipeline")
         asr_batch_size = 16
         pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
-        pipeline.add_stage(
-            ASRStage(
-                adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-                model_id=model_name,
-                audio_filepath_key="audio_filepath",
-                batch_size=asr_batch_size,
-                fail_on_audio_error=True,
-                adapter_kwargs={"use_cuda_graph_decoder": False},
-            )
+        asr_stage = ASRStage(
+            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            model_id=model_name,
+            audio_filepath_key="audio_filepath",
+            batch_size=asr_batch_size,
+            fail_on_audio_error=True,
+            adapter_kwargs={"use_cuda_graph_decoder": False},
         )
+        if asr_stage_num_workers is not None:
+            asr_stage = asr_stage.with_(num_workers=asr_stage_num_workers)
+        pipeline.add_stage(asr_stage)
         pipeline.add_stage(
             GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct").with_(
                 batch_size=asr_batch_size
@@ -158,6 +161,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             "input_manifest": input_manifest,
             "model_name": model_name,
             "wer_threshold": wer_threshold,
+            "asr_stage_num_workers": asr_stage_num_workers,
             "benchmark_results_path": str(benchmark_results_path),
         },
         "metrics": {
@@ -188,6 +192,12 @@ def main() -> int:
     )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
     parser.add_argument("--execution-mode", choices=["streaming", "batch"], default=None)
+    parser.add_argument(
+        "--asr-stage-num-workers",
+        type=int,
+        default=None,
+        help="Optional fixed ASR worker count; otherwise the executor selects it.",
+    )
     args = parser.parse_args()
 
     results: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}

@@ -1014,6 +1014,7 @@ entries:
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
       --executor=ray_data
+      --asr-stage-num-workers=8
 
     sink_data:
       - name: slack
