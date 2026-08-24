@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: INP001
+
 import pytest
 
 from nemo_curator.stages.audio import (
@@ -34,7 +36,9 @@ from nemo_curator.tasks import AudioTask
         ("the A P I uses G P U acceleration", "en", "the API uses GPU acceleration"),
         ("the U K's policy", "en", "the UK's policy"),
         ("A P Xs", "en", "APXs"),
-        ("A P Is", "en", "AP Is"),
+        ("A P Is", "en", "APIs"),
+        ("A B Is", "en", "AB Is"),
+        ("A P As", "en", "AP As"),
         ("A Is", "en", "A Is"),
         ("a A P I", "en", "a API"),
         ("A P I a", "en", "API a"),
@@ -82,7 +86,10 @@ def test_concat_abbreviations(text: str, language: str, expected: str) -> None:
     [
         ("A P I and G P U", ["API", "GPU"]),
         ("a A P I", ["a API"]),
-        ("A P Is", ["AP I"]),
+        ("A P Is", ["APIs"]),
+        ("A P Xs", ["APX"]),
+        ("A B Is", ["AB I"]),
+        ("A B bs", ["AB"]),
         ("\u2019A B C\u2019", ["BC"]),
         ("x'A B", ["AB"]),
     ],

@@ -114,13 +114,15 @@ def _join_match(match: re.Match[str], particles: frozenset[str]) -> str:  # noqa
     if any(len(part) >= _MULTI_CHAR_LEN for part in parts):
         return original
 
-    # Keep trailing words such as "Is", "As", and "Os" separate while
-    # still allowing consonant plural suffixes such as "Xs".
+    # Keep trailing words such as "Is", "As", and "Os" separate. The
+    # sequence "A P Is" is normalized to the plural abbreviation "APIs".
     tail = ""
+    is_api_plural = parts == ["A", "P", "Is"]
     if (
         len(parts) >= _MIN_PARTS
         and len(parts[-1]) == _PLURAL_SUFFIX_LEN
         and parts[-1][1] == "s"
+        and not is_api_plural
         and (parts[-1][0] in _VOWELS or not parts[-1][0].isupper())
     ):
         tail = " " + parts.pop()
@@ -181,7 +183,13 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
         else:
             joined = _join_match(match, particles)
         if joined != raw:
-            abbreviation = joined.strip().rstrip("’s").rstrip("’s")  # noqa: RUF001
+            abbreviation = joined.strip()
+            raw_parts = raw.split(" ")
+            last_part = raw_parts[-1]
+            if len(last_part) == _PLURAL_SUFFIX_LEN and last_part[0].islower() and last_part[1] == "s":
+                abbreviation = abbreviation.removesuffix(last_part).rstrip()
+            elif not (raw == "A P Is" and abbreviation == "APIs"):
+                abbreviation = abbreviation.rstrip("’s").rstrip("’s")  # noqa: RUF001
             if abbreviation:
                 found.append(abbreviation)
         return joined
