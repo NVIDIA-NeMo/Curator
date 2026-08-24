@@ -33,7 +33,6 @@ DEFAULT_HF_CONFIG = "all"
 DEFAULT_HF_SPLIT = "train.clean.100+train.clean.360+train.other.500"
 DEFAULT_CACHE_DIR = "/tmp/curator/librispeech_cache"  # noqa: S108
 DEFAULT_TARGET_AUDIO_HOURS = 600.0
-MANIFEST_ROWS_PER_SHARD = 512
 
 
 def _copy_audio(audio: dict, target_path: Path) -> float:
@@ -42,10 +41,6 @@ def _copy_audio(audio: dict, target_path: Path) -> float:
     else:
         shutil.copyfile(audio["path"], target_path)
     return float(sf.info(target_path).duration)
-
-
-def _write_manifest_shard(output_dir: Path, shard_index: int, rows: list[str]) -> None:
-    (output_dir / f"part-{shard_index:05d}.jsonl").write_text("".join(rows), encoding="utf-8")
 
 
 def stage_dataset(  # noqa: PLR0913
@@ -58,67 +53,58 @@ def stage_dataset(  # noqa: PLR0913
     target_audio_hours: float = DEFAULT_TARGET_AUDIO_HOURS,
 ) -> None:
     output_path = output_path.resolve()
-    manifest_dir = output_path / "manifest_shards"
-    if manifest_dir.is_dir():
-        logger.info(f"Reusing staged LibriSpeech manifests at {manifest_dir}")
+    manifest_path = output_path / "manifest.jsonl"
+    if manifest_path.is_file():
+        logger.info(f"Reusing staged LibriSpeech manifest at {manifest_path}")
         return
 
     audio_dir = output_path / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
-    temporary_manifest_dir = output_path / "manifest_shards.tmp"
+    temporary_manifest = manifest_path.with_suffix(".jsonl.tmp")
     target_duration_s = target_audio_hours * 3600
     selected_duration_s = 0.0
     clips = 0
-    shard_index = 0
-    shard_rows: list[str] = []
 
+    datasets = load_dataset(
+        hf_repo_id,
+        hf_config,
+        revision=hf_revision,
+        cache_dir=cache_dir,
+        streaming=True,
+    ).cast_column("audio", Audio(decode=False))
     try:
-        shutil.rmtree(temporary_manifest_dir, ignore_errors=True)
-        temporary_manifest_dir.mkdir(parents=True)
-        datasets = load_dataset(
-            hf_repo_id,
-            hf_config,
-            revision=hf_revision,
-            cache_dir=cache_dir,
-            streaming=True,
-        ).cast_column("audio", Audio(decode=False))
-        for split in hf_split.split("+"):
-            dataset_iterator = iter(datasets[split])
-            try:
-                for row in dataset_iterator:
-                    audio_item_id = str(row["id"]).replace("/", "-")
-                    audio_path = audio_dir / f"{audio_item_id}.flac"
-                    duration_s = _copy_audio(row["audio"], audio_path)
-                    shard_rows.append(
-                        json.dumps({"audio_filepath": str(audio_path), "text": row["text"]}, separators=(",", ":"))
-                        + "\n"
-                    )
-                    clips += 1
-                    selected_duration_s += duration_s
-                    if len(shard_rows) == MANIFEST_ROWS_PER_SHARD:
-                        _write_manifest_shard(temporary_manifest_dir, shard_index, shard_rows)
-                        shard_index += 1
-                        shard_rows = []
-                    if selected_duration_s >= target_duration_s:
-                        break
-            finally:
-                dataset_iterator.close()
-                # Work around apache/arrow#45214 on PyArrow <=24.
-                gc.collect()
-                time.sleep(5)
-            if selected_duration_s >= target_duration_s:
-                break
-        if shard_rows:
-            _write_manifest_shard(temporary_manifest_dir, shard_index, shard_rows)
+        with temporary_manifest.open("w", encoding="utf-8") as manifest_file:
+            for split in hf_split.split("+"):
+                dataset_iterator = iter(datasets[split])
+                try:
+                    for row in dataset_iterator:
+                        audio_item_id = str(row["id"]).replace("/", "-")
+                        audio_path = audio_dir / f"{audio_item_id}.flac"
+                        duration_s = _copy_audio(row["audio"], audio_path)
+                        manifest_file.write(
+                            json.dumps({"audio_filepath": str(audio_path), "text": row["text"]}, separators=(",", ":"))
+                            + "\n"
+                        )
+                        clips += 1
+                        selected_duration_s += duration_s
+                        if selected_duration_s >= target_duration_s:
+                            break
+                finally:
+                    dataset_iterator.close()
+                    # Work around apache/arrow#45214 on PyArrow <=24.
+                    gc.collect()
+                    time.sleep(5)
+                if selected_duration_s >= target_duration_s:
+                    break
         if selected_duration_s < target_duration_s:
             msg = f"{hf_repo_id}/{hf_config}/{hf_split} contains only {selected_duration_s / 3600:.3f} hours"
             raise RuntimeError(msg)  # noqa: TRY301
-        temporary_manifest_dir.replace(manifest_dir)
+        temporary_manifest.replace(manifest_path)
     except Exception:
-        shutil.rmtree(temporary_manifest_dir, ignore_errors=True)
+        temporary_manifest.unlink(missing_ok=True)
         raise
 
-    logger.success(f"Staged {clips} clips / {selected_duration_s / 3600:.4f} hours at {manifest_dir}")
+    logger.success(f"Staged {clips} clips / {selected_duration_s / 3600:.4f} hours at {manifest_path}")
 
 
 def main() -> int:

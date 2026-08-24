@@ -27,38 +27,35 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader, PreserveByValueStage
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 
-def _load_input_audio_paths(manifest_paths: list[str]) -> list[str]:
+def _load_input_audio_paths(manifest_path: Path) -> list[str]:
     audio_paths: list[str] = []
     seen: set[str] = set()
-    for manifest_path in manifest_paths:
-        with Path(manifest_path).open(encoding="utf-8") as input_file:
-            for line_number, line in enumerate(input_file, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                    audio_path = row["audio_filepath"]
-                except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    msg = f"Invalid input manifest row {manifest_path}:{line_number}"
-                    raise RuntimeError(msg) from e
-                if not isinstance(audio_path, str) or not audio_path:
-                    msg = f"Invalid audio_filepath in {manifest_path}:{line_number}"
-                    raise RuntimeError(msg)
-                if audio_path in seen:
-                    msg = f"Duplicate input audio_filepath: {audio_path}"
-                    raise RuntimeError(msg)
-                seen.add(audio_path)
-                audio_paths.append(audio_path)
+    with manifest_path.open(encoding="utf-8") as input_file:
+        for line_number, line in enumerate(input_file, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                audio_path = row["audio_filepath"]
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                msg = f"Invalid input manifest row {manifest_path}:{line_number}"
+                raise RuntimeError(msg) from e
+            if not isinstance(audio_path, str) or not audio_path:
+                msg = f"Invalid audio_filepath in {manifest_path}:{line_number}"
+                raise RuntimeError(msg)
+            if audio_path in seen:
+                msg = f"Duplicate input audio_filepath: {audio_path}"
+                raise RuntimeError(msg)
+            seen.add(audio_path)
+            audio_paths.append(audio_path)
     if not audio_paths:
         msg = "Input manifest contains no rows"
         raise RuntimeError(msg)
@@ -151,7 +148,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
     """Run the timed LibriSpeech pipeline and collect output-derived metrics."""
     benchmark_results_path = Path(benchmark_results_path)
     results_dir = benchmark_results_path / "results"
-    # Keep input manifest shards intact; only writer output is temporary.
+    # Only writer output is temporary; the input manifest remains untouched.
     writer_output_dir = benchmark_results_path / "scratch" / "librispeech_writer_output"
     final_output = results_dir / "librispeech_output.jsonl"
     run_start_time = time.perf_counter()
@@ -168,24 +165,12 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             logger.info(f"Execution mode: {execution_mode}")
         logger.info(f"Model: {model_name}")
         logger.info(f"WER threshold: {wer_threshold}")
-        manifest_paths = get_all_file_paths_under(
-            input_manifest,
-            recurse_subdirectories=True,
-            keep_extensions=[".jsonl"],
-        )
-        input_audio_paths = _load_input_audio_paths(manifest_paths)
+        input_manifest_path = Path(input_manifest)
+        input_audio_paths = _load_input_audio_paths(input_manifest_path)
 
         pipeline = Pipeline(name="audio_librispeech", description="LibriSpeech ASR, WER, and duration pipeline")
         asr_batch_size = 16
-        pipeline.add_stage(
-            ManifestReader(manifest_path=manifest_paths).with_(
-                {
-                    "manifest_reader_stage": {
-                        "ray_stage_spec": {RayStageSpecKeys.IS_FANOUT_STAGE: False},
-                    }
-                }
-            )
-        )
+        pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
         pipeline.add_stage(
             ASRStage(
                 adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
