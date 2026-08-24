@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run a config-driven text LLM judge through a NeMo Curator pipeline.
+"""
+Run a config-driven text LLM judge through a NeMo Curator pipeline.
 
 The input records may have any text schema. The Jinja templates and score
 rubrics in ``--judge-config`` define which fields are evaluated, what the
@@ -95,6 +96,17 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
         if score_name not in judge_scores[judge_name]:
             msg = f"Filter refers to unknown score {score_name!r} on judge {judge_name!r}."
             raise ValueError(msg)
+
+
+def _get_num_workers(config: dict[str, object], *, owner: str) -> int | None:
+    """Return an optional fixed Ray worker count for one NDD stage."""
+    num_workers = config.get("num_workers")
+    if num_workers is None:
+        return None
+    if isinstance(num_workers, bool) or not isinstance(num_workers, int) or num_workers <= 0:
+        msg = f"{owner} must be a positive integer."
+        raise ValueError(msg)
+    return num_workers
 
 
 def _keep_judge_score(  # noqa: PLR0911
@@ -234,18 +246,35 @@ def build_config_builder(
     return config_builder, model_providers
 
 
-def _start_inference_server(config: dict[str, object], models: list[dict[str, object]]) -> InferenceServer:
+def _start_inference_server(
+    config: dict[str, object], models: list[dict[str, object]], *, config_path: Path
+) -> InferenceServer:
     """Start all configured Dynamo models behind one OpenAI-compatible endpoint."""
-    dynamo_server = config.get("dynamo_server", {})
-    model_configs = [
-        DynamoVLLMModelConfig(
-            model_identifier=str(model["model"]),
-            model_name=str(model.get("served_model_name", model["model"])),
-            **model.get("dynamo_model", {}),
+    dynamo_server = dict(config.get("dynamo_server", {}))
+    subprocess_env = dynamo_server.get("subprocess_env", {})
+    if pythonpath := subprocess_env.get("PYTHONPATH"):
+        patch_dir = Path(pythonpath)
+        if not patch_dir.is_absolute():
+            dynamo_server["subprocess_env"] = {
+                **subprocess_env,
+                "PYTHONPATH": str((config_path.parent / patch_dir).resolve()),
+            }
+    inference_server = config.get("inference_server", {})
+    model_configs = []
+    for model in models:
+        dynamo_model = dict(model.get("dynamo_model", {}))
+        model_configs.append(
+            DynamoVLLMModelConfig(
+                model_identifier=str(model["model"]),
+                model_name=str(model.get("served_model_name", model["model"])),
+                **dynamo_model,
+            )
         )
-        for model in models
-    ]
-    server = InferenceServer(models=model_configs, backend=DynamoServerConfig(**dynamo_server))
+    server = InferenceServer(
+        models=model_configs,
+        backend=DynamoServerConfig(**dynamo_server),
+        **inference_server,
+    )
     server.start()
     return server
 
@@ -262,6 +291,7 @@ def build_pipeline(  # noqa: PLR0913
             dd.DataDesignerConfigBuilder,
             list[dd.ModelProvider],
             dict[str, object] | None,
+            int | None,
             list[dict[str, object]],
         ]
     ],
@@ -278,10 +308,10 @@ def build_pipeline(  # noqa: PLR0913
     )
     writer = JsonlWriter(path=output_path) if output_format == "jsonl" else ParquetWriter(path=output_path)
     processing_stages = []
-    for stage_name, config_builder, model_providers, runtime_env, stage_filters in judge_stages:
+    for stage_name, config_builder, model_providers, runtime_env, num_workers, stage_filters in judge_stages:
         processing_stages.append(
             DataDesignerStage(config_builder=config_builder, model_providers=model_providers).with_(
-                name=f"ndd_{stage_name}", runtime_env=runtime_env
+                name=f"ndd_{stage_name}", runtime_env=runtime_env, num_workers=num_workers
             )
         )
         processing_stages.extend(_build_filter_stages(stage_filters, name_prefix=f"judge_filter_{stage_name}"))
@@ -340,12 +370,18 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional durable Curator checkpoint directory for this pipeline.",
     )
+    parser.add_argument(
+        "--ray-temp-dir",
+        default="/tmp/ray",
+        help="Ray runtime directory (default: /tmp/ray).",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    config = _load_yaml(Path(args.judge_config))
+    config_path = Path(args.judge_config).resolve()
+    config = _load_yaml(config_path)
     models = config["models"]
     execution = config["execution"]
     configured_stages = execution["stages"]
@@ -358,11 +394,11 @@ def main() -> None:
         text_field=args.language_text_field,
     )
 
-    client = RayClient(include_dashboard=False)
+    client = RayClient(include_dashboard=False, ray_temp_dir=args.ray_temp_dir)
     client.start()
     inference_server: InferenceServer | None = None
     try:
-        inference_server = _start_inference_server(config, models)
+        inference_server = _start_inference_server(config, models, config_path=config_path)
         if args.execution_mode == "single_stage":
             judges = [judge for stage in configured_stages for judge in stage["judges"]]
             config_builder, model_providers = build_config_builder(
@@ -382,6 +418,7 @@ def main() -> None:
                         config_builder,
                         model_providers,
                         execution.get("runtime_env"),
+                        _get_num_workers(execution, owner="execution.num_workers"),
                         [filter_config for filters in stage_filters for filter_config in filters],
                     )
                 ],
@@ -404,6 +441,7 @@ def main() -> None:
                         config_builder,
                         model_providers,
                         stage.get("runtime_env"),
+                        _get_num_workers(stage, owner=f"Stage {stage.get('name', '<unnamed>')!r} num_workers"),
                         filters_after_stage,
                     )
                 )

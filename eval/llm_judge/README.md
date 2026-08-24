@@ -2,7 +2,7 @@
 
 Use this example to add LLM-based evaluations to JSONL or Parquet records. The YAML configuration defines the served judge model, Jinja prompt files, rubric scores, and optional output filters. The runner starts a local Curator Dynamo/vLLM server, executes NeMo Data Designer (NDD) judge columns, and writes the original records with the judge results added.
 
-The included example compares jusText and Trafilatura web-text extractions. The same runner can judge parser output, document pairs, extraction quality, semantic duplication, or any task whose inputs can be rendered into a Jinja prompt.
+The included example compares jusText and Trafilatura web-text extractions. The same runner can judge parser output, extraction quality, or any task whose inputs can be rendered into a Jinja prompt.
 
 ## Quick start
 
@@ -119,7 +119,7 @@ execution:
 
 `alias` is the name judges use to select a served model. `model` is the model identifier or local weights path. `served_model_name` is the API name exposed by Dynamo/vLLM and is useful when it differs from the local path.
 
-Each judge needs a unique `name`, a `prompt_path`, and one or more rubric scores. Score option keys may be numeric or labels such as `yes`, `no`, and `unclear`. A judge may omit `model_alias` to use the first configured model.
+Each judge needs a unique `name`, a `prompt_path`, and one or more rubric scores. Score option keys may be numeric or string labels, such as `unclear`. Use bare keys for intentional numeric outputs. Quote string labels that YAML would otherwise coerce to another type, such as `"yes"`, `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`. A judge may omit `model_alias` to use the first configured model.
 
 The bundled Qwen example disables thinking through `inference_parameters.extra_body.chat_template_kwargs.enable_thinking`. Keep that setting for Qwen structured judging; remove it for providers that do not support it.
 
@@ -136,6 +136,35 @@ Use `--execution-mode multi_stage` when configured judge groups need explicit Cu
 ```text
 reader, optional language filter, NDD stage, filters, NDD stage, filters, writer
 ```
+
+In `multi_stage` mode, set `num_workers` on an execution stage to pass a fixed worker count directly to that `DataDesignerStage` through `.with_(num_workers=...)`. This can stop the first NDD stage from taking every available Ray worker before downstream stages can run against their own served models.
+
+```yaml
+execution:
+  stages:
+    - name: qwen_judges
+      num_workers: 1
+      judges: [ ... ]
+    - name: gemma_judges
+      num_workers: 2
+      judges: [ ... ]
+```
+
+In `single_stage`, use `execution.num_workers` to set the worker count for the one combined NDD stage:
+
+```yaml
+execution:
+  num_workers: 2
+  stages:
+    - name: qwen_judges
+      judges: [ ... ]
+```
+
+In `multi_stage`, `num_workers` remains a stage-level setting because one `DataDesignerStage` owns all judge columns in that group. For individual judge limits, put each judge in a separate execution stage and set `execution.stages[].num_workers`. Stage-level values are not applied in `single_stage`; `execution.num_workers` is not applied in `multi_stage`.
+
+Neither setting limits requests by itself; each worker can still submit up to its model's `max_parallel_requests`.
+
+This creates useful multi-stage overlap only when the reader produces multiple Curator tasks. Shard a large input into multiple files; a single JSONL file is one input task and cannot flow into the next NDD stage until its first stage finishes.
 
 Multiple models are supported by adding entries with distinct aliases under `models` and selecting `model_alias` per judge. Start every model through the same Dynamo server only when their worker environment requirements are compatible.
 
@@ -155,6 +184,31 @@ filters:
 
 The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. Multiple filters use AND semantics. Top-level filters are placed immediately after the stage that produces their judge column; a filter can also be placed under a specific execution stage when you deliberately need it later. Before Ray or the model server starts, the runner checks that every filter refers to a configured judge column and score.
 
+## Analyzing results
+
+Running the same rubric through multiple LLMs turns judge agreement into a signal, not just a sanity check: where the models agree, the record is likely easy and the score can be trusted with less scrutiny; where they disagree, look into why before trusting the rubric or filter at scale. A disagreement can mean the record is genuinely ambiguous or hard to score — evidence for a human-in-the-loop or an `unresolved`-style rubric option — or it can mean the prompt or rubric wording is too vague or underspecified for a model to apply consistently, which calls for tightening the prompt rather than trusting either score.
+
+The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory, then pull each judge's nested score into its own column.
+
+```python
+import glob
+import pandas as pd
+
+df = pd.concat(pd.read_json(path, lines=True) for path in glob.glob("output/judged/*.jsonl"))
+
+# Two judges applying the same rubric to different models.
+df["qwen_quality"] = df["extraction_quality_qwen"].apply(lambda r: r["quality"]["score"])
+df["gemma_quality"] = df["extraction_quality_gemma"].apply(lambda r: r["quality"]["score"])
+
+df["quality_diff"] = df["qwen_quality"] - df["gemma_quality"]
+print(df["quality_diff"].value_counts().sort_index())  # agreement distribution
+
+disagreements = df[df["quality_diff"].abs() >= 2].sort_values("quality_diff", key=abs, ascending=False)
+disagreements[["document_id", "qwen_quality", "gemma_quality"]].head(20)
+```
+
+Read both `reasoning` fields on a disagreement (`df.loc[idx, "extraction_quality_qwen"]["quality"]["reasoning"]`) to tell the two causes apart: differing-but-reasonable justifications point to a genuinely hard record, while justifications that latch onto different aspects of the same instructions point to a vague prompt. The same pattern extends to comparing two rubrics on one model, or checking a filter threshold before committing to it.
+
 ## Operating guidance
 
 Start with a manually reviewed calibration sample. Confirm rendered prompts, structured results, and context lengths before increasing concurrency. For a model that fits on one GPU, begin with one replica and modest `max_parallel_requests`; increase requests gradually only after checking for context-length errors, malformed outputs, and GPU memory pressure. Add replicas when additional GPUs are available and the workload is large enough to use them.
@@ -169,7 +223,6 @@ Press `Ctrl-C` once to cancel a local Dynamo run and allow normal Ray and infere
 
 | Goal | Prompt fields | Useful scores |
 |---|---|---|
-| Compare two texts for duplicate content | `{{ left_text }}`, `{{ right_text }}` | `semantic_duplicate: yes/no/unclear` |
 | Compare extracted text to raw HTML or text | source plus `{{ candidate_text }}` | fidelity, boilerplate removal, usability |
 | Judge PDF parser output | OCR or rendered-page text plus `{{ parsed_text }}` | coverage, reading order, hallucination |
 | Route screening to adjudication | an earlier score plus source fields | pass/fail, final decision |
