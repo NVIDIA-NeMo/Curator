@@ -27,12 +27,14 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader, PreserveByValueStage
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 
 def _collect_output_metrics(results_dir: Path, num_input_tasks: int) -> dict[str, float | int]:
@@ -94,15 +96,30 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
         logger.info(f"Model: {model_name}")
         logger.info(f"WER threshold: {wer_threshold}")
         logger.info(f"ASR stage workers: {asr_stage_num_workers or 'executor default'}")
-        with Path(input_manifest).open(encoding="utf-8") as input_file:
-            num_input_tasks = sum(bool(line.strip()) for line in input_file)
+        manifest_paths = get_all_file_paths_under(
+            input_manifest,
+            recurse_subdirectories=True,
+            keep_extensions=[".jsonl"],
+        )
+        num_input_tasks = 0
+        for manifest_path in manifest_paths:
+            with Path(manifest_path).open(encoding="utf-8") as input_file:
+                num_input_tasks += sum(bool(line.strip()) for line in input_file)
         if num_input_tasks == 0:
             msg = f"Input manifest contains no rows: {input_manifest}"
             raise RuntimeError(msg)  # noqa: TRY301
 
         pipeline = Pipeline(name="audio_librispeech", description="LibriSpeech ASR, WER, and duration pipeline")
         asr_batch_size = 16
-        pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
+        pipeline.add_stage(
+            ManifestReader(manifest_path=manifest_paths).with_(
+                {
+                    "manifest_reader_stage": {
+                        "ray_stage_spec": {RayStageSpecKeys.IS_FANOUT_STAGE: False},
+                    }
+                }
+            )
+        )
         asr_stage = ASRStage(
             adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
             model_id=model_name,
