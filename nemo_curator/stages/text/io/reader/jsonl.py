@@ -37,6 +37,12 @@ DEFAULT_PYARROW_BLOCK_SIZE = 8 * 1024 * 1024
 DEFAULT_PYARROW_MAX_BLOCK_SIZE = 256 * 1024 * 1024
 
 
+def _validate_jsonl_read_kwargs(read_kwargs: dict[str, Any] | None) -> None:
+    if read_kwargs is not None and read_kwargs.get("lines", True) is False:
+        msg = "JsonlReader only supports lines=True"
+        raise RuntimeError(msg)
+
+
 def _pyarrow_select_columns(table: pa.Table, fields: list[str] | None, file_path: str) -> pa.Table | None:
     if fields is None:
         return table
@@ -93,9 +99,7 @@ def _read_jsonl_with_pyarrow(
     """Read JSONL paths directly with PyArrow."""
     read_kwargs = dict(read_kwargs)
     read_kwargs.pop("engine", None)
-    if read_kwargs.pop("lines", True) is False:
-        msg = f"engine={PYARROW_DIRECT_ENGINE!r} only supports lines=True"
-        raise RuntimeError(msg)
+    read_kwargs.pop("lines", None)
 
     block_size = read_kwargs.pop("pyarrow_block_size", DEFAULT_PYARROW_BLOCK_SIZE)
     max_block_size = read_kwargs.pop("pyarrow_max_block_size", DEFAULT_PYARROW_MAX_BLOCK_SIZE)
@@ -137,7 +141,7 @@ def _read_jsonl_with_pandas(
     read_kwargs = dict(read_kwargs)
     if read_kwargs.get("engine") == PANDAS_ENGINE:
         read_kwargs.pop("engine")
-    read_kwargs.setdefault("lines", True)
+    read_kwargs["lines"] = True
 
     dfs = []
     for file_path in paths:
@@ -175,6 +179,10 @@ class JsonlReaderStage(BaseFileReader):
     """
 
     name: str = "jsonl_reader"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        _validate_jsonl_read_kwargs(self.read_kwargs)
 
     def read_data(
         self,
@@ -227,6 +235,7 @@ class JsonlReader(CompositeStage[EmptyTask, DocumentBatch]):
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
         super().__init__()
+        _validate_jsonl_read_kwargs(self.read_kwargs)
         if self.read_kwargs is not None:
             self.storage_options = self.read_kwargs.get("storage_options", {})
 

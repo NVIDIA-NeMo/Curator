@@ -87,23 +87,20 @@ class TestJsonlReaderWithoutIdGenerator:
             "Doc 2-2",
         ]
 
-    def test_pyarrow_direct_rejects_lines_false(self, sample_jsonl_files: list[str]) -> None:
-        """The direct reader should clearly reject JSON formats unsupported by PyArrow."""
-        task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})
+    @pytest.mark.parametrize("engine", [None, "pyarrow_direct", "pandas", "ujson", "pyarrow"])
+    def test_stage_rejects_lines_false_at_initialization(self, engine: str | None) -> None:
+        """JsonlReaderStage should reject non-JSONL input for every engine."""
+        read_kwargs = {"lines": False}
+        if engine is not None:
+            read_kwargs["engine"] = engine
 
-        with pytest.raises(RuntimeError, match=r"pyarrow_direct.*lines=True"):
-            JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct", "lines": False}).process(task)
+        with pytest.raises(RuntimeError, match="JsonlReader only supports lines=True"):
+            JsonlReaderStage(read_kwargs=read_kwargs)
 
-    def test_pandas_reader_accepts_lines_false(self, tmp_path: Path) -> None:
-        """The pandas reader should support a JSON array when lines is false."""
-        file_path = tmp_path / "records.json"
-        file_path.write_text('[{"text":"first"},{"text":"second"}]', encoding="utf-8")
-        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
-
-        result = JsonlReaderStage(read_kwargs={"engine": "pandas", "lines": False}).process(task)
-
-        assert isinstance(result.data, pd.DataFrame)
-        assert result.data["text"].tolist() == ["first", "second"]
+    def test_composite_reader_rejects_lines_false_at_initialization(self, tmp_path: Path) -> None:
+        """JsonlReader should reject non-JSONL input before decomposition."""
+        with pytest.raises(RuntimeError, match="JsonlReader only supports lines=True"):
+            JsonlReader(file_paths=str(tmp_path), read_kwargs={"engine": "pandas", "lines": False})
 
     def test_pandas_pyarrow_engine_returns_dataframe(self, sample_jsonl_files: list[str]) -> None:
         """The pandas PyArrow engine should remain available through read_kwargs."""
