@@ -372,7 +372,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ray-temp-dir",
-        default="/tmp/ray",
+        default="/tmp/ray",  # noqa: S108
         help="Ray runtime directory (default: /tmp/ray).",
     )
     return parser.parse_args()
