@@ -147,11 +147,11 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
-  # Public AMI SDM validation and test splits: 34 meetings, about 18.73 audio hours.
+  # Pinned public AMI SDM validation, test, and train prefix: 44 meetings, about 24.94 audio hours.
   - name: "audio_sortformer_ami_sdm"
     formats:
     - type: "files"
-      path: "{datasets_path}/audio_sortformer_ami_sdm"
+      path: "{datasets_path}/audio_sortformer_ami_sdm_8cdaae2_25h"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -965,7 +965,7 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
-  # 18.73 audio hours at published RTF 0.093 on 8 nightly GPUs is about 13 minutes.
+  # The 44-meeting public cohort targets about 11 minutes on 8 nightly GPUs.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
@@ -992,13 +992,13 @@ entries:
           - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_input_rows
-        exact_value: 34
+        exact_value: 44
       - metric: num_output_rows
-        exact_value: 34
+        exact_value: 44
       - metric: num_tasks_with_segments
-        exact_value: 34
+        exact_value: 44
       - metric: total_audio_duration_hours
-        min_value: 18.7
+        min_value: 24.9
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
@@ -1028,13 +1028,13 @@ entries:
           - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_input_rows
-        exact_value: 34
+        exact_value: 44
       - metric: num_output_rows
-        exact_value: 34
+        exact_value: 44
       - metric: num_tasks_with_segments
-        exact_value: 34
+        exact_value: 44
       - metric: total_audio_duration_hours
-        min_value: 18.7
+        min_value: 24.9
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 

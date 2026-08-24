@@ -607,15 +607,14 @@ python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
 
 python benchmarking/data_prep/prepare_audio_sortformer_data.py \
-  --output-path {datasets_path}/audio_sortformer_ami_sdm \
+  --output-path {datasets_path}/audio_sortformer_ami_sdm_8cdaae2_25h \
   --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 ```
 
 After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
 `fleurs_hy_am` and `{datasets_path}/audio_tagging_ami_sdm` as
-`audio_tagging_ami_sdm`. It mounts the complete public AMI SDM validation and
-test splits at
-`{datasets_path}/audio_sortformer_ami_sdm` as `audio_sortformer_ami_sdm`.
+`audio_tagging_ami_sdm`. It mounts 44 pinned public AMI SDM meetings at
+`{datasets_path}/audio_sortformer_ami_sdm_8cdaae2_25h` as `audio_sortformer_ami_sdm`.
 FLEURS and audio tagging pass `--no-auto-download`; Sortformer requires its
 staged dataset and local `.nemo` checkpoint directly.
 

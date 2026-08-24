@@ -29,7 +29,8 @@ from loguru import logger
 DEFAULT_CACHE_DIR = "/tmp/curator/audio_sortformer_cache"  # noqa: S108
 AMI_HF_REPO_ID = "diarizers-community/ami"
 AMI_CONFIG = "sdm"
-AMI_SPLIT_NUM_ROWS = {"validation": 18, "test": 16}
+AMI_HF_REVISION = "8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0"  # pragma: allowlist secret
+AMI_SPLIT_NUM_ROWS = {"validation": 18, "test": 16, "train": 10}
 EXPECTED_AUDIO_FILENAMES = frozenset(
     f"ami_sdm_{split}_{index:03d}.wav" for split, num_rows in AMI_SPLIT_NUM_ROWS.items() for index in range(num_rows)
 )
@@ -80,6 +81,7 @@ def stage_dataset(output_path: Path, cache_dir: str) -> None:
                 AMI_HF_REPO_ID,
                 AMI_CONFIG,
                 split=split,
+                revision=AMI_HF_REVISION,
                 cache_dir=cache_dir,
                 streaming=True,
             ).cast_column("audio", Audio(decode=False))

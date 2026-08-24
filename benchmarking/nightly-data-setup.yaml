@@ -24,6 +24,6 @@ data_setups:
     enabled: true
     script: prepare_audio_sortformer_data.py
     args: >-
-      --output-path {datasets_path}/audio_sortformer_ami_sdm
+      --output-path {datasets_path}/audio_sortformer_ami_sdm_8cdaae2_25h
       --cache-dir {datasets_path}/_hf_cache/audio_sortformer
       --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
