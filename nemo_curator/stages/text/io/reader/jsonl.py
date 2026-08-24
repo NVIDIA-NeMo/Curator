@@ -137,10 +137,7 @@ def _read_jsonl_with_pandas(
     read_kwargs = dict(read_kwargs)
     if read_kwargs.get("engine") == PANDAS_ENGINE:
         read_kwargs.pop("engine")
-    if read_kwargs.get("lines", True) is False:
-        msg = "lines=False is not supported for JSONL reader"
-        raise ValueError(msg)
-    read_kwargs["lines"] = True
+    read_kwargs.setdefault("lines", True)
 
     dfs = []
     for file_path in paths:

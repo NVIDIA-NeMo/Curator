@@ -94,6 +94,17 @@ class TestJsonlReaderWithoutIdGenerator:
         with pytest.raises(RuntimeError, match=r"pyarrow_direct.*lines=True"):
             JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct", "lines": False}).process(task)
 
+    def test_pandas_reader_accepts_lines_false(self, tmp_path: Path) -> None:
+        """The pandas reader should support a JSON array when lines is false."""
+        file_path = tmp_path / "records.json"
+        file_path.write_text('[{"text":"first"},{"text":"second"}]', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "pandas", "lines": False}).process(task)
+
+        assert isinstance(result.data, pd.DataFrame)
+        assert result.data["text"].tolist() == ["first", "second"]
+
     def test_pandas_pyarrow_engine_returns_dataframe(self, sample_jsonl_files: list[str]) -> None:
         """The pandas PyArrow engine should remain available through read_kwargs."""
         task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})

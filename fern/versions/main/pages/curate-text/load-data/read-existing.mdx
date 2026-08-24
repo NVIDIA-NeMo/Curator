@@ -130,6 +130,9 @@ Both `JsonlReader` and `ParquetReader` support these configuration options:
 | `"pandas"` | `pandas.DataFrame` | You need pandas-specific options or inference, such as `convert_dates` or mixed-type object columns |
 | Another pandas engine, such as `"ujson"` or `"pyarrow"` | `pandas.DataFrame` | You explicitly need an engine supported by `pandas.read_json` |
 
+Use `engine="pandas"` or `engine="ujson"` with `lines=False`. Both `engine="pyarrow_direct"`
+and `engine="pyarrow"` require `lines=True`.
+
 The direct engine does not silently fall back to pandas. If PyArrow cannot infer a consistent
 schema—for example, when one JSON field contains both numbers and strings—select the pandas
 engine explicitly:
