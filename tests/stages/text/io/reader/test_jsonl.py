@@ -87,6 +87,29 @@ class TestJsonlReaderWithoutIdGenerator:
             "Doc 2-2",
         ]
 
+    def test_pyarrow_direct_rejects_lines_false(self, sample_jsonl_files: list[str]) -> None:
+        """The direct reader should clearly reject JSON formats unsupported by PyArrow."""
+        task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})
+
+        with pytest.raises(RuntimeError, match=r"pyarrow_direct.*lines=True"):
+            JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct", "lines": False}).process(task)
+
+    def test_pandas_pyarrow_engine_returns_dataframe(self, sample_jsonl_files: list[str]) -> None:
+        """The pandas PyArrow engine should remain available through read_kwargs."""
+        task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "pyarrow"}).process(task)
+
+        assert isinstance(result.data, pd.DataFrame)
+        assert result.data["text"].tolist() == [
+            "Doc 0-1",
+            "Doc 0-2",
+            "Doc 1-1",
+            "Doc 1-2",
+            "Doc 2-1",
+            "Doc 2-2",
+        ]
+
     def test_default_reader_does_not_change_engine_for_mixed_column_types(self, tmp_path: Path) -> None:
         """Distributed reader tasks should fail consistently instead of changing representation."""
         file_path = tmp_path / "mixed.jsonl"
