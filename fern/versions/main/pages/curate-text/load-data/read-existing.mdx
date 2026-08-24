@@ -119,6 +119,51 @@ Both `JsonlReader` and `ParquetReader` support these configuration options:
 | `fields` | list[str] \| None | Column names to read (column selection) | None (all columns) |
 | `read_kwargs` | dict[str, Any] \| None | Extra arguments for the underlying reader | None |
 
+### JSONL Engine Selection
+
+`JsonlReader` parses JSONL directly into a PyArrow table by default. Choose the engine through
+`read_kwargs` when your dataset requires different inference behavior.
+
+| `read_kwargs["engine"]` | Output backing type | Use when |
+| --- | --- | --- |
+| Omitted or `"pyarrow_direct"` | `pyarrow.Table` | Recommended for throughput and Arrow-native processing |
+| `"pandas"` | `pandas.DataFrame` | You need pandas-specific options or inference, such as `convert_dates` or mixed-type object columns |
+| Another pandas engine, such as `"ujson"` or `"pyarrow"` | `pandas.DataFrame` | You explicitly need an engine supported by `pandas.read_json` |
+
+The direct engine does not silently fall back to pandas. If PyArrow cannot infer a consistent
+schema—for example, when one JSON field contains both numbers and strings—select the pandas
+engine explicitly:
+
+```python
+reader = JsonlReader(
+    file_paths="/path/to/data",
+    read_kwargs={
+        "engine": "pandas",
+        "convert_dates": ["created_at"],
+    },
+)
+```
+
+The direct engine accepts these additional options:
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `pyarrow_block_size` | Initial number of bytes PyArrow processes per parser block | 8 MiB |
+| `pyarrow_max_block_size` | Maximum parser block used when retrying an unusually large JSON object | 256 MiB |
+| `storage_options` | Options passed to `fsspec` when opening remote files | `{}` |
+| `compression` | Compression passed to `fsspec`; `"infer"` uses the file extension | `"infer"` |
+| `lines` | JSONL requires one JSON object per line and therefore only supports `True` | `True` |
+
+`pyarrow_block_size` is separate from the top-level `blocksize` parameter. The top-level parameter
+controls how files are grouped into distributed tasks; the PyArrow option controls parsing inside
+each file. When one JSON object is too large for the initial parser window, Curator doubles the
+parser block and retries up to `pyarrow_max_block_size`. The maximum is a safety ceiling for rows
+such as base64-encoded images or PDFs, not the amount read for every row. If the row still does not
+fit, the PyArrow error is returned to the caller.
+
+Remote JSONL paths continue to use `fsspec`, with the resulting file-like stream passed directly to
+PyArrow. This supports the same remote paths and `storage_options` used during file partitioning.
+
 ### Parquet-Specific Features
 
 `ParquetReader` provides these optimizations:

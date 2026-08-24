@@ -31,6 +31,10 @@ from .base import BaseFileReader
 
 PANDAS_ENGINE = "pandas"
 PYARROW_DIRECT_ENGINE = "pyarrow_direct"
+# These parser block sizes are independent of JsonlReader.blocksize, which controls
+# how files are grouped into tasks. Start above PyArrow's 1 MiB default to avoid
+# retries for moderately large records, but cap retries for unusually large rows
+# such as records containing base64-encoded images or PDFs.
 DEFAULT_PYARROW_BLOCK_SIZE = 8 * 1024 * 1024
 DEFAULT_PYARROW_MAX_BLOCK_SIZE = 256 * 1024 * 1024
 
@@ -57,6 +61,14 @@ def _read_jsonl_file_with_pyarrow(
     storage_options: dict[str, Any],
     compression: str | None,
 ) -> pa.Table:
+    """Read one JSONL file, growing the parser block for an oversized record.
+
+    PyArrow reports ``straddling object`` when a JSON object is too large for
+    its current parsing window. Each retry doubles the block size up to
+    ``max_block_size``; the error is re-raised at the ceiling, so this loop is
+    bounded. Remote paths and custom storage options are opened through
+    ``fsspec`` and passed to PyArrow as a file-like stream.
+    """
     while True:
         try:
             read_options = paj.ReadOptions(block_size=block_size, use_threads=False)
@@ -80,6 +92,7 @@ def _read_jsonl_with_pyarrow(
     read_kwargs: dict[str, Any],
     fields: list[str] | None,
 ) -> pa.Table:
+    """Read JSONL paths directly into Arrow without a pandas conversion."""
     read_kwargs = dict(read_kwargs)
     read_kwargs.pop("engine", None)
     if read_kwargs.pop("lines", True) is False:
@@ -153,7 +166,14 @@ class JsonlReaderStage(BaseFileReader):
 
     Args:
         fields (list[str], optional): If specified, only read these fields (columns). Defaults to None.
-        read_kwargs (dict[str, Any], optional): Keyword arguments for the reader. Defaults to {}.
+        read_kwargs (dict[str, Any], optional): Reader options. The default
+            ``engine="pyarrow_direct"`` returns a ``pa.Table``. Select
+            ``engine="pandas"`` for a ``pd.DataFrame`` and pandas-specific
+            parsing or type inference. Other engine values are forwarded to
+            ``pd.read_json`` for backward compatibility. The direct engine
+            accepts ``compression``, ``storage_options``,
+            ``pyarrow_block_size``, and ``pyarrow_max_block_size``;
+            ``lines`` must remain ``True``. Defaults to {}.
         _generate_ids (bool): Whether to generate monotonically increasing IDs across all files.
             This uses IdGenerator actor, which needs to be instantiated before using this stage.
             This can be slow, so it is recommended to use AddId stage instead, unless monotonically increasing IDs
@@ -175,8 +195,10 @@ class JsonlReaderStage(BaseFileReader):
         """Read JSONL files into an Arrow table or pandas DataFrame.
 
         The default ``pyarrow_direct`` engine retains Arrow data without a
-        pandas conversion. Use ``engine="pandas"`` when pandas-specific
-        parsing and inference are required.
+        pandas conversion and does not fall back when Arrow rejects an input.
+        Use ``engine="pandas"`` when pandas-specific parsing and inference are
+        required. Other engine values are delegated to ``pd.read_json`` and
+        also return a pandas DataFrame.
         """
 
         read_kwargs = {} if read_kwargs is None else dict(read_kwargs)
@@ -193,6 +215,25 @@ class JsonlReader(CompositeStage[EmptyTask, DocumentBatch]):
     This high-level stage decomposes into:
     1. FilePartitioningStage - partitions files into groups
     2. JsonlReaderStage - reads file groups into DocumentBatches
+
+    Args:
+        file_paths: File paths, directories, or glob patterns to read.
+        files_per_partition: Number of files grouped into each reader task.
+            When set, this takes precedence over ``blocksize``.
+        blocksize: Target storage size for each file-group task. This does not
+            control PyArrow's parser blocks; configure those through
+            ``read_kwargs`` instead.
+        fields: Optional columns to retain.
+        read_kwargs: Options for JSON parsing and remote storage. Direct
+            PyArrow parsing is the default. Set ``engine="pandas"`` for pandas
+            inference or another pandas-supported engine value to delegate to
+            ``pd.read_json``. The direct engine accepts ``compression``,
+            ``storage_options``, ``pyarrow_block_size``, and
+            ``pyarrow_max_block_size``.
+        task_type: Output task modality. Only ``"document"`` is supported.
+        file_extensions: File extensions considered during partitioning.
+        _generate_ids: Generate stable, monotonically increasing document IDs.
+        _assign_ids: Assign IDs previously registered for the same reader task.
     """
 
     file_paths: str | list[str]

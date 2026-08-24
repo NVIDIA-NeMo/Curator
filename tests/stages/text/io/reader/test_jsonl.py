@@ -163,6 +163,22 @@ class TestJsonlReaderWithoutIdGenerator:
         assert isinstance(result.data, pa.Table)
         assert result.data["text"].to_pylist() == [text]
 
+    def test_pyarrow_direct_stops_growing_block_at_maximum(self, tmp_path: Path) -> None:
+        """A record larger than the maximum block should raise instead of retrying indefinitely."""
+        file_path = tmp_path / "too_large.jsonl"
+        file_path.write_text(json.dumps({"text": "x" * (5 * 1024)}) + "\n", encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+        stage = JsonlReaderStage(
+            read_kwargs={
+                "engine": "pyarrow_direct",
+                "pyarrow_block_size": 1024,
+                "pyarrow_max_block_size": 2 * 1024,
+            }
+        )
+
+        with pytest.raises(pa.ArrowInvalid, match="straddling object"):
+            stage.process(task)
+
     def test_pyarrow_direct_reads_fsspec_url(self) -> None:
         """The direct engine should retain JsonlReader's remote-filesystem behavior."""
         file_path = "memory://jsonl-reader/direct.jsonl"
