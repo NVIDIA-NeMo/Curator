@@ -46,11 +46,10 @@ environment. The first run therefore provisions that environment (one-time
 download of chatterbox and its deps); subsequent runs reuse Ray's cached
 virtualenv.
 
-> **Requires `backend=ray_data`.** Only the Ray Data (and Ray actor pool)
-> backends honor a stage's `runtime_env`; the default `xenna` backend does not,
-> so under `xenna` you must install chatterbox into the main environment
-> yourself. Run this tutorial with `backend=ray_data` to use the auto-managed
-> isolated environment.
+Both the Ray Data and Xenna backends honor the stage's `runtime_env`. They pass
+the same Ray-format pip environment to their workers, so Chatterbox is installed
+in an isolated environment with either backend and must not be installed into
+Curator's main environment.
 
 If you have already provisioned chatterbox in a dedicated environment and want
 to reuse it instead of the auto-managed one, disable the isolated runtime with
@@ -152,8 +151,8 @@ Supported languages: `ar`, `da`, `de`, `el`, `en`, `es`, `fi`, `fr`, `he`, `hi`,
 
 | Backend | Description | When to use |
 |---|---|---|
-| `ray_data` | Default for this tutorial. Built on Ray Data `map_batches`. Honors the stage `runtime_env`, so chatterbox is auto-installed into an isolated virtualenv. | **Recommended** — enables the isolated chatterbox runtime described above. |
-| `xenna` | Cosmos-Xenna streaming engine with automatic worker allocation. Does **not** honor the stage `runtime_env`, so chatterbox must already be installed in the environment. | Workloads where you pre-install chatterbox yourself. |
+| `ray_data` | Default for this tutorial. Built on Ray Data `map_batches`. Honors the stage `runtime_env`, so Chatterbox is auto-installed into an isolated virtualenv. | Ray Data pipelines and its actor scheduling controls. |
+| `xenna` | Cosmos-Xenna streaming engine with automatic worker allocation. Also forwards the complete Ray-format stage `runtime_env`, including pip packages. | Xenna streaming or batch execution. |
 
 `execution_mode` applies only to Xenna and is ignored when `backend` is `ray_data`.
 

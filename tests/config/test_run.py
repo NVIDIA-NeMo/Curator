@@ -623,10 +623,26 @@ def test_chatterbox_tts_tutorial_yaml_matches_reference_runner_config():
     assert writer.__class__.__name__ == "ManifestWriterStage"
     assert writer.output_path == "/data/tts_output/result.jsonl"
 
-    # ray_data is the tutorial default: it honors ChatterboxTTSStage's isolated
-    # runtime_env, unlike xenna (see README "Choosing a backend").
+    # ray_data is the tutorial default; both Ray Data and Xenna honor the same
+    # isolated Chatterbox runtime_env (see README "Choosing a backend").
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+
+    from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+    from nemo_curator.backends.xenna.adapter import XennaStageAdapter
+
+    class _Dataset:
+        def map_batches(self, _fn: object, **kwargs: object) -> "_Dataset":
+            self.kwargs = kwargs
+            return self
+
+    dataset = _Dataset()
+    RayDataStageAdapter(stage).process_dataset(dataset)
+    assert dataset.kwargs["runtime_env"]["pip"] == stage.runtime_env["pip"]
+
+    xenna_env = XennaStageAdapter(stage).env_info
+    assert xenna_env is not None
+    assert xenna_env.to_ray_runtime_env().get("pip") == stage.runtime_env["pip"]
 
 
 def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():

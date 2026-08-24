@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import types
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -27,7 +29,9 @@ import soundfile as sf
 import torch
 
 from nemo_curator.stages.audio.tts.chatterbox_tts import (
+    _CHATTERBOX_MODEL_REVISION,
     _ENGLISH_MODEL_FILES,
+    _MULTILINGUAL_MODEL_FILES,
     ChatterboxTTSStage,
 )
 from nemo_curator.tasks import AudioTask
@@ -37,6 +41,55 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 MODULE = "nemo_curator.stages.audio.tts.chatterbox_tts"
+
+# Chatterbox is intentionally excluded from Curator's shared extras/lockfile
+# (it hard-pins a conflicting transformers/torch) and is installed only into
+# the stage's isolated runtime_env at run time. audio_cpu CI environments
+# therefore never have the real "chatterbox" package importable, so
+# unittest.mock.patch("chatterbox.tts.ChatterboxTTS") would raise
+# ModuleNotFoundError before a single test body runs. Inject a fake module
+# hierarchy so patch()/import can resolve these targets without the real
+# dependency, keeping these tests hermetic under audio_cpu.
+def _build_fake_chatterbox_modules() -> dict[str, types.ModuleType]:
+    chatterbox = types.ModuleType("chatterbox")
+    tts_mod = types.ModuleType("chatterbox.tts")
+    tts_mod.ChatterboxTTS = type("ChatterboxTTS", (), {"from_local": classmethod(lambda cls, *a, **k: None)})  # noqa: ARG005
+    mtl_tts_mod = types.ModuleType("chatterbox.mtl_tts")
+    mtl_tts_mod.ChatterboxMultilingualTTS = type(
+        "ChatterboxMultilingualTTS",
+        (),
+        {"from_local": classmethod(lambda cls, *a, **k: None)},  # noqa: ARG005
+    )
+    models_mod = types.ModuleType("chatterbox.models")
+    t3_mod = types.ModuleType("chatterbox.models.t3")
+    llama_configs_mod = types.ModuleType("chatterbox.models.t3.llama_configs")
+    # Real LLAMA_CONFIGS maps model-size keys to config dicts that may or may
+    # not already carry an "attn_implementation" entry; a config lacking the
+    # key (like this one) exercises the same `cfg.get(...)` fallback path as
+    # the real module.
+    llama_configs_mod.LLAMA_CONFIGS = {"350M": {}, "1B": {"attn_implementation": "sdpa"}}
+
+    chatterbox.tts = tts_mod
+    chatterbox.mtl_tts = mtl_tts_mod
+    chatterbox.models = models_mod
+    models_mod.t3 = t3_mod
+    t3_mod.llama_configs = llama_configs_mod
+
+    return {
+        "chatterbox": chatterbox,
+        "chatterbox.tts": tts_mod,
+        "chatterbox.mtl_tts": mtl_tts_mod,
+        "chatterbox.models": models_mod,
+        "chatterbox.models.t3": t3_mod,
+        "chatterbox.models.t3.llama_configs": llama_configs_mod,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _fake_chatterbox_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the real-or-absent ``chatterbox`` package irrelevant to these tests."""
+    for name, module in _build_fake_chatterbox_modules().items():
+        monkeypatch.setitem(sys.modules, name, module)
 
 
 @pytest.fixture
@@ -133,57 +186,45 @@ class TestChatterboxTTSStage:
     """Test suite for ChatterboxTTSStage."""
 
     @patch("chatterbox.tts.ChatterboxTTS")
-    def test_setup_loads_english_model(
-        self, mock_cls: MagicMock, output_dir: str, ref_dataset: str
-    ) -> None:
-        mock_cls.from_pretrained.return_value = _fake_model()
+    def test_setup_loads_english_model(self, mock_cls: MagicMock, output_dir: str, ref_dataset: str) -> None:
+        mock_cls.from_local.return_value = _fake_model()
         stage = _build_stage(output_dir, ref_dataset)
-        stage.setup()
-        mock_cls.from_pretrained.assert_called_once_with(device="cpu")
+        with patch(f"{MODULE}.snapshot_download", return_value="/models/snapshot"):
+            stage.setup()
+        mock_cls.from_local.assert_called_once_with("/models/snapshot", device="cpu")
         assert stage.model is not None
         assert stage.reference_wavs_list is not None
         stage.teardown()
         assert stage.model is None
 
     @patch("chatterbox.mtl_tts.ChatterboxMultilingualTTS")
-    def test_setup_loads_multilingual_model(
-        self, mock_cls: MagicMock, output_dir: str, ref_dataset: str
-    ) -> None:
-        mock_cls.from_pretrained.return_value = _fake_model()
+    def test_setup_loads_multilingual_model(self, mock_cls: MagicMock, output_dir: str, ref_dataset: str) -> None:
+        mock_cls.from_local.return_value = _fake_model()
         stage = _build_stage(output_dir, ref_dataset, language="fr")
-        stage.setup()
-        mock_cls.from_pretrained.assert_called_once_with(device="cpu")
+        with patch(f"{MODULE}.snapshot_download", return_value="/models/snapshot"):
+            stage.setup()
+        mock_cls.from_local.assert_called_once_with("/models/snapshot", device="cpu")
         assert stage.language == "fr"
 
-    def test_multilingual_load_restores_global_state(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_multilingual_load_restores_global_state(self, output_dir: str, ref_dataset: str) -> None:
         import chatterbox.models.t3.llama_configs as llama_cfgs
 
         env_before = os.environ.get("TRANSFORMERS_ATTN_IMPLEMENTATION")
-        cfgs_before = {
-            name: cfg.get("attn_implementation")
-            for name, cfg in llama_cfgs.LLAMA_CONFIGS.items()
-        }
+        cfgs_before = {name: cfg.get("attn_implementation") for name, cfg in llama_cfgs.LLAMA_CONFIGS.items()}
 
         stage = _build_stage(output_dir, ref_dataset, language="fr")
         with patch("chatterbox.mtl_tts.ChatterboxMultilingualTTS") as mock_cls:
-            mock_cls.from_pretrained.return_value = _fake_model()
-            stage.setup()
+            mock_cls.from_local.return_value = _fake_model()
+            with patch(f"{MODULE}.snapshot_download", return_value="/models/snapshot"):
+                stage.setup()
 
         assert os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] == "eager"
-        assert all(
-            cfg.get("attn_implementation") == "eager"
-            for cfg in llama_cfgs.LLAMA_CONFIGS.values()
-        )
+        assert all(cfg.get("attn_implementation") == "eager" for cfg in llama_cfgs.LLAMA_CONFIGS.values())
 
         stage.teardown()
 
         assert os.environ.get("TRANSFORMERS_ATTN_IMPLEMENTATION") == env_before
-        cfgs_after = {
-            name: cfg.get("attn_implementation")
-            for name, cfg in llama_cfgs.LLAMA_CONFIGS.items()
-        }
+        cfgs_after = {name: cfg.get("attn_implementation") for name, cfg in llama_cfgs.LLAMA_CONFIGS.items()}
         assert cfgs_after == cfgs_before
 
     def test_setup_on_node_pre_downloads_english_model(
@@ -191,14 +232,17 @@ class TestChatterboxTTSStage:
     ) -> None:
         cache_dir = str(tmp_path / "hf-cache")
         stage = _build_stage(output_dir, ref_dataset, cache_dir=cache_dir)
-        with patch(f"{MODULE}.hf_hub_download") as mock_download:
+        with patch(f"{MODULE}.snapshot_download", return_value="/models/snapshot") as mock_download:
             stage.setup_on_node()
-        assert mock_download.call_count == len(_ENGLISH_MODEL_FILES)
-        mock_download.assert_any_call(
+        mock_download.assert_called_once_with(
             repo_id="ResembleAI/chatterbox",
-            filename="ve.safetensors",
+            repo_type="model",
+            revision=_CHATTERBOX_MODEL_REVISION,
+            allow_patterns=list(_ENGLISH_MODEL_FILES),
             cache_dir=cache_dir,
+            token=os.getenv("HF_TOKEN"),
         )
+        assert stage._model_snapshot_dir == "/models/snapshot"
 
     def test_setup_on_node_pre_downloads_multilingual_model(
         self, output_dir: str, ref_dataset: str, tmp_path: Path
@@ -210,18 +254,26 @@ class TestChatterboxTTSStage:
         mock_download.assert_called_once_with(
             repo_id="ResembleAI/chatterbox",
             repo_type="model",
-            revision="main",
-            allow_patterns=[
-                "ve.pt",
-                "t3_23lang.safetensors",
-                "s3gen.pt",
-                "mtl_tokenizer.json",
-                "conds.pt",
-                "Cangjie5_TC.json",
-            ],
+            revision=_CHATTERBOX_MODEL_REVISION,
+            allow_patterns=list(_MULTILINGUAL_MODEL_FILES),
             cache_dir=cache_dir,
             token=os.getenv("HF_TOKEN"),
         )
+
+    @patch("chatterbox.mtl_tts.ChatterboxMultilingualTTS")
+    def test_worker_setup_loads_prefetched_snapshot_without_second_download(
+        self, mock_cls: MagicMock, output_dir: str, ref_dataset: str
+    ) -> None:
+        mock_cls.from_local.return_value = _fake_model()
+        stage = _build_stage(output_dir, ref_dataset, language="fr")
+        with patch(f"{MODULE}.snapshot_download", return_value="/models/immutable-snapshot") as download:
+            stage.setup_on_node()
+            # Simulate an offline worker: any attempted second HF access fails.
+            download.side_effect = AssertionError("worker attempted a second download")
+            stage.setup()
+
+        assert download.call_count == 1
+        mock_cls.from_local.assert_called_once_with("/models/immutable-snapshot", device="cpu")
 
     def test_stage_contract(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
@@ -317,9 +369,7 @@ class TestChatterboxTTSStage:
 
         assert "audio_filepath" in results[0].data
 
-    def test_process_batch_preserves_task_metadata_and_fields(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_batch_preserves_task_metadata_and_fields(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
@@ -361,9 +411,7 @@ class TestChatterboxTTSStage:
         assert path1 == path2
         assert stage.model.generate.call_count == calls_before
 
-    def test_process_batch_multilingual(
-        self, output_dir: str, ref_dataset_mls: str
-    ) -> None:
+    def test_process_batch_multilingual(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="es")
             stage.setup()
@@ -389,14 +437,20 @@ class TestChatterboxTTSStage:
         malformed_rttm.write_text("NOT_SPEAKER dialog001 1 0.0 2.0\ntoo short\n")
         assert stage._process_audio_with_rttm(wav_path, str(malformed_rttm)) == wav_path
 
+        malformed_rttm.write_text(
+            "SPEAKER d 1 nope 1.0 <NA> <NA> s <NA> <NA>\n"
+            "SPEAKER d 1 nan 1.0 <NA> <NA> s <NA> <NA>\n"
+            "SPEAKER d 1 -1.0 1.0 <NA> <NA> s <NA> <NA>\n"
+            "SPEAKER d 1 0.0 inf <NA> <NA> s <NA> <NA>\n"
+        )
+        assert stage._process_audio_with_rttm(wav_path, str(malformed_rttm)) == wav_path
+
         # A valid RTTM but audio loading itself fails.
         rttm_path = os.path.join(ref_dataset, "rttms", "dialog001", "spk_A.rttm")
         with patch(f"{MODULE}.ta.load", side_effect=RuntimeError("corrupt audio")):
             assert stage._process_audio_with_rttm(wav_path, rttm_path) == wav_path
 
-    def test_process_audio_with_rttm_truncates_to_max_duration(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_audio_with_rttm_truncates_to_max_duration(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset, max_reference_duration=1.0)
         stage._init_temp_dir()
         wav_path = os.path.join(ref_dataset, "wavs", "dialog001", "spk_A.wav")
@@ -408,9 +462,7 @@ class TestChatterboxTTSStage:
         audio, sr = sf.read(out_path)
         assert len(audio) / sr == pytest.approx(1.0, abs=0.05)
 
-    def test_get_reference_audio_mls_falls_back_on_errors(
-        self, output_dir: str, ref_dataset_mls: str
-    ) -> None:
+    def test_get_reference_audio_mls_falls_back_on_errors(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="es")
             stage.setup()
@@ -425,9 +477,7 @@ class TestChatterboxTTSStage:
             out_path, chosen = stage._get_reference_audio_mls("some_key")
         assert out_path in stage._speaker_audio_map[chosen]
 
-    def test_get_reference_audio_mls_truncates_to_max_duration(
-        self, output_dir: str, ref_dataset_mls: str
-    ) -> None:
+    def test_get_reference_audio_mls_truncates_to_max_duration(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="es", max_reference_duration=3.0)
             stage.setup()
@@ -436,9 +486,7 @@ class TestChatterboxTTSStage:
         audio, sr = sf.read(out_path)
         assert len(audio) / sr == pytest.approx(3.0, abs=0.05)
 
-    def test_get_reference_audio_mls_resamples_mixed_rate_segments(
-        self, output_dir: str, tmp_path: Path
-    ) -> None:
+    def test_get_reference_audio_mls_resamples_mixed_rate_segments(self, output_dir: str, tmp_path: Path) -> None:
         mls_root = tmp_path / "mls_mixed_rate"
         book_dir = mls_root / "1234" / "book01"
         book_dir.mkdir(parents=True)
@@ -458,9 +506,7 @@ class TestChatterboxTTSStage:
         # other's rate, corrupting the total duration.
         assert len(audio) / sr == pytest.approx(4.0, rel=0.05)
 
-    def test_process_batch_mls_reference_layout(
-        self, output_dir: str, ref_dataset_mls: str
-    ) -> None:
+    def test_process_batch_mls_reference_layout(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="ru")
             stage.setup()
@@ -474,9 +520,7 @@ class TestChatterboxTTSStage:
         assert len(results) == 2
         assert results[0].data["reference_voice"] != results[1].data["reference_voice"]
 
-    def test_process_batch_generation_failure_produces_silence(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_batch_generation_failure_produces_silence(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
@@ -487,16 +531,12 @@ class TestChatterboxTTSStage:
         audio, _sr = sf.read(result.data["audio_filepath"])
         assert np.allclose(audio, 0.0)
 
-    def test_normalize_audio_returns_silence_unchanged(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_normalize_audio_returns_silence_unchanged(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
         silence = torch.zeros(1, 1000)
         assert torch.equal(stage._normalize_audio(silence), silence)
 
-    def test_normalize_audio_scales_rms_toward_target_level(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_normalize_audio_scales_rms_toward_target_level(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset, normalize_level=-20.0)
         wav = 0.01 * torch.sin(torch.linspace(0, 100, 16000)).unsqueeze(0)
 
@@ -505,9 +545,7 @@ class TestChatterboxTTSStage:
         rms_db = 20 * torch.log10(torch.sqrt(torch.mean(normalized**2)) + 1e-8)
         assert rms_db.item() == pytest.approx(-20.0, abs=0.5)
 
-    def test_normalize_audio_clips_peaks_below_one(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_normalize_audio_clips_peaks_below_one(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset, normalize_level=0.0)
         wav = 0.001 * torch.sin(torch.linspace(0, 100, 16000)).unsqueeze(0)
 
@@ -515,9 +553,7 @@ class TestChatterboxTTSStage:
 
         assert torch.max(torch.abs(normalized)).item() <= 0.99 + 1e-6
 
-    def test_generate_turn_audio_respects_normalize_audio_flag(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_generate_turn_audio_respects_normalize_audio_flag(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             enabled = _build_stage(output_dir, ref_dataset, normalize_audio=True)
             enabled.setup()
@@ -531,9 +567,7 @@ class TestChatterboxTTSStage:
                 disabled._generate_turn_audio("Hello", "ref.wav", "conv001")
             mock_norm.assert_not_called()
 
-    def test_process_batch_resamples_to_configured_sample_rate(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_batch_resamples_to_configured_sample_rate(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset, sample_rate=16000)
             stage.setup()
@@ -551,9 +585,7 @@ class TestChatterboxTTSStage:
 
         assert cache_hit.data["duration"] == pytest.approx(duration_before)
 
-    def test_output_filename_differs_for_each_generation_input(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_output_filename_differs_for_each_generation_input(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
         base = {
             "conversation_id": "conv001",
@@ -581,9 +613,7 @@ class TestChatterboxTTSStage:
         filename_fr = ChatterboxTTSStage._output_filename(stage_fr._cache_manifest(**base))
         assert filename_fr != baseline
 
-    def test_process_batch_regenerates_on_invalid_sidecar(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_batch_regenerates_on_invalid_sidecar(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
@@ -621,9 +651,7 @@ class TestChatterboxTTSStage:
             assert stage.model.generate.call_count == calls_before + 1
             assert os.path.exists(result.data["audio_filepath"])
 
-    def test_process_batch_io_error_preserves_original_task(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_batch_io_error_preserves_original_task(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
@@ -648,9 +676,7 @@ class TestChatterboxTTSStage:
         path_b.write_bytes(b"hello")
         assert ChatterboxTTSStage._hash_file_content(str(path_b)) == hash_a
 
-    def test_reference_content_hash_defaults_to_empty_string(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_reference_content_hash_defaults_to_empty_string(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
         assert stage._reference_content_hash("Alice", "conv001") == ""
 
@@ -681,6 +707,51 @@ class TestChatterboxTTSStage:
         assert path1 != path2
         assert stage2.model.generate.call_count == 1
 
+    def test_process_batch_regenerates_when_only_rttm_changes(self, output_dir: str, ref_dataset: str) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage1 = _build_stage(output_dir, ref_dataset)
+            stage1.setup()
+            task = _make_task("RTTM identity", "Alice", "conv-rttm")
+            path1 = stage1.process_batch([task])[0].data["audio_filepath"]
+            key = "conv-rttm::Alice"
+            selected_wav = stage1._speaker_to_original_wav[key]
+            stage1.teardown()
+
+            dialog = os.path.basename(os.path.dirname(selected_wav))
+            speaker = os.path.splitext(os.path.basename(selected_wav))[0]
+            rttm_path = os.path.join(ref_dataset, "rttms", dialog, f"{speaker}.rttm")
+            with open(rttm_path, "w", encoding="utf-8") as f:
+                f.write(f"SPEAKER {dialog} 1 1.0 0.5 <NA> <NA> {speaker} <NA> <NA>\n")
+
+            stage2 = _build_stage(output_dir, ref_dataset)
+            stage2.setup()
+            path2 = stage2.process_batch([_make_task("RTTM identity", "Alice", "conv-rttm")])[0].data["audio_filepath"]
+
+        assert path2 != path1
+        assert stage2.model.generate.call_count == 1
+
+    def test_reference_preprocessing_failure_isolated_to_one_task(self, output_dir: str, ref_dataset: str) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            tasks = [_make_task("bad", task_id="bad"), _make_task("good", task_id="good")]
+            original = stage._assign_reference
+            calls = 0
+
+            def fail_once(speaker: str, conversation_id: str) -> tuple[str, str]:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    msg = "bad RTTM"
+                    raise ValueError(msg)
+                return original(speaker, conversation_id)
+
+            with patch.object(stage, "_assign_reference", side_effect=fail_once):
+                results = stage.process_batch(tasks)
+
+        assert "audio_filepath" not in results[0].data
+        assert "audio_filepath" in results[1].data
+
     def test_process_batch_writes_matching_sidecar_and_no_leftover_temp_files(
         self, output_dir: str, ref_dataset: str
     ) -> None:
@@ -705,17 +776,13 @@ class TestChatterboxTTSStage:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage1 = _build_stage(output_dir, ref_dataset)
             stage1.setup()
-            with patch.object(
-                stage1, "_assign_reference", return_value=("/a.wav", "dialog001/spk_A")
-            ):
+            with patch.object(stage1, "_assign_reference", return_value=("/a.wav", "dialog001/spk_A")):
                 result1 = stage1.process_batch([_make_task("Same text", "Alice", "conv001")])[0]
             stage1.teardown()
 
             stage2 = _build_stage(output_dir, ref_dataset)
             stage2.setup()
-            with patch.object(
-                stage2, "_assign_reference", return_value=("/b.wav", "dialog001/spk_B")
-            ):
+            with patch.object(stage2, "_assign_reference", return_value=("/b.wav", "dialog001/spk_B")):
                 result2 = stage2.process_batch([_make_task("Same text", "Alice", "conv001")])[0]
 
         assert result1.data["reference_voice"] == "dialog001/spk_A"
@@ -751,9 +818,7 @@ class TestChatterboxTTSStage:
         _, ref_id_b = actor_b._assign_reference("Alice", "conv001")
         assert ref_id_a == ref_id_b
 
-    def test_assign_reference_independent_of_call_order(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_assign_reference_independent_of_call_order(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             actor_a = _build_stage(output_dir, ref_dataset)
             actor_a.setup()
@@ -768,18 +833,14 @@ class TestChatterboxTTSStage:
         assert alice_on_a == alice_on_b
         assert bob_on_a == bob_on_b
 
-    def test_assign_reference_matches_across_actors_mls_layout(
-        self, output_dir: str, ref_dataset_mls: str
-    ) -> None:
+    def test_assign_reference_matches_across_actors_mls_layout(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             actor_a = _build_stage(output_dir, ref_dataset_mls, language="ru")
             actor_a.setup()
             actor_b = _build_stage(output_dir, ref_dataset_mls, language="ru")
             actor_b.setup()
 
-        assert actor_a._assign_reference("Alice", "conv001")[1] == actor_b._assign_reference(
-            "Alice", "conv001"
-        )[1]
+        assert actor_a._assign_reference("Alice", "conv001")[1] == actor_b._assign_reference("Alice", "conv001")[1]
 
     def test_get_exaggeration_matches_across_independent_actor_instances(
         self, output_dir: str, ref_dataset: str
@@ -795,9 +856,7 @@ class TestChatterboxTTSStage:
         assert exag_a == exag_b
         assert 0.3 <= exag_a <= 0.9
 
-    def test_process_batch_preserves_voice_across_actors_out_of_order(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_process_batch_preserves_voice_across_actors_out_of_order(self, output_dir: str, ref_dataset: str) -> None:
         turns = [
             ("Hi Bob", "Alice", "t1"),
             ("Hi Alice", "Bob", "t2"),

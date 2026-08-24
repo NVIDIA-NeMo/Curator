@@ -20,6 +20,7 @@ import contextlib
 import glob
 import hashlib
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -30,7 +31,7 @@ import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
-from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -40,17 +41,40 @@ from nemo_curator.tasks import AudioTask
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
-SUPPORTED_LANGUAGES = frozenset({
-    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it",
-    "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
-})
+SUPPORTED_LANGUAGES = frozenset(
+    {
+        "ar",
+        "da",
+        "de",
+        "el",
+        "en",
+        "es",
+        "fi",
+        "fr",
+        "he",
+        "hi",
+        "it",
+        "ja",
+        "ko",
+        "ms",
+        "nl",
+        "no",
+        "pl",
+        "pt",
+        "ru",
+        "sv",
+        "sw",
+        "tr",
+        "zh",
+    }
+)
 
 # chatterbox-tts is not a Curator dependency because it hard-pins
 # transformers==5.2.0 and torch==2.6.0 (incompatible with Curator's
 # transformers>=4.56,<5.0 / torch==2.10.0), which would make uv lock and the
 # audio extras unresolvable. It is installed at runtime into an isolated Ray
 # virtualenv via the stage's ``runtime_env`` instead (see ``_CHATTERBOX_RUNTIME_ENV``).
-_CHATTERBOX_PIP_SPEC = "chatterbox-tts>=0.1.4"
+_CHATTERBOX_PIP_SPEC = "chatterbox-tts==0.1.7"
 # chatterbox's resemble-perth watermarker imports pkg_resources at runtime.
 # pkg_resources ships with setuptools but was REMOVED in setuptools>=81, and Ray's
 # isolated virtualenv (unlike a uv --seed venv) does not seed setuptools at all.
@@ -75,6 +99,10 @@ _CHATTERBOX_RUNTIME_ENV: dict[str, Any] = {
 }
 
 _CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
+# Pin the model repository independently of the Python package.  Loading a
+# moving ``main`` revision would make cache entries irreproducible even with an
+# exact chatterbox-tts version.
+_CHATTERBOX_MODEL_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"
 _ENGLISH_MODEL_FILES = (
     "ve.safetensors",
     "t3_cfg.safetensors",
@@ -84,9 +112,9 @@ _ENGLISH_MODEL_FILES = (
 )
 _MULTILINGUAL_MODEL_FILES = (
     "ve.pt",
-    "t3_23lang.safetensors",
+    "t3_mtl23ls_v2.safetensors",
     "s3gen.pt",
-    "mtl_tokenizer.json",
+    "grapheme_mtl_merged_expanded_v1.json",
     "conds.pt",
     "Cangjie5_TC.json",
 )
@@ -111,6 +139,7 @@ _CHATTERBOX_NATIVE_SR = 24000
 # by changing the filename hash, forcing regeneration instead of silently
 # reusing stale audio.
 _CACHE_SCHEMA_VERSION = 1
+_REFERENCE_PREPROCESSING_SCHEMA_VERSION = 1
 
 
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
@@ -211,10 +240,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.normalize_level = normalize_level
 
         if language is not None and language.lower() not in SUPPORTED_LANGUAGES:
-            msg = (
-                f"Unsupported language '{language}'. "
-                f"Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
-            )
+            msg = f"Unsupported language '{language}'. Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
             raise ValueError(msg)
         if language is not None:
             self.language = language.lower()
@@ -234,6 +260,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.exaggeration = float(exaggeration)
 
         self.model = None
+        self._model_snapshot_dir: str | None = None
         self.reference_wavs_list: list[str] | None = None
         self._reference_layout: str = "wavs"
         self._speaker_audio_map: dict[str, list[str]] = {}
@@ -272,33 +299,20 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         try:
             self._pre_download_model_weights()
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "Chatterbox model pre-download in setup_on_node failed; will retry in setup()."
-            )
+            logger.warning("Chatterbox model pre-download in setup_on_node failed; will retry in setup().")
 
     def _pre_download_model_weights(self) -> None:
         """Download Chatterbox checkpoint files from HuggingFace."""
-        if self.language:
-            snapshot_download(
-                repo_id=_CHATTERBOX_REPO_ID,
-                repo_type="model",
-                revision="main",
-                allow_patterns=list(_MULTILINGUAL_MODEL_FILES),
-                cache_dir=self.cache_dir,
-                token=os.getenv("HF_TOKEN"),
-            )
-            logger.info(
-                f"Pre-downloaded ChatterboxMultilingualTTS weights from {_CHATTERBOX_REPO_ID}"
-            )
-            return
-
-        for fpath in _ENGLISH_MODEL_FILES:
-            hf_hub_download(
-                repo_id=_CHATTERBOX_REPO_ID,
-                filename=fpath,
-                cache_dir=self.cache_dir,
-            )
-        logger.info(f"Pre-downloaded ChatterboxTTS weights from {_CHATTERBOX_REPO_ID}")
+        model_files = _MULTILINGUAL_MODEL_FILES if self.language else _ENGLISH_MODEL_FILES
+        self._model_snapshot_dir = snapshot_download(
+            repo_id=_CHATTERBOX_REPO_ID,
+            repo_type="model",
+            revision=_CHATTERBOX_MODEL_REVISION,
+            allow_patterns=list(model_files),
+            cache_dir=self.cache_dir,
+            token=os.getenv("HF_TOKEN"),
+        )
+        logger.info(f"Pre-downloaded Chatterbox weights from {_CHATTERBOX_REPO_ID}@{_CHATTERBOX_MODEL_REVISION}")
 
     def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
@@ -350,14 +364,19 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _load_model(self) -> None:
         """Load ChatterboxTTS or ChatterboxMultilingualTTS."""
+        # setup_on_node() normally populated this exact snapshot.  Download it
+        # here only as a retry if node setup failed; from_local() below never
+        # consults the default HF cache or performs a second download.
+        if self._model_snapshot_dir is None:
+            self._pre_download_model_weights()
+
         if self.language:
             from chatterbox.models.t3 import llama_configs as _llama_cfgs
             from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
             self._prev_attn_env = os.environ.get(_ATTN_ENV, None)
             self._llama_cfg_restore = [
-                (cfg, cfg.get("attn_implementation", _UNSET))
-                for cfg in _llama_cfgs.LLAMA_CONFIGS.values()
+                (cfg, cfg.get("attn_implementation", _UNSET)) for cfg in _llama_cfgs.LLAMA_CONFIGS.values()
             ]
             self._global_state_modified = True
 
@@ -365,12 +384,15 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             for cfg in _llama_cfgs.LLAMA_CONFIGS.values():
                 cfg["attn_implementation"] = "eager"
 
-            self.model = ChatterboxMultilingualTTS.from_pretrained(device=self.device)
+            self.model = ChatterboxMultilingualTTS.from_local(
+                self._model_snapshot_dir,
+                device=self.device,
+            )
             logger.info(f"Loaded ChatterboxMultilingualTTS (language={self.language})")
         else:
             from chatterbox.tts import ChatterboxTTS
 
-            self.model = ChatterboxTTS.from_pretrained(device=self.device)
+            self.model = ChatterboxTTS.from_local(self._model_snapshot_dir, device=self.device)
             logger.info("Loaded ChatterboxTTS (English)")
 
     def _load_reference_audio_files(self) -> None:
@@ -407,13 +429,10 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             )
             return
 
-        msg = (
-            f"No reference audio found in {self.reference_voices_dataset}. "
-            f"Expected wavs/*/*.wav or */*/*.flac"
-        )
+        msg = f"No reference audio found in {self.reference_voices_dataset}. Expected wavs/*/*.wav or */*/*.flac"
         raise ValueError(msg)
 
-    def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:  # noqa: C901
+    def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:  # noqa: C901, PLR0912
         """Strip silences using RTTM speech segments, up to max_reference_duration."""
         if not os.path.exists(rttm_filepath):
             return audio_filepath
@@ -422,14 +441,31 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             audio, sr = ta.load(audio_filepath)
 
             speech_segments: list[tuple[float, float]] = []
-            with open(rttm_filepath) as f:
-                for line in f:
+            audio_duration = audio.shape[1] / sr
+            with open(rttm_filepath, encoding="utf-8") as f:
+                for line_number, line in enumerate(f, start=1):
                     parts = line.strip().split()
                     _min_rttm_fields = 5
                     if len(parts) >= _min_rttm_fields and parts[0] == "SPEAKER":
-                        start = float(parts[3])
-                        dur = float(parts[4])
-                        speech_segments.append((start, start + dur))
+                        try:
+                            start = float(parts[3])
+                            dur = float(parts[4])
+                        except ValueError:
+                            logger.warning(
+                                f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: invalid start/duration"
+                            )
+                            continue
+                        if not (math.isfinite(start) and math.isfinite(dur)) or start < 0 or dur <= 0:
+                            logger.warning(
+                                f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: start and duration must be finite, start >= 0, duration > 0"
+                            )
+                            continue
+                        if start >= audio_duration:
+                            logger.warning(
+                                f"Skipping out-of-bounds RTTM record {rttm_filepath}:{line_number}: start {start} is beyond {audio_duration:.3f}s audio"
+                            )
+                            continue
+                        speech_segments.append((start, min(start + dur, audio_duration)))
 
             if not speech_segments:
                 return audio_filepath
@@ -457,7 +493,11 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 return audio_filepath
 
             processed = torch.cat(chunks, dim=1)
-            unique_name = hashlib.md5(audio_filepath.encode(), usedforsecurity=False).hexdigest()[:8] + "_" + os.path.basename(audio_filepath)
+            unique_name = (
+                hashlib.md5(audio_filepath.encode(), usedforsecurity=False).hexdigest()[:8]
+                + "_"
+                + os.path.basename(audio_filepath)
+            )
             out_path = os.path.join(self.temp_dir, unique_name)
             ta.save(out_path, processed, sr)
         except (OSError, RuntimeError) as e:
@@ -506,9 +546,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         parts = selected.split(os.sep)
         dialog_id = parts[-2]
         speaker_id = os.path.splitext(parts[-1])[0]
-        rttm_path = os.path.join(
-            self.reference_voices_dataset, "rttms", dialog_id, f"{speaker_id}.rttm"
-        )
+        rttm_path = os.path.join(self.reference_voices_dataset, "rttms", dialog_id, f"{speaker_id}.rttm")
         processed = self._process_audio_with_rttm(selected, rttm_path)
         return processed, selected
 
@@ -604,7 +642,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self._speaker_to_original_wav[key] = original_wav
             parts = original_wav.split(os.sep)
             ref_id = f"{parts[-2]}/{os.path.splitext(parts[-1])[0]}"
-            self.speaker_to_ref_content_hash[key] = self._hash_file_content(original_wav)
+            self.speaker_to_ref_content_hash[key] = self._hash_wavs_reference_content(original_wav)
 
         self.speaker_to_reference[key] = ref_path
         self.speaker_to_ref_id[key] = ref_id
@@ -633,6 +671,20 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 hasher.update(chunk)
         return hasher.hexdigest()
 
+    def _hash_wavs_reference_content(self, original_wav: str) -> str:
+        """Identity of WAV bytes plus the RTTM-driven preprocessing input."""
+        dialog_id = os.path.basename(os.path.dirname(original_wav))
+        speaker_id = os.path.splitext(os.path.basename(original_wav))[0]
+        rttm_path = os.path.join(self.reference_voices_dataset, "rttms", dialog_id, f"{speaker_id}.rttm")
+        identity = {
+            "preprocessing_schema_version": _REFERENCE_PREPROCESSING_SCHEMA_VERSION,
+            "wav_sha256": self._hash_file_content(original_wav),
+            "rttm_present": os.path.isfile(rttm_path),
+            "rttm_sha256": self._hash_file_content(rttm_path) if os.path.isfile(rttm_path) else None,
+        }
+        canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
     def _hash_mls_speaker_content(self, speaker_id: str) -> str:
         """Content identity for all reference clips belonging to an MLS speaker.
 
@@ -659,9 +711,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.conversation_exaggeration[conversation_id] = lo + frac * (hi - lo)
         return self.conversation_exaggeration[conversation_id]
 
-    def _generate_turn_audio(
-        self, text: str, reference_wav: str, conversation_id: str
-    ) -> np.ndarray:
+    def _generate_turn_audio(self, text: str, reference_wav: str, conversation_id: str) -> np.ndarray:
         """Run ChatterboxTTS inference for a single turn.
 
         The model always synthesises at its own native rate (``self.model.sr``,
@@ -703,7 +753,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _normalize_audio(self, wav: torch.Tensor) -> torch.Tensor:
         """RMS-based normalisation with clipping protection."""
         _silence_threshold = 1e-10
-        rms = torch.sqrt(torch.mean(wav ** 2))
+        rms = torch.sqrt(torch.mean(wav**2))
         if rms < _silence_threshold:
             return wav
         current_db = 20 * torch.log10(rms + 1e-8)
@@ -737,6 +787,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         return {
             "schema_version": _CACHE_SCHEMA_VERSION,
             "model_repo_id": _CHATTERBOX_REPO_ID,
+            "model_revision": _CHATTERBOX_MODEL_REVISION,
             "model_class": "ChatterboxMultilingualTTS" if self.language else "ChatterboxTTS",
             "language": self.language,
             "conversation_id": conversation_id,
@@ -781,9 +832,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _sidecar_path(audio_path: str) -> str:
         return f"{os.path.splitext(audio_path)[0]}.json"
 
-    def _read_cached_audio_if_valid(
-        self, audio_path: str, manifest: dict[str, Any]
-    ) -> tuple[np.ndarray, int] | None:
+    def _read_cached_audio_if_valid(self, audio_path: str, manifest: dict[str, Any]) -> tuple[np.ndarray, int] | None:
         """Return cached audio only if a matching sidecar confirms it's valid.
 
         A filename-hash hit is NOT trusted on its own: it's cross-checked
@@ -820,9 +869,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             return None
         return audio_data, file_sr
 
-    def _publish_cache_entry(
-        self, audio_path: str, audio_data: np.ndarray, manifest: dict[str, Any]
-    ) -> None:
+    def _publish_cache_entry(self, audio_path: str, audio_data: np.ndarray, manifest: dict[str, Any]) -> None:
         """Write the WAV and its sidecar atomically (temp file + rename).
 
         Ensures no process ever observes a partially written cache entry
@@ -878,33 +925,32 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             speaker = data.get("speaker", "unknown")
             conversation_id = data.get("conversation_id", "unknown")
 
-            reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
-            ref_content_hash = self._reference_content_hash(speaker, conversation_id)
-            exaggeration = self._get_exaggeration(conversation_id)
-
-            manifest = self._cache_manifest(
-                conversation_id=conversation_id,
-                speaker=speaker,
-                text=text,
-                ref_id=ref_id,
-                ref_content_hash=ref_content_hash,
-                exaggeration=exaggeration,
-            )
-            filename = self._output_filename(manifest)
-            audio_path = os.path.join(self.output_audio_dir, filename)
-
             try:
+                # Reference selection includes file I/O and RTTM preprocessing,
+                # so it belongs inside the per-task boundary as much as cache I/O.
+                reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
+                ref_content_hash = self._reference_content_hash(speaker, conversation_id)
+                exaggeration = self._get_exaggeration(conversation_id)
+
+                manifest = self._cache_manifest(
+                    conversation_id=conversation_id,
+                    speaker=speaker,
+                    text=text,
+                    ref_id=ref_id,
+                    ref_content_hash=ref_content_hash,
+                    exaggeration=exaggeration,
+                )
+                filename = self._output_filename(manifest)
+                audio_path = os.path.join(self.output_audio_dir, filename)
                 cached = self._read_cached_audio_if_valid(audio_path, manifest)
                 if cached is not None:
                     audio_data, audio_sr = cached
                 else:
-                    audio_data = self._generate_turn_audio(
-                        text, reference_wav, conversation_id
-                    )
+                    audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
                     audio_sr = self.sample_rate
                     self._publish_cache_entry(audio_path, audio_data, manifest)
-            except OSError as e:
-                logger.error(f"File I/O failed for task {task.task_id}: {e}")
+            except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
+                logger.error(f"TTS processing failed for task {task.task_id}: {e}")
                 output_tasks.append(task)
                 continue
 
@@ -915,9 +961,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             task.data["reference_voice"] = ref_id
             output_tasks.append(task)
 
-            logger.info(
-                f"[TTS] {conversation_id[:8]}/{speaker}: "
-                f"{duration:.2f}s -> {filename}"
-            )
+            logger.info(f"[TTS] {conversation_id[:8]}/{speaker}: {duration:.2f}s -> {filename}")
 
         return output_tasks
