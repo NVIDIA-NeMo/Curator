@@ -278,6 +278,7 @@ class TextSemanticDeduplicationWorkflow:
             model_identifier=self.model_identifier,
             text_field=self.text_field,
             embedding_field=self.embedding_field,
+            metadata_fields=list(dict.fromkeys([self.id_field, *(self.metadata_fields or [])])),
             max_chars=self.embedding_max_chars,
             pretokenize=self.embedding_pretokenize,
             vllm_init_kwargs=self.embedding_vllm_init_kwargs,

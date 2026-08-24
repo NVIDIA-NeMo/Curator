@@ -22,10 +22,10 @@ using TaskPerfUtils and logs results to configured sinks.
 import argparse
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
-from utils import write_benchmark_results
+from utils import parse_memory_size, write_benchmark_results
 
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
 
@@ -38,6 +38,10 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     bands_per_iteration: int = 20,  # Number of bands to shuffle concurrently during LSH. Higher values have higher memory pressure but can reduce runtime
     text_field: str = "text",
     input_blocksize: str = "1.5GiB",
+    lsh_num_output_partitions: int | None = None,
+    lsh_rmm_pool_size: int | Literal["auto"] | None = "auto",
+    lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
+    use_async_memory: bool = True,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the duplicate identification benchmark and collect comprehensive metrics."""
@@ -58,6 +62,10 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
         bands_per_iteration=bands_per_iteration,
         text_field=text_field,
         input_blocksize=input_blocksize,
+        lsh_num_output_partitions=lsh_num_output_partitions,
+        lsh_rmm_pool_size=lsh_rmm_pool_size,
+        lsh_spill_memory_limit=lsh_spill_memory_limit,
+        use_async_memory=use_async_memory,
     )
 
     # Run the workflow, extract metrics from the WorkflowRunResult object
@@ -115,6 +123,30 @@ def main() -> int:
     parser.add_argument("--text-field", default="text", help="Text field to use for duplicate identification")
     parser.add_argument(
         "--input-blocksize", type=str, default="1.5GiB", help="Target partition size for input data (e.g. '512MB')"
+    )
+    parser.add_argument(
+        "--lsh-num-output-partitions",
+        type=int,
+        default=None,
+        help="Number of output partitions for the LSH shuffle (automatically selected when omitted)",
+    )
+    parser.add_argument(
+        "--lsh-rmm-pool-size",
+        type=parse_memory_size,
+        default="auto",
+        help="Size of the LSH RMM GPU memory pool, for example '72GiB', 'auto', or 'none'",
+    )
+    parser.add_argument(
+        "--lsh-spill-memory-limit",
+        type=parse_memory_size,
+        default="auto",
+        help="LSH device memory spill limit, for example '64GiB', 'auto', or 'none'",
+    )
+    parser.add_argument(
+        "--use-async-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use CUDA asynchronous memory allocation for the LSH shuffle",
     )
 
     args = parser.parse_args()

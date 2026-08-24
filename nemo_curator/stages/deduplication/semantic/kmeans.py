@@ -212,14 +212,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         # Fit the model cooperatively across actors, then predict on local data
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
-        self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
+        self.kmeans.fit(concatenated_embeddings, sample_weight=None)
 
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
             os.makedirs(self.cache_path, exist_ok=True)
             cp.save(f"{self.cache_path}/kmeans_centroids.npy", self.kmeans.cluster_centers_)
             logger.info(f"Saved {self.n_clusters} KMeans centroids to {self.cache_path}/kmeans_centroids.npy")
 
-        labels = self.kmeans.predict(concatenated_embeddings, convert_dtype=False).astype(cp.int32)
+        labels = self.kmeans.predict(concatenated_embeddings).astype(cp.int32)
 
         t2 = time.perf_counter()
         self._log_metric("kmeans_fit_predict_time", t2 - t1)
@@ -307,7 +307,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         target_n_files = round(len(all_files) * fraction)
         n_files = max(1, target_n_files)
         if target_n_files < 1:
-            # RAFT's cooperative _fit needs every actor to contribute at least one row,
+            # RAFT's cooperative fit needs every actor to contribute at least one row,
             # so we pull up to 1. Warn loudly: the user asked for less than that, and
             # if many actors hit this floor the realized sample is much larger than
             # fit_data_fraction would suggest.
@@ -358,7 +358,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             f"(fit_data_fraction={fraction:.4f}, {len(fit_files)}/{len(all_files)} files)"
         )
 
-        self.kmeans._fit(concatenated_samples, sample_weight=None, convert_dtype=False, multigpu=True)
+        self.kmeans.fit(concatenated_samples, sample_weight=None)
         del concatenated_samples
         gc.collect()
         # Stop the fit-time clock before centroid I/O so the metric isn't skewed
@@ -397,7 +397,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             pass2_read_time += time.perf_counter() - t_read_start
             total_rows += len(df)
 
-            labels = self.kmeans.predict(embeddings_array, convert_dtype=False).astype(cp.int32)
+            labels = self.kmeans.predict(embeddings_array).astype(cp.int32)
             df["centroid"] = labels
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
 
@@ -433,7 +433,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         return results, pass2_read_time, total_rows
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from cuml.cluster.kmeans import KMeans as cumlKMeans
+        from cuml.cluster.kmeans_mg import KMeansMG as cumlKMeans
 
         if not hasattr(self, "_raft_handle"):
             msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"
