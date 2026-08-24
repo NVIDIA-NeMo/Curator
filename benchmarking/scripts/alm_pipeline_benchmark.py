@@ -23,6 +23,7 @@ parameters from a benchmarking YAML (e.g. nightly-benchmark.yaml).
 """
 
 import argparse
+import json
 import re
 import shlex
 import sys
@@ -41,6 +42,42 @@ from nemo_curator.stages.audio.alm import (
     ALMDataBuilderStage,
     ALMDataOverlapStage,
 )
+from nemo_curator.stages.audio.common import ManifestWriterStage
+
+
+def _collect_output_metrics(
+    output_tasks: list[Any], results_dir: Path, final_manifest: Path
+) -> dict[str, int | float]:
+    output_entries = [task.data for task in output_tasks]
+    num_output_entries = len(output_entries)
+
+    output_manifests = sorted(results_dir.glob("*.jsonl"))
+    if output_manifests != [final_manifest]:
+        msg = f"Expected only {final_manifest}, found {output_manifests}"
+        raise RuntimeError(msg)
+    num_manifest_entries = 0
+    with final_manifest.open(encoding="utf-8") as output_file:
+        for line_number, line in enumerate(output_file, start=1):
+            if not line.strip():
+                continue
+            if not isinstance(json.loads(line), dict):
+                msg = f"ALM output line {line_number} is not a JSON object"
+                raise TypeError(msg)
+            num_manifest_entries += 1
+    if num_manifest_entries != num_output_entries:
+        msg = f"ALM output row mismatch: tasks={num_output_entries}, manifest={num_manifest_entries}"
+        raise RuntimeError(msg)
+
+    total_builder_windows = sum(len(entry.get("windows", [])) for entry in output_entries)
+    return {
+        "num_output_entries": num_output_entries,
+        "entries_with_windows": sum(
+            1 for entry in output_entries if entry.get("filtered_windows") or entry.get("windows")
+        ),
+        "total_builder_windows": total_builder_windows,
+        "total_filtered_windows": sum(len(entry.get("filtered_windows", [])) for entry in output_entries),
+        "total_filtered_dur_s": sum(entry.get("filtered_dur", 0) for entry in output_entries),
+    }
 
 
 def run_alm_pipeline_benchmark(  # noqa: PLR0913
@@ -60,6 +97,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
     """Run the ALM pipeline benchmark and collect comprehensive metrics."""
     benchmark_results_path = Path(benchmark_results_path)
     benchmark_results_path.mkdir(parents=True, exist_ok=True)
+    results_dir = benchmark_results_path / "results"
+    final_manifest = results_dir / "alm_output.jsonl"
 
     logger.info("Starting ALM pipeline benchmark")
     logger.info(f"Input manifest: {input_manifest}")
@@ -91,6 +130,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
             target_duration=target_window_duration,
         )
     )
+    pipeline.add_stage(ManifestWriterStage(output_path=str(final_manifest)))
 
     executor_config = {"execution_mode": execution_mode} if execution_mode else None
     exc = setup_executor(executor, config=executor_config)
@@ -102,22 +142,16 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
         logger.info(f"Pipeline description:\n{pipeline.describe()}")
 
         output_tasks = pipeline.run(exc)
+        output_metrics = _collect_output_metrics(output_tasks or [], results_dir, final_manifest)
         run_time_taken = time.perf_counter() - run_start_time
 
-        output_entries = []
-        for task in output_tasks or []:
-            output_entries.append(task.data)
-
-        num_output_entries = len(output_entries)
-        total_builder_windows = sum(len(e.get("windows", [])) for e in output_entries)
-        total_filtered_windows = sum(len(e.get("filtered_windows", [])) for e in output_entries)
-        total_filtered_dur = sum(e.get("filtered_dur", 0) for e in output_entries)
-        entries_with_windows = sum(1 for e in output_entries if e.get("filtered_windows") or e.get("windows"))
-
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
-        logger.success(f"Entries: {num_output_entries}")
-        logger.success(f"Builder windows: {total_builder_windows}, Filtered windows: {total_filtered_windows}")
-        logger.success(f"Total filtered duration: {total_filtered_dur:.2f}s")
+        logger.success(f"Entries: {output_metrics['num_output_entries']}")
+        logger.success(
+            f"Builder windows: {output_metrics['total_builder_windows']}, "
+            f"Filtered windows: {output_metrics['total_filtered_windows']}"
+        )
+        logger.success(f"Total filtered duration: {output_metrics['total_filtered_dur_s']:.2f}s")
         success = True
 
     except Exception as e:
@@ -126,11 +160,13 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
         logger.debug(f"Full traceback:\n{error_traceback}")
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
-        num_output_entries = 0
-        total_builder_windows = 0
-        total_filtered_windows = 0
-        total_filtered_dur = 0.0
-        entries_with_windows = 0
+        output_metrics = {
+            "num_output_entries": 0,
+            "entries_with_windows": 0,
+            "total_builder_windows": 0,
+            "total_filtered_windows": 0,
+            "total_filtered_dur_s": 0.0,
+        }
         success = False
 
     return {
@@ -149,13 +185,13 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
         "metrics": {
             "is_success": success,
             "time_taken_s": run_time_taken,
-            "num_output_entries": num_output_entries,
-            "entries_with_windows": entries_with_windows,
-            "total_builder_windows": total_builder_windows,
-            "total_filtered_windows": total_filtered_windows,
-            "total_filtered_dur_s": total_filtered_dur,
-            "throughput_entries_per_sec": num_output_entries / run_time_taken if run_time_taken > 0 else 0,
-            "throughput_windows_per_sec": total_builder_windows / run_time_taken if run_time_taken > 0 else 0,
+            **output_metrics,
+            "throughput_entries_per_sec": (
+                output_metrics["num_output_entries"] / run_time_taken if run_time_taken > 0 else 0
+            ),
+            "throughput_windows_per_sec": (
+                output_metrics["total_builder_windows"] / run_time_taken if run_time_taken > 0 else 0
+            ),
         },
         "tasks": output_tasks or [],
     }

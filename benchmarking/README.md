@@ -670,9 +670,6 @@ python benchmarking/scripts/audio_tagging_benchmark.py \
   --executor xenna
 ```
 
-By default each GPU stage uses as many workers as GPUs available to Ray. Use
-`--gpu-stage-num-workers` only to override discovery for local debugging.
-
 On constrained local GPUs, disable ASR CUDA graphs and lower the model
 microbatches without changing the pipeline or its output checks:
 
@@ -688,8 +685,6 @@ python benchmarking/scripts/audio_tagging_benchmark.py \
   --squim-compute-batch-size 8 \
   --diarization-segmentation-batch-size 16 \
   --diarization-embedding-batch-size 16 \
-  --gpu-stage-num-workers 1 \
-  --cpu-stage-num-workers 1 \
   --execution-mode batch \
   --executor xenna
 ```

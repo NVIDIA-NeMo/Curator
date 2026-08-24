@@ -27,7 +27,6 @@ from huggingface_hub import hf_hub_download
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
@@ -293,6 +292,10 @@ def _validate_outputs(  # noqa: C901
         msg = f"Required stages processed no data: {', '.join(skipped_stages)}"
         raise RuntimeError(msg)
 
+    output_manifests = sorted(final_manifest.parent.glob("*.jsonl"))
+    if output_manifests != [final_manifest]:
+        msg = f"Expected only {final_manifest}, found {output_manifests}"
+        raise RuntimeError(msg)
     manifest_rows = _count_jsonl_rows(final_manifest, "Output manifest")
     if manifest_rows != num_input_rows:
         msg = f"Output manifest contains {manifest_rows} rows for {num_input_rows} input rows"
@@ -332,8 +335,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     squim_compute_batch_size: int = 32,
     diarization_segmentation_batch_size: int = 128,
     diarization_embedding_batch_size: int = 128,
-    gpu_stage_num_workers: int | None = None,
-    cpu_stage_num_workers: int | None = None,
     use_cuda_graphs: bool = True,
     execution_mode: str | None = None,
     **kwargs,  # noqa: ARG001
@@ -349,17 +350,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         hf_repo_id=hf_repo_id,
     )
     diarization_model = Path(diarization_model_path)
-    if gpu_stage_num_workers is None:
-        _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
-        gpu_stage_num_workers = int(available_gpus)
-    if gpu_stage_num_workers is not None and gpu_stage_num_workers < 1:
-        msg = "Audio tagging requires at least one available GPU"
-        raise ValueError(msg)
-    if cpu_stage_num_workers is not None and cpu_stage_num_workers < 1:
-        msg = "cpu_stage_num_workers must be at least 1"
-        raise ValueError(msg)
-    gpu_worker_config = {"num_workers": gpu_stage_num_workers} if gpu_stage_num_workers is not None else {}
-    cpu_worker_config = {"num_workers": cpu_stage_num_workers} if cpu_stage_num_workers is not None else {}
     if not diarization_model.exists():
         msg = f"Pre-staged PyAnnote model not found: {diarization_model}"
         raise FileNotFoundError(msg)
@@ -388,7 +378,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             target_sample_rate=16000,
             target_format="wav",
             target_nchannels=1,
-        ).with_(resources=Resources(cpus=1), **cpu_worker_config)
+        ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
         PyAnnoteDiarizationStage(
@@ -397,11 +387,11 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             segmentation_batch_size=diarization_segmentation_batch_size,
             embedding_batch_size=diarization_embedding_batch_size,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=1, gpus=0.4), **gpu_worker_config)
+        ).with_(resources=Resources(cpus=1, gpus=0.4))
     )
     pipeline.add_stage(
         SplitLongAudioStage(name="SplitLongAudio", suggested_max_len=max_segment_length, min_len=1.0).with_(
-            resources=Resources(cpus=1), **cpu_worker_config
+            resources=Resources(cpus=1)
         )
     )
     pipeline.add_stage(
@@ -412,22 +402,18 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             batch_size=asr_batch_size,
             transcribe_batch_size=asr_transcribe_batch_size,
             use_cuda_graphs=use_cuda_graphs,
-        ).with_(resources=Resources(cpus=1, gpus=0.45), **gpu_worker_config)
+        ).with_(resources=Resources(cpus=1, gpus=0.45))
     )
-    pipeline.add_stage(
-        JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1), **cpu_worker_config)
-    )
+    pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1)))
     pipeline.add_stage(
         MergeAlignmentDiarizationStage(name="MergeAlignmentDiar", text_key="text", words_key="words").with_(
-            resources=Resources(cpus=1), **cpu_worker_config
+            resources=Resources(cpus=1)
         )
     )
-    pipeline.add_stage(
-        BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1), **cpu_worker_config)
-    )
+    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
     pipeline.add_stage(
         TorchSquimQualityMetricsStage(name="SquimMetrics", compute_batch_size=squim_compute_batch_size).with_(
-            resources=Resources(gpus=0.05), **gpu_worker_config
+            resources=Resources(gpus=0.05)
         )
     )
     pipeline.add_stage(
@@ -437,7 +423,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             min_duration=5,
             max_duration=20,
             full_utterance_ratio=1.0,
-        ).with_(resources=Resources(cpus=1), **cpu_worker_config)
+        ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
         NeMoASRAlignerStage(
@@ -452,7 +438,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             infer_segment_only=True,
             compute_timestamps=False,
             use_cuda_graphs=use_cuda_graphs,
-        ).with_(resources=Resources(cpus=1, gpus=0.1), **gpu_worker_config)
+        ).with_(resources=Resources(cpus=1, gpus=0.1))
     )
     pipeline.add_stage(
         ComputeWERStage(
@@ -462,12 +448,10 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             reference_text_key="text",
             pnc_chars=".?,",
             compute_pnc_wer=False,
-        ).with_(resources=Resources(cpus=1), **cpu_worker_config)
+        ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
-        ManifestWriterStage(name="ManifestWriter", output_path=str(final_manifest)).with_(
-            resources=Resources(cpus=1), **cpu_worker_config
-        )
+        ManifestWriterStage(name="ManifestWriter", output_path=str(final_manifest)).with_(resources=Resources(cpus=1))
     )
 
     logger.info(pipeline.describe())
@@ -552,18 +536,6 @@ def main() -> int:
         type=int,
         default=128,
         help="PyAnnote speaker-embedding batch size",
-    )
-    parser.add_argument(
-        "--gpu-stage-num-workers",
-        type=int,
-        default=None,
-        help="GPU workers per stage; defaults to the GPUs available to Ray",
-    )
-    parser.add_argument(
-        "--cpu-stage-num-workers",
-        type=int,
-        default=None,
-        help="Cap each CPU stage to this many workers; defaults to executor autoscaling",
     )
     parser.add_argument(
         "--disable-cuda-graphs",
