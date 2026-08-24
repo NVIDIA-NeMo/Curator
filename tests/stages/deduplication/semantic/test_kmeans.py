@@ -474,7 +474,7 @@ class TestKMeansReadFitWriteStage:
 
         total_rows = len(df) * len(expected_groups)
         stage.kmeans = Mock()
-        stage.kmeans._fit = Mock()
+        stage.kmeans.fit = Mock()
         stage.kmeans.predict = Mock(return_value=cp.zeros(total_rows, dtype=cp.int32))
         stage.kmeans.cluster_centers_ = cp.random.random((2, 2), dtype=cp.float32)
 
@@ -491,7 +491,7 @@ class TestKMeansReadFitWriteStage:
             results = stage.process_batch(all_tasks)
 
             if expect_break:
-                mock_break.assert_called_once_with(all_files, embedding_dim=32)
+                mock_break.assert_called_once_with(all_files, embedding_dim=32, storage_options=None)
             else:
                 mock_break.assert_not_called()
 
@@ -508,7 +508,7 @@ class TestKMeansReadFitWriteStage:
                 assert call.kwargs["columns"] == ["id", "embeddings", "metadata_col"]
                 assert call.kwargs["assign_id"] is False
 
-            stage.kmeans._fit.assert_called_once()
+            stage.kmeans.fit.assert_called_once()
             stage.kmeans.predict.assert_called_once()
 
             assert mock_write.call_count == len(expected_groups)

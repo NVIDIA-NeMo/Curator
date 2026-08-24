@@ -12,19 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
 import numpy as np
+import pandas as pd
+import pyarrow as pa
 import rmm
+from loguru import logger
 
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
 if TYPE_CHECKING:
@@ -176,18 +180,20 @@ class GPUMinHash(MinHash):
         return minhash_method(text_series)
 
 
-class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationIO):
+class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask], DeduplicationIO):
     """
     ProcessingStage for computing MinHash signatures on documents for fuzzy deduplication.
 
-    This stage takes FileGroupTask containing paths to input documents and produces
+    This stage accepts either a FileGroupTask (paths to input documents) or a DocumentBatch
+    (in-memory pandas/pyarrow data already read by an upstream stage) and produces a
     FileGroupTask containing paths to computed minhash signature files. It uses GPU-accelerated
     MinHash computation to generate locality-sensitive hash signatures that can be used
     for approximate duplicate detection.
 
     The stage automatically handles:
-    - Reading input files (JSONL or Parquet format)
-    - Assigning unique Integer IDs to documents using the IdGenerator actor
+    - Reading input files (JSONL or Parquet format), OR converting a DocumentBatch to cuDF
+    - Assigning unique Integer IDs to documents using the IdGenerator actor (file path only;
+      a DocumentBatch must already contain the ``_curator_dedup_id`` column)
     - Computing MinHash signatures using GPU acceleration
     - Writing results to Parquet files
 
@@ -207,10 +213,12 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         Random seed for reproducible minhash generation
     use_64bit_hash : bool, default=False
         Whether to use 64-bit hash functions (vs 32-bit)
-    read_format : Literal["jsonl", "parquet"], default="jsonl"
-        Format of input files
+    read_format : Literal["jsonl", "parquet"] | None, default=None
+        Format of input files. Only applies to FileGroupTask inputs; ignored for DocumentBatch
+        inputs (which are already in memory). May be None when only DocumentBatch inputs are used.
     read_kwargs : dict[str, Any] | None, default=None
-        Additional keyword arguments for reading input files
+        Additional keyword arguments for reading input files. Only applies to FileGroupTask inputs;
+        ignored for DocumentBatch inputs.
     write_kwargs : dict[str, Any] | None, default=None
         Additional keyword arguments for writing output files
 
@@ -234,7 +242,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         num_hashes: int = 260,
         seed: int = 42,
         use_64bit_hash: bool = False,
-        read_format: Literal["jsonl", "parquet"] = "jsonl",
+        read_format: Literal["jsonl", "parquet"] | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
         pool: bool = True,
@@ -263,16 +271,18 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
 
     def setup(self, _worker_metadata: "WorkerMetadata | None" = None) -> None:
         """Initialize the GPU MinHash processor and ID generator."""
-        # Initialize the ID generator (will be shared across workers)
-
+        # The ID generator is only required for the FileGroupTask (file-read) path, where IDs
+        # are assigned at read time. DocumentBatch inputs must already carry _curator_dedup_id,
+        # so a missing actor is tolerated here; the file path surfaces a clear error at
+        # process time if it actually needs the ID generator.
         try:
             self.id_generator = get_id_generator_actor()
-        except ValueError as e:
-            err_msg = """
-            Failed to get ID generator actor. Start an ID generator actor via `create_id_generator_actor` if calling this stage directly.
-            If using the FuzzyDedup API this should be started automatically.
-            """
-            raise ValueError(err_msg) from e
+        except ValueError:
+            logger.warning(
+                "IdGenerator actor was not found during MinHashStage setup. "
+                "FileGroupTask inputs will fail at process time; DocumentBatch inputs are unaffected."
+            )
+            self.id_generator = None
 
         # Initialize the GPU minhash processor
         self.minhash_processor = GPUMinHash(
@@ -283,42 +293,51 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             pool=self.pool,
         )
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        """Define input requirements."""
-        return (["data"], [])
+    def teardown(self) -> None:
+        self.minhash_processor = None
+        gc.collect()
+        if self.pool:
+            rmm.reinitialize(pool_allocator=False)
+
+    def inputs(self) -> StageInputSpecs:
+        """Define input requirements for each supported input task type."""
+        return {
+            FileGroupTask: (["data"], []),
+            DocumentBatch: (["data"], [CURATOR_DEDUP_ID_STR, self.text_field]),
+        }
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define outputs - produces FileGroupTask with minhash files."""
         return (["data"], [])
 
-    def process(self, task: FileGroupTask) -> FileGroupTask:
+    def process(self, task: FileGroupTask | DocumentBatch) -> FileGroupTask:
         """
-        Process a group of files to compute minhashes.
+        Process a FileGroupTask or DocumentBatch to compute minhashes.
 
         Args:
-            task: FileGroupTask containing file paths to process
+            task: FileGroupTask containing file paths to process, or a DocumentBatch whose data
+                already contains the ``_curator_dedup_id`` and text columns.
 
         Returns:
             FileGroupTask containing paths to minhash output files
         """
 
-        if self.minhash_processor is None or self.id_generator is None:
-            msg = "MinHash processor or ID generator not initialized. Call setup() first."
+        if self.minhash_processor is None:
+            msg = "MinHash processor not initialized. Call setup() first."
             raise RuntimeError(msg)
 
+        # Read/convert the input into a cuDF DataFrame with the text and ID columns.
+        if isinstance(task, DocumentBatch):
+            if self.read_format is not None:
+                logger.warning(
+                    f"read_format={self.read_format!r} is ignored for DocumentBatch inputs because their data is "
+                    "already loaded."
+                )
+            df = self._read_document_batch(task)
+        else:
+            df = self._read_file_group(task)
+
         output_file = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
-
-        read_kwargs = self.read_kwargs.copy()
-
-        # Read input file based on format
-        with self._time_metric("minhash_read_time"):
-            if self.read_format == "jsonl":
-                df = self.read_jsonl(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
-            elif self.read_format == "parquet":
-                df = self.read_parquet(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
-            else:
-                msg = f"Unsupported read format: {self.read_format}"
-                raise ValueError(msg)
 
         result_df = df[[CURATOR_DEDUP_ID_STR]]
         with self._time_metric("minhash_compute_time"):
@@ -340,3 +359,43 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             },
             _stage_perf=task._stage_perf,
         )
+
+    def _read_file_group(self, task: FileGroupTask) -> "cudf.DataFrame":
+        """Read a FileGroupTask's files into cuDF, assigning IDs at read time."""
+        with self._time_metric("minhash_file_read_time"):
+            if self.id_generator is None:
+                msg = (
+                    "IdGenerator actor is required for FileGroupTask input but was not found. "
+                    "Start it via create_id_generator_actor(), or pass a DocumentBatch whose data "
+                    "already contains the _curator_dedup_id column."
+                )
+                raise RuntimeError(msg)
+
+            read_kwargs = self.read_kwargs.copy()
+
+            # Read input file based on format
+            if self.read_format == "jsonl":
+                return self.read_jsonl(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
+            elif self.read_format == "parquet":
+                return self.read_parquet(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
+            else:
+                msg = f"read_format must be 'jsonl' or 'parquet' to process a FileGroupTask; got {self.read_format!r}"
+                raise ValueError(msg)
+
+    def _read_document_batch(self, task: DocumentBatch) -> "cudf.DataFrame":
+        """Convert an in-memory DocumentBatch to cuDF, keeping only the ID and text columns.
+
+        Non-relevant columns are dropped on the host (before the GPU transfer), mirroring how the
+        file path only reads ``columns=[text_field]``. The required columns are guaranteed present
+        by ``validate_input``; when ``process`` is called directly a missing column will raise here.
+        """
+        with self._time_metric("minhash_document_batch_to_cudf_time"):
+            keep = [CURATOR_DEDUP_ID_STR, self.text_field]
+            data = task.data
+            if isinstance(data, pa.Table):
+                return cudf.DataFrame.from_arrow(data.select(keep))
+            elif isinstance(data, pd.DataFrame):
+                return cudf.from_pandas(data[keep])
+            else:
+                msg = f"Unsupported DocumentBatch data type: {type(data)}"
+                raise TypeError(msg)

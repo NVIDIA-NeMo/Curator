@@ -21,23 +21,20 @@ predictions. The concrete adapter is resolved at runtime from
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-import hydra.utils
 import numpy as np
 import torch
 import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+    from nemo_curator.tasks import AudioTask
 
 
 # ISO code -> human-readable name; the adapter receives the resolved name.
@@ -109,7 +106,7 @@ def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
 
 
 @dataclass
-class ASRStage(ProcessingStage[AudioTask, AudioTask]):
+class ASRStage(AdapterInferenceStage[ASRAdapter]):
     """Audio speech-recognition stage with a pluggable adapter.
 
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
@@ -145,6 +142,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 32
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if not self.pred_text_key:
             msg = "ASRStage.pred_text_key must be non-empty"
             raise ValueError(msg)
@@ -167,7 +165,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
         self.batch_size = int(self.batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
-        self._adapter: ASRAdapter | None = None
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
 
     @staticmethod
@@ -179,73 +176,16 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         codes = {str(code).strip().lower() for code in raw_codes if str(code).strip()}
         return codes or None
 
-    def _adapter_class(self) -> type:
-        """Resolve the configured adapter lazily to avoid importing optional model dependencies."""
-        return hydra.utils.get_class(self.adapter_target)
-
     def _create_adapter(self) -> ASRAdapter:
-        """Construct one adapter with only its explicitly configured options."""
-        return self._adapter_class()(
-            model_id=self.model_id,
-            **self.adapter_kwargs,
+        """Construct the configured ASR adapter."""
+        adapter_cls = self._adapter_class()
+        return cast(
+            "ASRAdapter",
+            adapter_cls(
+                model_id=self.model_id,
+                **self.adapter_kwargs,
+            ),
         )
-
-    def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
-    ) -> None:
-        """Cache model weights once per node (no GPU allocation)."""
-        try:
-            self._create_adapter().download_weights_on_node()
-            logger.info(
-                "ASR weights cached on node for {} ({})",
-                self.model_id,
-                self.adapter_target,
-            )
-        except Exception as exc:
-            msg = f"ASRStage: download_weights_on_node failed for {self.model_id}"
-            if self.prefetch_fail_on_error:
-                raise RuntimeError(msg) from exc
-            logger.warning("{}; setup() will retry: {}", msg, exc)
-
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        if self._adapter is None:
-            adapter = self._create_adapter()
-            try:
-                adapter.load_model(num_gpus=self._adapter_gpu_count())
-            except Exception:
-                try:
-                    adapter.unload_model()
-                except Exception as teardown_exc:  # noqa: BLE001
-                    logger.warning("ASR adapter cleanup after setup failure also failed: {}", teardown_exc)
-                raise
-            self._adapter = adapter
-            logger.info("ASR adapter ready on worker ({})", self.adapter_target)
-
-    def _adapter_gpu_count(self) -> int:
-        """Return the physical GPU count represented by this stage's request.
-
-        Curator permits fractional GPU scheduling for models that share a
-        device. Any positive fraction therefore represents one visible physical
-        GPU; multi-GPU requests are rounded up to the number of devices the
-        backend must make visible to the worker.
-        """
-        requested_gpus = float(self.resources.gpus)
-        if requested_gpus < 0 or not math.isfinite(requested_gpus):
-            msg = f"ASRStage.resources.gpus must be a finite non-negative value, got {requested_gpus}"
-            raise ValueError(msg)
-        return math.ceil(requested_gpus)
-
-    def teardown(self) -> None:
-        if self._adapter is not None:
-            self._adapter.unload_model()
-            self._adapter = None
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        if self.waveform_key:
-            return [], [self.waveform_key, self.sample_rate_key]
-        return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         optional_outputs = [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]

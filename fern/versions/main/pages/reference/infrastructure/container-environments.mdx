@@ -49,8 +49,8 @@ The primary container includes comprehensive support for all curation modalities
 
 **Pre-installed components:**
 - NeMo Curator with all optional dependencies (`[all]` extras)
-- CUDA 12.8.1 with cuDNN
-- Python 3.12 with uv package manager
+- CUDA 12.9.1 with cuDNN
+- Python 3.13 with uv package manager
 - FFmpeg 8+ with NVENC support (for video processing)
 - Ray and its distributed computing libraries
 - NVIDIA optimized Python packages
@@ -63,21 +63,13 @@ Ray is the execution framework for all NeMo Curator pipelines. Dask is no longer
 
 | Property | Value |
 | --- | --- |
-| Python Version | 3.12 |
-| CUDA Version | 12.8.1 (configurable) |
+| Python Version | 3.13 |
+| CUDA Version | 12.9.1 (configurable) |
 | Operating System | Ubuntu 24.04 (configurable) |
 | Base Image | `nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}` |
 | Package Manager | uv (Ultrafast Python package installer) |
 | Installation | NeMo Curator installed with all optional dependencies (`[all]` extras) using uv with NVIDIA index |
 | Environment Path | Virtual environment at `/opt/venv`. Activate with `source /opt/venv/env.sh` after entering the container. |
-
----
-
-## Security Hardening
-
-The container build includes the following security measures:
-
-- **`ray_dist.jar` removal**: Ray's Java support JAR is deleted during the build to remove a bundled jackson-core library affected by [GHSA-72hv-8253-57qq](https://github.com/advisories/GHSA-72hv-8253-57qq) (DoS via async JSON parser). NeMo Curator does not use Ray's Java support, so this has no functional impact. A build-time verification guard fails the build if the JAR is not successfully removed.
 
 ---
 
@@ -87,7 +79,7 @@ The main container accepts these build-time arguments for environment customizat
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `CUDA_VER` | `12.8.1` | CUDA version |
+| `CUDA_VER` | `12.9.1` | CUDA version |
 | `LINUX_VER` | `ubuntu24.04` | Base OS version |
 | `CURATOR_ENV` | `ci` | Curator environment type |
 | `NVIDIA_BUILD_ID` | `<unknown>` | NVIDIA build identifier |

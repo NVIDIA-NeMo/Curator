@@ -68,7 +68,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.56.1",
+    "ray[default,data]>=2.57.0",
     "torch",
     "transformers",
 ]
@@ -90,21 +90,20 @@ vllm = [
 inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
-    "ai-dynamo>=1.3.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "ai-dynamo>=1.3.1; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
-    "ray[serve]>=2.56.1",
-    "ray-haproxy==2.8.20; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "ray[serve]>=2.57.0",
 ]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==25.10.*",
-    "cuml-cu12==25.10.*",
-    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "pylibcugraph-cu12==25.10.*",
-    "pylibraft-cu12==25.10.*",
-    "raft-dask-cu12==25.10.*",
-    "rapidsmpf-cu12==25.10.*",
+    "cudf-cu12==26.8.*",
+    "cudf-streaming-cu12==26.8.*",
+    "cuml-cu12==26.8.*",
+    "pylibcugraph-cu12==26.8.*",
+    "pylibraft-cu12==26.8.*",
+    "raft-dask-cu12==26.8.*",
+    "rapidsmpf-cu12==26.8.*",
 ]
 
 audio_common = [
@@ -139,6 +138,7 @@ audio_cuda12 = [
     # Do not use qwen-asr[vllm], whose vLLM 0.14.0 pin conflicts with Curator's shared vLLM version.
     "qwen-asr==0.0.6; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "qwen-omni-utils>=0.0.9",
+    "torchlibrosa>=0.1.0",
 ]
 
 image_cpu = [
@@ -325,7 +325,6 @@ test = [
     "pytest-loguru",
     "pyyaml",
     "rich",
-    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs>=2024.12.0", # added for testing cloud fs
     "slack_sdk",
 ]
@@ -341,7 +340,7 @@ constraint-dependencies = [
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
     "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
     "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
-    "protobuf>=5.29.6,<7.0", # Address CVE GHSA-8qvm-5x2c-j2w7; <7.0 due to ray serve FieldDescriptor API breakage
+    "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
     "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
     "pyopenssl>=26.0.0", # Address CVE GHSA-5pwr-322w-8jr4
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
@@ -358,9 +357,8 @@ override-dependencies = [
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
-    "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
+    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
@@ -369,6 +367,7 @@ override-dependencies = [
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap
+    "pandas>=3.0.0, <= 3.0.4" # Override data-designers constraint of <3
 ]
 
 
