@@ -1,0 +1,21 @@
+blueprint_id: fleurs-asr-wer-filter
+intent: "transcribe a dataset and drop low-accuracy rows by WER"
+data_assumptions: {input: "manifest or dataset with reference transcripts", transcripts: present, sr: any}
+produces: "JSONL manifest with pred_text + wer, low-WER rows only"
+recipe_ref: recipes/fleurs_asr_filter.yaml
+
+stages:
+  - {ref: CreateInitialManifestFleursStage, tag: enforced, why_here: "source: downloads FLEURS and produces audio_filepath + reference text"}
+  - {ref: ASRStage, tag: advisory, why_here: "ASR prepares 16 kHz audio; pick an adapter and checkpoint for the data's language (card)"}
+  - {ref: GetPairwiseWerStage, tag: enforced, why_here: "needs text + pred_text -> must follow ASR"}
+  - {ref: GetAudioDurationStage, tag: advisory, why_here: "annotate duration for downstream filtering/reporting"}
+  - {ref: PreserveByValueStage, tag: advisory, why_here: "filter AFTER wer exists; early filter saves the write cost"}
+  - {ref: ManifestWriterStage, tag: enforced, why_here: "sink"}
+
+pitfalls:
+  - "WER requires reference transcripts in the source AND ASR pred_text; without transcripts, WER is unproducible"
+  - "match the ASR checkpoint to the data's language (model-card fact)"
+  - "don't filter before wer is produced"
+presets:
+  english_parakeet: {model_id: "nvidia/parakeet-tdt-0.6b-v2", target_value: 25.0}
+provenance: {derived_from: "tutorials/audio/fleurs", version: 1, validated: true}

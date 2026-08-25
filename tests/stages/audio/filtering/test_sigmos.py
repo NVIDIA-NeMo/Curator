@@ -55,6 +55,14 @@ def _make_mock_model(scores: dict) -> MagicMock:
 
 
 class TestSIGMOSFilterStage:
+    def test_native_defaults_remain_filter_auto_and_two_thresholds(self) -> None:
+        stage = SIGMOSFilterStage()
+
+        assert stage.action == "filter"
+        assert stage.mode == "auto"
+        assert stage.noise_threshold == 4.0
+        assert stage.ovrl_threshold == 3.5
+
     @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_process_passes_good_scores(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
@@ -74,6 +82,18 @@ class TestSIGMOSFilterStage:
         result = stage.process(_make_task())
 
         assert result == []
+
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_annotate_keeps_bad_scores(self, mock_init: MagicMock) -> None:
+        stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5, action="annotate")
+        stage._model = _make_mock_model(_BAD_SCORES)
+
+        result = stage.process(_make_task())
+
+        assert isinstance(result, AudioTask)
+        assert result.data["sigmos_noise"] == 2.0
+        assert result.data["sigmos_ovrl"] == 2.0
+        assert stage.describe().cardinality == "1:1"
 
     @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_none_thresholds_disable_checks(self, mock_init: MagicMock) -> None:
@@ -195,3 +215,22 @@ class TestSIGMOSFilterStage:
         result = stage.process(task)
 
         assert result == []
+
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_annotate_nested_keeps_all_segments(self, mock_init: MagicMock) -> None:
+        """Nested annotate mode scores every segment without threshold dropping."""
+        stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5, action="annotate")
+        stage._model = _make_mock_model(_BAD_SCORES)
+
+        sr = 48000
+        segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
+        task = AudioTask(
+            data={"segments": segments},
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert len(result.data["segments"]) == 3
+        assert all(seg["sigmos_noise"] == 2.0 for seg in result.data["segments"])

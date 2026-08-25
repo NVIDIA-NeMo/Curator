@@ -1,0 +1,40 @@
+stage_id: PreserveByValueStage
+category: filter
+summary: "Keep/drop rows by comparing a numeric or string field against a target value."
+tags: [is_filter, batch_only]
+model_id: null
+domain: {language: any, style: any}
+constraints:
+  batch_size: {fixed: null, reason: "batch-only stage; process() raises, use process_batch"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU, trivial"
+use_cases:
+  good_for: ["thresholding on a computed metric (e.g. keep wer <= 25, duration >= 1.0)"]
+  avoid_for: ["filtering before the metric field exists upstream"]
+composition:
+  typical_upstream: [GetPairwiseWerStage, GetAudioDurationStage, ComputeWERStage, UTMOSFilterStage]
+  typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
+params_of_note:
+  input_value_key: "the field to compare (must be produced upstream)"
+  target_value: "the numeric (including float) or string value to compare against"
+  operator: "one of lt, le, eq, ne, ge, gt"
+  missing_value_policy: "'error' (default, backward-compatible) raises when input_value_key is absent; 'drop' removes that row."
+semantic_facts:
+  input_value_key:
+    meaning: "This stage assigns no meaning to the selected field; it applies the configured comparison to the exact upstream value under input_value_key."
+    unit: "inherited from the exact upstream producer"
+    provenance: "The latest upstream writer or the input manifest supplies the value; PreserveByValueStage does not recompute or reinterpret it."
+    scope: "the current top-level AudioTask row at this pipeline position, while the selected value may itself describe a parent, child, segment, recording, or corpus fact"
+    propagation: "Rows passing operator(value, target_value) are preserved unchanged; failing rows are dropped. A missing key raises by default or is dropped only when missing_value_policy='drop'."
+    counterexamples:
+      - "A key name such as duration, score, or num_speakers does not prove which entity it describes; inspect its exact producer and any intervening fan-out or aggregation."
+param_dependencies:
+  input_value_key: "must be a key produced by an upstream stage (e.g. wer, duration)"
+notes:
+  - "Filter AFTER the metric it reads is produced; filtering early (before convert/write) saves downstream cost."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-08-19"}

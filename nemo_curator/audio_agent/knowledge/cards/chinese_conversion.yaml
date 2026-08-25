@@ -1,0 +1,37 @@
+stage_id: ChineseConversionStage
+category: text_norm
+summary: "Convert Traditional Chinese to Simplified (or other OpenCC conversions), per segment."
+tags: []
+model_id: null
+domain: {language: zh, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; OpenCC dictionary conversion (very fast)"
+use_cases:
+  good_for: ["normalizing Chinese script variants (e.g. t2s Traditional->Simplified) before training/eval", "matching ASR-output script to reference script before WER"]
+  avoid_for: ["non-Chinese text", "manifests with only a top-level `text` and no `segments` (rejected)"]
+composition:
+  typical_upstream: [ASRStage, NeMoASRAlignerStage]
+  typical_downstream: [ComputeWERStage, AudioToDocumentStage]
+params_of_note:
+  text_key: "the PER-SEGMENT text field to convert -- segments[].text (default text). NOT a top-level manifest key: this stage only reads/writes text inside each segment."
+  convert_type: "OpenCC conversion config (default 't2s'). Common: t2s, s2t, s2tw, tw2s, s2hk, hk2s, t2tw, tw2sp, t2hk"
+  segments_key: "key holding the segments list (default 'segments')"
+  output_suffix: "suffix for the written per-segment key (default _simplified)"
+param_dependencies:
+  text_key: "requires a `segments` list on each entry (operates on segments[].text) -- produce it upstream with VAD / ASR-align / diarization. A manifest with only a top-level `text` and no `segments` is rejected (missing required attributes: ['segments'])."
+comparison:
+  language_support: "Chinese script variants only (Traditional / Simplified / regional). (external: OpenCC)"
+  config_complexity: "low (pick convert_type)"
+  choose_when: "your Chinese text mixes script variants (e.g. Traditional vs Simplified) and you need one consistent script before training or WER."
+  known_limitations: "Chinese only; operates on segments[].text; dictionary-based (no semantic disambiguation)"
+notes:
+  - "OpenCC dictionary conversion (opencc-python-reimplemented), default t2s (Traditional -> Simplified). Other configs: s2t, s2tw, tw2s, s2hk, hk2s, t2tw, tw2sp, t2hk."
+  - "Fail-open: on any conversion error the original text is copied to the output key (never drops the row)."
+  - "Writes converted text to segments[].{text_key}{output_suffix}; entries without a `segments` list are rejected (top-level `text` is ignored)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-23"}

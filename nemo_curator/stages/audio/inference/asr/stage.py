@@ -30,6 +30,7 @@ import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 
@@ -97,16 +98,16 @@ _MONO_DIMENSIONS = 1
 _CHANNEL_FIRST_DIMENSIONS = 2
 
 
-def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
-    notes = task_data.get(_NOTES_KEY)
+def _set_note(task_data: dict[str, Any], notes_key: str, stage_name: str, value: str) -> None:
+    notes = task_data.get(notes_key)
     if not isinstance(notes, dict):
         notes = {}
-        task_data[_NOTES_KEY] = notes
+        task_data[notes_key] = notes
     notes[stage_name] = value
 
 
 @dataclass
-class ASRStage(AdapterInferenceStage[ASRAdapter]):
+class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     """Audio speech-recognition stage with a pluggable adapter.
 
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
@@ -140,13 +141,19 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
 
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
+    # Additive agent-facing key knobs live after the existing constructor fields
+    # so legacy positional arguments retain their meaning.
+    skip_me_key: str = _SKIP_ME_KEY
+    notes_key: str = _NOTES_KEY
+    BATCH_ONLY = True
+    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "extras_key", "skip_me_key", "notes_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if not self.pred_text_key:
             msg = "ASRStage.pred_text_key must be non-empty"
             raise ValueError(msg)
-        if self.pred_text_key in {_SKIP_ME_KEY, _NOTES_KEY}:
+        if self.pred_text_key in {self.skip_me_key, self.notes_key}:
             msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
             raise ValueError(msg)
         if self.extras_key is not None:
@@ -154,7 +161,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             if not self.extras_key:
                 msg = "ASRStage.extras_key must be non-empty or None"
                 raise ValueError(msg)
-            if self.extras_key in {self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY}:
+            if self.extras_key in {self.pred_text_key, self.skip_me_key, self.notes_key}:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
         if int(self.batch_size) <= 0:
@@ -188,10 +195,45 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         )
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        optional_outputs = [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
+        optional_outputs = [self.pred_text_key, self.skip_me_key, self.notes_key]
         if self.extras_key is not None:
             optional_outputs.append(self.extras_key)
         return [], optional_outputs
+
+    def describe(self) -> StageContract:
+        reads = (
+            IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+            if self.waveform_key
+            else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
+        )
+        conditional_writes = [
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.skip_me_key]),
+                condition="the adapter skips an item or audio preparation fails",
+            ),
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.notes_key]),
+                condition="a configured language allowlist rejects or cannot identify the item language",
+            ),
+        ]
+        if self.extras_key is not None:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.extras_key]),
+                    condition="the adapter returns non-empty metadata for the item",
+                )
+            )
+        return StageContract(
+            reads=reads,
+            writes=IOSpec(data_keys=[self.pred_text_key]),
+            conditional_writes=conditional_writes,
+            cardinality="1:1",
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                per_row_independent=True,
+            ),
+        )
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)
@@ -397,26 +439,28 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             unsupported_language = result.unsupported_language
             missing_language = self._supported_language_codes is not None and not item["language_code"]
             if missing_language:
-                _set_note(task.data, self.name, "skipped (missing language)")
-                _set_note(task.data, self.pred_text_key, "language_missing")
+                _set_note(task.data, self.notes_key, self.name, "skipped (missing language)")
+                _set_note(task.data, self.notes_key, self.pred_text_key, "language_missing")
             elif unsupported_language:
                 _set_note(
                     task.data,
+                    self.notes_key,
                     self.name,
                     f"skipped (unsupported language: {unsupported_language})",
                 )
                 _set_note(
                     task.data,
+                    self.notes_key,
                     self.pred_text_key,
                     f"lang_not_supported:{unsupported_language}",
                 )
             if result.skipped:
-                task.data[_SKIP_ME_KEY] = result.skip_reason or "empty_audio"
+                task.data[self.skip_me_key] = result.skip_reason or "empty_audio"
                 skipped_count += 1
 
         if skipped_count:
             logger.info(
-                f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} tasks with {_SKIP_ME_KEY}",
+                f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} tasks with {self.skip_me_key}",
             )
         logger.debug(
             f"ASRStage ({self.adapter_target}): generated {len(results)} predictions",

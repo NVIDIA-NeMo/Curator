@@ -1,0 +1,50 @@
+stage_id: BandwidthEstimationStage
+category: quality
+summary: "Estimate effective audio bandwidth from the power spectrum; write to metrics."
+tags: [produces_score]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU FFT; cheap"
+use_cases:
+  good_for: ["estimating a continuous bandwidth (Hz) to detect narrowband/telephony audio", "cheap spectral quality signal", "estimating bandwidth on an in-memory waveform (input_residency) from a producer like SpeakerSeparation/SegmentConcatenation"]
+  avoid_for: ["when you only need a full/narrow band decision (use BandFilterStage)"]
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage, SpeakerSeparationStage, SegmentConcatenationStage]
+  typical_downstream: [PreserveByValueStage, AudioToDocumentStage]
+params_of_note:
+  n_fft: "FFT window size (default 512)"
+  stride_seconds: "time between FFT windows (default 0.01)"
+  top_db: "dynamic-range clip for the spectrum (dB)"
+  frequency_threshold: "energy threshold (dB) for the highest significant frequency"
+  input_residency: "'file' (default; read audio_filepath_key), 'waveform' (in-memory waveform_key+sample_rate_key only), or 'auto' (waveform first, file fallback)."
+  waveform_key: "in-memory waveform tensor key (default 'waveform'); consumed when input_residency is 'waveform'/'auto'."
+  sample_rate_key: "sample-rate key for the in-memory waveform (default 'sample_rate')."
+param_dependencies:
+  input_residency: "'waveform'/'auto' require waveform_key+sample_rate_key; 'file' requires audio_filepath_key. In all cases the task also needs segments OR duration (per-segment vs whole-entry bandwidth)."
+metrics:
+  bandwidth:                                    # scalar Hz, written nested under metrics_key
+    scale: {min: 0, max: 24000, direction: higher_better}
+    # No threshold_param: this stage ANNOTATES, it does not gate. Filter downstream with
+    # PreserveByValueStage -- the direction above is the only thing stopping the resolver
+    # inverting that filter, which is why it is declared here (cf. compute_wer.yaml).
+    # Upper bound is Nyquist, so the real ceiling tracks the input rate (8000 at 16 kHz,
+    # 24000 at 48 kHz): bandwidth = idx * sample_rate/n_fft with idx <= n_fft/2.
+    valid_range: [0, 24000]
+    # SHAPE TRAP: metrics.bandwidth is a scalar int HERE. PrepareModuleSegmentsStage writes
+    # the SAME key as a per-word LIST. An int comparison against that shape raises TypeError
+    # -- check which stage produced the value before filtering on it.
+comparison:
+  accuracy_hint: "continuous bandwidth estimate (Hz), not a learned class"
+  latency_hint: "cheap CPU FFT"
+  config_complexity: "low-medium (FFT knobs)"
+  known_limitations: "spectral heuristic; not a perceptual-quality score"
+notes:
+  - "Writes results under metrics_key."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess, metrics: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-14"}

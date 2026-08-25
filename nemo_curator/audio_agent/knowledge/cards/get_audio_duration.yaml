@@ -1,0 +1,52 @@
+stage_id: GetAudioDurationStage
+category: export
+summary: "Compute audio duration from the file (or an in-memory waveform) and store it under duration_key."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "reads each file's header/metadata; cheap"
+use_cases:
+  good_for: ["adding a duration field for length filtering (PreserveByValue) or export", "computing duration from a resident waveform (input_residency) without re-reading the file"]
+  avoid_for: ["when duration already exists in the manifest"]
+composition:
+  typical_upstream: [ManifestReader, ResampleAudioStage, MonoConversionStage, SpeakerSeparationStage, SegmentConcatenationStage]
+  typical_downstream: [PreserveByValueStage, AudioToDocumentStage, ManifestWriterStage]
+params_of_note:
+  audio_filepath_key: "key holding the audio file path (default audio_filepath); used when input_residency is 'file'/'auto'"
+  duration_key: "output key for the duration (default duration)"
+  input_residency: "'file' (default; read the file header), 'waveform' (in-memory only: duration = samples / sample_rate), or 'auto' (waveform first, file fallback)."
+  waveform_key: "in-memory waveform tensor key (default 'waveform'); consumed when input_residency is 'waveform'/'auto'."
+  sample_rate_key: "sample-rate key for the in-memory waveform (default 'sample_rate')."
+semantic_facts:
+  duration:
+    meaning: "Playback duration of the audio representation selected for the current AudioTask at this pipeline position."
+    unit: "seconds (float); -1.0 is the stage's file-read failure sentinel, not a real negative duration"
+    provenance: "For file residency, decoded from the selected file's frame count/sample rate; for waveform residency, computed as samples/sample_rate; auto prefers the resident waveform."
+    scope: "the current task's selected audio, so placement determines whether this describes an original recording, a fan-out child, or a recombined waveform"
+    propagation: "Computed when this stage runs and stored at duration_key; downstream preserving stages carry that value unchanged unless another stage overwrites it."
+    counterexamples:
+      - "A duration computed before segmentation or fan-out is not automatically the duration of each later segment or child."
+decision:
+  separable_from_producer: true
+  score_key_param: duration_key
+  score_key_default: duration
+  value_type: number
+  scope: task
+  selector:
+    stage_id: PreserveByValueStage
+    key_param: input_value_key
+    value_param: target_value
+    operator_param: operator
+    allowed_operators: [lt, le, eq, ne, ge, gt]
+  missing_score_policy: selector_error
+  atomic: true
+param_dependencies:
+  input_residency: "'waveform'/'auto' require waveform_key+sample_rate_key on the task; 'file' requires audio_filepath_key."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, decision: mechanical}
+provenance: {model_card_url: null, card_version: 5, last_validated: "2026-08-18"}

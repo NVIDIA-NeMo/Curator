@@ -54,6 +54,19 @@ class TestBandFilterStage:
         assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
+    def test_annotate_keeps_non_target_band(self, mock_init: MagicMock) -> None:
+        stage = BandFilterStage(band_value="full_band", action="annotate")
+        predictor = MagicMock()
+        predictor.predict_audio.return_value = "narrow_band"
+        stage._predictor = predictor
+
+        result = stage.process(_make_task())
+
+        assert isinstance(result, AudioTask)
+        assert result.data["band_prediction"] == "narrow_band"
+        assert stage.describe().cardinality == "1:1"
+
+    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
     def test_process_narrow_band_passes_when_configured(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="narrow_band")
         predictor = MagicMock()
@@ -130,3 +143,24 @@ class TestBandFilterStage:
         result = stage.process(task)
 
         assert result == []
+
+    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
+    def test_annotate_nested_keeps_all_segments(self, mock_init: MagicMock) -> None:
+        """Nested annotate mode predicts every segment without target-band dropping."""
+        stage = BandFilterStage(band_value="full_band", action="annotate")
+        predictor = MagicMock()
+        predictor.predict_audio.return_value = "narrow_band"
+        stage._predictor = predictor
+
+        sr = 48000
+        segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
+        task = AudioTask(
+            data={"segments": segments},
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert len(result.data["segments"]) == 3
+        assert all(seg["band_prediction"] == "narrow_band" for seg in result.data["segments"])

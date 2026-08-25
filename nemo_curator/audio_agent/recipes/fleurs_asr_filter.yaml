@@ -1,0 +1,44 @@
+# Runnable recipe template (Recipe IR). Fill inputs.* before running.
+# Referenced by knowledge/blueprints/fleurs.yaml.
+recipe_id: fleurs-asr-wer-filter
+name: fleurs_asr_filter
+intent: "download FLEURS, transcribe, drop rows whose WER exceeds a threshold"
+preset: english_parakeet
+inputs:
+  raw_data_dir: "REQUIRED: staging dir for the FLEURS download"
+  output_manifest: "REQUIRED: output .jsonl path"
+stages:
+  - ref: CreateInitialManifestFleursStage
+    params: {lang: "en_us", split: "dev", raw_data_dir: "REQUIRED_raw_data_dir", batch_size: 4}
+  - ref: ASRStage
+    params:
+      adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+      model_id: "nvidia/parakeet-tdt-0.6b-v2"
+      audio_filepath_key: "audio_filepath"
+      batch_size: 16
+  - ref: GetPairwiseWerStage
+    params: {}
+  - ref: GetAudioDurationStage
+    params: {}
+  - ref: PreserveByValueStage
+    params: {input_value_key: "wer_pct", target_value: 25.0, operator: "le"}
+  - ref: ManifestWriterStage
+    params: {output_path: "REQUIRED_output_manifest"}
+# What "done" means, checked against the written rows. Retune for the job; keep the block.
+acceptance_criteria:
+  - id: transcripts_present
+    type: output_completeness
+    description: "every kept row carries a transcript -- a WER filter over blank predictions
+      passes trivially, because a blank prediction scores no worse than a wrong one here"
+    check: {field: pred_text}
+    severity: must
+  - id: wer_threshold_holds
+    type: quality_standard
+    description: "every kept row is at or under the WER threshold the filter was set to"
+    check: {scope: per_retained_item, field: wer_pct, op: "<=", value: 25.0}
+    severity: must
+  - id: filter_kept_something
+    type: yield
+    description: "the WER filter did not discard the entire split"
+    check: {op: ">", value: 0}
+    severity: must

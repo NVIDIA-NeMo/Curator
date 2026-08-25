@@ -510,3 +510,82 @@ class TestExtractFromManifest:
         assert os.path.exists(os.path.join(out_dir, "manifest.jsonl"))
         with open(os.path.join(out_dir, "extraction_summary.json")) as f:
             assert json.load(f)["total_segments"] == 2
+
+
+# ------------------------------------------------------------------
+# output_key bookkeeping (agent-facing) vs CSV schema (tutorial-facing)
+# ------------------------------------------------------------------
+
+
+class TestOutputKeyBookkeeping:
+    def test_metadata_csv_never_contains_output_key(self, wav_dir: Path, tmp_path: Path) -> None:
+        out_dir = str(tmp_path / "extracted")
+        stage = SegmentExtractionStage(output_dir=out_dir)
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+                "duration": 1.0,
+                "wer": 7.5,
+            },
+            dataset_name="test",
+        )
+        result = stage.process_batch([task])
+        with open(os.path.join(out_dir, "metadata.csv")) as f:
+            reader = csv.DictReader(f)
+            assert "extracted_path" not in reader.fieldnames
+            assert len(list(reader)) == 1
+        # the entry itself still records every written path for downstream stages
+        paths = result[0].data["extracted_path"]
+        assert isinstance(paths, list)
+        assert len(paths) == 1
+        assert os.path.exists(paths[0])
+
+    def test_multi_interval_entry_collects_all_paths(self, wav_dir: Path, tmp_path: Path) -> None:
+        out_dir = str(tmp_path / "extracted")
+        manifest = _write_manifest(
+            tmp_path,
+            [
+                {
+                    "original_file": _wav_path(wav_dir),
+                    "speaker_id": "speaker_0",
+                    "num_speakers": 1,
+                    "diar_segments": [[0.0, 1.0], [2.0, 3.0]],
+                }
+            ],
+        )
+        stage = SegmentExtractionStage(output_dir=out_dir)
+        stage.extract_from_manifest(manifest)
+        with open(os.path.join(out_dir, "extraction_summary.json")) as f:
+            assert json.load(f)["total_segments"] == 2
+        with open(os.path.join(out_dir, "metadata.csv")) as f:
+            reader = csv.DictReader(f)
+            assert "extracted_path" not in reader.fieldnames
+            assert len(list(reader)) == 2
+
+    def test_preexisting_scalar_output_key_folded_into_list(self, wav_dir: Path, tmp_path: Path) -> None:
+        # re-running extraction on a previously augmented manifest must not
+        # crash (.append on a scalar) or silently drop the segment
+        out_dir = str(tmp_path / "extracted")
+        stage = SegmentExtractionStage(output_dir=out_dir)
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+                "duration": 1.0,
+                "extracted_path": "stale/from_previous_run.wav",
+            },
+            dataset_name="test",
+        )
+        result = stage.process_batch([task])
+        paths = result[0].data["extracted_path"]
+        assert isinstance(paths, list)
+        assert paths[0] == "stale/from_previous_run.wav"
+        assert len(paths) == 2
+        assert os.path.exists(paths[1])
+        with open(os.path.join(out_dir, "metadata.csv")) as f:
+            reader = csv.DictReader(f)
+            assert "extracted_path" not in reader.fieldnames
+            assert len(list(reader)) == 1

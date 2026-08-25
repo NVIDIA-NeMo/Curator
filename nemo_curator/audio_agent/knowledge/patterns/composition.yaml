@@ -1,0 +1,48 @@
+# Abstracted composition/ordering rules distilled from blueprints. These teach
+# the host router/planner idiomatic ordering that neither contracts nor cards
+# reveal. `kind: enforced` rules are ALSO enforced by the validator's own Python
+# checks in checks.py (the source of truth). NOTE: this file is NOT parsed by the
+# validator -- it is a teaching layer kept in sync with checks.py by hand, so editing
+# a rule here does not change enforcement. `kind: advisory` rules are expert judgment
+# the planner may adapt.
+
+patterns:
+  - id: mono-first
+    kind: advisory
+    when: "input may be stereo/multi-channel"
+    then: "make the channel count consistent first, so downstream models get consistent mono input: ChannelCountStage(action='convert', target_channels=1) when the rate should be left alone, or MonoConversionStage when a single-rate gate is wanted with it. Use action='filter' instead only when the intent is to KEEP the already-mono rows rather than convert the others"
+
+  - id: resample-before-16k-models
+    kind: advisory
+    when: "a model stage's card lists supported_sample_rates=[16000] and the data has other rates"
+    then: "insert ResampleAudioStage (or MonoConversionStage output_sample_rate=16000) upstream; doing it once avoids each model re-resampling"
+
+  - id: sanitize-before-json-sink
+    kind: enforced
+    when: "a tensor/audio-producing stage precedes a JSON/JSONL writer"
+    then: "insert AudioToDocumentStage followed by DocumentBatchJsonlWriterStage (the converter strips tensors and the sink accepts its DocumentBatch carrier); ManifestWriterStage remains AudioTask-only"
+
+  - id: filter-after-metric
+    kind: advisory
+    when: "filtering on a metric field (e.g. wer, duration, mos)"
+    then: "place the filter AFTER the stage that produces the metric; filtering early (before convert/write) saves cost"
+
+  - id: cheap-filters-first
+    kind: advisory
+    when: "multiple independent quality filters are used"
+    then: "order cheap CPU filters (BandFilter) before expensive GPU filters (UTMOS/SIGMOS). Note: SIGMOS is empirically the most aggressive -- put it first only if you want maximum early cull"
+
+  - id: wer-needs-reference
+    kind: enforced
+    when: "WER/CER filtering is requested"
+    then: "requires reference transcripts in the source manifest AND ASR pred_text upstream; if transcripts are absent, WER is unproducible (find_producers('reference_text') is empty)"
+
+  - id: vad-changes-granularity
+    kind: advisory
+    when: "the user wants per-segment (not whole-file) scores"
+    then: "enable VAD to fan out one row per speech segment; omit VAD for whole-file scores"
+
+  - id: diarization-needs-continuous-audio
+    kind: enforced
+    when: "speaker separation follows VAD segmentation"
+    then: "re-join segments (SegmentConcatenationStage) before diarization; diarization needs a continuous waveform"
