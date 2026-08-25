@@ -10,7 +10,6 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
-- [Audio Tagging Benchmark](#audio-tagging-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -584,13 +583,13 @@ Current audio setup commands:
 
 ```bash
 python benchmarking/data_prep/prepare_librispeech_data.py \
-  --output-path {datasets_path}/librispeech_all_train_600h_71cacbfb \
+  --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb \
   --cache-dir {datasets_path}/_hf_cache/librispeech \
   --hf-repo-id openslr/librispeech_asr \
   --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
   --hf-config all \
   --hf-split train.clean.100+train.clean.360+train.other.500 \
-  --target-audio-hours 600.0
+  --target-audio-hours 750.0
 
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
@@ -607,105 +606,10 @@ pipeline outputs without rescanning or downloading the staged corpus.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |
-| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 600.0028h `openslr/librispeech_asr` manifest (CC BY 4.0), 173,029 unique clips with no repeated rows. Both executors require full-scale recalibration after restoring backend-managed worker sizing. |
+| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), approximately 216,285 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
-
----
-
-## Audio Tagging Benchmark
-
-The nightly entries process 56 real AMI single-distant-microphone meetings:
-30.2032 hours of long, multi-speaker audio with overlap. Stage this corpus and
-the local PyAnnote diarization snapshot once on the benchmark machine:
-
-```bash
-python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  --output-path /path/to/datasets/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
-  --min-audio-hours 30 --max-meeting-duration-minutes 60 \
-  --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
-```
-
-The prep script does not take an HF token. By default it selects complete
-meetings deterministically from the test, validation, and train splits of
-`diarizers-community/ami` (`sdm` config), skips meetings longer than 60 minutes,
-and stops after at least 30 hours. It copies encoded WAV payloads without
-decoding or re-encoding them. Override the defaults only when debugging with
-`--hf-repo-id`, `--ami-config`, `--ami-split`, or `--model-hf-repo-id`.
-Benchmark runs do not download or modify these staged inputs. The expected data
-layout is:
-
-```text
-{datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m/
-|-- manifest.jsonl
-`-- audio/
-    `-- <56 unique meeting WAV files>
-```
-
-`manifest.jsonl` must contain 56 unique `audio_item_id` values. The benchmark
-rewrites a per-run manifest from `--raw-data-dir` so `audio_filepath` points at
-`<raw-data-dir>/audio/<filename>` in the active environment rather than relying
-on hand-authored container paths.
-
-The model output directory must include `config.yaml` and its `segmentation/`,
-`embedding/`, and `plda/` artifacts. The diarization stage loads only this local
-snapshot and requires neither `HF_TOKEN` nor network access. Other model stages
-continue to use their standard NeMo and Torch cache locations.
-
-The benchmark executes the production tagging graph end to end: manifest read,
-resampling, speaker diarization, long-audio splitting, first-pass ASR alignment,
-split metadata join, alignment/diarization merge, bandwidth and SQUIM metrics,
-TTS-segment preparation, second-pass ASR, WER, and manifest write. Use the same
-pre-staged paths for a local benchmark run:
-
-```bash
-python benchmarking/scripts/audio_tagging_benchmark.py \
-  --benchmark-results-path /tmp/audio-tagging-results \
-  --scratch-output-path /tmp/audio-tagging-scratch \
-  --raw-data-dir /path/to/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
-  --no-auto-download \
-  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1_8a52737 \
-  --asr-batch-size 1 \
-  --executor xenna
-```
-
-On constrained local GPUs, disable ASR CUDA graphs and lower the model
-microbatches without changing the pipeline or its output checks:
-
-```bash
-python benchmarking/scripts/audio_tagging_benchmark.py \
-  --benchmark-results-path /tmp/audio-tagging-results \
-  --scratch-output-path /tmp/audio-tagging-scratch \
-  --raw-data-dir /path/to/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
-  --no-auto-download \
-  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1_8a52737 \
-  --disable-cuda-graphs \
-  --asr-transcribe-batch-size 8 \
-  --squim-compute-batch-size 8 \
-  --diarization-segmentation-batch-size 16 \
-  --diarization-embedding-batch-size 16 \
-  --execution-mode batch \
-  --executor xenna
-```
-
-For ad hoc standalone debugging only, the tagging benchmark also has a runtime
-auto-download fallback: if `--raw-data-dir` is omitted, it stages under
-`<scratch-output-path>/audio_tagging_ami_sdm`, reuses that staging if present,
-or downloads `manifest.jsonl` and the three legacy `audio/*.wav` files from
-`--hf-repo-id` or `$CURATOR_AUDIO_TAGGING_HF_REPO_ID` with blobs cached under
-`--cache-dir`, `$CURATOR_AUDIO_TAGGING_CACHE_DIR`, or
-`/tmp/curator/audio_tagging_cache`. Nightly does not use this fallback.
-
-Every downstream stage preserves outer task rows, so success requires input
-manifest rows, returned tasks, and output manifest rows to match. Nested
-segments may still be rejected when a model does not produce the fields needed
-by the following stage; those segments remain visible in the emitted and
-skipped metrics but do not count as successfully tagged output. Success also
-requires nonzero work from all 12 measured processing stages, at least 70
-percent of emitted segments to contain nonempty second-pass ASR and WER output,
-and 30–31 source-audio hours. The synthetic repeat entry was removed, and the
-existing one-hour timeout remains a failure ceiling.
 
 ---
 

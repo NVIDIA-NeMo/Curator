@@ -109,16 +109,16 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
-  # Shared 600-hour LibriSpeech training manifest for both executors.
-  - name: "librispeech_all_600h"
+  # Shared 750-hour LibriSpeech training manifest for both executors.
+  - name: "librispeech_all_750h"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/librispeech_all_train_600h_71cacbfb/manifest.jsonl"
+      path: "{datasets_path}/librispeech_all_train_750h_71cacbfb/manifest.jsonl"
   # AMI SDM meetings up to 60 minutes, totaling at least 30 hours.
   - name: "audio_tagging_ami_sdm"
     formats:
-    - type: "files"
-      path: "{datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m"
+    - type: "jsonl"
+      path: "{datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m/manifest.jsonl"
   # AMI SDM metadata only; no audio is staged.
   - name: "alm_ami_sdm"
     formats:
@@ -976,18 +976,18 @@ entries:
       - metric: num_files_processed
         min_value: 1
 
-  # Shared 600.0028-hour / 173,029-clip workload; the executor selects workers.
+  # Shared 750-hour workload; the executor selects workers.
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:librispeech_all_600h,jsonl}
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
       --executor=xenna
       --execution-mode=streaming
-
+    timeout_s: 13740
     sink_data:
       - name: slack
         additional_metrics:
@@ -999,8 +999,8 @@ entries:
       - metric: num_tasks_processed
         min_value: 1
       - metric: total_audio_duration_hours
-        min_value: 600.0
-        max_value: 600.02
+        min_value: 750.0
+        max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
@@ -1010,11 +1010,11 @@ entries:
     script: audio_librispeech_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:librispeech_all_600h,jsonl}
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
       --model-name=nvidia/parakeet-tdt-0.6b-v2
       --wer-threshold=1000
       --executor=ray_data
-
+    timeout_s: 13740
     sink_data:
       - name: slack
         additional_metrics:
@@ -1026,8 +1026,8 @@ entries:
       - metric: num_tasks_processed
         min_value: 1
       - metric: total_audio_duration_hours
-        min_value: 600.0
-        max_value: 600.02
+        min_value: 750.0
+        max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
@@ -1433,7 +1433,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --input-manifest={dataset:audio_tagging_ami_sdm,jsonl}
       --no-auto-download
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
       --max-segment-length=40
@@ -1471,7 +1471,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --input-manifest={dataset:audio_tagging_ami_sdm,jsonl}
       --no-auto-download
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
       --max-segment-length=40

@@ -175,13 +175,23 @@ def _download_stage_data(hf_repo_id: str | None, cache_dir: Path, data_dir: Path
     return manifest_path, audio_dir, num_rows
 
 
-def _resolve_data_dir(
+def _resolve_data_dir(  # noqa: PLR0913
     scratch_output_path: Path,
+    input_manifest: str | None,
     raw_data_dir: str | None,
     auto_download: bool,
     cache_dir: str | None,
     hf_repo_id: str | None,
 ) -> tuple[Path, Path, Path | None, int]:
+    if input_manifest:
+        manifest_path = Path(input_manifest)
+        return (
+            manifest_path.parent,
+            manifest_path,
+            None,
+            _count_jsonl_rows(manifest_path, "Input manifest"),
+        )
+
     if raw_data_dir:
         data_dir = Path(raw_data_dir)
         source_manifest, audio_dir = _locate_prestaged_data(data_dir)
@@ -327,6 +337,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     max_segment_length: float,
     asr_batch_size: int,
     executor: str,
+    input_manifest: str | None = None,
     raw_data_dir: str | None = None,
     auto_download: bool = True,
     cache_dir: str | None = None,
@@ -344,6 +355,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     scratch_output_path = Path(scratch_output_path)
     data_dir, input_manifest_path, data_cache_dir, num_input_rows = _resolve_data_dir(
         scratch_output_path=scratch_output_path,
+        input_manifest=input_manifest,
         raw_data_dir=raw_data_dir,
         auto_download=auto_download,
         cache_dir=cache_dir,
@@ -485,6 +497,11 @@ def main() -> int:
         "--scratch-output-path",
         required=True,
         help="Path to scratch output directory (standalone data staging + temp files)",
+    )
+    parser.add_argument(
+        "--input-manifest",
+        default=None,
+        help="Path to one pre-staged JSONL manifest. Nightly Xenna and Ray Data use this form.",
     )
     parser.add_argument(
         "--raw-data-dir",

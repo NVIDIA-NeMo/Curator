@@ -32,7 +32,7 @@ DEFAULT_HF_REVISION = "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1"  # pragma: allo
 DEFAULT_HF_CONFIG = "all"
 DEFAULT_HF_SPLIT = "train.clean.100+train.clean.360+train.other.500"
 DEFAULT_CACHE_DIR = "/tmp/curator/librispeech_cache"  # noqa: S108
-DEFAULT_TARGET_AUDIO_HOURS = 600.0
+DEFAULT_TARGET_AUDIO_HOURS = 750.0
 
 
 def _copy_audio(audio: dict, target_path: Path) -> float:
