@@ -41,6 +41,7 @@ from nemo_curator.models.base import ModelInterface
 _QWEN_LM_VARIANTS_INFO: Final = {
     "qwen2.5": ("Qwen/Qwen2.5-14B-Instruct", "cf98f3b"),
     "qwen3": ("Qwen/Qwen3-14B", "f8c293d"),
+    "qwen3.5": ("Qwen/Qwen3.5-27B", "fc05dae"),
 }
 
 
@@ -105,7 +106,12 @@ class QwenLM(ModelInterface):
         self.tokenizer = AutoTokenizer.from_pretrained(self.weight_file)
 
     def generate(self, inputs: list[dict[str, Any]]) -> list[str]:
-        formatted_inputs = self.tokenizer.apply_chat_template(inputs, tokenize=False, add_generation_prompt=True)
+        template_kwargs: dict[str, Any] = {}
+        if self.model_variant == "qwen3.5":
+            template_kwargs["enable_thinking"] = False
+        formatted_inputs = self.tokenizer.apply_chat_template(
+            inputs, tokenize=False, add_generation_prompt=True, **template_kwargs
+        )
         results = self.llm.generate(formatted_inputs, sampling_params=self.sampling_params)
         return [result.outputs[0].text for result in results]
 

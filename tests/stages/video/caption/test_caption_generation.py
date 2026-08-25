@@ -88,6 +88,33 @@ class TestCaptionGenerationStage:
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
 
+    @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
+    def test_setup_qwen3_5_variant(self, mock_qwen_vl: Mock):
+        """Test setup method routes qwen3.5 to QwenVL with the variant forwarded."""
+        mock_model = Mock()
+        mock_qwen_vl.return_value = mock_model
+
+        stage = CaptionGenerationStage(
+            model_dir="test/models",
+            model_variant="qwen3.5",
+            caption_batch_size=2,
+            fp8=False,
+            max_output_tokens=256,
+            disable_mmcache=True,
+        )
+        stage.setup()
+
+        mock_qwen_vl.assert_called_once_with(
+            model_dir="test/models",
+            model_variant="qwen3.5",
+            caption_batch_size=2,
+            fp8=False,
+            max_output_tokens=256,
+            disable_mmcache=True,
+        )
+        mock_model.setup.assert_called_once()
+        assert stage.model == mock_model
+
     @patch("nemo_curator.stages.video.caption.caption_generation.Nemotron3NanoOmni")
     def test_setup_nemotron_3_nano_omni_variant(self, mock_nemotron_omni: Mock):
         """Test setup method routes nemotron-3-nano-omni to Nemotron3NanoOmni."""
