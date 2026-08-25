@@ -42,7 +42,7 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     assert config["max_timeout_s"] == 14340
     assert "--gpu-stage-num-workers=8" in entries["audio_tagging_tts_xenna"]["args"]
     replica_8_arg = '--autoscaling-config=\'{"min_replicas": 8, "max_replicas": 8}\''
-    assert replica_8_arg in entries["ndd_dynamo_dp8"]["args"]
+    assert replica_8_arg in entries["ndd_dynamo"]["args"]
 
 
 def test_4xgb200_64cpu_override_updates_resources_and_caps_timeouts() -> None:
@@ -61,7 +61,7 @@ def test_4xgb200_64cpu_override_updates_resources_and_caps_timeouts() -> None:
         assert "--gpu-stage-num-workers=4" in entries[entry_name]["args"]
         assert "--gpu-stage-num-workers=8" not in entries[entry_name]["args"]
 
-    for entry_name in ("ndd_dynamo_dp8", "ndd_ray_serve_dp8"):
+    for entry_name in ("ndd_dynamo", "ndd_ray_serve"):
         replica_4_arg = '--autoscaling-config=\'{"min_replicas": 4, "max_replicas": 4}\''
         assert replica_4_arg in entries[entry_name]["args"]
         assert entries[entry_name]["ray"]["num_cpus"] == 16

@@ -1304,7 +1304,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.7
 
-  - name: ndd_dynamo_dp8
+  - name: ndd_dynamo
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1340,7 +1340,7 @@ entries:
       - metric: throughput_rows_per_sec
         min_value: 150
 
-  - name: ndd_ray_serve_dp8
+  - name: ndd_ray_serve
     enabled: true
     script: ndd_benchmark.py
     args: >-

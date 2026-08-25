@@ -7,8 +7,8 @@
 # requirements are included here; other performance requirements are inherited
 # from benchmarks.yaml until 4xGB200-64CPU-specific baselines are measured and added.
 #
-# NDD entries retain their current names for continuity, but this file overrides
-# their serving replica count from 8 to 4. Their current 8x performance thresholds
+# NDD entries override their serving replica count from 8 to 4.
+# Their current 8x performance thresholds
 # are inherited because the older dp4 thresholds predate later workload changes.
 
 default_timeout_s: 14340
@@ -146,7 +146,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
-  - name: ndd_dynamo_dp8
+  - name: ndd_dynamo
     timeout_s: 4200
     args: >-
       --benchmark-results-path={session_entry_dir}
@@ -162,7 +162,7 @@ entries:
     ray:
       num_cpus: 16
 
-  - name: ndd_ray_serve_dp8
+  - name: ndd_ray_serve
     timeout_s: 4200
     args: >-
       --benchmark-results-path={session_entry_dir}
