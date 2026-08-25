@@ -156,10 +156,7 @@ def _resolve_audio_path(audio_dir: str, value: str, mode: str = AUDIO_PATH_RESOL
         return os.path.join(audio_dir, value)
     if mode == AUDIO_PATH_RESOLUTION_AS_IS:
         return value
-    msg = (
-        f"unknown audio_path_resolution {mode!r}; "
-        f"expected one of {_AUDIO_PATH_RESOLUTION_MODES}"
-    )
+    msg = f"unknown audio_path_resolution {mode!r}; expected one of {_AUDIO_PATH_RESOLUTION_MODES}"
     raise ValueError(msg)
 
 

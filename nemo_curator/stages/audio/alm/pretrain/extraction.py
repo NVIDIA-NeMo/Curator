@@ -31,6 +31,7 @@ import torch
 import torchaudio.functional as taf
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.alm.pretrain.planning import relativize_segments
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Slice the source audio per snippet plan, mono-resample, and write into a tar.
 
     For each planned snippet:
@@ -114,6 +115,35 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "snippet_id", "duration", "segments"]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key, _PLAN_DATA_KEY], accepts=["file"]),
+            writes=IOSpec(
+                data_keys=[self.audio_filepath_key, "snippet_id", "duration", "segments"],
+                # Disk output only happens when not dry-running; keep this consistent
+                # with the writes_to_disk gate below.
+                produces=[] if self.dry_run else ["disk"],
+            ),
+            cardinality="1:N fan-out",
+            iteration_key=_PLAN_DATA_KEY,
+            gates=Gates(
+                writes_to_disk=not self.dry_run,
+                lifecycle_side_effects=not self.dry_run,
+                output_path_params=["output_dir", "output_audio_tar_path"],
+                # ``task.data["id"]`` is preferred, but its documented fallback
+                # is framework task.task_id and that value enters durable
+                # snippet/member names. A manifest resume creates new task ids,
+                # so candidate boundaries must conservatively refuse this suffix.
+                requires_stable_task_id=True,
+                # The tar shard is shared across rows, but nothing a row writes into it is
+                # decided by the other rows: ``make_snippet_id`` builds the member name from the
+                # row's own id and its own planned start/end, and that same name is the
+                # ``audio_filepath`` the row carries out. Which members the archive ends up
+                # holding is a fact about the run, not about any row's values.
+                per_row_independent=True,
+            ),
+        )
 
     def setup_on_node(
         self,
@@ -275,18 +305,10 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             tarinfo = tarfile.TarInfo(name=member_name)
             tarinfo.size = len(payload)
             self._tar.addfile(tarinfo, io.BytesIO(payload))
-            # Flush the tar's BufferedWriter so this member's bytes hit
-            # the kernel page cache. Cosmos-Xenna shuts actors down with
-            # `ray.kill()` (see lines 74, 1220, 1473 and
-            # cosmos_xenna/ray_utils/actor_pool.py), which does a Quick
-            # exit that bypasses Python cleanup. Anything still in the
-            # user-space buffer at kill time is lost. Page cache survives
-            # process death — the downstream merger reads back the same
-            # file and gets every fully-completed member regardless of
-            # whether teardown() ever ran. Without this flush, ~50%+ of
-            # snippets per shard get dropped during _merge_tar_shards's
-            # Pass 2 streaming because their data sections are truncated
-            # on disk.
+            # Flush so this member reaches the page cache, which survives process death.
+            # Cosmos-Xenna kills actors with ``ray.kill()``, bypassing Python cleanup, so
+            # anything left in the user-space buffer is lost -- without this, 50%+ of snippets
+            # per shard arrive truncated and are dropped by _merge_tar_shards.
             self._tar.fileobj.flush()
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] failed to add {member_name} to tar shard {self._tar_shard_path}: {e}")

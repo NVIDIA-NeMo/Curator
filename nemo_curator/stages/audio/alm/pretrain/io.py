@@ -29,10 +29,12 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -99,7 +101,7 @@ def _check_duplicate_audio_basename(
 
 
 @dataclass
-class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
+class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
 
     Each line in ``input_manifest`` is parsed as JSON and re-emitted as
@@ -153,6 +155,16 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "id", "segments"]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=[self.audio_filepath_key, "id", "segments"]),
+            cardinality="1:N fan-out",
+            gates=Gates(per_row_independent=True),
+        )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def num_workers(self) -> int | None:
         return 1
@@ -225,7 +237,7 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
 
 @dataclass
-class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Append each (non-stub) snippet's ``data`` as a JSONL line.
 
     Single-replica writer; the file is truncated once on driver setup
@@ -239,6 +251,15 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SnippetManifestWriter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            requires_serializable_input=True,
+            per_row_independent=True,
+        )
+    )
 
     def __post_init__(self) -> None:
         self._shard_path: str | None = None
@@ -248,6 +269,17 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                requires_serializable_input=True,
+                per_row_independent=True,
+            )
+        )
 
     def setup_on_node(
         self,
@@ -280,7 +312,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
+class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Per-replica metrics aggregator.
 
     Each ``process()`` call appends one JSONL record to a per-replica
@@ -326,6 +358,19 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            metadata_reads=[_PRETRAIN_META_KEY],
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                # The summary it writes is a total over every row of the corpus, so a run over
+                # part of the corpus produces a different (and smaller) truth.
+                per_row_independent=False,
+            ),
+        )
 
     def setup_on_node(
         self,
