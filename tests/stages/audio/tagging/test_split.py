@@ -12,17 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from nemo_curator.stages.audio.tagging.split import (
     JoinSplitAudioMetadataStage,
+    SplitASRAlignJoinStage,
     SplitLongAudioStage,
 )
 from nemo_curator.tasks import AudioTask
+
+
+class _FakeWaveform:
+    """Minimal waveform stand-in for split path tests."""
+
+    def __getitem__(self, key: object) -> object:
+        if key == 0:
+            return [0.0] * 80
+        return self
+
+
+def _patch_audio_io(monkeypatch: pytest.MonkeyPatch, saved_paths: list[str]) -> None:
+    def fake_load(_path: str) -> tuple[_FakeWaveform, int]:
+        return _FakeWaveform(), 10
+
+    def fake_save(path: str, _waveform: object, _sample_rate: int) -> None:
+        saved_paths.append(path)
+        Path(path).touch()
+
+    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.load", fake_load)
+    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.save", fake_save)
+
+
+def test_additive_output_dir_preserves_legacy_positional_arguments() -> None:
+    splitter = SplitLongAudioStage(120.0, 2.0, "legacy_duration")
+    composite = SplitASRAlignJoinStage(120.0, 2.0, "legacy/model")
+
+    assert splitter.duration_key == "legacy_duration"
+    assert splitter.output_dir is None
+    assert composite.model_name == "legacy/model"
+    assert composite.output_dir is None
 
 
 class TestSplitLongAudioStageGetSplitPoints:
@@ -104,6 +138,110 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         assert len(result.data["split_filepaths"]) == 3
         assert result.data["split_offsets"] == [0.0, 1.0, 2.0]
         assert all(sf.info(path).frames == sample_rate for path in result.data["split_filepaths"])
+
+    def test_default_output_paths_remain_source_adjacent(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        """The default keeps the exact sibling path format used before output_dir existed."""
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        source_path = tmp_path / "recording.flac"
+        stage = SplitLongAudioStage(suggested_max_len=5.0, min_len=0.5)
+        task = audio_task(
+            duration=8.0,
+            audio_item_id="sample",
+            resampled_audio_filepath=str(source_path),
+            segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+        )
+
+        result = stage.process(task)
+
+        expected_paths = [
+            str(tmp_path / "recording.1_of_2.wav"),
+            str(tmp_path / "recording.2_of_2.wav"),
+        ]
+        assert saved_paths == expected_paths
+        assert result.data["split_filepaths"] == expected_paths
+        assert [entry["resampled_audio_filepath"] for entry in result.data["split_metadata"]] == expected_paths
+
+    def test_output_dir_redirects_written_and_returned_split_paths(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        """An explicit output_dir contains every written and returned chunk."""
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        source_dir = tmp_path / "input"
+        source_dir.mkdir()
+        source_path = source_dir / "recording.flac"
+        output_dir = tmp_path / "smoke-chunks"
+        stage = SplitLongAudioStage(
+            suggested_max_len=5.0,
+            min_len=0.5,
+            output_dir=str(output_dir),
+        )
+        task = audio_task(
+            duration=8.0,
+            audio_item_id="sample",
+            resampled_audio_filepath=str(source_path),
+            segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+        )
+
+        result = stage.process(task)
+
+        # Under output_dir the stem carries a path hash; see the collision test below.
+        stem = f"recording_{hashlib.sha256(str(source_path).encode()).hexdigest()[:8]}"
+        expected_paths = [
+            str(output_dir / f"{stem}.1_of_2.wav"),
+            str(output_dir / f"{stem}.2_of_2.wav"),
+        ]
+        assert output_dir.is_dir()
+        assert saved_paths == expected_paths
+        assert result.data["split_filepaths"] == expected_paths
+        assert [entry["resampled_audio_filepath"] for entry in result.data["split_metadata"]] == expected_paths
+        assert not list(source_dir.glob("recording.*_of_2.wav"))
+
+    def test_two_recordings_sharing_a_basename_do_not_overwrite_each_other(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        output_dir = tmp_path / "chunks"
+
+        for speaker in ("spk1", "spk2"):
+            source_dir = tmp_path / speaker
+            source_dir.mkdir()
+            stage = SplitLongAudioStage(suggested_max_len=5.0, min_len=0.5, output_dir=str(output_dir))
+            stage.process(
+                audio_task(
+                    duration=8.0,
+                    audio_item_id="utt1",
+                    resampled_audio_filepath=str(source_dir / "utt1.wav"),
+                    segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+                )
+            )
+
+        assert len(saved_paths) == len(set(saved_paths)), f"one speaker overwrote the other: {saved_paths}"
+
+
+def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
+    """Composite construction forwards both redirected and legacy defaults."""
+    output_dir = str(tmp_path / "smoke-chunks")
+    redirected_splitter = SplitASRAlignJoinStage(output_dir=output_dir).decompose()[0]
+    default_splitter = SplitASRAlignJoinStage().decompose()[0]
+
+    assert isinstance(redirected_splitter, SplitLongAudioStage)
+    assert redirected_splitter.output_dir == output_dir
+    assert isinstance(default_splitter, SplitLongAudioStage)
+    assert default_splitter.output_dir is None
 
 
 class TestJoinSplitAudioMetadataStage:
