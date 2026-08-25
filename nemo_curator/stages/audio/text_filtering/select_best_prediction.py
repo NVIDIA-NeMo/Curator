@@ -167,6 +167,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
         if primary_unsupported and fallback:
             task.data[self.output_key] = fallback
             task.data[self.source_key] = self.fallback_source_label
+            task.data[self.skip_me_key] = ""
             _set_note(
                 task.data,
                 self.name,

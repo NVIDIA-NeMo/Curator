@@ -35,7 +35,8 @@ def test_uses_recovery_prediction_after_hallucination_recheck() -> None:
     assert task.data["_skipme"] == "Hallucination"
 
 
-def test_falls_back_when_primary_language_is_unsupported() -> None:
+def test_selects_supported_fallback_and_clears_primary_language_skip() -> None:
+    """The primary adapter was skipped; a separate supported model produced the fallback."""
     task = AudioTask(
         data={
             "primary_model_prediction": "",
@@ -49,7 +50,11 @@ def test_falls_back_when_primary_language_is_unsupported() -> None:
 
     assert task.data["best_prediction"] == "bonjour"
     assert task.data["best_prediction_source"] == "fallback"
-    assert task.data["_skipme"] == "language_not_supported"
+    assert task.data["_skipme"] == ""
+    assert task.data["additional_notes"] == {
+        "primary_model_prediction": "lang_not_supported:fr",
+        "SelectBestPrediction": "used fallback (primary lang unsupported)",
+    }
 
 
 def test_unsupported_primary_without_fallback_matches_reference_fallthrough() -> None:
