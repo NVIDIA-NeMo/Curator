@@ -24,18 +24,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
-from utils import write_benchmark_results
+from utils import parse_memory_size, write_benchmark_results
 
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
-
-
-def _parse_memory_arg(value: str) -> int | Literal["auto"] | None:
-    """Parse a memory argument that can be an int, 'auto', or None."""
-    if value.lower() == "none":
-        return None
-    if value.lower() == "auto":
-        return "auto"
-    return int(value)
 
 
 def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
@@ -50,6 +41,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     total_nparts: int | None = None,
     rmm_pool_size: int | Literal["auto"] | None = "auto",
     spill_memory_limit: int | Literal["auto"] | None = "auto",
+    use_async_memory: bool = True,
 ) -> dict[str, Any]:
     """Run the exact duplicate identification benchmark and collect comprehensive metrics."""
 
@@ -73,6 +65,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             total_nparts=total_nparts,
             rmm_pool_size=rmm_pool_size,
             spill_memory_limit=spill_memory_limit,
+            use_async_memory=use_async_memory,
         )
         workflow_result = workflow.run(initial_tasks=None)
         run_time_taken = time.perf_counter() - run_start_time
@@ -107,6 +100,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             "total_nparts": total_nparts,
             "rmm_pool_size": rmm_pool_size,
             "spill_memory_limit": spill_memory_limit,
+            "use_async_memory": use_async_memory,
         },
         "metrics": {
             "is_success": success,
@@ -160,13 +154,22 @@ def main() -> int:
         help="Total number of output partitions",
     )
     parser.add_argument(
-        "--rmm-pool-size", type=_parse_memory_arg, default="auto", help="Size of the RMM GPU memory pool in bytes"
+        "--rmm-pool-size",
+        type=parse_memory_size,
+        default="auto",
+        help="Size of the RMM GPU memory pool, for example '72GiB', 'auto', or 'none'",
     )
     parser.add_argument(
         "--spill-memory-limit",
-        type=_parse_memory_arg,
+        type=parse_memory_size,
         default="auto",
-        help="Device memory limit in bytes for spilling to host",
+        help="Device memory spill limit, for example '64GiB', 'auto', or 'none'",
+    )
+    parser.add_argument(
+        "--use-async-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use CUDA asynchronous memory allocation for the shuffle",
     )
     args = parser.parse_args()
 
@@ -193,6 +196,7 @@ def main() -> int:
             total_nparts=args.total_nparts,
             rmm_pool_size=args.rmm_pool_size,
             spill_memory_limit=args.spill_memory_limit,
+            use_async_memory=args.use_async_memory,
         )
     finally:
         write_benchmark_results(results, args.benchmark_results_path)

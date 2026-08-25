@@ -78,6 +78,7 @@ def _create_embedding_stages(
     model_inference_batch_size: int,
     max_seq_length: int,
     embedding_pooling: str,
+    metadata_fields: list[str] | None = None,
     cache_dir: str | None = None,
 ) -> list:
     """Create the embedding stage(s) for the given model variation."""
@@ -113,6 +114,8 @@ def _create_embedding_stages(
                 model_identifier=model_identifier,
                 text_field="text",
                 embedding_field="embeddings",
+                metadata_fields=metadata_fields,
+                model_inference_batch_size=model_inference_batch_size,
                 pretokenize=model_variation == EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED,
                 vllm_init_kwargs=vllm_init_kwargs,
                 cache_dir=cache_dir,
@@ -134,6 +137,7 @@ def run_embedding_generation_benchmark(
     embedding_pooling: str,
     input_format: str = "parquet",
     cache_dir: str | None = None,
+    metadata_fields: list[str] | None = None,
     **kwargs: Any,  # noqa: ANN401, ARG001
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
@@ -156,6 +160,9 @@ def run_embedding_generation_benchmark(
 
     run_start_time = time.perf_counter()
 
+    metadata_fields = list(dict.fromkeys(metadata_fields or []))
+    input_fields = list(dict.fromkeys(["text", *metadata_fields]))
+    output_fields = [*metadata_fields, "embeddings"]
     keep_ext = "jsonl" if input_format == "jsonl" else "parquet"
     input_files = load_dataset_files(input_path, dataset_size_gb, keep_extensions=keep_ext)
     executor_obj = setup_executor(executor)
@@ -166,15 +173,16 @@ def run_embedding_generation_benchmark(
         model_inference_batch_size=model_inference_batch_size,
         max_seq_length=max_seq_length,
         embedding_pooling=embedding_pooling,
+        metadata_fields=metadata_fields,
         cache_dir=cache_dir,
     )
 
     if input_format == "jsonl":
-        reader = JsonlReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False)
-        writer = JsonlWriter(path=str(output_path), fields=["embeddings"])
+        reader = JsonlReader(file_paths=input_files, files_per_partition=1, fields=input_fields, _generate_ids=False)
+        writer = JsonlWriter(path=str(output_path), fields=output_fields)
     else:
-        reader = ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False)
-        writer = ParquetWriter(path=str(output_path), fields=["embeddings"])
+        reader = ParquetReader(file_paths=input_files, files_per_partition=1, fields=input_fields, _generate_ids=False)
+        writer = ParquetWriter(path=str(output_path), fields=output_fields)
 
     pipeline = Pipeline(
         name="embedding_generation_pipeline",
@@ -239,6 +247,13 @@ def main() -> int:
         "--cache-dir",
         default=None,
         help="HuggingFace cache directory for model weights (uses default HF cache if not set)",
+    )
+    parser.add_argument(
+        "--metadata-field",
+        dest="metadata_fields",
+        action="append",
+        default=None,
+        help="Input metadata field to preserve in output; may be repeated",
     )
 
     args = parser.parse_args()

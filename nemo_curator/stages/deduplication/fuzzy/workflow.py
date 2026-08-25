@@ -84,6 +84,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         lsh_rmm_pool_size: int | Literal["auto"] | None = "auto",
         lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
+        use_async_memory: bool = True,
     ):
         """
         Configuration for MinHash based fuzzy duplicates detection.
@@ -148,6 +149,8 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             Size of the RMM GPU memory pool in bytes for the LSH stage.
             If "auto", the memory pool is set to 90% of the free GPU memory.
             If None, the memory pool is set to 50% of free GPU memory and can expand if needed.
+        use_async_memory: bool = True
+            Whether to use a CUDA asynchronous memory resource for the LSH shuffle.
         lsh_spill_memory_limit: int | Literal["auto"] | None = "auto"
             Device memory limit in bytes for spilling to host during the LSH stage.
             If "auto", the limit is set to 80% of the RMM pool size.
@@ -177,6 +180,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
 
         self.lsh_num_output_partitions = lsh_num_output_partitions
         self.lsh_rmm_pool_size = lsh_rmm_pool_size
+        self.use_async_memory = use_async_memory
         self.lsh_spill_memory_limit = lsh_spill_memory_limit
 
         self.num_hashes = self.num_bands * self.minhashes_per_band
@@ -249,6 +253,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                     bands_per_iteration=self.bands_per_iteration,
                     total_nparts=self.lsh_num_output_partitions,
                     rmm_pool_size=self.lsh_rmm_pool_size,
+                    use_async_memory=self.use_async_memory,
                     spill_memory_limit=self.lsh_spill_memory_limit,
                 ),
             ],

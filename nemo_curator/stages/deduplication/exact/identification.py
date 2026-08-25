@@ -57,6 +57,8 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         Size of the RMM GPU memory pool in bytes.
         If "auto", the memory pool is set to 90% of the free GPU memory.
         If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+    use_async_memory
+        Whether to use a CUDA asynchronous memory resource for the shuffle.
     spill_memory_limit
         Device memory limit in bytes for spilling to host.
         If "auto", the limit is set to 80% of the RMM pool size.
@@ -80,6 +82,7 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         rmm_pool_size: int | Literal["auto"] | None = "auto",
         spill_memory_limit: int | Literal["auto"] | None = "auto",
         enable_statistics: bool = False,
+        use_async_memory: bool = True,
     ):
         if not assign_id and id_field is None:
             msg = "id_field must be provided if assign_id is False"
@@ -106,6 +109,7 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
             read_kwargs=read_kwargs,
             write_kwargs=write_kwargs,
             rmm_pool_size=rmm_pool_size,
+            use_async_memory=use_async_memory,
             spill_memory_limit=spill_memory_limit,
             enable_statistics=enable_statistics,
         )

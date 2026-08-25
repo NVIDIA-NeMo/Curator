@@ -380,7 +380,7 @@ class TestFilterModule:
         filtered_data = filters.process(intermediate_data)
 
         # Empty DataFrame
-        expected_df = pd.DataFrame(columns=["documents"], index=pd.Index([], dtype=object))
+        expected_df = pd.DataFrame({"documents": pd.Series(dtype="str")})
 
         expected_data = DocumentBatch(
             data=expected_df,
