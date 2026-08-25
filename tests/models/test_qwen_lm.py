@@ -189,6 +189,49 @@ class TestQwenLM:
         # Verify result
         assert result == ["Generated response"]
 
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    def test_setup_qwen3_5_loads_text_model_only(
+        self, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+    ) -> None:
+        """Test that qwen3.5 asks vLLM for no multimodal slots so the vision tower is skipped."""
+        qwen_lm = QwenLM(model_dir=self.model_dir, model_variant="qwen3.5", caption_batch_size=1)
+        qwen_lm.setup()
+
+        kwargs = mock_llm_class.call_args[1]
+        assert kwargs["limit_mm_per_prompt"] == {"image": 0, "video": 0}
+
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    def test_setup_text_only_variants_omit_mm_limits(
+        self, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+    ) -> None:
+        """Test that genuinely text-only checkpoints are not passed multimodal limits."""
+        qwen_lm = QwenLM(model_dir=self.model_dir, model_variant="qwen3", caption_batch_size=1)
+        qwen_lm.setup()
+
+        assert "limit_mm_per_prompt" not in mock_llm_class.call_args[1]
+
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    def test_setup_qwen3_5_respects_explicit_mm_limits(
+        self, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+    ) -> None:
+        """Test that an explicit limit_mm_per_prompt in vllm_kwargs is not overridden."""
+        override = {"image": 1, "video": 1}
+        qwen_lm = QwenLM(
+            model_dir=self.model_dir,
+            model_variant="qwen3.5",
+            caption_batch_size=1,
+            limit_mm_per_prompt=override,
+        )
+        qwen_lm.setup()
+
+        assert mock_llm_class.call_args[1]["limit_mm_per_prompt"] == override
+
     def test_generate_qwen3_5_disables_thinking(self) -> None:
         """Test that qwen3.5 disables thinking so reasoning traces stay out of enhanced captions."""
         mock_llm = Mock()

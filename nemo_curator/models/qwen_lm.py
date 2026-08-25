@@ -38,6 +38,8 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 
+_QWEN_LM_TEXT_ONLY_MULTIMODAL_VARIANTS: Final = frozenset({"qwen3.5"})
+
 _QWEN_LM_VARIANTS_INFO: Final = {
     "qwen2.5": ("Qwen/Qwen2.5-14B-Instruct", "cf98f3b"),
     "qwen3": ("Qwen/Qwen3-14B", "f8c293d"),
@@ -91,10 +93,13 @@ class QwenLM(ModelInterface):
 
         model_id, _ = _QWEN_LM_VARIANTS_INFO[self.model_variant]
         self.weight_file = str(Path(self.model_dir) / model_id)
+        vllm_kwargs = dict(self.vllm_kwargs)
+        if self.model_variant in _QWEN_LM_TEXT_ONLY_MULTIMODAL_VARIANTS:
+            vllm_kwargs.setdefault("limit_mm_per_prompt", {"image": 0, "video": 0})
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
-            **self.vllm_kwargs,
+            **vllm_kwargs,
         )
         self.sampling_params = SamplingParams(
             temperature=0.1,
