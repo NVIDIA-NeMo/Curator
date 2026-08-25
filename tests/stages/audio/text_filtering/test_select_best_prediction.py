@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: INP001
+
 from copy import deepcopy
 
 from nemo_curator.stages.audio.text_filtering import SelectBestPredictionStage
