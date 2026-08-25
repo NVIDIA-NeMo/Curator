@@ -399,7 +399,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             segmentation_batch_size=diarization_segmentation_batch_size,
             embedding_batch_size=diarization_embedding_batch_size,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=1, gpus=0.4))
+        )
     )
     pipeline.add_stage(
         SplitLongAudioStage(name="SplitLongAudio", suggested_max_len=max_segment_length, min_len=1.0).with_(
@@ -414,7 +414,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             batch_size=asr_batch_size,
             transcribe_batch_size=asr_transcribe_batch_size,
             use_cuda_graphs=use_cuda_graphs,
-        ).with_(resources=Resources(cpus=1, gpus=0.45))
+        )
     )
     pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1)))
     pipeline.add_stage(
@@ -423,11 +423,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         )
     )
     pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
-    pipeline.add_stage(
-        TorchSquimQualityMetricsStage(name="SquimMetrics", compute_batch_size=squim_compute_batch_size).with_(
-            resources=Resources(gpus=0.05)
-        )
-    )
+    pipeline.add_stage(TorchSquimQualityMetricsStage(name="SquimMetrics", compute_batch_size=squim_compute_batch_size))
     pipeline.add_stage(
         PrepareModuleSegmentsStage(
             name="PrepareModuleSegments",
@@ -450,7 +446,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             infer_segment_only=True,
             compute_timestamps=False,
             use_cuda_graphs=use_cuda_graphs,
-        ).with_(resources=Resources(cpus=1, gpus=0.1))
+        )
     )
     pipeline.add_stage(
         ComputeWERStage(
