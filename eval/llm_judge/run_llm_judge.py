@@ -20,7 +20,7 @@ rubrics in ``--judge-config`` define which fields are evaluated, what the
 judge returns, and whether groups share or use separate NDD stages.
 
 Example:
-    python eval/llm_judge/generic_text_judge.py \
+    python eval/llm_judge/run_llm_judge.py \
         --judge-config eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
         --input-path extracted.jsonl --input-format jsonl \
         --output-path judged --output-format jsonl
@@ -316,7 +316,7 @@ def build_pipeline(  # noqa: PLR0913
         )
         processing_stages.extend(_build_filter_stages(stage_filters, name_prefix=f"judge_filter_{stage_name}"))
     return Pipeline(
-        name="generic_text_llm_judge",
+        name="llm_judge",
         description="Evaluate text records with a config-driven NDD LLM judge.",
         stages=[reader, *([language_filter_stage] if language_filter_stage else []), *processing_stages, writer],
     )

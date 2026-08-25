@@ -1,11 +1,11 @@
 ---
 name: llm-judge-config
-description: Create or revise Curator generic_text_judge Jinja prompts and YAML configurations.
+description: Create or revise Curator LLM judge Jinja prompts and YAML configurations.
 ---
 
 # Curator LLM judge configuration
 
-Writes configs for `generic_text_judge.py` (see `README.md` in this directory
+Writes configs for `run_llm_judge.py` (see `README.md` in this directory
 for the full runner documentation). Every judge config is three things: one or
 more Jinja prompt files, a YAML file wiring models to prompts to rubrics, and
 optional filters on the results. Prefer adapting an existing working YAML/Jinja
@@ -176,7 +176,7 @@ cheap to read and store.
   don't add a redundant "explain your answer" score.
 - After changing any score name or option set, check `filters:` — a filter
   referencing a renamed judge/score fails config validation before the run
-  starts (`_validate_filter_references` in `generic_text_judge.py`).
+  starts (`_validate_filter_references` in `run_llm_judge.py`).
 
 ## Output shape
 

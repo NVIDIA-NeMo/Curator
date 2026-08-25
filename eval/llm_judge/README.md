@@ -1,4 +1,4 @@
-# Generic LLM judge
+# LLM judge runner
 
 Use this example to add LLM-based evaluations to JSONL or Parquet records. The YAML configuration defines the served judge model, Jinja prompt files, rubric scores, and optional output filters. The runner starts a local Curator Dynamo/vLLM server, executes NeMo Data Designer (NDD) judge columns, and writes the original records with the judge results added.
 
@@ -16,7 +16,7 @@ This is a minimal integration example, not a calibrated production evaluation. I
 4. Run a small input first.
 
 ```bash
-python eval/llm_judge/generic_text_judge.py \
+python eval/llm_judge/run_llm_judge.py \
   --judge-config eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
   --input-path data/extracted.jsonl \
   --input-format jsonl \
