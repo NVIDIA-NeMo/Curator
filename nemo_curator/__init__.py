@@ -30,6 +30,9 @@ from .package_info import (
 )
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+# Kvikio direct write is used by default in cuDF and can lead to degraded write performance on lustre like filesystems
+# Curator defaults to disabling it to maintain existing performance
+os.environ.setdefault("KVIKIO_AUTO_DIRECT_IO_WRITE", "0")
 
 from cosmos_xenna.ray_utils.cluster import API_LIMIT
 

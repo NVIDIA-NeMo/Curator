@@ -343,6 +343,22 @@ workflow = TextSemanticDeduplicationWorkflow(
     perform_removal=True,
 )
 ```
+
+**GPU write tuning**:
+
+NeMo Curator defaults `KVIKIO_AUTO_DIRECT_IO_WRITE=0` because KvikIO direct
+writes can reduce throughput on distributed filesystems such as Lustre. If the
+workflow writes to a local SSD, setting the variable to `1` may improve
+throughput:
+
+```bash
+export KVIKIO_AUTO_DIRECT_IO_WRITE=1
+```
+
+Set the variable before importing NeMo Curator or starting the job, ensure every
+distributed worker inherits it, and benchmark both values against the target
+filesystem. The setting affects the workflow's GPU-backed cuDF intermediate and
+output writes, not general CPU-based writes. See [Tune GPU Writes for the Target Filesystem](/reference/infra/gpu-processing#tune-gpu-writes-for-the-target-filesystem) for details.
 </Accordion>
 
 ## Output Format
@@ -387,7 +403,7 @@ The workflow produces these output files:
    - **Important**: Contains only the IDs of documents to remove, not the full document content
    - When `perform_removal=True`, clean dataset is saved to `output_path/deduplicated/`
 
- 
+
 
 <Accordion title="Performance Considerations">
 

@@ -226,6 +226,7 @@ The workflow produces these output files:
 - **Memory**: Adjust `bands_per_iteration` (lower = less memory, more iterations)
 - **GPU memory (LSH)**: Use `lsh_rmm_pool_size` to control GPU memory allocation and `lsh_spill_memory_limit` to tune host-spilling behavior during the LSH stage. Reducing the pool size or lowering the spill threshold can prevent out-of-memory errors on smaller GPUs.
 - **Shuffle partitions**: Set `lsh_num_output_partitions` to control the number of output partitions during the LSH shuffle. More partitions reduce per-partition memory but increase I/O overhead.
+- **GPU writes**: NeMo Curator defaults `KVIKIO_AUTO_DIRECT_IO_WRITE=0` because KvikIO direct writes can reduce throughput on distributed filesystems such as Lustre. Setting it to `1` before importing NeMo Curator or starting the job may improve writes to a local SSD. Ensure every distributed worker inherits the same value, and benchmark both settings against the target filesystem. This affects GPU-backed cuDF intermediate and output writes in the workflow, not general CPU-based writes. See [Tune GPU Writes for the Target Filesystem](/reference/infra/gpu-processing#tune-gpu-writes-for-the-target-filesystem) for details.
 - **Accuracy**: Use `char_ngrams &gt;= 20` to reduce false positives
 - **Best practices**: Clear cache between runs, use `input_blocksize="1GiB"`
 
