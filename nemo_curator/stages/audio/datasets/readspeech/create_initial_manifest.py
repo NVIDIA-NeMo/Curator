@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -33,7 +34,7 @@ DNS_READSPEECH_URL = (
 
 
 @dataclass
-class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]):
+class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """
     Stage to create initial manifest for the DNS Challenge Read Speech dataset.
 
@@ -65,6 +66,23 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.text_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=[self.filepath_key, self.text_key], produces=["disk"]),
+            cardinality="1:N fan-out",
+            gates=Gates(
+                writes_to_disk=True,
+                requires_internet_first_run=self.auto_download,
+                output_path_params=[],
+                # Each row is parsed from its own filename. Declared True unconditionally BY
+                # DECISION: ``max_samples`` (default 5000 of ~14k) truncates the SORTED listing,
+                # so a delta enumerating only changed files can admit files a full run would not
+                # have. Accepted rather than deny reuse to the default configuration -- not an
+                # oversight to "fix" back. Same call as CreateInitialManifestAudioFolderStage.
+                per_row_independent=True,
+            ),
+        )
 
     def download_and_extract(self) -> str:
         """Download and extract DNS Challenge Read Speech dataset (~4.88 GB)."""
