@@ -1,18 +1,16 @@
 # User-owned evaluation semantics: replace prompts, rubrics, models, and execution mode for another task.
 models:
-  - alias: judge
+  - alias: qwen
     model: /path/to/your/hf_cache/Qwen3.8-27B
     # Keep the Hugging Face identifier as the API name while serving local weights.
     served_model_name: Qwen/Qwen3.8-27B
-    # Passed directly to Curator's local Dynamo + vLLM InferenceServer.
-    # This is the 4-GPU baseline used by the document-translation pipelines.
     dynamo_model:
-      num_replicas: 4
+      num_replicas: 2
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768
-        max_num_seqs: 256
+        max_num_seqs: 8
         gpu_memory_utilization: 0.8
         enforce_eager: true
     inference_parameters:
@@ -22,7 +20,22 @@ models:
         chat_template_kwargs:
           enable_thinking: false
       max_tokens: 512
-      max_parallel_requests: 32
+      max_parallel_requests: 16
+  - alias: gemma_3
+    model: /path/to/your/hf_cache/gemma-3-27b-it
+    served_model_name: google/gemma-3-27b-it
+    dynamo_model:
+      num_replicas: 2
+      mode: aggregated
+      engine_kwargs:
+        tensor_parallel_size: 1
+        max_model_len: 32768
+        max_num_seqs: 8
+        gpu_memory_utilization: 0.8
+    inference_parameters:
+      temperature: 0.0
+      max_tokens: 512
+      max_parallel_requests: 16
 
 dynamo_server:
   subprocess_env:
@@ -30,10 +43,11 @@ dynamo_server:
 
 execution:
   stages:
-    - name: extraction_quality
+    - name: qwen_extraction_quality
       judges:
-        - name: qwen3_8_27b_text_extraction_judgment
-          model_alias: judge
+        - &qwen_extraction_quality
+          name: qwen3_8_27b_text_extraction_judgment
+          model_alias: qwen
           system_prompt_path: text_extraction_system.jinja
           prompt_path: text_extraction_prompt.jinja
           with_trace: last_message
@@ -62,14 +76,11 @@ execution:
                 3: Some noticeable boilerplate remains.
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
-    - name: semantic_disagreement
-      # In multi_stage this mapping may set a stage-specific Curator runtime_env.
-      # runtime_env:
-      #   env_vars:
-      #     SOME_STAGE_SETTING: value
+    - name: qwen_semantic_disagreement
       judges:
-        - name: qwen3_8_27b_text_extraction_disagreement
-          model_alias: judge
+        - &qwen_semantic_disagreement
+          name: qwen3_8_27b_text_extraction_disagreement
+          model_alias: qwen
           system_prompt_path: text_extraction_system.jinja
           prompt_path: text_extraction_disagreement_prompt.jinja
           scores:
@@ -81,6 +92,16 @@ execution:
                 3: The candidates have noticeable meaningful-content differences.
                 4: The candidates have major meaningful-content differences.
                 5: The candidates disagree so substantially that manual review is needed.
+    - name: gemma_extraction_quality
+      judges:
+        - <<: *qwen_extraction_quality
+          name: gemma_3_27b_text_extraction_judgment
+          model_alias: gemma_3
+    - name: gemma_semantic_disagreement
+      judges:
+        - <<: *qwen_semantic_disagreement
+          name: gemma_3_27b_text_extraction_disagreement
+          model_alias: gemma_3
 
 # Optional: filters are placed automatically after the NDD stage that produces
 # their `judge` column (or after the one combined NDD stage in single_stage).

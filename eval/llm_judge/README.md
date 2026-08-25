@@ -8,19 +8,23 @@ The included example compares jusText and Trafilatura web-text extractions. The 
 
 Start by copying and editing the files in `cc_extract_example/`. The YAML refers to adjacent Jinja files by relative path, so keep them together.
 
-1. Set `models[0].model` in [text_extraction_judge.yaml](cc_extract_example/text_extraction_judge.yaml) to a model identifier or local model path.
+This is a minimal integration example, not a calibrated production evaluation. Its prompts, rubrics, model settings, thresholds, and concurrency values are illustrative and have not been optimized. Validate and adapt them on a manually reviewed sample before relying on results.
+
+1. Set `models[0].model` in [text_extraction_qwen_judge.yaml](cc_extract_example/text_extraction_qwen_judge.yaml) to a model identifier or local model path.
 2. Update [text_extraction_prompt.jinja](cc_extract_example/text_extraction_prompt.jinja) with the field names from your input rows.
 3. Define the rubric outputs under each judge's `scores:` list.
 4. Run a small input first.
 
 ```bash
 python eval/llm_judge/generic_text_judge.py \
-  --judge-config eval/llm_judge/cc_extract_example/text_extraction_judge.yaml \
+  --judge-config eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
   --input-path data/extracted.jsonl \
   --input-format jsonl \
   --output-path output/judged \
   --output-format jsonl
 ```
+
+The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_extraction_qwen_gemma_judges.yaml) runs the same extraction rubrics with both Qwen and Gemma. Use it when you want to compare model agreement; update the model paths and serving settings for your hardware before running it.
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
 

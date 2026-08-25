@@ -1,0 +1,89 @@
+# User-owned evaluation semantics: replace prompts, rubrics, models, and execution mode for another task.
+models:
+  - alias: judge
+    model: /path/to/your/hf_cache/Qwen3.8-27B
+    # Keep the Hugging Face identifier as the API name while serving local weights.
+    served_model_name: Qwen/Qwen3.8-27B
+    dynamo_model:
+      num_replicas: 4
+      mode: aggregated
+      engine_kwargs:
+        tensor_parallel_size: 1
+        max_model_len: 32768
+        max_num_seqs: 256
+        gpu_memory_utilization: 0.8
+        enforce_eager: true
+    inference_parameters:
+      temperature: 0.0
+      # Structured judging needs the final JSON, not Qwen's private deliberation.
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+      max_tokens: 512
+      max_parallel_requests: 32
+
+dynamo_server:
+  subprocess_env:
+    DYN_SYSTEM_PORT: "0"
+
+execution:
+  stages:
+    - name: extraction_quality
+      judges:
+        - name: qwen3_8_27b_text_extraction_judgment
+          model_alias: judge
+          system_prompt_path: text_extraction_system.jinja
+          prompt_path: text_extraction_prompt.jinja
+          with_trace: last_message
+          extract_reasoning_content: false
+          scores:
+            - name: best_extraction
+              description: Select the candidate that is most useful as clean document text.
+              options:
+                justext: jusText best preserves the meaningful source content with minimal boilerplate.
+                trafilatura: Trafilatura best preserves the meaningful source content with minimal boilerplate.
+                raw: The raw text is the most useful representation.
+                none: None of the supplied candidates is a useful clean-text extraction.
+            - name: content_fidelity
+              description: Assess whether the best extraction preserves the source's meaningful content.
+              options:
+                1: Important content is missing or materially distorted.
+                2: Significant omissions or distortions are present.
+                3: Most meaningful content is preserved, with noticeable issues.
+                4: Meaningful content is well preserved, with minor issues.
+                5: Meaningful content is comprehensively and faithfully preserved.
+            - name: boilerplate_removal
+              description: Assess how effectively the best extraction removes navigation, ads, repeated chrome, and other non-content text.
+              options:
+                1: Boilerplate dominates the extraction.
+                2: Significant boilerplate remains.
+                3: Some noticeable boilerplate remains.
+                4: Only minor boilerplate remains.
+                5: Boilerplate is effectively removed.
+    - name: semantic_disagreement
+      # In multi_stage this mapping may set a stage-specific Curator runtime_env.
+      # runtime_env:
+      #   env_vars:
+      #     SOME_STAGE_SETTING: value
+      judges:
+        - name: qwen3_8_27b_text_extraction_disagreement
+          model_alias: judge
+          system_prompt_path: text_extraction_system.jinja
+          prompt_path: text_extraction_disagreement_prompt.jinja
+          scores:
+            - name: semantic_disagreement
+              description: Assess whether the two extraction candidates differ materially in meaningful content.
+              options:
+                1: The candidates preserve essentially the same meaningful content.
+                2: The candidates have small meaningful-content differences.
+                3: The candidates have noticeable meaningful-content differences.
+                4: The candidates have major meaningful-content differences.
+                5: The candidates disagree so substantially that manual review is needed.
+
+# Optional: filters are placed automatically after the NDD stage that produces
+# their `judge` column (or after the one combined NDD stage in single_stage).
+# filters:
+#   - judge: qwen3_8_27b_text_extraction_judgment
+#     score: content_fidelity
+#     operator: gte
+#     value: 4

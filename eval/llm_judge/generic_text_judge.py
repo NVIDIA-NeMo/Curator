@@ -21,7 +21,7 @@ judge returns, and whether groups share or use separate NDD stages.
 
 Example:
     python eval/llm_judge/generic_text_judge.py \
-        --judge-config eval/llm_judge/cc_extract_example/text_extraction_judge.yaml \
+        --judge-config eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
         --input-path extracted.jsonl --input-format jsonl \
         --output-path judged --output-format jsonl
 """
@@ -375,6 +375,18 @@ def _parse_args() -> argparse.Namespace:
         default="/tmp/ray",  # noqa: S108
         help="Ray runtime directory (default: /tmp/ray).",
     )
+    parser.add_argument(
+        "--num-cpus",
+        type=int,
+        default=None,
+        help="Optional CPU count for the local Ray client (default: all available CPUs).",
+    )
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        default=None,
+        help="Optional GPU count for the local Ray client (default: all available GPUs).",
+    )
     return parser.parse_args()
 
 
@@ -394,7 +406,12 @@ def main() -> None:
         text_field=args.language_text_field,
     )
 
-    client = RayClient(include_dashboard=False, ray_temp_dir=args.ray_temp_dir)
+    client = RayClient(
+        num_cpus=args.num_cpus,
+        num_gpus=args.num_gpus,
+        include_dashboard=False,
+        ray_temp_dir=args.ray_temp_dir,
+    )
     client.start()
     inference_server: InferenceServer | None = None
     try:
