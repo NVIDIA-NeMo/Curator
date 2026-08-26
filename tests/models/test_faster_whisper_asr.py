@@ -35,8 +35,9 @@ def test_adapter_conforms_to_shared_protocol() -> None:
 
 
 def test_download_weights_uses_download_only() -> None:
+    adapter = FasterWhisperASR(revision="abc123")
     with patch("nemo_curator.models.faster_whisper_asr._download_whisper_model") as download_model:
-        FasterWhisperASR.download_weights_on_node("large-v3", revision="abc123")
+        adapter.download_weights_on_node()
 
     download_model.assert_called_once_with("large-v3", "abc123")
 

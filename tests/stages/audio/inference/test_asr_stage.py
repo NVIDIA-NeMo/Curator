@@ -28,6 +28,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
+_FASTER_WHISPER_ADAPTER_TARGET = "nemo_curator.models.faster_whisper_asr.FasterWhisperASR"
 _SR = 16000
 _RESAMPLED_AUDIO_PATH = "/data/resampled.wav"
 
@@ -496,6 +497,17 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     )
     stage.setup_on_node()
     mock_download.assert_called_once_with("mock/model", revision="abc123")
+
+
+@patch("nemo_curator.models.faster_whisper_asr._download_whisper_model")
+def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock) -> None:
+    stage = ASRStage(
+        adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
+        model_id="large-v3",
+        adapter_kwargs={"revision": "abc123"},
+    )
+    stage.setup_on_node()
+    mock_download.assert_called_once_with("large-v3", "abc123")
 
 
 @patch(

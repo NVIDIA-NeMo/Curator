@@ -71,10 +71,9 @@ class FasterWhisperASR:
             msg = "FasterWhisperASR.model_id must be non-empty"
             raise ValueError(msg)
 
-    @classmethod
-    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+    def download_weights_on_node(self) -> None:
         """Populate Faster-Whisper's node-local cache without allocating a GPU."""
-        _download_whisper_model(model_id, revision)
+        _download_whisper_model(self.model_id, self.revision)
 
     def load_model(self, *, num_gpus: int) -> None:
         if self._model is not None:
