@@ -22,6 +22,7 @@ predictions. The concrete adapter is resolved at runtime from
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -31,9 +32,14 @@ from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.model_input_segmentation import (
+    plan_audio_segments,
+    resolve_max_model_input_duration,
+)
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
+    from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
     from nemo_curator.tasks import AudioTask
 
 
@@ -112,6 +118,13 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
     and ``additional_notes``. When ``extras_key`` is configured, it also writes
     non-empty adapter metadata as one nested dictionary under that key.
+
+    Audio longer than ``max_inference_duration_s`` is first split into
+    model-safe chunks and stitched back to one result per parent row. An
+    optional ``batch_policy`` then locally re-partitions those chunks in each
+    backend-provided ``process_batch`` call into duration/cost-coherent adapter
+    calls. It does not change backend scheduling or move batching across worker
+    calls.
     """
 
     # Adapter selection.
@@ -140,6 +153,9 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
 
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
+    max_inference_duration_s: float = 2400.0
+    adapter_batch_size: int | None = None
+    batch_policy: BatchPolicy | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -160,10 +176,19 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
+        if self.adapter_batch_size is not None and int(self.adapter_batch_size) <= 0:
+            msg = f"ASRStage.adapter_batch_size must be > 0, got {self.adapter_batch_size}"
+            raise ValueError(msg)
         if int(self.target_sample_rate) <= 0:
             msg = f"ASRStage.target_sample_rate must be > 0, got {self.target_sample_rate}"
             raise ValueError(msg)
+        self.max_inference_duration_s = resolve_max_model_input_duration(
+            max_duration_s=self.max_inference_duration_s,
+            owner="ASRStage",
+        )
         self.batch_size = int(self.batch_size)
+        if self.adapter_batch_size is not None:
+            self.adapter_batch_size = int(self.adapter_batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
 
@@ -316,7 +341,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         """Transcribe one stage batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
-        adapter_indices: list[int] = []
+        adapter_parent_indices: list[int] = []
         adapter_items: list[dict[str, Any]] = []
         for index in supported_indices:
             item = items[index]
@@ -342,26 +367,37 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                 )
                 by_index[index] = ASRResult(text="", skipped=True, skip_reason="audio_load_error")
                 continue
-            adapter_indices.append(index)
-            adapter_items.append(
-                {
-                    "waveform": waveform,
-                    "sample_rate": self.target_sample_rate,
-                    "language": item["language"],
-                    "language_code": item["language_code"],
-                    "task_id": item["task_id"],
-                }
+            segments = plan_audio_segments(
+                num_samples=int(waveform.shape[0]),
+                sample_rate=self.target_sample_rate,
+                max_duration_s=self.max_inference_duration_s,
+                owner="ASRStage",
             )
+            for segment in segments:
+                adapter_parent_indices.append(index)
+                adapter_items.append(
+                    {
+                        "waveform": np.ascontiguousarray(
+                            waveform[segment.start_sample : segment.stop_sample],
+                            dtype=np.float32,
+                        ),
+                        "sample_rate": self.target_sample_rate,
+                        "audio_seconds": segment.duration_s,
+                        "language": item["language"],
+                        "language_code": item["language_code"],
+                        "task_id": item["task_id"],
+                        "chunk_idx": segment.index,
+                        "chunk_count": segment.count,
+                    }
+                )
 
         if adapter_items:
-            adapter_results = self._adapter.transcribe_batch(adapter_items)
-            if len(adapter_results) != len(adapter_items):
-                msg = (
-                    f"Adapter returned {len(adapter_results)} results for "
-                    f"{len(adapter_items)} supported items (must match 1:1)"
-                )
-                raise RuntimeError(msg)
-            by_index.update(zip(adapter_indices, adapter_results, strict=True))
+            adapter_results = self._run_adapter_batches(adapter_items)
+            per_parent: dict[int, list[ASRResult]] = {}
+            for parent_index, result in zip(adapter_parent_indices, adapter_results, strict=True):
+                per_parent.setdefault(parent_index, []).append(result)
+            for parent_index, chunk_results in per_parent.items():
+                by_index[parent_index] = self._stitch_chunk_results(chunk_results)
         return [
             by_index.get(
                 index,
@@ -378,6 +414,81 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             )
             for index, item in enumerate(items)
         ]
+
+    @staticmethod
+    def _stitch_chunk_results(results: list[ASRResult]) -> ASRResult:
+        """Join ordered chunk outputs into one parent-row result."""
+        if not results:
+            return ASRResult(text="", skipped=True, skip_reason="empty_audio")
+        if len(results) == 1:
+            return results[0]
+
+        texts = [text for result in results if (text := (result.text or "").strip())]
+        all_skipped = all(result.skipped for result in results)
+        skip_reason = next((result.skip_reason for result in results if result.skip_reason), None)
+        unsupported_language = next(
+            (result.unsupported_language for result in results if result.unsupported_language),
+            None,
+        )
+        chunk_extras = [dict(result.extras) for result in results]
+        extras = {"chunks": chunk_extras} if any(chunk_extras) else {}
+        return ASRResult(
+            text=" ".join(texts),
+            skipped=all_skipped,
+            skip_reason=skip_reason if all_skipped else None,
+            unsupported_language=unsupported_language,
+            extras=extras,
+        )
+
+    def _run_adapter_batches(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Run locally planned adapter calls and restore candidate-row order."""
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        policy = self.batch_policy
+        if policy is not None and policy.enabled:
+            sub_batches = policy.bucketize(items, cost_fn=self.item_cost)
+        else:
+            cap_source = self.adapter_batch_size if self.adapter_batch_size is not None else self.batch_size
+            cap = max(1, int(cap_source))
+            sub_batches = [
+                (list(range(start, min(start + cap, len(items)))), items[start : start + cap])
+                for start in range(0, len(items), cap)
+            ]
+
+        aligned: list[ASRResult | None] = [None] * len(items)
+        for indices, sub_items in sub_batches:
+            sub_results = self._adapter.transcribe_batch(sub_items)
+            if len(sub_results) != len(sub_items):
+                msg = (
+                    f"Adapter returned {len(sub_results)} results for "
+                    f"{len(sub_items)} supported items (must match 1:1)"
+                )
+                raise RuntimeError(msg)
+            for index, result in zip(indices, sub_results, strict=True):
+                aligned[index] = result
+
+        if any(result is None for result in aligned):
+            msg = "Local batch planning did not produce a result for every supported item"
+            raise RuntimeError(msg)
+        return [result for result in aligned if result is not None]
+
+    def item_cost(self, item: dict[str, Any]) -> float:
+        """Return the local bucketing cost for one prepared adapter item."""
+        estimator = getattr(self._adapter, "estimate_item_cost", None)
+        if callable(estimator):
+            try:
+                estimated = estimator(item)
+                if isinstance(estimated, Real):
+                    return max(0.0, float(estimated))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("ASR adapter cost estimator failed; falling back to duration cost: {}", exc)
+        for key in ("estimated_vram_units", "estimated_encoder_tokens"):
+            value = item.get(key)
+            if value is not None:
+                return max(0.0, float(value))
+        return max(0.0, float(item.get("audio_seconds", 0.0)))
 
     def assemble(
         self,

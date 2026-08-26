@@ -29,6 +29,9 @@ from omegaconf import OmegaConf
 from nemo_curator.models.asr import nemo_asr
 from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
+from nemo_curator.tasks import AudioTask
 
 _MODEL_ID = "nvidia/stt_en_fastconformer_ctc_large"
 _SAMPLE_RATE = 16_000
@@ -137,6 +140,52 @@ def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     assert kwargs["batch_size"] == 2
     assert kwargs["num_workers"] == 2
     assert len(kwargs["audio"]) == 2
+
+
+def test_fastconformer_adapter_cost_estimator_prefers_explicit_model_cost() -> None:
+    adapter = NeMoASRAdapter()
+
+    assert adapter.estimate_item_cost({"estimated_vram_units": 7, "audio_seconds": 2.0}) == 7.0
+    assert adapter.estimate_item_cost({"estimated_encoder_tokens": 5, "audio_seconds": 2.0}) == 5.0
+    assert adapter.estimate_item_cost({"audio_seconds": 2.0}) == 2.0
+    assert adapter.estimate_item_cost({"audio_seconds": -2.0}) == 0.0
+    assert adapter.estimate_item_cost({}) is None
+
+
+def test_local_policy_outputs_are_exact_fastconformer_model_batches() -> None:
+    model = _mock_model([])
+    model.transcribe.side_effect = [
+        ["long"],
+        ["short-a", "short-b"],
+    ]
+    adapter = NeMoASRAdapter()
+    adapter._model = model
+    stage = ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id=_MODEL_ID,
+        waveform_key="waveform",
+        sample_rate_key="sampling_rate",
+        keep_waveform=True,
+        batch_policy=BatchPolicy(
+            buckets_sec=[0, 2],
+            max_items_per_batch_by_bucket=[4, 4],
+            max_audio_sec_per_batch=None,
+        ),
+    )
+    stage._adapter = adapter
+    tasks = [
+        AudioTask(data={"waveform": np.zeros(_SAMPLE_RATE, dtype=np.float32), "sampling_rate": _SAMPLE_RATE}),
+        AudioTask(data={"waveform": np.zeros(4 * _SAMPLE_RATE, dtype=np.float32), "sampling_rate": _SAMPLE_RATE}),
+        AudioTask(
+            data={"waveform": np.zeros(int(1.5 * _SAMPLE_RATE), dtype=np.float32), "sampling_rate": _SAMPLE_RATE}
+        ),
+    ]
+
+    results = stage.process_batch(tasks)
+
+    assert [call.kwargs["batch_size"] for call in model.transcribe.call_args_list] == [1, 2]
+    assert [len(call.kwargs["audio"]) for call in model.transcribe.call_args_list] == [1, 2]
+    assert [task.data["pred_text"] for task in results] == ["short-a", "long", "short-b"]
 
 
 def test_transcribe_batch_preserves_empty_positions() -> None:
