@@ -83,11 +83,16 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
         for stage in stages
         for judge in stage["judges"]
     }
-    filters = [
-        *config.get("filters", []),
-        *(filter_config for stage in stages for filter_config in stage.get("filters", [])),
-    ]
-    for filter_config in filters:
+    producer_stage_by_judge = {
+        str(judge["name"]): index for index, stage in enumerate(stages) for judge in stage["judges"]
+    }
+    filters = [(filter_config, None) for filter_config in config.get("filters", [])]
+    filters.extend(
+        (filter_config, stage_index)
+        for stage_index, stage in enumerate(stages)
+        for filter_config in stage.get("filters", [])
+    )
+    for filter_config, filter_stage_index in filters:
         judge_name = str(filter_config["judge"])
         score_name = str(filter_config["score"])
         if judge_name not in judge_scores:
@@ -95,6 +100,13 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
             raise ValueError(msg)
         if score_name not in judge_scores[judge_name]:
             msg = f"Filter refers to unknown score {score_name!r} on judge {judge_name!r}."
+            raise ValueError(msg)
+        if filter_stage_index is not None and producer_stage_by_judge[judge_name] > filter_stage_index:
+            msg = (
+                f"Stage {stages[filter_stage_index].get('name', '<unnamed>')!r} "
+                f"filter refers to judge {judge_name!r} "
+            )
+            msg += "produced by a later stage."
             raise ValueError(msg)
 
 

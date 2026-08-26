@@ -105,6 +105,14 @@ def test_filter_validation_rejects_unknown_references(filter_config: dict[str, o
         subject._validate_filter_references({"filters": [filter_config]}, stages)
 
 
+def test_filter_validation_rejects_stage_local_filter_for_later_judge() -> None:
+    config, stages = _config_with_filters()
+    stages[0]["filters"] = [{"judge": "safety_judge", "score": "safe", "operator": "eq", "value": "yes"}]
+
+    with pytest.raises(ValueError, match="produced by a later stage"):
+        subject._validate_filter_references(config, stages)
+
+
 @pytest.mark.parametrize(
     ("judge_result", "score_name", "operator", "expected", "keep"),
     [

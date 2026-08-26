@@ -56,6 +56,14 @@ NDD adds one top-level column for each judge. A judge named `extraction_quality`
 
 An input field can be `null`. Make optional Jinja fields null-safe, for example `{{ (trafilatura_text or "")[:8000] }}` rather than `{{ trafilatura_text[:8000] }}`.
 
+## Scaling with Slurm job arrays
+
+For a large evaluation, split the input into many JSONL or Parquet files and submit one single-node job per Slurm array element. Curator automatically detects the Slurm array environment and deterministically assigns source-file tasks to array elements, so each job reads and judges only its assigned files. Each job starts its own local judge server on the GPUs allocated to that job.
+
+A single input file is one source task and cannot be divided across array elements. Use multiple input files (typically with `--files-per-partition 1`) to create enough work to distribute. Array elements can write part files to a shared `--output-path`; use one shared, durable `--checkpoint-path` for the logical run and reuse it only when retrying that same run.
+
+See the [Slurm tutorial](../../tutorials/slurm/README.md) for submission, runtime configuration, and retry patterns.
+
 ## Prompts
 
 Jinja inserts values from the current row: `{{ field_name }}` becomes the value of `field_name` for that record. Use clear delimiters around untrusted source content and tell the model to treat it as evidence rather than instructions.
