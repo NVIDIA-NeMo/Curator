@@ -19,7 +19,7 @@ from __future__ import annotations
 import gc
 from copy import deepcopy
 from dataclasses import dataclass, field
-from numbers import Integral
+from numbers import Integral, Real
 from typing import Any, ClassVar
 
 import numpy as np
@@ -177,6 +177,14 @@ class NeMoASRAdapter:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def estimate_item_cost(self, item: dict[str, Any]) -> float | None:
+        """Prefer explicit encoder/VRAM estimates, then audio duration."""
+        for key in ("estimated_vram_units", "estimated_encoder_tokens", "audio_seconds"):
+            value = item.get(key)
+            if isinstance(value, Real):
+                return max(0.0, float(value))
+        return None
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe one adapter call while preserving input order."""
