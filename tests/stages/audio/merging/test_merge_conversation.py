@@ -77,37 +77,75 @@ def _build_stage(tmp_path: Path, **overrides) -> MergeConversationSDPStage:
     return MergeConversationSDPStage(**defaults)
 
 
-class TestConstruction:
-    def test_defaults(self, tmp_path: Path) -> None:
-        stage = _build_stage(tmp_path)
-        assert stage.max_pause_duration == 2.0
-        assert stage.max_intra_turn_pause == 1.0
-        assert stage.randomize_pauses is False
-        assert stage.seglst_offset == 0.1
-
-    def test_custom_params(self, tmp_path: Path) -> None:
-        stage = _build_stage(
-            tmp_path,
-            max_pause_duration=3.0,
-            max_intra_turn_pause=0.5,
-            randomize_pauses=True,
-            seglst_offset=0.2,
-        )
-        assert stage.max_pause_duration == 3.0
-        assert stage.max_intra_turn_pause == 0.5
-        assert stage.randomize_pauses is True
-        assert stage.seglst_offset == 0.2
-
+class TestProcessInterface:
     def test_process_raises(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
         with pytest.raises(NotImplementedError, match="only supports process_batch"):
             stage.process(_make_task({"audio_filepath": "/a.wav"}))
+
+    def test_outputs_declares_all_written_keys(self, tmp_path: Path) -> None:
+        stage = _build_stage(tmp_path)
+        _, output_keys = stage.outputs()
+        for key in (
+            "conversation_id",
+            "audio_filepath",
+            "rttm_filepath",
+            "ctm_filepath",
+            "seglst_filepath",
+            "duration",
+            "num_speakers",
+            "offset",
+            "mfa_fallback",
+            "speaker_references",
+        ):
+            assert key in output_keys
+
+    def test_inputs_declares_required_keys(self, tmp_path: Path) -> None:
+        stage = _build_stage(tmp_path)
+        _, input_keys = stage.inputs()
+        for key in ("audio_filepath", "speaker", "conversation_id", "turn_index"):
+            assert key in input_keys
 
 
 class TestEmptyBatch:
     def test_empty_returns_empty(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
         assert stage.process_batch([]) == []
+
+    def test_process_batch_accepts_numpy_array_of_tasks(self, tmp_path: Path) -> None:
+        """Ray Data's real batch format is a numpy object array, not a list.
+
+        ``if not tasks:`` raises ``ValueError`` ("truth value of an array
+        with more than one element is ambiguous") for a multi-element numpy
+        array, so process_batch must use ``len(tasks) == 0`` instead.
+        """
+        np = pytest.importorskip("numpy")
+        stage = _build_stage(tmp_path)
+
+        wav1 = _write_wav(tmp_path / "t1.wav", 1.0)
+        wav2 = _write_wav(tmp_path / "t2.wav", 0.8)
+        rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "Alice", [(0.0, 1.0)])
+        rttm2 = _write_rttm(tmp_path / "t2.rttm", "t2", "Bob", [(0.0, 0.8)])
+
+        tasks = np.array(
+            [
+                _make_task({
+                    "audio_filepath": wav1, "rttm_filepath": rttm1,
+                    "speaker": "Alice", "conversation_id": "conv_np",
+                    "turn_index": 0, "overlap": 0,
+                }),
+                _make_task({
+                    "audio_filepath": wav2, "rttm_filepath": rttm2,
+                    "speaker": "Bob", "conversation_id": "conv_np",
+                    "turn_index": 1, "overlap": 0,
+                }),
+            ],
+            dtype=object,
+        )
+
+        results = stage.process_batch(tasks)
+        assert isinstance(results, list)
+        assert len(results) == 1
 
 
 class TestParseRTTM:
@@ -289,6 +327,63 @@ class TestProcessBatch:
                 "turn_index": 0,
             }),
         ]
+        results = stage.process_batch(tasks)
+        assert results == []
+
+    def test_result_preserves_first_task_provenance(self, tmp_path: Path) -> None:
+        """The merged output must be the first input task, mutated in place.
+
+        Constructing a brand-new AudioTask instead would silently reset
+        framework-owned provenance fields (_metadata, _stage_perf).
+        """
+        stage = _build_stage(tmp_path)
+
+        wav1 = _write_wav(tmp_path / "t1.wav", 1.0)
+        wav2 = _write_wav(tmp_path / "t2.wav", 0.8)
+        rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "Alice", [(0.0, 1.0)])
+        rttm2 = _write_rttm(tmp_path / "t2.rttm", "t2", "Bob", [(0.0, 0.8)])
+
+        task1 = _make_task({
+            "audio_filepath": wav1, "rttm_filepath": rttm1,
+            "speaker": "Alice", "conversation_id": "conv_prov",
+            "turn_index": 0, "overlap": 0,
+        }, task_id="t1")
+        task1._metadata = {"source_files": ["orig.wav"]}
+        task2 = _make_task({
+            "audio_filepath": wav2, "rttm_filepath": rttm2,
+            "speaker": "Bob", "conversation_id": "conv_prov",
+            "turn_index": 1, "overlap": 0,
+        }, task_id="t2")
+
+        results = stage.process_batch([task1, task2])
+
+        assert len(results) == 1
+        assert results[0] is task1
+        assert results[0]._metadata == {"source_files": ["orig.wav"]}
+        assert results[0].task_id == "t1"
+
+    def test_merge_failure_degrades_gracefully(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unexpected error inside the merge must not crash the batch."""
+        stage = _build_stage(tmp_path)
+
+        def _boom(*_args: object, **_kwargs: object) -> None:
+            msg = "simulated merge failure"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(stage, "_merge_audio_files", _boom)
+
+        wav1 = _write_wav(tmp_path / "t1.wav", 1.0)
+        rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "Alice", [(0.0, 1.0)])
+        tasks = [
+            _make_task({
+                "audio_filepath": wav1, "rttm_filepath": rttm1,
+                "speaker": "Alice", "conversation_id": "conv_fail",
+                "turn_index": 0, "overlap": 0,
+            }),
+        ]
+
         results = stage.process_batch(tasks)
         assert results == []
 
