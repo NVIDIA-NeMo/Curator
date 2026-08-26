@@ -12,6 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# MFA forced-alignment pipeline.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/alignment \
+#     --config-name pipeline \
+#     input_manifest=/data/manifest.jsonl \
+#     output_dir=/data/aligned
+
 defaults:
   - _self_
   - override hydra/job_logging: none
@@ -41,39 +50,51 @@ documentation: |
 
   **Output format**
 
-  Output manifest contains the following additional keys:
+  Output manifest at ``${output_dir}/result.jsonl`` contains all original
+  fields plus:
 
   * **textgrid_filepath (str)**: path to the TextGrid alignment file.
   * **rttm_filepath (str)**: path to the RTTM speech-activity file (if enabled).
   * **ctm_filepath (str)**: path to the CTM word-timing file (if enabled).
+  * **mfa_skipped (bool)**: ``true`` if MFA silently dropped this file.
 
 input_manifest: ???
 output_dir: ???
-backend: xenna
+backend: ray_data
+mfa_command: "mfa"
+acoustic_model: "english_us_arpa"
+dictionary: "english_us_arpa"
+g2p_model: "english_us_arpa"
+num_jobs: 1
+beam: 100
+retry_beam: 400
+align_timeout_seconds: 3600.0
+create_rttm: true
+create_ctm: true
+# Files aligned per `mfa align` invocation (also MFAAlignmentStage.batch_size).
 batch_size: 256
 
-processors:
+stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${input_manifest}
+    files_per_partition: 1
 
   - _target_: nemo_curator.stages.audio.alignment.MFAAlignmentStage
     output_dir: ${output_dir}
-    mfa_command: "mfa"
-    acoustic_model: "english_us_arpa"
-    dictionary: "english_us_arpa"
-    g2p_model: "english_us_arpa"
+    mfa_command: ${mfa_command}
+    acoustic_model: ${acoustic_model}
+    dictionary: ${dictionary}
+    g2p_model: ${g2p_model}
     audio_filepath_key: "audio_filepath"
     text_key: "text"
     speaker_key: "speaker"
-    num_jobs: 1
-    beam: 100
-    retry_beam: 400
-    create_rttm: true
-    create_ctm: true
+    num_jobs: ${num_jobs}
+    beam: ${beam}
+    retry_beam: ${retry_beam}
+    align_timeout_seconds: ${align_timeout_seconds}
+    create_rttm: ${create_rttm}
+    create_ctm: ${create_ctm}
+    batch_size: ${batch_size}
 
-  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
-
-  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
-    path: ${output_dir}/result
-    write_kwargs:
-      "force_ascii": false
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/result.jsonl

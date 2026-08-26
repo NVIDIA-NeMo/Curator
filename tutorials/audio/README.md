@@ -57,6 +57,7 @@ python nemo_curator/config/run.py \
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
 | Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
 | Produce word-level forced alignment (TextGrid, RTTM, CTM) with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio + text manifest |
+| Generate synthetic multi-speaker conversation audio end-to-end (LLM -> TTS -> alignment -> merge) | [**data-generation/**](data-generation/) | Yes (GPU for LLM/TTS phase) | Bring your own topic manifest + reference voices |
 
 ## Data availability
 
@@ -72,7 +73,8 @@ python nemo_curator/config/run.py \
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
 | `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
-| `alignment/` | No | Varies | Bring your own audio + text JSONL manifest |
+| `alignment/` | No | Varies | Bring your own audio + text JSONL manifest; requires separately-installed MFA models |
+| `data-generation/` | No | Varies | Bring your own topic manifest + reference voices dataset |
 
 ## System dependencies
 
@@ -96,7 +98,8 @@ sudo apt-get install -y ffmpeg
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
 | `tts/` | `ffmpeg` | `audio_cuda12` |
-| `alignment/` | `ffmpeg`, Montreal Forced Aligner (`conda install -c conda-forge montreal-forced-aligner`) | `audio_cpu` |
+| `alignment/` | none (MFA installed separately via conda/micromamba) | `audio_cpu` or `audio_cuda12` |
+| `data-generation/` | `ffmpeg`, Montreal Forced Aligner (installed separately) | `audio_cuda12`, `vllm` |
 
 Install pip extras from the repo root:
 
