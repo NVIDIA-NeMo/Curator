@@ -16,90 +16,71 @@
 
 set -euo pipefail
 
-# Assume this script is in the <repo_root>/benchmarking/tools directory
 THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-""}
-SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-""}
-SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-""}
-GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-""}
-GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE:-""}
-NVIDIA_API_KEY=${NVIDIA_API_KEY:-""}
+CURATOR_DIR="$(cd "${THIS_SCRIPT_DIR}/../.." && pwd)"
 
 PYTHON_BIN=${PYTHON_BIN:-""}
 if [ -z "${PYTHON_BIN}" ]; then
-  for candidate in python3.13 python3.12 python3.11 python3.10 python3.9 python3 python; do
-    if command -v "${candidate}" >/dev/null 2>&1 && "${candidate}" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+  for candidate in python3.13 python3.12 python3.11 python3 python; do
+    if command -v "${candidate}" >/dev/null 2>&1 && "${candidate}" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
       PYTHON_BIN="${candidate}"
       break
     fi
   done
 fi
 if [ -z "${PYTHON_BIN}" ]; then
-  echo "Error: benchmarking/tools/run.sh requires Python 3.9+ on the host." >&2
+  echo "Error: benchmarking/tools/run.sh requires Python 3.11+ on the host." >&2
   exit 1
 fi
 
-# get the following vars from the command line, config file(s), etc. and
-# set them in this environment:
-#   BASH_ENTRYPOINT_OVERRIDE
-#   CURATOR_BENCHMARKING_IMAGE
-#   GPUS
-#   CONTAINER_MEMORY_BYTES
-#   SHM_SIZE_BYTES
-#   HOST_CURATOR_DIR
-#   CURATOR_BENCHMARKING_DEBUG
-#   VOLUME_MOUNTS
-#   ENTRYPOINT_ARGS
-eval_str=$("${PYTHON_BIN}" ${THIS_SCRIPT_DIR}/gen_runscript_vars.py "${BASH_SOURCE[0]}" "$@")
-eval "$eval_str"
+if [[ $# -gt 0 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+  cat <<EOF
+Usage: $0 [OPTIONS] [ARGS ...]
 
-# Get the image digest/ID for benchmark reports. This is not known at image build time.
-IMAGE_DIGEST=$(docker image inspect ${CURATOR_BENCHMARKING_IMAGE} --format '{{.Digest}}' 2>/dev/null) || true
-if [ -z "${IMAGE_DIGEST}" ] || [ "${IMAGE_DIGEST}" = "<none>" ]; then
-    # Use the image ID as a fallback
-    IMAGE_DIGEST=$(docker image inspect ${CURATOR_BENCHMARKING_IMAGE} --format '{{.ID}}' 2>/dev/null) || true
-fi
-if [ -z "${IMAGE_DIGEST}" ] || [ "${IMAGE_DIGEST}" = "<none>" ]; then
-    IMAGE_DIGEST="<unknown>"
+Compatibility wrapper around:
+  python benchmarking/run.py run --image <image> ...
+
+Use curator-benchmark directly when it is installed:
+  curator-benchmark run --image <image> --config benchmarking/nightly-benchmark.yaml
+  curator-benchmark shell --image <image>
+
+By default this wrapper uses:
+  ${CURATOR_BENCHMARK_IMAGE:-${CURATOR_BENCHMARKING_IMAGE:-nemo_curator:latest}}
+
+EOF
+  "${PYTHON_BIN}" "${CURATOR_DIR}/benchmarking/run.py" run --help
+  exit 0
 fi
 
-################################################################################################################
-GPUS_FLAG=""
-if [ "${GPUS}" != "none" ]; then
-  GPUS_FLAG="--gpus=\"${GPUS}\""
+ARGS=("$@")
+SUBCOMMAND=run
+PASSTHROUGH=()
+HAS_TARGET=false
+
+while [[ ${#ARGS[@]} -gt 0 ]]; do
+  case "${ARGS[0]}" in
+    --shell)
+      SUBCOMMAND=shell
+      ARGS=("${ARGS[@]:1}")
+      ;;
+    --image|--container)
+      HAS_TARGET=true
+      PASSTHROUGH+=("${ARGS[0]}")
+      ARGS=("${ARGS[@]:1}")
+      if [[ ${#ARGS[@]} -gt 0 && "${ARGS[0]}" != --* ]]; then
+        PASSTHROUGH+=("${ARGS[0]}")
+        ARGS=("${ARGS[@]:1}")
+      fi
+      ;;
+    *)
+      PASSTHROUGH+=("${ARGS[0]}")
+      ARGS=("${ARGS[@]:1}")
+      ;;
+  esac
+done
+
+if ! ${HAS_TARGET}; then
+  PASSTHROUGH=(--image "${CURATOR_BENCHMARK_IMAGE:-${CURATOR_BENCHMARKING_IMAGE:-nemo_curator:latest}}" "${PASSTHROUGH[@]}")
 fi
 
-# --net=host allows the container to use the host's network stack, which Ray requires to
-# communicate between the container and the host. When running multiple benchmarks in parallel,
-# remove this flag so each container uses its own network namespace — this ensures each Ray
-# cluster is confined to its own container and can use the same default ports without
-# conflicting with other containers.
-docker run \
-  --rm \
-  --net=host \
-  --interactive \
-  --tty \
-  \
-  ${GPUS_FLAG} \
-  --memory=${CONTAINER_MEMORY_BYTES} \
-  --shm-size=${SHM_SIZE_BYTES} \
-  \
-  ${VOLUME_MOUNTS} \
-  \
-  --env=NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
-  --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
-  --env=MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-  --env=SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN} \
-  --env=SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID} \
-  --env=GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID} \
-  --env=GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE} \
-  --env=CURATOR_BENCHMARKING_DEBUG=${CURATOR_BENCHMARKING_DEBUG} \
-  --env=HOST_HOSTNAME=$(hostname) \
-  --env=NVIDIA_API_KEY=${NVIDIA_API_KEY} \
-  \
-  ${BASH_ENTRYPOINT_OVERRIDE} \
-  ${CURATOR_BENCHMARKING_IMAGE} \
-    "${ENTRYPOINT_ARGS[@]}"
-
-exit $?
+exec "${PYTHON_BIN}" "${CURATOR_DIR}/benchmarking/run.py" "${SUBCOMMAND}" "${PASSTHROUGH[@]}"

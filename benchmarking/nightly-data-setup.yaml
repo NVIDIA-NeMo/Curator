@@ -1,7 +1,7 @@
 # Data setup entries for benchmark inputs that are prepared once and reused by
 # nightly benchmark entries.
 #
-# Pass this file to benchmarking/tools/run.sh with:
+# Pass this file to curator-benchmark or benchmarking/tools/run.sh with:
 #   --config benchmarking/nightly-data-setup.yaml
 
 data_setups:
