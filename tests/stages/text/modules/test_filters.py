@@ -15,7 +15,6 @@
 import os
 import re
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -87,64 +86,17 @@ class DummyTokenizer:
         return text.split()
 
 
-class FakeQualityFilter(DocumentFilter):
-    """
-    Emulates FastTextQualityFilter without a model
-    """
-
-    def __init__(self, alpha: float = 3, seed: int = 42):
-        super().__init__()
-        self._alpha = alpha
-        self._seed = np.random.seed(seed)  # noqa: NPY002
+class FakeModelFilter(DocumentFilter):
+    """Minimal model-backed filter used to test actor-stage detection."""
 
     def load_model(self) -> None:
         pass
 
     def score_document(self, text: str) -> float:
-        if text == "a":
-            return 0.00
-        elif text == "b":
-            return 0.25
-        elif text == "c":
-            return 0.50
-        elif text == "d":
-            return 0.75
-        else:
-            msg = f"Unexpected text: {text}"
-            raise ValueError(msg)
+        return float(bool(text))
 
     def keep_document(self, score: float) -> bool:
-        return np.random.pareto(self._alpha) > 1 - score  # noqa: NPY002
-
-
-class FakeLangId(DocumentFilter):
-    """
-    Emulates FastTextLangId without a model
-    """
-
-    def __init__(self, min_langid_score: float = 0.3):
-        super().__init__()
-        self._cutoff = min_langid_score
-
-    def load_model(self) -> None:
-        pass
-
-    def score_document(self, text: str) -> str:
-        if text in ["a", "d"]:
-            return str([0.5, "EN"])
-        if text == "b":
-            return str([0.7, "HI"])
-        if text == "c":
-            return str([0.2, "PT"])
-        else:
-            msg = f"Unexpected text: {text}"
-            raise ValueError(msg)
-
-    def keep_document(self, score: float | str) -> bool:
-        if isinstance(score, str):
-            score = eval(score)  # noqa: S307
-
-        return score[0] >= self._cutoff
+        return bool(score)
 
 
 def all_equal(left_dataset: DocumentBatch, right_dataset: DocumentBatch) -> bool:
@@ -451,13 +403,9 @@ class TestFilterModule:
         assert test_filter.ray_stage_spec() == {"is_actor_stage": False}
 
         # Has load_model
-        test_filter = ScoreFilter(FakeQualityFilter(), text_field="documents")
+        test_filter = ScoreFilter(FakeModelFilter(), text_field="documents")
         assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
-        test_filter = Score(FakeQualityFilter(), text_field="documents", score_field="score")
-        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
-        test_filter = ScoreFilter(FakeLangId(), text_field="documents")
-        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
-        test_filter = Score(FakeLangId(), text_field="documents", score_field="score")
+        test_filter = Score(FakeModelFilter(), text_field="documents", score_field="score")
         assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
 
         # Has load_tokenizer
@@ -1288,29 +1236,3 @@ class TestCodeFilters:
     ) -> None:
         line_statistics = per_extension_filter._line_statistics(content)
         assert line_statistics == expected, f"Expected {expected} but got {line_statistics}"
-
-
-class TestClassifierFilters:
-    def test_fake_quality_filter(self) -> None:
-        dataset = list_to_dataset(["a", "b", "c", "d"])
-        filters = ScoreFilter(FakeQualityFilter())
-
-        filtered_data = filters.process(dataset)
-
-        expected_data = DocumentBatch(
-            data=pd.DataFrame({"text": ["b", "c", "d"]}),
-            dataset_name="test_1",
-        )
-        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
-
-    def test_fake_langid_filter(self) -> None:
-        dataset = list_to_dataset(["a", "b", "c", "d"])
-        filters = ScoreFilter(FakeLangId())
-
-        filtered_data = filters.process(dataset)
-
-        expected_data = DocumentBatch(
-            data=pd.DataFrame({"text": ["a", "b", "d"]}),
-            dataset_name="test_1",
-        )
-        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"

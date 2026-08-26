@@ -85,11 +85,20 @@ class TaskPerfUtils:
             Dict mapping stage_name -> metric_name -> list of numeric values.
         """
         stage_to_metrics: dict[str, dict[str, list[float]]] = {}
+        seen_stage_perfs: set[int] = set()
 
         for pipeline_tasks in TaskPerfUtils._normalize_pipeline_tasks(tasks).values():
             for task in pipeline_tasks or []:
                 perfs = task._stage_perf or []
                 for perf in perfs:
+                    # A batch may fan out into multiple tasks. The adapter attaches
+                    # the same batch-level stats object to every output so each task
+                    # retains its provenance; aggregate that shared object only once.
+                    perf_id = id(perf)
+                    if perf_id in seen_stage_perfs:
+                        continue
+                    seen_stage_perfs.add(perf_id)
+
                     stage_name = perf.stage_name
 
                     if stage_name not in stage_to_metrics:

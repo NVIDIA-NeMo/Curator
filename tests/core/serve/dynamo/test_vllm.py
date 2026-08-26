@@ -403,12 +403,26 @@ class TestEnsureActorOverridesOnAllNodes:
     ``--override`` constraints file before workers are spawned."""
 
     def test_writes_current_ray_version_at_path(self, shared_ray_client: None, tmp_path: Path) -> None:
-        """The fan-out writes ``ray=={ray.__version__}`` at the configured
-        path on every alive node. Catches regressions where the content is
-        hardcoded and silently drifts after a Curator ray bump.
+        """The fan-out writes ``ray=={ray.__version__}`` plus the nixl-cu13
+        exclusion at the configured path on every alive node. Catches
+        regressions where the content is hardcoded and silently drifts after
+        a Curator ray bump.
         """
         override_path = tmp_path / "override.txt"
         with mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path):
             dynamo_vllm.ensure_actor_overrides_on_all_nodes()
 
-        assert override_path.read_text() == f"ray=={ray.__version__}\n"
+        assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+
+
+def test_dynamo_runtime_env_matches_base_environment() -> None:
+    try:
+        installed_version = dynamo_vllm.importlib.metadata.version("ai-dynamo")
+    except dynamo_vllm.importlib.metadata.PackageNotFoundError:
+        expected_packages = ["ai-dynamo[vllm]"]
+    else:
+        expected_packages = [f"ai-dynamo[vllm]=={installed_version}"]
+
+    assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
+    assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+    assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS

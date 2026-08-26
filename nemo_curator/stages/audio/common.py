@@ -171,9 +171,6 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         )
         return results
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_fanout_stage": True}
-
     def num_workers(self) -> int | None:
         return 1
 

@@ -15,12 +15,10 @@
 import os
 import shutil
 from dataclasses import dataclass
-from typing import Any
 
 from huggingface_hub import hf_hub_download
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import extract_archive
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -205,9 +203,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
             )
             raise FileNotFoundError(msg)
         return tsv_path, audio_root
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def process(self, _: EmptyTask) -> list[AudioTask]:
         data_dir = self.language_data_dir()

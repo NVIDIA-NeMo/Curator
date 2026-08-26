@@ -5,7 +5,8 @@
 #   make docs                          # local dev server at http://localhost:3000
 #   make docs-check                    # validate Fern config + MDX
 #   make docs-login                    # guided dashboard sign-in + fern login
-#   make docs-generate-library         # regenerate the Python API reference (libraries:)
+#   make docs-generate-library         # regenerate the Python API reference (git; needs auth)
+#   make docs-generate-library-local   # regenerate locally without Fern auth (Docker)
 #   make docs-substitute               # substitute {{ variables }} in MDX (CI runs this automatically)
 #   make docs-substitute DOCS_VERSION=26.02
 #   make docs-preview                  # build a shared preview URL (needs DOCS_FERN_TOKEN)
@@ -14,7 +15,7 @@
 #
 # See fern/README.md for the full authoring guide.
 
-.PHONY: docs docs-check docs-login docs-generate-library docs-substitute \
+.PHONY: docs docs-check docs-login docs-generate-library docs-generate-library-local docs-substitute \
         docs-preview docs-publish docs-clean docs-help
 
 # Override FERN to pin a CLI version, e.g. `FERN=npx -y fern-api@4.43.1 make docs-check`.
@@ -40,7 +41,11 @@ docs-login:
 
 docs-generate-library:
 	@echo "Generating Python API reference under $(FERN_DIR)/product-docs/ (requires FERN_TOKEN)..."
-	cd $(FERN_DIR) && $(FERN) docs md generate
+	cd $(FERN_DIR) && $(FERN) docs md generate --library nemo-curator
+
+docs-generate-library-local:
+	@echo "Generating Python API reference locally under $(FERN_DIR)/product-docs/ (Docker; no Fern auth)..."
+	bash $(FERN_DIR)/scripts/generate-library-local.sh
 
 docs-substitute:
 	@echo "Substituting {{ variables }} in versions/v$(DOCS_VERSION) MDX..."
@@ -67,7 +72,8 @@ docs-help:
 	@echo "  docs                    local dev server (http://localhost:3000)"
 	@echo "  docs-check              validate Fern config + MDX"
 	@echo "  docs-login              guided dashboard sign-in + fern login"
-	@echo "  docs-generate-library   regenerate Python API reference (libraries:)"
+	@echo "  docs-generate-library        regenerate Python API reference via git (needs auth)"
+	@echo "  docs-generate-library-local  regenerate locally without Fern auth (Docker)"
 	@echo "  docs-substitute         run substitute_variables.py on a version tree"
 	@echo "                          (override version: make docs-substitute DOCS_VERSION=26.02)"
 	@echo "  docs-preview            build a shared preview URL (needs DOCS_FERN_TOKEN)"

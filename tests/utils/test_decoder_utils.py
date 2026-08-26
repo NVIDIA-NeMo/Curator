@@ -17,6 +17,7 @@
 import io
 import json
 import pathlib
+import subprocess
 import tempfile
 from unittest.mock import Mock, patch
 
@@ -27,7 +28,9 @@ from nemo_curator.utils.decoder_utils import (
     FrameExtractionPolicy,
     FrameExtractionSignature,
     Resolution,
+    SoftwareCodecMissingError,
     VideoMetadata,
+    _detect_codec_from_mp4_header,
     _make_video_stream,
     decode_video_cpu,
     extract_frames,
@@ -251,6 +254,114 @@ class TestExtractVideoMetadata:
 
         with pytest.raises(FileNotFoundError, match="not found"):
             extract_video_metadata(non_existent_path)
+
+    @pytest.mark.parametrize(
+        "stderr_signal",
+        [
+            b"[CUDA @ 0x0] cu->cuInit(0) failed -> CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected",
+            b"[h264_cuvid] no CUDA-capable device is detected",
+            b"[h264_cuvid] Cannot load libnvcuvid.so.1",
+            b"[h264_cuvid] Failed loading nvcuvid.",
+        ],
+    )
+    @patch("subprocess.run")
+    def test_extract_video_metadata_raises_software_codec_missing(
+        self, mock_subprocess: Mock, stderr_signal: bytes
+    ) -> None:
+        """When ffprobe fails because the codec/CUDA cannot be opened, raise
+        SoftwareCodecMissingError with a hint pointing at install_h264_support.sh."""
+        mock_subprocess.side_effect = subprocess.CalledProcessError(
+            returncode=1, cmd=["ffprobe"], stderr=stderr_signal
+        )
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            # Minimal mp4 header containing an avc1 (h264) sample-description tag
+            # so that _detect_codec_from_mp4_header reports "h264".
+            tmp.write(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
+            tmp.write(b"\x00" * 64)
+            tmp_path = tmp.name
+        try:
+            with pytest.raises(SoftwareCodecMissingError) as excinfo:
+                extract_video_metadata(tmp_path)
+            assert excinfo.value.codec == "h264"
+            assert "install_h264_support.sh" in str(excinfo.value)
+        finally:
+            pathlib.Path(tmp_path).unlink()
+
+    @pytest.mark.parametrize(
+        "stderr_signal",
+        [
+            # A generic "Could not open codec" without any CUDA signal must NOT
+            # be remapped — common cause is a corrupt file or unsupported codec
+            # profile, neither of which install_h264_support.sh fixes.
+            b"[vp9 @ 0x0] Could not open codec for input stream 0",
+            b"some other generic ffprobe failure",
+            b"Invalid data found when processing input",
+        ],
+    )
+    @patch("subprocess.run")
+    def test_extract_video_metadata_reraises_unrelated_failure(
+        self, mock_subprocess: Mock, stderr_signal: bytes
+    ) -> None:
+        """ffprobe failures unrelated to NVDEC/CUDA must not be remapped."""
+        mock_subprocess.side_effect = subprocess.CalledProcessError(
+            returncode=1, cmd=["ffprobe"], stderr=stderr_signal
+        )
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            with pytest.raises(subprocess.CalledProcessError):
+                extract_video_metadata(tmp_path)
+        finally:
+            pathlib.Path(tmp_path).unlink()
+
+
+class TestSoftwareCodecMissingError:
+    """SoftwareCodecMissingError carries an actionable message and the detected codec."""
+
+    def test_inherits_runtime_error_and_carries_codec(self) -> None:
+        err = SoftwareCodecMissingError("oops", codec="hevc")
+        assert isinstance(err, RuntimeError)
+        assert err.codec == "hevc"
+        assert str(err) == "oops"
+
+    def test_codec_defaults_to_none(self) -> None:
+        err = SoftwareCodecMissingError("oops")
+        assert err.codec is None
+
+
+class TestDetectCodecFromMp4Header:
+    """_detect_codec_from_mp4_header is a heuristic FOURCC scan over the file head."""
+
+    @pytest.mark.parametrize(
+        ("tag", "expected"),
+        [
+            (b"avc1", "h264"),
+            (b"avc3", "h264"),
+            (b"hev1", "hevc"),
+            (b"hvc1", "hevc"),
+            (b"av01", "av1"),
+        ],
+    )
+    def test_detects_known_tags(self, tag: bytes, expected: str) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp.write(b"\x00" * 32 + tag + b"\x00" * 32)
+            tmp_path = pathlib.Path(tmp.name)
+        try:
+            assert _detect_codec_from_mp4_header(tmp_path) == expected
+        finally:
+            tmp_path.unlink()
+
+    def test_returns_none_for_unknown_content(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp.write(b"plain bytes with no codec FOURCC")
+            tmp_path = pathlib.Path(tmp.name)
+        try:
+            assert _detect_codec_from_mp4_header(tmp_path) is None
+        finally:
+            tmp_path.unlink()
+
+    def test_returns_none_for_unreadable_path(self) -> None:
+        assert _detect_codec_from_mp4_header(pathlib.Path("/path/that/does/not/exist.mp4")) is None
 
     @patch("subprocess.run")
     @patch("nemo_curator.utils.decoder_utils.make_pipeline_named_temporary_file")

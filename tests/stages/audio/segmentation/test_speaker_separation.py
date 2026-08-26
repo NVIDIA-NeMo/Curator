@@ -39,6 +39,11 @@ def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTas
 
 
 class TestSpeakerSeparationStage:
+    def test_ray_stage_spec(self) -> None:
+        stage = SpeakerSeparationStage()
+
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
     def test_process_returns_per_speaker_tasks(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)

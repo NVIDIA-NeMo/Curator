@@ -143,9 +143,9 @@ inference call.
 
 ```python
 @dataclass
-class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
-    batch_size: int = 16      # default for this stage
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+class ASRStage(ProcessingStage[AudioTask, AudioTask]):
+    batch_size: int = 32
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 ```
 
 The default is a sensible starting point; pipeline authors can override it
@@ -155,7 +155,11 @@ at pipeline construction time without modifying the stage class:
 
 ```python
 pipeline.add_stage(
-    InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+    ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/parakeet-tdt-0.6b-v2",
+        audio_filepath_key="audio_filepath",
+    )
     .with_(resources=Resources(gpus=1), batch_size=32)
 )
 ```
@@ -168,8 +172,10 @@ from the default `16` to `32` and assigns 1 GPU.
 ```yaml
 pipeline:
   stages:
-    - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
-      model_name: nvidia/parakeet-tdt-0.6b-v2
+    - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+      adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+      model_id: nvidia/parakeet-tdt-0.6b-v2
+      audio_filepath_key: audio_filepath
       batch_size: 32
 ```
 
@@ -262,7 +268,7 @@ process_batch(list[AudioTask]) -> list[AudioTask]
    instead of `not tasks` because Ray Data's `map_batches` passes
    `tasks` as a numpy array, and `not ndarray` raises `ValueError`
    for arrays with more than one element.  This applies to
-   `process_batch` in `InferenceAsrNemoStage` and
+   `process_batch` in `ASRStage` and
    `AudioToDocumentStage`.
 
 ## How backends parallelise your stage
@@ -341,8 +347,9 @@ For a GPU stage with `resources=Resources(cpus=1.0, gpus=1.0)` and
 ```
 
 Each `process_batch([16 tasks])` call goes directly to:
-`InferenceAsrNemoStage.process_batch` → `validate_input` per task →
-extract filepaths → **one** batched GPU call → mutate each task in-place.
+`ASRStage.process_batch` → validate and load the current task waveforms →
+`NeMoASRAdapter.transcribe_batch` → **one** batched NeMo call → mutate each
+task in-place.
 
 ### Xenna specifics
 
@@ -403,7 +410,7 @@ the value takes until it controls how many tasks land in your
 `process_batch` call:
 
 ```
-InferenceAsrNemoStage                     (your stage dataclass)
+ASRStage                                  (generic stage dataclass)
     batch_size: int = 16                  ← defined as a dataclass field
         │
         │  ProcessingStage (base class)
@@ -492,7 +499,7 @@ pipeline.run(executor)
 │   └─ return results
 ```
 
-### GPU stage (e.g. `InferenceAsrNemoStage`, `batch_size=16`)
+### GPU stage (e.g. `ASRStage` + `NeMoASRAdapter`, `batch_size=16`)
 
 **Xenna backend:**
 
@@ -510,14 +517,15 @@ pipeline.run(executor)
 │
 ├─ Per worker — one-time setup:
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup_on_node()
-│     → stages/audio/inference/asr_nemo.py           InferenceAsrNemoStage.setup_on_node()
-│       nemo_asr.models.ASRModel.from_pretrained(model_name, return_model_file=True)
+│     → stages/audio/inference/asr/stage.py           ASRStage.setup_on_node()
+│       → models/asr/nemo_asr.py                      NeMoASRAdapter.download_weights_on_node()
+│         ASRModel.from_pretrained(model_name=model_id, return_model_file=True)
 │       (downloads model to shared cache — one download per node)
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup()
 │     → backends/base.py                             stage.setup(worker_metadata)
-│       → stages/audio/inference/asr_nemo.py           InferenceAsrNemoStage.setup()
-│         map_location = self.check_cuda()           → "cuda"
-│         self.asr_model = ASRModel.from_pretrained(model_name, map_location=cuda)
+│       → stages/audio/inference/asr/stage.py           ASRStage.setup()
+│         → models/asr/nemo_asr.py                      NeMoASRAdapter.load_model(num_gpus=1)
+│           ASRModel.from_pretrained(model_name=model_id, map_location=cuda)
 │
 ├─ Per batch (batch_size=16, so 16 AudioTask tasks per call):
 │   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
@@ -528,18 +536,17 @@ pipeline.run(executor)
 │         └─ return results                                                                      │
 │                                                                                                │
 │   ┌────────────────────────────────────────────────────────────────────────────────────────────┘
-│   │  InferenceAsrNemoStage.process_batch()       (OVERRIDDEN — batched GPU)
-│   │    stages/audio/inference/asr_nemo.py
+│   │  ASRStage.process_batch()                    (generic batched GPU stage)
+│   │    stages/audio/inference/asr/stage.py
 │   │    validate_input(task) per task              schema check
-│   │    files = [t.data[self.filepath_key] for t in tasks]
-│   │                                                → list of 16 audio file paths
-│   │    texts = self.transcribe(files)
-│   │      → stages/audio/inference/asr_nemo.py
-│   │        self.asr_model.transcribe(files)
-│   │          → ONE batched GPU kernel call for all 16 files
-│   │        return [output.text for output in outputs]
-│   │    for task, text in zip(tasks, texts):
-│   │      task.data[self.pred_text_key] = text     (mutate in-place)
+│   │    load and normalize the current 16 waveforms
+│   │    adapter.transcribe_batch(items)
+│   │      → models/asr/nemo_asr.py
+│   │        self._model.transcribe(audio=waveforms, batch_size=16)
+│   │          → ONE batched NeMo inference call
+│   │        return list[ASRResult]
+│   │    for task, result in zip(tasks, results):
+│   │      task.data[self.pred_text_key] = result.text
 │   └─ return tasks                                 → same 16 AudioTask objects
 ```
 
@@ -610,7 +617,7 @@ processing median ALM entries (~4 MB each), that is ~128 MB of task
 data in flight.  The worker process itself uses minimal additional
 memory (soundfile, editdistance, etc. are lightweight).
 
-**GPU stages** (e.g. `InferenceAsrNemoStage`):  Peak memory is
+**GPU stages** (e.g. `ASRStage` + `NeMoASRAdapter`): Peak memory is
 dominated by **model VRAM**, not task data.  A NeMo ASR
 FastConformer-TDT model uses ~2–4 GB of VRAM.  The task data
 (`batch_size × entry_size`) is negligible in comparison — 16 FLEURS
@@ -620,9 +627,9 @@ entries is 16 × 741 B ≈ 12 KB, while even 16 large ALM entries is
 ## End-to-end `AudioTask` trace (FLEURS pipeline)
 
 Below is a single English FLEURS entry flowing through every stage in
-`tutorials/audio/fleurs/pipeline.py`.  All values are **real output**
-from running `--lang en_us --model_name nvidia/parakeet-tdt-0.6b-v2
---split dev --wer_threshold 75`.
+`tutorials/audio/fleurs/main.py`. All values are **real output** from running
+`lang=en_us stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2
+data_split=dev wer_threshold=75`.
 
 Pipeline: download → ASR → WER → duration → filter → convert → write.
 
@@ -647,11 +654,12 @@ AudioTask(
 
 *(Only 2 keys: `audio_filepath` and `text`.)*
 
-### Stage 2: `InferenceAsrNemoStage` (GPU)
+### Stage 2: `ASRStage` + `NeMoASRAdapter` (GPU)
 
-Loads `nvidia/parakeet-tdt-0.6b-v2` onto the GPU.  Receives a batch
-of 16 `AudioTask`s, extracts file paths, runs one batched
-`transcribe()` call, and writes predictions back **in-place**.
+The generic stage loads and normalizes each current-batch waveform; the NeMo
+adapter loads `nvidia/parakeet-tdt-0.6b-v2` onto the GPU and runs one batched
+`transcribe()` call for 16 `AudioTask`s. The stage writes predictions back
+**in-place**.
 
 **Output** — `data` gains `pred_text`:
 
@@ -746,7 +754,7 @@ Writes each row of the DataFrame as one JSON line to
 | Stage | Keys in `data` | Type out |
 |---|---|---|
 | `CreateInitialManifestFleursStage` | `audio_filepath`, `text` | `AudioTask` |
-| `InferenceAsrNemoStage` | + `pred_text` | `AudioTask` |
+| `ASRStage` + `NeMoASRAdapter` | + `pred_text` | `AudioTask` |
 | `GetPairwiseWerStage` | + `wer` | `AudioTask` |
 | `GetAudioDurationStage` | + `duration` | `AudioTask` |
 | `PreserveByValueStage` | (unchanged or dropped) | `AudioTask` |

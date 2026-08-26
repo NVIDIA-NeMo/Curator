@@ -54,7 +54,9 @@ class PathResolver:
                 self.path_map[name] = container_path if in_docker else host_path
                 self._volume_pairs.append((host_path, container_path))
         else:
-            # Legacy path fields (deprecated)
+            # Legacy top-level YAML path fields are deprecated. The path
+            # names themselves, including "results_path", are still valid
+            # when provided through the preferred "paths" list above.
             for name, host_path in [
                 ("results_path", Path(data["results_path"])),
                 ("datasets_path", Path(data["datasets_path"])),
@@ -67,6 +69,26 @@ class PathResolver:
     def volume_mount_pairs(self) -> Iterator[tuple[Path, Path]]:
         """Yield (host_path, container_path) pairs for all configured paths."""
         yield from self._volume_pairs
+
+    def unmap_container_path(self, path: Path) -> Path:
+        """Return the host path for a path under a configured container mount."""
+        matches: list[tuple[int, Path]] = []
+        for host_path, container_path in self._volume_pairs:
+            # relative_to() succeeds only when path is inside this container
+            # mount. Otherwise it raises ValueError and we try the next mount.
+            try:
+                relative_path = path.relative_to(container_path)
+            except ValueError:
+                continue
+            # Store both match specificity and the host-visible path so
+            # nested/overlapping mounts resolve to the longest matching mount.
+            matches.append((len(container_path.parts), host_path / relative_path))
+
+        if not matches:
+            return path
+
+        _, host_visible_path = max(matches, key=lambda match: match[0])
+        return host_visible_path
 
     def resolve(self, name: str) -> Path:
         """

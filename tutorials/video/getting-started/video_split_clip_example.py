@@ -13,6 +13,10 @@
 # limitations under the License.
 
 import argparse
+import re
+import shutil
+import subprocess
+import sys
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
@@ -232,7 +236,57 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
     return pipeline
 
 
+# Encoders that produce h264 clip output. ClipWriter's metadata extraction
+# runs ffprobe in a CPU-only Ray actor, so it needs a software h264 decoder
+# (NVDEC-only h264 won't work without GPU visibility in that actor).
+_H264_PRODUCING_ENCODERS = frozenset({"h264_nvenc", "libopenh264"})
+
+# Matches the ` V..... h264 ` row in `ffmpeg -decoders`, excluding `h264_cuvid` etc.
+_H264_SW_DECODER_LINE = re.compile(r"^\s+V\S*\s+h264\s")
+
+
+def _h264_software_decoder_available() -> bool:
+    if shutil.which("ffmpeg") is None:
+        return False
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-decoders"],  # noqa: S607
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return False
+    return any(_H264_SW_DECODER_LINE.match(line) for line in out.splitlines())
+
+
+def _preflight_check_h264_decoder(encoder: str) -> None:
+    """Fail-fast if the chosen transcode encoder produces h264 but the system
+    ffmpeg lacks a software h264 decoder — ClipWriter would otherwise crash on
+    every transcoded clip in a CPU-only Ray actor.
+    """
+    if encoder not in _H264_PRODUCING_ENCODERS:
+        return
+    if _h264_software_decoder_available():
+        return
+    msg = (
+        f"\nERROR: --transcode-encoder={encoder} produces h264 clips, but the "
+        "container's ffmpeg does not include a software h264 decoder.\n"
+        "ClipWriter's metadata extraction (ffprobe in a CPU-only Ray actor) "
+        "will fail on every transcoded clip.\n\n"
+        "Fix one of:\n"
+        "  1. Install software h264/hevc/av1 decoders inside the container:\n"
+        "       bash /opt/Curator/docker/common/install_h264_support.sh\n"
+        "  2. Pick a transcode encoder whose output codec the system ffmpeg "
+        "can software-decode (e.g. --transcode-encoder libvpx-vp9).\n"
+    )
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+
 def main(args: argparse.Namespace) -> None:
+    _preflight_check_h264_decoder(args.transcode_encoder)
     pipeline = create_video_splitting_pipeline(args)
 
     # Print pipeline description
@@ -380,9 +434,15 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--transcode-encoder",
         type=str,
-        default="libopenh264",
-        choices=["libopenh264", "h264_nvenc", "libx264"],
-        help="Codec for transcoding clips; None to skip transcoding.",
+        default="h264_nvenc",
+        choices=["h264_nvenc", "libvpx-vp9", "libopenh264"],
+        help=(
+            "Codec for transcoding clips. Use `h264_nvenc` on NVENC-equipped GPUs; "
+            "use `libvpx-vp9` (CPU) as a royalty-free fallback on GPUs without NVENC "
+            "such as A100/H100; `libopenh264` is accepted but requires a user-"
+            "installed FFmpeg build (Curator does not ship it — see the "
+            "Bring-Your-Own H.264 docs)."
+        ),
     )
     parser.add_argument(
         "--transcode-encoder-threads",

@@ -189,6 +189,11 @@ class TestGetFramesFromFfmpeg:
 class TestVideoFrameExtractionStage:
     """Test suite for VideoFrameExtractionStage class."""
 
+    @pytest.fixture(autouse=True)
+    def _ffmpeg_available(self) -> Any:
+        with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
+            yield
+
     def setup_method(self) -> None:
         """Set up test fixtures."""
         self.output_hw = (27, 48)

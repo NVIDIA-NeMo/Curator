@@ -1,0 +1,92 @@
+---
+description: "Essential concepts for audio data curation including ASR inference, quality assessment, and speech processing workflows"
+categories: ["concepts-architecture"]
+tags: ["concepts", "audio-curation", "asr", "speech-processing", "quality-metrics"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "concept"
+modality: "audio-only"
+---
+
+# Audio Curation Concepts
+
+This guide covers the essential concepts for audio data curation in NVIDIA NeMo Curator. These concepts assume basic familiarity with speech processing and machine learning principles.
+
+## Core Concept Areas
+
+Audio curation in NVIDIA NeMo Curator focuses on these key areas:
+
+<Cards>
+
+<Card title="Audio Curation Pipeline" href="/about/concepts/audio/curation-pipeline">
+
+Modality-level overview of ingest, validation, optional ASR, metrics, filtering, and export
+overview map
+</Card>
+
+<Card title="AudioTask Structure" href="/about/concepts/audio/audio-task">
+
+Understanding the AudioTask data structure and audio file management
+data-structures validation
+</Card>
+
+<Card title="ASR Pipeline" href="/about/concepts/audio/asr-pipeline">
+
+Comprehensive overview of the automatic speech recognition pipeline and workflow
+overview architecture
+</Card>
+
+<Card title="Quality Metrics" href="/about/concepts/audio/quality-metrics">
+
+Core concepts for evaluating speech transcription quality and audio characteristics
+wer cer metrics
+</Card>
+
+<Card title="Dataset Manifests and Ingest" href="/about/concepts/audio/manifests-ingest">
+
+Concepts for constructing manifests and ingesting audio datasets
+manifests ingest
+</Card>
+
+<Card title="ALM Pipeline" href="/about/concepts/audio/alm-pipeline">
+
+Audio Language Model data curation pipeline for extracting training windows from diarized segments
+alm windowing speaker-diarization
+</Card>
+
+<Card title="Text Integration" href="/about/concepts/audio/text-integration">
+
+Concepts for integrating audio processing with text curation workflows
+multimodal integration
+</Card>
+
+</Cards>
+
+## Infrastructure Components
+
+The audio curation concepts build on NVIDIA NeMo Curator's core infrastructure components, which are shared across all modalities. These components include:
+
+<Cards>
+
+<Card title="Memory Management" href="/reference/infra/memory-management">
+Optimize memory usage when processing large audio datasets
+partitioning
+batching
+monitoring
+</Card>
+
+<Card title="GPU Acceleration" href="/reference/infra/gpu-processing">
+Leverage NVIDIA GPUs for faster ASR inference and audio processing
+cuda
+nemo-toolkit
+performance
+</Card>
+
+<Card title="Resumable Processing" href="/reference/infra/resumable-processing">
+Continue interrupted operations across large audio datasets
+checkpoints
+recovery
+batching
+</Card>
+
+</Cards>

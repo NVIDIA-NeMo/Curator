@@ -25,6 +25,7 @@ from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.video import Video, VideoTask
 from nemo_curator.utils.client_utils import FSPath, is_remote_url
+from nemo_curator.utils.decoder_utils import SoftwareCodecMissingError
 
 
 @dataclass
@@ -171,6 +172,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         """
         try:
             video.populate_metadata()
+        except SoftwareCodecMissingError as e:
+            logger.error(f"Skipping {video.input_video}: software codec missing for this stage. {e}")
+            return False
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to extract metadata for {video.input_video}: {e}")
             return False

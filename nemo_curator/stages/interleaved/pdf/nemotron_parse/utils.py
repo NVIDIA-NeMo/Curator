@@ -32,6 +32,10 @@ from PIL import Image
 
 DEFAULT_MIN_CROP_PX = 10
 DEFAULT_MAX_PAGES = 50
+_CV2_INSTALL_HINT = (
+    "opencv-python-headless is required for Nemotron-Parse PDF processing. "
+    "Install with: pip install nemo_curator[cv2]"
+)
 
 
 def _render_scale_to_fit(page: Any, base_scale: float, max_wh: tuple[int, int] | None) -> float:  # noqa: ANN401
@@ -56,7 +60,10 @@ def _render_scale_to_fit(page: Any, base_scale: float, max_wh: tuple[int, int] |
 
 def _bitmap_to_rgb(bitmap: Any) -> Image.Image:  # noqa: ANN401
     """Convert a pypdfium2 bitmap to an RGB PIL image using OpenCV."""
-    import cv2
+    try:
+        import cv2
+    except ImportError as e:
+        raise ImportError(_CV2_INSTALL_HINT) from e
 
     arr = bitmap.to_numpy().copy()
     mode = bitmap.mode
@@ -173,7 +180,10 @@ def build_canvas(page_img: Image.Image, proc_size: tuple[int, int]) -> Image.Ima
 
     This lets us crop bboxes directly in the model's coordinate space.
     """
-    import cv2
+    try:
+        import cv2
+    except ImportError as e:
+        raise ImportError(_CV2_INSTALL_HINT) from e
     import numpy as np
 
     proc_h, proc_w = proc_size

@@ -23,11 +23,11 @@ from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import DocumentBatch, EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
-from .base import BaseReader
+from .base import BaseFileReader
 
 
 @dataclass
-class JsonlReaderStage(BaseReader):
+class JsonlReaderStage(BaseFileReader):
     """
     Stage that processes a group of JSONL files into a DocumentBatch.
     This stage accepts FileGroupTasks created by FilePartitioningStage
@@ -53,7 +53,7 @@ class JsonlReaderStage(BaseReader):
         paths: list[str],
         read_kwargs: dict[str, Any] | None = None,
         fields: list[str] | None = None,
-    ) -> pd.DataFrame | None:
+    ) -> pd.DataFrame:
         """Read JSONL files using Pandas."""
 
         # Normalize read_kwargs to a dict to avoid TypeError when None

@@ -176,6 +176,7 @@ class TestManifestReaderStage:
     def test_worker_defaults(self) -> None:
         stage = ManifestReaderStage()
         assert stage.num_workers() == 1
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
         assert stage.xenna_stage_spec() == {}
 
     def test_reads_multiple_manifests(self, tmp_path: Path) -> None:

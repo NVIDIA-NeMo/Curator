@@ -18,8 +18,36 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.tasks import EmptyTask, Task
+
+
+def _append_input_requirements(lines: list[str], input_specs: StageInputSpecs) -> None:
+    if isinstance(input_specs, tuple):
+        required_attrs, required_cols = input_specs
+        if required_attrs or required_cols:
+            lines.append("  Inputs:")
+            if required_attrs:
+                lines.append(f"    Required attributes: {', '.join(required_attrs)}")
+            if required_cols:
+                lines.append(f"    Required columns: {', '.join(required_cols)}")
+        return
+
+    visible_specs = [
+        (task_type, required_attrs, required_cols)
+        for task_type, (required_attrs, required_cols) in input_specs.items()
+        if required_attrs or required_cols
+    ]
+    if not visible_specs:
+        return
+
+    lines.append("  Inputs:")
+    for task_type, required_attrs, required_cols in visible_specs:
+        lines.append(f"    {task_type.__name__}:")
+        if required_attrs:
+            lines.append(f"      Required attributes: {', '.join(required_attrs)}")
+        if required_cols:
+            lines.append(f"      Required columns: {', '.join(required_cols)}")
 
 
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
@@ -192,7 +220,7 @@ class Pipeline:
             lines.append(f"Stage {i + 1}: {stage.name}")
 
             try:
-                required_attrs, required_cols = stage.inputs()
+                input_specs = stage.inputs()
                 output_attrs, output_cols = stage.outputs()
 
                 lines.append(f"  Resources: {stage.resources.cpus} CPUs")
@@ -202,12 +230,7 @@ class Pipeline:
                 lines.append(f"  Batch size: {stage.batch_size}")
 
                 # Input requirements
-                if required_attrs or required_cols:
-                    lines.append("  Inputs:")
-                    if required_attrs:
-                        lines.append(f"    Required attributes: {', '.join(required_attrs)}")
-                    if required_cols:
-                        lines.append(f"    Required columns: {', '.join(required_cols)}")
+                _append_input_requirements(lines, input_specs)
 
                 # Output specification
                 if output_attrs or output_cols:

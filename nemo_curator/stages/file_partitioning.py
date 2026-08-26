@@ -17,7 +17,6 @@ from typing import Any
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, FileGroupTask
@@ -96,12 +95,6 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
 
     def num_workers(self) -> int | None:
         return 1

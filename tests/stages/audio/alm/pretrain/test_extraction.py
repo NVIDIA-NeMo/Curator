@@ -74,6 +74,16 @@ def _task_with_plan(audio_path: Path, plan: list[dict], extras: dict | None = No
 # ----------------------------------------------------------------------
 
 
+def test_ray_stage_spec(tmp_path: Path) -> None:
+    stage = SnippetExtractionStage(
+        output_dir=str(tmp_path / "snips"),
+        output_audio_tar_path=str(tmp_path / "snips.tar"),
+        dry_run=True,
+    )
+
+    assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
+
 class TestSnippetExtractionStageReal:
     @staticmethod
     def _make_stage(tmp_path: Path, *, output_format: str = "wav") -> tuple[SnippetExtractionStage, Path]:

@@ -23,6 +23,7 @@ from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_s
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayDataStageAdapter
+from .diagnostics import DiagnosticsInstallStatus, install_ray_data_diagnostics
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -62,6 +63,12 @@ class RayDataExecutor(BaseExecutor):
         """
         if not stages:
             return []
+
+        diagnostics_status = install_ray_data_diagnostics()
+        if diagnostics_status is DiagnosticsInstallStatus.UNSUPPORTED:
+            logger.warning(
+                f"Ray Data scheduler diagnostics are unavailable for Ray {ray.__version__}; continuing without them."
+            )
 
         register_loguru_serializer()
         # This prevents verbose logging from Ray Data about serialization of the dataclass

@@ -31,7 +31,6 @@ import torch
 import torchaudio.functional as taf
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.alm.pretrain.planning import relativize_segments
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
@@ -115,9 +114,6 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "snippet_id", "duration", "segments"]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def setup_on_node(
         self,

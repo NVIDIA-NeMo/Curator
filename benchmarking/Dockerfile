@@ -27,6 +27,9 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
+# Add video benchmark codec support to the benchmark image.
+RUN bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264
+
 # Ensure all extras and dependency groups (including test) are synced
 RUN cd /opt/Curator \
  && uv sync --extra all --all-groups \

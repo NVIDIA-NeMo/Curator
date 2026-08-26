@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 from loguru import logger
 from PIL import Image
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask
@@ -105,9 +104,6 @@ class HFDatasetImageReaderStage(ProcessingStage[EmptyTask, ImageSampleTask[T_Tas
         self.id_column = id_column
         self.limit = limit
         self.task_type = task_type
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

@@ -31,6 +31,10 @@ from runner.utils import get_obj_for_json, get_shm_usage, get_total_memory_bytes
 def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
     env_data = get_env()
     env_data["object_store_size"] = session_obj.object_store_size
+    if session_obj.run_reason:
+        env_data["run_reason"] = session_obj.run_reason
+    if session_obj.viewer_url:
+        env_data["viewer_url"] = session_obj.viewer_url
 
     # Try package managers in order of preference for capturing the environment
     # package_managers = [("uv", "pip freeze"), ("pip", "freeze"), ("micromamba", "list --explicit"), ("conda", "list --explicit")]  # noqa: ERA001

@@ -31,6 +31,7 @@ from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.file_utils import get_default_file_extensions
 
 
 def run_semdedup_identification_benchmark(  # noqa: PLR0913
@@ -74,12 +75,16 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     Path(output_path).mkdir(parents=True, exist_ok=True)
     Path(cache_path).mkdir(parents=True, exist_ok=True)
 
-    logger.info("Starting semantic duplicate identification benchmark")
-    run_start_time = time.perf_counter()
+    input_files = load_dataset_files(
+        input_path,
+        dataset_ratio=dataset_size_ratio,
+        keep_extensions=get_default_file_extensions(input_filetype),
+    )
+    logger.info(f"Selected {len(input_files)} input files")
 
     # Create and run workflow
     workflow = SemanticDeduplicationWorkflow(
-        input_path=load_dataset_files(input_path, dataset_ratio=dataset_size_ratio),
+        input_path=input_files,
         output_path=output_path,
         cache_path=cache_path,
         n_clusters=n_clusters,
@@ -92,12 +97,18 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         pairwise_batch_size=pairwise_batch_size,
     )
 
+    logger.info("Starting semantic duplicate identification benchmark")
+    run_start_time = time.perf_counter()
+
     # Run the workflow, extract metrics from the WorkflowRunResult object
     executor_obj = setup_executor(executor)
     workflow_run_result = workflow.run(pairwise_executor=executor_obj)
 
     run_time_taken = time.perf_counter() - run_start_time
     task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
+
+    num_documents_processed = int(task_metrics.get("kmeans_KMeansStage_custom.num_rows_sum", 0))
+    logger.info(f"KMeansStage processed {num_documents_processed:,} rows")
 
     # Extract metrics from workflow result
     workflow_total_time = workflow_run_result.metadata.get("total_time")
@@ -137,7 +148,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "workflow_total_time": workflow_total_time,
             "kmeans_time": kmeans_time,
             "pairwise_time": pairwise_time,
-            "num_documents_processed": int(task_metrics.get("kmeans_KMeansStage_custom.num_rows_sum", 0)),
+            "num_documents_processed": num_documents_processed,
             "num_duplicates": num_duplicates,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,

@@ -26,6 +26,20 @@ GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-""}
 GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE:-""}
 NVIDIA_API_KEY=${NVIDIA_API_KEY:-""}
 
+PYTHON_BIN=${PYTHON_BIN:-""}
+if [ -z "${PYTHON_BIN}" ]; then
+  for candidate in python3.13 python3.12 python3.11 python3.10 python3.9 python3 python; do
+    if command -v "${candidate}" >/dev/null 2>&1 && "${candidate}" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+      PYTHON_BIN="${candidate}"
+      break
+    fi
+  done
+fi
+if [ -z "${PYTHON_BIN}" ]; then
+  echo "Error: benchmarking/tools/run.sh requires Python 3.9+ on the host." >&2
+  exit 1
+fi
+
 # get the following vars from the command line, config file(s), etc. and
 # set them in this environment:
 #   BASH_ENTRYPOINT_OVERRIDE
@@ -37,7 +51,7 @@ NVIDIA_API_KEY=${NVIDIA_API_KEY:-""}
 #   CURATOR_BENCHMARKING_DEBUG
 #   VOLUME_MOUNTS
 #   ENTRYPOINT_ARGS
-eval_str=$(python ${THIS_SCRIPT_DIR}/gen_runscript_vars.py "${BASH_SOURCE[0]}" "$@")
+eval_str=$("${PYTHON_BIN}" ${THIS_SCRIPT_DIR}/gen_runscript_vars.py "${BASH_SOURCE[0]}" "$@")
 eval "$eval_str"
 
 # Get the image digest/ID for benchmark reports. This is not known at image build time.

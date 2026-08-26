@@ -80,7 +80,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     Identifies different speakers and detects overlapping speech segments.
 
     Args:
-        hf_token: HuggingFace authentication token
+        hf_token: Optional Hugging Face token. Local pipeline directories do not require one.
         segmentation_batch_size: Batch size for segmentation
         embedding_batch_size: Batch size for speaker embeddings
         min_length: Minimum segment length in seconds
@@ -88,7 +88,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         xenna_num_workers: If set, caps workers cluster-wide. Prefer ``with_(num_workers=...)`` for new code.
     """
 
-    hf_token: str
+    hf_token: str | None = field(default=None, repr=False)
 
     # Diarization pipeline model ID on HuggingFace
     model_name: str = "pyannote/speaker-diarization-3.1"

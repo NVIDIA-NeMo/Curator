@@ -100,12 +100,11 @@ pip install -e .
 
 ### 2. Submit the job
 
-```bash
-# Default: 2 nodes, 2 GPUs each, nvcr.io/nvidia/nemo-curator:26.02
-sbatch tutorials/slurm/submit_container.sh
+`CONTAINER_IMAGE` is required — pick a tag from the [NeMo Curator NGC page](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator):
 
-# Override container image
-export CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:25.06"
+```bash
+export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
+# Default: 2 nodes, 2 GPUs each
 sbatch tutorials/slurm/submit_container.sh
 
 # Override mounts (default: /lustre:/lustre)
@@ -139,8 +138,9 @@ Tasks processed by 2 distinct node(s):
 If your cluster uses Singularity or Apptainer instead of Pyxis:
 
 ```bash
-# Pull the image once (on the login node)
-singularity pull nemo-curator.sif docker://nvcr.io/nvidia/nemo-curator:26.02
+# Pull the image once (on the login node) — pick a tag from
+# https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
+singularity pull nemo-curator.sif docker://nvcr.io/nvidia/nemo-curator:<tag>
 
 # In your sbatch script, replace the srun flags with:
 srun singularity exec \
@@ -208,13 +208,15 @@ Make sure `CURATOR_DIR`, `INPUT_DIR`, `OUTPUT_DIR`, and `CHECKPOINT_PATH` are vi
 
 ### 2. Submit a JSONL array job
 
-By default, `submit_array.sh` reads JSONL files and writes JSONL output:
+By default, `submit_array.sh` reads JSONL files and writes JSONL output.
+`CONTAINER_IMAGE` is required — pick a tag from the [NeMo Curator NGC page](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator):
 
 ```bash
 export CURATOR_DIR=/path/to/Curator
 export INPUT_DIR=/shared/data/my-jsonl-dataset
 export OUTPUT_DIR=/shared/output/my-jsonl-dataset
 export CHECKPOINT_PATH=/shared/checkpoints/my-jsonl-run
+export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
 
 # 20 array tasks, task IDs 0-19
 sbatch --array=0-19 tutorials/slurm/submit_array.sh
@@ -508,10 +510,11 @@ Check that --num-tasks is large enough to distribute across all workers.
 **Container image not found**
 
 ```bash
-# Pull manually and verify
-docker pull nvcr.io/nvidia/nemo-curator:26.02
+# Pull manually and verify — pick a tag from
+# https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
+docker pull nvcr.io/nvidia/nemo-curator:<tag>
 # or with enroot:
-enroot import docker://nvcr.io/nvidia/nemo-curator:26.02
+enroot import docker://nvcr.io/nvidia/nemo-curator:<tag>
 ```
 
 **`ImportError: cannot import name 'SlurmRayClient'`**

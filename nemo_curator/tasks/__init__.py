@@ -17,6 +17,7 @@ from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
 from .interleaved import InterleavedBatch
+from .lance import LanceReadTask
 from .sentinels import EmptyTask, FailedTask, NoneTask, SentinelTask
 from .tasks import Task
 
@@ -29,6 +30,7 @@ __all__ = [
     "ImageBatch",
     "ImageObject",
     "InterleavedBatch",
+    "LanceReadTask",
     "NoneTask",
     "SentinelTask",
     "Task",
