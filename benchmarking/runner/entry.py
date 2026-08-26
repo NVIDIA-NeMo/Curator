@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -27,8 +28,18 @@ if TYPE_CHECKING:
     from runner.datasets import DatasetResolver
     from runner.path_resolver import PathResolver
 
-_curator_repo_path = Path(__file__).parent.parent.parent
-_entry_script_base_path = _curator_repo_path / "benchmarking/scripts"
+_benchmarking_root_path = Path(__file__).resolve().parent.parent
+_entry_script_base_path = _benchmarking_root_path / "scripts"
+
+
+def _curator_repo_path() -> Path:
+    env_path = os.environ.get("CURATOR_REPO_DIR")
+    if env_path:
+        return Path(env_path)
+    container_path = Path("/opt/Curator")
+    if container_path.exists():
+        return container_path
+    return _benchmarking_root_path.parent
 
 
 @dataclass
@@ -122,7 +133,10 @@ class Entry:
                 min_value = req["min_value"]
                 max_value = req["max_value"]
                 if max_value < min_value:
-                    msg = f"Invalid requirement for metric '{metric_name}': max_value ({max_value}) < min_value ({min_value})"
+                    msg = (
+                        f"Invalid requirement for metric '{metric_name}': "
+                        f"max_value ({max_value}) < min_value ({min_value})"
+                    )
                     raise ValueError(msg)
         self.requirements = requirements
 
@@ -202,7 +216,7 @@ class Entry:
         curator_repo_dir_pattern = re.compile(r"\{curator_repo_dir\}")
 
         def _replace_curator_repo_dir(match: re.Match[str]) -> str:  # noqa: ARG001
-            return str(_curator_repo_path)
+            return str(_curator_repo_path())
 
         dataset_pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
 
