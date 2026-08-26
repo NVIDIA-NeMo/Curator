@@ -76,7 +76,9 @@ def _place_filters(config: dict[str, object], stages: list[dict[str, object]]) -
     return stage_filters
 
 
-def _validate_filter_references(config: dict[str, object], stages: list[dict[str, object]]) -> None:
+def _validate_filter_references(
+    config: dict[str, object], stages: list[dict[str, object]], *, enforce_stage_order: bool = True
+) -> None:
     """Ensure filters refer to a configured judge output column and rubric score."""
     judge_scores = {
         str(judge["name"]): {str(score["name"]) for score in judge["scores"]}
@@ -101,7 +103,11 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
         if score_name not in judge_scores[judge_name]:
             msg = f"Filter refers to unknown score {score_name!r} on judge {judge_name!r}."
             raise ValueError(msg)
-        if filter_stage_index is not None and producer_stage_by_judge[judge_name] > filter_stage_index:
+        if (
+            enforce_stage_order
+            and filter_stage_index is not None
+            and producer_stage_by_judge[judge_name] > filter_stage_index
+        ):
             msg = (
                 f"Stage {stages[filter_stage_index].get('name', '<unnamed>')!r} "
                 f"filter refers to judge {judge_name!r} "
@@ -409,7 +415,11 @@ def main() -> None:
     models = config["models"]
     execution = config["execution"]
     configured_stages = execution["stages"]
-    _validate_filter_references(config, configured_stages)
+    _validate_filter_references(
+        config,
+        configured_stages,
+        enforce_stage_order=args.execution_mode == "multi_stage",
+    )
     stage_filters = _place_filters(config, configured_stages)
     language_filter_stage = _build_language_filter_stage(
         language=args.language,

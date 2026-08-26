@@ -113,6 +113,13 @@ def test_filter_validation_rejects_stage_local_filter_for_later_judge() -> None:
         subject._validate_filter_references(config, stages)
 
 
+def test_filter_validation_allows_later_judge_for_single_stage_execution() -> None:
+    config, stages = _config_with_filters()
+    stages[0]["filters"] = [{"judge": "safety_judge", "score": "safe", "operator": "eq", "value": "yes"}]
+
+    subject._validate_filter_references(config, stages, enforce_stage_order=False)
+
+
 @pytest.mark.parametrize(
     ("judge_result", "score_name", "operator", "expected", "keep"),
     [

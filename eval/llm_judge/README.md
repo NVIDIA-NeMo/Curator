@@ -139,6 +139,13 @@ The bundled Qwen example disables thinking through `inference_parameters.extra_b
 
 Use a HuggingFace-format model vLLM can load, either local weights or a repo id. Some architectures require `trust_remote_code: true` in `engine_kwargs`, and architecture support varies by the installed Dynamo/vLLM version, so a serving failure can mean the version needs updating rather than that the model is unusable. The model has to fit the GPUs it's given (`tensor_parallel_size` per replica × `num_replicas`), and `max_model_len` has to cover the full rendered prompt plus `max_tokens`.
 
+To download the Qwen judge model to a local path referenced by `models[].model`, for example:
+
+```bash
+hf download Qwen/Qwen3.8-27B \
+  --local-dir /path/to/Qwen3.8-27B
+```
+
 A model that serves fine can still be a bad judge, and the only way to know is to run it. The prompt asks the model in plain language to answer with one of a fixed set of values, like "answer with exactly one of: yes, no, unclear." The pipeline checks that answer against the schema afterward. It doesn't stop the model from answering wrong in the first place — it just drops any row where the answer doesn't match. So a model that doesn't follow instructions well shows up as missing rows, not wrong scores.
 
 Two common causes of dropped rows: `max_tokens` set too small for the rubric (more judges, more scores, and longer reasoning all need more room, and a cut-off answer fails the check), and a reasoning model whose thinking is eating the completion budget before it reaches the answer. If that's what's happening, disabling thinking (as in the Qwen example above) is one fix, though it trades away whatever the reasoning might otherwise have added to the judgment.
