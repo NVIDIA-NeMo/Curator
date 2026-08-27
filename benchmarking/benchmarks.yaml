@@ -1,3 +1,11 @@
+# Canonical full-suite Curator benchmark configuration.
+#
+# This file is complete and runnable by itself. Its resource settings, timeouts,
+# and performance requirements are calibrated for the default 8-GPU H100 nightly
+# environment. To run the same benchmark suite on another SKU, pass this file
+# first and then pass a SKU override file, for example:
+#   --config benchmarking/benchmarks.yaml --config benchmarking/4xGB200-64CPU.yaml
+#
 # The "paths" section defines files and directories used by the benchmarks.
 # Each entry requires a "name" and a "host_path". Paths must exist on the host.
 # If running inside a Docker container started with tools/run.sh, each path is
@@ -1296,7 +1304,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.7
 
-  - name: ndd_dynamo_dp8
+  - name: ndd_dynamo
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1332,7 +1340,7 @@ entries:
       - metric: throughput_rows_per_sec
         min_value: 150
 
-  - name: ndd_ray_serve_dp8
+  - name: ndd_ray_serve
     enabled: true
     script: ndd_benchmark.py
     args: >-
