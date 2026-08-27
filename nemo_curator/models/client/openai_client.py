@@ -17,6 +17,7 @@ from collections.abc import Iterable
 
 from loguru import logger
 from openai import AsyncOpenAI, OpenAI
+from openai.types.chat import ChatCompletion
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, ConversationFormatter, GenerationConfig, LLMClient
 
@@ -45,6 +46,24 @@ class OpenAIClient(LLMClient):
         conversation_formatter: ConversationFormatter | None = None,
         generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
+        response = self.query_model_response(
+            messages=messages,
+            model=model,
+            conversation_formatter=conversation_formatter,
+            generation_config=generation_config,
+        )
+
+        return [choice.message.content for choice in response.choices]
+
+    def query_model_response(
+        self,
+        *,
+        messages: Iterable,
+        model: str,
+        conversation_formatter: ConversationFormatter | None = None,
+        generation_config: GenerationConfig | dict | None = None,
+    ) -> ChatCompletion:
+        """Query a model and return its raw chat completion response."""
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
 
@@ -78,9 +97,7 @@ class OpenAIClient(LLMClient):
         if not hasattr(self, "client"):
             self.setup()
 
-        response = self.client.chat.completions.create(**create_kwargs)
-
-        return [choice.message.content for choice in response.choices]
+        return self.client.chat.completions.create(**create_kwargs)
 
 
 class AsyncOpenAIClient(AsyncLLMClient):

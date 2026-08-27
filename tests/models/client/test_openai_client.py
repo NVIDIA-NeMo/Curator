@@ -77,6 +77,32 @@ class TestOpenAIClient:
         )
 
     @patch("nemo_curator.models.client.openai_client.OpenAI")
+    def test_query_model_response_preserves_completion_metadata(self, mock_openai: Mock) -> None:
+        """Raw completions retain usage and finish metadata for specialized stages."""
+        mock_response = Mock()
+        mock_response.usage.completion_tokens = 7
+        mock_response.choices = [Mock(finish_reason="stop")]
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai.return_value = mock_client
+
+        client = OpenAIClient(timeout=30, base_url="http://localhost:8000/v1", api_key="unused")
+        response = client.query_model_response(
+            messages=[{"role": "user", "content": "test"}],
+            model="nemotron-parse",
+            generation_config=GenerationConfig(
+                max_tokens=128,
+                temperature=0,
+                top_p=1.0,
+                extra_kwargs={"extra_body": {"repetition_penalty": 1.1}},
+            ),
+        )
+
+        assert response is mock_response
+        assert response.usage.completion_tokens == 7
+        assert response.choices[0].finish_reason == "stop"
+
+    @patch("nemo_curator.models.client.openai_client.OpenAI")
     def test_query_model_multiple_choices(self, mock_openai: Mock) -> None:
         """Test query_model with multiple response choices."""
         # Setup mock response with multiple choices

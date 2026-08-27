@@ -78,6 +78,9 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         JSONL field containing a list of PDF filenames (CC-MAIN style).
     url_field
         JSONL field containing the source URL.
+    inference_stage
+        Optional inference stage override. When omitted, the reader creates an
+        in-process :class:`NemotronParseInferenceStage`.
     """
 
     manifest_path: str | None = None
@@ -99,6 +102,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
+    inference_stage: ProcessingStage[InterleavedBatch, InterleavedBatch] | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -121,14 +125,16 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             dpi=self.dpi,
             max_pages=self.max_pages,
         )
-        self._inference = NemotronParseInferenceStage(
-            model_path=self.model_path,
-            text_in_pic=self.text_in_pic,
-            backend=self.backend,
-            inference_batch_size=self.inference_batch_size,
-            max_num_seqs=self.max_num_seqs,
-            enforce_eager=self.enforce_eager,
-        )
+        self._inference = self.inference_stage
+        if self._inference is None:
+            self._inference = NemotronParseInferenceStage(
+                model_path=self.model_path,
+                text_in_pic=self.text_in_pic,
+                backend=self.backend,
+                inference_batch_size=self.inference_batch_size,
+                max_num_seqs=self.max_num_seqs,
+                enforce_eager=self.enforce_eager,
+            )
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )

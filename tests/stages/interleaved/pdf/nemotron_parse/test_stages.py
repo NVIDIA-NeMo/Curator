@@ -496,6 +496,60 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
         assert stage._proc_size == (100, 100)
 
+    def test_in_process_and_server_sampling_parameters_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        import types
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseInferenceServerStage,
+            NemotronParseInferenceStage,
+        )
+        from nemo_curator.utils import vllm_utils
+
+        fake_vllm = types.ModuleType("vllm")
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        fake_vllm.SamplingParams = FakeSamplingParams
+        monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+        monkeypatch.setattr(vllm_utils, "resolve_local_model_path", lambda _path: "/models/nemotron")
+        monkeypatch.setattr(vllm_utils, "create_vllm_llm", lambda *_args, **_kwargs: object())
+        fake_processor = SimpleNamespace(image_processor=SimpleNamespace(final_size=(100, 100)))
+        monkeypatch.setattr("transformers.AutoProcessor.from_pretrained", lambda *_args, **_kwargs: fake_processor)
+
+        in_process_stage = NemotronParseInferenceStage(backend="vllm", max_tokens=1234)
+        in_process_stage._setup_vllm()
+        server_stage = NemotronParseInferenceServerStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+            accounting_num_gpus=1,
+            client_num_workers=4,
+            max_tokens=1234,
+        )
+
+        expected = {
+            "temperature": 0,
+            "top_p": 1.0,
+            "top_k": 1,
+            "repetition_penalty": 1.1,
+            "max_tokens": 1234,
+            "skip_special_tokens": False,
+            "seed": None,
+        }
+        server_config = server_stage._generation_config
+        server_params = {
+            "temperature": server_config.temperature,
+            "top_p": server_config.top_p,
+            "max_tokens": server_config.max_tokens,
+            "seed": server_config.seed,
+            **server_config.extra_kwargs["extra_body"],
+        }
+
+        assert in_process_stage._sampling_params.kwargs == expected
+        assert server_params == expected
+
     def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
         """RequestOutput with no completions should yield '' rather than IndexError."""
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
@@ -522,3 +576,84 @@ class TestNemotronParseInferenceStageMetrics:
 
         with patch("builtins.range", return_value=()), pytest.raises(RuntimeError, match="unreachable"):
             stage._infer_vllm([image])
+
+
+class TestNemotronParseInferenceServerStage:
+    def test_process_uses_openai_client_response_and_records_usage(self) -> None:
+        import pandas as pd
+        import pyarrow as pa
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseInferenceServerStage,
+        )
+        from nemo_curator.tasks import InterleavedBatch
+
+        task = InterleavedBatch(
+            dataset_name="test",
+            data=pa.Table.from_pandas(
+                pd.DataFrame(
+                    [
+                        {
+                            "sample_id": "s1",
+                            "position": 0,
+                            "modality": "page_image",
+                            "content_type": "image/png",
+                            "text_content": None,
+                            "binary_content": b"png-bytes",
+                            "source_ref": None,
+                        }
+                    ]
+                )
+            ),
+        )
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="parsed page"), finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=7),
+        )
+        stage = NemotronParseInferenceServerStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+            accounting_num_gpus=1,
+            client_num_workers=4,
+            model_path="/models/NVIDIA-Nemotron-Parse-v1.1",
+        )
+
+        with patch(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.OpenAIClient.query_model_response",
+            return_value=response,
+        ):
+            result = stage.process(task)
+
+        assert result is not None
+        assert result.to_pandas().iloc[0]["text_content"] == "parsed page"
+        assert result._metadata["inference_server_endpoint"] == "http://localhost:8000/v1"
+        assert result._metadata["model_path"] == "/models/NVIDIA-Nemotron-Parse-v1.1"
+        assert stage._custom_metrics["total_prompt_tokens"] == 5.0
+        assert stage._custom_metrics["total_output_tokens"] == 7.0
+        assert stage._custom_metrics["num_request_errors"] == 0.0
+
+
+class TestNemotronParsePipelineFactory:
+    def test_uses_injected_inference_stage(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from tutorials.interleaved.nemotron_parse_pdf.main import (
+            create_nemotron_parse_pdf_argparser,
+            create_nemotron_parse_pdf_pipeline,
+        )
+
+        args = create_nemotron_parse_pdf_argparser().parse_args(
+            [
+                "--manifest",
+                "manifest.jsonl",
+                "--pdf-dir",
+                "pdfs",
+                "--output-dir",
+                "output",
+            ]
+        )
+        inference_stage = NemotronParseInferenceStage()
+
+        pipeline = create_nemotron_parse_pdf_pipeline(args, inference_stage=inference_stage)
+        pipeline.build()
+
+        assert pipeline.stages[2] is inference_stage

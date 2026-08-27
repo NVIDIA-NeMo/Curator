@@ -80,7 +80,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import NemotronParsePDFReader
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 
 
 @dataclass
@@ -184,7 +184,11 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     return parser
 
 
-def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
+def create_nemotron_parse_pdf_pipeline(
+    args: argparse.Namespace,
+    *,
+    inference_stage: ProcessingStage[InterleavedBatch, InterleavedBatch] | None = None,
+) -> Pipeline:
     """Build the Nemotron-Parse PDF processing pipeline from parsed arguments."""
     pipeline = Pipeline(
         name="nemotron_parse_pdf",
@@ -211,6 +215,7 @@ def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
             file_name_field=args.file_name_field,
             file_names_field=args.file_names_field,
             url_field=args.url_field,
+            inference_stage=inference_stage,
         )
     )
     pipeline.add_stage(
