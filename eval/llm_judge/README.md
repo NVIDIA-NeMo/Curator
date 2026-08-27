@@ -30,7 +30,7 @@ Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint meta
 
 ## Input and output
 
-The runner does not require a fixed text schema. A prompt can reference any fields present in an input JSONL or Parquet row. Keep a stable identifier such as `document_id` or `track_id` when you need to join results to another dataset.
+The runner does not require a fixed text schema. A prompt can reference any fields present in an input JSONL or Parquet row. Keep a stable identifier such as `document_id` when you need to join results to another dataset.
 
 ```json
 {
@@ -90,7 +90,7 @@ NDD detects that dependency and runs the first judge before the dependent one. O
 
 ## YAML configuration
 
-The YAML has two main sections: `models` describes what Dynamo/vLLM serves, and `execution.stages` describes the judge columns to run.
+The example YAML has two main sections: `models` describes what Dynamo/vLLM serves, and `execution.stages` describes the judge columns to run.
 
 ```yaml
 models:
@@ -128,6 +128,8 @@ execution:
                 4: Good, with minor problems.
                 5: Excellent.
 ```
+
+Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names, `scores:` count, and `--execution-mode` do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
 
 `alias` is the name judges use to select a served model. `model` is the model identifier or local weights path. `served_model_name` is the API name exposed by Dynamo/vLLM and is useful when it differs from the local path.
 
@@ -238,15 +240,60 @@ disagreements[["document_id", "qwen_quality", "gemma_quality"]].head(20)
 
 Read both `reasoning` fields on a disagreement (`df.loc[idx, "extraction_quality_qwen"]["quality"]["reasoning"]`) to tell the two causes apart: differing-but-reasonable justifications point to a genuinely hard record, while justifications that latch onto different aspects of the same instructions point to a vague prompt. The same pattern extends to comparing two rubrics on one model, or checking a filter threshold before committing to it.
 
+### Position bias / order-swap check
+
+A judge that scores consistently can still be biased toward whichever candidate appears first (or under a particular field name) in the prompt, independent of content. Multi-model agreement won't catch this, since both models see the same candidate order. To check for it, add a second judge that renders the same comparison with the candidate fields swapped, and compare its verdict to the original on the same rows.
+
+Add a second Jinja template and a second judge entry in the YAML, same pattern as running a rubric through a second model:
+
+```jinja
+{# text_extraction_prompt_swapped.jinja #}
+<raw_text>
+{{ (raw_text or "")[:12000] }}
+</raw_text>
+
+<candidate_a>
+{{ (trafilatura_text or "")[:8000] }}
+</candidate_a>
+
+<candidate_b>
+{{ (justext_text or "")[:8000] }}
+</candidate_b>
+```
+
+```yaml
+- name: qwen3_8_27b_text_extraction_judgment_swapped
+  model_alias: judge
+  system_prompt_path: text_extraction_system.jinja
+  prompt_path: text_extraction_prompt_swapped.jinja
+  scores: [ ... ]  # same rubric as the original judge
+```
+
+```python
+df["best_extraction"] = df["qwen3_8_27b_text_extraction_judgment"].apply(lambda r: r["best_extraction"]["score"])
+df["best_extraction_swapped"] = df["qwen3_8_27b_text_extraction_judgment_swapped"].apply(lambda r: r["best_extraction"]["score"])
+
+# Remap the swapped judge's answer back to the original candidate labels before comparing.
+swap_map = {"candidate_a": "candidate_b", "candidate_b": "candidate_a", "raw": "raw", "none": "none"}
+df["best_extraction_swapped_normalized"] = df["best_extraction_swapped"].map(swap_map)
+
+stable = df["best_extraction"] == df["best_extraction_swapped_normalized"]
+print(stable.value_counts())  # how often the verdict holds under order swap
+```
+
+Rows where the normalized verdict flips are evidence of position bias rather than a genuine judgment; read both `reasoning` fields the same way as a model-agreement disagreement to decide whether the rubric or prompt needs tightening. This costs one extra LLM call per row for the swapped judge, so run it on a calibration sample before deciding whether to keep it in a full production run.
+
 ## Operating guidance
 
 Start with a manually reviewed calibration sample. Confirm rendered prompts, structured results, and context lengths before increasing concurrency. For a model that fits on one GPU, begin with one replica and modest `max_parallel_requests`; increase requests gradually only after checking for context-length errors, malformed outputs, and GPU memory pressure. Add replicas when additional GPUs are available and the workload is large enough to use them.
 
+Before trusting the rubric, poke it with counterfactuals: take a row with a score you already trust, swap the candidates, rename a source field, reformat without changing content, or splice in a sentence that reads like an instruction. Change one variable per fixture. A score that moves when the thing it's supposed to measure didn't change is a prompt or rubric weakness — cheaper to catch on one hand-picked row than to find as noise across a full run.
+
 `max_model_len` limits total request context, while `max_tokens` limits only the completion. Increasing `max_model_len` consumes KV-cache capacity; it does not make oversized raw documents safe. `max_num_seqs` should be at least the intended in-flight load, but increasing it by itself does not improve throughput.
 
-For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText.
+The bundled examples set `max_model_len` to the judge model's actual max context length. vLLM would infer that value on its own if the key were omitted; it's spelled out explicitly as a reminder to size prompt truncation (the Jinja character caps) to fit within it.
 
-Press `Ctrl-C` once to cancel a local Dynamo run and allow normal Ray and inference-server cleanup to finish. If cancellation interrupts cleanup, inspect remaining model-server subprocesses before starting another run.
+For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText.
 
 ## Common adaptations
 

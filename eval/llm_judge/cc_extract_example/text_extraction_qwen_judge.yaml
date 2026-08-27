@@ -1,4 +1,7 @@
 # User-owned evaluation semantics: replace prompts, rubrics, models, and execution mode for another task.
+# Prompt candidates are anonymized to keep the judge blind to which extractor produced which text.
+# Fixed mapping (see text_extraction_prompt.jinja / text_extraction_disagreement_prompt.jinja):
+#   candidate_a = justext_text, candidate_b = trafilatura_text.
 models:
   - alias: judge
     model: /path/to/your/hf_cache/Qwen3.8-27B
@@ -9,7 +12,7 @@ models:
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
-        max_model_len: 32768
+        max_model_len: 32768  # size prompt truncation to fit this
         max_num_seqs: 256
         gpu_memory_utilization: 0.8
         enforce_eager: true
@@ -40,8 +43,8 @@ execution:
             - name: best_extraction
               description: Select the candidate that is most useful as clean document text.
               options:
-                justext: jusText best preserves the meaningful source content with minimal boilerplate.
-                trafilatura: Trafilatura best preserves the meaningful source content with minimal boilerplate.
+                candidate_a: Candidate A best preserves the meaningful source content with minimal boilerplate.
+                candidate_b: Candidate B best preserves the meaningful source content with minimal boilerplate.
                 raw: The raw text is the most useful representation.
                 none: None of the supplied candidates is a useful clean-text extraction.
             - name: content_fidelity

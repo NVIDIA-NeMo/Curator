@@ -116,17 +116,6 @@ def _validate_filter_references(
             raise ValueError(msg)
 
 
-def _get_num_workers(config: dict[str, object], *, owner: str) -> int | None:
-    """Return an optional fixed Ray worker count for one NDD stage."""
-    num_workers = config.get("num_workers")
-    if num_workers is None:
-        return None
-    if isinstance(num_workers, bool) or not isinstance(num_workers, int) or num_workers <= 0:
-        msg = f"{owner} must be a positive integer."
-        raise ValueError(msg)
-    return num_workers
-
-
 def _keep_judge_score(  # noqa: PLR0911
     judge_result: object,
     *,
@@ -457,7 +446,7 @@ def main() -> None:
                         config_builder,
                         model_providers,
                         execution.get("runtime_env"),
-                        _get_num_workers(execution, owner="execution.num_workers"),
+                        execution.get("num_workers"),
                         [filter_config for filters in stage_filters for filter_config in filters],
                     )
                 ],
@@ -480,7 +469,7 @@ def main() -> None:
                         config_builder,
                         model_providers,
                         stage.get("runtime_env"),
-                        _get_num_workers(stage, owner=f"Stage {stage.get('name', '<unnamed>')!r} num_workers"),
+                        stage.get("num_workers"),
                         filters_after_stage,
                     )
                 )

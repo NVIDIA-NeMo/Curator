@@ -17,7 +17,16 @@ Before writing anything, pin down:
 2. The decision the judge must make and what evidence it may use.
 3. The output contract: judge/score names and option values that downstream
    code depends on.
-4. Available serving resources (GPUs, model).
+4. The evaluation mode: pointwise (each judge assigns a score and we compare
+   scores), pairwise (compare A vs B), or both, including explicit tie
+   and insufficient-evidence semantics.
+5. The policy for pairwise evaluations: use anonymous candidate labels,
+   evaluate both A/B and B/A when position bias matters, and preserve the
+   mapping back to the original candidates.
+6. The aggregation and escalation policy for repeated or multi-model
+   judgments, including what constitutes disagreement or an unresolved
+   result.
+7. Available serving resources (GPUs, model).
 
 ## Minimal YAML skeleton
 
@@ -123,7 +132,21 @@ analysis scripts compare against them.
   the prompt. If the YAML draws from an input schema with several
   eval-only/label fields, a comment at the top of the YAML listing which
   fields exist and which must stay out of which prompts helps keep this
-  correct as prompts evolve.
+  correct as prompts evolve. For pairwise comparisons, use neutral labels
+  such as `candidate_a` and `candidate_b`; do not expose candidate identity
+  unless identity is legitimately part of the evaluation criterion — source
+  labels can influence the judge independently of candidate quality.
+- When position bias could affect a pairwise result, render two mirrored
+  prompts (A/B and B/A) and preserve the mapping from each anonymous
+  position back to the original candidate. If the two judgments do not
+  identify the same underlying winner, mark the result as
+  position-inconsistent rather than silently averaging it or converting it
+  to an ordinary tie.
+- Test prompts with controlled counterfactuals before scaling. Useful
+  fixtures include the same content with candidates swapped, source names
+  removed, superficial formatting changed, or nested instructions inserted
+  into untrusted content. Change one factor per fixture so failures can be
+  attributed to a specific sensitivity.
 - Truncation length is a decision to make deliberately, not a default to
   copy: pick limits from real input-length distributions and the judge
   model's `max_model_len`, leaving headroom for the system prompt, NDD's
