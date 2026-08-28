@@ -184,35 +184,97 @@ def test_local_batch_policy_controls_adapter_calls_and_restores_task_order() -> 
     assert [task.data["pred_text"] for task in results] == ["short", "long", "medium"]
 
 
-def test_local_batch_policy_respects_item_and_total_cost_caps() -> None:
+@pytest.mark.parametrize(
+    ("max_items_per_batch", "max_audio_sec_per_batch", "durations", "expected_call_durations"),
+    [
+        (2, None, [1.0, 1.0, 1.0], [[1.0, 1.0], [1.0]]),
+        (8, 3.0, [1.0, 2.0, 2.0], [[1.0, 2.0], [2.0]]),
+    ],
+    ids=["item-cap", "total-cost-cap"],
+)
+def test_local_batch_policy_respects_each_dispatch_cap(
+    max_items_per_batch: int,
+    max_audio_sec_per_batch: float | None,
+    durations: list[float],
+    expected_call_durations: list[list[float]],
+) -> None:
     policy = BatchPolicy(
         buckets_sec=[0],
-        max_items_per_batch_by_bucket=[2],
-        max_audio_sec_per_batch=3.0,
+        max_items_per_batch_by_bucket=[max_items_per_batch],
+        max_audio_sec_per_batch=max_audio_sec_per_batch,
     )
     stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
-    tasks = [
-        _make_waveform_task(waveform=np.zeros(_SR, dtype=np.float32)),
-        _make_waveform_task(waveform=np.zeros(2 * _SR, dtype=np.float32)),
-        _make_waveform_task(waveform=np.zeros(2 * _SR, dtype=np.float32)),
-    ]
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="a"), ASRResult(text="b")],
-        [ASRResult(text="c")],
+    tasks = [_make_waveform_task(waveform=np.zeros(int(duration * _SR), dtype=np.float32)) for duration in durations]
+    for index, task in enumerate(tasks):
+        task.task_id = f"task-{index}"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
     ]
 
     results = stage.process_batch(tasks)
 
-    call_sizes = [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list]
-    call_costs = [
-        sum(item["audio_seconds"] for item in call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list
+    call_durations = [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
     ]
-    assert call_sizes == [2, 1]
-    assert call_costs == [3.0, 2.0]
-    assert [task.data["pred_text"] for task in results] == ["a", "b", "c"]
+    assert call_durations == expected_call_durations
+    assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
 
 
-def test_adapter_batch_size_caps_policy_off_calls_without_changing_backend_window() -> None:
+def test_local_batch_policy_uses_the_adapter_cost_estimator() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0, 10],
+        max_items_per_batch_by_bucket=[4, 4],
+        max_audio_sec_per_batch=None,
+    )
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
+    long_task = _make_waveform_task(waveform=np.zeros(9 * _SR, dtype=np.float32))
+    short_task = _make_waveform_task(waveform=np.zeros(_SR, dtype=np.float32))
+    long_task.task_id = "long-source"
+    short_task.task_id = "short-source"
+    stage._adapter.estimate_item_cost.side_effect = lambda item: {
+        "long-source": 1.0,
+        "short-source": 20.0,
+    }[item["task_id"]]
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    results = stage.process_batch([long_task, short_task])
+
+    task_ids_by_call = [
+        [item["task_id"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert task_ids_by_call == [["short-source"], ["long-source"]]
+    assert [task.data["pred_text"] for task in results] == ["long-source", "short-source"]
+
+
+def test_local_batch_policy_is_scoped_to_each_process_batch_call() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0],
+        max_items_per_batch_by_bucket=[2],
+        max_audio_sec_per_batch=None,
+    )
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
+    first = _make_waveform_task()
+    second = _make_waveform_task()
+    first.task_id = "first-window"
+    second.task_id = "second-window"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    first_result = stage.process_batch([first])
+    second_result = stage.process_batch([second])
+
+    task_ids_by_call = [
+        [item["task_id"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert task_ids_by_call == [["first-window"], ["second-window"]]
+    assert first_result[0].data["pred_text"] == "first-window"
+    assert second_result[0].data["pred_text"] == "second-window"
+
+
+def test_adapter_batch_size_caps_policy_off_adapter_calls() -> None:
     stage = _make_stage(
         waveform_key="waveform",
         keep_waveform=True,
@@ -252,7 +314,7 @@ def test_disabled_local_batch_policy_uses_normal_adapter_batching() -> None:
     assert [task.data["pred_text"] for task in results] == ["short", "long"]
 
 
-def test_model_safe_segmentation_stitches_chunks_back_to_parent_order() -> None:
+def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order() -> None:
     sample_rate = 10
     stage = _make_stage(
         waveform_key="waveform",
@@ -260,9 +322,11 @@ def test_model_safe_segmentation_stitches_chunks_back_to_parent_order() -> None:
         target_sample_rate=sample_rate,
         max_inference_duration_s=3.0,
     )
+    long_waveform = np.arange(5 * sample_rate, dtype=np.float32)
+    short_waveform = np.arange(2 * sample_rate, dtype=np.float32) + 100
     tasks = [
-        _make_waveform_task(waveform=np.zeros(5 * sample_rate, dtype=np.float32), sample_rate=sample_rate),
-        _make_waveform_task(waveform=np.zeros(2 * sample_rate, dtype=np.float32), sample_rate=sample_rate),
+        _make_waveform_task(waveform=long_waveform, sample_rate=sample_rate),
+        _make_waveform_task(waveform=short_waveform, sample_rate=sample_rate),
     ]
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="first"),
@@ -275,7 +339,38 @@ def test_model_safe_segmentation_stitches_chunks_back_to_parent_order() -> None:
     inferred = stage._adapter.transcribe_batch.call_args.args[0]
     assert [item["audio_seconds"] for item in inferred] == [3.0, 2.0, 2.0]
     assert [(item["chunk_idx"], item["chunk_count"]) for item in inferred] == [(0, 2), (1, 2), (0, 1)]
+    np.testing.assert_array_equal(inferred[0]["waveform"], long_waveform[: 3 * sample_rate])
+    np.testing.assert_array_equal(inferred[1]["waveform"], long_waveform[3 * sample_rate :])
+    np.testing.assert_array_equal(inferred[2]["waveform"], short_waveform)
+    np.testing.assert_array_equal(
+        np.concatenate([inferred[0]["waveform"], inferred[1]["waveform"]]),
+        long_waveform,
+    )
+    assert all(item["waveform"].dtype == np.float32 for item in inferred)
+    assert all(item["waveform"].flags.c_contiguous for item in inferred)
     assert [task.data["pred_text"] for task in results] == ["first tail", "second"]
+
+
+def test_segmented_parent_obeys_adapter_batch_size_before_stitching() -> None:
+    sample_rate = 10
+    waveform = np.arange(10 * sample_rate, dtype=np.float32)
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        adapter_batch_size=2,
+        target_sample_rate=sample_rate,
+        max_inference_duration_s=3.0,
+    )
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=f"chunk-{item['chunk_idx']}") for item in items
+    ]
+
+    result = stage.process_batch([_make_waveform_task(waveform=waveform, sample_rate=sample_rate)])[0]
+
+    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [2, 2]
+    inferred = [item for call in stage._adapter.transcribe_batch.call_args_list for item in call.args[0]]
+    np.testing.assert_array_equal(np.concatenate([item["waveform"] for item in inferred]), waveform)
+    assert result.data["pred_text"] == "chunk-0 chunk-1 chunk-2 chunk-3"
 
 
 def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
@@ -632,6 +727,28 @@ def test_invalid_target_sample_rate_is_rejected() -> None:
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
             target_sample_rate=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("adapter_batch_size", "expected_exception", "match"),
+    [
+        (0, ValueError, "adapter_batch_size must be > 0"),
+        (-1, ValueError, "adapter_batch_size must be > 0"),
+        (1.5, TypeError, "adapter_batch_size must be an int or None"),
+        (True, TypeError, "adapter_batch_size must be an int or None"),
+    ],
+)
+def test_invalid_adapter_batch_size_is_rejected(
+    adapter_batch_size: object,
+    expected_exception: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(expected_exception, match=match):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            adapter_batch_size=adapter_batch_size,  # type: ignore[arg-type]
         )
 
 

@@ -23,6 +23,7 @@ from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
@@ -619,6 +620,32 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     assert writer.__class__.__name__ == "ManifestWriterStage"
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+
+
+def test_nemo_fastconformer_tutorial_accepts_local_batch_policy_config() -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "+stages.2.adapter_batch_size=4",
+                "+stages.2.max_inference_duration_s=120.0",
+                "+stages.2.batch_policy._target_=nemo_curator.stages.audio.inference.batch_policy.BatchPolicy",
+                "+stages.2.batch_policy.buckets_sec=[0,30,60]",
+                "+stages.2.batch_policy.max_items_per_batch_by_bucket=[16,8,4]",
+                "+stages.2.batch_policy.max_audio_sec_per_batch=120",
+            ],
+        )
+
+    _, _, stage, _ = create_pipeline_from_yaml(cfg, log_config=False).stages
+
+    assert stage.adapter_batch_size == 4
+    assert stage.max_inference_duration_s == 120.0
+    assert isinstance(stage.batch_policy, BatchPolicy)
+    assert stage.batch_policy.buckets_sec == [0, 30, 60]
+    assert stage.batch_policy.max_items_per_batch_by_bucket == [16, 8, 4]
+    assert stage.batch_policy.max_audio_sec_per_batch == 120
 
 
 def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
