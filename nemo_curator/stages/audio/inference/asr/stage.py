@@ -176,9 +176,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
-        if self.adapter_batch_size is not None and int(self.adapter_batch_size) <= 0:
-            msg = f"ASRStage.adapter_batch_size must be > 0, got {self.adapter_batch_size}"
-            raise ValueError(msg)
+        self.adapter_batch_size = self._validate_adapter_batch_size(self.adapter_batch_size)
         if int(self.target_sample_rate) <= 0:
             msg = f"ASRStage.target_sample_rate must be > 0, got {self.target_sample_rate}"
             raise ValueError(msg)
@@ -187,10 +185,20 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             owner="ASRStage",
         )
         self.batch_size = int(self.batch_size)
-        if self.adapter_batch_size is not None:
-            self.adapter_batch_size = int(self.adapter_batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
+
+    @staticmethod
+    def _validate_adapter_batch_size(value: int | None) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            msg = f"ASRStage.adapter_batch_size must be an int or None, got {type(value).__name__}"
+            raise TypeError(msg)
+        if value <= 0:
+            msg = f"ASRStage.adapter_batch_size must be > 0, got {value}"
+            raise ValueError(msg)
+        return value
 
     @staticmethod
     def _normalise_supported_language_codes(value: object) -> set[str] | None:
