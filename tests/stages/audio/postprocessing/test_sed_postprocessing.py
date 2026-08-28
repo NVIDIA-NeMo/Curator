@@ -14,11 +14,16 @@
 
 """Tests for SEDPostprocessingStage: framewise probabilities to labelled events."""
 
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from nemo_curator.stages.audio.postprocessing import (
+    SEDPostprocessingStage as PublicSEDPostprocessingStage,
+)
 from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
 from nemo_curator.stages.audio.postprocessing.sed_utils import SUPERCLASS_GROUPS
 from nemo_curator.tasks import AudioTask
@@ -184,8 +189,8 @@ def test_a_task_with_no_framewise_data_yields_no_events() -> None:
     assert _stage().process(AudioTask(data={})).data["sed_events"] == []
 
 
-def test_a_missing_sidecar_path_yields_no_events() -> None:
-    task = AudioTask(data={"npz_filepath": "/nonexistent/framewise.npz"})
+def test_a_missing_sidecar_path_yields_no_events(tmp_path: Path) -> None:
+    task = AudioTask(data={"npz_filepath": str(tmp_path / "missing.npz")})
     assert _stage().process(task).data["sed_events"] == []
 
 
@@ -205,9 +210,10 @@ def test_process_batch_labels_each_task_independently() -> None:
     assert results[1].data["sed_events"] == []
 
 
-def test_stage_declares_its_output_key() -> None:
+def test_stage_declares_its_exact_io_contract() -> None:
     stage = SEDPostprocessingStage(events_key="my_events")
-    assert "my_events" in stage.outputs()[1]
+    assert stage.inputs() == (["data"], [])
+    assert stage.outputs() == (["data"], ["my_events"])
 
 
 def test_events_are_written_under_a_configurable_key() -> None:
@@ -219,3 +225,20 @@ def test_events_are_written_under_a_configurable_key() -> None:
 
 def test_stage_is_cpu_only() -> None:
     assert SEDPostprocessingStage().resources.gpus == 0
+
+
+def test_postprocessing_package_exports_the_stage() -> None:
+    assert PublicSEDPostprocessingStage is SEDPostprocessingStage
+
+
+def test_importing_the_stage_needs_no_torch_dependency() -> None:
+    """Check in a clean interpreter because other audio tests import torch."""
+    probe = (
+        "import sys;"
+        "from nemo_curator.stages.audio.postprocessing import SEDPostprocessingStage;"
+        "print('torch' in sys.modules, 'torchlibrosa' in sys.modules)"
+    )
+    result = subprocess.run(  # noqa: S603 - fixed probe run under the test interpreter
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False False"
