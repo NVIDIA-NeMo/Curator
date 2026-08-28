@@ -20,10 +20,6 @@ import pytest
 
 from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy, BucketQueueScheduler, run_bucketed
 
-# ----------------------------------------------------------------------
-# BatchPolicy: validation + bucket math
-# ----------------------------------------------------------------------
-
 
 def test_batch_policy_invalid_strategy_rejected() -> None:
     with pytest.raises(ValueError, match="duration_bucketed"):
@@ -70,21 +66,35 @@ def test_batch_policy_prebatching_window_size_validation() -> None:
     assert policy.enabled is False
 
 
-def test_batch_policy_numeric_field_validation() -> None:
-    with pytest.raises(TypeError, match="flush_interval_ms must be an int"):
-        BatchPolicy(flush_interval_ms=250.5)  # type: ignore[arg-type]
-
-    with pytest.raises(ValueError, match="flush_interval_ms must be >= 0"):
-        BatchPolicy(flush_interval_ms=-1)
-
-    with pytest.raises(TypeError, match="buckets_sec entry must be numeric"):
-        BatchPolicy(buckets_sec=[0, "60"], max_items_per_batch_by_bucket=[1, 1])  # type: ignore[list-item]
-
-    with pytest.raises(TypeError, match="max_items_per_batch_by_bucket entry must be an int"):
-        BatchPolicy(buckets_sec=[0, 60], max_items_per_batch_by_bucket=[1, True])  # type: ignore[list-item]
-
-    with pytest.raises(TypeError, match="max_audio_sec_per_batch must be numeric or None"):
-        BatchPolicy(max_audio_sec_per_batch=True)  # type: ignore[arg-type]
+@pytest.mark.parametrize(
+    ("kwargs", "expected_exception", "match"),
+    [
+        ({"flush_interval_ms": 250.5}, TypeError, "flush_interval_ms must be an int"),
+        ({"flush_interval_ms": -1}, ValueError, "flush_interval_ms must be >= 0"),
+        (
+            {"buckets_sec": [0, "60"], "max_items_per_batch_by_bucket": [1, 1]},
+            TypeError,
+            "buckets_sec entry must be numeric",
+        ),
+        (
+            {"buckets_sec": [0, 60], "max_items_per_batch_by_bucket": [1, True]},
+            TypeError,
+            "max_items_per_batch_by_bucket entry must be an int",
+        ),
+        (
+            {"max_audio_sec_per_batch": True},
+            TypeError,
+            "max_audio_sec_per_batch must be numeric or None",
+        ),
+    ],
+)
+def test_batch_policy_rejects_invalid_numeric_fields(
+    kwargs: dict[str, object],
+    expected_exception: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(expected_exception, match=match):
+        BatchPolicy(**kwargs)  # type: ignore[arg-type]
 
 
 def test_batch_policy_bucket_for_clamps_above_top_edge() -> None:
@@ -98,12 +108,11 @@ def test_batch_policy_bucket_for_clamps_above_top_edge() -> None:
     assert p.bucket_for(9999.0) == 2  # clamped into top bucket
 
 
-def test_bucket_queue_scheduler_flushes_on_caps_timer_and_drain() -> None:
+def test_bucket_queue_scheduler_flushes_at_item_cap() -> None:
     policy = BatchPolicy(
-        buckets_sec=[0, 60],
-        max_items_per_batch_by_bucket=[2, 2],
-        max_audio_sec_per_batch=100.0,
-        flush_interval_ms=50,
+        buckets_sec=[0],
+        max_items_per_batch_by_bucket=[2],
+        max_audio_sec_per_batch=None,
     )
     scheduler = BucketQueueScheduler(policy)
 
@@ -113,14 +122,33 @@ def test_bucket_queue_scheduler_flushes_on_caps_timer_and_drain() -> None:
         (["short-a", "short-b"], 30.0, "item_cap")
     ]
 
-    assert scheduler.enqueue(2, "long-a", 70.0, now_ms=20.0) == []
-    cost_overflow_batch = scheduler.enqueue(3, "long-b", 80.0, now_ms=30.0)
+
+def test_bucket_queue_scheduler_flushes_before_cost_overflow_then_drains() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0],
+        max_items_per_batch_by_bucket=[10],
+        max_audio_sec_per_batch=100.0,
+    )
+    scheduler = BucketQueueScheduler(policy)
+
+    assert scheduler.enqueue(0, "long-a", 70.0, now_ms=20.0) == []
+    cost_overflow_batch = scheduler.enqueue(1, "long-b", 80.0, now_ms=30.0)
     assert [(batch.items, batch.total_cost, batch.flush_reason) for batch in cost_overflow_batch] == [
         (["long-a"], 70.0, "capacity")
     ]
     assert [(batch.items, batch.flush_reason) for batch in scheduler.flush_all()] == [(["long-b"], "drain")]
 
-    assert scheduler.enqueue(4, "timer-a", 5.0, now_ms=100.0) == []
+
+def test_bucket_queue_scheduler_flushes_when_timer_is_due() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0],
+        max_items_per_batch_by_bucket=[10],
+        max_audio_sec_per_batch=None,
+        flush_interval_ms=50,
+    )
+    scheduler = BucketQueueScheduler(policy)
+
+    assert scheduler.enqueue(0, "timer-a", 5.0, now_ms=100.0) == []
     assert scheduler.flush_due(now_ms=149.0) == []
     timer_batch = scheduler.flush_due(now_ms=150.0)
     assert [(batch.items, batch.flush_reason) for batch in timer_batch] == [(["timer-a"], "timer")]
@@ -140,11 +168,6 @@ def test_bucket_queue_scheduler_can_disable_timer_checks_for_finite_planning() -
     assert [(batch.items, batch.flush_reason) for batch in scheduler.flush_all()] == [(["a"], "drain")]
 
 
-# ----------------------------------------------------------------------
-# bucketize: the finite planning form callers use before dispatching
-# ----------------------------------------------------------------------
-
-
 def test_bucketize_groups_by_bucket_and_orders_heaviest_first() -> None:
     policy = BatchPolicy(
         buckets_sec=[0, 60],
@@ -160,6 +183,19 @@ def test_bucketize_groups_by_bucket_and_orders_heaviest_first() -> None:
         ([1], [{"d": 600.0}]),
         ([0, 2], [{"d": 10.0}, {"d": 20.0}]),
     ]
+
+
+def test_bucketize_applies_each_buckets_distinct_item_cap() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0, 10],
+        max_items_per_batch_by_bucket=[3, 1],
+        max_audio_sec_per_batch=None,
+    )
+    items = [{"d": 1.0}, {"d": 2.0}, {"d": 3.0}, {"d": 10.0}, {"d": 11.0}]
+
+    plan = policy.bucketize_with_costs(items, cost_fn=lambda item: item["d"])
+
+    assert [indices for indices, _items, _cost in plan] == [[4], [3], [0, 1, 2]]
 
 
 def test_bucketize_isolates_a_single_over_cost_item() -> None:
@@ -217,11 +253,6 @@ def test_dispatch_signature_requires_enabled_policy() -> None:
         policy.dispatch_signature(cost_unit="seconds")
 
 
-# ----------------------------------------------------------------------
-# run_bucketed: the shared, stage-agnostic dispatch helper
-# ----------------------------------------------------------------------
-
-
 def test_run_bucketed_preserves_input_order_across_buckets() -> None:
     """Results realign to input order regardless of internal bucket order."""
     policy = BatchPolicy(
@@ -229,7 +260,6 @@ def test_run_bucketed_preserves_input_order_across_buckets() -> None:
         max_items_per_batch_by_bucket=[32, 16, 8],
         max_audio_sec_per_batch=None,
     )
-    # durations: long, short, long, short -> two buckets, interleaved input.
     items = [{"d": 600.0, "v": "L0"}, {"d": 5.0, "v": "S1"}, {"d": 700.0, "v": "L2"}, {"d": 10.0, "v": "S3"}]
     calls: list[list[str]] = []
 
@@ -240,7 +270,7 @@ def test_run_bucketed_preserves_input_order_across_buckets() -> None:
     out = run_bucketed(items, run_fn, cost_fn=lambda it: it["d"], policy=policy)
 
     assert out == ["L0", "S1", "L2", "S3"]
-    assert len(calls) == 2  # one per occupied bucket
+    assert len(calls) == 2
 
 
 def test_run_bucketed_without_policy_runs_single_call() -> None:

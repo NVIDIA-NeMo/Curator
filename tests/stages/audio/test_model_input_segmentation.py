@@ -31,6 +31,23 @@ def test_duration_to_num_samples_rejects_invalid_sample_rate() -> None:
         duration_to_num_samples(10.0, 0)
 
 
+@pytest.mark.parametrize(
+    ("duration_s", "sample_rate", "expected_samples"),
+    [
+        (-1.0, 16000, 0),
+        (0.0, 16000, 0),
+        (0.00001, 16000, 1),
+        (1.25, 10, 13),
+    ],
+)
+def test_duration_to_num_samples_clamps_and_rounds_up(
+    duration_s: float,
+    sample_rate: int,
+    expected_samples: int,
+) -> None:
+    assert duration_to_num_samples(duration_s, sample_rate) == expected_samples
+
+
 def test_plan_audio_segments_rejects_invalid_sample_rate() -> None:
     with pytest.raises(ValueError, match="sample_rate must be > 0"):
         plan_audio_segments(num_samples=100, sample_rate=0, max_duration_s=10.0, owner="test")
@@ -69,7 +86,7 @@ def test_plan_audio_segments_exact_boundary_has_no_empty_tail() -> None:
     assert [segment.duration_s for segment in segments] == [3.0, 3.0]
 
 
-def test_plan_audio_segments_qwen_2400s_boundary_at_16khz() -> None:
+def test_plan_audio_segments_default_2400s_boundary_at_16khz() -> None:
     sample_rate = 16000
     max_duration_s = 2400.0
     boundary_samples = int(sample_rate * max_duration_s)
