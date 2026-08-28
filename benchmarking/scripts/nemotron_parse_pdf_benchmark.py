@@ -45,6 +45,8 @@ from main import (
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.tasks.utils import TaskPerfUtils
 
+_INFERENCE_SERVER_CLIENT_WORKERS_PER_REPLICA = 4
+
 
 def _safe_div(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
@@ -159,17 +161,22 @@ def _compute_pdf_parse_metrics(
     output_tasks: list,
     run_time_taken: float,
     num_inference_gpus: int,
+    inference_stage_parallelism: int,
 ) -> dict[str, float]:
     """Compute benchmark-level throughput metrics from additive task stats."""
     task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
     metric_prefix = "task_nemotron_parse_inference_custom"
 
     num_valid_pages = task_metrics.get(f"{metric_prefix}.num_valid_pages_sum", 0.0)
+    total_input_tokens = task_metrics.get(f"{metric_prefix}.total_prompt_tokens_sum", 0.0)
     total_output_tokens = task_metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
     num_request_errors = task_metrics.get(f"{metric_prefix}.num_request_errors_sum", 0.0)
+    inference_stage_process_time_sum_s = task_metrics.get("task_nemotron_parse_inference_process_time_sum", 0.0)
 
     throughput_pages_per_sec = _safe_div(num_valid_pages, run_time_taken)
     throughput_output_tokens_per_sec = _safe_div(total_output_tokens, run_time_taken)
+    inference_stage_active_time_s = _safe_div(inference_stage_process_time_sum_s, inference_stage_parallelism)
+    inference_stage_gpu_time_s = inference_stage_active_time_s * num_inference_gpus
     return {
         # Surfaced as first-class metrics (not just throughput denominators) so
         # entries can assert on work actually completed rather than on wall-clock
@@ -177,8 +184,22 @@ def _compute_pdf_parse_metrics(
         # for a fixed input; token count is not (dynamic batching shifts where the
         # model emits EOS), so it is asserted as a band rather than an exact value.
         "num_pages_processed": num_valid_pages,
+        "num_input_tokens": total_input_tokens,
         "num_output_tokens": total_output_tokens,
         "num_request_errors": num_request_errors,
+        # Stage process time excludes model/server setup. Normalizing the sum
+        # across the stage's concurrent workers estimates the active inference
+        # wall time for both in-process and HTTP inference.
+        "inference_stage_process_time_sum_s": inference_stage_process_time_sum_s,
+        "inference_stage_parallelism": float(inference_stage_parallelism),
+        "inference_stage_active_time_s": inference_stage_active_time_s,
+        "inference_stage_gpu_time_s": inference_stage_gpu_time_s,
+        "inference_stage_pages_per_sec": _safe_div(num_valid_pages, inference_stage_active_time_s),
+        "inference_stage_pages_per_sec_per_gpu": _safe_div(num_valid_pages, inference_stage_gpu_time_s),
+        "inference_stage_input_tokens_per_sec": _safe_div(total_input_tokens, inference_stage_active_time_s),
+        "inference_stage_input_tokens_per_sec_per_gpu": _safe_div(total_input_tokens, inference_stage_gpu_time_s),
+        "inference_stage_output_tokens_per_sec": _safe_div(total_output_tokens, inference_stage_active_time_s),
+        "inference_stage_output_tokens_per_sec_per_gpu": _safe_div(total_output_tokens, inference_stage_gpu_time_s),
         "throughput_pages_per_sec": throughput_pages_per_sec,
         "throughput_output_tokens_per_sec": throughput_output_tokens_per_sec,
         "throughput_pages_per_sec_per_gpu": _safe_div(throughput_pages_per_sec, num_inference_gpus),
@@ -197,6 +218,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     inference_server_startup_s = 0.0
     num_replicas = 0
     num_inference_gpus = 0
+    inference_stage_parallelism = 0
     server_engine_kwargs: dict[str, Any] | None = None
     server_type: InferenceServerBackend | None = args.inference_server_type
 
@@ -215,11 +237,12 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             _validate_inference_server_backend(args.backend)
             num_replicas = _resolve_num_replicas(args.num_replicas)
             num_inference_gpus = num_replicas
+            inference_stage_parallelism = _INFERENCE_SERVER_CLIENT_WORKERS_PER_REPLICA * num_replicas
             model_name = args.model_id or args.model_path
             server_engine_kwargs = _server_engine_kwargs(args)
             logger.info(
                 f"Starting {server_type} inference server with {num_replicas} replicas; "
-                f"PDF client stage workers={4 * num_replicas}"
+                f"PDF client stage workers={inference_stage_parallelism}"
             )
             server_start = time.perf_counter()
             inference_server = start_inference_server(
@@ -246,6 +269,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             )
         else:
             num_inference_gpus = _available_gpu_count()
+            inference_stage_parallelism = num_inference_gpus
             pipeline = create_nemotron_parse_pdf_pipeline(args)
 
         run_start_time = time.perf_counter()
@@ -256,7 +280,12 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         run_time_taken = time.perf_counter() - run_start_time
 
         num_pdfs_processed = _count_unique_pdfs(output_tasks)
-        pdf_parse_metrics = _compute_pdf_parse_metrics(output_tasks, run_time_taken, num_inference_gpus)
+        pdf_parse_metrics = _compute_pdf_parse_metrics(
+            output_tasks,
+            run_time_taken,
+            num_inference_gpus,
+            inference_stage_parallelism,
+        )
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_pdfs_processed} PDFs")
@@ -265,8 +294,10 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             f"Output token throughput: {pdf_parse_metrics['throughput_output_tokens_per_sec']:.2f} tokens/s"
         )
         logger.success(
-            f"Per-GPU throughput: {pdf_parse_metrics['throughput_pages_per_sec_per_gpu']:.2f} pages/s/GPU, "
-            f"{pdf_parse_metrics['throughput_output_tokens_per_sec_per_gpu']:.2f} tokens/s/GPU"
+            "Inference-stage per-GPU throughput: "
+            f"{pdf_parse_metrics['inference_stage_pages_per_sec_per_gpu']:.2f} pages/s/GPU, "
+            f"{pdf_parse_metrics['inference_stage_output_tokens_per_sec_per_gpu']:.2f} output tokens/s/GPU, "
+            f"{pdf_parse_metrics['inference_stage_input_tokens_per_sec_per_gpu']:.2f} input tokens/s/GPU"
         )
         if not num_pdfs_processed or not pdf_parse_metrics["num_pages_processed"]:
             logger.error("Benchmark produced no PDFs or pages")
@@ -285,8 +316,19 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         # requirements always have a value to compare against.
         pdf_parse_metrics = {
             "num_pages_processed": 0.0,
+            "num_input_tokens": 0.0,
             "num_output_tokens": 0.0,
             "num_request_errors": 0.0,
+            "inference_stage_process_time_sum_s": 0.0,
+            "inference_stage_parallelism": float(inference_stage_parallelism),
+            "inference_stage_active_time_s": 0.0,
+            "inference_stage_gpu_time_s": 0.0,
+            "inference_stage_pages_per_sec": 0.0,
+            "inference_stage_pages_per_sec_per_gpu": 0.0,
+            "inference_stage_input_tokens_per_sec": 0.0,
+            "inference_stage_input_tokens_per_sec_per_gpu": 0.0,
+            "inference_stage_output_tokens_per_sec": 0.0,
+            "inference_stage_output_tokens_per_sec_per_gpu": 0.0,
             "throughput_pages_per_sec": 0.0,
             "throughput_output_tokens_per_sec": 0.0,
             "throughput_pages_per_sec_per_gpu": 0.0,
