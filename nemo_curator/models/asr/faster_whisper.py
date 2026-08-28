@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
 
@@ -32,6 +33,7 @@ _LANGUAGE_ALIASES = {
     "ji": "yi",
     "jv": "jw",
     "nb": "no",
+    "tl": "tl",
 }
 
 
@@ -99,8 +101,8 @@ class FasterWhisperASR:
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        except ImportError:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("CUDA cache clear skipped: {}", exc)
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         if self._model is None:
@@ -110,8 +112,10 @@ class FasterWhisperASR:
         results: list[ASRResult] = []
         for item in items:
             waveform = np.asarray(item.get("waveform"), dtype=np.float32)
+            raw_language = str(item.get("language_code") or "").strip().lower()
+            language = _LANGUAGE_ALIASES.get(raw_language, raw_language) or None
             if waveform.size == 0:
-                results.append(ASRResult(text="", skipped=True, skip_reason="empty_audio"))
+                results.append(ASRResult(text="", extras={"language_code": language}))
                 continue
             if waveform.ndim != 1:
                 msg = f"ASRStage must provide a mono 1-D waveform, got shape {waveform.shape}"
@@ -121,8 +125,6 @@ class FasterWhisperASR:
                 msg = f"ASRStage must provide {_TARGET_SAMPLE_RATE} Hz audio; received {sample_rate} Hz"
                 raise ValueError(msg)
 
-            raw_language = str(item.get("language_code") or "").strip().lower()
-            language = _LANGUAGE_ALIASES.get(raw_language, raw_language) or None
             segments, _ = self._model.transcribe(
                 np.ascontiguousarray(waveform),
                 language=language,
