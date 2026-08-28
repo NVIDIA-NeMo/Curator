@@ -550,6 +550,22 @@ class TestNemotronParseInferenceStageMetrics:
         assert in_process_stage._sampling_params.kwargs == expected
         assert server_params == expected
 
+    def test_in_process_and_server_default_to_8192_max_tokens(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseInferenceServerStage,
+            NemotronParseInferenceStage,
+        )
+
+        in_process_stage = NemotronParseInferenceStage()
+        server_stage = NemotronParseInferenceServerStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+
+        assert in_process_stage.max_tokens == 8192
+        assert server_stage.max_tokens == 8192
+        assert server_stage._generation_config.max_tokens == 8192
+
     def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
         """RequestOutput with no completions should yield '' rather than IndexError."""
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage

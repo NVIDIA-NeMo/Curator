@@ -37,7 +37,7 @@ from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_MODEL_PATH = "nvidia/NVIDIA-Nemotron-Parse-v1.2"
 PROMPT_BASE = "</s><s><predict_bbox><predict_classes><output_markdown>"
-DEFAULT_MAX_TOKENS = 9000
+DEFAULT_MAX_TOKENS = 8192
 
 _NEMOTRON_PARSE_SAMPLING_PARAMS: dict[str, Any] = {
     "temperature": 0,

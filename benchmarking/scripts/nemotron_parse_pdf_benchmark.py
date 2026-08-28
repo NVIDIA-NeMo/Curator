@@ -81,12 +81,14 @@ def _available_gpu_count() -> int:
 
 
 def _server_engine_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    # Keep the server scheduler at its vLLM default unless the benchmark
+    # explicitly overrides it through --engine-kwargs. The CLI max_num_seqs
+    # setting belongs to the in-process stage.
     engine_kwargs: dict[str, Any] = {
         "trust_remote_code": True,
         "dtype": "bfloat16",
         "limit_mm_per_prompt": {"image": 1},
         "enable_prefix_caching": False,
-        "max_num_seqs": args.max_num_seqs,
     }
     if args.enforce_eager:
         engine_kwargs["enforce_eager"] = True
@@ -194,6 +196,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     inference_server_startup_s = 0.0
     num_replicas = 0
     num_inference_gpus = 0
+    server_engine_kwargs: dict[str, Any] | None = None
     server_type: InferenceServerBackend | None = args.inference_server_type
 
     logger.info(f"Manifest: {args.manifest}")
@@ -212,7 +215,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             num_replicas = _resolve_num_replicas(args.num_replicas)
             num_inference_gpus = num_replicas
             model_name = args.model_id or args.model_path
-            engine_kwargs = _server_engine_kwargs(args)
+            server_engine_kwargs = _server_engine_kwargs(args)
             logger.info(
                 f"Starting {server_type} inference server with {num_replicas} replicas; "
                 f"PDF client stage workers={4 * num_replicas}"
@@ -223,14 +226,10 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 model_id=model_name,
                 model_path=args.model_path,
                 num_replicas=num_replicas,
-                engine_kwargs=engine_kwargs,
+                engine_kwargs=server_engine_kwargs,
                 model_runtime_env={"uv": {"packages": ["albumentations==2.0.8"]}},
                 dynamo_kwargs={"enable_multimodal": True},
-                dynamo_router_kwargs={
-                    "dyn_chat_processor": "vllm",
-                    "chat_template_content_format": "string",
-                    "trust_remote_code": True,
-                },
+                dynamo_router_kwargs={"trust_remote_code": True},
                 health_check_timeout_s=args.inference_server_health_timeout_s,
             )
             inference_server_startup_s = time.perf_counter() - server_start
@@ -315,7 +314,12 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "dpi": args.dpi,
             "max_pages": args.max_pages,
             "inference_batch_size": args.inference_batch_size,
-            "max_num_seqs": args.max_num_seqs,
+            "max_num_seqs": (
+                args.max_num_seqs if server_type is None else (server_engine_kwargs or {}).get("max_num_seqs")
+            ),
+            "max_tokens": args.max_tokens,
+            "enforce_eager": args.enforce_eager,
+            "server_engine_kwargs": server_engine_kwargs,
         },
         "metrics": {
             "is_success": success,
