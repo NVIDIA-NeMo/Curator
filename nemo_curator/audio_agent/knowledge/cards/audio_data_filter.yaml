@@ -1,0 +1,33 @@
+stage_id: AudioDataFilterStage
+category: export
+summary: "Complete audio filtering/curation pipeline (CompositeStage) driven by a config."
+tags: []   # gates depend on the enabled features (VAD/speaker/quality); see notes
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: null   # TODO(fill): depends on which sub-stages the config enables
+  gpu_optional: true
+  # gpu, paired with gpu_optional -- the same combination PyAnnoteDiarizationStage,
+  # SIGMOSFilterStage, TorchSquimQualityMetricsStage, UTMOSFilterStage and WhisperXVADStage
+  # already use for "runs on GPU when there is one, falls back to CPU when there is not".
+  # It was `null`, which reads to every consumer as "not GPU" rather than "nobody has said":
+  # `stage_is_costly` then rated this composite CHEAP, so a reuse scan could serve a prefix
+  # containing it without asking, under a threshold written for milliseconds -- while the
+  # config it runs may dispatch exactly the GPU quality/diarization sub-stages listed above.
+  bound: gpu
+  throughput_hint: "config-dependent; decomposes into many sub-stages"
+use_cases:
+  good_for: ["running a preconfigured end-to-end curation pipeline from a config file"]
+  avoid_for: ["fine-grained custom pipelines (compose individual stages instead)"]
+composition:
+  typical_upstream: [ManifestReader, CreateInitialManifestReadSpeechStage]
+  typical_downstream: [ManifestWriterStage]
+params_of_note:
+  config_path: "path to a pipeline config file"
+  config: "an in-memory config object (alternative to config_path)"
+notes:
+  - "CompositeStage: decomposes into independent sub-stages (Mono/VAD/Speaker/quality) that the executor schedules with cross-file parallelism. Supports several topologies based on which features are enabled; resource needs and gates therefore depend on the config."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

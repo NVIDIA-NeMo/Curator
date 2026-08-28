@@ -1,0 +1,26 @@
+stage_id: ManifestWriterStage
+category: export
+summary: "Append each AudioTask to a JSONL manifest file (final sink)."
+tags: [sink, writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "append-per-task JSONL write"
+use_cases:
+  good_for: ["writing the final curated manifest as JSONL"]
+  avoid_for: ["mid-pipeline (this is a terminal sink)", "writing task data that still holds tensors", "DocumentBatch input (use DocumentBatchJsonlWriterStage)"]
+composition:
+  typical_upstream: [TimestampMapperStage, PreserveByValueStage]
+  typical_downstream: []
+params_of_note:
+  output_path: "path to the output JSONL manifest"
+notes:
+  - "Truncates the output once in setup() (driver) so reruns start clean; setup_on_node() only makes the parent dir. In multi-node runs all nodes append to the same path."
+  - "Accepts AudioTask only. If AudioToDocumentStage is used to sanitize resident tensors, finish with DocumentBatchJsonlWriterStage instead."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-28"}

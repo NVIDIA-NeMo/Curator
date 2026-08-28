@@ -1,0 +1,37 @@
+# Runnable recipe template (Recipe IR). Fill inputs.* before running.
+# Referenced by knowledge/blueprints/readspeech.yaml.
+recipe_id: readspeech-quality-filter
+name: readspeech_quality
+intent: "curate clean speech from a raw WAV folder by quality (no transcription)"
+preset: general
+inputs:
+  raw_data_dir: "REQUIRED: folder of WAV files (or DNS download dir)"
+  output_manifest: "REQUIRED: output .jsonl path"
+stages:
+  - ref: CreateInitialManifestReadSpeechStage
+    params: {raw_data_dir: "REQUIRED_raw_data_dir", max_samples: 5000, auto_download: false, batch_size: 1}
+  - ref: AudioDataFilterStage
+    params:
+      config:
+        mono_conversion: {output_sample_rate: 48000}
+        vad: {enable: true, min_duration_sec: 2.0, max_duration_sec: 60.0, threshold: 0.5}
+        band_filter: {enable: true, band_value: full_band}
+        utmos: {enable: true, mos_threshold: 3.4}
+        sigmos: {enable: true, noise_threshold: 4.0, ovrl_threshold: 3.5}
+        speaker_separation: {enable: false}
+        timestamp_mapper: {}
+  - ref: ManifestWriterStage
+    params: {output_path: "REQUIRED_output_manifest"}
+# What "done" means, checked against the written rows. Retune for the job; keep the block.
+acceptance_criteria:
+  - id: rows_point_at_audio
+    type: output_completeness
+    description: "every kept row still names an audio file -- the VAD and separation stages
+      rewrite paths, so a row surviving with a blank path is a real outcome, not a hypothetical"
+    check: {field: audio_filepath}
+    severity: must
+  - id: quality_filters_kept_something
+    type: yield
+    description: "the UTMOS and SIGMOS thresholds did not reject the whole folder"
+    check: {op: ">", value: 0}
+    severity: must

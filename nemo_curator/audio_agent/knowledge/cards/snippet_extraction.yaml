@@ -1,0 +1,31 @@
+stage_id: SnippetExtractionStage
+category: alm
+summary: "Slice source audio per the snippet plan, mono-resample, and write snippets into a tar."
+tags: [writes_disk, fanout]   # 1:N fan-out: one planned row -> many snippet rows, so a row here is a SNIPPET, not a clip
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "reads slices + encodes + writes to tar (disk-bound)"
+use_cases:
+  good_for: ["materializing planned ALM snippets as mono audio inside a tar shard"]
+  avoid_for: ["non-ALM pipelines"]
+composition:
+  typical_upstream: [SnippetCutPlannerStage, SnippetRepetitionFilterStage]
+  typical_downstream: [SnippetManifestWriterStage, PretrainMetricsAggregatorStage]
+params_of_note:
+  output_dir: "directory for the output tar(s)"
+  output_audio_tar_path: "explicit output tar path"
+  target_sample_rate: "resample target for snippets (default 16000)"
+  output_format: "encoded audio format inside the tar (default flac)"
+  dry_run: "plan/count only without writing audio"
+param_dependencies:
+  output_dir: "requires the snippet plan from SnippetCutPlannerStage"
+notes:
+  - "Reads only the [start,end] slice from each source file, channel-averages to mono, resamples with torchaudio, encodes in-memory (soundfile), and appends to the tar."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

@@ -3,6 +3,24 @@
 NeMo Curator is a scalable library for preparing multimodal datasets. Pipelines
 are composed of `ProcessingStage` objects executed by a backend (Ray Data, Xenna, Ray Actor Pool) over streams of `Task` objects.
 
+## Audio curation tasks
+
+For any task involving audio files or audio datasets — quality filtering, VAD,
+transcription, WER filtering, diarization, ALM windowing, resampling, channel
+conversion, manifest creation, or inspecting an audio corpus — route the work
+through the `audio-curation` skill **before doing anything else**:
+
+- Invoke the `audio-curation` skill as your first action.
+- Follow the skill's workflow end-to-end (context → route → validate → smoke →
+  confirm → run → report).
+- Do **not** write ad-hoc scripts (ffprobe, librosa, soundfile, torchaudio, etc.)
+  to inspect or process audio, even for a "quick" one-off.
+- Do **not** edit any Curator stage or pipeline source to force a particular
+  dataset to produce output. Empty output is a data/config problem, not a code bug.
+
+The full procedure and guardrails live in
+[`nemo_curator/audio_agent/skills/audio-curation/SKILL.md`](nemo_curator/audio_agent/skills/audio-curation/SKILL.md).
+
 ## Core abstractions
 
 | Abstraction | Location | Role |

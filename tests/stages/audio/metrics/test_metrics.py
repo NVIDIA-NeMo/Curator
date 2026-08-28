@@ -51,6 +51,85 @@ class TestBandwidthEstimationStage:
         assert "bandwidth" in result.data["metrics"]
         assert result.data["metrics"]["bandwidth"] > 0
 
+    def test_waveform_residency_matches_file(self, audio_task: Callable[..., AudioTask], tmp_path: Path) -> None:
+        """Bandwidth from an in-memory waveform equals the file result (input_residency)."""
+        import numpy as np
+        import soundfile as sf
+
+        sr = 16000
+        audio = (np.random.default_rng(0).standard_normal(sr) * 0.1).astype("float32")
+        wav = tmp_path / "a.wav"
+        sf.write(str(wav), audio, sr)
+
+        file_stage = BandwidthEstimationStage()
+        file_stage.setup()
+        file_bw = file_stage.process(audio_task(audio_filepath=str(wav), duration=1.0)).data["metrics"]["bandwidth"]
+
+        wf_stage = BandwidthEstimationStage(input_residency="waveform")
+        wf_stage.setup()
+        wf_bw = wf_stage.process(
+            audio_task(waveform=torch.from_numpy(audio).unsqueeze(0), sample_rate=sr, duration=1.0)
+        ).data["metrics"]["bandwidth"]
+
+        assert wf_bw == file_bw
+
+    def test_residency_validate_input(self) -> None:
+        wf_stage = BandwidthEstimationStage(input_residency="waveform")
+        assert wf_stage.validate_input(
+            AudioTask(data={"waveform": torch.randn(1, 16000), "sample_rate": 16000, "duration": 1.0})
+        )
+        assert not wf_stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav", "duration": 1.0}))
+        # default (file) mode unchanged: needs audio_filepath AND (segments OR duration)
+        file_stage = BandwidthEstimationStage()
+        assert file_stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav", "duration": 1.0}))
+        assert not file_stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav"}))
+
+
+class TestSquimResidency:
+    """SQUIM input_residency contract/validation (no model needed)."""
+
+    def test_default_is_file_only(self) -> None:
+        stage = TorchSquimQualityMetricsStage()
+        assert stage.input_residency == "file"
+        forms = {a for s in stage.describe().reads_one_of for a in s.accepts}
+        assert forms == {"file"}
+        assert stage.validate_input(AudioTask(data={"resampled_audio_filepath": "/a.wav"})) is True
+        assert stage.validate_input(AudioTask(data={"waveform": torch.randn(1, 16000), "sample_rate": 16000})) is False
+
+    def test_waveform_and_auto_residency(self) -> None:
+        wf_stage = TorchSquimQualityMetricsStage(input_residency="waveform")
+        assert {a for s in wf_stage.describe().reads_one_of for a in s.accepts} == {"waveform"}
+        assert (
+            wf_stage.validate_input(AudioTask(data={"waveform": torch.randn(1, 16000), "sample_rate": 16000})) is True
+        )
+        assert wf_stage.validate_input(AudioTask(data={"resampled_audio_filepath": "/a.wav"})) is False
+        auto = TorchSquimQualityMetricsStage(input_residency="auto")
+        assert {a for s in auto.describe().reads_one_of for a in s.accepts} == {"file", "waveform"}
+
+
+class TestSquimZeroLengthSegments:
+    """A degenerate segment must be skipped, not crash the stage."""
+
+    def test_a_zero_length_segment_is_skipped_and_named(self, tmp_path: Path) -> None:
+        """Extracting ``_resolve_entry_audio`` moved the ``audio_path`` binding out of this
+        method but left the warning referring to it, so the first zero-length segment raised
+        ``NameError``. Only the error path reached it, so ordinary audio never surfaced it.
+        """
+        import numpy as np
+        import soundfile as sf
+
+        wav = tmp_path / "a.wav"
+        sf.write(str(wav), np.zeros(16000, dtype="float32"), 16000)
+        entry = {
+            "resampled_audio_filepath": str(wav),
+            "segments": [
+                {"start": 0.0, "end": 0.0, "text": "degenerate", "speaker": "s0"},
+                {"start": 0.0, "end": 0.5, "text": "usable", "speaker": "s0"},
+            ],
+        }
+        collected = TorchSquimQualityMetricsStage()._collect_waveforms_for_entry(0, entry)
+        assert [seg_idx for _, seg_idx, _ in collected] == [1]  # the zero-length one is skipped
+
 
 class TestComputeWERStage:
     """Tests for ComputeWERStage helpers and process."""

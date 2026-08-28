@@ -1,0 +1,48 @@
+stage_id: BandFilterStage
+category: quality
+summary: "Classify audio as full_band vs narrow_band (spectral RandomForest) and filter/annotate."
+tags: [produces_score, is_filter, needs_internet_first_run]
+model_id: "nvidia/nemocurator-speech-bandwidth-filter (scikit-learn RandomForest)"
+model_version: "nemocurator-speech-bandwidth-filter (band_classifier_model_band_7000_samples.joblib)"   # TODO(fill): pin exact HF revision
+domain: {language: any, style: speech}
+constraints: {}   # no supported_sample_rates constraint: this is a bandwidth DETECTOR that reads the native spectrum (see notes) -- do NOT resample upstream
+resource:
+  cpus: 4.0   # stage default Resources(cpus=4.0)
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU-only, cheap (sklearn RandomForest on band-energy features)"
+use_cases:
+  good_for: ["keep high-fidelity wideband recordings (full_band)", "cheap CPU early-cull before GPU quality stages", "detect telephony / narrowband audio"]
+  avoid_for: ["telephony data you want to KEEP (then set band_value=narrow_band)", "when you need a perceptual-quality score (use UTMOS/SIGMOS)"]
+composition:
+  typical_upstream: [MonoConversionStage, VADSegmentationStage]
+  typical_downstream: [UTMOSFilterStage, SIGMOSFilterStage]
+params_of_note:
+  band_value: "'full_band' (keep hi-fi / wideband, default) or 'narrow_band' (keep telephony-style)"
+  action: "'filter' drops items that fail the band check (default); 'annotate' keeps all and only writes band_prediction"
+  model_path: "local path to the .joblib classifier; overrides the HF download"
+  cache_dir: "directory to cache the downloaded model"
+metrics:
+  band_prediction:                              # categorical (no numeric scale)
+    threshold_param: band_value
+    anchors:                                    # band_value -> the outcome label that selects it
+      full_band: wideband                       # label 'wideband'  -> band_value: full_band  (hi-fi)
+      narrow_band: telephony                    # label 'telephony' -> band_value: narrow_band
+presets:
+  wideband: {band_value: full_band}
+  telephony: {band_value: narrow_band}
+comparison:
+  language_support: "language-agnostic (spectral bandwidth; speech only)"
+  accuracy_hint: "binary full/narrow band classifier (not a MOS)"
+  latency_hint: "cheapest quality filter (CPU RandomForest)"
+  config_complexity: "low (one choice: full_band / narrow_band)"
+  choose_when: "you want a cheap CPU first-pass to drop (or keep only) narrowband/telephony. For perceptual quality use UTMOS/SIGMOS; for a continuous bandwidth value use BandwidthEstimationStage."
+  known_limitations: "bandwidth only; not a perceptual-quality score"
+notes:
+  - "Cheapest quality filter (CPU) -- a good FIRST filter to reduce load on downstream GPU stages."
+  - "Sample rate: it does NOT resample; it computes band energies (0-24 kHz bins) on the audio's NATIVE spectrum to detect bandwidth. Do NOT put a ResampleAudioStage upstream -- resampling changes the very bandwidth it measures. Any input rate works; a source stored at a low rate is correctly read as narrower band (bands above Nyquist read as empty)."
+  - "Model: sklearn RandomForest loaded via joblib from HF nvidia/nemocurator-speech-bandwidth-filter (file band_classifier_model_band_7000_samples.joblib); features are LUFS-normalized band energies. Trained/validated primarily on 16 kHz and 48 kHz audio."
+  - "Downloads the .joblib on first run (needs network once) unless model_path is set."
+verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: best_guess, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess}
+provenance: {model_card_url: "https://huggingface.co/nvidia/nemocurator-speech-bandwidth-filter", card_version: 3, last_validated: "2026-07-23"}

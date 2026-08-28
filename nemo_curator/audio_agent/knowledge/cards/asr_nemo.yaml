@@ -1,0 +1,68 @@
+# Capability card: model/semantic facts a stage's Python source cannot reveal.
+stage_id: ASRStage
+category: transcribe
+summary: "Batched ASR transcription through a pluggable adapter: NeMoASRAdapter (NeMo checkpoints), QwenASRAdapter (Qwen3-ASR, vLLM), QwenOmniASRAdapter (Qwen3-Omni, vLLM)."
+tags: [needs_gpu, needs_internet_first_run, batch_only]
+model_id: "adapter-dependent. NeMoASRAdapter: any NeMo ASR checkpoint (default preset nvidia/parakeet-tdt-0.6b-v2). QwenASRAdapter: Qwen/Qwen3-ASR-0.6B. QwenOmniASRAdapter: Qwen/Qwen3-Omni-30B-A3B-Instruct."
+model_version: "user-specified via model_id; the english_parakeet preset pins nvidia/parakeet-tdt-0.6b-v2"
+domain: {language: "checkpoint-dependent (default preset = English)", style: read+conversational}
+constraints:
+  supported_sample_rates: [16000]   # ASRStage resamples input to target_sample_rate before adapter inference
+  input_duration_sweetspot_sec: {min: 0.5, max: 40.0}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 5.0   # measured on RTX 4090 for the DEFAULT NeMo preset only (parakeet-tdt-0.6b-v2, ~5.0 GB reserved, batch 4, 6 s clips). Larger NeMo checkpoints need more, and the vLLM Qwen adapters need far more (Qwen3-Omni-30B-A3B is a 30B MoE) -- treat this figure as the parakeet baseline, not a stage-wide bound.
+  gpu_optional: false
+  bound: gpu
+  throughput_hint: "batched GPU inference"
+use_cases:
+  good_for:
+    - "transcribing speech to text (pred_text)"
+    - "producing pred_text for WER/CER filtering (needs reference transcripts in the manifest)"
+    - "high-throughput English transcription with the default Parakeet checkpoint"
+  avoid_for:
+    - "languages the chosen checkpoint was not trained on (pick a matching model_id)"
+    - "word-level alignments/timestamps -- use NeMoASRAlignerStage instead"
+composition:
+  typical_upstream: [ResampleAudioStage, VADSegmentationStage, SplitLongAudioStage]
+  typical_downstream: [GetPairwiseWerStage, ComputeWERStage, InverseTextNormalizationStage]
+params_of_note:
+  adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
+  model_id: "the ASR checkpoint id -- REQUIRED, and must match the chosen adapter. Choose per language; apply the english_parakeet preset for English."
+  audio_filepath_key: "input audio path key; use audio_filepath for raw manifests or resampled_audio_filepath after an explicit resampling stage"
+  target_sample_rate: "sample rate prepared internally before adapter inference (default 16000)"
+  pred_text_key: "output key for the transcription (default 'pred_text', NOT 'text') -- the WER stages read this key"
+  waveform_key: "optional in-memory waveform key; when set, sample_rate_key is also required"
+  default_language: "fallback ISO 639-1 code ('en', 'zh') for rows whose source_lang column is empty. Codes are lowercased and mapped to a human-readable name before the adapter sees them (~50 common codes; 'en' -> 'English'), and an unmapped code is forwarded verbatim. Per-row language comes from the manifest's source_lang column, not from this."
+  supported_language_codes: "optional allowlist, checked against the ISO CODE rather than the resolved name. Rows outside it are skipped as language_not_supported; rows with no code at all as language_missing."
+  adapter_kwargs: "adapter-owned settings passed through at construction. Where the vLLM adapters take their engine options (gpu_memory_utilization, max_new_tokens, revision, vllm_kwargs); unused by NeMoASRAdapter."
+comparison:
+  language_support: "checkpoint- and adapter-dependent. Default preset nvidia/parakeet-tdt-0.6b-v2 is English-only; nvidia/parakeet-tdt-0.6b-v3 covers 25 European languages; the Qwen adapters follow their own model cards. (external: HF / NGC model cards)"
+  accuracy_hint: "checkpoint-dependent; parakeet-tdt-0.6b-v2 = 6.05% avg WER on the HF Open-ASR leaderboard (external)"
+  latency_hint: "very high throughput on GPU (parakeet-tdt-0.6b-v2 RTFx ~3386 at batch 128); slow on CPU"
+  config_complexity: "low (pick adapter_target and model_id, or use a preset)"
+  choose_when: "you need plain transcripts, on any supported backend. For word timestamps/alignments use NeMoASRAlignerStage or SplitASRAlignJoinStage; for who-said-what add a diarizer + MergeAlignmentDiarizationStage."
+  known_limitations: "GPU required for practical NeMo throughput; output key is pred_text (not text)"
+notes:
+  - "ASRStage is the canonical Curator ASR runtime; every backend is an adapter passed to adapter_target rather than a parallel stage implementation. It replaced InferenceAsrNemoStage, which no longer exists."
+  - "Adapter choice: NeMoASRAdapter for NeMo/parakeet checkpoints (the measured, best-covered path). The two vLLM Qwen adapters are supported by the stage but their resource and accuracy figures below are NOT measured here -- size the GPU from the model card before a large run."
+  - "Language is adapter-dependent. NeMoASRAdapter ignores it (a parakeet checkpoint takes no language argument); QwenASRAdapter passes the resolved NAME to its transcribe call; QwenOmniASRAdapter interpolates it into {language} in the prompt and switches to en_prompt_text on the exact string 'English'. So supply ISO CODES, never names: 'English' lowercases to 'english', matches no entry, is forwarded as-is, and silently loses the English prompt path."
+  - "GPU: the stage defaults to Resources(gpus=1.0). Set Resources(gpus=0) only to force CPU inference, which is extremely slow."
+  - "batch_size is a real constructor field (default 32) but is excluded from the discovery param surface; tune it via the stage/executor."
+  - "Language coverage is a checkpoint (model-card) fact, not derivable from source; match the checkpoint to the data language."
+  - "WER/CER filtering requires reference transcripts in the source manifest; if absent, WER is unproducible."
+  - "(external) nvidia/parakeet-tdt-0.6b-v2: English, FastConformer-TDT, 16 kHz mono, native punctuation + capitalization + word/char/segment timestamps, up to 24 min per pass, CC-BY-4.0. Because it already emits written-form punctuated text, a downstream InverseTextNormalizationStage is usually redundant for Parakeet output (ITN targets spoken-form ASR)."
+presets:
+  english_parakeet: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2"}
+  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3"}
+  longform_english_1_1b: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b"}
+  qwen3_asr: {adapter_target: "nemo_curator.models.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B"}
+  qwen3_omni: {adapter_target: "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"}
+versions:   # verified interchangeable via model_id -- load + run + identical pred_text output structure.
+            # NeMo checkpoints only: a Qwen model also needs a different adapter_target, so it is a
+            # preset (a param bundle), not a drop-in model_id swap.
+  "nvidia/parakeet-tdt-0.6b-v2": "WHEN: English audio. Best English accuracy (6.05% avg WER on Open ASR) and highest throughput; up to 24 min/pass. Default preset (english_parakeet)."
+  "nvidia/parakeet-tdt-0.6b-v3": "WHEN: multilingual European audio. 25 European languages (auto language ID). Preset: multilingual_parakeet_v3."
+  "nvidia/parakeet-tdt_ctc-1.1b": "WHEN: very long English audio, or you need a CTC decoder. Larger hybrid FastConformer TDT+CTC (~1.1B), up to ~11 h/pass; heavier VRAM. Preset: longform_english_1_1b."
+verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 5, last_validated: "2026-08-24"}

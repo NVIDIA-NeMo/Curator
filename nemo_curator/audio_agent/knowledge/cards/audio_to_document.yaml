@@ -1,0 +1,24 @@
+stage_id: AudioToDocumentStage
+category: export
+summary: "Aggregate AudioTasks into a DocumentBatch DataFrame, stripping tensors/audio blobs."
+tags: [sink, sanitizes_output, batch_only]
+model_id: null
+domain: {language: any, style: any}
+constraints:
+  batch_size: {fixed: null, reason: "batch-only stage; process() raises, use process_batch"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; aggregates a batch into one DataFrame"
+use_cases:
+  good_for: ["the sanctioned bridge before DocumentBatchJsonlWriterStage", "making task data serialization-safe"]
+  avoid_for: ["mid-pipeline (place it just before the writer)"]
+composition:
+  typical_upstream: [UTMOSFilterStage, SIGMOSFilterStage, GetAudioDurationStage, TimestampMapperStage]
+  typical_downstream: [DocumentBatchJsonlWriterStage]
+notes:
+  - "Sanitizes output: strips torch tensors / audio arrays / segments, then emits a DocumentBatch. Follow it with DocumentBatchJsonlWriterStage, not the AudioTask-only ManifestWriterStage."
+verified: {tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-28"}

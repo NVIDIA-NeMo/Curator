@@ -1,0 +1,50 @@
+stage_id: NeMoASRAlignerStage
+category: transcribe
+summary: "Transcribe and word-align audio with a NeMo ASR model (TDT/RNNT or CTC), producing word-level timestamps."
+tags: [needs_gpu, needs_internet_first_run]
+model_id: "nvidia/parakeet-tdt_ctc-1.1b (default; any NeMo hybrid / FastConformer ASR checkpoint)"
+model_version: "nvidia/parakeet-tdt_ctc-1.1b"   # stage default model_name
+domain: {language: "checkpoint-dependent (default = English)", style: read+conversational}
+constraints:
+  supported_sample_rates: [16000]   # stage does NOT resample -- feed 16 kHz mono
+  input_duration_sweetspot_sec: {min: 1.0, max: 40.0}   # min_len default (note: max_len is defined but NOT enforced in code)
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 8.6   # measured on RTX 4090 (parakeet-tdt_ctc-1.1b, CTC decode, batch 4, ~8.6 GB); RNNT/TDT decode + larger batches use more
+  gpu_optional: false
+  bound: gpu
+  throughput_hint: "batched GPU inference + forced alignment"
+use_cases:
+  good_for:
+    - "word-level alignments/timestamps alongside transcripts"
+    - "feeding MergeAlignmentDiarizationStage for who-said-what (via the split/align/join flow)"
+  avoid_for:
+    - "plain transcription with no alignment (use ASRStage with NeMoASRAdapter, lighter)"
+    - "languages the checkpoint was not trained on"
+    - "non-16 kHz input without an upstream resample"
+composition:
+  typical_upstream: [SplitLongAudioStage, ResampleAudioStage]
+  typical_downstream: [JoinSplitAudioMetadataStage, MergeAlignmentDiarizationStage]
+params_of_note:
+  model_name: "the NeMo ASR checkpoint id (default nvidia/parakeet-tdt_ctc-1.1b)"
+  decoder_type: "'rnnt' (default) selects the TDT/transducer head -- the checkpoint's own default and recommended; 'ctc' selects the CTC head (CTC-style timestamps / LM-biasing). CTC also avoids CUDA graphs, so it is the safer fallback if RNNT decode crashes with a CUDA-graph error."
+  timestamp_type: "alignment granularity: 'word' (default) or 'char'"
+  is_fastconformer: "True if the checkpoint is a FastConformer (default True; sets the time-stride used for timestamps)"
+  infer_segment_only: "align only the provided segments instead of the whole file"
+  transcribe_batch_size: "files per GPU inference batch (default 32)"
+comparison:
+  language_support: "checkpoint-dependent. Default nvidia/parakeet-tdt_ctc-1.1b is English-only. (external: HF model card)"
+  accuracy_hint: "produces word alignments/timestamps (richer than plain ASR); parakeet-tdt_ctc-1.1b ~1.8% WER on LibriSpeech test-clean (external)"
+  config_complexity: "medium (decoder / timestamp / segment options)"
+  choose_when: "you need word timestamps. For a runnable end-to-end long-audio flow use the SplitASRAlignJoinStage composite (it emits the top-level `alignment`); for plain text use ASRStage with NeMoASRAdapter."
+  known_limitations: "heavier than plain transcription; needs 16 kHz input; standalone does NOT emit a top-level `alignment` key (see param_dependencies)"
+param_dependencies:
+  infer_segment_only: "aligns only the provided segments. NOTE: the raw stage writes alignment into split metadata, not a top-level 'alignment' key -- to feed MergeAlignmentDiarizationStage use SplitASRAlignJoinStage (split -> align -> join) so JoinSplitAudioMetadataStage emits the top-level 'alignment'."
+notes:
+  - "Designed to run INSIDE SplitASRAlignJoinStage (split -> align -> join); standalone it does NOT emit a top-level 'alignment' key that MergeAlignmentDiarizationStage requires."
+  - "decoder_type default 'rnnt' maps to the hybrid checkpoint's TDT head (its own default); switch to 'ctc' for CTC-style timestamps or shallow-fusion LM biasing. The measured VRAM above was taken with CTC decode."
+  - "If RNNT/TDT decode crashes with a CUDA-graph / NVRTC error (e.g. CUDA error 222), the usual cause is a GPU-driver vs CUDA-toolkit mismatch, not this stage -- run the `doctor` verb for the diagnosis and fix steps. Stage-level quick unblock: decoder_type='ctc' (this hybrid tdt_ctc checkpoint has a CTC head, so no CUDA graphs and no model change)."
+  - "max_len is defined but not enforced in the processing logic; min_len (default 1.0 s) is."
+  - "(external) nvidia/parakeet-tdt_ctc-1.1b: English, hybrid FastConformer TDT-CTC (~1.1B params), 16 kHz mono, punctuation + capitalization, word/char/segment timestamps, up to ~11 h per pass, CC-BY-4.0 (NVIDIA NeMo + Suno.ai)."
+verified: {params: mechanical, tags: best_guess, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt_ctc-1.1b", card_version: 4, last_validated: "2026-07-27"}

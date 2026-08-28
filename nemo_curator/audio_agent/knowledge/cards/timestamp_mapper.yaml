@@ -1,0 +1,27 @@
+stage_id: TimestampMapperStage
+category: export
+summary: "Normalize task data at the output boundary: build original_file/start/end/duration and copy passthrough keys."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; field normalization"
+use_cases:
+  good_for: ["producing a clean, consistent output-manifest schema before writing/extracting"]
+  avoid_for: ["mid-pipeline (place it near the output boundary)"]
+composition:
+  typical_upstream: [MergeAlignmentDiarizationStage, InferenceSortformerStage, UTMOSFilterStage]
+  typical_downstream: [SegmentExtractionStage, AudioToDocumentStage, ManifestWriterStage]
+params_of_note:
+  passthrough_keys: "extra input keys to copy through to the output (beyond the core fields)"
+  audio_filepath_key: "source audio path key"
+  diar_segments_key: "diarization segments key (used when present)"
+notes:
+  - "Core fields (original_file, original_start_ms, original_end_ms, duration_ms, duration) are always written; passthrough_keys controls what else is carried over."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

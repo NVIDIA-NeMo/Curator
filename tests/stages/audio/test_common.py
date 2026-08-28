@@ -13,9 +13,10 @@
 # limitations under the License.
 
 """Tests for common audio stages: GetAudioDurationStage, PreserveByValueStage,
-ManifestReaderStage, ManifestReader, and ManifestWriterStage."""
+ManifestReaderStage, ManifestReader, ManifestWriterStage, and ManifestCheckpointStage."""
 
 import json
+from itertools import product
 from pathlib import Path
 from unittest import mock
 
@@ -28,9 +29,11 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
+    ManifestCheckpointStage,
     ManifestReader,
     ManifestReaderStage,
     ManifestWriterStage,
+    PreserveByValueConditionsStage,
     PreserveByValueStage,
     ensure_mono,
     ensure_waveform_2d,
@@ -71,6 +74,7 @@ def test_preserve_by_value_process_raises_not_implemented() -> None:
 
 def test_preserve_by_value_process_batch_raises_on_missing_column() -> None:
     stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    assert stage.missing_value_policy == "error"
     with pytest.raises(ValueError, match="failed validation"):
         stage.process_batch([AudioTask(data={"text": "hello"})])
 
@@ -96,10 +100,343 @@ def test_preserve_by_value_lt() -> None:
 
 
 def test_preserve_by_value_ge() -> None:
-    stage = PreserveByValueStage(input_value_key="v", target_value=10, operator="ge")
+    stage = PreserveByValueStage(input_value_key="v", target_value=10.0, operator="ge")
     assert len(stage.process_batch([AudioTask(data={"v": 9})])) == 0
     assert len(stage.process_batch([AudioTask(data={"v": 10})])) == 1
     assert len(stage.process_batch([AudioTask(data={"v": 11})])) == 1
+
+
+def test_preserve_by_value_contract_accepts_float_targets_and_exposes_policy() -> None:
+    from nemo_curator.stages.audio._agent._agent_registry import stage_params
+
+    params = {param.name: param for param in stage_params(PreserveByValueStage)}
+
+    assert params["target_value"].type == "float | str"
+    assert params["missing_value_policy"].default == "error"
+    assert params["missing_value_policy"].choices == ["error", "drop"]
+
+
+def test_preserve_by_value_drop_policy_drops_only_missing_or_failing_rows() -> None:
+    stage = PreserveByValueStage(
+        input_value_key="score",
+        target_value=3.5,
+        operator="ge",
+        missing_value_policy="drop",
+    )
+    tasks = [
+        AudioTask(data={"id": "pass", "score": 4.0}),
+        AudioTask(data={"id": "fail", "score": 3.0}),
+        AudioTask(data={"id": "missing"}),
+    ]
+
+    assert [task.data["id"] for task in stage.process_batch(tasks)] == ["pass"]
+
+
+def test_compound_preserve_uses_and_semantics_and_drops_missing() -> None:
+    stage = PreserveByValueConditionsStage(
+        conditions=[
+            {"input_value_key": "noise", "target_value": 4.0, "operator": "ge"},
+            {"input_value_key": "ovrl", "target_value": 3.5, "operator": "ge"},
+        ],
+        missing_value_policy="drop",
+    )
+    tasks = [
+        AudioTask(data={"id": "pass", "noise": 4.1, "ovrl": 3.6}),
+        AudioTask(data={"id": "noise_fail", "noise": 3.9, "ovrl": 4.0}),
+        AudioTask(data={"id": "ovrl_fail", "noise": 4.5, "ovrl": 3.4}),
+        AudioTask(data={"id": "missing", "noise": 4.5}),
+    ]
+
+    assert [task.data["id"] for task in stage.process_batch(tasks)] == ["pass"]
+    assert stage.normalized_conditions == (
+        {"input_value_key": "noise", "target_value": 4.0, "operator": "ge"},
+        {"input_value_key": "ovrl", "target_value": 3.5, "operator": "ge"},
+    )
+
+
+@pytest.mark.parametrize("condition_count", [1, 2, 4])
+@pytest.mark.parametrize("condition_logic", ["and", "or"])
+def test_compound_preserve_top_level_truth_tables(
+    condition_count: int,
+    condition_logic: str,
+) -> None:
+    conditions = [
+        {"input_value_key": f"c{index}", "target_value": True, "operator": "eq"} for index in range(condition_count)
+    ]
+    combinations = list(product([False, True], repeat=condition_count))
+    tasks = [
+        AudioTask(
+            data={
+                "id": combination,
+                **{f"c{index}": value for index, value in enumerate(combination)},
+            }
+        )
+        for combination in combinations
+    ]
+    expected = [
+        combination
+        for combination in combinations
+        if (all(combination) if condition_logic == "and" else any(combination))
+    ]
+
+    result = PreserveByValueConditionsStage(
+        conditions,
+        condition_logic=condition_logic,
+    ).process_batch(tasks)
+
+    assert [task.data["id"] for task in result] == expected
+
+
+@pytest.mark.parametrize("condition_count", [1, 2, 4])
+@pytest.mark.parametrize("condition_logic", ["and", "or"])
+def test_compound_preserve_nested_truth_tables_with_arbitrary_items_key(
+    condition_count: int,
+    condition_logic: str,
+) -> None:
+    conditions = [
+        {"input_value_key": f"c{index}", "target_value": True, "operator": "eq"} for index in range(condition_count)
+    ]
+    combinations = list(product([False, True], repeat=condition_count))
+    children = [
+        {
+            "id": combination,
+            **{f"c{index}": value for index, value in enumerate(combination)},
+        }
+        for combination in combinations
+    ]
+    parent = AudioTask(data={"custom_children": children})
+    expected = [
+        combination
+        for combination in combinations
+        if (all(combination) if condition_logic == "and" else any(combination))
+    ]
+
+    result = PreserveByValueConditionsStage(
+        conditions,
+        items_key="custom_children",
+        condition_logic=condition_logic,
+        drop_parent_if_empty=False,
+    ).process_batch([parent])
+
+    assert result == [parent]
+    assert [child["id"] for child in parent.data["custom_children"]] == expected
+
+
+def test_compound_preserve_condition_logic_defaults_to_and_and_rejects_invalid() -> None:
+    conditions = [
+        {"input_value_key": "left", "target_value": True, "operator": "eq"},
+        {"input_value_key": "right", "target_value": True, "operator": "eq"},
+    ]
+    stage = PreserveByValueConditionsStage(conditions)
+
+    assert stage.condition_logic == "and"
+    assert stage.process_batch([AudioTask(data={"left": True, "right": False})]) == []
+    with pytest.raises(ValueError, match="condition_logic must be 'and' or 'or'"):
+        PreserveByValueConditionsStage(conditions, condition_logic="xor")
+
+
+@pytest.mark.parametrize("missing_value_policy", ["error", "drop"])
+def test_compound_preserve_or_never_skips_a_missing_top_level_condition(
+    missing_value_policy: str,
+) -> None:
+    stage = PreserveByValueConditionsStage(
+        [
+            {"input_value_key": "present", "target_value": True, "operator": "eq"},
+            {"input_value_key": "missing", "target_value": True, "operator": "eq"},
+        ],
+        missing_value_policy=missing_value_policy,
+        condition_logic="or",
+    )
+    task = AudioTask(data={"present": True})
+
+    if missing_value_policy == "error":
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([task])
+    else:
+        assert stage.process_batch([task]) == []
+
+
+@pytest.mark.parametrize("missing_value_policy", ["error", "drop"])
+def test_compound_preserve_or_never_skips_a_missing_nested_condition(
+    missing_value_policy: str,
+) -> None:
+    stage = PreserveByValueConditionsStage(
+        [
+            {"input_value_key": "present", "target_value": True, "operator": "eq"},
+            {"input_value_key": "missing", "target_value": True, "operator": "eq"},
+        ],
+        items_key="children",
+        missing_value_policy=missing_value_policy,
+        condition_logic="or",
+    )
+    parent = AudioTask(data={"children": [{"present": True}]})
+
+    if missing_value_policy == "error":
+        with pytest.raises(ValueError, match="missing condition key 'missing'"):
+            stage.process_batch([parent])
+    else:
+        assert stage.process_batch([parent]) == []
+        assert parent.data["children"] == []
+
+
+def test_compound_preserve_mapping_form_and_default_missing_error() -> None:
+    stage = PreserveByValueConditionsStage(
+        conditions={
+            "noise": {"target_value": 4.0, "operator": "ge"},
+            "kind": "speech",
+        }
+    )
+
+    assert stage.process_batch([AudioTask(data={"noise": 4.2, "kind": "speech"})])
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"noise": 4.2})])
+
+
+def test_compound_preserve_filters_arbitrary_one_level_items_key_by_reference() -> None:
+    passing = {"id": "pass", "quality": 4.2, "metadata": {"speaker": "a"}}
+    failing = {"id": "fail", "quality": 2.0, "metadata": {"speaker": "b"}}
+    parent = AudioTask(data={"recording": "r1", "clips": [passing, failing]})
+    stage = PreserveByValueConditionsStage(
+        [{"input_value_key": "quality", "target_value": 3.5, "operator": "ge"}],
+        items_key="clips",
+    )
+
+    result = stage.process_batch([parent])
+
+    assert result == [parent]
+    assert parent.data["recording"] == "r1"
+    assert parent.data["clips"] == [passing]
+    assert parent.data["clips"][0] is passing
+    assert parent.data["clips"][0]["metadata"] is passing["metadata"]
+
+
+@pytest.mark.parametrize("condition_logic", ["and", "or"])
+@pytest.mark.parametrize(
+    ("drop_parent_if_empty", "expected_count"),
+    [(True, 0), (False, 1)],
+)
+def test_compound_preserve_nested_empty_parent_policy(
+    drop_parent_if_empty: bool,
+    expected_count: int,
+    condition_logic: str,
+) -> None:
+    parent = AudioTask(data={"windows": [{"score": 1.0}]})
+    stage = PreserveByValueConditionsStage(
+        [{"input_value_key": "score", "target_value": 2.0, "operator": "ge"}],
+        items_key="windows",
+        drop_parent_if_empty=drop_parent_if_empty,
+        condition_logic=condition_logic,
+    )
+
+    result = stage.process_batch([parent])
+
+    assert len(result) == expected_count
+    assert parent.data["windows"] == []
+
+
+@pytest.mark.parametrize("condition_logic", ["and", "or"])
+@pytest.mark.parametrize(
+    ("data", "error_type", "message"),
+    [
+        ({"clips": {}}, TypeError, "must contain a list"),
+        ({"clips": [{"score": 4.0}, "not-a-mapping"]}, TypeError, "child 1 must be mapping-like"),
+    ],
+)
+def test_compound_preserve_rejects_malformed_nested_structure_without_mutation(
+    data: dict,
+    error_type: type[Exception],
+    message: str,
+    condition_logic: str,
+) -> None:
+    original_items = data.get("clips")
+    stage = PreserveByValueConditionsStage(
+        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
+        items_key="clips",
+        missing_value_policy="drop",
+        condition_logic=condition_logic,
+    )
+
+    with pytest.raises(error_type, match=message):
+        stage.process_batch([AudioTask(data=data)])
+
+    assert data.get("clips") is original_items
+
+
+@pytest.mark.parametrize("missing_value_policy", ["error", "drop"])
+@pytest.mark.parametrize("condition_logic", ["and", "or"])
+def test_compound_preserve_missing_nested_container_is_always_structural_error(
+    missing_value_policy: str,
+    condition_logic: str,
+) -> None:
+    stage = PreserveByValueConditionsStage(
+        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
+        items_key="clips",
+        missing_value_policy=missing_value_policy,
+        condition_logic=condition_logic,
+    )
+
+    with pytest.raises(ValueError, match="missing nested items_key 'clips'"):
+        stage.process_batch([AudioTask(data={"other": []})])
+
+
+def test_compound_preserve_nested_missing_condition_key_error_vs_drop() -> None:
+    condition = [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}]
+    missing = {"id": "missing", "nested": {"score": 5.0}}
+    passing = {"id": "pass", "score": 4.0}
+
+    with pytest.raises(ValueError, match="child 0 is missing condition key 'score'"):
+        PreserveByValueConditionsStage(
+            condition,
+            items_key="candidates",
+        ).process_batch([AudioTask(data={"candidates": [missing, passing]})])
+
+    parent = AudioTask(data={"candidates": [missing, passing]})
+    result = PreserveByValueConditionsStage(
+        condition,
+        items_key="candidates",
+        missing_value_policy="drop",
+    ).process_batch([parent])
+    assert result == [parent]
+    assert parent.data["candidates"] == [passing]
+
+
+def test_compound_preserve_nested_contract_uses_only_top_level_container_key() -> None:
+    from nemo_curator.stages.audio._agent._agent_registry import stage_params
+
+    stage = PreserveByValueConditionsStage(
+        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
+        items_key="candidates",
+        drop_parent_if_empty=False,
+    )
+    contract = stage.describe()
+    params = {param.name: param for param in stage_params(PreserveByValueConditionsStage)}
+
+    assert contract.reads.data_keys == ["candidates"]
+    assert contract.writes.data_keys == ["candidates"]
+    assert contract.reads.segment_data_keys == []
+    assert contract.writes.segment_data_keys == []
+    assert contract.iteration_key == "candidates"
+    assert contract.cardinality == "1:1 nested-list"
+    assert contract.gates.per_row_independent is True
+    assert params["items_key"].default is None
+    assert params["drop_parent_if_empty"].default is True
+    assert params["condition_logic"].default == "and"
+    assert params["condition_logic"].choices == ["and", "or"]
+
+    dropping_contract = PreserveByValueConditionsStage(
+        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
+        items_key="candidates",
+    ).describe()
+    assert dropping_contract.cardinality == "filter"
+    assert dropping_contract.iteration_key is None
+    assert "one-level" in dropping_contract.description
+    assert "AND" in dropping_contract.description
+
+    or_contract = PreserveByValueConditionsStage(
+        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
+        condition_logic="or",
+    ).describe()
+    assert "OR" in or_contract.description
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +484,43 @@ def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
         entry = AudioTask(data={"audio_filepath": (tmp_path / "missing.wav").as_posix()})
         result = stage.process(entry)
         assert result.data["duration"] == -1.0
+
+
+def test_get_audio_duration_waveform_residency() -> None:
+    """input_residency='waveform' computes duration from samples/sample_rate (no file)."""
+    import torch
+
+    stage = GetAudioDurationStage(input_residency="waveform")
+    stage.setup()
+    result = stage.process(AudioTask(data={"waveform": torch.zeros(1, 16000 * 3), "sample_rate": 16000}))
+    assert result.data["duration"] == 3.0
+
+
+def test_get_audio_duration_auto_prefers_waveform() -> None:
+    import torch
+
+    stage = GetAudioDurationStage(input_residency="auto")
+    stage.setup()
+    result = stage.process(AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": 16000}))
+    assert result.data["duration"] == 1.0
+
+
+def test_get_audio_duration_default_rejects_waveform_only() -> None:
+    """Regression: default residency is 'file'; a waveform-only task is not valid input."""
+    import torch
+
+    stage = GetAudioDurationStage()
+    assert stage.input_residency == "file"
+    assert stage.validate_input(AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": 16000})) is False
+    assert stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav"})) is True
+
+
+def test_get_audio_duration_waveform_validate() -> None:
+    import torch
+
+    stage = GetAudioDurationStage(input_residency="waveform")
+    assert stage.validate_input(AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": 16000})) is True
+    assert stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav"})) is False
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +863,129 @@ class TestManifestWriterStage:
         assert writer.xenna_stage_spec() == {}
 
 
+class TestManifestCheckpointStage:
+    """Focused unit tests for the reusable metadata checkpoint."""
+
+    def test_setup_atomically_refuses_to_overwrite_existing_checkpoint(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        out.write_bytes(b"retained artifact\n")
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+
+        with pytest.raises(FileExistsError, match="refuses to overwrite"):
+            checkpoint.setup()
+
+        assert out.read_bytes() == b"retained artifact\n"
+        assert not Path(f"{out}._RETRY_OWNER").exists()
+
+    def test_setup_refuses_stale_completion_marker_without_leaving_output(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        Path(f"{out}._COMPLETE").write_text("stale", encoding="utf-8")
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+
+        with pytest.raises(FileExistsError, match="completion marker"):
+            checkpoint.setup()
+
+        assert not out.exists()
+
+    def test_retry_reset_removes_only_owned_partial_and_reserves_cleanly(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+        checkpoint.setup()
+        checkpoint.process(AudioTask(data={"attempt": 1}))
+
+        checkpoint.reset_for_retry()
+
+        assert not out.exists()
+        assert checkpoint._checkpoint_rows_written == 0
+        assert checkpoint._checkpoint_bytes_written == 0
+        checkpoint.setup()
+        checkpoint.process(AudioTask(data={"attempt": 2}))
+        assert out.read_text(encoding="utf-8") == '{"attempt": 2}\n'
+
+    def test_retry_reset_refuses_completed_checkpoint(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+        checkpoint.setup()
+        checkpoint.process(AudioTask(data={"retained": True}))
+        before = out.read_bytes()
+        Path(f"{out}._COMPLETE").write_text("complete", encoding="utf-8")
+
+        with pytest.raises(FileExistsError, match="completion marker"):
+            checkpoint.reset_for_retry()
+
+        assert out.read_bytes() == before
+
+    def test_retry_reset_refuses_preexisting_unowned_checkpoint(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        out.write_text("user file\n", encoding="utf-8")
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+
+        with pytest.raises(FileExistsError, match="did not reserve"):
+            checkpoint.reset_for_retry()
+
+        assert out.read_text(encoding="utf-8") == "user file\n"
+
+    def test_retry_reset_refuses_replaced_reservation(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+        checkpoint.setup()
+        out.unlink()
+        out.write_text("replacement\n", encoding="utf-8")
+
+        with pytest.raises(FileExistsError, match="no longer its exact reservation"):
+            checkpoint.reset_for_retry()
+
+        assert out.read_text(encoding="utf-8") == "replacement\n"
+
+    def test_configured_contract_is_audio_pass_through_with_checkpoint_gates(self, tmp_path: Path) -> None:
+        from nemo_curator.stages.audio._agent._agent_registry import build_contract
+
+        checkpoint = ManifestCheckpointStage(output_path=str(tmp_path / "checkpoint.jsonl"))
+        contract = build_contract(checkpoint)
+        params = {parameter.name: parameter for parameter in contract.params}
+
+        assert checkpoint.name == "manifest_checkpoint"
+        assert checkpoint.name != ManifestWriterStage(output_path=str(tmp_path / "manifest.jsonl")).name
+        assert checkpoint.num_workers() == 1
+        assert contract.accepts_task_type == "AudioTask"
+        assert contract.produces_task_type == "AudioTask"
+        assert contract.gates.writes_to_disk is True
+        assert contract.gates.output_path_params == ["output_path"]
+        assert contract.gates.requires_serializable_input is True
+        assert contract.gates.per_row_independent is True
+        assert contract.gates.lifecycle_side_effects is True
+        assert params["output_path"].required is True
+        assert "max_bytes" not in params
+        assert params["retention_sec"].default == 0
+        assert params["owner"].choices == ["user", "project"]
+        assert params["planning_provenance"].default is None
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"retention_sec": -1}, "retention_sec"),
+            ({"owner": "nobody"}, "owner"),
+            ({"output_path": "s3://bucket/checkpoint.jsonl"}, "plain local path"),
+            ({"output_path": "file:///tmp/checkpoint.jsonl"}, "plain local path"),
+        ],
+    )
+    def test_rejects_invalid_checkpoint_policy(
+        self,
+        tmp_path: Path,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        params = {"output_path": str(tmp_path / "checkpoint.jsonl"), **kwargs}
+        with pytest.raises(ValueError, match=message):
+            ManifestCheckpointStage(**params)
+
+
 class TestManifestWriterRoundTrip:
     """Round-trip test: write with writer, read back and verify."""
 
@@ -563,3 +1060,21 @@ def test_resolve_model_path(tmp_path: Path) -> None:
     (module_dir / "model.bin").write_bytes(b"\x00")
     result = resolve_model_path("model.bin", str(tmp_path / "ref.py"), "sub")
     assert result == str(module_dir / "model.bin")
+
+
+# Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: ManifestWriterStage
+# lives in common.py, and this was its only truncate-on-rerun coverage.
+def test_agent_manifest_writer_truncates_on_setup(tmp_path: Path) -> None:
+    """A fresh run (setup) truncates the output so reruns do not accumulate duplicates."""
+    out_path = tmp_path / "manifest.jsonl"
+    writer = ManifestWriterStage(output_path=str(out_path))
+    task = AudioTask(dataset_name="t", data={"audio_filepath": "src.wav", "text": "row"})
+
+    writer.setup()
+    writer.process(task)
+    writer.process(task)
+    assert len(out_path.read_text(encoding="utf-8").strip().splitlines()) == 2  # appends within a run
+
+    writer.setup()  # new run truncates
+    writer.process(task)
+    assert len(out_path.read_text(encoding="utf-8").strip().splitlines()) == 1

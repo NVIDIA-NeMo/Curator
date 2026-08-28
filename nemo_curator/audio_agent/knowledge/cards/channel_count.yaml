@@ -1,0 +1,70 @@
+stage_id: ChannelCountStage
+category: preprocess
+summary: "Record the channel count, select rows by it, or convert to it -- one action per instance. action='annotate' (default) records num_channels and keeps every row; action='filter' also drops rows whose count is not allowed; action='convert' brings the audio to target_channels. It never resamples."
+# is_filter because action='filter' drops rows and action='convert' with target_channels > 1
+# refuses the conversions it cannot do correctly. The DEFAULT action does neither, so the tag is
+# broader than the default contract's cardinality -- the same pairing OverlapFilterStage uses.
+# Read `action` to know which behaviour you configured; cardinality_options names both.
+tags: [is_filter]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU. annotate/filter are header-only (soundfile.info), never decoding; convert decodes and runs torch mean/repeat over the waveform"
+use_cases:
+  good_for:
+    - "recording how many channels each file has, for reporting, with no row dropped (action='annotate')"
+    - "keeping only the rows that already have the channel count you need, without rewriting audio (action='filter')"
+    - "normalizing stereo/multi-channel input to mono before models (action='convert')"
+    - "pairing with SampleRateFilterStage when rate policy and channel policy should be set separately"
+  avoid_for:
+    - "changing the sample rate -- this stage never resamples; use ResampleAudioStage"
+    - "downmixing surround to stereo (action='convert' with target_channels > 1 from more channels is REFUSED; ffmpeg via ResampleAudioStage knows channel layouts)"
+    - "doing both at once -- selecting and converting are separate actions, and passing the other action's parameters is refused at construction rather than ignored"
+composition:
+  typical_upstream: [ManifestReader, SampleRateFilterStage, ResampleAudioStage, CreateInitialManifestReadSpeechStage]
+  typical_downstream: [VADSegmentationStage, BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage]
+params_of_note:
+  action: "'annotate' (default) records num_channels and keeps every row -- use it FIRST to see what the corpus actually holds. 'filter' additionally drops rows whose count is not allowed. 'convert' rewrites the audio to target_channels. Parameters belonging to another action raise at construction."
+  allowed_channels: "counts to keep, e.g. [1] for mono only (action='filter'). None (default) = no constraint from this parameter."
+  min_channels: "lowest acceptable count, inclusive (action='filter'). None (default) = unbounded below."
+  max_channels: "highest acceptable count, inclusive (action='filter'). None (default) = unbounded above."
+  target_channels: "channel count to produce (action='convert'); None means 1 = mono. N->1 averages every channel. 1->T duplicates the mono channel T times. N->T where N > T > 1 is REFUSED (the row is dropped) because a correct surround downmix needs the file's channel layout, which a waveform tensor does not carry."
+  keep_waveform_in_task: "keep the converted waveform in the task for the next stage (action='convert'; default True; in-memory, no disk)."
+  write_to_disk: "OPT-IN (default False): also write the converted WAV to disk (action='convert'; pair with output_dir). Off by default -- that is why this card is not tagged writes_disk."
+  input_residency: "which input to trust: 'auto' (default) reads a resident waveform when there is one and the file header otherwise; 'file' always reads the header; 'waveform' never touches disk."
+semantic_facts:
+  action:
+    meaning: "Which of the three things this instance does about the channel count: record it, select on it, or change it."
+    propagation: "'annotate' keeps every row (cardinality 1:1). 'filter' drops the rows that fail the configured counts (cardinality filter). 'convert' keeps every row it can convert correctly, and drops only those whose requested conversion is refused."
+    counterexamples:
+      - "action='convert' with target_channels=1 does NOT drop non-mono rows -- it converts them. To keep only rows that are already mono, use action='filter' with allowed_channels=[1]."
+      - "action='filter' with allowed_channels=[1] does NOT make anything mono -- it discards whatever is not. Choosing wrongly between the two either destroys most of a stereo corpus or silently leaves it unconverted."
+      - "Passing another action's parameters raises at construction; it is never silently ignored."
+  num_channels:
+    meaning: "The row's channel count -- OBSERVED under annotate/filter, RESULTING under convert."
+    unit: "channels (integer >= 1)"
+    provenance: "annotate/filter read it from a resident waveform's shape when the pipeline is carrying audio, else from the file header; an existing num_channels column standing alone is manifest metadata and is re-read rather than believed. convert writes the count it produced."
+    scope: "One row / one audio file."
+    propagation: "Overwrites any existing value, so a stale manifest column is corrected rather than trusted."
+    counterexamples:
+      - "The meaning flips with the action: after action='filter' this is a measurement of the source, after action='convert' it is the target that was applied. sample_rate carries the identical trap between SampleRateFilterStage and ResampleAudioStage -- reading a final value without knowing which stage last wrote it inverts its meaning."
+      - "Not a promise the corpus is uniform: with a range or a multi-value allowed_channels the survivors can still hold several different counts."
+  target_channels:
+    meaning: "The channel count action='convert' produces. Not a rate, and not a selection criterion."
+    unit: "channels (integer >= 1)"
+    propagation: "Writes num_channels (the resulting count). Duplicating mono into T channels adds no information: the result is the same signal T times."
+    counterexamples:
+      - "target_channels=2 does NOT downmix 5.1 to stereo -- that row is dropped with a warning. Use ResampleAudioStage, which drives ffmpeg and knows channel layouts."
+      - "This stage never resamples. Pair it with SampleRateFilterStage (select rates) or ResampleAudioStage (convert rates)."
+      - "Upmix is duplication, so a 2-channel result may be synthetic stereo rather than a genuine two-channel recording."
+comparison:
+  SampleRateFilterStage: "the rate-side counterpart: records every row's sample rate and keeps the acceptable ones, header-only. Pairs with this stage when both policies matter."
+  ResampleAudioStage: "converts rate and channels via ffmpeg on disk, and knows channel layouts. Use it to change a sample rate, or for a surround downmix action='convert' refuses."
+  MonoConversionStage: "an alternative that applies a mono downmix and a single-rate gate together. Use this stage instead when channel policy and rate policy should be set independently."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-08-17"}

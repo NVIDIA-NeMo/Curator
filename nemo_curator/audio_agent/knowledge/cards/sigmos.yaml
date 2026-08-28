@@ -1,0 +1,199 @@
+stage_id: SIGMOSFilterStage
+category: quality
+summary: "SIGMOS (ITU-T P.804) neural MOS across 7 quality dimensions; filter/annotate."
+tags: [produces_score, is_filter, needs_internet_first_run]
+model_id: "microsoft SIGMOS (ONNX, P.804)"
+# The spec the checkpoint implements, not a release: microsoft/SIG-Challenge publishes the ONNX
+# without a versioned tag. Kept because it is the most specific true thing available, and tiered
+# ``best_guess`` in ``verified`` so a reader knows not to treat it as a pin.
+model_version: "P.804-ONNX"
+domain: {language: any, style: speech}
+constraints: {}   # no supported_sample_rates constraint: any input rate is accepted and resampled internally to 48 kHz for inference, so no upstream ResampleAudioStage is required
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.5   # measured on RTX 4090 via nvidia-smi delta (~0.46 GB, ONNX Runtime CUDA)
+  gpu_optional: true
+  bound: gpu
+  throughput_hint: "ONNX; uses GPU if available, CPU fallback"
+use_cases:
+  good_for:
+    - "fine-grained quality gating on a SPECIFIC degradation (noise, reverb, discontinuity, loudness, coloration)"
+    - "TTS data curation"
+    - "keeping clips acceptable on one axis while rejecting another (e.g. keep slightly-reverberant but reject noisy)"
+  avoid_for:
+    - "non-speech audio"
+    - "when a single overall 'good enough' bar is sufficient -- use UTMOSFilterStage (cheaper)"
+composition:
+  typical_upstream: [MonoConversionStage, VADSegmentationStage, UTMOSFilterStage]
+  typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
+params_of_note:
+  noise_threshold: "Min NOISE score to keep (0-5, higher = quieter background). Calibrated: >=4.0 effectively no audible noise; 3.0-4.0 slight noise; <3.0 noise becomes clearly observable. Default 4.0."
+  ovrl_threshold: "Min OVRL (overall aggregate) score to keep (0-5). Best single general-purpose gate (like UTMOS but a different scale). Calibrated: >=3.5 good quality. Default 3.5."
+  sig_threshold: "Optional min SIG (broad speech-signal fidelity, 0-5). Non-specific catch-all; best dimension for packet-loss/dropouts (with OVRL) since DISC misses them. Bands: >=3.7 high fidelity, 2.6-3.2 moderate, <2.6 heavy. Default None (calibrate to your clean set)."
+  col_threshold: "Optional min COL (coloration/bandwidth, 0-5): muffled / tinny / telephone / narrowband / low-bitrate codec / heavy EQ. Bands: >=3.8 full-band, 2.7-3.2 telephone/narrowband, <2.0 extreme. Do NOT gate for intentionally-narrowband (telephony) sources. Default None (calibrate)."
+  disc_threshold: "Optional min DISC (discontinuity, 0-5). WEAK dimension: only catches quantization/bit-crush + impulsive noise. Does NOT detect packet loss / dropouts / gaps / clicks (those keep DISC ~4.0) -- use SIG/OVRL for those. Default None (supplementary only)."
+  loud_threshold: "Optional min LOUD (level, 0-5). NOT volume-robust -- loudness-normalize BEFORE scoring or it reports gain, not quality. Inverted-U (too-loud AND too-quiet both score low; optimum ~-6..-12 dB). Default None (calibrate; or handle level separately)."
+  reverb_threshold: "Optional min REVERB (reverberation, 0-5, higher = drier): room / echo / far-field mic. Bands: >=4.3 dry, 2.8-3.5 small room, <2.8 roomy. Non-monotonic at RT60 >= ~1.6 s (reads back UP; confirm heavy reverb with low OVRL). Default None (calibrate)."
+  action: "'annotate' keeps every clip and writes all 7 scores -- use this FIRST to audit the distributions, then choose thresholds. 'filter' drops any clip that fails an active (non-None) threshold. Default 'filter'."
+  mode: "'task' (score the whole file), 'segments' (score each nested segment), or 'auto' (segments if a segments list is present, else task)."
+metrics:
+  sigmos_ovrl:                                  # overall aggregate MOS; the primary general-purpose gate
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: ovrl_threshold
+    anchors:
+      "3.5-5.0": studio                         # keep >=3.5 -> good overall quality
+      "3.0-3.5": general                        # keep >=3.0 -> acceptable overall quality
+    quality_bands:                              # calibrated (best_guess)
+      "3.5-5.0": "good overall quality"
+      "3.0-3.5": "acceptable overall quality"
+      "0.0-3.0": "degraded overall quality"
+    valid_range: [0.0, 5.0]
+  sigmos_noise:                                 # noise dimension (higher = quieter / cleaner)
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: noise_threshold
+    anchors:
+      "4.0-5.0": very_low_noise                 # keep >=4.0 -> effectively no audible noise
+      "3.0-4.0": slight_noise_ok                # keep >=3.0 -> at most slight noise
+    quality_bands:                              # calibrated (best_guess)
+      "4.0-5.0": "no audible background noise"
+      "3.0-4.0": "slight background noise"
+      "0.0-3.0": "observable background noise"
+    valid_range: [0.0, 5.0]
+  # The five dimensions below now carry quality_bands (VALUE INTERPRETATION) from the SIGMOS
+  # sensitivity study (report/SIGMOS_Study_Report.md: 254 augmented clips, 3 clean baselines).
+  # Their keep/drop *_threshold still defaults to None (disabled): SIGMOS is RELATIVE, so
+  # calibrate a bar to your clean corpus (clean 10th percentile) rather than hard-coding one.
+  # See presets/notes for per-use-case starting points.
+  sigmos_sig:                                   # broad foreground-speech fidelity (non-specific; corroborate, don't diagnose)
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: sig_threshold
+    quality_bands:
+      "3.7-5.0": "high-fidelity foreground speech (clean ceiling ~3.9-4.3)"
+      "3.2-3.7": "mild degradation"
+      "2.6-3.2": "moderate but intelligible (e.g. packet loss ~10%)"
+      "0.0-2.6": "heavy degradation (e.g. packet loss ~20%)"
+    valid_range: [0.0, 5.0]
+  sigmos_col:                                   # coloration/bandwidth: muffled, tinny, telephone, low-bitrate codec, heavy EQ
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: col_threshold
+    quality_bands:
+      "3.8-5.0": "full-band, natural timbre (clean ~4.1-4.3)"
+      "3.2-3.8": "mild coloration / gentle HF roll-off (LPF ~6-8 kHz)"
+      "2.7-3.2": "band-limited / telephone / narrowband codec (GSM ~2.6)"
+      "2.0-2.7": "heavily muffled (LPF <~1 kHz)"
+      "0.0-2.0": "extreme coloration"
+    valid_range: [0.0, 5.0]
+  sigmos_disc:                                  # WEAK/NARROW: quantization + impulsive noise only; NOT dropouts/packet-loss/clicks
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: disc_threshold
+    quality_bands:
+      "3.8-5.0": "no quantization/impulsive irregularity (clean ~4.1-4.7)"
+      "3.0-3.8": "some quantization / impulsive content (8-bit ~3.2)"
+      "0.0-3.0": "strong bit-crush or heavy non-stationary noise (6-bit ~2.8)"
+    valid_range: [0.0, 5.0]
+  sigmos_loud:                                  # absolute LEVEL (NOT volume-robust): score AFTER loudness normalization
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: loud_threshold
+    quality_bands:
+      "4.0-5.0": "comfortable level (optimum ~-6..-12 dB)"
+      "3.2-4.0": "slightly hot or low (+6 dB ~3.4)"
+      "2.5-3.2": "noticeably too loud/quiet (+12 dB ~3.0)"
+      "0.0-2.5": "clipping-hot or near-inaudible (+20 dB ~1.8; -40 dB ~1.4)"
+    valid_range: [0.0, 5.0]
+  sigmos_reverb:                                # room reverberation / reflections / distance (RT60 ~0.2-1.2 s)
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: reverb_threshold
+    quality_bands:
+      "4.3-5.0": "dry / close-mic'd (clean ~4.8-5.0)"
+      "3.5-4.3": "slight room ambience (RT60 <~0.2 s)"
+      "2.8-3.5": "moderate small room (RT60 ~0.2-0.4 s)"
+      "2.0-2.8": "strong / roomy (RT60 ~0.4-1.2 s)"
+      "0.0-2.0": "very reverberant (also check NOISE/OVRL)"
+    valid_range: [0.0, 5.0]
+decision:
+  kind: compound
+  separable_from_producer: true
+  value_type: number
+  scope: task
+  producer_constraints: {action: annotate, mode: task}
+  dimensions:
+    - {threshold_param: noise_threshold, score_key_param: noise_key, score_key_default: sigmos_noise}
+    - {threshold_param: ovrl_threshold, score_key_param: ovrl_key, score_key_default: sigmos_ovrl}
+    - {threshold_param: sig_threshold, score_key_param: sig_key, score_key_default: sigmos_sig}
+    - {threshold_param: col_threshold, score_key_param: col_key, score_key_default: sigmos_col}
+    - {threshold_param: disc_threshold, score_key_param: disc_key, score_key_default: sigmos_disc}
+    - {threshold_param: loud_threshold, score_key_param: loud_key, score_key_default: sigmos_loud}
+    - {threshold_param: reverb_threshold, score_key_param: reverb_key, score_key_default: sigmos_reverb}
+  selector:
+    stage_id: PreserveByValueConditionsStage
+    conditions_param: conditions
+    condition_logic_param: condition_logic
+    required_condition_logic: and
+    missing_policy_param: missing_value_policy
+    required_missing_policy: drop
+    required_operator: ge
+  missing_score_policy: selector_drop
+  monotonic_direction: higher_better
+  atomic: true
+  variants:
+    - kind: compound
+      separable_from_producer: true
+      value_type: number
+      scope: segments
+      producer_constraints: {action: annotate, mode: segments}
+      dimensions:
+        - {threshold_param: noise_threshold, score_key_param: noise_key, score_key_default: sigmos_noise}
+        - {threshold_param: ovrl_threshold, score_key_param: ovrl_key, score_key_default: sigmos_ovrl}
+        - {threshold_param: sig_threshold, score_key_param: sig_key, score_key_default: sigmos_sig}
+        - {threshold_param: col_threshold, score_key_param: col_key, score_key_default: sigmos_col}
+        - {threshold_param: disc_threshold, score_key_param: disc_key, score_key_default: sigmos_disc}
+        - {threshold_param: loud_threshold, score_key_param: loud_key, score_key_default: sigmos_loud}
+        - {threshold_param: reverb_threshold, score_key_param: reverb_key, score_key_default: sigmos_reverb}
+      selector:
+        stage_id: PreserveByValueConditionsStage
+        conditions_param: conditions
+        condition_logic_param: condition_logic
+        required_condition_logic: and
+        missing_policy_param: missing_value_policy
+        required_missing_policy: drop
+        required_operator: ge
+        items_key_param: items_key
+        items_key_source_param: segments_key
+        empty_policy_param: drop_parent_if_empty
+        required_empty_policy: true
+      missing_score_policy: selector_drop
+      monotonic_direction: higher_better
+      atomic: true
+presets:
+  # Starting points from the sensitivity study (report/SIGMOS_Study_Report.md) -- CALIBRATE to your corpus.
+  studio_tts: {ovrl_threshold: 3.2, noise_threshold: 4.2, reverb_threshold: 4.3, col_threshold: 3.8, sig_threshold: 3.7, loud_threshold: 3.5}  # pristine: full-band, dry, close-mic'd, quiet
+  asr_robust: {ovrl_threshold: 2.5, noise_threshold: 3.0, reverb_threshold: 3.0, col_threshold: 3.0}                                            # tolerate realistic degradation, keep intelligible
+  general: {ovrl_threshold: 3.0, noise_threshold: 3.5}                                                                                          # drop the clearly-bad, few false rejects
+  telephony_qa: {ovrl_threshold: 2.7, noise_threshold: 3.5, sig_threshold: 3.0}                                                                 # narrowband EXPECTED: do NOT gate on COL
+  low_noise: {noise_threshold: 4.0}                                                                                                             # reject noisy clips only (noise axis alone)
+comparison:
+  language_support: "language-agnostic (acoustic P.804 quality; speech only)"
+  accuracy_hint: "7-dimension P.804 MOS; finer-grained than UTMOS's single score"
+  latency_hint: "heavier than UTMOS / BandFilter"
+  config_complexity: "medium-high (up to 7 per-dimension thresholds)"
+  known_limitations: "speech-only; empirically the most aggressive filter (drops the most rows), especially with the default noise AND ovrl gate"
+  choose_when: "you need to accept/reject on a SPECIFIC degradation axis (e.g. keep slightly-reverberant but reject noisy). For a single overall bar use UTMOSFilterStage; for objective PESQ/STOI/SI-SDR use TorchSquimQualityMetricsStage."
+notes:
+  - "Sample rate: accepts any input rate and resamples internally to 48 kHz for inference; no upstream ResampleAudioStage is required (unlike the ASR/diarization stages, which do require 16 kHz input)."
+  - "Dimensions (all 0-5, higher = better): noise (quieter background), ovrl (aggregate quality), sig (signal cleanliness), col (spectral coloration / EQ artifacts), disc (glitches/dropouts/clicks), loud (loudness consistency), reverb (drier = higher)."
+  - "All 7 dimensions now carry quality_bands (value interpretation) from the sensitivity study; keep/drop thresholds default to None for sig/col/disc/loud/reverb -- SIGMOS is RELATIVE, so calibrate them to your corpus rather than hard-coding."
+  - "GOLDEN RULE -- calibrate, don't hard-code. Clean real speech does NOT reach 5.0 (observed clean ceilings: OVRL 3.34-3.95, SIG 3.88-4.31, NOISE 4.32-4.52, REVERB 4.78-4.97, COL 4.06-4.28, LOUD 3.73-4.77, DISC 4.10-4.67). ovrl_threshold=3.5 OVERLAPS clean speech and rejects good clips -- set each threshold at your clean set's 10th percentile (annotate first)."
+  - "WHICH SCORE FOR WHICH PROBLEM: background noise/hiss/SNR -> NOISE (+ OVRL/SIG); room reverb/far-field -> REVERB (+ OVRL); muffled/tinny/band-limited/telephone/low-bitrate codec -> COL (+ OVRL); level too hot/quiet -> LOUD (normalize first); clipping/saturation/distortion -> SIG+COL+OVRL together; packet loss/dropouts/glitches/clicks -> SIG+OVRL (NOT DISC); quantization/bit-crush -> NOISE+DISC; single keep/drop -> OVRL."
+  - "BLIND SPOTS: NOISE is frequency-weighted and BLIND to low-frequency rumble/HVAC/traffic and tonal mains hum (they stay >=4.0 even at 0 dB SNR -- add an external <300 Hz band-energy/flatness check if those matter) and floors by ~20 dB SNR. DISC does NOT catch packet loss/dropouts/gaps/clicks. LOUD reports absolute level. REVERB is non-monotonic beyond RT60 ~1.6 s."
+  - "SENSITIVITY rank (mean|delta| over 27 degradation families): NOISE 0.91 (most dynamic) > LOUD 0.79 > OVRL 0.72 > COL 0.68 > REVERB 0.61 ~ SIG 0.61 > DISC 0.33 (least reliable)."
+  - "ROBUST COMBINE: primary gate on OVRL (calibrated), then VETO on specific dimensions -- keep = OVRL>=t AND NOISE>=t AND REVERB>=t AND COL>=t -- so one severe single-axis problem can't hide behind an okay average (the dimensions are largely independent). Per-use-case starting points: see presets."
+  - "Evidence: full study at ADV/sigmos_analysis/report/SIGMOS_Study_Report.md + SIGMOS_capability_card.md; machine-readable bands/thresholds at results/sigmos_thresholds.json (254 augmented clips, 3 clean baselines, 27 degradation families)."
+  - "For a scorable item, writes all 7 finite scores regardless of which thresholds are active, so you can annotate first and post-filter. If any model dimension is NaN/Inf, filter mode drops the item and annotate mode retains it without writing any of the 7 scores; a missing=drop selector is therefore exactly equivalent."
+  - "Default enables BOTH noise>=4.0 AND ovrl>=3.5 (very aggressive -- clips must pass every active threshold). To gate on ONE axis, set only that threshold and leave the others None."
+  - "Workflow: run action='annotate' to inspect the 7 score distributions on YOUR data, then choose per-dimension thresholds and re-run action='filter'."
+  - "Reusable decision separation is proven for explicit action='annotate' task or segment mode. Both exact forms require PreserveByValueConditionsStage condition_logic='and' and every enabled threshold with ge semantics. Segment mode additionally requires items_key=segments_key, missing_value_policy='drop', and drop_parent_if_empty=true. Generic OR remains valid outside this native-filter equivalence; mode='auto' remains native because its scope is data-dependent."
+  - "Empirically the most aggressive quality filter -- place last in a cheap->expensive filter chain, or first for maximum early cull."
+caveats:
+  - "Downloads the ONNX model on first run (needs network once)."
+verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: best_guess, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: measured, decision: mechanical}
+provenance: {model_card_url: "https://github.com/microsoft/SIG-Challenge", card_version: 7, last_validated: "2026-08-19"}
