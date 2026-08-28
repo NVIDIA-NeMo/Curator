@@ -14,6 +14,8 @@
 
 """Tests for the pure-numpy SED postprocessing helpers."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -190,6 +192,12 @@ def test_median_smoothing_removes_an_isolated_spike() -> None:
 def test_median_smoothing_preserves_a_genuine_event() -> None:
     pytest.importorskip("scipy")
     events = framewise_to_events(_curve((30, 70)), fps=_FPS, threshold=0.5, smoothing_window_frames=5)
+    assert len(events) == 1
+
+
+def test_smoothing_falls_back_cleanly_when_scipy_is_unavailable() -> None:
+    with patch.dict("sys.modules", {"scipy.ndimage": None}):
+        events = framewise_to_events(_curve((30, 70)), fps=_FPS, threshold=0.5, smoothing_window_frames=5)
     assert len(events) == 1
 
 
