@@ -21,6 +21,9 @@ import pytest
 
 from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.indic_conformer_hybrid import IndicConformerHybridASR
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+
+_ADAPTER_TARGET = "nemo_curator.models.indic_conformer_hybrid.IndicConformerHybridASR"
 
 
 def test_adapter_conforms_to_shared_protocol() -> None:
@@ -51,12 +54,11 @@ def test_empty_token_sequence_decodes_to_empty_text() -> None:
     assert adapter._ids_to_text([], "hi") == ""
 
 
-def test_download_weights_resolves_checkpoint_without_loading_model(tmp_path: Path) -> None:
-    checkpoint = tmp_path / "indic.nemo"
-    checkpoint.touch()
+def test_stage_prefetch_resolves_checkpoint_without_loading_model() -> None:
+    stage = ASRStage(adapter_target=_ADAPTER_TARGET, model_id="ai4bharat/model")
 
-    with patch.object(IndicConformerHybridASR, "_resolve_nemo_path", return_value=str(checkpoint)) as resolve:
-        IndicConformerHybridASR.download_weights_on_node("ai4bharat/model")
+    with patch.object(IndicConformerHybridASR, "_resolve_nemo_path") as resolve:
+        stage.setup_on_node()
 
     resolve.assert_called_once_with("ai4bharat/model")
 
