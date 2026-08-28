@@ -58,13 +58,6 @@ def _resolve_num_replicas(configured_num_replicas: int | None) -> int:
     return num_replicas
 
 
-def _resolve_client_workers_per_replica(configured_workers: int) -> int:
-    if configured_workers < 1:
-        msg = "--inference-server-client-workers-per-replica must be at least 1"
-        raise ValueError(msg)
-    return configured_workers
-
-
 def _available_gpu_count() -> int:
     num_gpus = int(get_available_cpu_gpu_resources(init_and_shutdown=True)[1])
     if num_gpus < 1:
@@ -88,12 +81,6 @@ def _server_engine_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         engine_kwargs["enforce_eager"] = True
     engine_kwargs.update(parse_json_object(args.engine_kwargs, argument="--engine-kwargs"))
     return engine_kwargs
-
-
-def _validate_inference_server_backend(backend: str) -> None:
-    if backend != "vllm":
-        msg = f"--inference-server-type requires --backend=vllm, got {backend!r}."
-        raise ValueError(msg)
 
 
 def _sample_ids_from_table(data: Any) -> set[str]:
@@ -218,13 +205,15 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
 
     try:
         if server_type is not None:
-            _validate_inference_server_backend(args.backend)
+            if args.backend != "vllm":
+                msg = f"--inference-server-type requires --backend=vllm, got {args.backend!r}."
+                raise ValueError(msg)  # noqa: TRY301
+            if args.inference_server_client_workers_per_replica < 1:
+                msg = "--inference-server-client-workers-per-replica must be at least 1"
+                raise ValueError(msg)  # noqa: TRY301
             num_replicas = _resolve_num_replicas(args.num_replicas)
-            client_workers_per_replica = _resolve_client_workers_per_replica(
-                args.inference_server_client_workers_per_replica
-            )
             num_inference_gpus = num_replicas
-            inference_stage_parallelism = client_workers_per_replica * num_replicas
+            inference_stage_parallelism = args.inference_server_client_workers_per_replica * num_replicas
             model_name = args.model_id or args.model_path
             server_engine_kwargs = _server_engine_kwargs(args)
             logger.info(

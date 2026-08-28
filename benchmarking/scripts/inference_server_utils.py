@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ANN401, PLR0913
+# ruff: noqa: PLR0913
 
 """Shared helpers for inference servers used by benchmark scripts."""
 
@@ -60,7 +60,7 @@ def static_num_replicas(autoscaling_config: dict[str, Any] | None) -> int:
     return min_replicas
 
 
-def build_inference_server(
+def start_inference_server(
     *,
     backend: InferenceServerBackend,
     model_id: str,
@@ -74,7 +74,7 @@ def build_inference_server(
     ray_serve_deployment_config: dict[str, Any] | None = None,
     health_check_timeout_s: int = 900,
 ) -> InferenceServer:
-    """Build an inference server without starting it."""
+    """Build, start, and return an inference server."""
     from nemo_curator.core.serve import InferenceServer
 
     if num_replicas < 1:
@@ -91,7 +91,7 @@ def build_inference_server(
             dynamo_kwargs=dynamo_kwargs or {},
             runtime_env=model_runtime_env or {},
         )
-        return InferenceServer(
+        server = InferenceServer(
             models=[model],
             backend=DynamoServerConfig(
                 request_plane="tcp",
@@ -100,26 +100,25 @@ def build_inference_server(
             ),
             health_check_timeout_s=health_check_timeout_s,
         )
-    if backend != "ray-serve":
-        msg = f"Unsupported inference server backend: {backend}"
-        raise ValueError(msg)
+    else:
+        if backend != "ray-serve":
+            msg = f"Unsupported inference server backend: {backend}"
+            raise ValueError(msg)
 
-    from nemo_curator.core.serve import RayServeModelConfig
+        from nemo_curator.core.serve import RayServeModelConfig
 
-    model = RayServeModelConfig(
-        model_identifier=model_path or model_id,
-        model_name=model_id if model_path else None,
-        deployment_config=(
-            ray_serve_deployment_config if ray_serve_deployment_config is not None else {"num_replicas": num_replicas}
-        ),
-        engine_kwargs=engine_kwargs or {},
-        runtime_env=model_runtime_env or {},
-    )
-    return InferenceServer(models=[model], health_check_timeout_s=health_check_timeout_s)
+        model = RayServeModelConfig(
+            model_identifier=model_path or model_id,
+            model_name=model_id if model_path else None,
+            deployment_config=(
+                ray_serve_deployment_config
+                if ray_serve_deployment_config is not None
+                else {"num_replicas": num_replicas}
+            ),
+            engine_kwargs=engine_kwargs or {},
+            runtime_env=model_runtime_env or {},
+        )
+        server = InferenceServer(models=[model], health_check_timeout_s=health_check_timeout_s)
 
-
-def start_inference_server(**kwargs: Any) -> InferenceServer:
-    """Build, start, and return an inference server."""
-    server = build_inference_server(**kwargs)
     server.start()
     return server

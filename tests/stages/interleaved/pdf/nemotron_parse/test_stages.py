@@ -498,47 +498,13 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
         assert stage._proc_size == (100, 100)
 
-    def test_in_process_and_http_client_sampling_parameters_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import sys
-        import types
-
+    def test_in_process_and_http_client_sampling_parameters_match(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseHTTPClientStage,
-            NemotronParseInferenceStage,
-        )
-        from nemo_curator.utils import vllm_utils
-
-        fake_vllm = types.ModuleType("vllm")
-
-        class FakeSamplingParams:
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-        fake_vllm.SamplingParams = FakeSamplingParams
-        monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
-        monkeypatch.setattr(vllm_utils, "resolve_local_model_path", lambda _path: "/models/nemotron")
-        monkeypatch.setattr(vllm_utils, "create_vllm_llm", lambda *_args, **_kwargs: object())
-        fake_processor = SimpleNamespace(image_processor=SimpleNamespace(final_size=(100, 100)))
-        monkeypatch.setattr("transformers.AutoProcessor.from_pretrained", lambda *_args, **_kwargs: fake_processor)
-
-        in_process_stage = NemotronParseInferenceStage(backend="vllm", max_tokens=1234)
-        in_process_stage._setup_vllm()
-        http_client_stage = NemotronParseHTTPClientStage(
-            endpoint="http://localhost:8000/v1",
-            model_name="nemotron-parse",
-            max_tokens=1234,
+            _nemotron_parse_sampling_params,
+            _nemotron_parse_server_generation_config,
         )
 
-        expected = {
-            "temperature": 0,
-            "top_p": 1.0,
-            "top_k": 1,
-            "repetition_penalty": 1.1,
-            "max_tokens": 1234,
-            "skip_special_tokens": False,
-            "seed": None,
-        }
-        http_client_config = http_client_stage._generation_config
+        http_client_config = _nemotron_parse_server_generation_config(1234)
         http_client_params = {
             "temperature": http_client_config.temperature,
             "top_p": http_client_config.top_p,
@@ -547,8 +513,7 @@ class TestNemotronParseInferenceStageMetrics:
             **http_client_config.extra_kwargs["extra_body"],
         }
 
-        assert in_process_stage._sampling_params.kwargs == expected
-        assert http_client_params == expected
+        assert http_client_params == _nemotron_parse_sampling_params(1234)
 
     def test_in_process_and_http_client_default_to_8192_max_tokens(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (

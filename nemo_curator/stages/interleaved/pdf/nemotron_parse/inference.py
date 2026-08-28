@@ -386,18 +386,6 @@ class _HTTPPageResult:
     error: str | None = None
 
 
-def _build_multimodal_chat_messages(task_prompt: str, image_url: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": task_prompt},
-                {"type": "image_url", "image_url": {"url": image_url}},
-            ],
-        }
-    ]
-
-
 @dataclass
 class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
     """Call Nemotron-Parse through an OpenAI-compatible HTTP endpoint.
@@ -441,11 +429,6 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_actor_stage": False}
 
-    @staticmethod
-    def _response_text(choice: object) -> str:
-        content = getattr(getattr(choice, "message", None), "content", "")
-        return content if isinstance(content, str) else str(content or "")
-
     async def _query_page(
         self,
         client: AsyncOpenAIClient,
@@ -453,11 +436,18 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         content_type: str,
     ) -> _HTTPPageResult:
         image_url = f"data:{content_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-        messages = _build_multimodal_chat_messages(self.task_prompt or "", image_url)
         try:
             response = await client.query_model_response(
                 model=self.model_name,
-                messages=messages,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": self.task_prompt or ""},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ],
                 generation_config=self._generation_config,
             )
         except Exception as error:  # noqa: BLE001
@@ -467,10 +457,10 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         choice = response.choices[0] if response.choices else None
         usage = response.usage
         return _HTTPPageResult(
-            text=self._response_text(choice) if choice is not None else "",
+            text=str(getattr(getattr(choice, "message", None), "content", "") or ""),
             prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-            finish_reason=getattr(choice, "finish_reason", None) if choice is not None else None,
+            finish_reason=getattr(choice, "finish_reason", None),
         )
 
     async def _query_pages(self, images: list[tuple[bytes, str]]) -> list[_HTTPPageResult]:
