@@ -706,7 +706,7 @@ class TestNemotronParseInferenceServerStage:
 
 
 class TestNemotronParsePipelineFactory:
-    def test_creates_one_http_inference_stage_with_replica_scaled_workers(self) -> None:
+    def test_creates_one_http_inference_stage_with_configured_workers(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
             NemotronParseInferenceServerStage,
             NemotronParseInferenceStage,
@@ -735,7 +735,7 @@ class TestNemotronParsePipelineFactory:
             args,
             inference_server_endpoint="http://localhost:8000/v1",
             inference_server_model_name="nemotron-parse",
-            inference_server_num_replicas=2,
+            inference_server_num_workers=8,
         )
         pipeline.build()
 

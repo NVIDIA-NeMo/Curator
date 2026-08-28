@@ -249,8 +249,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 args,
                 inference_server_endpoint=inference_server.endpoint,
                 inference_server_model_name=model_name,
-                inference_server_num_replicas=num_replicas,
-                inference_server_client_workers_per_replica=args.inference_server_client_workers_per_replica,
+                inference_server_num_workers=inference_stage_parallelism,
             )
             logger.info(
                 f"Inference server ready at {inference_server.endpoint} after {inference_server_startup_s:.2f}s"
