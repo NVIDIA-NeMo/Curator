@@ -45,6 +45,12 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     target sample rate and format, while creating a new manifest with
     updated paths.
 
+    Args:
+        resampled_audio_dir: Directory where resampled audio files are written.
+        ffmpeg_executable: FFmpeg executable name to resolve from ``PATH``, or an
+            explicit executable path. The executable must be available on every
+            executor node.
+
     """
 
     # Processing parameters
@@ -63,12 +69,26 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     # Stage metadata
     name: str = "ResampleAudio"
 
+    # Appended to preserve the positional order of existing public fields.
+    ffmpeg_executable: str = "ffmpeg"
+
+    def _resolve_ffmpeg_executable(self) -> str:
+        configured_executable = os.path.expanduser(self.ffmpeg_executable)
+        resolved_executable = shutil.which(configured_executable)
+        if resolved_executable is None:
+            msg = (
+                f"ResampleAudioStage could not find the configured FFmpeg executable "
+                f"{self.ffmpeg_executable!r} on this executor node. Install FFmpeg in a "
+                "user-writable environment and add it to PATH, or set "
+                "ffmpeg_executable to an executable path. The executable must be "
+                "available on every executor node."
+            )
+            raise RuntimeError(msg)
+        return os.path.abspath(resolved_executable)
+
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        if not shutil.which("ffmpeg"):
-            msg = "ResampleAudioStage requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
-            raise RuntimeError(msg)
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
 
@@ -118,7 +138,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         skipped_conversion = fs.exists(output_path)
         if not skipped_conversion:
             cmd = [
-                "ffmpeg",
+                self._resolve_ffmpeg_executable(),
                 "-v",
                 "error",
                 "-i",
