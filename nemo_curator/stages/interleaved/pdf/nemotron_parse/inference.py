@@ -404,7 +404,8 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
 
     ``model_name`` is the served name used in requests. ``model_path`` is the
     underlying model identifier recorded for postprocessing and defaults to the
-    served name. ``proc_size`` must match the served model's image processor.
+    served name. ``inference_batch_size`` caps concurrent page requests, while
+    ``proc_size`` must match the served model's image processor.
     """
 
     endpoint: str
@@ -415,6 +416,7 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
     request_timeout_s: float = 300.0
     max_retries: int = 3
     retry_base_delay_s: float = 1.0
+    inference_batch_size: int = 4
     max_tokens: int = DEFAULT_MAX_TOKENS
     proc_size: tuple[int, int] = (2048, 1664)
     name: str = "nemotron_parse_inference"
@@ -424,6 +426,10 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
         if self.task_prompt is None:
             self.task_prompt = build_task_prompt(text_in_pic=self.text_in_pic)
         self.max_retries = max(0, int(self.max_retries))
+        self.inference_batch_size = int(self.inference_batch_size)
+        if self.inference_batch_size < 1:
+            msg = "inference_batch_size must be at least 1"
+            raise ValueError(msg)
         self._generation_config = _nemotron_parse_server_generation_config(self.max_tokens)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -469,7 +475,7 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
 
     async def _query_pages(self, images: list[tuple[bytes, str]]) -> list[_ServerPageResult]:
         client = AsyncOpenAIClient(
-            max_concurrent_requests=1,
+            max_concurrent_requests=self.inference_batch_size,
             max_retries=self.max_retries,
             base_delay=self.retry_base_delay_s,
             api_key="unused",  # pragma: allowlist secret
@@ -477,7 +483,11 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
             timeout=self.request_timeout_s,
         )
         try:
-            return [await self._query_page(client, image_bytes, content_type) for image_bytes, content_type in images]
+            return list(
+                await asyncio.gather(
+                    *(self._query_page(client, image_bytes, content_type) for image_bytes, content_type in images)
+                )
+            )
         finally:
             if hasattr(client, "client"):
                 with contextlib.suppress(Exception):

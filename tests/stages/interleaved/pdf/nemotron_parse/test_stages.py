@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import io
 import json
 import zipfile
@@ -577,6 +579,61 @@ class TestNemotronParseInferenceStageMetrics:
 
 
 class TestNemotronParseInferenceServerStage:
+    def test_rejects_non_positive_inference_batch_size(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseInferenceServerStage,
+        )
+
+        with pytest.raises(ValueError, match="inference_batch_size must be at least 1"):
+            NemotronParseInferenceServerStage(
+                endpoint="http://localhost:8000/v1",
+                model_name="nemotron-parse",
+                inference_batch_size=0,
+            )
+
+    def test_query_pages_runs_up_to_inference_batch_size_concurrently(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseInferenceServerStage,
+        )
+
+        active_requests = 0
+        max_active_requests = 0
+        two_requests_started = asyncio.Event()
+
+        async def create_response(**create_kwargs: object) -> SimpleNamespace:
+            nonlocal active_requests, max_active_requests
+            active_requests += 1
+            max_active_requests = max(max_active_requests, active_requests)
+            if active_requests == 2:
+                two_requests_started.set()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(two_requests_started.wait(), timeout=0.05)
+
+            messages = create_kwargs["messages"]
+            image_url = messages[0]["content"][1]["image_url"]["url"]  # type: ignore[index]
+            page_text = base64.b64decode(image_url.split(",", 1)[1]).decode()
+            active_requests -= 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=page_text), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+
+        sdk_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create_response)),
+            close=AsyncMock(),
+        )
+        stage = NemotronParseInferenceServerStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+        stage.inference_batch_size = 2
+
+        with patch("nemo_curator.models.client.openai_client.AsyncOpenAI", return_value=sdk_client):
+            results = asyncio.run(stage._query_pages([(f"page-{index}".encode(), "image/png") for index in range(3)]))
+
+        assert max_active_requests == 2
+        assert [result.text for result in results] == ["page-0", "page-1", "page-2"]
+
     def test_process_uses_openai_client_response_and_records_usage(self) -> None:
         import pandas as pd
         import pyarrow as pa
@@ -653,6 +710,8 @@ class TestNemotronParsePipelineFactory:
                 "output",
                 "--max-tokens",
                 "1234",
+                "--inference-batch-size",
+                "32",
             ]
         )
 
@@ -673,5 +732,6 @@ class TestNemotronParsePipelineFactory:
         assert isinstance(inference_stages[0], NemotronParseInferenceServerStage)
         assert inference_stages[0].endpoint == "http://localhost:8000/v1"
         assert inference_stages[0].model_name == "nemotron-parse"
+        assert inference_stages[0].inference_batch_size == 32
         assert inference_stages[0].max_tokens == 1234
         assert inference_stages[0].num_workers() == 8

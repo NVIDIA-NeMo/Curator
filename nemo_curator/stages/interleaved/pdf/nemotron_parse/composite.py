@@ -65,7 +65,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     max_pages
         Maximum pages to render per PDF.
     inference_batch_size
-        Pages per GPU forward pass (HF only).
+        Pages per GPU forward pass for HF, or maximum concurrent page requests
+        for an inference server.
     max_num_seqs
         Maximum concurrent sequences (vLLM only).
     text_in_pic
@@ -156,6 +157,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 text_in_pic=self.text_in_pic,
                 request_timeout_s=self.inference_server_request_timeout_s,
                 max_retries=self.inference_server_max_retries,
+                inference_batch_size=self.inference_batch_size,
                 max_tokens=self.max_tokens,
             ).with_(num_workers=4 * self.inference_server_num_replicas)
         self._postprocessor = NemotronParsePostprocessStage(

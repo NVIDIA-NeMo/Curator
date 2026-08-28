@@ -157,7 +157,12 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     )
 
     # Inference
-    parser.add_argument("--inference-batch-size", type=int, default=4, help="Pages per GPU pass (HF only)")
+    parser.add_argument(
+        "--inference-batch-size",
+        type=int,
+        default=4,
+        help="Pages per HF GPU pass or maximum concurrent inference-server page requests",
+    )
     parser.add_argument("--max-num-seqs", type=int, default=64, help="Max concurrent sequences (vLLM only)")
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Maximum output tokens per page")
     parser.add_argument(
