@@ -74,6 +74,15 @@ def _num_workers_method(num_workers: int | None) -> Callable[[], int | None]:
     return get_num_workers
 
 
+def _num_workers_per_node_method(
+    num_workers_per_node: float | None,
+) -> Callable[[], float | None]:
+    def get_num_workers_per_node() -> float | None:
+        return num_workers_per_node
+
+    return get_num_workers_per_node
+
+
 class StageMeta(ABCMeta):
     """Metaclass that automatically registers concrete Stage subclasses.
     A class is considered *concrete* if it directly inherits from
@@ -96,6 +105,12 @@ class StageMeta(ABCMeta):
             _STAGE_REGISTRY[cls.__name__] = cls  # type: ignore[assignment]
 
         return cls
+
+    def __call__(cls, *args, **kwargs):
+        """Validate worker sizing after the stage is fully constructed."""
+        instance = super().__call__(*args, **kwargs)
+        instance._validate_worker_sizing()
+        return instance
 
 
 def get_stage_class(name: str) -> type[ProcessingStage]:
@@ -165,16 +180,17 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 msg = f"{cls.__name__} must not override '{attr}'"
                 raise TypeError(msg)
 
-        num_workers = cls.__dict__.get("num_workers")
-        if (num_workers is not None and not callable(num_workers)) or (
-            num_workers is None and "num_workers" in cls.__dict__.get("__annotations__", {})
-        ):
-            msg = (
-                f"{cls.__name__} must not define 'num_workers' as a stage attribute. "
-                "Override num_workers() for backend worker sizing, or use a different field name "
-                "for stage-specific worker counts."
-            )
-            raise TypeError(msg)
+        for worker_attr in ("num_workers", "num_workers_per_node"):
+            value = cls.__dict__.get(worker_attr)
+            if (value is not None and not callable(value)) or (
+                value is None and worker_attr in cls.__dict__.get("__annotations__", {})
+            ):
+                msg = (
+                    f"{cls.__name__} must not define '{worker_attr}' as a stage attribute. "
+                    f"Override {worker_attr}() for backend worker sizing, or use a different field name "
+                    "for stage-specific worker counts."
+                )
+                raise TypeError(msg)
 
         for attr in ("name", "resources", "batch_size", "runtime_env"):
             if isinstance(cls.__dict__.get(attr), property):
@@ -188,6 +204,33 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
         return None
+
+    def num_workers_per_node(self) -> float | None:
+        """Number of workers required per Ray node. If None, executor default sizing is used."""
+        return None
+
+    def _validate_worker_sizing(self) -> None:
+        """Reject ambiguous combinations of backend worker-sizing options."""
+        configured = [
+            name
+            for name, value in (
+                ("num_workers()", self.num_workers()),
+                ("num_workers_per_node()", self.num_workers_per_node()),
+            )
+            if value is not None
+        ]
+
+        from nemo_curator.backends.ray_data.utils import get_configured_actor_pool_sizing_keys
+
+        if get_configured_actor_pool_sizing_keys(self.ray_stage_spec()):
+            configured.append("actor-pool sizing keys (min/max/initial_workers)")
+
+        if len(configured) > 1:
+            msg = (
+                f"Stage {self.name} sets multiple worker-sizing options ({', '.join(configured)}); "
+                "use only one of num_workers, num_workers_per_node, or actor-pool sizing keys."
+            )
+            raise ValueError(msg)
 
     def validate_input(self, task: Task) -> bool:
         """Validate input task meets requirements.
@@ -235,10 +278,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         if isinstance(input_specs, tuple):
             return self._validate_input_spec(input_specs, "inputs()")
         if not isinstance(input_specs, dict):
-            msg = (
-                f"Stage {self.name} inputs() must return an input spec tuple "
-                "or dict of task type to input spec"
-            )
+            msg = f"Stage {self.name} inputs() must return an input spec tuple or dict of task type to input spec"
             raise TypeError(msg)
 
         # Search the task's MRO from most to least specific. For example, given
@@ -246,9 +286,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         # for CustomDocumentBatch first, then DocumentBatch, and finally Task.
         for candidate_type in type(task).mro():
             if candidate_type in input_specs:
-                return self._validate_input_spec(
-                    input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]"
-                )
+                return self._validate_input_spec(input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]")
 
         supported_task_types = ", ".join(supported_type.__name__ for supported_type in input_specs) or "<none>"
         msg = (
@@ -383,6 +421,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         ray_stage_spec: dict[str, Any] | None = None,
         xenna_stage_spec: dict[str, Any] | None = None,
         num_workers: int | None | _UnsetType = _UNSET,
+        num_workers_per_node: float | None | _UnsetType = _UNSET,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -397,6 +436,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             xenna_stage_spec: Merge overrides into the Xenna stage spec. User-provided keys win.
                 Use num_workers instead of setting num_workers in xenna_stage_spec.
             num_workers: Override the num_workers() result. Passing None explicitly resets to executor default behavior.
+            num_workers_per_node: Override the num_workers_per_node() result. Passing None explicitly resets to
+                executor default behavior.
         """
         new_instance = copy.deepcopy(self)
 
@@ -432,6 +473,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         if num_workers is not _UNSET:
             new_instance.num_workers = _num_workers_method(cast("int | None", num_workers))
+        if num_workers_per_node is not _UNSET:
+            new_instance.num_workers_per_node = _num_workers_per_node_method(
+                cast("float | None", num_workers_per_node)
+            )
+
+        new_instance._validate_worker_sizing()
 
         return new_instance
 

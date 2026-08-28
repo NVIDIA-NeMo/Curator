@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING
 import ray
 from loguru import logger
 
-from nemo_curator.backends.utils import get_available_cpu_gpu_resources
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources, get_stage_num_workers_per_node
+from nemo_curator.utils.ray_utils import get_alive_ray_node_count
 
 if TYPE_CHECKING:
     from ray.actor import ActorClass
@@ -153,6 +154,7 @@ def calculate_optimal_actors_for_resources(
         raise ValueError(msg)
 
     num_workers = stage.num_workers()
+    num_workers_per_node = get_stage_num_workers_per_node(stage)
     if num_workers is not None and num_workers > 0:
         if num_workers > max_actors_resources:
             msg = (
@@ -163,6 +165,19 @@ def calculate_optimal_actors_for_resources(
             logger.warning(msg)
             return max_actors_resources
         return num_workers
+
+    if num_workers_per_node is not None:
+        num_nodes = get_alive_ray_node_count(ignore_head_node=ignore_head_node)
+        requested_actors = max(1, math.ceil(num_workers_per_node * num_nodes))
+        if requested_actors > max_actors_resources:
+            msg = (
+                f"Stage {stage.name} requires {requested_actors} actors from num_workers_per_node(), "
+                f"but only {max_actors_resources} fit with available resources. "
+                f"Capping actor count to {max_actors_resources}."
+            )
+            logger.warning(msg)
+            return max_actors_resources
+        return requested_actors
 
     number_of_batches = (
         math.ceil(num_tasks / stage.batch_size) if stage.batch_size is not None and stage.batch_size > 0 else num_tasks
