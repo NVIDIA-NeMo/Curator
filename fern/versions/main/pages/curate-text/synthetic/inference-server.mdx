@@ -333,6 +333,10 @@ Multimodal workers need their model-specific settings, such as
 `limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in
 `dynamo_kwargs`. Use Dynamo's default frontend processing path.
 
+<Note>
+The default frontend path avoids the slower compatibility processor used by older examples.
+</Note>
+
 ## Runtime Environments and Subprocess Variables
 
 Both model types inherit `runtime_env` from `BaseModelConfig`:
