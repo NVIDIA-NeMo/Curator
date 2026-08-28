@@ -44,9 +44,15 @@ class ConfigurableActorStage(ProcessingStage[EmptyTask, EmptyTask]):
     resources = Resources(cpus=2.0)
     batch_size = 7
 
-    def __init__(self, ray_stage_spec: dict[str, object] | None = None, num_workers: int | None = None):
+    def __init__(
+        self,
+        ray_stage_spec: dict[str, object] | None = None,
+        num_workers: int | None = None,
+        num_workers_per_node: float | None = None,
+    ):
         self._ray_stage_spec = ray_stage_spec or {}
         self._num_workers = num_workers
+        self._num_workers_per_node = num_workers_per_node
 
     def ray_stage_spec(self) -> dict[str, object]:
         return {
@@ -56,6 +62,9 @@ class ConfigurableActorStage(ProcessingStage[EmptyTask, EmptyTask]):
 
     def num_workers(self) -> int | None:
         return self._num_workers
+
+    def num_workers_per_node(self) -> float | None:
+        return self._num_workers_per_node
 
     def process(self, task: EmptyTask) -> EmptyTask:
         return task
@@ -91,22 +100,80 @@ class TestRayDataStageAdapter:
             assert "concurrency" not in kwargs
 
     def test_task_stage_uses_task_pool_strategy_for_num_workers(self):
+        task_kwargs = _map_batches_kwargs(ConfigurableTaskStage(num_workers=3))
+
+        assert task_kwargs["compute"] == TaskPoolStrategy(size=3)
+
+    def test_task_stage_warns_on_actor_pool_sizing_keys(self):
         stage = ConfigurableTaskStage(
             ray_stage_spec={
                 RayStageSpecKeys.MIN_WORKERS: 2,
                 RayStageSpecKeys.MAX_WORKERS: 8,
                 RayStageSpecKeys.INITIAL_WORKERS: 4,
             },
-            num_workers=3,
         )
 
         with mock.patch("nemo_curator.backends.ray_data.adapter.logger.warning") as mock_warning:
             task_kwargs = _map_batches_kwargs(stage)
 
-        assert task_kwargs["compute"] == TaskPoolStrategy(size=3)
-        assert mock_warning.call_count == 1
-        warning_messages = [call.args[0] for call in mock_warning.call_args_list]
-        assert "Ignoring ray_stage_spec worker sizing keys" in warning_messages[0]
+        assert "compute" not in task_kwargs
+        mock_warning.assert_called_once()
+        assert "Ignoring ray_stage_spec worker sizing keys" in mock_warning.call_args.args[0]
+
+    @pytest.mark.parametrize(
+        ("stage", "expected"),
+        [
+            (ConfigurableTaskStage(num_workers_per_node=2), TaskPoolStrategy(size=6)),
+            (ConfigurableActorStage(num_workers_per_node=2), ActorPoolStrategy(size=6)),
+        ],
+    )
+    def test_num_workers_per_node_sizes_and_spreads_pool(self, stage: ProcessingStage, expected: object):
+        with mock.patch("nemo_curator.backends.ray_data.adapter.get_alive_ray_node_count", return_value=3):
+            kwargs = _map_batches_kwargs(stage)
+
+        assert kwargs["compute"] == expected
+        assert kwargs["scheduling_strategy"] == "SPREAD"
+
+    def test_num_workers_per_node_passes_ignore_head_node_to_node_count(self):
+        stage = ConfigurableTaskStage(num_workers_per_node=2)
+
+        with mock.patch(
+            "nemo_curator.backends.ray_data.adapter.get_alive_ray_node_count", return_value=2
+        ) as mock_count:
+            kwargs = _map_batches_kwargs(stage, ignore_head_node=True)
+
+        mock_count.assert_called_once_with(ignore_head_node=True)
+        assert kwargs["compute"] == TaskPoolStrategy(size=4)
+
+    def test_num_workers_per_node_preserves_scheduling_strategy_override(self):
+        stage = ConfigurableTaskStage(
+            ray_stage_spec={RayStageSpecKeys.RAY_REMOTE_ARGS: {"scheduling_strategy": "DEFAULT"}},
+            num_workers_per_node=2,
+        )
+
+        with mock.patch("nemo_curator.backends.ray_data.adapter.get_alive_ray_node_count", return_value=3):
+            kwargs = _map_batches_kwargs(stage)
+
+        assert kwargs["scheduling_strategy"] == "DEFAULT"
+
+    def test_num_workers_per_node_rejects_no_alive_nodes(self):
+        stage = ConfigurableTaskStage(num_workers_per_node=2)
+
+        with (
+            mock.patch("nemo_curator.backends.ray_data.adapter.get_alive_ray_node_count", return_value=0),
+            pytest.raises(ValueError, match="No alive Ray nodes"),
+        ):
+            _map_batches_kwargs(stage)
+
+    @pytest.mark.parametrize(
+        ("value", "error"),
+        [(0, ValueError), (-1, ValueError), (True, TypeError), ("2", TypeError)],
+    )
+    def test_num_workers_per_node_rejects_invalid_values(self, value: object, error: type[Exception]):
+        stage = ConfigurableTaskStage(num_workers_per_node=value)  # type: ignore[arg-type]
+
+        with pytest.raises(error, match="num_workers_per_node"):
+            _map_batches_kwargs(stage)
 
     def test_source_fanout_task_stage_uses_task_pool_strategy_for_single_worker_default(self):
         stage = ConfigurableTaskStage(
@@ -141,9 +208,9 @@ class TestRayDataStageAdapter:
         assert kwargs["num_cpus"] == stage.resources.cpus
 
 
-def _map_batches_kwargs(stage: ProcessingStage) -> dict[str, object]:
+def _map_batches_kwargs(stage: ProcessingStage, ignore_head_node: bool = False) -> dict[str, object]:
     dataset = RecordingDataset()
-    RayDataStageAdapter(stage).process_dataset(dataset)  # type: ignore[arg-type]
+    RayDataStageAdapter(stage, ignore_head_node=ignore_head_node).process_dataset(dataset)  # type: ignore[arg-type]
     assert dataset.map_batches_kwargs is not None
     assert dataset.batch_size == stage.batch_size
     return dataset.map_batches_kwargs

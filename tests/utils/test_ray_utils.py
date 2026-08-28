@@ -69,6 +69,18 @@ class _FakeRemoteFunction:
 
 
 class TestRunOnEachNode:
+    def test_get_alive_ray_nodes_filters_dead_nodes(self) -> None:
+        nodes = ray_utils.get_alive_ray_nodes()
+
+        assert [node["NodeID"] for node in nodes] == [_HEAD_NODE_ID, _WORKER_NODE_ID]
+        assert ray_utils.get_alive_ray_node_count() == 2
+
+    def test_get_alive_ray_nodes_can_ignore_head_node(self, reset_head_node_cache: None) -> None:
+        nodes = ray_utils.get_alive_ray_nodes(ignore_head_node=True)
+
+        assert [node["NodeID"] for node in nodes] == [_WORKER_NODE_ID]
+        assert ray_utils.get_alive_ray_node_count(ignore_head_node=True) == 1
+
     def test_returns_one_result_per_alive_node(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Default call schedules ``remote_fn`` once per alive node and returns each landing node's id."""
         remote_fn = _FakeRemoteFunction()
@@ -78,9 +90,7 @@ class TestRunOnEachNode:
 
         assert results == remote_fn.submissions
         assert [r["args"] for r in results] == [("payload",), ("payload",)]
-        scheduled_ids = [
-            r["options"]["scheduling_strategy"].node_id for r in remote_fn.submissions
-        ]
+        scheduled_ids = [r["options"]["scheduling_strategy"].node_id for r in remote_fn.submissions]
         assert scheduled_ids == [_HEAD_NODE_ID, _WORKER_NODE_ID]
         assert all(not r["options"]["scheduling_strategy"].soft for r in remote_fn.submissions)
 

@@ -10,11 +10,12 @@ modality: "universal"
 
 # Stage Worker Sizing
 
-Use `ProcessingStage.num_workers()` or `stage.with_(num_workers=...)` to set a backend-neutral worker request. Use `ray_stage_spec` and `xenna_stage_spec` for backend-specific execution behavior.
+Use `ProcessingStage.num_workers()` or `num_workers_per_node()` to set a backend-neutral worker request. The corresponding `stage.with_(...)` arguments configure one stage instance. Use `ray_stage_spec` and `xenna_stage_spec` for backend-specific execution behavior.
 
 Worker count and per-worker resources are separate controls:
 
 - `num_workers()` controls how many workers the executor requests.
+- `num_workers_per_node()` scales a worker request by the alive Ray node count.
 - `Resources` controls CPU and GPU resources reserved for each worker.
 - `ray_stage_spec()` and `xenna_stage_spec()` provide backend-specific scheduling options.
 
@@ -42,14 +43,16 @@ class PassthroughStage(ProcessingStage[EmptyTask, EmptyTask]):
 
 ## Worker Controls by Backend
 
-| Backend | `num_workers=N`, where `N > 0` | `num_workers=None` | Backend-specific alternative |
+| Backend | `num_workers=N`, where `N > 0` | `num_workers_per_node=N`, where `N > 0` | Neither set |
 | --- | --- | --- | --- |
-| Ray Data actor stage | Fixed `ActorPoolStrategy(size=N)` | Autoscaling actor pool, minimum 1 with no maximum by default | `min_workers`, `max_workers`, and `initial_workers` |
-| Ray Data task stage | Fixed `TaskPoolStrategy(size=N)` | Ray Data's default task scheduling; no explicit compute strategy | None; actor-pool sizing keys are ignored |
-| Xenna | Exactly `N` workers across the cluster | Xenna determines worker allocation | `num_workers_per_node` in `xenna_stage_spec` |
-| Ray Actor Pool | Requests `N`; warns and caps it if fewer actors fit available resources | Chooses the smaller of work batches and resource capacity | None |
+| Ray Data actor stage | Fixed `ActorPoolStrategy(size=N)` | Fixed pool sized as `ceil(N × alive nodes)` with best-effort `SPREAD` | Autoscaling actor pool, minimum 1 with no maximum by default |
+| Ray Data task stage | Fixed `TaskPoolStrategy(size=N)` | Fixed pool sized as `ceil(N × alive nodes)` with best-effort `SPREAD` | Ray Data's default task scheduling; no explicit compute strategy |
+| Xenna | Exactly `N` workers across the cluster | Xenna receives `N` directly as its per-node count | Xenna determines worker allocation |
+| Ray Actor Pool | Requests `N`; caps it if fewer actors fit | Requests `ceil(N × alive nodes)`; caps it if fewer actors fit | Chooses the smaller of work batches and resource capacity |
 
-Ray Data and Ray Actor Pool also treat `0` and negative values as no fixed-size request. Xenna passes every non-`None` value to its stage specification, so use a positive count or `None`; do not use zero or negative Xenna worker counts.
+For the cluster-wide `num_workers` hook, Ray Data and Ray Actor Pool treat `0` and negative values as no fixed-size request. Xenna passes every non-`None` value to its stage specification, so use a positive count or `None`.
+
+The common `num_workers_per_node` hook accepts positive integers or fractions. Curator rejects booleans, non-numeric values, zero, and negative values. It cannot be combined with `num_workers` or Ray Data's `min_workers`, `max_workers`, and `initial_workers` keys.
 
 ## Ray Data Worker Pools
 
@@ -132,12 +135,25 @@ executor = RayDataExecutor()
 
 Without a positive `num_workers`, a task stage does not set `compute`; Ray Data uses its default task scheduler.
 
+### Fixed pool per node
+
+Use the same portable override for actor or task stages:
+
+```python
+stage = PassthroughStage().with_(num_workers_per_node=2)
+executor = RayDataExecutor(ignore_head_node=True)
+```
+
+Ray Data pool sizes are cluster-wide, so Curator counts alive nodes and sets the pool size to `ceil(num_workers_per_node × node count)`. When `ignore_head_node=True`, the head does not contribute to that multiplier. Curator also sets `scheduling_strategy="SPREAD"` unless `RAY_REMOTE_ARGS` supplies another strategy.
+
+`SPREAD` is placement intent, not a hard per-node cap or node exclusion. Ray may place workers unevenly when resources differ or placement constraints apply, and `ignore_head_node=True` does not itself prevent a Ray Data worker from landing on the head.
+
 ### Ray Data precedence and errors
 
 | Configuration | Result |
 | --- | --- |
 | Actor stage with positive `num_workers` only | Fixed actor pool |
-| Actor stage with positive `num_workers` plus min/max/initial keys | Fixed actor pool wins; Curator logs a warning listing ignored sizing keys |
+| More than one of `num_workers`, `num_workers_per_node`, or min/max/initial keys | Raises `ValueError` when the stage is constructed or configured |
 | Actor stage without positive `num_workers`, no sizing keys | Autoscaling actor pool with `min_size=1`, `max_size=None`, and `initial_size=None` |
 | Task stage with positive `num_workers` | Fixed task pool |
 | Task stage with min/max/initial keys | Keys are ignored; Curator logs a warning because they apply only to actor stages |
@@ -164,16 +180,14 @@ executor = XennaExecutor()
 </Tab>
 <Tab title="Per node">
 
-Leave `num_workers()` unset and pass `num_workers_per_node` through the Xenna stage spec:
+Leave `num_workers()` unset and use the portable per-node override:
 
 ```python
 from nemo_curator.backends.xenna import XennaExecutor
 
 stage = PassthroughStage().with_(
     num_workers=None,
-    xenna_stage_spec={
-        "num_workers_per_node": 2,
-    },
+    num_workers_per_node=2,
 )
 executor = XennaExecutor()
 ```
@@ -188,12 +202,13 @@ The following combinations are invalid:
 | `with_(xenna_stage_spec={"num_workers": 4})` | Raises `ValueError`; use `with_(num_workers=4)` |
 | A stage's `xenna_stage_spec()` returns `{"num_workers": 4}` | `XennaExecutor` raises `ValueError`; override `num_workers()` instead |
 | Any non-`None` `num_workers()` result and `num_workers_per_node` | `XennaExecutor` raises `ValueError`; choose one scope |
+| Both `num_workers_per_node()` and the legacy Xenna spec key | `XennaExecutor` raises `ValueError`; choose the portable hook or legacy key |
 
-When neither setting is present, Xenna controls worker allocation using stage resources and pipeline demand.
+The legacy `xenna_stage_spec={"num_workers_per_node": N}` form remains supported for compatibility. When neither setting is present, Xenna controls worker allocation using stage resources and pipeline demand.
 
 ## Ray Actor Pool Resource Capping
 
-`RayActorPoolExecutor` calculates how many actors fit from available CPU and GPU resources. A positive `num_workers()` is honored when it fits. If it exceeds capacity, Curator warns and caps the actor count instead of waiting for impossible placements.
+`RayActorPoolExecutor` calculates how many actors fit from available CPU and GPU resources. A positive `num_workers()` is honored when it fits. `num_workers_per_node()` first multiplies the value by the alive node count. If either request exceeds capacity, Curator warns and caps the actor count instead of waiting for impossible placements.
 
 For example, a stage that requests `Resources(cpus=2.0)` and `num_workers=8` can place at most four actors when eight CPUs are available. Work batch count can further reduce the automatically chosen pool size when `num_workers` is unset.
 
@@ -223,7 +238,7 @@ configured = PassthroughStage().with_(
 )
 ```
 
-The original stage remains unchanged. `resources`, `batch_size`, `runtime_env`, and `num_workers` apply across supported executors. `ray_stage_spec` configures Ray Data and the Ray-specific flags used by Ray Actor Pool; `xenna_stage_spec` configures Xenna.
+The original stage remains unchanged. `resources`, `batch_size`, `runtime_env`, `num_workers`, and `num_workers_per_node` apply across supported executors. `ray_stage_spec` configures Ray Data and the Ray-specific flags used by Ray Actor Pool; `xenna_stage_spec` configures Xenna.
 
 ### Shallow-merge behavior
 
@@ -260,6 +275,8 @@ produces a spec where `max_workers` is explicitly `None` and `ray_remote_args` c
 | --- | --- |
 | Omit `num_workers` | Preserve the stage's current `num_workers()` result |
 | `with_(num_workers=None)` | Explicitly reset worker sizing to executor-controlled behavior |
+| Omit `num_workers_per_node` | Preserve the stage's current `num_workers_per_node()` result |
+| `with_(num_workers_per_node=None)` | Explicitly reset per-node sizing to executor-controlled behavior |
 | Omit `ray_stage_spec` or pass `ray_stage_spec=None` | Do not modify the current Ray spec |
 | `ray_stage_spec={RayStageSpecKeys.MAX_WORKERS: None}` | Preserve the key with an explicit `None`, clearing an inherited maximum |
 | Omit `xenna_stage_spec` or pass `xenna_stage_spec=None` | Do not modify the current Xenna spec |
@@ -269,9 +286,9 @@ produces a spec where `max_workers` is explicitly `None` and `ray_remote_args` c
 
 Chained `with_()` calls merge against the already configured copy, so later values win while unrelated top-level keys from earlier calls remain.
 
-## Reserved `num_workers` Hook
+## Reserved Worker-Sizing Hooks
 
-`num_workers` is reserved as a method on `ProcessingStage`. Do not define it as a dataclass field or ordinary stage attribute:
+`num_workers` and `num_workers_per_node` are reserved as methods on `ProcessingStage`. Do not define either as a dataclass field or ordinary stage attribute:
 
 ```python
 class FixedStage(PassthroughStage):

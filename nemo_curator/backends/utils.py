@@ -23,7 +23,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
+from nemo_curator.utils.ray_utils import get_alive_ray_nodes, get_head_node_id, submit_on_each_node
 
 if TYPE_CHECKING:
     import loguru
@@ -137,6 +137,20 @@ class RayStageSpecKeys(str, Enum):
     RAY_NUM_CPUS = "ray_num_cpus"
 
 
+def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None:
+    """Return a stage's validated per-node worker request."""
+    value = stage.num_workers_per_node()
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = f"num_workers_per_node() for stage {stage.name} must be a positive number."
+        raise TypeError(msg)
+    if value <= 0:
+        msg = f"num_workers_per_node() for stage {stage.name} must be > 0."
+        raise ValueError(msg)
+    return value
+
+
 def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
     """Get the worker metadata and node id from the runtime context."""
     ray_context = ray.get_runtime_context()
@@ -212,13 +226,8 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
     the sum of per-stage times — important when setup is heavy (model downloads, weight
     loads) and stages don't contend for the same resources.
     """
-    head_node_id = get_head_node_id() if ignore_head_node else None
-    for node in ray.nodes():
-        if not node.get("Alive"):
-            continue
+    for node in get_alive_ray_nodes(ignore_head_node=ignore_head_node):
         node_id = node["NodeID"]
-        if ignore_head_node and node_id == head_node_id:
-            continue
         logger.info(f"Executing setup on node {node_id} for {len(stages)} stages")
 
     refs: list = []

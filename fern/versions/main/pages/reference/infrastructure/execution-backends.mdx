@@ -67,19 +67,19 @@ executor = XennaExecutor(
         # Execution mode: 'streaming' (default) or 'batch'
         # Batch processes all data for a stage before moving to the next; streaming runs stages concurrently.
         "execution_mode": "streaming",
-        
+
         # Logging interval: seconds between status logs (default: 60)
         # Controls how frequently progress updates are printed
         "logging_interval": 60,
-        
+
         # Ignore failures: whether to continue on failures (default: False)
         # When True, the pipeline continues execution instead of failing fast when stages raise errors.
         "ignore_failures": False,
-        
+
         # CPU allocation percentage: ratio of CPU to allocate (0-1, default: 0.95)
         # Fraction of available CPU resources to use for pipeline execution
         "cpu_allocation_percentage": 0.95,
-        
+
         # Autoscale interval: seconds between auto-scaling checks (default: 180)
         # How often to run the stage auto-scaler.
         "autoscale_interval_s": 180,
@@ -99,7 +99,7 @@ results = pipeline.run(executor)
 | `cpu_allocation_percentage` | `float` | `0.95` | Fraction (0-1) of available CPU resources to allocate |
 | `autoscale_interval_s` | `int` | `180` | Seconds between auto-scaling evaluations |
 
-Set a cluster-wide stage count with `stage.with_(num_workers=N)`, or set `xenna_stage_spec={"num_workers_per_node": N}` for a per-node count. These settings are mutually exclusive. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#xenna-worker-counts) and the [`XennaExecutor` API](/api/reference/api-reference/executors/xenna-executor).
+Set a cluster-wide stage count with `stage.with_(num_workers=N)`, or a per-node count with `stage.with_(num_workers_per_node=N)`. These settings are mutually exclusive. The legacy Xenna-only `xenna_stage_spec={"num_workers_per_node": N}` form remains supported. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#xenna-worker-counts) and the [`XennaExecutor` API](/api/reference/api-reference/executors/xenna-executor).
 
 For more details about the underlying engine, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
@@ -135,7 +135,7 @@ results = pipeline.run(executor)
 | `show_progress` | `bool` | `True` | Display tqdm progress bars during stage execution and shuffle inserts |
 | `progress_interval` | `float` | `10.0` | Minimum interval in seconds between progress bar updates |
 
-A positive stage `num_workers()` requests an exact actor count when resources fit. If fewer actors fit, this executor warns and caps the request to available CPU/GPU capacity. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-actor-pool-resource-capping).
+A positive stage `num_workers()` requests an exact actor count. `num_workers_per_node()` requests that count per alive node. If fewer actors fit, this executor warns and caps the request to available CPU/GPU capacity. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-actor-pool-resource-capping).
 
 <Accordion title="Example: Fuzzy Deduplication">
 
@@ -190,7 +190,7 @@ results = pipeline.run(executor)
 |-----|------|---------|-------------|
 | `ignore_failures` | `bool` | `False` | If `True`, continue pipeline execution even when tasks fail |
 
-Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for task stages. Configure a fixed pool with `stage.with_(num_workers=N)`, or configure actor autoscaling with `min_workers`, `max_workers`, and `initial_workers` in `ray_stage_spec`. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-data-worker-pools) for copy-pasteable examples and precedence rules.
+Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for task stages. Configure a fixed cluster-wide pool with `stage.with_(num_workers=N)`, a fixed per-node pool with `stage.with_(num_workers_per_node=N)`, or actor autoscaling with `min_workers`, `max_workers`, and `initial_workers` in `ray_stage_spec`. Per-node sizing uses a cluster-wide pool plus best-effort `SPREAD` placement; it is not a hard node-affinity constraint. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-data-worker-pools) for copy-pasteable examples and conflict rules.
 
 Ray Data may fuse adjacent operators when their compute and resource requirements are compatible. Matching resources enables the optimization but does not guarantee it; Ray Data makes the final optimizer decision. The [resource matching and fusion reference](/reference/infra/stage-worker-sizing#resource-matching-and-ray-data-fusion) explains the video-stage CPU reservation behavior.
 
@@ -207,7 +207,7 @@ For worker counts, resources, and backend-specific `with_()` overrides, see [Sta
 Ray-based executors provide enhanced scalability and performance for large-scale data processing tasks. These executors are beneficial for:
 
 - **Large-scale classification tasks**: Distributed inference across multi-GPU setups
-- **Deduplication workflows**: Parallel processing of document similarity computations  
+- **Deduplication workflows**: Parallel processing of document similarity computations
 - **Resource-intensive stages**: Automatic scaling based on computational demands
 
 ## Choosing a Backend

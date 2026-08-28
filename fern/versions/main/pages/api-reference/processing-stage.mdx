@@ -157,6 +157,19 @@ def num_workers(self) -> int | None:
 
 The exact meaning depends on the executor: Ray Data creates a fixed actor or task pool, Xenna treats it as a cluster-wide count, and Ray Actor Pool caps it to available resource capacity when necessary. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) for the complete backend matrix.
 
+### `num_workers_per_node()`
+
+Return a backend-neutral worker count per alive Ray node. `None` delegates worker sizing to the executor.
+
+```python
+def num_workers_per_node(self) -> float | None:
+    return None
+```
+
+The executor converts the value to a cluster-wide request. Ray Data uses `ceil(num_workers_per_node × alive node count)` and best-effort `SPREAD` placement, Xenna forwards the per-node value directly, and Ray Actor Pool applies the same multiplier before capping the result to available resource capacity. Fractional values are supported; values must be positive.
+
+Like `num_workers`, `num_workers_per_node` is reserved as a method. Override it for a class-level default, or use `stage.with_(num_workers_per_node=...)` for one pipeline instance. Do not combine it with `num_workers()` or Ray Data's `min_workers`, `max_workers`, or `initial_workers` actor-pool keys.
+
 ### `ray_stage_spec()`
 
 Return Ray-specific stage options. Ray Data consumes the worker-pool keys below, while selected flags are also used by Ray Actor Pool. Use the `RayStageSpecKeys` enum rather than spelling keys manually:
@@ -180,12 +193,11 @@ Return Xenna-specific stage options:
 ```python
 def xenna_stage_spec(self) -> dict:
     return {
-        "num_workers_per_node": 2,
         "worker_max_lifetime_m": 45,
     }
 ```
 
-Do not put `num_workers` in this dictionary. Use the common `num_workers()` hook for a cluster-wide Xenna count. `num_workers()` and `num_workers_per_node` cannot be set together.
+Use the common `num_workers()` and `num_workers_per_node()` hooks for portable worker sizing. The legacy `num_workers_per_node` Xenna key remains supported, but do not combine it with either common sizing hook. Do not put `num_workers` in this dictionary.
 
 `task_id` is framework-owned. The executor adapter assigns it after either `process()` or `process_batch()` returns, so custom stages must not set or derive IDs. For deterministic lineage, preserve positional correspondence in batched code: return one task or `None` for every input. A batch that maps multiple inputs to a different number of outputs receives random `r`-prefixed IDs because parentage is ambiguous.
 
@@ -280,7 +292,7 @@ configured_stage = stage.with_(
     resources=Resources(cpus=4.0, gpus=1.0),
     batch_size=8,
     runtime_env={"pip": ["transformers==4.45.0"]},
-    num_workers=4,
+    num_workers_per_node=2,
     # Set the stage spec for the executor you actually run with:
     ray_stage_spec={
         RayStageSpecKeys.RAY_NUM_CPUS: 1.0,
@@ -293,7 +305,7 @@ Both specs are shown together here only to document the arguments. In practice y
 ```python
 # Xenna equivalent
 configured_stage = stage.with_(
-    num_workers=4,
+    num_workers_per_node=2,
     xenna_stage_spec={
         "worker_max_lifetime_m": 45,
     },
@@ -304,10 +316,10 @@ Setting both is harmless — each executor reads only its own spec — but it is
 
 `ray_stage_spec` and `xenna_stage_spec` are shallow-merged: user-provided top-level keys win, while nested dictionaries are replaced rather than recursively merged. An explicit `None` inside a stage-spec dictionary is retained. In contrast, passing the whole `ray_stage_spec=None` or `xenna_stage_spec=None` means no override.
 
-`num_workers` uses an unset sentinel internally, so omission and explicit `None` differ:
+`num_workers` and `num_workers_per_node` use unset sentinels internally, so omission and explicit `None` differ:
 
-- Omitting `num_workers` preserves the stage's current method result.
-- `with_(num_workers=None)` resets an inherited fixed count to executor-controlled behavior.
+- Omitting either argument preserves that method's current result.
+- Passing `None` explicitly resets that method to executor-controlled behavior.
 
 See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) for merge examples, precedence rules, and invalid combinations. See [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) for dependency isolation.
 
