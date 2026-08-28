@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import os
 import time
 from copy import deepcopy
@@ -145,8 +146,8 @@ def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         msg = f"num_workers_per_node() for stage {stage.name} must be a positive number."
         raise TypeError(msg)
-    if value <= 0:
-        msg = f"num_workers_per_node() for stage {stage.name} must be > 0."
+    if value <= 0 or (isinstance(value, float) and not math.isfinite(value)):
+        msg = f"num_workers_per_node() for stage {stage.name} must be finite and > 0."
         raise ValueError(msg)
     return value
 

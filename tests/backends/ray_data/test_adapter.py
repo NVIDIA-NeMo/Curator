@@ -167,7 +167,14 @@ class TestRayDataStageAdapter:
 
     @pytest.mark.parametrize(
         ("value", "error"),
-        [(0, ValueError), (-1, ValueError), (True, TypeError), ("2", TypeError)],
+        [
+            (0, ValueError),
+            (-1, ValueError),
+            (float("nan"), ValueError),
+            (float("inf"), ValueError),
+            (True, TypeError),
+            ("2", TypeError),
+        ],
     )
     def test_num_workers_per_node_rejects_invalid_values(self, value: object, error: type[Exception]):
         stage = ConfigurableTaskStage(num_workers_per_node=value)  # type: ignore[arg-type]
