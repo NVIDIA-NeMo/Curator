@@ -196,7 +196,7 @@ def create_nemotron_parse_pdf_pipeline(
     *,
     inference_server_endpoint: str | None = None,
     inference_server_model_name: str | None = None,
-    inference_server_num_workers: int = 4,
+    inference_server_client_num_workers: int = 4,
 ) -> Pipeline:
     """Build the Nemotron-Parse PDF processing pipeline from parsed arguments."""
     pipeline = Pipeline(
@@ -227,7 +227,7 @@ def create_nemotron_parse_pdf_pipeline(
             url_field=args.url_field,
             inference_server_endpoint=inference_server_endpoint,
             inference_server_model_name=inference_server_model_name,
-            inference_server_num_workers=inference_server_num_workers,
+            inference_server_client_num_workers=inference_server_client_num_workers,
             inference_server_request_timeout_s=getattr(args, "inference_server_request_timeout_s", 300.0),
             inference_server_max_retries=getattr(args, "inference_server_max_retries", 3),
         )

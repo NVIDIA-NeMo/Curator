@@ -378,7 +378,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
 
 
 @dataclass
-class _ServerPageResult:
+class _HTTPPageResult:
     text: str = ""
     prompt_tokens: int = 0
     output_tokens: int = 0
@@ -399,8 +399,8 @@ def _build_multimodal_chat_messages(task_prompt: str, image_url: str) -> list[di
 
 
 @dataclass
-class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
-    """Run Nemotron-Parse through an OpenAI-compatible inference server.
+class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
+    """Call Nemotron-Parse through an OpenAI-compatible HTTP endpoint.
 
     ``model_name`` is the served name used in requests. ``model_path`` is the
     underlying model identifier recorded for postprocessing and defaults to the
@@ -451,7 +451,7 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
         client: AsyncOpenAIClient,
         image_bytes: bytes,
         content_type: str,
-    ) -> _ServerPageResult:
+    ) -> _HTTPPageResult:
         image_url = f"data:{content_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
         messages = _build_multimodal_chat_messages(self.task_prompt or "", image_url)
         try:
@@ -462,18 +462,18 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
             )
         except Exception as error:  # noqa: BLE001
             logger.warning(f"Inference request failed: {error}")
-            return _ServerPageResult(error=str(error))
+            return _HTTPPageResult(error=str(error))
 
         choice = response.choices[0] if response.choices else None
         usage = response.usage
-        return _ServerPageResult(
+        return _HTTPPageResult(
             text=self._response_text(choice) if choice is not None else "",
             prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             finish_reason=getattr(choice, "finish_reason", None) if choice is not None else None,
         )
 
-    async def _query_pages(self, images: list[tuple[bytes, str]]) -> list[_ServerPageResult]:
+    async def _query_pages(self, images: list[tuple[bytes, str]]) -> list[_HTTPPageResult]:
         client = AsyncOpenAIClient(
             max_concurrent_requests=self.inference_batch_size,
             max_retries=self.max_retries,
@@ -495,7 +495,7 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
 
     def _build_metrics(
         self,
-        results: list[_ServerPageResult],
+        results: list[_HTTPPageResult],
         *,
         request_time_s: float,
         num_input_pages: int,

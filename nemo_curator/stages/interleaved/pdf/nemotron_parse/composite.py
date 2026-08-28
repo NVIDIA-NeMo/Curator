@@ -22,7 +22,7 @@ from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL_PATH,
-    NemotronParseInferenceServerStage,
+    NemotronParseHTTPClientStage,
     NemotronParseInferenceStage,
 )
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
@@ -39,7 +39,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
 
     1. :class:`PDFPartitioningStage` — read manifest, create FileGroupTasks
     2. :class:`PDFPreprocessStage` — extract PDFs, render pages to images
-    3. :class:`NemotronParseInferenceStage` — GPU model inference
+    3. :class:`NemotronParseInferenceStage` or :class:`NemotronParseHTTPClientStage` — model inference
     4. :class:`NemotronParsePostprocessStage` — parse output, align, crop
 
     Parameters
@@ -84,7 +84,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     inference_server_endpoint
         OpenAI-compatible inference server endpoint. When omitted, inference
         runs in process.
-    inference_server_num_workers
+    inference_server_client_num_workers
         Number of concurrent HTTP client stage workers.
     """
 
@@ -110,7 +110,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     url_field: str = "url"
     inference_server_endpoint: str | None = None
     inference_server_model_name: str | None = None
-    inference_server_num_workers: int = 4
+    inference_server_client_num_workers: int = 4
     inference_server_request_timeout_s: float = 300.0
     inference_server_max_retries: int = 3
 
@@ -146,10 +146,10 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 enforce_eager=self.enforce_eager,
             )
         else:
-            if self.inference_server_num_workers < 1:
-                msg = "inference_server_num_workers must be at least 1"
+            if self.inference_server_client_num_workers < 1:
+                msg = "inference_server_client_num_workers must be at least 1"
                 raise ValueError(msg)
-            self._inference = NemotronParseInferenceServerStage(
+            self._inference = NemotronParseHTTPClientStage(
                 endpoint=self.inference_server_endpoint,
                 model_name=self.inference_server_model_name or self.model_path,
                 model_path=self.model_path,
@@ -158,7 +158,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 max_retries=self.inference_server_max_retries,
                 inference_batch_size=self.inference_batch_size,
                 max_tokens=self.max_tokens,
-            ).with_(num_workers=self.inference_server_num_workers)
+            ).with_(num_workers=self.inference_server_client_num_workers)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )

@@ -498,12 +498,12 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
         assert stage._proc_size == (100, 100)
 
-    def test_in_process_and_server_sampling_parameters_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_in_process_and_http_client_sampling_parameters_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import sys
         import types
 
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseInferenceServerStage,
+            NemotronParseHTTPClientStage,
             NemotronParseInferenceStage,
         )
         from nemo_curator.utils import vllm_utils
@@ -523,7 +523,7 @@ class TestNemotronParseInferenceStageMetrics:
 
         in_process_stage = NemotronParseInferenceStage(backend="vllm", max_tokens=1234)
         in_process_stage._setup_vllm()
-        server_stage = NemotronParseInferenceServerStage(
+        http_client_stage = NemotronParseHTTPClientStage(
             endpoint="http://localhost:8000/v1",
             model_name="nemotron-parse",
             max_tokens=1234,
@@ -538,33 +538,33 @@ class TestNemotronParseInferenceStageMetrics:
             "skip_special_tokens": False,
             "seed": None,
         }
-        server_config = server_stage._generation_config
-        server_params = {
-            "temperature": server_config.temperature,
-            "top_p": server_config.top_p,
-            "max_tokens": server_config.max_tokens,
-            "seed": server_config.seed,
-            **server_config.extra_kwargs["extra_body"],
+        http_client_config = http_client_stage._generation_config
+        http_client_params = {
+            "temperature": http_client_config.temperature,
+            "top_p": http_client_config.top_p,
+            "max_tokens": http_client_config.max_tokens,
+            "seed": http_client_config.seed,
+            **http_client_config.extra_kwargs["extra_body"],
         }
 
         assert in_process_stage._sampling_params.kwargs == expected
-        assert server_params == expected
+        assert http_client_params == expected
 
-    def test_in_process_and_server_default_to_8192_max_tokens(self) -> None:
+    def test_in_process_and_http_client_default_to_8192_max_tokens(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseInferenceServerStage,
+            NemotronParseHTTPClientStage,
             NemotronParseInferenceStage,
         )
 
         in_process_stage = NemotronParseInferenceStage()
-        server_stage = NemotronParseInferenceServerStage(
+        http_client_stage = NemotronParseHTTPClientStage(
             endpoint="http://localhost:8000/v1",
             model_name="nemotron-parse",
         )
 
         assert in_process_stage.max_tokens == 8192
-        assert server_stage.max_tokens == 8192
-        assert server_stage._generation_config.max_tokens == 8192
+        assert http_client_stage.max_tokens == 8192
+        assert http_client_stage._generation_config.max_tokens == 8192
 
     def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
         """RequestOutput with no completions should yield '' rather than IndexError."""
@@ -594,14 +594,14 @@ class TestNemotronParseInferenceStageMetrics:
             stage._infer_vllm([image])
 
 
-class TestNemotronParseInferenceServerStage:
+class TestNemotronParseHTTPClientStage:
     def test_rejects_non_positive_inference_batch_size(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseInferenceServerStage,
+            NemotronParseHTTPClientStage,
         )
 
         with pytest.raises(ValueError, match="inference_batch_size must be at least 1"):
-            NemotronParseInferenceServerStage(
+            NemotronParseHTTPClientStage(
                 endpoint="http://localhost:8000/v1",
                 model_name="nemotron-parse",
                 inference_batch_size=0,
@@ -609,7 +609,7 @@ class TestNemotronParseInferenceServerStage:
 
     def test_query_pages_runs_up_to_inference_batch_size_concurrently(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseInferenceServerStage,
+            NemotronParseHTTPClientStage,
         )
 
         active_requests = 0
@@ -638,7 +638,7 @@ class TestNemotronParseInferenceServerStage:
             chat=SimpleNamespace(completions=SimpleNamespace(create=create_response)),
             close=AsyncMock(),
         )
-        stage = NemotronParseInferenceServerStage(
+        stage = NemotronParseHTTPClientStage(
             endpoint="http://localhost:8000/v1",
             model_name="nemotron-parse",
         )
@@ -655,7 +655,7 @@ class TestNemotronParseInferenceServerStage:
         import pyarrow as pa
 
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseInferenceServerStage,
+            NemotronParseHTTPClientStage,
         )
         from nemo_curator.tasks import InterleavedBatch
 
@@ -681,7 +681,7 @@ class TestNemotronParseInferenceServerStage:
             choices=[SimpleNamespace(message=SimpleNamespace(content="parsed page"), finish_reason="stop")],
             usage=SimpleNamespace(prompt_tokens=5, completion_tokens=7),
         )
-        stage = NemotronParseInferenceServerStage(
+        stage = NemotronParseHTTPClientStage(
             endpoint="http://localhost:8000/v1",
             model_name="nemotron-parse",
             model_path="/models/NVIDIA-Nemotron-Parse-v1.1",
@@ -708,7 +708,7 @@ class TestNemotronParseInferenceServerStage:
 class TestNemotronParsePipelineFactory:
     def test_creates_one_http_inference_stage_with_configured_workers(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseInferenceServerStage,
+            NemotronParseHTTPClientStage,
             NemotronParseInferenceStage,
         )
         from tutorials.interleaved.nemotron_parse_pdf.main import (
@@ -735,17 +735,17 @@ class TestNemotronParsePipelineFactory:
             args,
             inference_server_endpoint="http://localhost:8000/v1",
             inference_server_model_name="nemotron-parse",
-            inference_server_num_workers=8,
+            inference_server_client_num_workers=8,
         )
         pipeline.build()
 
         inference_stages = [
             stage
             for stage in pipeline.stages
-            if isinstance(stage, (NemotronParseInferenceStage, NemotronParseInferenceServerStage))
+            if isinstance(stage, (NemotronParseInferenceStage, NemotronParseHTTPClientStage))
         ]
         assert len(inference_stages) == 1
-        assert isinstance(inference_stages[0], NemotronParseInferenceServerStage)
+        assert isinstance(inference_stages[0], NemotronParseHTTPClientStage)
         assert inference_stages[0].endpoint == "http://localhost:8000/v1"
         assert inference_stages[0].model_name == "nemotron-parse"
         assert inference_stages[0].inference_batch_size == 32
