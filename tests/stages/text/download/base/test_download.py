@@ -186,6 +186,20 @@ class TestBaseDocumentDownloader:
 class TestDocumentDownloadStage:
     """Test class for DocumentDownloadStage functionality."""
 
+    def test_num_workers_per_node_delegates_to_downloader(self, tmp_path: Path) -> None:
+        class PerNodeMockDownloader(MockDocumentDownloader):
+            def num_workers_per_node(self) -> int:
+                return 4
+
+        stage = DocumentDownloadStage(PerNodeMockDownloader(str(tmp_path)))
+
+        assert stage.num_workers_per_node() == 4
+
+    def test_num_workers_per_node_can_be_overridden(self, tmp_path: Path) -> None:
+        stage = DocumentDownloadStage(MockDocumentDownloader(str(tmp_path))).with_(num_workers_per_node=4)
+
+        assert stage.num_workers_per_node() == 4
+
     def test_stage_properties(self, tmp_path: Path) -> None:
         """Test that stage properties are correctly defined."""
         downloader = MockDocumentDownloader(str(tmp_path), verbose=False)
