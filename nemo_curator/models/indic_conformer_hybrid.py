@@ -337,13 +337,9 @@ class IndicConformerHybridASR:
             raise RuntimeError(msg)
         return hf_hub_download(model_id, files[0])
 
-    @classmethod
-    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
-        """Resolve the checkpoint into the node-local cache without loading it."""
-        if revision is not None:
-            msg = "IndicConformerHybridASR does not support revision pinning"
-            raise ValueError(msg)
-        cls._resolve_nemo_path(model_id)
+    def download_weights_on_node(self) -> None:
+        """Resolve the configured checkpoint into the node-local cache without loading it."""
+        self._resolve_nemo_path(self.model_id)
 
     def load_model(self, *, num_gpus: int) -> None:
         if self._model is not None:
