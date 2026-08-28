@@ -78,6 +78,7 @@ def build_inference_server(
         return InferenceServer(
             models=[model],
             backend=DynamoServerConfig(
+                request_plane="tcp",
                 router=DynamoRouterConfig(router_kwargs=dynamo_router_kwargs or {}),
                 subprocess_env=dynamo_subprocess_env or {},
             ),

@@ -89,6 +89,7 @@ def _server_engine_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "dtype": "bfloat16",
         "limit_mm_per_prompt": {"image": 1},
         "enable_prefix_caching": False,
+        "disable_hybrid_kv_cache_manager": False,
     }
     if args.enforce_eager:
         engine_kwargs["enforce_eager"] = True
@@ -230,6 +231,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 model_runtime_env={"uv": {"packages": ["albumentations==2.0.8"]}},
                 dynamo_kwargs={"enable_multimodal": True},
                 dynamo_router_kwargs={"trust_remote_code": True},
+                dynamo_subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": str(int(args.inference_server_request_timeout_s))},
                 health_check_timeout_s=args.inference_server_health_timeout_s,
             )
             inference_server_startup_s = time.perf_counter() - server_start
