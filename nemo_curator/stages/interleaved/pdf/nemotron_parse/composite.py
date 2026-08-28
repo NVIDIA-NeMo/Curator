@@ -85,8 +85,9 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         OpenAI-compatible inference server endpoint. When omitted, inference
         runs in process.
     inference_server_num_replicas
-        Number of server replicas. The HTTP stage uses four task workers per
-        replica via :meth:`ProcessingStage.with_`.
+        Number of server replicas.
+    inference_server_client_workers_per_replica
+        Number of concurrent HTTP client stage workers per server replica.
     """
 
     manifest_path: str | None = None
@@ -112,6 +113,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     inference_server_endpoint: str | None = None
     inference_server_model_name: str | None = None
     inference_server_num_replicas: int = 1
+    inference_server_client_workers_per_replica: int = 4
     inference_server_request_timeout_s: float = 300.0
     inference_server_max_retries: int = 3
 
@@ -150,6 +152,9 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             if self.inference_server_num_replicas < 1:
                 msg = "inference_server_num_replicas must be at least 1"
                 raise ValueError(msg)
+            if self.inference_server_client_workers_per_replica < 1:
+                msg = "inference_server_client_workers_per_replica must be at least 1"
+                raise ValueError(msg)
             self._inference = NemotronParseInferenceServerStage(
                 endpoint=self.inference_server_endpoint,
                 model_name=self.inference_server_model_name or self.model_path,
@@ -159,7 +164,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 max_retries=self.inference_server_max_retries,
                 inference_batch_size=self.inference_batch_size,
                 max_tokens=self.max_tokens,
-            ).with_(num_workers=4 * self.inference_server_num_replicas)
+            ).with_(num_workers=self.inference_server_client_workers_per_replica * self.inference_server_num_replicas)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )

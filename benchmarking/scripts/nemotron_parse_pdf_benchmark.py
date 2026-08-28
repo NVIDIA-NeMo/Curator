@@ -45,8 +45,6 @@ from main import (
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.tasks.utils import TaskPerfUtils
 
-_INFERENCE_SERVER_CLIENT_WORKERS_PER_REPLICA = 4
-
 
 def _safe_div(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
@@ -72,6 +70,13 @@ def _resolve_num_replicas(configured_num_replicas: int | None) -> int:
         msg = f"The PDF inference server needs at least one GPU, found {num_replicas}."
         raise RuntimeError(msg)
     return num_replicas
+
+
+def _resolve_client_workers_per_replica(configured_workers: int) -> int:
+    if configured_workers < 1:
+        msg = "--inference-server-client-workers-per-replica must be at least 1"
+        raise ValueError(msg)
+    return configured_workers
 
 
 def _available_gpu_count() -> int:
@@ -184,21 +189,14 @@ def _compute_pdf_parse_metrics(
         # for a fixed input; token count is not (dynamic batching shifts where the
         # model emits EOS), so it is asserted as a band rather than an exact value.
         "num_pages_processed": num_valid_pages,
-        "num_input_tokens": total_input_tokens,
         "num_output_tokens": total_output_tokens,
         "num_request_errors": num_request_errors,
         # Stage process time excludes model/server setup. Normalizing the sum
         # across the stage's concurrent workers estimates the active inference
-        # wall time for both in-process and HTTP inference.
-        "inference_stage_process_time_sum_s": inference_stage_process_time_sum_s,
-        "inference_stage_parallelism": float(inference_stage_parallelism),
-        "inference_stage_active_time_s": inference_stage_active_time_s,
-        "inference_stage_gpu_time_s": inference_stage_gpu_time_s,
-        "inference_stage_pages_per_sec": _safe_div(num_valid_pages, inference_stage_active_time_s),
+        # wall time for both in-process and HTTP inference. These intermediate
+        # values are intentionally not exposed as top-level metrics.
         "inference_stage_pages_per_sec_per_gpu": _safe_div(num_valid_pages, inference_stage_gpu_time_s),
-        "inference_stage_input_tokens_per_sec": _safe_div(total_input_tokens, inference_stage_active_time_s),
         "inference_stage_input_tokens_per_sec_per_gpu": _safe_div(total_input_tokens, inference_stage_gpu_time_s),
-        "inference_stage_output_tokens_per_sec": _safe_div(total_output_tokens, inference_stage_active_time_s),
         "inference_stage_output_tokens_per_sec_per_gpu": _safe_div(total_output_tokens, inference_stage_gpu_time_s),
         "throughput_pages_per_sec": throughput_pages_per_sec,
         "throughput_output_tokens_per_sec": throughput_output_tokens_per_sec,
@@ -236,8 +234,11 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         if server_type is not None:
             _validate_inference_server_backend(args.backend)
             num_replicas = _resolve_num_replicas(args.num_replicas)
+            client_workers_per_replica = _resolve_client_workers_per_replica(
+                args.inference_server_client_workers_per_replica
+            )
             num_inference_gpus = num_replicas
-            inference_stage_parallelism = _INFERENCE_SERVER_CLIENT_WORKERS_PER_REPLICA * num_replicas
+            inference_stage_parallelism = client_workers_per_replica * num_replicas
             model_name = args.model_id or args.model_path
             server_engine_kwargs = _server_engine_kwargs(args)
             logger.info(
@@ -263,6 +264,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 inference_server_endpoint=inference_server.endpoint,
                 inference_server_model_name=model_name,
                 inference_server_num_replicas=num_replicas,
+                inference_server_client_workers_per_replica=args.inference_server_client_workers_per_replica,
             )
             logger.info(
                 f"Inference server ready at {inference_server.endpoint} after {inference_server_startup_s:.2f}s"
@@ -316,18 +318,10 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         # requirements always have a value to compare against.
         pdf_parse_metrics = {
             "num_pages_processed": 0.0,
-            "num_input_tokens": 0.0,
             "num_output_tokens": 0.0,
             "num_request_errors": 0.0,
-            "inference_stage_process_time_sum_s": 0.0,
-            "inference_stage_parallelism": float(inference_stage_parallelism),
-            "inference_stage_active_time_s": 0.0,
-            "inference_stage_gpu_time_s": 0.0,
-            "inference_stage_pages_per_sec": 0.0,
             "inference_stage_pages_per_sec_per_gpu": 0.0,
-            "inference_stage_input_tokens_per_sec": 0.0,
             "inference_stage_input_tokens_per_sec_per_gpu": 0.0,
-            "inference_stage_output_tokens_per_sec": 0.0,
             "inference_stage_output_tokens_per_sec_per_gpu": 0.0,
             "throughput_pages_per_sec": 0.0,
             "throughput_output_tokens_per_sec": 0.0,
@@ -353,6 +347,9 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "inference_server_type": server_type,
             "num_replicas": num_replicas,
             "num_inference_gpus": num_inference_gpus,
+            "inference_server_client_workers_per_replica": (
+                args.inference_server_client_workers_per_replica if server_type is not None else None
+            ),
             "pdfs_per_task": args.pdfs_per_task,
             "max_pdfs": args.max_pdfs,
             "dpi": args.dpi,
@@ -404,6 +401,12 @@ def main() -> int:
         type=int,
         default=None,
         help="Inference-server replicas; defaults to the GPU count reported by Ray",
+    )
+    parser.add_argument(
+        "--inference-server-client-workers-per-replica",
+        type=int,
+        default=4,
+        help="Parallel HTTP client stage workers per inference-server replica",
     )
     parser.add_argument(
         "--model-id",

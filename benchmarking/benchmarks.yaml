@@ -1722,6 +1722,7 @@ entries:
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=ray-serve
+      --inference-server-client-workers-per-replica=4
       --enforce-eager
       --pdfs-per-task=20
       --max-pdfs=1278
@@ -1755,6 +1756,7 @@ entries:
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=ray-serve
+      --inference-server-client-workers-per-replica=4
       --inference-batch-size=64
       --enforce-eager
       --pdfs-per-task=20
@@ -1789,6 +1791,7 @@ entries:
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=ray-serve
+      --inference-server-client-workers-per-replica=4
       --inference-batch-size=32
       --enforce-eager
       --pdfs-per-task=20
@@ -1823,6 +1826,7 @@ entries:
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=dynamo
+      --inference-server-client-workers-per-replica=4
       --inference-batch-size=32
       --enforce-eager
       --pdfs-per-task=20
@@ -1857,6 +1861,7 @@ entries:
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=dynamo
+      --inference-server-client-workers-per-replica=4
       --inference-batch-size=64
       --enforce-eager
       --pdfs-per-task=20
@@ -1891,6 +1896,7 @@ entries:
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=dynamo
+      --inference-server-client-workers-per-replica=4
       --enforce-eager
       --pdfs-per-task=20
       --max-pdfs=1278
