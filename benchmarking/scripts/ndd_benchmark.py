@@ -32,13 +32,12 @@ Key args:
 """
 
 import argparse
-import json
 import os
 import time
 from pathlib import Path
 from typing import Any
 
-from inference_server_utils import start_inference_server, static_num_replicas
+from inference_server_utils import parse_json_object, start_inference_server, static_num_replicas
 from loguru import logger
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
@@ -246,9 +245,8 @@ def main() -> int:
     logger.info("=== Nemotron-CC SDG Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
-    # Parse JSON string args
-    engine_kwargs = json.loads(args.engine_kwargs) if args.engine_kwargs else None
-    autoscaling_config = json.loads(args.autoscaling_config) if args.autoscaling_config else None
+    engine_kwargs = parse_json_object(args.engine_kwargs, argument="--engine-kwargs")
+    autoscaling_config = parse_json_object(args.autoscaling_config, argument="--autoscaling-config")
 
     success_code = 1
     result_dict: dict[str, Any] = {

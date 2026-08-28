@@ -30,7 +30,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from inference_server_utils import InferenceServerBackend, start_inference_server
+from inference_server_utils import InferenceServerBackend, parse_json_object, start_inference_server
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
@@ -48,20 +48,6 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 
 def _safe_div(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
-
-
-def _parse_json_object(value: str | None, *, argument: str) -> dict[str, Any]:
-    if value is None:
-        return {}
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as error:
-        msg = f"{argument} must be valid JSON: {error}"
-        raise ValueError(msg) from error
-    if not isinstance(parsed, dict):
-        msg = f"{argument} must decode to a JSON object"
-        raise TypeError(msg)
-    return parsed
 
 
 def _resolve_num_replicas(configured_num_replicas: int | None) -> int:
@@ -100,7 +86,7 @@ def _server_engine_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.enforce_eager:
         engine_kwargs["enforce_eager"] = True
-    engine_kwargs.update(_parse_json_object(args.engine_kwargs, argument="--engine-kwargs"))
+    engine_kwargs.update(parse_json_object(args.engine_kwargs, argument="--engine-kwargs"))
     return engine_kwargs
 
 

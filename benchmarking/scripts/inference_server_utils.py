@@ -18,12 +18,28 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from nemo_curator.core.serve import InferenceServer
 
 InferenceServerBackend = Literal["ray-serve", "dynamo"]
+
+
+def parse_json_object(value: str | None, *, argument: str) -> dict[str, Any]:
+    """Parse an optional command-line JSON object."""
+    if value is None:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as error:
+        msg = f"{argument} must be valid JSON: {error}"
+        raise ValueError(msg) from error
+    if not isinstance(parsed, dict):
+        msg = f"{argument} must decode to a JSON object"
+        raise TypeError(msg)
+    return parsed
 
 
 def static_num_replicas(autoscaling_config: dict[str, Any] | None) -> int:
