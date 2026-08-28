@@ -80,7 +80,8 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import NemotronParsePDFReader
-from nemo_curator.tasks import FileGroupTask, InterleavedBatch
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT_MAX_TOKENS
+from nemo_curator.tasks import FileGroupTask
 
 
 @dataclass
@@ -158,6 +159,7 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     # Inference
     parser.add_argument("--inference-batch-size", type=int, default=4, help="Pages per GPU pass (HF only)")
     parser.add_argument("--max-num-seqs", type=int, default=64, help="Max concurrent sequences (vLLM only)")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Maximum output tokens per page")
     parser.add_argument(
         "--enforce-eager",
         action="store_true",
@@ -187,7 +189,9 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
 def create_nemotron_parse_pdf_pipeline(
     args: argparse.Namespace,
     *,
-    inference_stage: ProcessingStage[InterleavedBatch, InterleavedBatch] | None = None,
+    inference_server_endpoint: str | None = None,
+    inference_server_model_name: str | None = None,
+    inference_server_num_replicas: int = 1,
 ) -> Pipeline:
     """Build the Nemotron-Parse PDF processing pipeline from parsed arguments."""
     pipeline = Pipeline(
@@ -208,6 +212,7 @@ def create_nemotron_parse_pdf_pipeline(
             max_pages=args.max_pages,
             inference_batch_size=args.inference_batch_size,
             max_num_seqs=args.max_num_seqs,
+            max_tokens=args.max_tokens,
             text_in_pic=args.text_in_pic,
             enforce_eager=args.enforce_eager,
             min_crop_px=args.min_crop_size,
@@ -215,7 +220,11 @@ def create_nemotron_parse_pdf_pipeline(
             file_name_field=args.file_name_field,
             file_names_field=args.file_names_field,
             url_field=args.url_field,
-            inference_stage=inference_stage,
+            inference_server_endpoint=inference_server_endpoint,
+            inference_server_model_name=inference_server_model_name,
+            inference_server_num_replicas=inference_server_num_replicas,
+            inference_server_request_timeout_s=getattr(args, "inference_server_request_timeout_s", 300.0),
+            inference_server_max_retries=getattr(args, "inference_server_max_retries", 3),
         )
     )
     pipeline.add_stage(

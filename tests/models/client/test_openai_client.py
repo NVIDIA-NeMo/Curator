@@ -488,6 +488,40 @@ class TestAsyncOpenAIClient:
 
     @pytest.mark.asyncio
     @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
+    async def test_query_model_response_preserves_metadata_and_uses_parent_retries(
+        self, mock_async_openai: Mock
+    ) -> None:
+        call_count = 0
+        expected_response = Mock()
+        expected_response.choices = [Mock()]
+        expected_response.usage = Mock(prompt_tokens=5, completion_tokens=7)
+
+        async def create_response(**_kwargs: object) -> Mock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                error_msg = "429 Rate limit exceeded"
+                raise RuntimeError(error_msg)
+            return expected_response
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.side_effect = create_response
+        mock_async_openai.return_value = mock_client
+        client = AsyncOpenAIClient(max_retries=1, base_delay=0)
+
+        with patch("nemo_curator.models.client.llm_client.asyncio.sleep", new_callable=AsyncMock):
+            response = await client.query_model_response(
+                messages=[{"role": "user", "content": "test"}],
+                model="gpt-4",
+            )
+
+        assert response is expected_response
+        assert response.usage.prompt_tokens == 5
+        assert response.usage.completion_tokens == 7
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
     async def test_concurrent_request_limiting(self, mock_async_openai: Mock) -> None:
         """Test that concurrent requests are properly limited."""
         active_requests = 0

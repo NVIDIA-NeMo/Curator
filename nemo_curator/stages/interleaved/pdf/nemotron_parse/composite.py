@@ -20,7 +20,9 @@ from dataclasses import dataclass
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+    DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL_PATH,
+    NemotronParseInferenceServerStage,
     NemotronParseInferenceStage,
 )
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
@@ -78,9 +80,12 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         JSONL field containing a list of PDF filenames (CC-MAIN style).
     url_field
         JSONL field containing the source URL.
-    inference_stage
-        Optional inference stage override. When omitted, the reader creates an
-        in-process :class:`NemotronParseInferenceStage`.
+    inference_server_endpoint
+        OpenAI-compatible inference server endpoint. When omitted, inference
+        runs in process.
+    inference_server_num_replicas
+        Number of server replicas. The HTTP stage uses four task workers per
+        replica via :meth:`ProcessingStage.with_`.
     """
 
     manifest_path: str | None = None
@@ -95,6 +100,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     max_pages: int = 50
     inference_batch_size: int = 4
     max_num_seqs: int = 64
+    max_tokens: int = DEFAULT_MAX_TOKENS
     text_in_pic: bool = False
     enforce_eager: bool = False
     min_crop_px: int = 10
@@ -102,7 +108,11 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
-    inference_stage: ProcessingStage[InterleavedBatch, InterleavedBatch] | None = None
+    inference_server_endpoint: str | None = None
+    inference_server_model_name: str | None = None
+    inference_server_num_replicas: int = 1
+    inference_server_request_timeout_s: float = 300.0
+    inference_server_max_retries: int = 3
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -125,16 +135,29 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             dpi=self.dpi,
             max_pages=self.max_pages,
         )
-        self._inference = self.inference_stage
-        if self._inference is None:
+        if self.inference_server_endpoint is None:
             self._inference = NemotronParseInferenceStage(
                 model_path=self.model_path,
                 text_in_pic=self.text_in_pic,
                 backend=self.backend,
                 inference_batch_size=self.inference_batch_size,
                 max_num_seqs=self.max_num_seqs,
+                max_tokens=self.max_tokens,
                 enforce_eager=self.enforce_eager,
             )
+        else:
+            if self.inference_server_num_replicas < 1:
+                msg = "inference_server_num_replicas must be at least 1"
+                raise ValueError(msg)
+            self._inference = NemotronParseInferenceServerStage(
+                endpoint=self.inference_server_endpoint,
+                model_name=self.inference_server_model_name or self.model_path,
+                model_path=self.model_path,
+                text_in_pic=self.text_in_pic,
+                request_timeout_s=self.inference_server_request_timeout_s,
+                max_retries=self.inference_server_max_retries,
+                max_tokens=self.max_tokens,
+            ).with_(num_workers=4 * self.inference_server_num_replicas)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )

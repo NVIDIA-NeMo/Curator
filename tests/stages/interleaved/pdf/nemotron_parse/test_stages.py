@@ -22,7 +22,7 @@ import json
 import zipfile
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
@@ -524,8 +524,6 @@ class TestNemotronParseInferenceStageMetrics:
         server_stage = NemotronParseInferenceServerStage(
             endpoint="http://localhost:8000/v1",
             model_name="nemotron-parse",
-            accounting_num_gpus=1,
-            client_num_workers=4,
             max_tokens=1234,
         )
 
@@ -613,13 +611,12 @@ class TestNemotronParseInferenceServerStage:
         stage = NemotronParseInferenceServerStage(
             endpoint="http://localhost:8000/v1",
             model_name="nemotron-parse",
-            accounting_num_gpus=1,
-            client_num_workers=4,
             model_path="/models/NVIDIA-Nemotron-Parse-v1.1",
         )
 
         with patch(
-            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.OpenAIClient.query_model_response",
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.AsyncOpenAIClient.query_model_response",
+            new_callable=AsyncMock,
             return_value=response,
         ):
             result = stage.process(task)
@@ -628,14 +625,19 @@ class TestNemotronParseInferenceServerStage:
         assert result.to_pandas().iloc[0]["text_content"] == "parsed page"
         assert result._metadata["inference_server_endpoint"] == "http://localhost:8000/v1"
         assert result._metadata["model_path"] == "/models/NVIDIA-Nemotron-Parse-v1.1"
+        assert result._metadata["proc_size"] == [2048, 1664]
         assert stage._custom_metrics["total_prompt_tokens"] == 5.0
         assert stage._custom_metrics["total_output_tokens"] == 7.0
         assert stage._custom_metrics["num_request_errors"] == 0.0
+        assert "vllm_inference_time" not in stage._custom_metrics
 
 
 class TestNemotronParsePipelineFactory:
-    def test_uses_injected_inference_stage(self) -> None:
-        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+    def test_creates_one_http_inference_stage_with_replica_scaled_workers(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseInferenceServerStage,
+            NemotronParseInferenceStage,
+        )
         from tutorials.interleaved.nemotron_parse_pdf.main import (
             create_nemotron_parse_pdf_argparser,
             create_nemotron_parse_pdf_pipeline,
@@ -649,11 +651,27 @@ class TestNemotronParsePipelineFactory:
                 "pdfs",
                 "--output-dir",
                 "output",
+                "--max-tokens",
+                "1234",
             ]
         )
-        inference_stage = NemotronParseInferenceStage()
 
-        pipeline = create_nemotron_parse_pdf_pipeline(args, inference_stage=inference_stage)
+        pipeline = create_nemotron_parse_pdf_pipeline(
+            args,
+            inference_server_endpoint="http://localhost:8000/v1",
+            inference_server_model_name="nemotron-parse",
+            inference_server_num_replicas=2,
+        )
         pipeline.build()
 
-        assert pipeline.stages[2] is inference_stage
+        inference_stages = [
+            stage
+            for stage in pipeline.stages
+            if isinstance(stage, (NemotronParseInferenceStage, NemotronParseInferenceServerStage))
+        ]
+        assert len(inference_stages) == 1
+        assert isinstance(inference_stages[0], NemotronParseInferenceServerStage)
+        assert inference_stages[0].endpoint == "http://localhost:8000/v1"
+        assert inference_stages[0].model_name == "nemotron-parse"
+        assert inference_stages[0].max_tokens == 1234
+        assert inference_stages[0].num_workers() == 8

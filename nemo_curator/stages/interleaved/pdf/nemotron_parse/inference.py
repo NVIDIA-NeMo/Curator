@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import io
@@ -29,7 +30,7 @@ from loguru import logger
 from PIL import Image
 
 from nemo_curator.models.client.llm_client import GenerationConfig
-from nemo_curator.models.client.openai_client import OpenAIClient
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
@@ -382,7 +383,6 @@ class _ServerPageResult:
     prompt_tokens: int = 0
     output_tokens: int = 0
     finish_reason: str | None = None
-    retries: int = 0
     error: str | None = None
 
 
@@ -409,8 +409,6 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
 
     endpoint: str
     model_name: str
-    accounting_num_gpus: int
-    client_num_workers: int
     model_path: str | None = None
     text_in_pic: bool = False
     task_prompt: str | None = None
@@ -425,8 +423,6 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
     def __post_init__(self) -> None:
         if self.task_prompt is None:
             self.task_prompt = build_task_prompt(text_in_pic=self.text_in_pic)
-        self.accounting_num_gpus = max(1, int(self.accounting_num_gpus))
-        self.client_num_workers = max(1, int(self.client_num_workers))
         self.max_retries = max(0, int(self.max_retries))
         self._generation_config = _nemotron_parse_server_generation_config(self.max_tokens)
 
@@ -436,69 +432,56 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def num_workers(self) -> int:
-        return self.client_num_workers
-
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_actor_stage": False}
-
-    def setup(self, worker_metadata: dict | None = None) -> None:  # noqa: ARG002
-        self._client = OpenAIClient(
-            api_key="unused",  # pragma: allowlist secret
-            base_url=self.endpoint.rstrip("/"),
-            timeout=self.request_timeout_s,
-        )
-
-    def teardown(self) -> None:
-        if hasattr(self, "_client"):
-            with contextlib.suppress(AttributeError):
-                self._client.client.close()
-            del self._client
-
-    def _get_client(self) -> OpenAIClient:
-        if not hasattr(self, "_client"):
-            self.setup()
-        return self._client
 
     @staticmethod
     def _response_text(choice: object) -> str:
         content = getattr(getattr(choice, "message", None), "content", "")
         return content if isinstance(content, str) else str(content or "")
 
-    def _query_page(self, image_bytes: bytes, content_type: str) -> _ServerPageResult:
+    async def _query_page(
+        self,
+        client: AsyncOpenAIClient,
+        image_bytes: bytes,
+        content_type: str,
+    ) -> _ServerPageResult:
         image_url = f"data:{content_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
         messages = _build_multimodal_chat_messages(self.task_prompt or "", image_url)
-        last_error: Exception | None = None
-
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = self._get_client().query_model_response(
-                    model=self.model_name,
-                    messages=messages,
-                    generation_config=self._generation_config,
-                )
-            except Exception as error:  # noqa: BLE001
-                last_error = error
-                if attempt == self.max_retries:
-                    logger.warning(f"Inference request failed after {attempt + 1} attempt(s): {error}")
-                    break
-                time.sleep(self.retry_base_delay_s * (2**attempt))
-                continue
-
-            choice = response.choices[0] if response.choices else None
-            usage = response.usage
-            return _ServerPageResult(
-                text=self._response_text(choice) if choice is not None else "",
-                prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-                output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-                finish_reason=getattr(choice, "finish_reason", None) if choice is not None else None,
-                retries=attempt,
+        try:
+            response = await client.query_model_response(
+                model=self.model_name,
+                messages=messages,
+                generation_config=self._generation_config,
             )
+        except Exception as error:  # noqa: BLE001
+            logger.warning(f"Inference request failed: {error}")
+            return _ServerPageResult(error=str(error))
 
+        choice = response.choices[0] if response.choices else None
+        usage = response.usage
         return _ServerPageResult(
-            retries=self.max_retries,
-            error=str(last_error) if last_error is not None else "unknown inference error",
+            text=self._response_text(choice) if choice is not None else "",
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            finish_reason=getattr(choice, "finish_reason", None) if choice is not None else None,
         )
+
+    async def _query_pages(self, images: list[tuple[bytes, str]]) -> list[_ServerPageResult]:
+        client = AsyncOpenAIClient(
+            max_concurrent_requests=1,
+            max_retries=self.max_retries,
+            base_delay=self.retry_base_delay_s,
+            api_key="unused",  # pragma: allowlist secret
+            base_url=self.endpoint.rstrip("/"),
+            timeout=self.request_timeout_s,
+        )
+        try:
+            return [await self._query_page(client, image_bytes, content_type) for image_bytes, content_type in images]
+        finally:
+            if hasattr(client, "client"):
+                with contextlib.suppress(Exception):
+                    await client.client.close()
 
     def _build_metrics(
         self,
@@ -511,7 +494,6 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
         total_output_tokens = float(sum(result.output_tokens for result in results))
         total_output_chars = float(sum(len(result.text) for result in results))
         return {
-            "vllm_inference_time": request_time_s * self.accounting_num_gpus,
             "inference_server_request_time": request_time_s,
             "num_input_pages": float(num_input_pages),
             "num_valid_pages": float(num_valid_pages),
@@ -522,7 +504,6 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
             "num_output_length_truncated": float(sum(result.finish_reason == "length" for result in results)),
             "num_empty_outputs": float(sum(not result.text.strip() for result in results)),
             "num_request_errors": float(sum(result.error is not None for result in results)),
-            "vllm_retries": float(sum(result.retries for result in results)),
         }
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
@@ -545,7 +526,7 @@ class NemotronParseInferenceServerStage(ProcessingStage[InterleavedBatch, Interl
             return None
 
         request_start = time.perf_counter()
-        results = [self._query_page(image_bytes, content_type) for image_bytes, content_type in images]
+        results = asyncio.run(self._query_pages(images))
         request_time_s = time.perf_counter() - request_start
         self._log_metrics(
             self._build_metrics(
