@@ -197,7 +197,9 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             )
         )
         pipeline.add_stage(AudioToDocumentStage())
-        pipeline.add_stage(JsonlWriter(path=writer_output_dir, write_kwargs={"force_ascii": False}))
+        pipeline.add_stage(
+            JsonlWriter(path=writer_output_dir, write_kwargs={"force_ascii": False}).with_(num_workers=1)
+        )
 
         executor_config = {"execution_mode": execution_mode} if execution_mode else None
         pipeline.run(setup_executor(executor, config=executor_config))

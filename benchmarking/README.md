@@ -606,7 +606,7 @@ pipeline outputs without rescanning or downloading the staged corpus.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |
-| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), approximately 216,285 unique clips with no repeated rows. |
+| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
