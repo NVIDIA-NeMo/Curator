@@ -35,11 +35,11 @@ Audio-text integration in NeMo Curator operates on several levels:
 
 ```mermaid
 flowchart LR
-    A[Audio Files] --> B[InferenceAsrNemoStage] 
+    A[Audio Files] --> B[ASRStage]
     B --> C[AudioToDocumentStage]
     C --> D[ScoreFilter<br/>Text Processing]
     D --> E[Integrated Output]
-    
+
     style A fill:#e1f5fe
     style C fill:#ffcc02
     style E fill:#fff3e0
@@ -51,12 +51,12 @@ The `AudioToDocumentStage` provides the conversion bridge between audio and text
 
 ```mermaid
 flowchart LR
-    A[Audio Files] --> B[InferenceAsrNemoStage]
+    A[Audio Files] --> B[ASRStage]
     C[Text Data] --> D[ScoreFilter<br/>Text Processing]
     B --> E[Cross-Modal<br/>Quality Assessment]
     D --> E
     E --> F[Filtered Output]
-    
+
     style A fill:#e1f5fe
     style C fill:#e8f5e8
     style F fill:#fff3e0
@@ -68,7 +68,7 @@ flowchart LR
 
 Use audio characteristics to enhance text quality assessment:
 
-**Speech Rate Analysis**: Detect unnaturally fast or slow speech patterns using the `get_wordrate()` function
+**Speech Rate Analysis**: Detect unnaturally fast or slow speech using the `metrics.word_rate` and `metrics.char_rate` fields emitted by `ComputeWERStage`
 
 **Duration-Text Consistency**: Ensure transcription length matches audio duration
 
@@ -100,7 +100,7 @@ Start with audio processing, then apply text curation:
 
 ```mermaid
 flowchart TD
-    A[Audio Files] --> B[InferenceAsrNemoStage<br/>ASR Transcription]
+    A[Audio Files] --> B[ASRStage<br/>ASR Transcription]
     B --> C[GetPairwiseWerStage<br/>Calculate WER Metrics]
     C --> D[ScoreFilter<br/>WER-based Filtering]
     D --> E[AudioToDocumentStage<br/>Convert to DocumentBatch]
@@ -108,15 +108,15 @@ flowchart TD
     F --> G[Filter<br/>Metadata-based Filtering]
     G --> H[Text Enhancement Stages]
     H --> I[Processed Dataset]
-    
+
     style A fill:#e1f5fe
     style E fill:#fff3e0
     style I fill:#e8f5e8
-    
+
     classDef audioStage fill:#bbdefb
     classDef conversionStage fill:#ffcc02
     classDef textStage fill:#c8e6c9
-    
+
     class B,C,D audioStage
     class E conversionStage
     class F,G,H textStage
@@ -137,19 +137,19 @@ flowchart TD
     A[Text Corpus] --> B[ScoreFilter<br/>Text Quality Assessment]
     B --> C[Filter<br/>Initial Text Filtering]
     C --> D[Audio File Matching<br/>Custom Stage]
-    D --> E[InferenceAsrNemoStage<br/>ASR Validation]
+    D --> E[ASRStage<br/>ASR Validation]
     E --> F[GetPairwiseWerStage<br/>Cross-Modal Metrics]
     F --> G[ScoreFilter<br/>Consistency Filtering]
     G --> H[Validated Dataset]
-    
+
     style A fill:#e8f5e8
     style D fill:#fff3e0
     style H fill:#e1f5fe
-    
+
     classDef textStage fill:#c8e6c9
     classDef matchingStage fill:#ffcc02
     classDef audioStage fill:#bbdefb
-    
+
     class B,C textStage
     class D matchingStage
     class E,F,G audioStage
@@ -178,19 +178,19 @@ converter = AudioToDocumentStage()
 # Example input AudioTask data
 audio_data = {
     "audio_filepath": "/audio.wav",
-    "text": "ground truth", 
+    "text": "ground truth",
     "pred_text": "asr prediction",
-    "wer": 15.2,
+    "wer_pct": 15.2,
     "duration": 3.4
 }
 
 # The stage returns a list containing one DocumentBatch
 # with the same fields preserved as pandas DataFrame
-document_batches = converter.process(audio_task)
+document_batches = converter.process_batch([audio_task])
 document_batch = document_batches[0]  # Extract the single DocumentBatch
 
 # All fields are preserved in the DocumentBatch:
-# - audio_filepath, text, pred_text, wer, duration
+# - audio_filepath, text, pred_text, wer_pct, duration
 ```
 
 **Note**: A built-in `DocumentBatch` to `AudioTask` conversion stage is not provided. Create a custom stage if you need reverse conversion.
@@ -205,11 +205,11 @@ For practical usage examples and step-by-step implementation, refer to [Text int
 # Stage 1: Initial loading
 stage1_output = {"audio_filepath": "/audio.wav", "text": "transcription"}
 
-# Stage 2: ASR inference  
+# Stage 2: ASR inference
 stage2_output = {**stage1_output, "pred_text": "asr result"}
 
 # Stage 3: Quality assessment
-stage3_output = {**stage2_output, "wer": 15.2, "duration": 3.4}
+stage3_output = {**stage2_output, "wer_pct": 15.2, "duration": 3.4}
 
 # Stage 4: Text processing (after conversion)
 stage4_output = {**stage3_output, "word_count": 6, "language": "en"}
@@ -229,9 +229,9 @@ NeMo Curator provides these audio quality assessment capabilities:
 
 **Duration and Speech Rate Analysis**:
 
-- Duration validation using `GetAudioDurationStage`  
-- Speech rate calculation using `get_wordrate()` function
-- Character rate calculation using `get_charrate()` function
+- Duration validation using `GetAudioDurationStage`
+- Speech rate calculation through `ComputeWERStage` (`metrics.word_rate`)
+- Character rate calculation through `ComputeWERStage` (`metrics.char_rate`)
 
 **Individual Quality Dimensions**:
 
@@ -263,7 +263,7 @@ NeMo Curator provides these audio quality assessment capabilities:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.filters import ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import WordCountFilter  # Example filter
@@ -275,7 +275,11 @@ text_quality_filter = WordCountFilter(min_words=10)
 audio_pipeline = Pipeline(
     name="audio_processing",
     stages=[
-        InferenceAsrNemoStage(model_name="stt_en_fastconformer_transducer_large"),
+        ASRStage(
+            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            model_id="nvidia/stt_en_fastconformer_transducer_large",
+            audio_filepath_key="audio_filepath",
+        ),
         AudioToDocumentStage()
     ]
 )
@@ -283,7 +287,7 @@ audio_results = audio_pipeline.run(executor)
 
 # Then process text
 text_pipeline = Pipeline(
-    name="text_processing", 
+    name="text_processing",
     stages=[
         ScoreFilter(filter_obj=text_quality_filter)
     ]
@@ -298,7 +302,11 @@ final_results = text_pipeline.run(executor, initial_tasks=audio_results)
 from nemo_curator.pipeline import Pipeline
 
 pipeline = Pipeline(name="audio_text", stages=[
-    InferenceAsrNemoStage(model_name="stt_en_fastconformer_transducer_large"),
+    ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_transducer_large",
+        audio_filepath_key="audio_filepath",
+    ),
     GetPairwiseWerStage(),
     AudioToDocumentStage(),
     ScoreFilter(filter_obj=text_quality_filter)

@@ -68,32 +68,30 @@ with open("my_audio_manifest.jsonl", "w") as f:
 
 ## Loading Manifests in Pipelines
 
-### Using JsonlReader
+### Using ManifestReader
 
-Load your custom manifest using the built-in `JsonlReader`:
+Load your custom manifest as `AudioTask` objects using the built-in `ManifestReader`:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 
 # Create pipeline
 pipeline = Pipeline(name="custom_audio_processing")
 
-# Load custom manifest (produces DocumentBatch)
+# Load custom manifest (produces AudioTask objects)
 pipeline.add_stage(
-    JsonlReader(
-        file_paths="my_audio_manifest.jsonl",
-        fields=["audio_filepath", "text"]
-    )
+    ManifestReader(manifest_path="my_audio_manifest.jsonl")
 )
 
-# ASR inference (consumes DocumentBatch, produces AudioTask)
+# ASR inference consumes and returns AudioTask objects
 pipeline.add_stage(
-    InferenceAsrNemoStage(
-        model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
-        filepath_key="audio_filepath",
+    ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+        audio_filepath_key="audio_filepath",
         pred_text_key="pred_text"
     )
 )
@@ -101,9 +99,9 @@ pipeline.add_stage(
 # Calculate WER between ground truth and prediction
 pipeline.add_stage(
     GetPairwiseWerStage(
-        text_key="text", 
-        pred_text_key="pred_text", 
-        wer_key="wer"
+        text_key="text",
+        pred_text_key="pred_text",
+        wer_key="wer_pct",
     )
 )
 ```
@@ -128,47 +126,46 @@ else:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeline:
     """Create pipeline for custom audio manifest processing."""
-    
+
     pipeline = Pipeline(name="custom_audio_processing")
-    
+
     # Load custom manifest
-    pipeline.add_stage(JsonlReader(
-        file_paths=manifest_path,
-        fields=["audio_filepath", "text"]
-    ))
-    
+    pipeline.add_stage(ManifestReader(manifest_path=manifest_path))
+
     # ASR processing
-    pipeline.add_stage(InferenceAsrNemoStage(
-        model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+    pipeline.add_stage(ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+        audio_filepath_key="audio_filepath",
     ))
-    
+
     # Quality assessment
     pipeline.add_stage(GetPairwiseWerStage())
     pipeline.add_stage(GetAudioDurationStage(
         audio_filepath_key="audio_filepath",
         duration_key="duration"
     ))
-    
+
     # Filter by quality (keep WER &lt;= 40%)
     pipeline.add_stage(PreserveByValueStage(
-        input_value_key="wer",
+        input_value_key="wer_pct",
         target_value=40.0,
         operator="le"
     ))
-    
+
     # Export results
     pipeline.add_stage(AudioToDocumentStage())
     pipeline.add_stage(JsonlWriter(path=output_path))
-    
+
     return pipeline
 
 # Usage
