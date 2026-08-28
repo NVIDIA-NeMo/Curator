@@ -974,12 +974,6 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
       --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
-      --chunk-len=6
-      --chunk-left-context=1
-      --chunk-right-context=7
-      --fifo-len=188
-      --spkcache-update-period=144
-      --spkcache-len=188
       --executor=xenna
       --rttm-out-dir={session_entry_dir}/scratch/rttm
     timeout_s: 1800
@@ -1010,12 +1004,6 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
       --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
-      --chunk-len=6
-      --chunk-left-context=1
-      --chunk-right-context=7
-      --fifo-len=188
-      --spkcache-update-period=144
-      --spkcache-len=188
       --executor=ray_data
       --rttm-out-dir={session_entry_dir}/scratch/rttm
     timeout_s: 1800
