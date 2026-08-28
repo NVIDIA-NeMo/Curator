@@ -21,8 +21,8 @@ NeMo Curator's audio curation pipeline supports several output formats tailored 
 The primary output format for audio curation is JSONL (JSON Lines):
 
 ```json
-{"audio_filepath": "/data/audio/sample_001.wav", "text": "hello world", "pred_text": "hello world", "wer": 0.0, "duration": 2.1}
-{"audio_filepath": "/data/audio/sample_002.wav", "text": "good morning", "pred_text": "good morning", "wer": 0.0, "duration": 1.8}
+{"audio_filepath": "/data/audio/sample_001.wav", "text": "hello world", "pred_text": "hello world", "wer_pct": 0.0, "duration": 2.1}
+{"audio_filepath": "/data/audio/sample_002.wav", "text": "good morning", "pred_text": "good morning", "wer_pct": 0.0, "duration": 1.8}
 ```
 
 ### Metadata Fields
@@ -34,7 +34,7 @@ Standard fields included in audio manifests:
 | `audio_filepath` | string | Absolute path to audio file |
 | `text` | string | Ground truth transcription |
 | `pred_text` | string | ASR model prediction |
-| `wer` | float | Word Error Rate percentage |
+| `wer_pct` | float | Word Error Rate percentage from `GetPairwiseWerStage` |
 | `duration` | float | Audio duration in seconds |
 | `language` | string | Language identifier (optional) |
 
@@ -89,19 +89,19 @@ from nemo_curator.stages.audio.common import PreserveByValueStage
 quality_filters = [
     # Keep samples with WER &lt;= 50%
     PreserveByValueStage(
-        input_value_key="wer",
+        input_value_key="wer_pct",
         target_value=50.0,
         operator="le"
     ),
     # Keep samples with duration 1-30 seconds
     PreserveByValueStage(
-        input_value_key="duration", 
+        input_value_key="duration",
         target_value=1.0,
         operator="ge"
     ),
     PreserveByValueStage(
         input_value_key="duration",
-        target_value=30.0, 
+        target_value=30.0,
         operator="le"
     )
 ]

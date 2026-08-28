@@ -75,8 +75,8 @@ Import all necessary stages and components for the audio curation pipeline:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -87,7 +87,7 @@ from nemo_curator.stages.resources import Resources
 - `Pipeline`: Container for organizing and executing processing stages
 - `XennaExecutor`: Backend executor for running the pipeline
 - `CreateInitialManifestFleursStage`: Downloads and prepares FLEURS dataset
-- `InferenceAsrNemoStage`: Runs ASR inference with NeMo models
+- `ASRStage`: Runs ASR inference with NeMo models
 - `GetPairwiseWerStage`: Calculates Word Error Rate
 - `PreserveByValueStage`: Filters data based on threshold values
 - `JsonlWriter`: Exports results in JSONL format
@@ -99,9 +99,9 @@ Build the audio curation pipeline by adding stages in sequence:
 ```python
 def create_audio_pipeline(args):
     """Create audio curation pipeline."""
-    
+
     pipeline = Pipeline(name="audio_inference", description="Process FLEURS dataset with ASR")
-    
+
     # Stage 1: Load FLEURS dataset
     pipeline.add_stage(
         CreateInitialManifestFleursStage(
@@ -110,24 +110,26 @@ def create_audio_pipeline(args):
             raw_data_dir=args.raw_data_dir
         ).with_(batch_size=4)  # Process 4 samples per batch
     )
-    
+
     # Stage 2: ASR inference
     pipeline.add_stage(
-        InferenceAsrNemoStage(
-            model_name=args.model_name,  # e.g., "nvidia/stt_hy_fastconformer_hybrid_large_pc"
-            pred_text_key="pred_text"  # Field name for ASR predictions
+        ASRStage(
+            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            model_id=args.model_name,  # e.g., "nvidia/stt_hy_fastconformer_hybrid_large_pc"
+            audio_filepath_key="audio_filepath",
+            pred_text_key="pred_text",  # Field name for ASR predictions
         ).with_(resources=Resources(gpus=1.0))  # Allocate 1 GPU
     )
-    
+
     # Stage 3: Calculate WER
     pipeline.add_stage(
         GetPairwiseWerStage(
             text_key="text",           # Ground truth field
             pred_text_key="pred_text", # ASR prediction field
-            wer_key="wer"             # Output WER field
+            wer_key="wer_pct",         # Output WER percentage field
         )
     )
-    
+
     # Stage 4: Extract duration
     pipeline.add_stage(
         GetAudioDurationStage(
@@ -135,19 +137,19 @@ def create_audio_pipeline(args):
             duration_key="duration"
         )
     )
-    
+
     # Stage 5: Filter by WER threshold
     pipeline.add_stage(
         PreserveByValueStage(
-            input_value_key="wer",
+            input_value_key="wer_pct",
             target_value=args.wer_threshold,  # e.g., 75.0
             operator="le"  # less than or equal
         )
     )
-    
+
     # Stage 6: Convert to DocumentBatch for export
     pipeline.add_stage(AudioToDocumentStage())
-    
+
     # Stage 7: Export results
     result_dir = f"{args.raw_data_dir}/result"
     pipeline.add_stage(
@@ -156,13 +158,13 @@ def create_audio_pipeline(args):
             write_kwargs={"force_ascii": False}
         )
     )
-    
+
     return pipeline
 ```
 
 **Stage explanations:**
 1. **CreateInitialManifestFleursStage**: Downloads FLEURS dataset from Hugging Face and creates audio manifest
-2. **InferenceAsrNemoStage**: Loads NeMo ASR model and generates transcriptions (requires GPU)
+2. **ASRStage**: Loads NeMo ASR model and generates transcriptions (requires GPU)
 3. **GetPairwiseWerStage**: Compares ground truth and predictions to calculate WER
 4. **GetAudioDurationStage**: Reads audio files to extract duration metadata
 5. **PreserveByValueStage**: Filters samples, keeping only those with WER ≤ threshold
@@ -182,18 +184,18 @@ def main():
         raw_data_dir = "/data/fleurs_output"
         model_name = "nvidia/stt_hy_fastconformer_hybrid_large_pc"
         wer_threshold = 75.0
-    
+
     args = Args()
-    
+
     # Create pipeline
     pipeline = create_audio_pipeline(args)
-    
+
     # Create executor
     executor = XennaExecutor()
-    
+
     # Run pipeline
     pipeline.run(executor)
-    
+
     print("Pipeline completed!")
     print(f"Results saved to: {args.raw_data_dir}/result/")
 
@@ -261,8 +263,8 @@ Example output entry:
 {
     "audio_filepath": "/data/fleurs_output/dev/sample.wav",
     "text": "բարև աշխարհ",
-    "pred_text": "բարև աշխարհ", 
-    "wer": 0.0,
+    "pred_text": "բարև աշխարհ",
+    "wer_pct": 0.0,
     "duration": 2.3
 }
 ```
@@ -271,7 +273,7 @@ Example output entry:
 - `audio_filepath`: Absolute path to audio file
 - `text`: Ground truth transcription from FLEURS
 - `pred_text`: ASR model prediction
-- `wer`: Word Error Rate percentage (0.0 = perfect match)
+- `wer_pct`: Word Error Rate percentage (0.0 = perfect match)
 - `duration`: Audio duration in seconds
 
 **Analyzing results:**
@@ -283,7 +285,7 @@ cat /data/fleurs_output/result/*.jsonl | wc -l
 head -n 5 /data/fleurs_output/result/*.jsonl | jq .
 
 # Calculate average WER
-cat /data/fleurs_output/result/*.jsonl | jq -r '.wer' | awk '{sum+=$1; count+=1} END {print "Average WER:", sum/count "%"}'
+cat /data/fleurs_output/result/*.jsonl | jq -r '.wer_pct' | awk '{sum+=$1; count+=1} END {print "Average WER:", sum/count "%"}'
 ```
 
 **Using Python:**
@@ -304,9 +306,9 @@ df = pd.DataFrame(data)
 
 # Summary statistics
 print(f"Total samples: {len(df)}")
-print(f"Average WER: {df['wer'].mean():.2f}%")
+print(f"Average WER: {df['wer_pct'].mean():.2f}%")
 print(f"Average duration: {df['duration'].mean():.2f}s")
-print(f"WER range: {df['wer'].min():.2f}% - {df['wer'].max():.2f}%")
+print(f"WER range: {df['wer_pct'].min():.2f}% - {df['wer_pct'].max():.2f}%")
 ```
 
 ## Troubleshooting
@@ -349,9 +351,9 @@ OSError: Model 'nvidia/stt_...' not found
 ### Performance Optimization
 
 - **Increase batch size** for faster processing (if GPU memory allows)
-- **Use multiple GPUs** by setting `Resources(gpus=2.0)` or higher
+- **Scale across GPUs** by running more workers with `Resources(gpus=1.0)` per NeMo ASR worker
 - **Process subset of data** by using `split="dev"` (smaller than "train")
-- **Skip ASR inference** if you already have both predicted and target transcriptions. (remove InferenceAsrNemoStage)
+- **Skip ASR inference** if you already have both predicted and target transcriptions. (remove ASRStage)
 
 ## Next Steps
 

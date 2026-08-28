@@ -43,12 +43,12 @@ audio_task = AudioTask(data={
     "audio_filepath": "/data/audio/sample.wav",
     "text": "ground truth text",
     "pred_text": "asr predicted text",
-    "wer": 12.5,
+    "wer_pct": 12.5,
     "duration": 3.2
 })
 
 # Output: DocumentBatch with pandas DataFrame
-document_batches = converter.process(audio_task)
+document_batches = converter.process_batch([audio_task])
 document_batch = document_batches[0]
 
 # Access the converted data
@@ -89,8 +89,8 @@ The most common use case is adding `AudioToDocumentStage` at the end of your aud
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -107,8 +107,10 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 ).with_(batch_size=8))
 
 # 2. Run ASR inference
-pipeline.add_stage(InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
+pipeline.add_stage(ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    audio_filepath_key="audio_filepath",
     pred_text_key="pred_text"
 ).with_(resources=Resources(gpus=1.0)))
 
@@ -116,7 +118,7 @@ pipeline.add_stage(InferenceAsrNemoStage(
 pipeline.add_stage(GetPairwiseWerStage(
     text_key="text",
     pred_text_key="pred_text",
-    wer_key="wer"
+    wer_key="wer_pct",
 ))
 pipeline.add_stage(GetAudioDurationStage(
     audio_filepath_key="audio_filepath",
@@ -137,8 +139,8 @@ pipeline.run(executor)
 **Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with all fields:
 
 ```json
-{"audio_filepath": "/data/audio/sample1.wav", "text": "hello world", "pred_text": "hello world", "wer": 0.0, "duration": 1.5}
-{"audio_filepath": "/data/audio/sample2.wav", "text": "test audio", "pred_text": "test odio", "wer": 50.0, "duration": 2.1}
+{"audio_filepath": "/data/audio/sample1.wav", "text": "hello world", "pred_text": "hello world", "wer_pct": 0.0, "duration": 1.5}
+{"audio_filepath": "/data/audio/sample2.wav", "text": "test audio", "pred_text": "test odio", "wer_pct": 50.0, "duration": 2.1}
 ```
 
 ## Custom Integration
@@ -163,8 +165,8 @@ def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
     df = df[df['pred_text'].str.len() &gt; 10]  # Keep transcriptions &gt;10 chars
 
     # Example: Filter by WER if available
-    if 'wer' in df.columns:
-        df = df[df['wer'] < 50.0]  # Keep WER < 50%
+    if 'wer_pct' in df.columns:
+        df = df[df['wer_pct'] < 50.0]  # Keep WER < 50%
 
     return DocumentBatch(
         data=df,

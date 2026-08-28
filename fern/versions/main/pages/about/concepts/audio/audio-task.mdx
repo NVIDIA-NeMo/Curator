@@ -82,7 +82,7 @@ audio_sample = {
 
     # Fields added by processing stages
     "pred_text": "asr prediction",    # Added by ASR inference stages
-    "wer": 12.5,                     # Added by GetPairwiseWerStage
+    "wer_pct": 12.5,                 # Added by GetPairwiseWerStage
     "duration": 3.2,                 # Added by GetAudioDurationStage
 
     # Optional user-provided metadata
@@ -140,7 +140,7 @@ Audio stages follow two processing patterns:
 | Pattern | Stages | Method |
 |---------|--------|--------|
 | **Per-task** | CPU stages (`GetAudioDurationStage`, `GetPairwiseWerStage`) | `process(task) → AudioTask` — mutates `task.data` in-place |
-| **Batched** | GPU stages (`InferenceAsrNemoStage`), IO stages (`AudioToDocumentStage`), filtering (`PreserveByValueStage`) | `process_batch(tasks) → list[AudioTask]` |
+| **Batched** | GPU stages (`ASRStage`), IO stages (`AudioToDocumentStage`), filtering (`PreserveByValueStage`) | `process_batch(tasks) → list[AudioTask]` |
 
 ## Integration with Processing Stages
 

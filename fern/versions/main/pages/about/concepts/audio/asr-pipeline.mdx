@@ -90,7 +90,7 @@ graph TD
 
 ```python
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.audio.common import ManifestReader
 
 # Data loading from datasets (e.g., FLEURS)
 fleurs_stage = CreateInitialManifestFleursStage(
@@ -100,9 +100,7 @@ fleurs_stage = CreateInitialManifestFleursStage(
 )
 
 # Or load from custom manifest files
-manifest_reader = JsonlReader(
-    input_file_path="/path/to/manifest.jsonl"
-)
+manifest_reader = ManifestReader(manifest_path="/path/to/manifest.jsonl")
 
 # Stages automatically create AudioTask objects from loaded data
 ```
@@ -110,16 +108,15 @@ manifest_reader = JsonlReader(
 ### Stage 2: ASR Model Setup
 
 ```python
-# Model initialization
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+
+# The executor caches weights on each node and loads one adapter per worker.
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    audio_filepath_key="audio_filepath",
+    batch_size=16,
 )
-
-# GPU/CPU device selection (based on configured resources)
-device = asr_stage.check_cuda()
-
-# Model loading
-asr_stage.setup()  # Downloads and loads model
 ```
 
 ### Stage 3: Transcription Generation
@@ -140,7 +137,7 @@ results = pipeline.run(executor)
 wer_stage = GetPairwiseWerStage(
     text_key="text",
     pred_text_key="pred_text",
-    wer_key="wer"
+    wer_key="wer_pct",
 )
 
 # Duration analysis
@@ -193,10 +190,13 @@ duration_stage = GetAudioDurationStage(
 
 ```python
 # Optimize for memory-constrained environments
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_small"  # Smaller model
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_ctc_large",
+    audio_filepath_key="audio_filepath",
+    batch_size=8,
 ).with_(
-    resources=Resources(gpus=0.5)  # Request fractional GPU using executor/backends
+    resources=Resources(gpus=1.0),
 )
 ```
 
@@ -204,8 +204,10 @@ asr_stage = InferenceAsrNemoStage(
 
 ```python
 # Configure resources for processing
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    audio_filepath_key="audio_filepath",
 ).with_(
     resources=Resources(gpus=1.0)  # Dedicated GPU
 )
@@ -236,7 +238,11 @@ The ASR pipeline seamlessly integrates with text processing workflows:
 ```python
 # Audio → Text pipeline
 audio_to_text = [
-    InferenceAsrNemoStage(),  # Audio → Transcriptions
+    ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_ctc_large",
+        audio_filepath_key="audio_filepath",
+    ),  # Audio → Transcriptions
     AudioToDocumentStage(),   # AudioTask → DocumentBatch
     # Continue with text processing stages...
 ]

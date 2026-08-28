@@ -31,20 +31,21 @@ example_model = "nvidia/parakeet-tdt-0.6b-v2"
 ### Simple ASR Inference
 
 ```python
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 # Create ASR inference stage with a model from NeMo Framework
-asr_stage = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name",  # Select from NeMo Framework docs
-    filepath_key="audio_filepath",
-    pred_text_key="pred_text"
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/parakeet-tdt-0.6b-v2",
+    audio_filepath_key="audio_filepath",
+    pred_text_key="pred_text",
+    batch_size=16,
 )
 
 # Configure for GPU processing
 asr_stage = asr_stage.with_(
     resources=Resources(gpus=1.0),
-    batch_size=16
 )
 ```
 
@@ -52,26 +53,30 @@ asr_stage = asr_stage.with_(
 
 ```python
 # Example with custom field names
-custom_asr = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name",
-    filepath_key="custom_audio_path",
-    pred_text_key="transcription"
-).with_(
+custom_asr = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/parakeet-tdt-0.6b-v2",
+    audio_filepath_key="custom_audio_path",
+    pred_text_key="transcription",
     batch_size=32,
-    resources=Resources(cpus=4.0, gpus=1.0)
+).with_(
+    resources=Resources(cpus=4.0, gpus=1.0),
 )
 ```
 
 ## Model Caching
 
-Models are automatically downloaded and cached when first loaded:
+The executor downloads and caches model weights once per node, then loads one adapter in each worker:
 
 ```python
-# Models are cached automatically on first use
-asr_stage = InferenceAsrNemoStage(model_name="your_chosen_model_name")
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/parakeet-tdt-0.6b-v2",
+    audio_filepath_key="audio_filepath",
+)
 
-# The setup() method handles model downloading and caching
-asr_stage.setup()
+# Add the stage to a Pipeline and run it through an executor. Do not call
+# setup() or process_batch() directly; the executor owns worker lifecycle.
 ```
 
 ## Resource Configuration
@@ -82,27 +87,20 @@ Configure GPU and CPU resources based on your hardware:
 from nemo_curator.stages.resources import Resources
 
 # Single GPU configuration
-asr_stage = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name"
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/parakeet-tdt-0.6b-v2",
+    audio_filepath_key="audio_filepath",
+    batch_size=16,
 ).with_(
     resources=Resources(
         cpus=4.0,
-        gpu_memory_gb=8.0  # Adjust based on your model's requirements
+        gpus=1.0,
     ),
-    batch_size=16
-)
-
-# Multi-GPU configuration
-multi_gpu_stage = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name"
-).with_(
-    resources=Resources(
-        cpus=8.0,
-        gpus=2.0  # Use 2 GPUs
-    ),
-    batch_size=32
 )
 ```
+
+`NeMoASRAdapter` uses zero or one GPU per worker. Scale throughput by allowing the executor to run more one-GPU workers instead of assigning multiple GPUs to one stage instance.
 
 <Note>
 Resource requirements vary by model. Test with your specific model to determine optimal settings.
