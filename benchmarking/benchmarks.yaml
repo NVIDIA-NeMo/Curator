@@ -74,7 +74,7 @@ datasets:
   - name: "videos"
     formats:
     - type: "mp4"
-      path: "{datasets_path}/sample4k"
+      path: "{datasets_path}/openvid-1m/sample4k"
   - name: "videos_model_weights"
     formats:
     - type: "files"
