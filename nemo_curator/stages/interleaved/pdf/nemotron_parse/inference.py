@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GPU inference stage for Nemotron-Parse."""
+"""In-process and HTTP inference stages for Nemotron-Parse."""
 
 from __future__ import annotations
 
@@ -392,8 +392,10 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
 
     ``model_name`` is the served name used in requests. ``model_path`` is the
     underlying model identifier recorded for postprocessing and defaults to the
-    served name. ``inference_batch_size`` caps concurrent page requests, while
-    ``proc_size`` must match the served model's image processor.
+    served name. ``inference_batch_size`` caps concurrent page requests from
+    each worker; use 32 or 64 with a Dynamo-backed server as the starting point
+    for production PDF pipelines. ``proc_size`` must match the served model's
+    image processor.
     """
 
     endpoint: str

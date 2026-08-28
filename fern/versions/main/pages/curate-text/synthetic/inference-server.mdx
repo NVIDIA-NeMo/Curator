@@ -47,6 +47,9 @@ the NVIDIA package index.
 
 Local GPU serving through this extra supports **x86_64 Linux** and **aarch64
 Linux**. The vLLM, ai-dynamo, and NIXL dependencies are not installed on macOS.
+The NeMo Curator container also includes the `etcd` and `nats-server` binaries
+that Dynamo starts. Install those binaries separately when using a source
+environment outside the container, or configure existing endpoints.
 
 The stack uses:
 
@@ -310,7 +313,6 @@ backend = DynamoServerConfig(
     router=DynamoRouterConfig(
         mode="kv",
         kv_events=False,
-        router_kwargs={"dyn_chat_processor": "vllm"},
     ),
 )
 ```
@@ -327,15 +329,9 @@ backend = DynamoServerConfig(
 
 Additional `router_kwargs` are forwarded to the Dynamo frontend. Do not put `router_mode` or `router_kv_events` in that dictionary; use the typed fields instead. Boolean false values are emitted as `--no-*` flags.
 
-For multimodal OpenAI content arrays, the Dynamo frontend can require:
-
-```python
-DynamoRouterConfig(
-    router_kwargs={"dyn_chat_processor": "vllm"},
-)
-```
-
-The worker also needs its model-specific multimodal settings, such as `limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in `dynamo_kwargs`.
+Multimodal workers need their model-specific settings, such as
+`limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in
+`dynamo_kwargs`. Use Dynamo's default frontend processing path.
 
 ## Runtime Environments and Subprocess Variables
 
@@ -407,6 +403,15 @@ with InferenceServer(models=[model]) as server:
 ```
 
 CPU-only pipelines can use any executor while the server is active.
+
+<Tip>
+For Nemotron-Parse PDF pipelines, use the Dynamo backend with
+`NemotronParseHTTPClientStage`. Start with one model replica per GPU, a fixed
+HTTP stage pool of `4 * num_gpus` workers, and 32 concurrent requests per HTTP
+worker; try 64 when the server has scheduling headroom. The
+[Nemotron-Parse PDF guide](/curate-text/load-data/nemotron-parse-pdf) provides
+the exact install and run commands.
+</Tip>
 
 ## Migrate from `InferenceModelConfig`
 

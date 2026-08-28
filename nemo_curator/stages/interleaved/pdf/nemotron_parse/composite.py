@@ -66,7 +66,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         Maximum pages to render per PDF.
     inference_batch_size
         Pages per GPU forward pass for HF, or maximum concurrent page requests
-        for an inference server.
+        from each HTTP client worker for an inference server. Use 32 or 64 for
+        production inference-server pipelines.
     max_num_seqs
         Maximum concurrent sequences (vLLM only).
     text_in_pic
@@ -82,10 +83,12 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     url_field
         JSONL field containing the source URL.
     inference_server_endpoint
-        OpenAI-compatible inference server endpoint. When omitted, inference
-        runs in process.
+        OpenAI-compatible inference server endpoint. A Dynamo-backed server is
+        the recommended production topology; when omitted, inference runs in
+        process.
     inference_server_client_num_workers
-        Number of concurrent HTTP client stage workers.
+        Fixed number of concurrent HTTP client stage workers. Use four times
+        the number of inference GPUs.
     """
 
     manifest_path: str | None = None

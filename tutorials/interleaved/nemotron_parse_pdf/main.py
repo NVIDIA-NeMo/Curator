@@ -26,8 +26,10 @@ Pipeline stages::
     2. PDFPreprocessStage             (FileGroupTask -> InterleavedBatch) [CPU]
        Extracts PDF bytes (from directory or zip), renders pages to images.
 
-    3. NemotronParseInferenceStage    (InterleavedBatch -> InterleavedBatch) [GPU]
-       Runs Nemotron-Parse model inference on page images.
+    3. NemotronParseInferenceStage or NemotronParseHTTPClientStage
+       (InterleavedBatch -> InterleavedBatch)
+       Runs Nemotron-Parse in process or calls an OpenAI-compatible inference
+       server. The inference-server path is recommended for production.
 
     4. NemotronParsePostprocessStage  (InterleavedBatch -> InterleavedBatch) [CPU]
        Parses model output, aligns images/captions, crops, builds rows.
@@ -59,9 +61,13 @@ Usage::
     python main.py --zip-base-dir /path/to/zipfiles --manifest manifest.jsonl \\
         --output-dir ./output
 
-    # With vLLM backend (recommended for throughput)
+    # Small in-process vLLM run
     python main.py --pdf-dir /path/to/pdfs --manifest manifest.jsonl \\
         --output-dir ./output --backend vllm
+
+For production, run ``dynamo.py``. It starts a Dynamo ``InferenceServer`` and
+calls ``create_nemotron_parse_pdf_pipeline`` with four HTTP stage workers per
+inference GPU and ``--inference-batch-size`` set to 32 or 64.
 """
 
 from __future__ import annotations
@@ -198,7 +204,12 @@ def create_nemotron_parse_pdf_pipeline(
     inference_server_model_name: str | None = None,
     inference_server_client_num_workers: int = 4,
 ) -> Pipeline:
-    """Build the Nemotron-Parse PDF processing pipeline from parsed arguments."""
+    """Build the PDF pipeline, optionally using a recommended inference server.
+
+    For an inference-server deployment, set
+    ``inference_server_client_num_workers`` to four times the number of serving
+    GPUs and set ``args.inference_batch_size`` to 32 or 64.
+    """
     pipeline = Pipeline(
         name="nemotron_parse_pdf",
         description="PDF -> Nemotron-Parse -> Interleaved Parquet",
