@@ -73,9 +73,9 @@ uses those fields to retain and explain rows that could not be transcribed.
 | `model_id` | `nvidia/stt_en_fastconformer_ctc_large` | Any compatible pretrained NeMo ASR checkpoint |
 | `pred_text_key` | `pred_text` | Output transcript column |
 | `gpus_per_actor` | `1` | GPUs scheduled for each ASR worker; set `0` for CPU |
-| `stages.2.batch_size` | `16` | Backend candidate-row window and policy-off fallback adapter-call cap |
-| `stages.2.adapter_batch_size` | `null` | Optional adapter-call cap when local bucketing is absent or disabled |
-| `stages.2.batch_policy` | `null` | Optional local duration/cost policy instantiated inside each candidate window |
+| `stages.2.batch_size` | `16` | Backend candidate-row window and fallback adapter-call cap when `batch_policy` is `null` |
+| `stages.2.adapter_batch_size` | `null` | Optional adapter-call cap when local bucketing is absent |
+| `stages.2.batch_policy` | `null` | Optional local audio-duration policy applied inside each `process_batch` call |
 | `stages.2.max_inference_duration_s` | `2400` | Model-input ceiling; longer parent rows are segmented before batching and stitched afterward |
 | `stages.2.adapter_kwargs.num_workers` | `0` | NeMo transcription data-loader workers |
 | `stages.2.adapter_kwargs.enable_local_attention` | `false` | Convert a compatible FastConformer checkpoint to local attention |
@@ -129,7 +129,7 @@ audio to the configured `target_sample_rate` before calling the adapter.
 | Symptom | Action |
 |---|---|
 | `ffmpeg` is not found | Install `ffmpeg` and ensure it is on `PATH` |
-| CUDA out of memory | Reduce the active policy's item/cost caps, set `stages.2.adapter_batch_size`, or reduce `stages.2.batch_size` |
+| CUDA out of memory | Reduce the active policy's item/audio-second caps, set `stages.2.adapter_batch_size`, or reduce `stages.2.batch_size` |
 | Model import fails | Install `audio_cuda12` or `audio_cpu` for your platform |
 | First run appears idle | Wait for the NeMo checkpoint download and inspect the Ray logs |
 | Local-attention conversion fails | Disable it or use a FastConformer checkpoint exposing the required conversion APIs |

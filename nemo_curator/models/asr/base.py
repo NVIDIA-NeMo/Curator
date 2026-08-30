@@ -75,8 +75,6 @@ class ASRAdapter(Protocol):
     * ``language_code`` (``str | None``): original language code from the
       configured stage input column.
     * ``task_id`` (``str | None``): carried through for diagnostics.
-    * ``chunk_idx`` / ``chunk_count`` (``int``): this chunk's position within
-      the parent row after model-safe segmentation.
 
     Attributes:
         model_id: Identifier of the underlying model checkpoint.

@@ -142,25 +142,6 @@ def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     assert len(kwargs["audio"]) == 2
 
 
-@pytest.mark.parametrize(
-    ("item", "expected"),
-    [
-        ({"estimated_vram_units": 7, "estimated_encoder_tokens": 5, "audio_seconds": 2.0}, 7.0),
-        ({"estimated_encoder_tokens": 5, "audio_seconds": 2.0}, 5.0),
-        ({"audio_seconds": 2.0}, 2.0),
-        ({"audio_seconds": -2.0}, 0.0),
-        ({}, None),
-    ],
-)
-def test_estimate_item_cost_uses_the_first_available_non_negative_cost(
-    item: dict[str, object],
-    expected: float | None,
-) -> None:
-    adapter = NeMoASRAdapter()
-
-    assert adapter.estimate_item_cost(item) == expected
-
-
 def test_asr_stage_drives_nemo_adapter_with_exact_local_batches() -> None:
     model = _mock_model([])
     model.transcribe.side_effect = [

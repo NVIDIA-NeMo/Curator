@@ -22,7 +22,6 @@ predictions. The concrete adapter is resolved at runtime from
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from numbers import Real
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -122,7 +121,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     Audio longer than ``max_inference_duration_s`` is first split into
     model-safe chunks and stitched back to one result per parent row. An
     optional ``batch_policy`` then locally re-partitions those chunks in each
-    backend-provided ``process_batch`` call into duration/cost-coherent adapter
+    backend-provided ``process_batch`` call into duration-coherent adapter
     calls. It does not change backend scheduling or move batching across worker
     calls.
     """
@@ -394,8 +393,6 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                         "language": item["language"],
                         "language_code": item["language_code"],
                         "task_id": item["task_id"],
-                        "chunk_idx": segment.index,
-                        "chunk_count": segment.count,
                     }
                 )
 
@@ -455,8 +452,8 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             raise RuntimeError(msg)
 
         policy = self.batch_policy
-        if policy is not None and policy.enabled:
-            sub_batches = policy.bucketize(items, cost_fn=self.item_cost)
+        if policy is not None:
+            sub_batches = policy.bucketize(items)
         else:
             cap_source = self.adapter_batch_size if self.adapter_batch_size is not None else self.batch_size
             cap = max(1, int(cap_source))
@@ -481,22 +478,6 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             msg = "Local batch planning did not produce a result for every supported item"
             raise RuntimeError(msg)
         return [result for result in aligned if result is not None]
-
-    def item_cost(self, item: dict[str, Any]) -> float:
-        """Return the local bucketing cost for one prepared adapter item."""
-        estimator = getattr(self._adapter, "estimate_item_cost", None)
-        if callable(estimator):
-            try:
-                estimated = estimator(item)
-                if isinstance(estimated, Real):
-                    return max(0.0, float(estimated))
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("ASR adapter cost estimator failed; falling back to duration cost: {}", exc)
-        for key in ("estimated_vram_units", "estimated_encoder_tokens"):
-            value = item.get(key)
-            if value is not None:
-                return max(0.0, float(value))
-        return max(0.0, float(item.get("audio_seconds", 0.0)))
 
     def assemble(
         self,
