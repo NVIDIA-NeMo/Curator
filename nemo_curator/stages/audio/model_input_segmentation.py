@@ -20,7 +20,6 @@ separate packing step that consumes these bounded units.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 
@@ -28,8 +27,6 @@ from dataclasses import dataclass
 class AudioSegment:
     """One contiguous audio model-input segment in sample coordinates."""
 
-    index: int
-    count: int
     start_sample: int
     stop_sample: int
     duration_s: float
@@ -68,8 +65,6 @@ def plan_audio_segments(
     if num_samples <= 0:
         return (
             AudioSegment(
-                index=0,
-                count=1,
                 start_sample=0,
                 stop_sample=0,
                 duration_s=0.0,
@@ -78,27 +73,15 @@ def plan_audio_segments(
 
     max_samples = max(1, int(maximum * float(sample_rate)))
     starts = list(range(0, int(num_samples), max_samples))
-    count = max(1, len(starts))
     segments: list[AudioSegment] = []
-    for index, start in enumerate(starts):
+    for start in starts:
         stop = min(start + max_samples, int(num_samples))
         duration_s = float(stop - start) / float(sample_rate)
         segments.append(
             AudioSegment(
-                index=index,
-                count=count,
                 start_sample=start,
                 stop_sample=stop,
                 duration_s=duration_s,
             )
         )
     return tuple(segments)
-
-
-def duration_to_num_samples(duration_s: float, sample_rate: int) -> int:
-    """Return ceil(duration_s * sample_rate) with non-negative duration."""
-
-    if sample_rate <= 0:
-        msg = f"sample_rate must be > 0, got {sample_rate}"
-        raise ValueError(msg)
-    return math.ceil(max(float(duration_s), 0.0) * float(sample_rate))
