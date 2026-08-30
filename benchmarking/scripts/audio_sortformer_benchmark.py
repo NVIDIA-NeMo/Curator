@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark Streaming Sortformer on unique public AMI SDM meetings."""
+"""Benchmark Streaming Sortformer on fixed-duration public audio bundles."""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     data_dir = Path(raw_data_dir)
     source_manifest = data_dir / "manifest.jsonl"
     audio_dir = data_dir / "audio"
-    input_manifest = Path(scratch_output_path) / "audio_sortformer_ami_sdm" / "manifest.jsonl"
+    input_manifest = Path(scratch_output_path) / "audio_sortformer_librispeech" / "manifest.jsonl"
     num_input_rows, total_duration_s = _write_staged_manifest(source_manifest, input_manifest, audio_dir)
     logger.info(f"Benchmark results path: {benchmark_results_path}")
 
@@ -117,7 +117,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     run_start_time = time.perf_counter()
     pipeline = Pipeline(
         name="audio_sortformer_diarization",
-        description="Unique AMI SDM meetings -> Streaming Sortformer diarization",
+        description="Unique LibriSpeech bundles -> Streaming Sortformer diarization",
     )
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest)))
     pipeline.add_stage(
@@ -132,7 +132,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     output_metrics = _validate_outputs(results, num_input_rows)
     total_audio_hours = total_duration_s / 3600
 
-    logger.success(f"Processed all {num_input_rows} unique AMI meetings")
+    logger.success(f"Processed all {num_input_rows} unique LibriSpeech bundles")
     return {
         "metrics": {
             "is_success": True,
@@ -150,7 +150,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audio Sortformer benchmark on pre-staged meeting audio")
+    parser = argparse.ArgumentParser(description="Audio Sortformer benchmark on pre-staged public audio")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
     parser.add_argument("--scratch-output-path", required=True, help="Path for the rewritten input manifest")
     parser.add_argument("--raw-data-dir", required=True, help="Directory containing manifest.jsonl and audio/")

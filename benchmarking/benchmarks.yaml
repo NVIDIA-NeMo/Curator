@@ -147,11 +147,11 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
-  # Pinned public AMI SDM validation, test, and train prefix: 44 meetings, about 24.94 audio hours.
-  - name: "audio_sortformer_ami_sdm"
+  # 1,800 fixed 15-minute bundles from pinned public CC-BY-4.0 LibriSpeech: 450 audio hours.
+  - name: "audio_sortformer_librispeech_450h"
     formats:
     - type: "files"
-      path: "{datasets_path}/audio_sortformer_ami_sdm_8cdaae2_25h"
+      path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -965,14 +965,14 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
-  # Both backends process the same 44-meeting public cohort with stage-owned defaults.
+  # Both backends process the same public cohort with stage-owned defaults.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
+      --raw-data-dir={dataset:audio_sortformer_librispeech_450h,files}
       --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
       --executor=xenna
       --rttm-out-dir={session_entry_dir}/scratch/rttm
@@ -986,13 +986,13 @@ entries:
           - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_input_rows
-        exact_value: 44
+        exact_value: 1800
       - metric: num_output_rows
-        exact_value: 44
+        exact_value: 1800
       - metric: num_tasks_with_segments
-        exact_value: 44
+        exact_value: 1800
       - metric: total_audio_duration_hours
-        min_value: 24.9
+        exact_value: 450.0
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
@@ -1002,7 +1002,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:audio_sortformer_ami_sdm,files}
+      --raw-data-dir={dataset:audio_sortformer_librispeech_450h,files}
       --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
       --executor=ray_data
       --rttm-out-dir={session_entry_dir}/scratch/rttm
@@ -1016,13 +1016,13 @@ entries:
           - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_input_rows
-        exact_value: 44
+        exact_value: 1800
       - metric: num_output_rows
-        exact_value: 44
+        exact_value: 1800
       - metric: num_tasks_with_segments
-        exact_value: 44
+        exact_value: 1800
       - metric: total_audio_duration_hours
-        min_value: 24.9
+        exact_value: 450.0
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
