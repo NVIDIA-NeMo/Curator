@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from typing import Any
 
 import pytest
@@ -27,41 +28,26 @@ from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
     ("kwargs", "expected_exception", "match"),
     [
         ({"buckets_sec": []}, ValueError, "must contain at least one edge"),
-        ({"buckets_sec": [1.0], "max_items_per_batch_by_bucket": [1]}, ValueError, "must start at 0.0"),
+        ({"buckets_sec": [1.0]}, ValueError, "must start at 0.0"),
         (
-            {"buckets_sec": [0.0, 10.0, 10.0], "max_items_per_batch_by_bucket": [1, 1, 1]},
+            {"buckets_sec": [0.0, 10.0, 10.0]},
             ValueError,
             "must be strictly increasing",
         ),
         (
-            {"buckets_sec": [0.0, "10"], "max_items_per_batch_by_bucket": [1, 1]},
+            {"buckets_sec": [0.0, "10"]},
             TypeError,
             "buckets_sec entry must be numeric",
         ),
         (
-            {"buckets_sec": [0.0, -1.0], "max_items_per_batch_by_bucket": [1, 1]},
+            {"buckets_sec": [0.0, -1.0]},
             ValueError,
             "must be finite and non-negative",
         ),
         (
-            {"buckets_sec": [0.0, float("inf")], "max_items_per_batch_by_bucket": [1, 1]},
+            {"buckets_sec": [0.0, float("inf")]},
             ValueError,
             "must be finite and non-negative",
-        ),
-        (
-            {"buckets_sec": [0.0, 10.0], "max_items_per_batch_by_bucket": [1]},
-            ValueError,
-            "lengths must match",
-        ),
-        (
-            {"max_items_per_batch_by_bucket": [32, 16, 8, True]},
-            TypeError,
-            "max_items_per_batch_by_bucket entry must be an int",
-        ),
-        (
-            {"max_items_per_batch_by_bucket": [32, 16, 8, 0]},
-            ValueError,
-            "max_items_per_batch_by_bucket entry must be > 0",
         ),
         ({"max_audio_sec_per_batch": True}, TypeError, "max_audio_sec_per_batch must be numeric or None"),
         ({"max_audio_sec_per_batch": 0.0}, ValueError, "max_audio_sec_per_batch must be finite and > 0"),
@@ -77,6 +63,13 @@ def test_batch_policy_rejects_invalid_configuration(
         BatchPolicy(**kwargs)
 
 
+def test_batch_policy_exposes_only_audio_duration_configuration() -> None:
+    assert [field.name for field in fields(BatchPolicy)] == [
+        "buckets_sec",
+        "max_audio_sec_per_batch",
+    ]
+
+
 def test_batch_policy_accepts_no_total_audio_cap() -> None:
     policy = BatchPolicy(max_audio_sec_per_batch=None)
 
@@ -84,10 +77,7 @@ def test_batch_policy_accepts_no_total_audio_cap() -> None:
 
 
 def test_bucket_for_uses_left_edge_boundaries_and_clamps_above_top_edge() -> None:
-    policy = BatchPolicy(
-        buckets_sec=[0.0, 60.0, 600.0],
-        max_items_per_batch_by_bucket=[10, 5, 1],
-    )
+    policy = BatchPolicy(buckets_sec=[0.0, 60.0, 600.0])
 
     assert policy.bucket_for(0.0) == 0
     assert policy.bucket_for(59.999) == 0
@@ -122,7 +112,6 @@ def test_bucketize_rejects_invalid_item_audio_seconds(
 def test_bucketize_groups_by_duration_and_orders_heaviest_calls_first() -> None:
     policy = BatchPolicy(
         buckets_sec=[0.0, 60.0],
-        max_items_per_batch_by_bucket=[4, 4],
         max_audio_sec_per_batch=None,
     )
     items = [
@@ -137,10 +126,9 @@ def test_bucketize_groups_by_duration_and_orders_heaviest_calls_first() -> None:
     ]
 
 
-def test_bucketize_applies_each_buckets_distinct_item_cap() -> None:
+def test_bucketize_keeps_one_call_per_duration_bucket_without_audio_cap() -> None:
     policy = BatchPolicy(
         buckets_sec=[0.0, 10.0],
-        max_items_per_batch_by_bucket=[3, 1],
         max_audio_sec_per_batch=None,
     )
     items = [
@@ -151,13 +139,12 @@ def test_bucketize_applies_each_buckets_distinct_item_cap() -> None:
         {"audio_seconds": 11.0},
     ]
 
-    assert [indices for indices, _batch in policy.bucketize(items)] == [[4], [3], [0, 1, 2]]
+    assert [indices for indices, _batch in policy.bucketize(items)] == [[3, 4], [0, 1, 2]]
 
 
 def test_bucketize_splits_calls_at_total_audio_seconds_cap() -> None:
     policy = BatchPolicy(
         buckets_sec=[0.0],
-        max_items_per_batch_by_bucket=[10],
         max_audio_sec_per_batch=100.0,
     )
     items = [
@@ -176,7 +163,6 @@ def test_bucketize_splits_calls_at_total_audio_seconds_cap() -> None:
 def test_bucketize_emits_single_item_above_total_audio_seconds_cap_without_loss() -> None:
     policy = BatchPolicy(
         buckets_sec=[0.0],
-        max_items_per_batch_by_bucket=[8],
         max_audio_sec_per_batch=50.0,
     )
     items = [{"audio_seconds": 80.0}, {"audio_seconds": 10.0}]
@@ -194,7 +180,6 @@ def test_bucketize_empty_input_returns_no_calls() -> None:
 def test_bucketize_returns_every_item_once_with_original_indices_and_relative_order() -> None:
     policy = BatchPolicy(
         buckets_sec=[0.0, 10.0, 100.0],
-        max_items_per_batch_by_bucket=[2, 2, 1],
         max_audio_sec_per_batch=None,
     )
     items = [
@@ -209,7 +194,7 @@ def test_bucketize_returns_every_item_once_with_original_indices_and_relative_or
 
     plan = policy.bucketize(items)
 
-    assert [indices for indices, _batch in plan] == [[1], [4], [2, 5], [0, 3], [6]]
+    assert [indices for indices, _batch in plan] == [[1, 4], [2, 5], [0, 3, 6]]
     planned_indices = [index for indices, _batch in plan for index in indices]
     assert sorted(planned_indices) == list(range(len(items)))
     for indices, batch in plan:
