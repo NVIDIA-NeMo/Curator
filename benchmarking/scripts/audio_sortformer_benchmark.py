@@ -34,14 +34,6 @@ from nemo_curator.stages.resources import Resources
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
 
-DEFAULT_CHUNK_LEN = 6
-DEFAULT_CHUNK_LEFT_CONTEXT = 1
-DEFAULT_CHUNK_RIGHT_CONTEXT = 7
-DEFAULT_FIFO_LEN = 188
-DEFAULT_SPKCACHE_UPDATE_PERIOD = 144
-DEFAULT_SPKCACHE_LEN = 188
-
-
 def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> tuple[int, float]:
     target_manifest.parent.mkdir(parents=True, exist_ok=True)
     num_rows = 0
@@ -109,12 +101,6 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     scratch_output_path: str,
     raw_data_dir: str,
     model_path: str,
-    chunk_len: int = DEFAULT_CHUNK_LEN,
-    chunk_left_context: int = DEFAULT_CHUNK_LEFT_CONTEXT,
-    chunk_right_context: int = DEFAULT_CHUNK_RIGHT_CONTEXT,
-    fifo_len: int = DEFAULT_FIFO_LEN,
-    spkcache_update_period: int = DEFAULT_SPKCACHE_UPDATE_PERIOD,
-    spkcache_len: int = DEFAULT_SPKCACHE_LEN,
     rttm_out_dir: str | None = None,
     executor: str = "xenna",
 ) -> dict[str, Any]:
@@ -137,12 +123,6 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
         InferenceSortformerStage(
             model_path=model_path,
             rttm_out_dir=rttm_out_dir,
-            chunk_len=chunk_len,
-            chunk_left_context=chunk_left_context,
-            chunk_right_context=chunk_right_context,
-            fifo_len=fifo_len,
-            spkcache_update_period=spkcache_update_period,
-            spkcache_len=spkcache_len,
         ).with_(resources=Resources(gpus=1))
     )
     logger.info(pipeline.describe())
@@ -174,12 +154,6 @@ def main() -> int:
     parser.add_argument("--scratch-output-path", required=True, help="Path for the rewritten input manifest")
     parser.add_argument("--raw-data-dir", required=True, help="Directory containing manifest.jsonl and audio/")
     parser.add_argument("--model-path", required=True, help="Pre-staged local Sortformer .nemo checkpoint")
-    parser.add_argument("--chunk-len", type=int, default=DEFAULT_CHUNK_LEN)
-    parser.add_argument("--chunk-left-context", type=int, default=DEFAULT_CHUNK_LEFT_CONTEXT)
-    parser.add_argument("--chunk-right-context", type=int, default=DEFAULT_CHUNK_RIGHT_CONTEXT)
-    parser.add_argument("--fifo-len", type=int, default=DEFAULT_FIFO_LEN)
-    parser.add_argument("--spkcache-update-period", type=int, default=DEFAULT_SPKCACHE_UPDATE_PERIOD)
-    parser.add_argument("--spkcache-len", type=int, default=DEFAULT_SPKCACHE_LEN)
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"])
     parser.add_argument("--rttm-out-dir", default=None)
     args = parser.parse_args()

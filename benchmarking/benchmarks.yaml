@@ -965,7 +965,7 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
-  # The 44-meeting public cohort targets about 11 minutes on 8 nightly GPUs.
+  # Both backends process the same 44-meeting public cohort with stage-owned defaults.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
