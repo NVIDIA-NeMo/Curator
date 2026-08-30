@@ -34,6 +34,7 @@ from nemo_curator.stages.resources import Resources
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
 
+
 def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> tuple[int, float]:
     target_manifest.parent.mkdir(parents=True, exist_ok=True)
     num_rows = 0
