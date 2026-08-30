@@ -451,15 +451,27 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             msg = "Adapter not initialized - setup() was not called"
             raise RuntimeError(msg)
 
+        cap_source = self.adapter_batch_size if self.adapter_batch_size is not None else self.batch_size
+        adapter_cap = max(1, int(cap_source))
         policy = self.batch_policy
         if policy is not None:
-            sub_batches = policy.bucketize(items)
-        else:
-            cap_source = self.adapter_batch_size if self.adapter_batch_size is not None else self.batch_size
-            cap = max(1, int(cap_source))
+            planned_batches = policy.bucketize(items)
             sub_batches = [
-                (list(range(start, min(start + cap, len(items)))), items[start : start + cap])
-                for start in range(0, len(items), cap)
+                (indices[start : start + adapter_cap], sub_items[start : start + adapter_cap])
+                for indices, sub_items in planned_batches
+                for start in range(0, len(sub_items), adapter_cap)
+            ]
+            sub_batches.sort(
+                key=lambda batch: sum(float(item["audio_seconds"]) for item in batch[1]),
+                reverse=True,
+            )
+        else:
+            sub_batches = [
+                (
+                    list(range(start, min(start + adapter_cap, len(items)))),
+                    items[start : start + adapter_cap],
+                )
+                for start in range(0, len(items), adapter_cap)
             ]
 
         aligned: list[ASRResult | None] = [None] * len(items)

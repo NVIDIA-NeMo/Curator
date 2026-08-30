@@ -156,7 +156,6 @@ def test_multi_task_batch_preserves_order() -> None:
 def test_local_batch_policy_controls_adapter_calls_and_restores_task_order() -> None:
     policy = BatchPolicy(
         buckets_sec=[0, 10, 30],
-        max_items_per_batch_by_bucket=[4, 4, 4],
         max_audio_sec_per_batch=None,
     )
     stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
@@ -181,25 +180,29 @@ def test_local_batch_policy_controls_adapter_calls_and_restores_task_order() -> 
 
 
 @pytest.mark.parametrize(
-    ("max_items_per_batch", "max_audio_sec_per_batch", "durations", "expected_call_durations"),
+    ("adapter_batch_size", "max_audio_sec_per_batch", "durations", "expected_call_durations"),
     [
         (2, None, [1.0, 1.0, 1.0], [[1.0, 1.0], [1.0]]),
-        (8, 3.0, [1.0, 2.0, 2.0], [[1.0, 2.0], [2.0]]),
+        (None, 3.0, [1.0, 2.0, 2.0], [[1.0, 2.0], [2.0]]),
     ],
-    ids=["item-cap", "total-audio-seconds-cap"],
+    ids=["adapter-cap", "total-audio-seconds-cap"],
 )
-def test_local_batch_policy_respects_each_dispatch_cap(
-    max_items_per_batch: int,
+def test_local_batch_policy_respects_adapter_and_audio_caps(
+    adapter_batch_size: int | None,
     max_audio_sec_per_batch: float | None,
     durations: list[float],
     expected_call_durations: list[list[float]],
 ) -> None:
     policy = BatchPolicy(
         buckets_sec=[0],
-        max_items_per_batch_by_bucket=[max_items_per_batch],
         max_audio_sec_per_batch=max_audio_sec_per_batch,
     )
-    stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        adapter_batch_size=adapter_batch_size,
+        batch_policy=policy,
+    )
     tasks = [_make_waveform_task(waveform=np.zeros(int(duration * _SR), dtype=np.float32)) for duration in durations]
     for index, task in enumerate(tasks):
         task.task_id = f"task-{index}"
@@ -219,7 +222,6 @@ def test_local_batch_policy_respects_each_dispatch_cap(
 def test_local_batch_policy_is_scoped_to_each_process_batch_call() -> None:
     policy = BatchPolicy(
         buckets_sec=[0],
-        max_items_per_batch_by_bucket=[2],
         max_audio_sec_per_batch=None,
     )
     stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
@@ -324,7 +326,6 @@ def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
     sample_rate = 10
     policy = BatchPolicy(
         buckets_sec=[0, 10, 120],
-        max_items_per_batch_by_bucket=[32, 16, 2],
         max_audio_sec_per_batch=240.0,
     )
     stage = _make_stage(

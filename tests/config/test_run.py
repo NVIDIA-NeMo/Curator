@@ -633,7 +633,6 @@ def test_nemo_fastconformer_tutorial_accepts_local_batch_policy_config() -> None
                 "+stages.2.max_inference_duration_s=120.0",
                 "+stages.2.batch_policy._target_=nemo_curator.stages.audio.inference.batch_policy.BatchPolicy",
                 "+stages.2.batch_policy.buckets_sec=[0,30,60]",
-                "+stages.2.batch_policy.max_items_per_batch_by_bucket=[16,8,4]",
                 "+stages.2.batch_policy.max_audio_sec_per_batch=120",
             ],
         )
@@ -644,7 +643,6 @@ def test_nemo_fastconformer_tutorial_accepts_local_batch_policy_config() -> None
     assert stage.max_inference_duration_s == 120.0
     assert isinstance(stage.batch_policy, BatchPolicy)
     assert stage.batch_policy.buckets_sec == [0, 30, 60]
-    assert stage.batch_policy.max_items_per_batch_by_bucket == [16, 8, 4]
     assert stage.batch_policy.max_audio_sec_per_batch == 120
 
 

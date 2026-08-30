@@ -158,7 +158,6 @@ def test_asr_stage_drives_nemo_adapter_with_exact_local_batches() -> None:
         keep_waveform=True,
         batch_policy=BatchPolicy(
             buckets_sec=[0, 2],
-            max_items_per_batch_by_bucket=[4, 4],
             max_audio_sec_per_batch=None,
         ),
     )
