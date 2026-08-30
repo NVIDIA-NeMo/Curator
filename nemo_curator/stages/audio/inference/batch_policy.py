@@ -16,8 +16,8 @@
 
 BatchPolicy only re-partitions the model-input items supplied by one
 ASRStage.process_batch call. Every item is assigned from its audio_seconds
-value, split by the configured item and duration caps, and returned with its
-original index so the stage can restore parent-row order.
+value, split by the configured duration cap, and returned with its original
+index so the stage can restore parent-row order.
 """
 
 from __future__ import annotations
@@ -36,19 +36,16 @@ class BatchPolicy:
         buckets_sec: Strictly increasing left edges beginning at zero. Bucket
             i covers [buckets_sec[i], buckets_sec[i + 1]); the last bucket has
             no upper bound.
-        max_items_per_batch_by_bucket: Per-bucket item caps. Its length must
-            equal the number of bucket edges.
         max_audio_sec_per_batch: Optional total audio-duration cap for each
             adapter call. A single item over this cap is still emitted alone.
     """
 
     buckets_sec: list[float] = field(default_factory=lambda: [0.0, 600.0, 1200.0, 2400.0])
-    max_items_per_batch_by_bucket: list[int] = field(default_factory=lambda: [32, 16, 8, 4])
     max_audio_sec_per_batch: float | None = 2400.0
 
     def __post_init__(self) -> None:
         self._validate_bucket_edges()
-        self._validate_batch_caps()
+        self._validate_audio_cap()
 
     @property
     def num_buckets(self) -> int:
@@ -80,8 +77,7 @@ class BatchPolicy:
             by_bucket[self.bucket_for(audio_seconds)].append((index, item, audio_seconds))
 
         planned: list[tuple[float, list[int], list[dict[str, Any]]]] = []
-        for bucket_index, bucket_items in enumerate(by_bucket):
-            item_cap = self.max_items_per_batch_by_bucket[bucket_index]
+        for bucket_items in by_bucket:
             current_indices: list[int] = []
             current_items: list[dict[str, Any]] = []
             current_audio_seconds = 0.0
@@ -100,7 +96,7 @@ class BatchPolicy:
                     and bool(current_items)
                     and current_audio_seconds + audio_seconds > self.max_audio_sec_per_batch
                 )
-                if len(current_items) >= item_cap or duration_overflow:
+                if duration_overflow:
                     emit_current()
 
                 current_indices.append(index)
@@ -109,7 +105,7 @@ class BatchPolicy:
                 duration_cap_reached = (
                     self.max_audio_sec_per_batch is not None and current_audio_seconds >= self.max_audio_sec_per_batch
                 )
-                if len(current_items) >= item_cap or duration_cap_reached:
+                if duration_cap_reached:
                     emit_current()
 
             emit_current()
@@ -136,23 +132,7 @@ class BatchPolicy:
                 msg = f"BatchPolicy: buckets_sec must be strictly increasing; got {left} -> {right}"
                 raise ValueError(msg)
 
-    def _validate_batch_caps(self) -> None:
-        if len(self.max_items_per_batch_by_bucket) != self.num_buckets:
-            msg = (
-                "BatchPolicy: max_items_per_batch_by_bucket has "
-                f"{len(self.max_items_per_batch_by_bucket)} entries but buckets_sec has "
-                f"{self.num_buckets}; lengths must match"
-            )
-            raise ValueError(msg)
-        for cap in self.max_items_per_batch_by_bucket:
-            if isinstance(cap, bool) or not isinstance(cap, int):
-                msg = (
-                    f"BatchPolicy: every max_items_per_batch_by_bucket entry must be an int, got {type(cap).__name__}"
-                )
-                raise TypeError(msg)
-            if cap <= 0:
-                msg = f"BatchPolicy: every max_items_per_batch_by_bucket entry must be > 0, got {cap}"
-                raise ValueError(msg)
+    def _validate_audio_cap(self) -> None:
         if self.max_audio_sec_per_batch is None:
             return
         if isinstance(self.max_audio_sec_per_batch, bool) or not isinstance(self.max_audio_sec_per_batch, Real):
