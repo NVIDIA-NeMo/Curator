@@ -32,6 +32,69 @@ from nemo_curator.stages.audio.postprocessing.sed_utils import (
 
 _FPS = 50.0
 
+_CANONICAL_CORRECTED_GROUPS: dict[str, dict[int, str]] = {
+    # Frozen from upstream PANNs metadata/class_labels_indices.csv.
+    "natural_noise": {
+        283: "wind",
+        284: "rustling_leaves",
+        285: "wind_noise_microphone",
+        286: "thunderstorm",
+        287: "thunder",
+        289: "rain",
+        290: "raindrop",
+        291: "rain_on_surface",
+        295: "waves_surf",
+    },
+    "animal": {
+        72: "animal",
+        73: "domestic_animals",
+        74: "dog",
+        75: "bark",
+        77: "howl",
+        78: "bow_wow",
+        79: "growling",
+        80: "whimper_dog",
+        81: "cat",
+        82: "purr",
+    },
+    "impulse_noise": {
+        427: "gunshot",
+        428: "machine_gun",
+        429: "fusillade",
+        430: "artillery_fire",
+        431: "cap_gun",
+        432: "fireworks",
+        433: "firecracker",
+    },
+    "indoor_noise": {
+        364: "dishes_pots_pans",
+        365: "cutlery_silverware",
+        366: "chopping_food",
+        367: "frying_food",
+        368: "microwave_oven",
+        369: "blender",
+    },
+    "background_noise": {
+        407: "tick",
+        434: "burst_pop",
+        515: "static",
+        516: "mains_hum",
+        521: "pink_noise",
+        525: "radio",
+    },
+    "vocal_nonverbal": {
+        16: "laughter",
+        17: "baby_laughter",
+        18: "giggle",
+        19: "snicker",
+        20: "belly_laugh",
+        21: "chuckle",
+        22: "crying",
+        23: "baby_cry",
+        24: "whimper",
+    },
+}
+
 
 def _curve(*spans: tuple[int, int], length: int = 100, high: float = 0.9, low: float = 0.1) -> np.ndarray:
     """A probability curve that is `high` inside each [start, stop) span."""
@@ -221,6 +284,15 @@ def test_grouped_class_indices_have_readable_names() -> None:
     for indices in SUPERCLASS_GROUPS.values():
         for idx in indices:
             assert idx in AUDIOSET_CLASS_NAMES, f"class index {idx} has no name"
+
+
+@pytest.mark.parametrize(("superclass", "expected"), _CANONICAL_CORRECTED_GROUPS.items())
+def test_corrected_groups_match_the_canonical_panns_class_order(
+    superclass: str,
+    expected: dict[int, str],
+) -> None:
+    assert SUPERCLASS_GROUPS[superclass] == list(expected)
+    assert {idx: AUDIOSET_CLASS_NAMES[idx] for idx in expected} == expected
 
 
 def test_no_class_index_is_claimed_by_two_superclasses() -> None:

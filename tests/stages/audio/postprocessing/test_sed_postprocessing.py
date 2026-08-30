@@ -89,6 +89,28 @@ def test_events_are_sorted_by_start_time() -> None:
     assert starts == sorted(starts)
 
 
+@pytest.mark.parametrize(
+    ("class_idx", "expected_label", "expected_superclass"),
+    [
+        (16, "laughter", "vocal_nonverbal"),
+        (72, "animal", "animal"),
+        (283, "wind", "natural_noise"),
+        (364, "dishes_pots_pans", "indoor_noise"),
+        (427, "gunshot", "impulse_noise"),
+        (515, "static", "background_noise"),
+    ],
+)
+def test_canonical_panns_indices_emit_the_expected_label_and_superclass(
+    class_idx: int,
+    expected_label: str,
+    expected_superclass: str,
+) -> None:
+    task = _stage().process(_task(_framewise(active={class_idx: (20, 60)})))
+    (event,) = task.data["sed_events"]
+    assert event["label"] == expected_label
+    assert event["superclass"] == expected_superclass
+
+
 # ----------------------------------------------------------------------
 # Superclass mode
 # ----------------------------------------------------------------------
