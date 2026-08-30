@@ -106,6 +106,10 @@ Audio exceeding `max_inference_duration_s` is first split into bounded chunks;
 the policy packs those chunks, and the stage joins their transcripts back into
 the original parent-row order.
 
+See [Local Duration Bucketing for Audio GPU Inference](../../../nemo_curator/stages/audio/inference/README.md)
+for the full algorithm, tuning model, correctness invariants, and adoption
+guidance for other audio inference stages.
+
 ## Use the adapter in Python
 
 ```python
