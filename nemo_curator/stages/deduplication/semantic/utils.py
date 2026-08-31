@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,11 +21,10 @@ if TYPE_CHECKING:
 from typing import Any
 
 import pyarrow.parquet as pq
-from fsspec.parquet import open_parquet_file
+from fsspec.parquet import open_parquet_files
 from loguru import logger
 
 PARQUET_FOOTER_BATCH_SIZE = 512
-PARQUET_FOOTER_READ_WORKERS = 8
 
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
@@ -42,17 +40,19 @@ def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, An
         return {}
 
     if storage_options:
-
-        def read_num_rows(file: str) -> int:
-            with open_parquet_file(file, storage_options=storage_options) as parquet_file:
-                return pq.read_metadata(parquet_file).num_rows
-
-        try:
-            with ThreadPoolExecutor(max_workers=min(PARQUET_FOOTER_READ_WORKERS, len(files))) as executor:
-                return dict(zip(files, executor.map(read_num_rows, files), strict=True))
-        except Exception as error:
-            msg = f"Failed to read Parquet footer metadata, starting with {files[0]!r}"
-            raise RuntimeError(msg) from error
+        row_counts = {}
+        for offset in range(0, len(files), PARQUET_FOOTER_BATCH_SIZE):
+            batch = files[offset : offset + PARQUET_FOOTER_BATCH_SIZE]
+            try:
+                parquet_files = open_parquet_files(batch, storage_options=storage_options, row_groups=[])
+                row_counts.update(
+                    (file, pq.read_metadata(parquet_file).num_rows)
+                    for file, parquet_file in zip(batch, parquet_files, strict=True)
+                )
+            except Exception as error:
+                msg = f"Failed to read Parquet footer metadata for batch starting with {batch[0]!r}"
+                raise RuntimeError(msg) from error
+        return row_counts
 
     import pylibcudf as plc
 

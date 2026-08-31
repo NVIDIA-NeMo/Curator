@@ -170,17 +170,21 @@ class TestReadParquetFileRowCounts:
         assert read_parquet_file_row_counts(test_files) == dict(zip(test_files, expected_rows, strict=True))
 
     def test_remote_files_honor_storage_options(self) -> None:
-        """Pass storage options through fsspec for remote inputs."""
-        from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_row_counts
+        """Pass storage options through fsspec's metadata-only Parquet reads."""
+        from nemo_curator.stages.deduplication.semantic import utils as semantic_utils
 
         parquet_buffer = io.BytesIO()
         pd.DataFrame({"value": range(4)}).to_parquet(parquet_buffer)
         filesystem = fsspec.filesystem("memory", auto_mkdir=True)
         filesystem.pipe("metadata-test/data.parquet", parquet_buffer.getvalue())
 
-        assert read_parquet_file_row_counts(
-            ["memory://metadata-test/data.parquet"], storage_options={"auto_mkdir": True}
-        ) == {"memory://metadata-test/data.parquet": 4}
+        test_files = ["memory://metadata-test/data.parquet"]
+        storage_options = {"auto_mkdir": True}
+        with patch.object(semantic_utils, "open_parquet_files", wraps=semantic_utils.open_parquet_files) as open_files:
+            assert semantic_utils.read_parquet_file_row_counts(test_files, storage_options=storage_options) == {
+                test_files[0]: 4
+            }
+        open_files.assert_called_once_with(test_files, storage_options=storage_options, row_groups=[])
 
     def test_multiple_files_use_one_bulk_footer_call(self, tmp_path: Path) -> None:
         """A small file set is passed to pylibcudf in one bulk metadata call."""
