@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GPU inference stage for Nemotron-Parse."""
+"""In-process and HTTP inference stages for Nemotron-Parse."""
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import contextlib
 import io
 import time
@@ -27,12 +29,37 @@ import torch
 from loguru import logger
 from PIL import Image
 
+from nemo_curator.models.client.llm_client import GenerationConfig
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_MODEL_PATH = "nvidia/NVIDIA-Nemotron-Parse-v1.2"
 PROMPT_BASE = "</s><s><predict_bbox><predict_classes><output_markdown>"
+DEFAULT_MAX_TOKENS = 8192
+
+_NEMOTRON_PARSE_SAMPLING_PARAMS: dict[str, Any] = {
+    "temperature": 0,
+    "top_p": 1.0,
+    "top_k": 1,
+    "repetition_penalty": 1.1,
+    "max_tokens": DEFAULT_MAX_TOKENS,
+    "skip_special_tokens": False,
+    "seed": None,
+}
+_OPENAI_GENERATION_CONFIG_FIELDS = {"max_tokens", "seed", "temperature", "top_p"}
+
+
+def _nemotron_parse_sampling_params(max_tokens: int) -> dict[str, Any]:
+    return {**_NEMOTRON_PARSE_SAMPLING_PARAMS, "max_tokens": max_tokens}
+
+
+def _nemotron_parse_server_generation_config(max_tokens: int) -> GenerationConfig:
+    sampling_params = _nemotron_parse_sampling_params(max_tokens)
+    config_params = {key: value for key, value in sampling_params.items() if key in _OPENAI_GENERATION_CONFIG_FIELDS}
+    extra_body = {key: value for key, value in sampling_params.items() if key not in config_params}
+    return GenerationConfig(**config_params, extra_kwargs={"extra_body": extra_body})
 
 
 def build_task_prompt(*, text_in_pic: bool = False) -> str:
@@ -71,6 +98,8 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         Pages per GPU forward pass (HF backend only).
     max_num_seqs
         Maximum concurrent sequences (vLLM backend only).
+    max_tokens
+        Maximum number of generated tokens (vLLM backend only).
     engine_kwargs
         Extra keyword arguments forwarded to the vLLM engine (e.g.
         ``gpu_memory_utilization``, ``max_num_batched_tokens``). vLLM backend only.
@@ -82,6 +111,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     backend: str = "vllm"
     inference_batch_size: int = 4
     max_num_seqs: int = 64
+    max_tokens: int = DEFAULT_MAX_TOKENS
     enforce_eager: bool = False
     engine_kwargs: dict[str, Any] | None = None
     name: str = "nemotron_parse_inference"
@@ -146,13 +176,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
             **(self.engine_kwargs or {}),
         }
         self._llm = create_vllm_llm(resolved_path, **engine_kwargs)
-        self._sampling_params = SamplingParams(
-            temperature=0,
-            top_k=1,
-            repetition_penalty=1.1,
-            max_tokens=9000,
-            skip_special_tokens=False,
-        )
+        self._sampling_params = SamplingParams(**_nemotron_parse_sampling_params(self.max_tokens))
         from transformers import AutoProcessor
 
         processor = AutoProcessor.from_pretrained(resolved_path, trust_remote_code=True)
@@ -289,7 +313,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
                 results.extend(self._infer_batch_hf([img]))
             except (RuntimeError, ValueError, TypeError) as e:
                 logger.warning(f"Single page fallback failed: {e}")
-                results.append("")
+                raise
         return results
 
     # -- process --
@@ -344,6 +368,179 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         metadata = dict(task._metadata)
         metadata["proc_size"] = list(self._proc_size)
         metadata["model_path"] = self.model_path
+
+        return InterleavedBatch(
+            dataset_name=task.dataset_name,
+            data=pa.Table.from_pandas(task_df, preserve_index=False),
+            _metadata=metadata,
+            _stage_perf=task._stage_perf,
+        )
+
+
+@dataclass
+class _HTTPPageResult:
+    text: str = ""
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    finish_reason: str | None = None
+
+
+@dataclass
+class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
+    """Call Nemotron-Parse through an OpenAI-compatible HTTP endpoint.
+
+    ``model_name`` is the served name used in requests. ``model_path`` is the
+    underlying model identifier recorded for postprocessing and defaults to the
+    served name. For Dynamo, set ``inference_batch_size`` to 32 or 64 concurrent
+    requests per worker. ``proc_size`` must match the served model's image processor.
+    A page request that still fails after client retries raises the whole task,
+    matching in-process inference and preventing partial document output.
+    """
+
+    endpoint: str
+    model_name: str
+    model_path: str | None = None
+    text_in_pic: bool = False
+    task_prompt: str | None = None
+    request_timeout_s: float = 300.0
+    max_retries: int = 3
+    retry_base_delay_s: float = 1.0
+    inference_batch_size: int = 4
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    proc_size: tuple[int, int] = (2048, 1664)
+    name: str = "nemotron_parse_inference"
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    def __post_init__(self) -> None:
+        if self.task_prompt is None:
+            self.task_prompt = build_task_prompt(text_in_pic=self.text_in_pic)
+        self.max_retries = max(0, int(self.max_retries))
+        self.inference_batch_size = int(self.inference_batch_size)
+        if self.inference_batch_size < 1:
+            msg = "inference_batch_size must be at least 1"
+            raise ValueError(msg)
+        self._generation_config = _nemotron_parse_server_generation_config(self.max_tokens)
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": False}
+
+    async def _query_page(
+        self,
+        client: AsyncOpenAIClient,
+        image_bytes: bytes,
+        content_type: str,
+    ) -> _HTTPPageResult:
+        image_url = f"data:{content_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        response = await client.query_model_response(
+            model=self.model_name,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": self.task_prompt or ""},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+            generation_config=self._generation_config,
+        )
+
+        choice = response.choices[0] if response.choices else None
+        usage = response.usage
+        return _HTTPPageResult(
+            text=str(getattr(getattr(choice, "message", None), "content", "") or ""),
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            finish_reason=getattr(choice, "finish_reason", None),
+        )
+
+    async def _query_pages(self, images: list[tuple[bytes, str]]) -> list[_HTTPPageResult]:
+        client = AsyncOpenAIClient(
+            max_concurrent_requests=self.inference_batch_size,
+            max_retries=self.max_retries,
+            base_delay=self.retry_base_delay_s,
+            api_key="unused",  # pragma: allowlist secret
+            base_url=self.endpoint.rstrip("/"),
+            timeout=self.request_timeout_s,
+        )
+        try:
+            return list(
+                await asyncio.gather(
+                    *(self._query_page(client, image_bytes, content_type) for image_bytes, content_type in images)
+                )
+            )
+        finally:
+            if hasattr(client, "client"):
+                with contextlib.suppress(Exception):
+                    await client.client.close()
+
+    def _build_metrics(
+        self,
+        results: list[_HTTPPageResult],
+        *,
+        request_time_s: float,
+        num_input_pages: int,
+        num_valid_pages: int,
+    ) -> dict[str, float]:
+        total_output_tokens = float(sum(result.output_tokens for result in results))
+        total_output_chars = float(sum(len(result.text) for result in results))
+        return {
+            "inference_server_request_time": request_time_s,
+            "num_input_pages": float(num_input_pages),
+            "num_valid_pages": float(num_valid_pages),
+            "num_skipped_pages": float(num_input_pages - num_valid_pages),
+            "total_prompt_tokens": float(sum(result.prompt_tokens for result in results)),
+            "total_output_tokens": total_output_tokens,
+            "total_output_chars": total_output_chars,
+            "num_output_length_truncated": float(sum(result.finish_reason == "length" for result in results)),
+            "num_empty_outputs": float(sum(not result.text.strip() for result in results)),
+            "num_request_errors": 0.0,
+        }
+
+    def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
+        task_df = task.to_pandas()
+        valid_mask: list[bool] = []
+        images: list[tuple[bytes, str]] = []
+
+        for _, row in task_df.iterrows():
+            raw_bytes = row.get("binary_content")
+            try:
+                image_bytes = bytes(raw_bytes) if raw_bytes is not None else b""
+            except TypeError:
+                image_bytes = b""
+            is_valid = bool(image_bytes)
+            valid_mask.append(is_valid)
+            if is_valid:
+                images.append((image_bytes, str(row.get("content_type") or "image/png")))
+
+        if not images:
+            return None
+
+        request_start = time.perf_counter()
+        results = asyncio.run(self._query_pages(images))
+        request_time_s = time.perf_counter() - request_start
+        self._log_metrics(
+            self._build_metrics(
+                results,
+                request_time_s=request_time_s,
+                num_input_pages=len(valid_mask),
+                num_valid_pages=len(images),
+            )
+        )
+
+        result_iter = iter(result.text for result in results)
+        task_df["text_content"] = [next(result_iter) if is_valid else "" for is_valid in valid_mask]
+
+        metadata = dict(task._metadata)
+        metadata["proc_size"] = list(self.proc_size)
+        metadata["model_path"] = self.model_path or self.model_name
+        metadata["inference_server_endpoint"] = self.endpoint
 
         return InterleavedBatch(
             dataset_name=task.dataset_name,

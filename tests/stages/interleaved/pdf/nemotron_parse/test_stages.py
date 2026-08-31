@@ -16,13 +16,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import io
 import json
 import zipfile
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
@@ -496,6 +498,39 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
         assert stage._proc_size == (100, 100)
 
+    def test_in_process_and_http_client_sampling_parameters_match(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            _nemotron_parse_sampling_params,
+            _nemotron_parse_server_generation_config,
+        )
+
+        http_client_config = _nemotron_parse_server_generation_config(1234)
+        http_client_params = {
+            "temperature": http_client_config.temperature,
+            "top_p": http_client_config.top_p,
+            "max_tokens": http_client_config.max_tokens,
+            "seed": http_client_config.seed,
+            **http_client_config.extra_kwargs["extra_body"],
+        }
+
+        assert http_client_params == _nemotron_parse_sampling_params(1234)
+
+    def test_in_process_and_http_client_default_to_8192_max_tokens(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+            NemotronParseInferenceStage,
+        )
+
+        in_process_stage = NemotronParseInferenceStage()
+        http_client_stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+
+        assert in_process_stage.max_tokens == 8192
+        assert http_client_stage.max_tokens == 8192
+        assert http_client_stage._generation_config.max_tokens == 8192
+
     def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
         """RequestOutput with no completions should yield '' rather than IndexError."""
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
@@ -512,6 +547,17 @@ class TestNemotronParseInferenceStageMetrics:
         assert raw == [empty_req_output]
         assert retries == 0
 
+    def test_hf_page_failure_raises_after_batch_fallback(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="hf")
+
+        with (
+            patch.object(stage, "_infer_batch_hf", side_effect=RuntimeError("inference failed")),
+            pytest.raises(RuntimeError, match="inference failed"),
+        ):
+            stage._infer_hf([Image.new("RGB", (10, 10))])
+
     def test_infer_vllm_unreachable_loop_path_raises(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
 
@@ -522,3 +568,176 @@ class TestNemotronParseInferenceStageMetrics:
 
         with patch("builtins.range", return_value=()), pytest.raises(RuntimeError, match="unreachable"):
             stage._infer_vllm([image])
+
+
+class TestNemotronParseHTTPClientStage:
+    def test_rejects_non_positive_inference_batch_size(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        with pytest.raises(ValueError, match="inference_batch_size must be at least 1"):
+            NemotronParseHTTPClientStage(
+                endpoint="http://localhost:8000/v1",
+                model_name="nemotron-parse",
+                inference_batch_size=0,
+            )
+
+    def test_query_pages_runs_up_to_inference_batch_size_concurrently(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        active_requests = 0
+        max_active_requests = 0
+        two_requests_started = asyncio.Event()
+
+        async def create_response(**create_kwargs: object) -> SimpleNamespace:
+            nonlocal active_requests, max_active_requests
+            active_requests += 1
+            max_active_requests = max(max_active_requests, active_requests)
+            if active_requests == 2:
+                two_requests_started.set()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(two_requests_started.wait(), timeout=0.05)
+
+            messages = create_kwargs["messages"]
+            image_url = messages[0]["content"][1]["image_url"]["url"]  # type: ignore[index]
+            page_text = base64.b64decode(image_url.split(",", 1)[1]).decode()
+            active_requests -= 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=page_text), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+
+        sdk_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create_response)),
+            close=AsyncMock(),
+        )
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+        stage.inference_batch_size = 2
+
+        with patch("nemo_curator.models.client.openai_client.AsyncOpenAI", return_value=sdk_client):
+            results = asyncio.run(stage._query_pages([(f"page-{index}".encode(), "image/png") for index in range(3)]))
+
+        assert max_active_requests == 2
+        assert [result.text for result in results] == ["page-0", "page-1", "page-2"]
+
+    def test_terminal_request_failure_raises(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+        client = SimpleNamespace(query_model_response=AsyncMock(side_effect=RuntimeError("request failed")))
+
+        with pytest.raises(RuntimeError, match="request failed"):
+            asyncio.run(stage._query_page(client, b"png-bytes", "image/png"))
+
+    def test_process_uses_openai_client_response_and_records_usage(self) -> None:
+        import pandas as pd
+        import pyarrow as pa
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+        from nemo_curator.tasks import InterleavedBatch
+
+        task = InterleavedBatch(
+            dataset_name="test",
+            data=pa.Table.from_pandas(
+                pd.DataFrame(
+                    [
+                        {
+                            "sample_id": "s1",
+                            "position": 0,
+                            "modality": "page_image",
+                            "content_type": "image/png",
+                            "text_content": None,
+                            "binary_content": b"png-bytes",
+                            "source_ref": None,
+                        }
+                    ]
+                )
+            ),
+        )
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="parsed page"), finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=7),
+        )
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+            model_path="/models/NVIDIA-Nemotron-Parse-v1.1",
+        )
+
+        with patch(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.AsyncOpenAIClient.query_model_response",
+            new_callable=AsyncMock,
+            return_value=response,
+        ):
+            result = stage.process(task)
+
+        assert result is not None
+        assert result.to_pandas().iloc[0]["text_content"] == "parsed page"
+        assert result._metadata["inference_server_endpoint"] == "http://localhost:8000/v1"
+        assert result._metadata["model_path"] == "/models/NVIDIA-Nemotron-Parse-v1.1"
+        assert result._metadata["proc_size"] == [2048, 1664]
+        assert stage._custom_metrics["total_prompt_tokens"] == 5.0
+        assert stage._custom_metrics["total_output_tokens"] == 7.0
+        assert stage._custom_metrics["num_request_errors"] == 0.0
+        assert "vllm_inference_time" not in stage._custom_metrics
+
+
+class TestNemotronParsePipelineFactory:
+    def test_creates_one_http_inference_stage_with_configured_workers(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+            NemotronParseInferenceStage,
+        )
+        from tutorials.interleaved.nemotron_parse_pdf.main import (
+            create_nemotron_parse_pdf_argparser,
+            create_nemotron_parse_pdf_pipeline,
+        )
+
+        args = create_nemotron_parse_pdf_argparser().parse_args(
+            [
+                "--manifest",
+                "manifest.jsonl",
+                "--pdf-dir",
+                "pdfs",
+                "--output-dir",
+                "output",
+                "--max-tokens",
+                "1234",
+                "--inference-batch-size",
+                "32",
+            ]
+        )
+
+        pipeline = create_nemotron_parse_pdf_pipeline(
+            args,
+            inference_server_endpoint="http://localhost:8000/v1",
+            inference_server_model_name="nemotron-parse",
+            inference_server_client_num_workers=8,
+        )
+        pipeline.build()
+
+        inference_stages = [
+            stage
+            for stage in pipeline.stages
+            if isinstance(stage, (NemotronParseInferenceStage, NemotronParseHTTPClientStage))
+        ]
+        assert len(inference_stages) == 1
+        assert isinstance(inference_stages[0], NemotronParseHTTPClientStage)
+        assert inference_stages[0].endpoint == "http://localhost:8000/v1"
+        assert inference_stages[0].model_name == "nemotron-parse"
+        assert inference_stages[0].inference_batch_size == 32
+        assert inference_stages[0].max_tokens == 1234
+        assert inference_stages[0].num_workers() == 8

@@ -20,7 +20,9 @@ from dataclasses import dataclass
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+    DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL_PATH,
+    NemotronParseHTTPClientStage,
     NemotronParseInferenceStage,
 )
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
@@ -37,7 +39,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
 
     1. :class:`PDFPartitioningStage` — read manifest, create FileGroupTasks
     2. :class:`PDFPreprocessStage` — extract PDFs, render pages to images
-    3. :class:`NemotronParseInferenceStage` — GPU model inference
+    3. :class:`NemotronParseInferenceStage` or :class:`NemotronParseHTTPClientStage` — model inference
     4. :class:`NemotronParsePostprocessStage` — parse output, align, crop
 
     Parameters
@@ -63,7 +65,9 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     max_pages
         Maximum pages to render per PDF.
     inference_batch_size
-        Pages per GPU forward pass (HF only).
+        Pages per GPU forward pass for HF, or maximum concurrent page requests
+        from each HTTP client worker for an inference server. Use 32 or 64 for
+        production inference-server pipelines.
     max_num_seqs
         Maximum concurrent sequences (vLLM only).
     text_in_pic
@@ -78,6 +82,13 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         JSONL field containing a list of PDF filenames (CC-MAIN style).
     url_field
         JSONL field containing the source URL.
+    inference_server_endpoint
+        OpenAI-compatible inference server endpoint. A Dynamo-backed server is
+        the recommended production topology; when omitted, inference runs in
+        process.
+    inference_server_client_num_workers
+        Fixed number of concurrent HTTP client stage workers. Use four times
+        the number of inference GPUs.
     """
 
     manifest_path: str | None = None
@@ -92,6 +103,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     max_pages: int = 50
     inference_batch_size: int = 4
     max_num_seqs: int = 64
+    max_tokens: int = DEFAULT_MAX_TOKENS
     text_in_pic: bool = False
     enforce_eager: bool = False
     min_crop_px: int = 10
@@ -99,6 +111,11 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
+    inference_server_endpoint: str | None = None
+    inference_server_model_name: str | None = None
+    inference_server_client_num_workers: int = 4
+    inference_server_request_timeout_s: float = 300.0
+    inference_server_max_retries: int = 3
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -121,14 +138,30 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             dpi=self.dpi,
             max_pages=self.max_pages,
         )
-        self._inference = NemotronParseInferenceStage(
-            model_path=self.model_path,
-            text_in_pic=self.text_in_pic,
-            backend=self.backend,
-            inference_batch_size=self.inference_batch_size,
-            max_num_seqs=self.max_num_seqs,
-            enforce_eager=self.enforce_eager,
-        )
+        if self.inference_server_endpoint is None:
+            self._inference = NemotronParseInferenceStage(
+                model_path=self.model_path,
+                text_in_pic=self.text_in_pic,
+                backend=self.backend,
+                inference_batch_size=self.inference_batch_size,
+                max_num_seqs=self.max_num_seqs,
+                max_tokens=self.max_tokens,
+                enforce_eager=self.enforce_eager,
+            )
+        else:
+            if self.inference_server_client_num_workers < 1:
+                msg = "inference_server_client_num_workers must be at least 1"
+                raise ValueError(msg)
+            self._inference = NemotronParseHTTPClientStage(
+                endpoint=self.inference_server_endpoint,
+                model_name=self.inference_server_model_name or self.model_path,
+                model_path=self.model_path,
+                text_in_pic=self.text_in_pic,
+                request_timeout_s=self.inference_server_request_timeout_s,
+                max_retries=self.inference_server_max_retries,
+                inference_batch_size=self.inference_batch_size,
+                max_tokens=self.max_tokens,
+            ).with_(num_workers=self.inference_server_client_num_workers)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )

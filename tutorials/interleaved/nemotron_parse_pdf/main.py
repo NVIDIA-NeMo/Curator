@@ -26,8 +26,10 @@ Pipeline stages::
     2. PDFPreprocessStage             (FileGroupTask -> InterleavedBatch) [CPU]
        Extracts PDF bytes (from directory or zip), renders pages to images.
 
-    3. NemotronParseInferenceStage    (InterleavedBatch -> InterleavedBatch) [GPU]
-       Runs Nemotron-Parse model inference on page images.
+    3. NemotronParseInferenceStage or NemotronParseHTTPClientStage
+       (InterleavedBatch -> InterleavedBatch)
+       Runs Nemotron-Parse in process or calls an OpenAI-compatible inference
+       server. The inference-server path is recommended for production.
 
     4. NemotronParsePostprocessStage  (InterleavedBatch -> InterleavedBatch) [CPU]
        Parses model output, aligns images/captions, crops, builds rows.
@@ -59,9 +61,13 @@ Usage::
     python main.py --zip-base-dir /path/to/zipfiles --manifest manifest.jsonl \\
         --output-dir ./output
 
-    # With vLLM backend (recommended for throughput)
+    # Small in-process vLLM run
     python main.py --pdf-dir /path/to/pdfs --manifest manifest.jsonl \\
         --output-dir ./output --backend vllm
+
+For production, run ``dynamo.py``. It starts a Dynamo ``InferenceServer`` and
+calls ``create_nemotron_parse_pdf_pipeline`` with four HTTP stage workers per
+inference GPU and ``--inference-batch-size`` set to 32 or 64.
 """
 
 from __future__ import annotations
@@ -80,6 +86,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import NemotronParsePDFReader
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT_MAX_TOKENS
 from nemo_curator.tasks import FileGroupTask
 
 
@@ -156,8 +163,14 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     )
 
     # Inference
-    parser.add_argument("--inference-batch-size", type=int, default=4, help="Pages per GPU pass (HF only)")
+    parser.add_argument(
+        "--inference-batch-size",
+        type=int,
+        default=4,
+        help="Pages per HF GPU pass or maximum concurrent inference-server page requests",
+    )
     parser.add_argument("--max-num-seqs", type=int, default=64, help="Max concurrent sequences (vLLM only)")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Maximum output tokens per page")
     parser.add_argument(
         "--enforce-eager",
         action="store_true",
@@ -184,8 +197,19 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     return parser
 
 
-def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
-    """Build the Nemotron-Parse PDF processing pipeline from parsed arguments."""
+def create_nemotron_parse_pdf_pipeline(
+    args: argparse.Namespace,
+    *,
+    inference_server_endpoint: str | None = None,
+    inference_server_model_name: str | None = None,
+    inference_server_client_num_workers: int = 4,
+) -> Pipeline:
+    """Build the PDF pipeline, optionally using a recommended inference server.
+
+    For an inference-server deployment, set
+    ``inference_server_client_num_workers`` to four times the number of serving
+    GPUs and set ``args.inference_batch_size`` to 32 or 64.
+    """
     pipeline = Pipeline(
         name="nemotron_parse_pdf",
         description="PDF -> Nemotron-Parse -> Interleaved Parquet",
@@ -204,6 +228,7 @@ def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
             max_pages=args.max_pages,
             inference_batch_size=args.inference_batch_size,
             max_num_seqs=args.max_num_seqs,
+            max_tokens=args.max_tokens,
             text_in_pic=args.text_in_pic,
             enforce_eager=args.enforce_eager,
             min_crop_px=args.min_crop_size,
@@ -211,6 +236,11 @@ def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
             file_name_field=args.file_name_field,
             file_names_field=args.file_names_field,
             url_field=args.url_field,
+            inference_server_endpoint=inference_server_endpoint,
+            inference_server_model_name=inference_server_model_name,
+            inference_server_client_num_workers=inference_server_client_num_workers,
+            inference_server_request_timeout_s=getattr(args, "inference_server_request_timeout_s", 300.0),
+            inference_server_max_retries=getattr(args, "inference_server_max_retries", 3),
         )
     )
     pipeline.add_stage(

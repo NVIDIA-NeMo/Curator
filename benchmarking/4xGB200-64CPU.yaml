@@ -229,6 +229,12 @@ entries:
   - name: nemotron_parse_pdf_raydata
     timeout_s: 2400
 
+  - name: nemotron_parse_pdf_inference_server_ray_serve
+    timeout_s: 2400
+
+  - name: nemotron_parse_pdf_inference_server_dynamo
+    timeout_s: 2400
+
   - name: alm_pipeline_xenna
     timeout_s: 1200
 

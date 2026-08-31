@@ -32,12 +32,12 @@ Key args:
 """
 
 import argparse
-import json
 import os
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from inference_server_utils import parse_json_object, start_inference_server, static_num_replicas
 from loguru import logger
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
@@ -46,76 +46,6 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc im
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.tasks.utils import TaskPerfUtils
-
-if TYPE_CHECKING:
-    from nemo_curator.core.serve import InferenceServer
-
-
-def _start_ray_serve_inference_server(
-    model_id: str,
-    engine_kwargs: dict[str, Any] | None = None,
-    autoscaling_config: dict[str, Any] | None = None,
-    model_path: str | None = None,
-) -> "InferenceServer":
-    """Start a local Ray Serve-backed InferenceServer and return it.
-
-    If ``model_path`` is set, vLLM loads weights from that local path while
-    ``model_id`` is used as the served name in ``/v1/models``.
-    """
-    from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
-
-    engine_kwargs = engine_kwargs or {}
-    autoscaling_config = autoscaling_config or {"min_replicas": 1, "max_replicas": 1}
-
-    server_config = RayServeModelConfig(
-        model_identifier=model_path or model_id,
-        model_name=model_id if model_path else None,
-        deployment_config={"autoscaling_config": autoscaling_config},
-        engine_kwargs=engine_kwargs,
-    )
-
-    server = InferenceServer(models=[server_config])
-    server.start()
-    return server
-
-
-def _start_dynamo_inference_server(
-    model_id: str,
-    engine_kwargs: dict[str, Any] | None = None,
-    autoscaling_config: dict[str, Any] | None = None,
-    model_path: str | None = None,
-) -> "InferenceServer":
-    """Start a local Dynamo-backed InferenceServer and return it.
-
-    Dynamo has no autoscaling — ``min_replicas`` and ``max_replicas`` (when
-    supplied) must match and are used as a static ``num_replicas``.
-    If ``model_path`` is set, vLLM loads weights from that local path while
-    ``model_id`` is used as the served name in ``/v1/models``.
-    """
-    from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
-
-    engine_kwargs = engine_kwargs or {}
-    num_replicas = 1
-    if autoscaling_config:
-        min_r = autoscaling_config.get("min_replicas", 1)
-        max_r = autoscaling_config.get("max_replicas", min_r)
-        if min_r != max_r:
-            msg = (
-                f"Dynamo backend does not support autoscaling; min_replicas ({min_r}) "
-                f"must equal max_replicas ({max_r})."
-            )
-            raise ValueError(msg)
-        num_replicas = min_r
-
-    model_config = DynamoVLLMModelConfig(
-        model_identifier=model_path or model_id,
-        model_name=model_id if model_path else None,
-        engine_kwargs=engine_kwargs,
-        num_replicas=num_replicas,
-    )
-    server = InferenceServer(models=[model_config], backend=DynamoServerConfig())
-    server.start()
-    return server
 
 
 def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
@@ -153,12 +83,20 @@ def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
     if inference_server_type in ("ray-serve", "dynamo"):
         logger.info(f"Starting local {inference_server_type} InferenceServer with engine_kwargs={engine_kwargs}")
         serve_start = time.perf_counter()
-        starter = (
-            _start_ray_serve_inference_server
+        num_replicas = static_num_replicas(autoscaling_config) if inference_server_type == "dynamo" else 1
+        ray_serve_deployment_config = (
+            {"autoscaling_config": autoscaling_config or {"min_replicas": 1, "max_replicas": 1}}
             if inference_server_type == "ray-serve"
-            else _start_dynamo_inference_server
+            else None
         )
-        inference_server = starter(model_id, engine_kwargs, autoscaling_config, model_path=model_path)
+        inference_server = start_inference_server(
+            backend=inference_server_type,
+            model_id=model_id,
+            model_path=model_path,
+            num_replicas=num_replicas,
+            engine_kwargs=engine_kwargs,
+            ray_serve_deployment_config=ray_serve_deployment_config,
+        )
         serve_startup_s = time.perf_counter() - serve_start
         logger.info(f"InferenceServer ready at {inference_server.endpoint} (startup: {serve_startup_s:.1f}s)")
 
@@ -307,9 +245,8 @@ def main() -> int:
     logger.info("=== Nemotron-CC SDG Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
-    # Parse JSON string args
-    engine_kwargs = json.loads(args.engine_kwargs) if args.engine_kwargs else None
-    autoscaling_config = json.loads(args.autoscaling_config) if args.autoscaling_config else None
+    engine_kwargs = parse_json_object(args.engine_kwargs, argument="--engine-kwargs")
+    autoscaling_config = parse_json_object(args.autoscaling_config, argument="--autoscaling-config")
 
     success_code = 1
     result_dict: dict[str, Any] = {
