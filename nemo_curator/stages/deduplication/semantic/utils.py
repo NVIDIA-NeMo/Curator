@@ -22,6 +22,8 @@ from typing import Any
 
 from loguru import logger
 
+PARQUET_FOOTER_BATCH_SIZE = 512
+
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
     """
@@ -38,17 +40,25 @@ def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, An
     import pylibcudf as plc
     from cudf.utils import ioutils
 
-    try:
-        sources = ioutils.get_reader_filepath_or_buffer(files, storage_options=storage_options)
-        footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(sources))
-    except Exception as error:
-        msg = f"Failed to read Parquet footer metadata for {len(files)} file(s), starting with {files[0]!r}"
-        raise RuntimeError(msg) from error
+    row_counts = {}
+    for offset in range(0, len(files), PARQUET_FOOTER_BATCH_SIZE):
+        batch = files[offset : offset + PARQUET_FOOTER_BATCH_SIZE]
+        try:
+            sources = ioutils.get_reader_filepath_or_buffer(
+                batch,
+                storage_options=storage_options,
+                prefetch_options={"method": "parquet", "columns": []},
+            )
+            footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(sources))
+        except Exception as error:
+            msg = f"Failed to read Parquet footer metadata for batch starting with {batch[0]!r}"
+            raise RuntimeError(msg) from error
 
-    if len(footers) != len(files):
-        msg = f"Expected {len(files)} Parquet footers, got {len(footers)}"
-        raise RuntimeError(msg)
-    return {file: int(footer.num_rows) for file, footer in zip(files, footers, strict=True)}
+        if len(footers) != len(batch):
+            msg = f"Expected {len(batch)} Parquet footers, got {len(footers)}"
+            raise RuntimeError(msg)
+        row_counts.update((file, int(footer.num_rows)) for file, footer in zip(batch, footers, strict=True))
+    return row_counts
 
 
 def break_parquet_partition_into_groups(  # noqa: C901
