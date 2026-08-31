@@ -24,8 +24,6 @@ import pyarrow.parquet as pq
 from fsspec.parquet import open_parquet_files
 from loguru import logger
 
-PARQUET_FOOTER_BATCH_SIZE = 512
-
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
     """
@@ -39,37 +37,26 @@ def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, An
     if not files:
         return {}
 
-    if storage_options:
-        row_counts = {}
-        for offset in range(0, len(files), PARQUET_FOOTER_BATCH_SIZE):
-            batch = files[offset : offset + PARQUET_FOOTER_BATCH_SIZE]
-            try:
-                parquet_files = open_parquet_files(batch, storage_options=storage_options, row_groups=[])
-                row_counts.update(
-                    (file, pq.read_metadata(parquet_file).num_rows)
-                    for file, parquet_file in zip(batch, parquet_files, strict=True)
-                )
-            except Exception as error:
-                msg = f"Failed to read Parquet footer metadata for batch starting with {batch[0]!r}"
-                raise RuntimeError(msg) from error
-        return row_counts
+    try:
+        if storage_options:
+            parquet_files = open_parquet_files(files, storage_options=storage_options, row_groups=[])
+            row_counts = [pq.read_metadata(parquet_file).num_rows for parquet_file in parquet_files]
+        else:
+            import pylibcudf as plc
 
-    import pylibcudf as plc
-
-    row_counts = {}
-    for offset in range(0, len(files), PARQUET_FOOTER_BATCH_SIZE):
-        batch = files[offset : offset + PARQUET_FOOTER_BATCH_SIZE]
-        try:
-            footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(batch))
-        except Exception as error:
-            msg = f"Failed to read Parquet footer metadata for batch starting with {batch[0]!r}"
-            raise RuntimeError(msg) from error
-
-        if len(footers) != len(batch):
-            msg = f"Expected {len(batch)} Parquet footers, got {len(footers)}"
-            raise RuntimeError(msg)
-        row_counts.update((file, int(footer.num_rows)) for file, footer in zip(batch, footers, strict=True))
-    return row_counts
+            metadata = plc.io.parquet_metadata.read_parquet_metadata(plc.io.SourceInfo(files))
+            row_groups_per_file = metadata.num_rowgroups_per_file()
+            row_group_metadata = metadata.rowgroup_metadata()
+            row_counts = []
+            offset = 0
+            for num_row_groups in row_groups_per_file:
+                end = offset + num_row_groups
+                row_counts.append(sum(group["num_rows"] for group in row_group_metadata[offset:end]))
+                offset = end
+        return dict(zip(files, row_counts, strict=True))
+    except Exception as error:
+        msg = f"Failed to read Parquet footer metadata for {files[0]!r}"
+        raise RuntimeError(msg) from error
 
 
 def break_parquet_partition_into_groups(  # noqa: C901

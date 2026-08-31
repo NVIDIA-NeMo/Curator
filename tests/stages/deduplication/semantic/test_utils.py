@@ -198,13 +198,13 @@ class TestReadParquetFileRowCounts:
             pd.DataFrame({"value": [i]}).to_parquet(file_path)
             test_files.append(str(file_path))
 
-        original = plc.io.parquet_metadata.read_parquet_footers
-        with patch.object(plc.io.parquet_metadata, "read_parquet_footers", wraps=original) as read_footers:
+        original = plc.io.parquet_metadata.read_parquet_metadata
+        with patch.object(plc.io.parquet_metadata, "read_parquet_metadata", wraps=original) as read_metadata:
             assert read_parquet_file_row_counts(test_files) == dict.fromkeys(test_files, 1)
-        read_footers.assert_called_once()
+        read_metadata.assert_called_once()
 
-    def test_large_file_set_uses_bounded_bulk_calls(self) -> None:
-        """Bound each pylibcudf call below typical process file-descriptor limits."""
+    def test_large_file_set_uses_one_bulk_metadata_call(self) -> None:
+        """Pass the entire file set to pylibcudf in one bulk metadata call."""
         import pylibcudf as plc
 
         from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_row_counts
@@ -212,17 +212,15 @@ class TestReadParquetFileRowCounts:
         test_files = [f"test_file_{i}.parquet" for i in range(513)]
         with (
             patch.object(plc.io, "SourceInfo", side_effect=lambda sources: sources),
-            patch.object(
-                plc.io.parquet_metadata,
-                "read_parquet_footers",
-                side_effect=[[Mock(num_rows=1)] * 512, [Mock(num_rows=1)]],
-            ) as read_footers,
+            patch.object(plc.io.parquet_metadata, "read_parquet_metadata") as read_metadata,
         ):
+            read_metadata.return_value.num_rowgroups_per_file.return_value = [1] * len(test_files)
+            read_metadata.return_value.rowgroup_metadata.return_value = [{"num_rows": 1}] * len(test_files)
             assert read_parquet_file_row_counts(test_files) == dict.fromkeys(test_files, 1)
-        assert read_footers.call_count == 2
+        read_metadata.assert_called_once_with(test_files)
 
     def test_corrupt_footer_raises_bounded_error(self, tmp_path: Path) -> None:
-        """Do not guess row counts when any footer in a bounded batch is unreadable."""
+        """Do not guess row counts when any footer is unreadable."""
         from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_row_counts
 
         valid_file = tmp_path / "valid.parquet"
