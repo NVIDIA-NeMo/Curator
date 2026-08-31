@@ -66,6 +66,13 @@ def test_4xgb200_64cpu_override_updates_resources_and_caps_timeouts() -> None:
         assert replica_4_arg in entries[entry_name]["args"]
         assert entries[entry_name]["ray"]["num_cpus"] == 16
 
+    for entry_name in (
+        "nemotron_parse_pdf_inference_server_ray_serve",
+        "nemotron_parse_pdf_inference_server_dynamo",
+    ):
+        assert "--inference-batch-size=32" in entries[entry_name]["args"]
+        assert entries[entry_name]["timeout_s"] == 2400
+
 
 def test_4xgb200_64cpu_override_sets_known_video_performance_baselines() -> None:
     config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-64CPU.yaml"])

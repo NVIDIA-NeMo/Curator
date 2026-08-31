@@ -22,12 +22,7 @@ from main import create_nemotron_parse_pdf_argparser, create_nemotron_parse_pdf_
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
-from nemo_curator.core.serve import (
-    DynamoRouterConfig,
-    DynamoServerConfig,
-    DynamoVLLMModelConfig,
-    InferenceServer,
-)
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
 
 
 def main() -> None:
@@ -47,26 +42,15 @@ def main() -> None:
         parser.error("Dynamo serving requires at least one Ray-visible GPU")
 
     model_name = args.model_path
-    model = DynamoVLLMModelConfig(
-        model_identifier=args.model_path,
+    server = create_nemotron_parse_inference_server(
+        model_path=args.model_path,
+        model_name=model_name,
+        backend="dynamo",
         num_replicas=num_gpus,
-        engine_kwargs={
-            "trust_remote_code": True,
-            "dtype": "bfloat16",
-            "limit_mm_per_prompt": {"image": 1},
-            "enable_prefix_caching": False,
-            "disable_hybrid_kv_cache_manager": False,
-        },
-        dynamo_kwargs={"enable_multimodal": True},
-        runtime_env={"uv": {"packages": ["albumentations==2.0.8"]}},
-    )
-    backend = DynamoServerConfig(
-        request_plane="tcp",
-        router=DynamoRouterConfig(router_kwargs={"trust_remote_code": True}),
-        subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": "300"},
+        engine_kwargs={"enforce_eager": True} if args.enforce_eager else None,
     )
 
-    with InferenceServer(models=[model], backend=backend, health_check_timeout_s=900) as server:
+    with server:
         pipeline = create_nemotron_parse_pdf_pipeline(
             args,
             inference_server_endpoint=server.endpoint,

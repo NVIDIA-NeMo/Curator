@@ -547,6 +547,17 @@ class TestNemotronParseInferenceStageMetrics:
         assert raw == [empty_req_output]
         assert retries == 0
 
+    def test_hf_page_failure_raises_after_batch_fallback(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="hf")
+
+        with (
+            patch.object(stage, "_infer_batch_hf", side_effect=RuntimeError("inference failed")),
+            pytest.raises(RuntimeError, match="inference failed"),
+        ):
+            stage._infer_hf([Image.new("RGB", (10, 10))])
+
     def test_infer_vllm_unreachable_loop_path_raises(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
 
@@ -614,6 +625,20 @@ class TestNemotronParseHTTPClientStage:
 
         assert max_active_requests == 2
         assert [result.text for result in results] == ["page-0", "page-1", "page-2"]
+
+    def test_terminal_request_failure_raises(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+        client = SimpleNamespace(query_model_response=AsyncMock(side_effect=RuntimeError("request failed")))
+
+        with pytest.raises(RuntimeError, match="request failed"):
+            asyncio.run(stage._query_page(client, b"png-bytes", "image/png"))
 
     def test_process_uses_openai_client_response_and_records_usage(self) -> None:
         import pandas as pd

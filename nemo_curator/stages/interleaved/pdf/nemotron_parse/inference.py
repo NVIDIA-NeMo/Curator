@@ -313,7 +313,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
                 results.extend(self._infer_batch_hf([img]))
             except (RuntimeError, ValueError, TypeError) as e:
                 logger.warning(f"Single page fallback failed: {e}")
-                results.append("")
+                raise
         return results
 
     # -- process --
@@ -383,7 +383,6 @@ class _HTTPPageResult:
     prompt_tokens: int = 0
     output_tokens: int = 0
     finish_reason: str | None = None
-    error: str | None = None
 
 
 @dataclass
@@ -394,6 +393,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     underlying model identifier recorded for postprocessing and defaults to the
     served name. For Dynamo, set ``inference_batch_size`` to 32 or 64 concurrent
     requests per worker. ``proc_size`` must match the served model's image processor.
+    A page request that still fails after client retries raises the whole task,
+    matching in-process inference and preventing partial document output.
     """
 
     endpoint: str
@@ -436,23 +437,19 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         content_type: str,
     ) -> _HTTPPageResult:
         image_url = f"data:{content_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-        try:
-            response = await client.query_model_response(
-                model=self.model_name,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": self.task_prompt or ""},
-                            {"type": "image_url", "image_url": {"url": image_url}},
-                        ],
-                    }
-                ],
-                generation_config=self._generation_config,
-            )
-        except Exception as error:  # noqa: BLE001
-            logger.warning(f"Inference request failed: {error}")
-            return _HTTPPageResult(error=str(error))
+        response = await client.query_model_response(
+            model=self.model_name,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": self.task_prompt or ""},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+            generation_config=self._generation_config,
+        )
 
         choice = response.choices[0] if response.choices else None
         usage = response.usage
@@ -503,7 +500,7 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             "total_output_chars": total_output_chars,
             "num_output_length_truncated": float(sum(result.finish_reason == "length" for result in results)),
             "num_empty_outputs": float(sum(not result.text.strip() for result in results)),
-            "num_request_errors": float(sum(result.error is not None for result in results)),
+            "num_request_errors": 0.0,
         }
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:

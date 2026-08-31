@@ -96,11 +96,39 @@ entry point defaults to 32 concurrent requests per HTTP worker; pass
 
 The server configuration uses Dynamo's TCP request plane, enables multimodal
 vLLM, and sets the frontend and model-worker options needed by Nemotron-Parse.
+The shared `create_nemotron_parse_inference_server` helper owns those
+model-specific settings so tutorials and benchmarks use the same configuration.
 It does not use `dyn_chat_processor`. See the runnable
 [`dynamo.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/interleaved/nemotron_parse_pdf/dynamo.py)
 source for the complete lifecycle and [Inference Server](/curate-text/synthetic/inference-server)
 for the underlying configuration objects. For executor options, refer to
 [Execution Backends](/reference/infra/execution-backends).
+
+For programmatic use, the helper returns an unstarted `InferenceServer`; use it
+as a context manager to start it, wait for health, and stop it:
+
+```python
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import (
+    NemotronParsePDFReader,
+    create_nemotron_parse_inference_server,
+)
+
+_, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
+num_gpus = int(available_gpus)
+
+with create_nemotron_parse_inference_server(
+    model_path="nvidia/NVIDIA-Nemotron-Parse-v1.2",
+    num_replicas=num_gpus,
+) as server:
+    reader = NemotronParsePDFReader(
+        manifest_path="./pdfs.jsonl",
+        pdf_dir="/data/pdfs",
+        inference_server_endpoint=server.endpoint,
+        inference_server_client_num_workers=4 * num_gpus,
+        inference_batch_size=32,
+    )
+```
 
 ### Example: CC-MAIN PDF Dump
 
@@ -163,6 +191,16 @@ NemotronParsePDFReader(
 | `inference_server_client_num_workers` | int | `4` | Fixed HTTP stage workers. Set to `4 * num_gpus` for production. |
 | `inference_server_request_timeout_s` | float | `300.0` | Per-page HTTP request timeout. |
 | `inference_server_max_retries` | int | `3` | Retries for transient HTTP failures. |
+
+### Failure Behavior
+
+PDF read and render failures happen in `PDFPreprocessStage`, before inference,
+so they behave identically for in-process and inference-server runs: the bad PDF
+is skipped, and a task with no renderable PDFs returns no output. After vLLM or
+HTTP retries—or the Hugging Face single-page fallback—are exhausted, inference
+failures raise the task instead of emitting a partially parsed document. The
+executor's failure policy determines whether the overall run stops or records
+that task as failed.
 
 ### Tune In-Process vLLM
 

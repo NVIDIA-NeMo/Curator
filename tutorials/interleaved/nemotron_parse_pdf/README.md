@@ -72,9 +72,10 @@ GPU, waits for the OpenAI-compatible endpoint to become healthy, and calls
 used. The default inference batch size for this entry point is 32; pass 64 to
 compare the higher per-worker request concurrency on your corpus.
 
-See the [Inference Server guide](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/inference-server)
-for details about the `InferenceServer`, `DynamoVLLMModelConfig`, and
-`DynamoServerConfig` objects used by the entry point.
+The entry point uses `create_nemotron_parse_inference_server`, which keeps the
+Nemotron-Parse vLLM, Dynamo, and runtime-environment settings shared with the
+benchmark. See the [Inference Server guide](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/inference-server)
+for details about the underlying configuration objects.
 
 ## Input formats
 

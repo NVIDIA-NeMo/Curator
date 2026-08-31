@@ -20,6 +20,7 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.server import create_nemotron_parse_inference_server
 
 __all__ = [
     "NemotronParseHTTPClientStage",
@@ -28,4 +29,5 @@ __all__ = [
     "NemotronParsePostprocessStage",
     "PDFPartitioningStage",
     "PDFPreprocessStage",
+    "create_nemotron_parse_inference_server",
 ]

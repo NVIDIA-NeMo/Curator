@@ -30,7 +30,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from inference_server_utils import InferenceServerBackend, parse_json_object, start_inference_server
+from inference_server_utils import InferenceServerBackend, parse_json_object
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
@@ -43,6 +43,7 @@ from main import (
 )
 
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
 from nemo_curator.tasks.utils import TaskPerfUtils
 
 
@@ -53,8 +54,8 @@ def _safe_div(numerator: float, denominator: float) -> float:
 def _resolve_num_replicas(configured_num_replicas: int | None) -> int:
     num_replicas = int(configured_num_replicas) if configured_num_replicas is not None else _available_gpu_count()
     if num_replicas < 1:
-        msg = f"The PDF inference server needs at least one GPU, found {num_replicas}."
-        raise RuntimeError(msg)
+        msg = f"--num-replicas must be at least 1, got {num_replicas}."
+        raise ValueError(msg)
     return num_replicas
 
 
@@ -64,23 +65,6 @@ def _available_gpu_count() -> int:
         msg = f"Nemotron-Parse inference needs at least one GPU, found {num_gpus}."
         raise RuntimeError(msg)
     return num_gpus
-
-
-def _server_engine_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    # Keep the server scheduler at its vLLM default unless the benchmark
-    # explicitly overrides it through --engine-kwargs. The CLI max_num_seqs
-    # setting belongs to the in-process stage.
-    engine_kwargs: dict[str, Any] = {
-        "trust_remote_code": True,
-        "dtype": "bfloat16",
-        "limit_mm_per_prompt": {"image": 1},
-        "enable_prefix_caching": False,
-        "disable_hybrid_kv_cache_manager": False,
-    }
-    if args.enforce_eager:
-        engine_kwargs["enforce_eager"] = True
-    engine_kwargs.update(parse_json_object(args.engine_kwargs, argument="--engine-kwargs"))
-    return engine_kwargs
 
 
 def _sample_ids_from_table(data: Any) -> set[str]:
@@ -215,24 +199,25 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             num_inference_gpus = num_replicas
             inference_stage_parallelism = args.inference_server_client_workers_per_replica * num_replicas
             model_name = args.model_id or args.model_path
-            server_engine_kwargs = _server_engine_kwargs(args)
+            server_engine_kwargs = parse_json_object(args.engine_kwargs, argument="--engine-kwargs")
+            if args.enforce_eager:
+                server_engine_kwargs["enforce_eager"] = True
             logger.info(
                 f"Starting {server_type} inference server with {num_replicas} replicas; "
                 f"PDF client stage workers={inference_stage_parallelism}"
             )
             server_start = time.perf_counter()
-            inference_server = start_inference_server(
+            inference_server = create_nemotron_parse_inference_server(
                 backend=server_type,
-                model_id=model_name,
                 model_path=args.model_path,
+                model_name=model_name,
                 num_replicas=num_replicas,
                 engine_kwargs=server_engine_kwargs,
-                model_runtime_env={"uv": {"packages": ["albumentations==2.0.8"]}},
-                dynamo_kwargs={"enable_multimodal": True},
-                dynamo_router_kwargs={"trust_remote_code": True},
-                dynamo_subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": str(int(args.inference_server_request_timeout_s))},
+                request_timeout_s=args.inference_server_request_timeout_s,
                 health_check_timeout_s=args.inference_server_health_timeout_s,
             )
+            server_engine_kwargs = inference_server.models[0].engine_kwargs
+            inference_server.start()
             inference_server_startup_s = time.perf_counter() - server_start
             pipeline = create_nemotron_parse_pdf_pipeline(
                 args,
