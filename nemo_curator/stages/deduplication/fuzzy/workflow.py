@@ -79,6 +79,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         num_bands: int = 20,
         minhashes_per_band: int = 13,
         use_64_bit_hash: bool = False,
+        normalize_text: bool = False,
         bands_per_iteration: int = 5,
         lsh_num_output_partitions: int | None = None,
         lsh_rmm_pool_size: int | Literal["auto"] | None = "auto",
@@ -133,6 +134,8 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             Number of hashes per bucket/band.
         use_64_bit_hash: bool
             Whether to use a 32bit or 64bit hash function for minhashing.
+        normalize_text: bool
+            Whether to normalize text before computing minhashes.
         bands_per_iteration: int
             Number of bands/buckets to shuffle concurrently.
             Larger values process larger batches by processing multiple bands
@@ -174,6 +177,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         self.num_bands = num_bands
         self.minhashes_per_band = minhashes_per_band
         self.use_64_bit_hash = use_64_bit_hash
+        self.normalize_text = normalize_text
         self.bands_per_iteration = bands_per_iteration
 
         self.env_vars = env_vars
@@ -220,6 +224,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 num_hashes=self.num_hashes,
                 seed=self.seed,
                 use_64bit_hash=self.use_64_bit_hash,
+                normalize_text=self.normalize_text,
                 read_format=self.input_filetype,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.cache_kwargs,

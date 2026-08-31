@@ -36,3 +36,11 @@ data_setups:
       --hf-repo-id diarizers-community/ami
       --hf-config sdm
       --hf-revision 8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0
+
+  - name: audio_sortformer_librispeech_450h
+    enabled: true
+    script: prepare_audio_sortformer_data.py
+    args: >-
+      --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/audio_sortformer
+      --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo

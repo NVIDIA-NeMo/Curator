@@ -1,3 +1,11 @@
+# Canonical full-suite Curator benchmark configuration.
+#
+# This file is complete and runnable by itself. Its resource settings, timeouts,
+# and performance requirements are calibrated for the default 8-GPU H100 nightly
+# environment. To run the same benchmark suite on another SKU, pass this file
+# first and then pass a SKU override file, for example:
+#   --config benchmarking/benchmarks.yaml --config benchmarking/4xGB200-64CPU.yaml
+#
 # The "paths" section defines files and directories used by the benchmarks.
 # Each entry requires a "name" and a "host_path". Paths must exist on the host.
 # If running inside a Docker container started with tools/run.sh, each path is
@@ -137,6 +145,11 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
+  # 1,800 fixed 15-minute bundles from pinned public CC-BY-4.0 LibriSpeech: 450 audio hours.
+  - name: "audio_sortformer_librispeech_450h"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -950,31 +963,66 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
+  # Both backends process the same public cohort with stage-owned defaults.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
-      --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_sortformer_librispeech_450h,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+      --executor=xenna
       --rttm-out-dir={session_entry_dir}/scratch/rttm
     timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
-          - num_files_processed
-          - throughput_files_per_sec
-          - real_time_factor
-          - total_segments_detected
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
-      - metric: num_files_processed
-        min_value: 1
+      - metric: num_input_rows
+        exact_value: 1800
+      - metric: num_output_rows
+        exact_value: 1800
+      - metric: num_tasks_with_segments
+        exact_value: 1800
+      - metric: total_audio_duration_hours
+        exact_value: 450.0
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
+
+  - name: audio_sortformer_raydata
+    enabled: true
+    script: audio_sortformer_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_sortformer_librispeech_450h,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+      --executor=ray_data
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_input_rows
+        exact_value: 1800
+      - metric: num_output_rows
+        exact_value: 1800
+      - metric: num_tasks_with_segments
+        exact_value: 1800
+      - metric: total_audio_duration_hours
+        exact_value: 450.0
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
   # Shared 750-hour workload; the executor selects workers.
   - name: audio_librispeech_xenna
@@ -1298,7 +1346,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.7
 
-  - name: ndd_dynamo_dp8
+  - name: ndd_dynamo
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1334,7 +1382,7 @@ entries:
       - metric: throughput_rows_per_sec
         min_value: 150
 
-  - name: ndd_ray_serve_dp8
+  - name: ndd_ray_serve
     enabled: true
     script: ndd_benchmark.py
     args: >-

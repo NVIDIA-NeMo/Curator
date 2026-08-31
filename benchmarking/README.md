@@ -35,7 +35,7 @@ Note: you may only need to do this periodically when the environment needs to be
 
 **2. Update config:**
 
-Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
+Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/benchmarks.yaml`
 
 ```yaml
 paths:
@@ -56,14 +56,28 @@ pre-staged model snapshots or caches, such as audio tagging.
 
 ```bash
 ./benchmarking/tools/run.sh \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml
 ```
+
+For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the full-suite config:
+
+```bash
+./benchmarking/tools/run.sh \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/4xGB200-64CPU.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml
+```
+
+The 4xGB200-64CPU override updates resource counts, timeout values, known 4-GPU video
+throughput thresholds, and workload-specific scaling settings. Other performance
+requirements are inherited from `benchmarks.yaml` until 4xGB200-64CPU-specific
+baselines are measured.
 
 To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
 ```bash
 ./benchmarking/tools/run.sh \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --use-host-curator
 ```
@@ -78,14 +92,15 @@ Results are written to the `results_path` specified in your configuration, organ
 
 ## Nightly Benchmark Ownership
 
-Curator owns the benchmark workload: `benchmarking/nightly-benchmark.yaml`,
+Curator owns the benchmark workload: `benchmarking/benchmarks.yaml`,
 the benchmark runner, benchmark scripts, data setup scripts, and local developer
 tools such as `benchmarking/tools/run.sh`.
 
 The scheduled nightly run is orchestrated outside of the Curator repository by
 CI infrastructure. That pipeline reads Curator's
-`benchmarking/nightly-benchmark.yaml`, generates one scheduler job per enabled
-entry, and starts each job in a benchmark runtime environment.
+`benchmarking/benchmarks.yaml` plus any selected SKU override config, generates
+one scheduler job per enabled entry from the merged config, and starts each job
+in a benchmark runtime environment.
 
 Each generated job invokes Curator's `benchmarking/run.py` for its assigned
 entry. The jobs share a session name and results root so their per-entry outputs
@@ -281,7 +296,7 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference config and is calibrated for the default 8-GPU H100 nightly environment. SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed after it to override only the values that differ for that environment.
 
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.
@@ -292,7 +307,7 @@ This makes it practical to write small override files that change only specific 
 
 **Example — overriding a single entry's timeout and requirements:**
 
-Base config (`nightly-benchmark.yaml`) defines many entries including:
+Base config (`benchmarks.yaml`) defines many entries including:
 ```yaml
 entries:
   - name: domain_classification_xenna
@@ -315,7 +330,7 @@ entries:
 Running with both files:
 ```bash
 python benchmarking/run.py \
-  --config nightly-benchmark.yaml \
+  --config benchmarks.yaml \
   --config my_overrides.yaml
 ```
 
@@ -565,10 +580,11 @@ Audio benchmarks that depend on external corpora use the same two-layer setup:
 1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
    machine to populate persistent paths under `{datasets_path}` and, when
    needed, `{model_weights_path}`.
-2. Run nightly entries against the staged manifest or data directory so the
-   benchmark itself never downloads the corpus during the scheduled run.
+2. Run nightly entries from the staged data and local model paths so the
+   benchmark itself never downloads inputs during the scheduled run. Entries
+   that support a standalone download fallback also pass `--no-auto-download`.
 
-Some benchmark scripts keep a standalone auto-download path for ad hoc local
+Benchmarks that expose a standalone auto-download path keep it for ad hoc local
 debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
@@ -598,6 +614,10 @@ python benchmarking/data_prep/prepare_audio_tagging_data.py \
 
 python benchmarking/data_prep/prepare_alm_data.py \
   --output-path {datasets_path}/alm_ami_sdm_8cdaae2
+
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
+  --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 ```
 
 The setup pins each Hugging Face revision and selects the configured workload

@@ -19,7 +19,7 @@ through the full Pipeline/Executor stack and collects performance metrics
 for regression tracking.
 
 Can be invoked standalone with explicit args, or with --config to read
-parameters from a benchmarking YAML (e.g. nightly-benchmark.yaml).
+parameters from a benchmarking YAML (e.g. benchmarks.yaml).
 """
 
 import argparse
@@ -224,7 +224,7 @@ def _load_args_from_config(config_path: str, entry_name: str, datasets_path: Pat
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="ALM pipeline benchmark for nightly benchmarking")
-    parser.add_argument("--config", type=str, help="Path to benchmarking YAML config (e.g. nightly-benchmark.yaml)")
+    parser.add_argument("--config", type=str, help="Path to benchmarking YAML config (e.g. benchmarks.yaml)")
     parser.add_argument("--entry", type=str, default="alm_pipeline_xenna", help="Entry name in the YAML config")
     parser.add_argument("--datasets-path", type=Path, help="Dataset root used with --config")
     parser.add_argument("--benchmark-results-path", type=Path, help="Path to write benchmark results")
