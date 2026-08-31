@@ -142,7 +142,6 @@ def _read_jsonl_with_pandas(
     if read_kwargs.get("engine") == PANDAS_ENGINE:
         read_kwargs.pop("engine")
     read_kwargs["lines"] = True
-    read_kwargs.setdefault("dtype_backend", "pyarrow")
 
     dfs = []
     for file_path in paths:

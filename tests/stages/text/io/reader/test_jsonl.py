@@ -109,7 +109,6 @@ class TestJsonlReaderWithoutIdGenerator:
         result = JsonlReaderStage(read_kwargs={"engine": "pyarrow"}).process(task)
 
         assert isinstance(result.data, pd.DataFrame)
-        assert result.data["text"].dtype == pd.ArrowDtype(pa.string())
         assert result.data["text"].tolist() == [
             "Doc 0-1",
             "Doc 0-2",
@@ -159,7 +158,7 @@ class TestJsonlReaderWithoutIdGenerator:
 
         # Prefer the default/pyarrow_direct path for throughput. Select pandas explicitly
         # when pandas-specific inference, such as timezone-aware dates, is required.
-        assert pandas_result.data["created_at"].dtype == pd.ArrowDtype(pa.timestamp("us", tz="UTC"))
+        assert isinstance(pandas_result.data["created_at"].dtype, pd.DatetimeTZDtype)
         assert pandas_result.data["created_at"].tolist() == [expected]
         assert isinstance(arrow_result.data, pa.Table)
         assert arrow_result.data.schema.field("created_at").type == pa.string()
@@ -303,8 +302,6 @@ class TestJsonlReaderWithIdGenerator:
             assert isinstance(result.data, backing_type)
             if isinstance(result.data, pa.Table):
                 assert result.data.schema.field(CURATOR_DEDUP_ID_STR).type == pa.int64()
-            else:
-                assert result.data[CURATOR_DEDUP_ID_STR].dtype == pd.ArrowDtype(pa.int64())
             ids = result.to_pandas()[CURATOR_DEDUP_ID_STR].tolist()
             all_ids.extend(ids)
 
@@ -329,8 +326,6 @@ class TestJsonlReaderWithIdGenerator:
         for i, task in enumerate(file_group_tasks):
             result = assign_stage.process(task)
             assert isinstance(result.data, backing_type)
-            if isinstance(result.data, pd.DataFrame):
-                assert result.data[CURATOR_DEDUP_ID_STR].dtype == pd.ArrowDtype(pa.int64())
             expected_ids = [i * 2, i * 2 + 1]  # Task 0: [0,1], Task 1: [2,3], Task 2: [4,5]
             ids = result.to_pandas()[CURATOR_DEDUP_ID_STR].tolist()
             assert ids == expected_ids  # These ids should be the same as the previous batch

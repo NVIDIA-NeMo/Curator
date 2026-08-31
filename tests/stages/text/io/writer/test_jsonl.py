@@ -94,7 +94,6 @@ class TestJsonlWriter:
         pd.testing.assert_frame_equal(
             normalize_string_dtypes(df),
             normalize_string_dtypes(document_batch.to_pandas()),
-            check_dtype=False,
         )
 
     def test_jsonl_writer_with_columns_subset(self, pandas_document_batch: DocumentBatch, tmpdir: str):

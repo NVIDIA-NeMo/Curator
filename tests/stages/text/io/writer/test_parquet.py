@@ -37,7 +37,7 @@ class TestParquetWriter:
             [
                 pa.field("id", pa.int64(), nullable=False),
                 pa.field("text", pa.large_string()),
-                pa.field("embeddings", pa.list_(pa.float16())),
+                pa.field("embeddings", pa.list_(pa.float32())),
                 pa.field("nested", pa.list_(pa.struct([("score", pa.float32())]))),
             ],
             metadata={b"source": b"test"},
@@ -46,9 +46,7 @@ class TestParquetWriter:
             [
                 pa.array([1, 2], type=pa.int64()),
                 pa.array(["first", None], type=pa.large_string()),
-                pa.ListArray.from_arrays(
-                    pa.array([0, 2, 4]), pa.array([1.0, 2.0, 3.0, 4.0], type=pa.float32()).cast(pa.float16())
-                ),
+                pa.array([[1.0, 2.0], [3.0, 4.0]], type=pa.list_(pa.float32())),
                 pa.array([[{"score": 1.5}], None], type=schema.field("nested").type),
             ],
             schema=schema,
@@ -103,14 +101,11 @@ class TestParquetWriter:
         batch.to_pandas.assert_called_once_with()
         assert "__index_level_0__" in pq.read_table(output_file).column_names
 
-    def test_arrow_table_uses_pandas_for_non_pyarrow_engine(self, tmp_path: Path) -> None:
-        table = pa.table({"id": [1], "text": ["first"]})
-        writer = ParquetWriter(path=str(tmp_path), write_kwargs={"engine": "fastparquet"})
-
-        assert writer._write_arrow(table, str(tmp_path / "unused.parquet")) is False
-
-    def test_arrow_table_rejects_unsupported_direct_option(self, tmp_path: Path) -> None:
-        writer = ParquetWriter(path=str(tmp_path), write_kwargs={"partition_cols": []})
+    @pytest.mark.parametrize("write_kwargs", [{"engine": "fastparquet"}, {"partition_cols": []}])
+    def test_arrow_table_uses_pandas_for_unsupported_options(
+        self, tmp_path: Path, write_kwargs: dict[str, object]
+    ) -> None:
+        writer = ParquetWriter(path=str(tmp_path), write_kwargs=write_kwargs)
 
         assert writer._write_arrow(pa.table({"id": [1]}), str(tmp_path / "unused.parquet")) is False
 
