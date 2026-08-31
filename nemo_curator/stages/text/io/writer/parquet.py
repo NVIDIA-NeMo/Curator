@@ -17,12 +17,14 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from fsspec.core import split_protocol
 
 from nemo_curator.tasks import DocumentBatch
 
 from .base import BaseWriter
 
-_PANDAS_ONLY_WRITE_OPTIONS = {"partition_cols", "storage_options"}
+# TODO(NMCUR-432): Use the same deterministic partitioned-dataset layout for pandas and Arrow inputs.
+_PANDAS_ONLY_WRITE_OPTIONS = {"partition_cols"}
 
 
 @dataclass
@@ -59,11 +61,13 @@ class ParquetWriter(BaseWriter):
         write_kwargs = self.write_kwargs.copy()
         engine = write_kwargs.pop("engine", None)
         index = write_kwargs.pop("index", None)
+        write_kwargs.pop("storage_options", None)
         if engine not in {None, "pyarrow"} or index is True:
             return False
 
         if _PANDAS_ONLY_WRITE_OPTIONS.intersection(write_kwargs):
             return False
 
-        pq.write_table(table, file_path, **write_kwargs)
+        _, fs_path = split_protocol(file_path)
+        pq.write_table(table, fs_path, filesystem=self.fs, **write_kwargs)
         return True

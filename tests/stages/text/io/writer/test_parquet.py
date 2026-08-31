@@ -22,6 +22,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from fsspec.core import split_protocol
 
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.io.writer import base as writer_base
@@ -103,7 +104,7 @@ class TestParquetWriter:
 
     @pytest.mark.parametrize(
         "write_kwargs",
-        [{"engine": "fastparquet"}, {"partition_cols": []}, {"storage_options": {}}],
+        [{"engine": "fastparquet"}, {"index": True}, {"partition_cols": []}],
     )
     def test_arrow_table_uses_pandas_for_unsupported_options(
         self, tmp_path: Path, write_kwargs: dict[str, object]
@@ -111,6 +112,23 @@ class TestParquetWriter:
         writer = ParquetWriter(path=str(tmp_path), write_kwargs=write_kwargs)
 
         assert writer._write_arrow(pa.table({"id": [1]}), str(tmp_path / "unused.parquet")) is False
+
+    def test_arrow_table_writes_through_configured_fsspec_filesystem(self) -> None:
+        table = pa.table({"text": pa.array(["first", "second"], type=pa.large_string())})
+        batch = DocumentBatch(dataset_name="test", data=table)
+        batch.to_pandas = mock.Mock(side_effect=AssertionError("Arrow input must not convert to pandas"))
+        writer = ParquetWriter(
+            path="memory://nmcur-316/output",
+            write_kwargs={"storage_options": {"skip_instance_cache": True}},
+        )
+        writer.setup()
+
+        output_file = writer.process(batch).data[0]
+        _, fs_path = split_protocol(output_file)
+        result = pq.read_table(fs_path, filesystem=writer.fs)
+
+        assert result.equals(table)
+        assert result.schema.equals(table.schema)
 
     @pytest.mark.parametrize("document_batch", ["pandas", "pyarrow"], indirect=True)
     @pytest.mark.parametrize("consistent_filename", [True, False])
