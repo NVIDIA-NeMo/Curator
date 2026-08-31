@@ -480,6 +480,10 @@ class TestKMeansReadFitWriteStage:
 
         with (
             patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.read_parquet_file_row_counts",
+                return_value=dict.fromkeys(all_files, len(df)),
+            ) as mock_row_counts,
+            patch(
                 "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups"
             ) as mock_break,
             patch.object(stage, "read_parquet", return_value=df) as mock_read_parquet,
@@ -491,8 +495,15 @@ class TestKMeansReadFitWriteStage:
             results = stage.process_batch(all_tasks)
 
             if expect_break:
-                mock_break.assert_called_once_with(all_files, embedding_dim=32, storage_options=None)
+                mock_row_counts.assert_called_once_with(all_files, storage_options=None)
+                mock_break.assert_called_once_with(
+                    all_files,
+                    embedding_dim=32,
+                    storage_options=None,
+                    row_counts=dict.fromkeys(all_files, len(df)),
+                )
             else:
+                mock_row_counts.assert_not_called()
                 mock_break.assert_not_called()
 
             if filetype == "parquet":

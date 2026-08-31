@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 
 from typing import Any
 
-import pyarrow.parquet as pq
-from fsspec.parquet import open_parquet_file
 from loguru import logger
 
 
@@ -32,29 +30,75 @@ def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
     return df[embedding_col].list.leaves.values.reshape(len(df), -1)
 
 
-def break_parquet_partition_into_groups(
-    files: list[str], embedding_dim: int | None = None, storage_options: dict[str, Any] | None = None
+def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, Any] | None = None) -> dict[str, int]:
+    """Read ordered per-file row counts with one pylibcudf footer call."""
+    if not files:
+        return {}
+
+    import pylibcudf as plc
+    from cudf.utils import ioutils
+
+    try:
+        sources = ioutils.get_reader_filepath_or_buffer(files, storage_options=storage_options)
+        footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(sources))
+    except Exception as error:
+        msg = f"Failed to read Parquet footer metadata for {len(files)} file(s), starting with {files[0]!r}"
+        raise RuntimeError(msg) from error
+
+    if len(footers) != len(files):
+        msg = f"Expected {len(files)} Parquet footers, got {len(footers)}"
+        raise RuntimeError(msg)
+    return {file: int(footer.num_rows) for file, footer in zip(files, footers, strict=True)}
+
+
+def break_parquet_partition_into_groups(  # noqa: C901
+    files: list[str],
+    embedding_dim: int | None = None,
+    storage_options: dict[str, Any] | None = None,
+    *,
+    row_counts: dict[str, int] | None = None,
 ) -> list[list[str]]:
     """Break parquet files into groups to avoid cudf 2bn row limit."""
+    if not files:
+        return []
     if embedding_dim is None:
         # Default aggressive assumption of 1024 dimensional embedding
         embedding_dim = 1024
+    if embedding_dim <= 0:
+        msg = f"embedding_dim must be positive, got {embedding_dim}"
+        raise ValueError(msg)
 
     cudf_max_num_rows = 2_000_000_000  # cudf only allows 2bn rows
-    cudf_max_num_elements = cudf_max_num_rows / embedding_dim  # cudf considers each element in an array to be a row
+    max_rows_per_group = cudf_max_num_rows // embedding_dim
+    if max_rows_per_group == 0:
+        msg = f"embedding_dim {embedding_dim} exceeds the cuDF list-child element limit"
+        raise ValueError(msg)
 
-    # Load the first file and get the number of rows to estimate
-    with open_parquet_file(files[0], storage_options=storage_options) as f:
-        # Multiply by 1.5 to adjust for skew
-        avg_num_rows = pq.read_metadata(f).num_rows * 1.5
+    if row_counts is None:
+        row_counts = read_parquet_file_row_counts(files, storage_options=storage_options)
+    subgroups: list[list[str]] = []
+    subgroup: list[str] = []
+    subgroup_rows = 0
+    for file in files:
+        if file not in row_counts:
+            msg = f"Missing Parquet row count for {file!r}"
+            raise ValueError(msg)
+        file_rows = row_counts[file]
+        if file_rows < 0:
+            msg = f"Parquet row count for {file!r} must be non-negative, got {file_rows}"
+            raise ValueError(msg)
+        if file_rows > max_rows_per_group:
+            msg = f"Parquet file {file!r} has {file_rows} rows, exceeding the per-group limit of {max_rows_per_group}"
+            raise ValueError(msg)
+        if subgroup and subgroup_rows + file_rows > max_rows_per_group:
+            subgroups.append(subgroup)
+            subgroup = []
+            subgroup_rows = 0
+        subgroup.append(file)
+        subgroup_rows += file_rows
+    if subgroup:
+        subgroups.append(subgroup)
 
-    max_files_per_subgroup = int(cudf_max_num_elements / avg_num_rows)
-    max_files_per_subgroup = max(1, max_files_per_subgroup)  # Ensure at least 1 file per subgroup
-
-    # Break files into subgroups
-    subgroups = [files[i : i + max_files_per_subgroup] for i in range(0, len(files), max_files_per_subgroup)]
     if len(subgroups) > 1:
-        logger.debug(
-            f"Broke {len(files)} files into {len(subgroups)} subgroups with max {max_files_per_subgroup} files per subgroup"
-        )
+        logger.debug(f"Broke {len(files)} files into {len(subgroups)} row-bounded subgroups")
     return subgroups

@@ -27,7 +27,7 @@ from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
-from .utils import break_parquet_partition_into_groups, get_array_from_df
+from .utils import break_parquet_partition_into_groups, get_array_from_df, read_parquet_file_row_counts
 
 if TYPE_CHECKING:
     import cudf
@@ -148,13 +148,16 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         # Collect all files from all tasks
         all_files = [file for task in tasks for file in task.data]
+        row_counts = None
 
         # Break files into subgroups to avoid cudf row limits
         if self.filetype == "parquet":
+            row_counts = read_parquet_file_row_counts(all_files, storage_options=self.input_storage_options)
             groups = break_parquet_partition_into_groups(
                 all_files,
                 embedding_dim=self.embedding_dim,
                 storage_options=self.input_storage_options,
+                row_counts=row_counts,
             )
         elif self.filetype == "jsonl":
             # For JSONL files, just group all files together since we can't easily estimate size
@@ -164,7 +167,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             raise ValueError(msg)
 
         if self.fit_data_fraction is not None:
-            return self._process_batch_two_pass(tasks, groups)
+            return self._process_batch_two_pass(tasks, groups, row_counts)
         return self._process_batch_single_pass(tasks, groups)
 
     def _read_group(self, group: list[str], columns: list[str]) -> "cudf.DataFrame":
@@ -264,7 +267,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         return results
 
-    def _process_batch_two_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["EmptyTask"]:
+    def _process_batch_two_pass(
+        self, tasks: list[FileGroupTask], groups: list[list[str]], row_counts: dict[str, int] | None = None
+    ) -> list["EmptyTask"]:
         """Memory-efficient two-pass approach for large datasets.
 
         Pass 1 (_fit_pass): samples fit_data_fraction of the actor's files (across
@@ -279,7 +284,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         Peak GPU memory ≈ max(fit_data_fraction x actor_rows, one_group_size) x embedding_dim x 4 bytes,
         instead of total_data x embedding_dim x 4 bytes.
         """
-        pass1_read_time = self._fit_pass(groups)
+        pass1_read_time = self._fit_pass(groups, row_counts)
         results, pass2_read_time, total_rows = self._predict_write_pass(tasks, groups)
         self._log_metrics(
             {
@@ -289,7 +294,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         )
         return results
 
-    def _fit_pass(self, groups: list[list[str]]) -> float:
+    def _fit_pass(self, groups: list[list[str]], row_counts: dict[str, int] | None = None) -> float:
         """Pass 1: sample files at the actor level, read embeddings, fit KMeans,
         and (on actor 0) save centroids.
 
@@ -325,6 +330,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 fit_files,
                 embedding_dim=self.embedding_dim,
                 storage_options=self.input_storage_options,
+                row_counts=row_counts,
             )
         else:  # jsonl
             fit_groups = [fit_files]
