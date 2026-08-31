@@ -37,6 +37,8 @@ def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, An
     if not files:
         return {}
 
+    # TODO(https://github.com/NVIDIA/cudf/issues/23899): Use the cuDF metadata path for all inputs once it
+    # supports storage_options without opening every file simultaneously.
     try:
         if storage_options:
             parquet_files = open_parquet_files(files, storage_options=storage_options, row_groups=[])
@@ -55,7 +57,7 @@ def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, An
                 offset = end
         return dict(zip(files, row_counts, strict=True))
     except Exception as error:
-        msg = f"Failed to read Parquet footer metadata for {files[0]!r}"
+        msg = f"Failed to read Parquet footer metadata for one of {len(files)} files"
         raise RuntimeError(msg) from error
 
 

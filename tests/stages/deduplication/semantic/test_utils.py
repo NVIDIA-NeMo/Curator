@@ -228,7 +228,7 @@ class TestReadParquetFileRowCounts:
         pd.DataFrame({"value": [1]}).to_parquet(valid_file)
         corrupt_file.write_bytes(b"not parquet")
 
-        with pytest.raises(RuntimeError, match="Failed to read Parquet footer metadata"):
+        with pytest.raises(RuntimeError, match="Failed to read Parquet footer metadata for one of 2 files"):
             read_parquet_file_row_counts([str(valid_file), str(corrupt_file)])
 
     def test_empty_file_list_skips_metadata_read(self) -> None:
