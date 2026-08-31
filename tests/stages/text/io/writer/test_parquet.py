@@ -101,7 +101,10 @@ class TestParquetWriter:
         batch.to_pandas.assert_called_once_with()
         assert "__index_level_0__" in pq.read_table(output_file).column_names
 
-    @pytest.mark.parametrize("write_kwargs", [{"engine": "fastparquet"}, {"partition_cols": []}])
+    @pytest.mark.parametrize(
+        "write_kwargs",
+        [{"engine": "fastparquet"}, {"partition_cols": []}, {"storage_options": {}}],
+    )
     def test_arrow_table_uses_pandas_for_unsupported_options(
         self, tmp_path: Path, write_kwargs: dict[str, object]
     ) -> None:

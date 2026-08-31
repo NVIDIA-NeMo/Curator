@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from inspect import signature
 from typing import Any
 
 import pyarrow as pa
@@ -22,6 +21,8 @@ import pyarrow.parquet as pq
 from nemo_curator.tasks import DocumentBatch
 
 from .base import BaseWriter
+
+_PANDAS_ONLY_WRITE_OPTIONS = {"partition_cols", "storage_options"}
 
 
 @dataclass
@@ -61,8 +62,7 @@ class ParquetWriter(BaseWriter):
         if engine not in {None, "pyarrow"} or index is True:
             return False
 
-        arrow_write_options = set(signature(pq.write_table).parameters) - {"table", "where"}
-        if not set(write_kwargs).issubset(arrow_write_options):
+        if _PANDAS_ONLY_WRITE_OPTIONS.intersection(write_kwargs):
             return False
 
         pq.write_table(table, file_path, **write_kwargs)
