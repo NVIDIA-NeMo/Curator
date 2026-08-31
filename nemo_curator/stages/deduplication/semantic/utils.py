@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -20,9 +21,12 @@ if TYPE_CHECKING:
 
 from typing import Any
 
+import pyarrow.parquet as pq
+from fsspec.parquet import open_parquet_file
 from loguru import logger
 
 PARQUET_FOOTER_BATCH_SIZE = 512
+PARQUET_FOOTER_READ_WORKERS = 8
 
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
@@ -33,23 +37,30 @@ def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
 
 
 def read_parquet_file_row_counts(files: list[str], storage_options: dict[str, Any] | None = None) -> dict[str, int]:
-    """Read ordered per-file row counts with one pylibcudf footer call."""
+    """Read ordered per-file row counts from Parquet footer metadata."""
     if not files:
         return {}
 
+    if storage_options:
+
+        def read_num_rows(file: str) -> int:
+            with open_parquet_file(file, storage_options=storage_options) as parquet_file:
+                return pq.read_metadata(parquet_file).num_rows
+
+        try:
+            with ThreadPoolExecutor(max_workers=min(PARQUET_FOOTER_READ_WORKERS, len(files))) as executor:
+                return dict(zip(files, executor.map(read_num_rows, files), strict=True))
+        except Exception as error:
+            msg = f"Failed to read Parquet footer metadata, starting with {files[0]!r}"
+            raise RuntimeError(msg) from error
+
     import pylibcudf as plc
-    from cudf.utils import ioutils
 
     row_counts = {}
     for offset in range(0, len(files), PARQUET_FOOTER_BATCH_SIZE):
         batch = files[offset : offset + PARQUET_FOOTER_BATCH_SIZE]
         try:
-            sources = ioutils.get_reader_filepath_or_buffer(
-                batch,
-                storage_options=storage_options,
-                prefetch_options={"method": "parquet", "columns": []},
-            )
-            footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(sources))
+            footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(batch))
         except Exception as error:
             msg = f"Failed to read Parquet footer metadata for batch starting with {batch[0]!r}"
             raise RuntimeError(msg) from error

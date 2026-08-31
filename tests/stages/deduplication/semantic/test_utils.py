@@ -170,7 +170,7 @@ class TestReadParquetFileRowCounts:
         assert read_parquet_file_row_counts(test_files) == dict(zip(test_files, expected_rows, strict=True))
 
     def test_remote_files_honor_storage_options(self) -> None:
-        """Pass storage options through cuDF's filesystem resolution for remote inputs."""
+        """Pass storage options through fsspec for remote inputs."""
         from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_row_counts
 
         parquet_buffer = io.BytesIO()
@@ -202,17 +202,12 @@ class TestReadParquetFileRowCounts:
     def test_large_file_set_uses_bounded_bulk_calls(self) -> None:
         """Bound each pylibcudf call below typical process file-descriptor limits."""
         import pylibcudf as plc
-        from cudf.utils import ioutils
 
         from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_row_counts
 
         test_files = [f"test_file_{i}.parquet" for i in range(513)]
         with (
-            patch.object(
-                ioutils,
-                "get_reader_filepath_or_buffer",
-                side_effect=[[b"footer"] * 512, [b"footer"]],
-            ),
+            patch.object(plc.io, "SourceInfo", side_effect=lambda sources: sources),
             patch.object(
                 plc.io.parquet_metadata,
                 "read_parquet_footers",
