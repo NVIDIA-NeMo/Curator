@@ -13,7 +13,11 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
+from inspect import signature
 from typing import Any
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from nemo_curator.tasks import DocumentBatch
 
@@ -22,15 +26,18 @@ from .base import BaseWriter
 
 @dataclass
 class ParquetWriter(BaseWriter):
-    """Writer that writes a DocumentBatch to a Parquet file using pandas."""
+    """Writer that writes a DocumentBatch to a Parquet file."""
 
-    # Additional kwargs for pandas.DataFrame.to_parquet
+    # Additional kwargs for the selected Parquet writer
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     file_extension: str = "parquet"
     name: str = "parquet_writer"
 
     def write_data(self, task: DocumentBatch, file_path: str) -> None:
-        """Write data to Parquet file using pandas DataFrame.to_parquet."""
+        """Write Arrow batches directly and retain pandas compatibility."""
+        if isinstance(task.data, pa.Table) and self._write_arrow(task.data, file_path):
+            return
+
         df = task.to_pandas()  # Convert to pandas DataFrame if needed
         if self.fields is not None:
             df = df[self.fields]
@@ -42,3 +49,21 @@ class ParquetWriter(BaseWriter):
         # Add any additional kwargs, allowing them to override defaults
         write_kwargs.update(self.write_kwargs)
         df.to_parquet(file_path, **write_kwargs)
+
+    def _write_arrow(self, table: pa.Table, file_path: str) -> bool:
+        """Write directly unless the caller requested pandas-only behavior."""
+        if self.fields is not None:
+            table = table.select(self.fields)
+
+        write_kwargs = self.write_kwargs.copy()
+        engine = write_kwargs.pop("engine", None)
+        index = write_kwargs.pop("index", None)
+        if engine not in {None, "pyarrow"} or index is True:
+            return False
+
+        arrow_write_options = set(signature(pq.write_table).parameters) - {"table", "where"}
+        if not set(write_kwargs).issubset(arrow_write_options):
+            return False
+
+        pq.write_table(table, file_path, **write_kwargs)
+        return True

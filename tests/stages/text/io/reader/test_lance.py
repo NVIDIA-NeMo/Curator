@@ -120,7 +120,7 @@ def test_lance_reader_materializes_blob_values(tmp_path: Path, payloads: list[by
 
     assert result.schema.field("payload").type == pa.large_binary()
     assert result["payload"].to_pylist() == payloads
-    assert batch.to_pandas()["payload"].tolist() == payloads
+    assert batch.to_pandas()["payload"].array.__arrow_array__().to_pylist() == payloads
     assert "_rowaddr" not in result.column_names
 
 

@@ -15,9 +15,12 @@
 import os
 import time
 import uuid
+from pathlib import Path
 from unittest import mock
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from nemo_curator.stages.text.io.writer import ParquetWriter
@@ -28,6 +31,88 @@ from tests.stages.text.io.utils import normalize_string_dtypes
 
 class TestParquetWriter:
     """Test suite for ParquetWriter with different data types."""
+
+    def test_arrow_table_preserves_schema_and_writer_options(self, tmp_path: Path) -> None:
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("text", pa.large_string()),
+                pa.field("embeddings", pa.list_(pa.float16())),
+                pa.field("nested", pa.list_(pa.struct([("score", pa.float32())]))),
+            ],
+            metadata={b"source": b"test"},
+        )
+        table = pa.Table.from_arrays(
+            [
+                pa.array([1, 2], type=pa.int64()),
+                pa.array(["first", None], type=pa.large_string()),
+                pa.ListArray.from_arrays(
+                    pa.array([0, 2, 4]), pa.array([1.0, 2.0, 3.0, 4.0], type=pa.float32()).cast(pa.float16())
+                ),
+                pa.array([[{"score": 1.5}], None], type=schema.field("nested").type),
+            ],
+            schema=schema,
+        )
+        batch = DocumentBatch(dataset_name="test", data=table)
+        batch.to_pandas = mock.Mock(side_effect=AssertionError("Arrow input must not convert to pandas"))
+        writer = ParquetWriter(
+            path=str(tmp_path),
+            write_kwargs={
+                "compression": "zstd",
+                "compression_level": 3,
+                "row_group_size": 1,
+                "use_compliant_nested_type": False,
+            },
+        )
+        writer.setup()
+
+        output_file = Path(writer.process(batch).data[0])
+        result = pq.read_table(output_file)
+
+        assert result.equals(table)
+        assert result.schema.equals(schema, check_metadata=True)
+        assert pq.ParquetFile(output_file).metadata.num_row_groups == 2
+        assert all(pq.ParquetFile(output_file).metadata.row_group(i).column(0).compression == "ZSTD" for i in range(2))
+
+    def test_arrow_table_applies_field_selection(self, tmp_path: Path) -> None:
+        table = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "embeddings": pa.array([[1.0], [2.0]], type=pa.list_(pa.float32())),
+                "unused": ["a", "b"],
+            }
+        )
+        writer = ParquetWriter(path=str(tmp_path), fields=["embeddings", "id"])
+        writer.setup()
+
+        result = pq.read_table(writer.process(DocumentBatch(dataset_name="test", data=table)).data[0])
+
+        assert result.column_names == ["embeddings", "id"]
+        assert result.equals(table.select(["embeddings", "id"]))
+
+    def test_arrow_table_uses_pandas_for_index(self, tmp_path: Path) -> None:
+        table = pa.table({"id": [1], "text": ["first"]})
+        batch = DocumentBatch(dataset_name="test", data=table)
+        dataframe = table.to_pandas()
+        batch.to_pandas = mock.Mock(return_value=dataframe)
+        writer = ParquetWriter(path=str(tmp_path), write_kwargs={"index": True})
+        writer.setup()
+
+        output_file = writer.process(batch).data[0]
+
+        batch.to_pandas.assert_called_once_with()
+        assert "__index_level_0__" in pq.read_table(output_file).column_names
+
+    def test_arrow_table_uses_pandas_for_non_pyarrow_engine(self, tmp_path: Path) -> None:
+        table = pa.table({"id": [1], "text": ["first"]})
+        writer = ParquetWriter(path=str(tmp_path), write_kwargs={"engine": "fastparquet"})
+
+        assert writer._write_arrow(table, str(tmp_path / "unused.parquet")) is False
+
+    def test_arrow_table_rejects_unsupported_direct_option(self, tmp_path: Path) -> None:
+        writer = ParquetWriter(path=str(tmp_path), write_kwargs={"partition_cols": []})
+
+        assert writer._write_arrow(pa.table({"id": [1]}), str(tmp_path / "unused.parquet")) is False
 
     @pytest.mark.parametrize("document_batch", ["pandas", "pyarrow"], indirect=True)
     @pytest.mark.parametrize("consistent_filename", [True, False])
@@ -90,11 +175,14 @@ class TestParquetWriter:
 
         # Verify file extension and content
         assert file_path.endswith(".parquet"), "Parquet files should have .parquet extension"
-        df = pd.read_parquet(file_path)
-        pd.testing.assert_frame_equal(
-            normalize_string_dtypes(df),
-            normalize_string_dtypes(document_batch.to_pandas()),
-        )
+        if isinstance(document_batch.data, pa.Table):
+            assert pq.read_table(file_path).equals(document_batch.data)
+        else:
+            df = pd.read_parquet(file_path)
+            pd.testing.assert_frame_equal(
+                normalize_string_dtypes(df),
+                normalize_string_dtypes(document_batch.to_pandas()),
+            )
 
     @pytest.mark.parametrize("document_batch", ["pandas"], indirect=True)
     def test_parquet_writer_overwrite_mode(self, document_batch: DocumentBatch, tmpdir: str):

@@ -209,6 +209,7 @@ class TestReaderIntegrationWithoutIdGenerator:
         pd.testing.assert_frame_equal(
             normalize_string_dtypes(expected_sorted),
             normalize_string_dtypes(actual_sorted),
+            check_dtype=False,
         )
 
     def test_total_record_count(self, test_config: "TestReaderIntegrationWithoutIdGenerator"):
@@ -339,6 +340,7 @@ class TestReaderIntegrationWithIdGenerator:
         pd.testing.assert_frame_equal(
             normalize_string_dtypes(expected_sorted),
             normalize_string_dtypes(actual_sorted),
+            check_dtype=False,
         )
 
     def test_total_record_count_with_ids(self, test_config: "TestReaderIntegrationWithIdGenerator"):

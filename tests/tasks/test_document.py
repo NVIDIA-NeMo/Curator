@@ -20,19 +20,21 @@ from nemo_curator.tasks import DocumentBatch
 
 
 @pytest.mark.parametrize("string_type", [pa.string(), pa.large_string()])
-def test_to_pandas_preserves_arrow_string_storage(string_type: pa.DataType) -> None:
-    """Converting an Arrow batch should not materialize strings as Python objects."""
+def test_to_pandas_preserves_arrow_backed_dtypes(string_type: pa.DataType) -> None:
+    """Converting an Arrow batch should preserve scalar and nested logical dtypes."""
     table = pa.table(
         {
             "text": pa.array(["first", None, "third"], type=string_type),
             "score": pa.array([1, 2, 3], type=pa.int64()),
+            "embedding": pa.array([[1.0, 2.0], None, [3.0]], type=pa.list_(pa.float32())),
         }
     )
 
     dataframe = DocumentBatch(dataset_name="test", data=table).to_pandas()
 
     assert isinstance(dataframe, pd.DataFrame)
-    assert dataframe["text"].dtype.storage == "pyarrow"
+    assert dataframe["text"].dtype == pd.ArrowDtype(string_type)
+    assert dataframe["score"].dtype == pd.ArrowDtype(pa.int64())
+    assert dataframe["embedding"].dtype == pd.ArrowDtype(pa.list_(pa.float32()))
     assert dataframe["text"].tolist()[::2] == ["first", "third"]
     assert pd.isna(dataframe["text"].iloc[1])
-    assert dataframe["score"].dtype == "int64"

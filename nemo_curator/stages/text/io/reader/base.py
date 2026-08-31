@@ -139,7 +139,7 @@ class BaseReader(ProcessingStage[ReaderTask, DocumentBatch]):
 
         ids = np.arange(start_id, start_id + count)
         if isinstance(batch.data, pd.DataFrame):
-            batch.data[CURATOR_DEDUP_ID_STR] = ids
+            batch.data[CURATOR_DEDUP_ID_STR] = pd.array(ids, dtype=pd.ArrowDtype(pa.int64()))
         else:
             batch.data = batch.data.append_column(CURATOR_DEDUP_ID_STR, pa.array(ids, type=pa.int64()))
 
