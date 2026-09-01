@@ -12,17 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio Sortformer diarization benchmarking script.
+"""Benchmark Streaming Sortformer on fixed-duration public audio bundles."""
 
-This script runs Streaming Sortformer diarization benchmarks with
-comprehensive metrics collection including real-time factor (RTF),
-per-file segment counts, and throughput.
-"""
+from __future__ import annotations
 
 import argparse
+import json
 import time
-import traceback
-from typing import Any
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
@@ -30,116 +29,146 @@ from utils import setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.resources import Resources
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks import AudioTask
 
 
-def _collect_diarization_metrics(tasks: list, elapsed_s: float) -> dict[str, Any]:
-    """Extract diarization-specific metrics from output tasks."""
-    num_files = len(tasks) if tasks else 0
-    total_audio_duration_s = 0.0
-    total_segments = 0
+def _write_staged_manifest(source_manifest: Path, target_manifest: Path, audio_dir: Path) -> tuple[int, float]:
+    target_manifest.parent.mkdir(parents=True, exist_ok=True)
+    num_rows = 0
+    total_duration_s = 0.0
+    with (
+        source_manifest.open(encoding="utf-8") as source_file,
+        target_manifest.open("w", encoding="utf-8") as target_file,
+    ):
+        for line in source_file:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            row["audio_filepath"] = str((audio_dir / Path(row["audio_filepath"]).name).resolve())
+            target_file.write(json.dumps(row) + "\n")
+            num_rows += 1
+            total_duration_s += row["duration"]
+    return num_rows, total_duration_s
 
-    for task in tasks or []:
-        data = task.data if hasattr(task, "data") else {}
-        total_audio_duration_s += float(data.get("duration", 0))
-        segments = data.get("diar_segments", [])
-        total_segments += len(segments)
 
-    throughput = num_files / elapsed_s if elapsed_s > 0 else 0.0
-    rtf = elapsed_s / total_audio_duration_s if total_audio_duration_s > 0 else 0.0
+def _validate_segment(segment: object, label: str) -> None:
+    if not isinstance(segment, Mapping):
+        msg = f"{label} must be a mapping"
+        raise TypeError(msg)
+    start = segment.get("start")
+    end = segment.get("end")
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or start < 0 or end <= start:
+        msg = f"{label} has invalid timestamps"
+        raise RuntimeError(msg)
+    if not isinstance(segment.get("speaker"), str) or not segment["speaker"]:
+        msg = f"{label} must contain a nonempty speaker"
+        raise RuntimeError(msg)
+
+
+def _validate_outputs(tasks: Sequence[AudioTask], num_input_rows: int) -> dict[str, int]:
+    if len(tasks) != num_input_rows:
+        msg = f"Sortformer returned {len(tasks)} rows for {num_input_rows} input rows"
+        raise RuntimeError(msg)
+
+    num_tasks_with_segments = 0
+    num_segments = 0
+    for task_index, task in enumerate(tasks):
+        segments = task.data.get("diar_segments")
+        if not isinstance(segments, list):
+            msg = f"task {task_index} must contain a diar_segments list"
+            raise TypeError(msg)
+        for segment_index, segment in enumerate(segments):
+            _validate_segment(segment, f"task {task_index} segment {segment_index}")
+        num_segments += len(segments)
+        num_tasks_with_segments += bool(segments)
+
+    if num_segments == 0:
+        msg = "Sortformer produced no diarization segments"
+        raise RuntimeError(msg)
 
     return {
-        "is_success": num_files > 0,
-        "num_files_processed": num_files,
-        "exec_time_s": round(elapsed_s, 2),
-        "total_audio_duration_s": round(total_audio_duration_s, 2),
-        "total_segments_detected": total_segments,
-        "real_time_factor": round(rtf, 4),
-        "throughput_files_per_sec": round(throughput, 4),
+        "num_input_rows": num_input_rows,
+        "num_output_rows": len(tasks),
+        "num_tasks_with_segments": num_tasks_with_segments,
+        "num_segments_processed": num_segments,
     }
 
 
-def run_audio_sortformer_benchmark(
-    manifest_path: str,
-    model_name: str,
+def run_audio_sortformer_benchmark(  # noqa: PLR0913
+    benchmark_results_path: str,
+    scratch_output_path: str,
+    raw_data_dir: str,
+    model_path: str,
     rttm_out_dir: str | None = None,
     executor: str = "xenna",
-    **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
-    """Run the audio Sortformer diarization benchmark and collect metrics."""
-    logger.info("Starting audio Sortformer diarization benchmark")
-    logger.info(f"Executor: {executor}")
-    logger.info(f"Model: {model_name}")
-    logger.info(f"Manifest: {manifest_path}")
+    """Run Sortformer on pre-staged audio and collect structural and throughput metrics."""
+    data_dir = Path(raw_data_dir)
+    source_manifest = data_dir / "manifest.jsonl"
+    audio_dir = data_dir / "audio"
+    input_manifest = Path(scratch_output_path) / "audio_sortformer_librispeech" / "manifest.jsonl"
+    num_input_rows, total_duration_s = _write_staged_manifest(source_manifest, input_manifest, audio_dir)
+    logger.info(f"Benchmark results path: {benchmark_results_path}")
 
-    executor_obj = setup_executor(executor)
+    exc = setup_executor(executor)
+    run_start_time = time.perf_counter()
     pipeline = Pipeline(
         name="audio_sortformer_diarization",
-        description="Streaming Sortformer speaker diarization inference.",
+        description="Unique LibriSpeech bundles -> Streaming Sortformer diarization",
     )
-
-    pipeline.add_stage(ManifestReader(manifest_path=manifest_path))
+    pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest)))
     pipeline.add_stage(
         InferenceSortformerStage(
-            model_name=model_name,
+            model_path=model_path,
             rttm_out_dir=rttm_out_dir,
-        ),
+        ).with_(resources=Resources(gpus=1))
     )
+    logger.info(pipeline.describe())
+    results = pipeline.run(exc)
+    run_time_taken = time.perf_counter() - run_start_time
+    output_metrics = _validate_outputs(results, num_input_rows)
+    total_audio_hours = total_duration_s / 3600
 
-    t0 = time.perf_counter()
-    results = pipeline.run(executor_obj)
-    elapsed_s = time.perf_counter() - t0
-
-    metrics = _collect_diarization_metrics(results, elapsed_s)
-
-    logger.success(
-        f"Benchmark completed: {metrics['num_files_processed']} files in {elapsed_s:.1f}s "
-        f"(RTF={metrics['real_time_factor']:.3f}, {metrics['throughput_files_per_sec']:.2f} files/sec)"
-    )
-
+    logger.success(f"Processed all {num_input_rows} unique LibriSpeech bundles")
     return {
-        "params": {
-            "executor": executor,
-            "manifest_path": manifest_path,
-            "model_name": model_name,
-            "rttm_out_dir": rttm_out_dir,
+        "metrics": {
+            "is_success": True,
+            "time_taken_s": run_time_taken,
+            **output_metrics,
+            "total_audio_duration_hours": total_audio_hours,
+            "real_time_factor": run_time_taken / (total_audio_hours * 3600) if total_audio_hours > 0 else 0,
+            "throughput_files_per_sec": num_input_rows / run_time_taken if run_time_taken > 0 else 0,
+            "throughput_audio_hours_per_hour": (
+                total_audio_hours * 3600 / run_time_taken if run_time_taken > 0 else 0
+            ),
         },
-        "metrics": metrics,
         "tasks": results,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audio Sortformer diarization benchmark for nightly benchmarking")
-    parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
-    parser.add_argument("--manifest-path", required=True, help="Path to input JSONL manifest")
-    parser.add_argument(
-        "--model-name",
-        default="nvidia/diar_streaming_sortformer_4spk-v2.1",
-        help="HF Sortformer model id",
-    )
-    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
-    parser.add_argument("--rttm-out-dir", default=None, help="Optional directory to write RTTM output files")
-
+    parser = argparse.ArgumentParser(description="Audio Sortformer benchmark on pre-staged public audio")
+    parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
+    parser.add_argument("--scratch-output-path", required=True, help="Path for the rewritten input manifest")
+    parser.add_argument("--raw-data-dir", required=True, help="Directory containing manifest.jsonl and audio/")
+    parser.add_argument("--model-path", required=True, help="Pre-staged local Sortformer .nemo checkpoint")
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"])
+    parser.add_argument("--rttm-out-dir", default=None)
     args = parser.parse_args()
 
-    logger.info("=== Audio Sortformer Diarization Benchmark Starting ===")
-    logger.info(f"Arguments: {vars(args)}")
-
+    params = vars(args)
+    logger.info(f"Audio Sortformer benchmark arguments: {params}")
+    result_dict: dict[str, Any] = {"params": params, "metrics": {"is_success": False}, "tasks": []}
     success_code = 1
-    result_dict: dict[str, Any] = {
-        "params": vars(args),
-        "metrics": {
-            "is_success": False,
-        },
-        "tasks": [],
-    }
     try:
-        result_dict.update(run_audio_sortformer_benchmark(**vars(args)))
-        success_code = 0 if result_dict["metrics"]["is_success"] else 1
+        result_dict.update(run_audio_sortformer_benchmark(**params))
+        success_code = 0
     except Exception as e:
-        error_traceback = traceback.format_exc()
         logger.error(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
+        result_dict["metrics"]["error_message"] = str(e)
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
     return success_code

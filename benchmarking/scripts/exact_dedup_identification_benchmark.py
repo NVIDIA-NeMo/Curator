@@ -42,6 +42,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     rmm_pool_size: int | Literal["auto"] | None = "auto",
     spill_memory_limit: int | Literal["auto"] | None = "auto",
     use_async_memory: bool = True,
+    normalize_text: bool = False,
 ) -> dict[str, Any]:
     """Run the exact duplicate identification benchmark and collect comprehensive metrics."""
 
@@ -66,6 +67,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             rmm_pool_size=rmm_pool_size,
             spill_memory_limit=spill_memory_limit,
             use_async_memory=use_async_memory,
+            normalize_text=normalize_text,
         )
         workflow_result = workflow.run(initial_tasks=None)
         run_time_taken = time.perf_counter() - run_start_time
@@ -101,6 +103,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             "rmm_pool_size": rmm_pool_size,
             "spill_memory_limit": spill_memory_limit,
             "use_async_memory": use_async_memory,
+            "normalize_text": normalize_text,
         },
         "metrics": {
             "is_success": success,
@@ -171,6 +174,12 @@ def main() -> int:
         default=True,
         help="Use CUDA asynchronous memory allocation for the shuffle",
     )
+    parser.add_argument(
+        "--normalize-text",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Normalize text before computing exact hashes",
+    )
     args = parser.parse_args()
 
     logger.info("=== Exact Duplicate Identification Benchmark Starting ===")
@@ -197,6 +206,7 @@ def main() -> int:
             rmm_pool_size=args.rmm_pool_size,
             spill_memory_limit=args.spill_memory_limit,
             use_async_memory=args.use_async_memory,
+            normalize_text=args.normalize_text,
         )
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
