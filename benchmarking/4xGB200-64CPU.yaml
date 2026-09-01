@@ -181,7 +181,7 @@ entries:
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
       --tiktoken-cache-dir={model_weights_path}/tiktoken_cache
-      --health-check-timeout-s=600
+      --health-check-timeout-s=1200
     ray:
       num_cpus: 16
 
