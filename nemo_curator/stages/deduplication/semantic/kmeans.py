@@ -177,8 +177,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         fit_frames = iter(self._iter_parquet_frames(fit_info, columns))
         first_fit_frame = next(fit_frames)
-        embedding_dim = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
-        fit_embeddings = cp.empty((fit_rows, embedding_dim), dtype=cp.float32)
+        embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
+        fit_embeddings = cp.empty((fit_rows, embedding_width), dtype=cp.float32)
         sampled_chunks: list[tuple[cudf.DataFrame, int, int]] = []
         read_time = 0.0
         offset = 0
@@ -465,8 +465,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 time, predicts labels, writes, then frees GPU memory before
                 loading the next group.
 
-        Peak GPU memory ≈ max(fit_data_fraction x actor_rows, one_group_size) x embedding_dim x 4 bytes,
-        instead of total_data x embedding_dim x 4 bytes.
+        Peak GPU memory is proportional to max(fit rows, one group) times the embedding width,
+        instead of all rows times the embedding width.
         """
         pass1_read_time = self._fit_pass(groups)
         results, pass2_read_time, total_rows = self._predict_write_pass(tasks, groups)
