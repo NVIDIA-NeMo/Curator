@@ -613,7 +613,6 @@ entries:
       --n-clusters=1000
       --id-field=_curator_dedup_id
       --embedding-field=embeddings
-      --embedding-dim=1536
       --input-filetype=parquet
       --eps=0.01
       --which-to-keep=hard
@@ -652,7 +651,6 @@ entries:
       --n-clusters=1000
       --id-field=_curator_dedup_id
       --embedding-field=embeddings
-      --embedding-dim=1536
       --input-filetype=parquet
       --eps=0.01
       --which-to-keep=hard

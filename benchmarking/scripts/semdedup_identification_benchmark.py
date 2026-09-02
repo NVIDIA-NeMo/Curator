@@ -177,7 +177,6 @@ def main() -> int:
     parser.add_argument("--n-clusters", type=int, default=1000, help="Number of clusters for K-means")
     parser.add_argument("--id-field", default="id", help="ID field name in the data")
     parser.add_argument("--embedding-field", default="embeddings", help="Embedding field name in the data")
-    parser.add_argument("--embedding-dim", type=int, default=None, help="Embedding dimension (optional)")
     parser.add_argument("--input-filetype", default="parquet", choices=["jsonl", "parquet"], help="Input filetype")
     parser.add_argument(
         "--eps",
