@@ -92,9 +92,14 @@ package list rather than replacing it, so this model gets the base
 `ai-dynamo[vllm]` install *plus* the extra package. Other models without
 `runtime_env` are unaffected — each actor gets its own merged env. The
 **shared frontend actor** is the exception: `merge_model_runtime_envs()`
-unions *every* model's `runtime_env` onto it (so the frontend venv is
-compatible with whatever any model needs), and on a conflicting `env_vars`
-key, the *last* model in the list wins there.
+unions *every* model's `runtime_env` onto it. `env_vars` merge cleanly (last
+model in the list wins on a conflicting key), but `_merge_package_runtime_env()`
+concatenates `uv`/`pip` package lists (`[*base, *override]`) rather than
+reconciling them — two models pinning incompatible versions of the same
+package both land in the frontend's install list and can fail to resolve,
+which blocks the frontend (and the whole server) from starting. Keep
+model-specific pins mutually compatible, or split conflicting models across
+separate `InferenceServer` instances.
 
 ### `subprocess_env` examples already in this codebase
 

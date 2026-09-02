@@ -377,7 +377,7 @@ A Dynamo model's actor has its own **isolated Python virtualenv**, cloned from t
 | Make a local module importable everywhere without installing it as a package (for example, a compatibility shim all workers need) | `PYTHONPATH` in `subprocess_env` | `PYTHONPATH` extends `sys.path` at process start; it doesn't require a package install, so it belongs with the other server-wide subprocess settings |
 
 <Note>
-A model's `runtime_env` is not isolated from the shared Dynamo **frontend** actor: NeMo Curator merges every configured model's `runtime_env` onto the frontend's virtualenv so it stays compatible with whatever any model needs. If two models set the same `env_vars` key to different values, the last model in your `models` list wins on the frontend.
+A model's `runtime_env` is not isolated from the shared Dynamo **frontend** actor: NeMo Curator merges every configured model's `runtime_env` into the frontend's virtualenv build. `env_vars` merge cleanly (on a conflicting key, the last model in your `models` list wins on the frontend), but `uv`/`pip` package lists are concatenated, not reconciled — if two models pin incompatible versions of the same package, both requirements are installed together and can fail to resolve, which would prevent the frontend (and the whole server) from starting. Keep model-specific package pins compatible across every model in the same server, or move genuinely conflicting models to separate `InferenceServer` instances.
 </Note>
 
 <Warning>
@@ -496,6 +496,7 @@ Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num
 - Check the model name returned by `/v1/models`; local paths often need an explicit `model_name` alias.
 - Confirm the requested tensor-parallel groups fit the cluster topology.
 - For Dynamo, inspect subprocess logs under the Ray session's `nemo_curator_dynamo_<id>` directory.
+- If the whole server (including other models) fails to start, check whether two models' `runtime_env` package pins conflict — see [Choosing `runtime_env` vs. `subprocess_env`](#choosing-runtime_env-vs-subprocess_env).
 
 ### Dynamo Cannot Start etcd or NATS
 
