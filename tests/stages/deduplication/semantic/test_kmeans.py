@@ -303,7 +303,7 @@ class TestKMeansStageIntegration:
         """Output files are written with deterministic, input-derived names and
         partitioned by centroid.
 
-        Each frame uses ``{input_task_id}_{frame_index}.parquet`` where
+        Writer lanes use ``{input_task_id}_lane{lane}_{generation}.parquet`` where
         the input task id is the FilePartitioning id (``0_<file_hash>``).
         We assert the names match that deterministic pattern (never a random
         ``r<uuid>`` fallback) and that the centroid partitioning is correct.
@@ -323,12 +323,15 @@ class TestKMeansStageIntegration:
 
         # Bounded reads may produce multiple frames per actor, but every name must retain input ancestry.
         assert actual_filenames
-        deterministic_name = re.compile(r"^0_[0-9a-f]+_\d+\.parquet$")
+        deterministic_name = re.compile(r"^0_[0-9a-f]+_lane(?P<lane>\d+)_(?P<generation>\d+)\.parquet$")
         for name in actual_filenames:
-            assert deterministic_name.match(name), (
+            match = deterministic_name.match(name)
+            assert match, (
                 f"Output filename {name!r} is not deterministic/input-derived "
                 f"(an 'r<uuid>' name would mean ancestry was lost)"
             )
+            assert int(match.group("lane")) >= 0
+            assert int(match.group("generation")) >= 0
 
         # Exactly N_CLUSTERS centroid partitions.
         assert len(centroid_dirs) == N_CLUSTERS, (

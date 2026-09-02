@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
 import numpy as np
+from cudf.io.parquet import ParquetDatasetWriter
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -30,11 +31,13 @@ from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
 from .utils import (
+    CUDF_COLUMN_SIZE_LIMIT,
     ParquetFileInfo,
     break_parquet_partition_into_groups,
     get_array_from_df,
     read_parquet_file_info,
 )
+from .write_utils import ConcurrentParquetWriters, RollingParquetWriter
 
 if TYPE_CHECKING:
     import cudf
@@ -140,7 +143,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[EmptyTask]:
-        """Fit cooperatively, then predict and write each bounded frame."""
+        """Fit cooperatively, then overlap sequential prediction with writes."""
 
         if not tasks:
             return []
@@ -216,46 +219,44 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         cp.get_default_memory_pool().free_all_blocks()
 
         predict_time = 0.0
-        write_time = 0.0
+        writers = self._create_concurrent_writers(tasks, embedding_width)
+        write_pipeline_start = time.perf_counter()
         predicted_rows = 0
-        output_index = 0
-        for metadata, start, stop in sampled_chunks:
-            write_start = time.perf_counter()
-            self._write_output_frame(
-                f"{tasks[0].task_id}_{output_index}.parquet",
-                metadata,
-                fit_embeddings[start:stop],
-                fit_labels[start:stop],
-                centroids,
-            )
-            write_time += time.perf_counter() - write_start
-            predicted_rows += len(metadata)
-            output_index += 1
-
-        sampled_chunks.clear()
-        del fit_embeddings, fit_labels
-        gc.collect()
-        cp.get_default_memory_pool().free_all_blocks()
-
-        if prediction_only_info:
-            read_start = time.perf_counter()
-            for df in self._iter_parquet_frames(prediction_only_info, columns):
-                read_time += time.perf_counter() - read_start
-                embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
-                self._normalize_embeddings_in_place(embeddings)
-                predict_start = time.perf_counter()
-                labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
-                predict_time += time.perf_counter() - predict_start
-                del df[self.embedding_field]
-                write_start = time.perf_counter()
-                self._write_output_frame(
-                    f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
+        try:
+            for metadata, start, stop in sampled_chunks:
+                self._submit_output_batches(
+                    writers,
+                    metadata,
+                    fit_embeddings[start:stop],
+                    fit_labels[start:stop],
+                    centroids,
                 )
-                write_time += time.perf_counter() - write_start
-                predicted_rows += len(df)
-                output_index += 1
+                predicted_rows += len(metadata)
+            writers.flush()
+
+            sampled_chunks.clear()
+            del fit_embeddings, fit_labels
+            gc.collect()
+            cp.get_default_memory_pool().free_all_blocks()
+
+            if prediction_only_info:
                 read_start = time.perf_counter()
-            read_time += time.perf_counter() - read_start
+                for df in self._iter_parquet_frames(prediction_only_info, columns):
+                    read_time += time.perf_counter() - read_start
+                    embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+                    self._normalize_embeddings_in_place(embeddings)
+                    predict_start = time.perf_counter()
+                    labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(
+                        cp.int32, copy=False
+                    )
+                    predict_time += time.perf_counter() - predict_start
+                    del df[self.embedding_field]
+                    self._submit_output_batches(writers, df, embeddings, labels, centroids)
+                    predicted_rows += len(df)
+                    read_start = time.perf_counter()
+                read_time += time.perf_counter() - read_start
+        finally:
+            writers.close()
 
         if predicted_rows != total_rows:
             msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
@@ -264,7 +265,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             {
                 "kmeans_read_time": read_time,
                 "kmeans_predict_time": predict_time,
-                "kmeans_write_time": write_time,
+                "kmeans_write_pipeline_time": time.perf_counter() - write_pipeline_start,
+                "kmeans_write_work_time": writers.write_work_time,
+                "kmeans_write_wall_time": writers.write_wall_time,
+                "kmeans_write_lane_count": writers.lane_count,
+                "kmeans_write_batch_rows": writers.batch_rows,
+                "kmeans_write_batch_bytes": writers.batch_bytes,
                 "num_rows": total_rows,
             }
         )
@@ -318,9 +324,44 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         for group in break_parquet_partition_into_groups(file_info):
             yield self._read_group(group, columns)
 
-    def _write_output_frame(
+    def _create_concurrent_writers(self, tasks: list[FileGroupTask], embedding_width: int) -> ConcurrentParquetWriters:
+        max_rows_per_partition = (CUDF_COLUMN_SIZE_LIMIT - 1) // embedding_width
+        if max_rows_per_partition < 1:
+            msg = f"Embedding width {embedding_width} exceeds cuDF's column-size limit"
+            raise ValueError(msg)
+        return ConcurrentParquetWriters(
+            lambda lane_index: RollingParquetWriter(
+                create_writer=lambda generation: self._create_dataset_writer(tasks, lane_index, generation),
+                n_partitions=self.n_clusters,
+                max_rows_per_partition=max_rows_per_partition,
+                partition_column="centroid",
+            )
+        )
+
+    def _create_dataset_writer(
         self,
-        output_filename: str,
+        tasks: list[FileGroupTask],
+        lane_index: int,
+        generation: int,
+    ) -> ParquetDatasetWriter:
+        supported_kwargs = {"compression", "statistics"}
+        unsupported = set(self.write_kwargs).difference(supported_kwargs)
+        if unsupported:
+            msg = f"Incremental KMeans output does not support write kwargs {sorted(unsupported)}"
+            raise ValueError(msg)
+        return ParquetDatasetWriter(
+            self.output_path,
+            partition_cols=["centroid"],
+            index=False,
+            max_file_size=None,
+            file_name_prefix=f"{tasks[0].task_id}_lane{lane_index}_{generation}.parquet",
+            storage_options=self.output_storage_options,
+            **self.write_kwargs,
+        )
+
+    def _submit_output_batches(
+        self,
+        writers: ConcurrentParquetWriters,
         metadata: "cudf.DataFrame",
         embeddings: "cp.ndarray",
         labels: "cp.ndarray",
@@ -331,16 +372,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         frame = metadata.copy(deep=False)
         frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
         frame["centroid"] = labels
-        frame = self._assign_distances(frame, self.embedding_field, centroids)
-        self.write_parquet(
-            frame,
-            self.output_path,
-            partition_file_name=output_filename,
-            partition_cols=["centroid"],
-            index=False,
-            storage_options=self.output_storage_options,
-            **self.write_kwargs,
-        )
+        writers.submit(self._assign_distances(frame, self.embedding_field, centroids))
 
     def _save_centroids(self, centroids: "cp.ndarray") -> None:
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:

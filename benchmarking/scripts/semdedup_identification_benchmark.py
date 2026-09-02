@@ -33,7 +33,7 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import get_default_file_extensions
 
 
-def run_semdedup_identification_benchmark(  # noqa: PLR0913
+def run_semdedup_identification_benchmark(  # noqa: PLR0913, PLR0915
     input_path: str,
     cache_path: str,
     output_path: str,
@@ -113,6 +113,9 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     kmeans_input_files = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_input_files_sum", 0))
     kmeans_fit_data_fraction = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_data_fraction_mean")
     kmeans_fit_file_fraction = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_file_fraction_mean")
+    kmeans_write_lane_count = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_lane_count_mean")
+    kmeans_write_wall_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_wall_time_mean")
+    kmeans_write_work_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_work_time_mean")
     kmeans_actual_fit_percent = (
         round(100 * kmeans_fit_rows / num_documents_processed, 2) if num_documents_processed else None
     )
@@ -126,6 +129,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         logger.info(
             f"Mean actor fit fractions: rows={kmeans_fit_data_fraction:.4f}, files={kmeans_fit_file_fraction:.4f}"
         )
+    if kmeans_write_lane_count is not None:
+        logger.info(f"KMeans writer lanes per actor: {kmeans_write_lane_count:g}")
 
     # Extract metrics from workflow result
     workflow_total_time = workflow_run_result.metadata.get("total_time")
@@ -141,12 +146,18 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     pairwise_percent_time = None
     kmeans_footer_scan_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_footer_scan_time_mean", 0)
     kmeans_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_time_mean", 0)
-    kmeans_write_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
+    kmeans_write_pipeline_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_pipeline_time_mean")
+    kmeans_write_time = (
+        kmeans_write_pipeline_time
+        if kmeans_write_pipeline_time is not None
+        else task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
+    )
     kmeans_fit_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_time_mean", 0)
     kmeans_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_predict_time_mean", 0)
-    kmeans_fit_predict_time = task_metrics.get(
-        "kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean",
-        kmeans_fit_time + kmeans_predict_time,
+    kmeans_fit_predict_time = (
+        kmeans_fit_time
+        if kmeans_write_pipeline_time is not None
+        else task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean", kmeans_fit_time)
     )
     if workflow_total_time:
         # this is different than kmeans_time because kmeans_time also includes setting up actors
@@ -183,10 +194,15 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "kmeans_actual_fit_percent": kmeans_actual_fit_percent,
             "kmeans_fit_data_fraction": kmeans_fit_data_fraction,
             "kmeans_fit_file_fraction": kmeans_fit_file_fraction,
+            "kmeans_write_lane_count": kmeans_write_lane_count,
+            "kmeans_write_wall_time": kmeans_write_wall_time,
+            "kmeans_write_work_time": kmeans_write_work_time,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,
             "kmeans_write_percent_time": kmeans_write_percent_time,
             "kmeans_fit_predict_percent_time": kmeans_fit_predict_percent_time,
+            "kmeans_predict_write_percent_time": kmeans_write_percent_time,
+            "kmeans_fit_percent_time": kmeans_fit_predict_percent_time,
             # between workflows
             "kmeans_percent_time": kmeans_percent_time,
             "pairwise_percent_time": pairwise_percent_time,

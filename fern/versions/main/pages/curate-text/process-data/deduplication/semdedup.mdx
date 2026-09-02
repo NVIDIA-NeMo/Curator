@@ -181,7 +181,7 @@ but their I/O differs:
 
 - **Parquet:** Exact footer counts group reads below cuDF's column-size limit and size the fit array.
   The sampled rows remain in memory for prediction, so only the files excluded from fitting are read
-  after the fit.
+  after the fit. Prediction overlaps with incremental Parquet writes.
 - **JSONL:** The first pass reads the sampled files and fits K-means. The second pass reads all files,
   including the sampled files, to predict and write every row.
 
