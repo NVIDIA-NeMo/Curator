@@ -54,7 +54,7 @@ class DockerTarget:
     image: str | None = None
     container: str | None = None
     name: str | None = None
-    benchmark_setup: str = "auto"
+    run_benchmark_setup: str = "auto"
     benchmark_suite_dir: Path | None = None
     benchmark_suite_container_dir: Path = DEFAULT_SUITE_CONTAINER_DIR
     benchmark_extras: list[str] = field(default_factory=lambda: ["all"])
@@ -77,8 +77,8 @@ class DockerTarget:
         if self.name is not None and self.container is not None:
             msg = "--name cannot be combined with --container"
             raise ValueError(msg)
-        if self.benchmark_setup not in {"auto", "always", "never"}:
-            msg = "--benchmark-setup must be one of: auto, always, never"
+        if self.run_benchmark_setup not in {"auto", "yes", "no"}:
+            msg = "--run-benchmark-setup must be one of: auto, yes, no"
             raise ValueError(msg)
         if self.use_host_curator and self.use_host_curator_benchmarking:
             msg = "--use-host-curator and --use-host-curator-benchmarking cannot be combined"
@@ -112,8 +112,8 @@ def add_target_arguments(parser) -> None:  # noqa: ANN001
         help="Name for a detached container started by `curator-benchmark start`.",
     )
     parser.add_argument(
-        "--benchmark-setup",
-        choices=["auto", "always", "never"],
+        "--run-benchmark-setup",
+        choices=["auto", "yes", "no"],
         default="auto",
         help="Install/check the benchmark package in Docker targets before running.",
     )
@@ -178,7 +178,7 @@ def docker_target_from_args(args) -> DockerTarget:  # noqa: ANN001
         image=args.image,
         container=args.container,
         name=args.name,
-        benchmark_setup=args.benchmark_setup,
+        run_benchmark_setup=args.run_benchmark_setup,
         benchmark_suite_dir=args.benchmark_suite_dir,
         benchmark_suite_container_dir=args.benchmark_suite_container_dir,
         benchmark_extras=args.benchmark_extras or ["all"],
@@ -230,7 +230,7 @@ def run_start(target: DockerTarget, command_args: list[str]) -> int:
 
     setup_target = DockerTarget(
         container=target.name,
-        benchmark_setup=target.benchmark_setup,
+        run_benchmark_setup=target.run_benchmark_setup,
         benchmark_suite_container_dir=target.benchmark_suite_container_dir,
         benchmark_extras=target.benchmark_extras,
         tty=False,
@@ -247,8 +247,8 @@ def run_start(target: DockerTarget, command_args: list[str]) -> int:
         run_args[0],
         "--container",
         target.name,
-        "--benchmark-setup",
-        "never",
+        "--run-benchmark-setup",
+        "no",
         *run_args[1:],
     ]
     shell_args = [
@@ -256,8 +256,8 @@ def run_start(target: DockerTarget, command_args: list[str]) -> int:
         "shell",
         "--container",
         target.name,
-        "--benchmark-setup",
-        "never",
+        "--run-benchmark-setup",
+        "no",
     ]
     print("Started benchmark container.")
     print("Run benchmarks with:")
@@ -420,7 +420,7 @@ def _requested_import_probes(extras: list[str]) -> list[str] | None:
 
 
 def _setup_command(target: DockerTarget, force: bool = False) -> str:
-    if target.benchmark_setup == "never" and not force:
+    if target.run_benchmark_setup == "no" and not force:
         return ""
 
     package_path = target.benchmark_suite_container_dir / "benchmarking"
@@ -433,7 +433,7 @@ def _setup_command(target: DockerTarget, force: bool = False) -> str:
         f"python -m pip install {shlex.quote(package_spec)}; "
         "fi"
     )
-    if target.benchmark_setup == "always" or force:
+    if target.run_benchmark_setup == "yes" or force:
         return install_command
     probes = _requested_import_probes(target.benchmark_extras)
     if probes is None:

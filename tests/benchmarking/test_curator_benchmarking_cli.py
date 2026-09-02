@@ -92,7 +92,20 @@ def test_cli_start_dispatches_to_docker_target(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr("curator_benchmarking.cli.run_start", fake_run_start)
 
-    assert main(["start", "--image", "curator:test", "--name", "bench-dev", "--config", "config.yaml"]) == 0
+    assert (
+        main(
+            [
+                "start",
+                "--image",
+                "curator:test",
+                "--name",
+                "bench-dev",
+                "--config",
+                "config.yaml",
+            ]
+        )
+        == 0
+    )
 
     target, command_args = calls[0]
     assert target.image == "curator:test"
@@ -222,7 +235,7 @@ entries: []
         DockerTarget(
             image="curator:test",
             name="bench-dev",
-            benchmark_setup="never",
+            run_benchmark_setup="no",
             benchmark_suite_dir=Path.cwd(),
             memory="1g",
             shm_size="512m",

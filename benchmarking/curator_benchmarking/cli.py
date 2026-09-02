@@ -51,7 +51,7 @@ target options for run/list/check/setup/start/shell:
   --image [IMAGE]              start a new Docker container from IMAGE
   --container NAME             exec into an existing Docker container
   --name NAME                  name for a container created by start
-  --benchmark-setup MODE       auto, always, or never
+  --run-benchmark-setup MODE   auto, yes, or no
   --benchmark-suite-dir PATH   checkout that provides benchmark code/configs
   --benchmark-extra EXTRA      benchmark package extra to install
   --use-host-curator           mount the host checkout as Curator under test

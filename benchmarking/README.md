@@ -70,7 +70,7 @@ main Curator package. The `all` extra installs every benchmark-package Python
 dependency used by the standard benchmark suite, including dependencies that CI
 previously installed directly at benchmark runtime.
 
-If the environment is a released Curator image, use constraints or a setup mode
+If the environment is a released Curator image, use constraints or a run setup mode
 that prevents the benchmark install from upgrading or replacing the packages
 that define the runtime being measured.
 
@@ -106,7 +106,7 @@ To run in a standard Curator container from the host, add `--image`:
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -116,7 +116,7 @@ Add data setup when benchmarks need inputs that are prepared once and reused:
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --config ./my-paths.yaml
@@ -128,7 +128,7 @@ full-suite config:
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/4xGB200-64CPU.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
@@ -183,24 +183,24 @@ The default `run --image` flow is:
 2. Mount the selected benchmark suite from the host.
 3. Check whether the benchmark package and requested extras are already
    installed.
-4. Install missing benchmark dependencies when setup mode allows it.
+4. Install missing benchmark dependencies when run setup mode allows it.
 5. Re-run `curator-benchmark run` inside the container with the supplied config
    files and runner args.
 
-Setup mode controls whether installation is attempted:
+Run setup mode controls whether installation is attempted:
 
 | Mode | Behavior |
 | --- | --- |
 | `auto` | Check for the benchmark package first. Install only when missing or incomplete. |
-| `always` | Install or refresh the benchmark package from the mounted suite before running. |
-| `never` | Do not install anything. Fail fast if the benchmark package or dependencies are missing. |
+| `yes` | Install or refresh the benchmark package from the mounted suite before running. |
+| `no` | Do not install anything. Fail fast if the benchmark package or dependencies are missing. |
 
 Run with an explicit image:
 
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -213,7 +213,7 @@ run:
 curator-benchmark start \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --name curator-bench-dev \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -288,7 +288,7 @@ Example:
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<old-release-tag> \
   --benchmark-suite-dir /path/to/latest/Curator \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config /path/to/latest/Curator/benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -302,12 +302,12 @@ interpretable when the benchmark suite evolves between releases.
 ## Prepared Images and Running Containers
 
 Some users maintain images or running containers that already include benchmark
-dependencies. Use setup mode `never` for those environments:
+dependencies. Use `--run-benchmark-setup no` for those environments:
 
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
-  --benchmark-setup never \
+  --run-benchmark-setup no \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -318,7 +318,7 @@ Use `start` to create a reusable prepared container:
 curator-benchmark start \
   --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
   --name curator-benchmark-dev \
-  --benchmark-setup never \
+  --run-benchmark-setup no \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -328,7 +328,7 @@ Then run inside that container:
 ```bash
 curator-benchmark run \
   --container curator-benchmark-dev \
-  --benchmark-setup never \
+  --run-benchmark-setup no \
   --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
 ```
 
@@ -710,7 +710,7 @@ overrides:
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --benchmark-setup auto \
+  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --config ./my-paths.yaml
@@ -850,7 +850,7 @@ curator-benchmark check --config ./benchmarking/benchmarks.yaml
 
 curator-benchmark check \
   --container curator-benchmark-dev \
-  --benchmark-setup never \
+  --run-benchmark-setup no \
   --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
 ```
 
