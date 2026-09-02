@@ -20,6 +20,7 @@ from loguru import logger
 from ray.data import Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import PerformanceTelemetryAdapterMixin
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
@@ -28,7 +29,7 @@ from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_po
 CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
 
-class RayDataStageAdapter(BaseStageAdapter):
+class RayDataStageAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
     """Adapts ProcessingStage to Ray Data operations.
 
     This adapter converts stages to work with Ray Data datasets by:
@@ -164,7 +165,10 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             """Initialize the stage processor."""
             super().__init__(stage)
             self.setup_done = False
-            node_info, worker_metadata = get_worker_metadata_and_node_id()
+            node_info, worker_metadata = get_worker_metadata_and_node_id(
+                str(stage.name) if getattr(stage, "extended_performance_metrics", False) else None,
+                requires_gpu=stage.resources.requires_gpu,
+            )
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
 
@@ -193,10 +197,20 @@ def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]],
     """
     # Create the adapter instance
     adapter = RayDataStageAdapter(stage)
+    extended_perf = bool(getattr(stage, "extended_performance_metrics", False))
+    setup_done = not extended_perf
 
     # Create a standalone function that wraps the adapter's processing logic
     def stage_map_fn(batch: dict[str, Any]) -> dict[str, Any]:
         """Dynamically named map function that processes a batch of Task objects."""
+        nonlocal setup_done
+        if not setup_done:
+            _node_info, worker_metadata = get_worker_metadata_and_node_id(
+                str(stage.name),
+                requires_gpu=stage.resources.requires_gpu,
+            )
+            adapter.setup(worker_metadata)
+            setup_done = True
         return adapter._process_batch_internal(batch)
 
     # Set the function name to include the stage name with Task suffix

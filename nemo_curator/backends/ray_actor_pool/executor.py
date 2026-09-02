@@ -14,7 +14,7 @@
 
 import uuid
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import ray
@@ -23,6 +23,7 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.perf_telemetry import PerformanceTelemetryExecutorMixin
 from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -49,7 +50,7 @@ def _parse_runtime_env(runtime_env: dict) -> dict:
     return user_runtime_env
 
 
-class RayActorPoolExecutor(BaseExecutor):
+class RayActorPoolExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
     """Ray-based executor using ActorPool for better resource management.
 
     This executor:
@@ -78,7 +79,9 @@ class RayActorPoolExecutor(BaseExecutor):
         self.show_progress = show_progress
         self.progress_interval = progress_interval
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
+    def execute(  # noqa: C901, PLR0912, PLR0915
+        self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None
+    ) -> list[Task]:
         """Execute the pipeline stages using ActorPool.
 
         Args:
@@ -92,11 +95,17 @@ class RayActorPoolExecutor(BaseExecutor):
             return []
 
         session_id = uuid.uuid4().bytes
+        self._external_perf_records = []
+        hardware_sampler: list[Any] = []
+        stage_perf_collector = None
+        current_tasks: list[Task] = []
 
         try:
             # Initialize Ray and register loguru serializer
             register_loguru_serializer()
             ray.init(ignore_reinit_error=True, runtime_env=_parse_runtime_env(self.config.get("runtime_env", {})))
+            hardware_sampler = self._start_pipeline_hardware_sampler()
+            stage_perf_collector = self._start_stage_perf_collector(stages)
 
             # Execute setup on node for all stages BEFORE processing begins
             execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
@@ -111,8 +120,8 @@ class RayActorPoolExecutor(BaseExecutor):
                 logger.info(f"  Input tasks: {len(current_tasks)}")
 
                 if not current_tasks:
-                    msg = f"{stage} - No tasks to process, can't continue"
-                    raise ValueError(msg)  # noqa: TRY301
+                    logger.info("{} - No tasks remain; stopping the pipeline successfully", stage)
+                    break
 
                 if stage.ray_stage_spec().get(RayStageSpecKeys.IS_LSH_STAGE, False):
                     current_tasks = self._execute_lsh_stage(stage, current_tasks)
@@ -156,12 +165,20 @@ class RayActorPoolExecutor(BaseExecutor):
         else:
             # Return final results directly - no need for ray.get()
             final_results = current_tasks or []
+            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
+            stage_perf_collector = None
+            self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=True)
+            hardware_sampler = []
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
 
             return final_results
         finally:
             # Clean up all Ray resources including named actors
             logger.info("Shutting down Ray to clean up all resources...")
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=False)
+            if hardware_sampler:
+                self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=False)
             ray.shutdown()
 
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
