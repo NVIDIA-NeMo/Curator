@@ -35,6 +35,7 @@ class ParquetFileInfo:
     num_rows: int
     metadata_bytes: int
     footer: Any | None = None
+    embedding_elements: int = 0
 
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
@@ -52,9 +53,10 @@ def read_parquet_file_info(  # noqa: C901
     files: list[str],
     *,
     retained_columns: list[str] | None = None,
+    embedding_column: str | None = None,
     storage_options: dict[str, Any] | None = None,
 ) -> list[ParquetFileInfo]:
-    """Read exact row counts and projected metadata sizes in input order."""
+    """Read exact row, embedding-element, and projected metadata sizes in input order."""
     if not files:
         return []
 
@@ -68,13 +70,23 @@ def read_parquet_file_info(  # noqa: C901
                 for path, parquet_file in zip(batch, parquet_files, strict=True):
                     metadata = pq.read_metadata(parquet_file)
                     metadata_bytes = 0
+                    embedding_elements = 0
                     for row_group_index in range(metadata.num_row_groups):
                         row_group = metadata.row_group(row_group_index)
                         for column_index in range(row_group.num_columns):
                             column = row_group.column(column_index)
                             if _root_column(column.path_in_schema) in retained:
                                 metadata_bytes += column.total_uncompressed_size
-                    result.append(ParquetFileInfo(path, metadata.num_rows, metadata_bytes))
+                            if _root_column(column.path_in_schema) == embedding_column:
+                                embedding_elements += column.num_values
+                    result.append(
+                        ParquetFileInfo(
+                            path,
+                            metadata.num_rows,
+                            metadata_bytes,
+                            embedding_elements=embedding_elements,
+                        )
+                    )
             return result
 
         import pylibcudf as plc
@@ -90,7 +102,13 @@ def read_parquet_file_info(  # noqa: C901
                     for column in row_group.columns
                     if _root_column(column.meta_data.path_in_schema) in retained
                 )
-                result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, footer))
+                embedding_elements = sum(
+                    column.meta_data.num_values
+                    for row_group in footer.row_groups
+                    for column in row_group.columns
+                    if _root_column(column.meta_data.path_in_schema) == embedding_column
+                )
+                result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, footer, embedding_elements))
         return result  # noqa: TRY300
     except Exception as error:
         msg = f"Failed to read Parquet footer metadata for one of {len(files)} files"
@@ -136,39 +154,29 @@ def iter_parquet_chunks(
 
 def break_parquet_partition_into_groups(
     files: list[str],
-    embedding_dim: int | None = None,
-    storage_options: dict[str, Any] | None = None,
     *,
-    file_info: list[ParquetFileInfo] | None = None,
+    file_info: list[ParquetFileInfo],
 ) -> list[list[str]]:
     """Group complete files below cuDF's nested-column element limit."""
     if not files:
         return []
-    if embedding_dim is None:
-        embedding_dim = 1024
-    if embedding_dim <= 0:
-        msg = f"embedding_dim must be positive, got {embedding_dim}"
-        raise ValueError(msg)
-
-    max_rows = CUDF_COLUMN_SIZE_LIMIT // embedding_dim
-    infos = file_info or read_parquet_file_info(files, storage_options=storage_options)
-    rows_by_file = {info.path: info.num_rows for info in infos}
+    elements_by_file = {info.path: info.embedding_elements for info in file_info}
     subgroups: list[list[str]] = []
     subgroup: list[str] = []
-    subgroup_rows = 0
+    subgroup_elements = 0
     for path in files:
-        rows = rows_by_file[path]
-        if rows > max_rows:
-            msg = f"Parquet file {path!r} has {rows} rows, exceeding the per-read limit of {max_rows}"
+        elements = elements_by_file[path]
+        if elements >= CUDF_COLUMN_SIZE_LIMIT:
+            msg = f"Parquet file {path!r} has {elements} embedding elements, exceeding cuDF's column-size limit"
             raise ValueError(msg)
-        if subgroup and subgroup_rows + rows > max_rows:
+        if subgroup and subgroup_elements + elements >= CUDF_COLUMN_SIZE_LIMIT:
             subgroups.append(subgroup)
             subgroup = []
-            subgroup_rows = 0
+            subgroup_elements = 0
         subgroup.append(path)
-        subgroup_rows += rows
+        subgroup_elements += elements
     if subgroup:
         subgroups.append(subgroup)
     if len(subgroups) > 1:
-        logger.debug(f"Broke {len(files)} files into {len(subgroups)} exact row-bounded subgroups")
+        logger.debug(f"Broke {len(files)} files into {len(subgroups)} exact element-bounded subgroups")
     return subgroups

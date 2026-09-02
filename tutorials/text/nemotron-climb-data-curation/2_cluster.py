@@ -35,7 +35,6 @@ def main(args: argparse.Namespace) -> None:
         input_path=args.input_path,
         output_path=args.output_path,
         metadata_fields=[args.text_field],
-        embedding_dim=args.embedding_dim,
         input_filetype=args.input_filetype,
         verbose=args.verbose,
         max_iter=args.max_iter,
@@ -70,7 +69,6 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--id-field", type=str, default="id")
     parser.add_argument("--embedding-field", type=str, default="embeddings")
     parser.add_argument("--text-field", type=str, default="text")
-    parser.add_argument("--embedding-dim", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--max-iter", type=int, default=300)
     parser.add_argument("--tol", type=float, default=1e-4)

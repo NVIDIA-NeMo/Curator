@@ -348,7 +348,6 @@ class TestPairwiseStage:
             embedding_field="embedding",
             input_path="/input/path",
             output_path="/output/path",
-            embedding_dim=512,
             pairwise_batch_size=1024,
             verbose=True,
         )

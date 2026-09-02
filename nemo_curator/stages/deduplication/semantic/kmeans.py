@@ -68,7 +68,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         # KMeans args
         n_clusters: int,
         metadata_fields: list[str] | None = None,
-        embedding_dim: int | None = None,
         verbose: bool = False,
         max_iter: int = 300,
         tol: float = 1e-4,
@@ -91,7 +90,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             output_path (str): The path to the output directory.
             n_clusters (int): The number of clusters to create.
             metadata_fields (list[str] | None): The columns to keep in the output. These columns can be used later to prioritize deduplication.
-            embedding_dim (int | None): The dimension of the embedding. This helps us read data into smaller chunks.
             verbose (bool): Whether to print verbose output.
             max_iter (int): The maximum number of iterations to run.
             tol (float): Tolerance for stopping criteria of the kmeans algorithm.
@@ -111,7 +109,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self.filetype = filetype
         self.n_clusters = n_clusters
         self.metadata_fields = metadata_fields if metadata_fields is not None else []
-        self.embedding_dim = embedding_dim
         self.verbose = verbose
         self.max_iter = max_iter
         self.tol = tol
@@ -165,6 +162,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         file_info = read_parquet_file_info(
             files,
             retained_columns=[self.id_field, *self.metadata_fields],
+            embedding_column=self.embedding_field,
             storage_options=self.input_storage_options,
         )
         footer_time = time.perf_counter() - footer_start
@@ -293,9 +291,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             budget = int(free_memory * _AUTO_FIT_MEMORY_FRACTION)
             fit = []
             estimated_bytes = 0
-            embedding_dim = self.embedding_dim or 1024
             for info in shuffled:
-                file_bytes = info.num_rows * embedding_dim * cp.dtype(cp.float32).itemsize
+                file_bytes = info.embedding_elements * cp.dtype(cp.float32).itemsize
                 file_bytes += info.metadata_bytes
                 if estimated_bytes + file_bytes > budget:
                     continue
@@ -312,16 +309,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
     def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
         files = [info.path for info in file_info]
         if not self.input_storage_options and not self.read_kwargs:
-            if self.embedding_dim is not None:
-                max_rows = (CUDF_COLUMN_SIZE_LIMIT - 1) // self.embedding_dim
-                if all(info.num_rows <= max_rows for info in file_info):
-                    for group in break_parquet_partition_into_groups(
-                        files,
-                        embedding_dim=self.embedding_dim,
-                        file_info=file_info,
-                    ):
-                        yield self._read_group(group, columns)
-                    return
+            if all(info.embedding_elements < CUDF_COLUMN_SIZE_LIMIT for info in file_info):
+                for group in break_parquet_partition_into_groups(files, file_info=file_info):
+                    yield self._read_group(group, columns)
+                return
             yield from iter_parquet_chunks(
                 files,
                 columns=columns,
@@ -331,8 +322,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         for group in break_parquet_partition_into_groups(
             files,
-            embedding_dim=self.embedding_dim,
-            storage_options=self.input_storage_options,
             file_info=file_info,
         ):
             yield self._read_group(group, columns)
@@ -520,14 +509,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         rng = random.Random(self.random_state)  # noqa: S311
         fit_files = rng.sample(all_files, n_files)
 
-        if self.filetype == "parquet":
-            fit_groups = break_parquet_partition_into_groups(
-                fit_files,
-                embedding_dim=self.embedding_dim,
-                storage_options=self.input_storage_options,
-            )
-        else:  # jsonl
-            fit_groups = [fit_files]
+        fit_groups = [fit_files]
 
         t0 = time.perf_counter()
         sample_embeddings_list = []
@@ -698,7 +680,6 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
     output_path: str
     metadata_fields: list[str] | None = None
     verbose: bool = False
-    embedding_dim: int | None = None
     # I/O args
     input_filetype: Literal["jsonl", "parquet"] = "parquet"
     input_file_extensions: list[str] | None = None
@@ -724,7 +705,6 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         output_path (str): The path to the output directory.
         metadata_fields (list[str] | None): The columns to keep in the output. These columns can be used later to prioritize deduplication.
         verbose (bool): Whether to print verbose output.
-        embedding_dim (int | None): The dimension of the embedding. This helps us read data into smaller chunks.
         input_filetype (Literal["jsonl", "parquet"]): The type of the input file
         read_kwargs (dict[dict]): Keyword arguments for the read stage.
         write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -767,7 +747,6 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
                 n_clusters=self.n_clusters,
                 metadata_fields=self.metadata_fields,
                 verbose=self.verbose,
-                embedding_dim=self.embedding_dim,
                 max_iter=self.max_iter,
                 tol=self.tol,
                 random_state=self.random_state,

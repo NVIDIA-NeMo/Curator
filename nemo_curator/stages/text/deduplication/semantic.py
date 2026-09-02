@@ -79,7 +79,6 @@ class TextSemanticDeduplicationWorkflow:
     # Semantic deduplication parameters
     n_clusters: int = 100
     id_field: str = CURATOR_DEDUP_ID_STR
-    embedding_dim: int | None = None
     metadata_fields: list[str] | None = None
     distance_metric: Literal["cosine", "l2"] = "cosine"
     which_to_keep: Literal["hard", "easy", "random"] = "hard"
@@ -136,7 +135,6 @@ class TextSemanticDeduplicationWorkflow:
         # Semantic deduplication parameters
         n_clusters: Number of clusters for K-means
         id_field: Name of the ID field in the data
-        embedding_dim: Embedding dimension (for memory estimation)
         metadata_fields: List of metadata field names to preserve
         distance_metric: Distance metric for similarity ("cosine" or "l2")
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
@@ -313,7 +311,6 @@ class TextSemanticDeduplicationWorkflow:
             # Core data configuration
             id_field=self.id_field,
             embedding_field=self.embedding_field,
-            embedding_dim=self.embedding_dim,
             metadata_fields=self.metadata_fields,
             # K-means clustering parameters
             max_iter=self.kmeans_max_iter,

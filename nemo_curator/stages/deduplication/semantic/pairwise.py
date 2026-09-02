@@ -90,7 +90,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         ranking_strategy: RankingStrategy,
         pairwise_batch_size: int = 1024,
         verbose: bool = False,
-        embedding_dim: int | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
     ):
@@ -103,7 +102,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             ranking_strategy: Strategy for ranking/sorting clusters before similarity computation.
             pairwise_batch_size: Batch size for pairwise similarity computation.
             verbose: Whether to print verbose output.
-            embedding_dim: Embedding dimension for memory estimation.
             read_kwargs: Kwargs for reading parquet files.
             write_kwargs: Kwargs for writing parquet files.
         """
@@ -111,7 +109,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.embedding_field = embedding_field
         self.output_path = output_path
         self.pairwise_batch_size = pairwise_batch_size
-        self.embedding_dim = embedding_dim
         self.ranking_strategy = ranking_strategy
         self.verbose = verbose
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
@@ -144,6 +141,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         file_info = read_parquet_file_info(
             task.data,
             retained_columns=metadata_cols,
+            embedding_column=self.embedding_field,
             storage_options=self.input_storage_options,
         )
         footer_time = time.perf_counter() - footer_start
@@ -279,8 +277,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
 
         for group in break_parquet_partition_into_groups(
             files,
-            embedding_dim=self.embedding_dim,
-            storage_options=self.input_storage_options,
             file_info=file_info,
         ):
             yield self.read_parquet(
@@ -305,7 +301,6 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     ranking_strategy: RankingStrategy | None = None
 
     # Optional parameters
-    embedding_dim: int | None = None
     pairwise_batch_size: int = 1024
     verbose: bool = False
     read_kwargs: dict[str, Any] | None = None
@@ -357,7 +352,6 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
                 pairwise_batch_size=self.pairwise_batch_size,
                 verbose=self.verbose,
                 ranking_strategy=self.ranking_strategy,
-                embedding_dim=self.embedding_dim,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
             ),

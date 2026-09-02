@@ -42,7 +42,6 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     n_clusters: int = 1000,
     id_field: str = "id",
     embedding_field: str = "embeddings",
-    embedding_dim: int | None = None,
     input_filetype: str = "parquet",
     eps: float = 0.01,
     which_to_keep: str = "hard",
@@ -61,7 +60,6 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         n_clusters: Number of clusters for K-means clustering
         id_field: Name of the ID field in the data
         embedding_field: Name of the embedding field in the data
-        embedding_dim: Embedding dimension (for memory estimation)
         input_filetype: Input file type ("parquet" or "jsonl")
         eps: Epsilon value for duplicate identification threshold (cosine_sim >= 1-eps)
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
@@ -91,7 +89,6 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         n_clusters=n_clusters,
         id_field=id_field,
         embedding_field=embedding_field,
-        embedding_dim=embedding_dim,
         input_filetype=input_filetype,
         eps=eps,
         which_to_keep=which_to_keep,

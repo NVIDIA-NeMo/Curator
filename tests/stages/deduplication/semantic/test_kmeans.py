@@ -243,7 +243,6 @@ class TestKMeansStageIntegration:
                     input_path=str(request.cls.input_dir),
                     output_path=str(request.cls.output_dir),
                     metadata_fields=["random_col", "true_cluster"],
-                    embedding_dim=EMBEDDING_DIM,
                     input_filetype=request.cls.file_format,
                     verbose=True,
                     random_state=RANDOM_STATE,
@@ -351,7 +350,6 @@ class TestKMeansStageIntegration:
                     input_path=str(input_dir),
                     output_path=str(output_dir),
                     metadata_fields=["random_col", "true_cluster"],
-                    embedding_dim=EMBEDDING_DIM,
                     input_filetype="parquet",
                     random_state=RANDOM_STATE,
                     fit_data_fraction=0.5,
@@ -389,7 +387,6 @@ class TestKMeansReadFitWriteStage:
                     "output_path": str(tmp_path),
                     "filetype": "parquet",
                     "n_clusters": 2,
-                    "embedding_dim": 2,
                     "random_state": 42,
                     **kwargs,
                 }
@@ -515,10 +512,10 @@ class TestKMeansReadFitWriteStage:
         assert remaining == []
 
     def test_auto_fit_budget_includes_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage(fit_data_fraction=None, embedding_dim=2)
+        stage = make_stage(fit_data_fraction=None)
         file_info = [
-            ParquetFileInfo("metadata-heavy.parquet", 1, 1_000),
-            ParquetFileInfo("fits.parquet", 10, 0),
+            ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
+            ParquetFileInfo("fits.parquet", 10, 0, embedding_elements=20),
         ]
 
         with patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)):
@@ -528,9 +525,9 @@ class TestKMeansReadFitWriteStage:
         assert [info.path for info in remaining] == ["metadata-heavy.parquet"]
 
     def test_local_parquet_groups_legal_files(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage(embedding_dim=2)
+        stage = make_stage()
         frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
-        file_info = [ParquetFileInfo("file.parquet", 1, 0)]
+        file_info = [ParquetFileInfo("file.parquet", 1, 0, embedding_elements=2)]
 
         with (
             patch.object(stage, "_read_group", return_value=frame) as reader,
@@ -542,10 +539,10 @@ class TestKMeansReadFitWriteStage:
         chunked_reader.assert_not_called()
 
     def test_local_parquet_chunks_oversized_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage(embedding_dim=2)
+        stage = make_stage()
         frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
         footer = object()
-        file_info = [ParquetFileInfo("file.parquet", 1_000_000_000, 0, footer)]
+        file_info = [ParquetFileInfo("file.parquet", 1_000_000_000, 0, footer, 2_000_000_000)]
 
         with patch(
             "nemo_curator.stages.deduplication.semantic.kmeans.iter_parquet_chunks",

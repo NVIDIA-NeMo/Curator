@@ -72,7 +72,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Core data configuration
         id_field: str = "id",
         embedding_field: str = "embeddings",
-        embedding_dim: int | None = None,
         metadata_fields: list[str] | None = None,
         input_filetype: Literal["parquet", "jsonl"] = "parquet",
         input_file_extensions: list[str] | None = None,
@@ -114,7 +113,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             # Core data configuration
             id_field: Name of the ID field in the data
             embedding_field: Name of the embedding field in the data
-            embedding_dim: Embedding dimension (for memory estimation)
             metadata_fields: List of metadata field names to preserve in output
             input_filetype: Type of input files ("parquet" or "jsonl")
             input_file_extensions: List of file extensions to process
@@ -161,7 +159,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Data configuration
         self.id_field = id_field
         self.embedding_field = embedding_field
-        self.embedding_dim = embedding_dim
         self.metadata_fields = metadata_fields
         self.input_filetype = input_filetype
         self.input_file_extensions = input_file_extensions
@@ -263,7 +260,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             input_path=self.input_path,
             output_path=self.kmeans_output_path,
             metadata_fields=self.metadata_fields,
-            embedding_dim=self.embedding_dim,
             input_filetype=self.input_filetype,
             input_file_extensions=self.input_file_extensions,
             verbose=self.verbose,
@@ -299,7 +295,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             input_path=self.kmeans_output_path,
             output_path=self.pairwise_output_path,
             ranking_strategy=self.ranking_strategy,
-            embedding_dim=self.embedding_dim,
             pairwise_batch_size=self.pairwise_batch_size,
             verbose=self.verbose,
             which_to_keep=self.which_to_keep,
