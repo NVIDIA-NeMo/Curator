@@ -11,7 +11,7 @@ configuration.
 | File | Role |
 |---|---|
 | `backend.py` | `DynamoBackend` lifecycle: infra placement group, etcd/nats, router, per-model launch, readiness |
-| `vllm.py` | Runtime-env construction (`dynamo_runtime_env`, `merge_model_runtime_envs`), actor-venv override file, worker subprocess env, engine kwargs |
+| `vllm.py` | Runtime-env construction (`dynamo_runtime_env`), actor-venv override file, worker subprocess env, engine kwargs |
 | `config.py` | `DynamoVLLMModelConfig`, `DynamoServerConfig`, `DynamoRouterConfig` |
 | `infra.py` | Actor naming, endpoint URLs, CLI-flag translation |
 | `constants.py` | Default ports, namespace, event/request plane names |
@@ -56,7 +56,7 @@ these, and the fix mechanism differs:
 
 | Need | Mechanism | Where it lands | Config surface |
 |---|---|---|---|
-| Install/override a Python package before the actor starts (a different `transformers`, an extra loader package, a version pin or exclusion) | Ray `runtime_env` (`uv`/`pip` packages) | Actor venv, cloned from the driver venv outside the project directory, then installed on top additively | `DynamoVLLMModelConfig.runtime_env`, merged via `dynamo_runtime_env()` / `merge_model_runtime_envs()` in `vllm.py` |
+| Install/override a Python package before the actor starts (a different `transformers`, an extra loader package, a version pin or exclusion) | Ray `runtime_env` (`uv`/`pip` packages) | Actor venv, cloned from the driver venv outside the project directory, then installed on top additively | `DynamoVLLMModelConfig.runtime_env`, merged via `dynamo_runtime_env()` in `vllm.py` |
 | Set an env var scoped to **one model's worker** (an engine feature flag, a per-model cache path) | `runtime_env["env_vars"]` on that model | That model's worker actor's `os.environ`, inherited by its worker subprocess | Same `runtime_env` field as above; `merge_runtime_envs()` unions `env_vars` too, not just packages |
 | Set an env var that should reach **every model's** worker plus the frontend (a transport timeout, a compatibility shim path) | `subprocess_env` on the server | `base_env` folded into every worker/frontend subprocess's OS environment, not just one actor's | `DynamoServerConfig.subprocess_env`, applied in `backend.py` (`_deploy_and_healthcheck`) |
 
