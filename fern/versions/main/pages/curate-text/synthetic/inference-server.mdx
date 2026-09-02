@@ -367,7 +367,7 @@ backend = DynamoServerConfig(
 
 ### Choosing `runtime_env` vs. `subprocess_env`
 
-A Dynamo model's actor has its own **isolated Python virtualenv**, built fresh for that actor and not inherited from the environment that launched the driver process. Inside that actor, Dynamo then launches a **worker subprocess** that runs vLLM. `DynamoVLLMModelConfig.runtime_env` is per-model — it doesn't reach other models' worker actors. `DynamoServerConfig.subprocess_env` is server-wide — it reaches every configured model's worker plus the frontend. Use the mechanism that matches both what you're changing and who needs it:
+A Dynamo model's actor has its own **isolated Python virtualenv**, cloned from the environment that launched the driver process and then installed on top of additively (see [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) for this Ray behavior generally). Inside that actor, Dynamo then launches a **worker subprocess** that runs vLLM. `DynamoVLLMModelConfig.runtime_env` is per-model — it doesn't reach other models' worker actors. `DynamoServerConfig.subprocess_env` is server-wide — it reaches every configured model's worker plus the frontend. Use the mechanism that matches both what you're changing and who needs it:
 
 | You need to | Use | Why |
 | --- | --- | --- |
@@ -512,7 +512,7 @@ Ensure cluster nodes can reach the package index and share compatible Python, CU
 ### General Debugging Tips for Dynamo Startup and Compatibility Issues
 
 - **Identify which environment failed.** An error during actor creation, before any worker subprocess log appears, points to a `runtime_env` / virtualenv problem. An error inside the worker's own logs, after the actor already exists, points to something in the already-built virtualenv or `subprocess_env`. See [Choosing `runtime_env` vs. `subprocess_env`](#choosing-runtime_env-vs-subprocess_env).
-- **Remember that the actor virtualenv does not inherit driver-side pins.** Ray builds a fresh virtualenv for each actor, so a version pin or exclusion that matters in your driver environment (matching the cluster's Ray version, excluding an incompatible package build) must be supplied again through that model's `runtime_env` — it does not carry over automatically.
+- **Remember that installing packages via `runtime_env` can disturb a pin already cloned into the actor virtualenv.** The actor virtualenv starts as a clone of the driver's, but any package `runtime_env` installs on top resolves its own dependencies — which can silently pull in a different version of something the driver already had pinned (its Ray version, an excluded incompatible build). Supply that pin or exclusion again through the model's `runtime_env` rather than assuming the clone protects it.
 - **Rule out GPU memory contention before suspecting a compatibility issue.** A startup failure that looks like a version mismatch can also come from a competing process leaving too little free GPU memory for vLLM's requested `gpu_memory_utilization`. Check with `nvidia-smi` first.
 - **Reproduce with the smallest possible configuration**: one model, one replica, and `enforce_eager` in `engine_kwargs` if graph capture is a suspect. Confirm a fix there before scaling back up to your full topology.
 - **Smoke-test after any `runtime_env`, `subprocess_env`, model, or engine-kwarg change**, with one replica and one request, before trusting a full run. A model appearing at `/v1/models` confirms registration, not that generation itself will succeed.
