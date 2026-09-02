@@ -25,6 +25,7 @@ from pathlib import Path
 from curator_benchmarking.paths import resolve_benchmark_suite_dir
 from runner.path_resolver import (
     CONTAINER_CURATOR_DIR,
+    CURATOR_BENCHMARK_PATH_MODE_ENV,
     DEFAULT_CONTAINER_PATH_PREFIX,
     PathResolver,
 )
@@ -303,6 +304,7 @@ def _docker_env_args(target: DockerTarget, image_digest: str) -> list[str]:  # n
         "GDRIVE_FOLDER_ID": os.environ.get("GDRIVE_FOLDER_ID", ""),
         "GDRIVE_SERVICE_ACCOUNT_FILE": os.environ.get("GDRIVE_SERVICE_ACCOUNT_FILE", ""),
         "CURATOR_BENCHMARKING_DEBUG": os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0"),
+        CURATOR_BENCHMARK_PATH_MODE_ENV: "container",
         "CURATOR_REPO_DIR": CONTAINER_CURATOR_DIR,
         "HOST_HOSTNAME": socket.gethostname(),
         "NVIDIA_API_KEY": os.environ.get("NVIDIA_API_KEY", ""),

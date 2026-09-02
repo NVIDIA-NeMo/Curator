@@ -22,7 +22,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from runner.path_resolver import PathResolver
+from runner.path_resolver import PathResolver, set_path_mode
 from runner.utils import assert_valid_config_dict, merge_config_files, resolve_env_vars
 
 
@@ -46,7 +46,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check the benchmark environment.")
     parser.add_argument("--config", type=Path, action="append", default=[])
     parser.add_argument("--strict-config-check", action="store_true")
+    parser.add_argument(
+        "--path-mode",
+        choices=["auto", "host", "container"],
+        default=None,
+        help=(
+            "Select whether configured paths resolve to host_path or container_path. "
+            "Defaults to CURATOR_BENCHMARK_PATH_MODE, then auto."
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.path_mode:
+        set_path_mode(args.path_mode)
 
     failures = []
     for module_name, package_name in [

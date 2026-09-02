@@ -139,6 +139,13 @@ Docker volume mounts for configured paths, forwards GPUs and reporting
 environment variables, mounts the selected benchmark-suite checkout, and starts
 the selected Curator image.
 
+Path resolution is controlled by `CURATOR_BENCHMARK_PATH_MODE`, which accepts
+`auto`, `host`, or `container`. Docker image and running-container targets set
+this to `container` automatically for the command they launch. Bare-metal runs
+normally use host paths. Direct `python benchmarking/run.py` and
+`curator-benchmark check` invocations can override this with
+`--path-mode host`, `--path-mode container`, or `--path-mode auto`.
+
 For container-only use from a restricted host environment, the host Python
 environment needs only the package code and the small set of dependencies used
 before Docker starts. A minimal host install can be done with:
@@ -278,6 +285,12 @@ GPU, shared-memory, and network configuration. The benchmark runner should
 validate the environment and fail clearly if required paths, tools, or Python
 packages are missing.
 
+External launchers that create containers themselves should set
+`CURATOR_BENCHMARK_PATH_MODE=container` before invoking `curator-benchmark` or
+`python benchmarking/run.py` inside the container. Their path config should use
+real host-visible storage paths as `host_path` and the already-mounted
+container-visible locations as `container_path`.
+
 ---
 
 ## CI Orchestration
@@ -337,9 +350,10 @@ curator-benchmark run \
 # Required: Paths to files and directories used by the benchmarks.
 # Each entry must have a "name" and a "host_path". The name can be referenced elsewhere
 # in the config using {name} placeholders (e.g. {datasets_path}).
-# When running with --image, each path is automatically mounted into the container.
-# An optional "container_path" overrides the default mount point, which is the
-# host_path prefixed with "/MOUNT".
+# host_path is the path visible outside the container. container_path is the
+# path visible inside the container. When running with --image, each path is
+# automatically mounted from host_path to container_path. If container_path is
+# omitted, it defaults to the host_path prefixed with "/MOUNT".
 # An entry with name "results_path" is required.
 paths:
   - name: results_path

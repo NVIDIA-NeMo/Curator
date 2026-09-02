@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 from pathlib import Path
@@ -28,7 +29,20 @@ from curator_benchmarking.cli import main
 from curator_benchmarking.targets.docker import (
     DockerTarget,
     _containerize_command_args,
+    _docker_env_args,
 )
+from runner.path_resolver import CURATOR_BENCHMARK_PATH_MODE_ENV
+
+
+def test_run_command_module_import_does_not_load_runtime_dependencies() -> None:
+    sys.modules.pop("curator_benchmarking.commands.run", None)
+    sys.modules.pop("curator_benchmarking.commands.run_impl", None)
+    nemo_curator_loaded_before = "nemo_curator" in sys.modules
+
+    importlib.import_module("curator_benchmarking.commands.run")
+
+    assert "curator_benchmarking.commands.run_impl" not in sys.modules
+    assert ("nemo_curator" in sys.modules) is nemo_curator_loaded_before
 
 
 def test_cli_defaults_to_run_for_legacy_args(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,3 +99,9 @@ entries: []
     args = _containerize_command_args(target, ["run", "--config", str(config_path)])
 
     assert args == ["run", "--config", str(Path(f"/MOUNT/{config_path}"))]
+
+
+def test_docker_env_args_sets_container_path_mode() -> None:
+    env_args = _docker_env_args(DockerTarget(), image_digest="sha256:test")
+
+    assert f"{CURATOR_BENCHMARK_PATH_MODE_ENV}=container" in env_args
