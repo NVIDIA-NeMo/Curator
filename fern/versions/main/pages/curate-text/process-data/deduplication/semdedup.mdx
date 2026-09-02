@@ -58,7 +58,7 @@ workflow = TextSemanticDeduplicationWorkflow(
     output_path="./results",
     cache_path="./sem_cache",
     n_clusters=100,
-    kmeans_fit_data_fraction=0.1,  # Fit centroids on about 10% of input files
+    kmeans_fit_data_fraction=0.1,  # Fit centroids on about 10% of input rows
     eps=0.07,  # Similarity threshold
     id_field="doc_id",
     perform_removal=True,  # Complete deduplication
@@ -150,7 +150,7 @@ Compare semantic deduplication with other methods:
 | `model_cache_dir` | str | `None` | Directory to cache model weights |
 | `n_clusters` | int | `100` | Number of clusters for k-means clustering |
 | `kmeans_max_iter` | int | `300` | Maximum iterations for clustering |
-| `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of whole files used to fit K-means. `None` automatically selects complete files within the live GPU-memory budget. |
+| `kmeans_fit_data_fraction` | float \| None | `None` | Target fraction of rows used to fit K-means, sampled as complete files. `None` automatically selects complete files within the live GPU-memory budget. |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
 | `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
@@ -169,13 +169,13 @@ The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` use the parame
 
 By default, `fit_data_fraction=None` selects as many complete files as fit 60% of the actor's currently free GPU memory. The estimate includes both the contiguous float32 fit array and the retained metadata needed to predict and write sampled rows without reading those files again.
 
-Set a fraction in `(0, 1]` to choose the number of sampled files explicitly:
+Set a fraction in `(0, 1]` to target a fraction of rows:
 
-1. **Fit:** Each actor samples `round(fit_data_fraction * number_of_actor_files)` complete files, with a minimum of one. A bounded Parquet reader fills one exactly sized fit array while retaining the sampled rows' metadata.
+1. **Fit:** Each actor randomly selects complete files until their footer row counts reach the requested fraction of its rows, with a minimum of one file. A bounded Parquet reader fills one exactly sized fit array while retaining the sampled rows' metadata.
 2. **Predict sampled rows:** The actor predicts and writes directly from the fit array, so sampled files are not read again.
 3. **Predict remaining rows:** The actor reads each remaining file once in bounded chunks and writes each bounded result frame.
 
-Because sampling is file-based rather than row-based, the realized row fraction can differ from the configured value when file sizes vary. Every actor contributes at least one file, so very small fractions can also sample more data than expected on highly parallel runs. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
+Because complete files are sampled, the realized row fraction can exceed the configured value by at most the final selected file. Every actor contributes at least one file. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
 
 <Note>
 All input rows receive cluster assignments; the fraction affects only centroid fitting. Both fitting and prediction use exact Parquet footer row counts, and bounded reads keep list columns below cuDF's column-size limit.

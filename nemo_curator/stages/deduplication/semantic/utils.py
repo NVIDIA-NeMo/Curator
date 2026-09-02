@@ -25,6 +25,7 @@ from fsspec.parquet import open_parquet_files
 from loguru import logger
 
 CUDF_COLUMN_SIZE_LIMIT = 2_000_000_000
+# Bound simultaneously open local files or remote objects while scanning metadata.
 _FOOTER_BATCH_SIZE = 64
 
 

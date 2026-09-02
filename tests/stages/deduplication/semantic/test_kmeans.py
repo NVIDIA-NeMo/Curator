@@ -500,7 +500,8 @@ class TestKMeansReadFitWriteStage:
 
         fit, remaining = stage._sample_fit_files(file_info)
 
-        assert len(fit) == 2
+        assert sum(info.num_rows for info in fit) >= 8
+        assert sum(info.num_rows for info in fit[:-1]) < 8
         assert {info.path for info in fit}.isdisjoint(info.path for info in remaining)
         assert {info.path for info in [*fit, *remaining]} == {info.path for info in file_info}
 
@@ -567,6 +568,8 @@ class TestKMeansReadFitWriteStage:
             "remaining.parquet": cudf.DataFrame({"id": [2, 3], "embeddings": [[1.0, 0.0], [0.0, 1.0]]}),
         }
         stage.kmeans.labels_ = cp.array([0, 1], dtype=cp.int32)
+        stage.kmeans.predict.return_value = cp.array([0, 1], dtype=cp.int32)
+        kmeans = stage.kmeans
         with (
             patch(
                 "nemo_curator.stages.deduplication.semantic.kmeans.read_parquet_file_info",
@@ -579,13 +582,14 @@ class TestKMeansReadFitWriteStage:
                 side_effect=lambda info, _columns: iter([frames[info[0].path]]),
             ),
             patch.object(stage, "_write_output_frame") as write,
-            patch.object(stage, "_predict_labels", return_value=cp.array([0, 1], dtype=cp.int32)),
             patch.object(stage, "_log_metrics"),
             patch.object(cudf.DataFrame, "drop", side_effect=AssertionError("deep frame copy")),
         ):
             stage._process_parquet([FileGroupTask(dataset_name="d", data=list(frames))], list(frames))
 
         assert write.call_count == 2
+        kmeans.predict.assert_called_once()
+        assert kmeans.predict.call_args.kwargs == {"convert_dtype": False}
         assert all("embeddings" not in call.args[1].columns for call in write.call_args_list)
 
     def test_process_batch_routes_by_fit_data_fraction(self, make_stage: "KMeansReadFitWriteStage") -> None:

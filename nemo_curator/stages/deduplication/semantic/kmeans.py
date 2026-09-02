@@ -15,6 +15,7 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import chain
+from math import ceil
 from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
@@ -99,7 +100,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            fit_data_fraction (float | None): Fraction of whole files used to fit KMeans. None selects as many complete files as fit the live GPU-memory budget.
+            fit_data_fraction (float | None): Target fraction of rows used to fit KMeans, sampled as complete files. None selects as many complete files as fit the live GPU-memory budget.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -200,7 +201,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         fit_start = time.perf_counter()
         self.kmeans.fit(fit_embeddings, sample_weight=None)
-        fit_labels = cp.asarray(self.kmeans.labels_).astype(cp.int32, copy=True)
+        fit_labels = cp.asarray(self.kmeans.labels_).astype(cp.int32, copy=False)
         fit_time = time.perf_counter() - fit_start
         self._log_metrics(
             {
@@ -213,7 +214,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         )
         centroids = cp.ascontiguousarray(cp.asarray(self.kmeans.cluster_centers_).copy())
         self._save_centroids(centroids)
-        del self.kmeans
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
@@ -232,7 +232,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             output_index += 1
 
         sampled_chunks.clear()
-        del fit_embeddings
+        del fit_embeddings, fit_labels
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
@@ -242,7 +242,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 read_time += time.perf_counter() - read_start
                 embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
                 embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
-                labels = self._predict_labels(embeddings, centroids)
+                labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
                 del df[self.embedding_field]
                 self._write_output_frame(
                     f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
@@ -251,6 +251,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 output_index += 1
                 read_start = time.perf_counter()
             read_time += time.perf_counter() - read_start
+
+        del self.kmeans
 
         if predicted_rows != total_rows:
             msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
@@ -278,8 +280,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         rng = random.Random(self.random_state)  # noqa: S311
         shuffled = rng.sample(file_info, k=len(file_info))
         if self.fit_data_fraction is not None:
-            count = max(1, round(len(file_info) * self.fit_data_fraction))
-            fit = shuffled[:count]
+            target_rows = max(1, ceil(sum(info.num_rows for info in file_info) * self.fit_data_fraction))
+            fit = []
+            sampled_rows = 0
+            for info in shuffled:
+                fit.append(info)
+                sampled_rows += info.num_rows
+                if sampled_rows >= target_rows:
+                    break
         else:
             free_memory = cp.cuda.runtime.memGetInfo()[0]
             budget = int(free_memory * _AUTO_FIT_MEMORY_FRACTION)
@@ -352,20 +360,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             storage_options=self.output_storage_options,
             **self.write_kwargs,
         )
-
-    def _predict_labels(self, embeddings: "cp.ndarray", centroids: "cp.ndarray") -> "cp.ndarray":
-        from cuml.metrics import pairwise_distances
-
-        labels = cp.empty(len(embeddings), dtype=cp.int32)
-        for start in range(0, len(embeddings), self.max_samples_per_batch):
-            stop = min(start + self.max_samples_per_batch, len(embeddings))
-            distances = pairwise_distances(
-                embeddings[start:stop],
-                centroids,
-                metric="sqeuclidean",
-            )
-            labels[start:stop] = cp.argmin(distances, axis=1).astype(cp.int32)
-        return labels
 
     def _save_centroids(self, centroids: "cp.ndarray") -> None:
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
@@ -741,7 +735,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        fit_data_fraction (float | None): Fraction of whole files used for fitting. None sizes the sample automatically from free GPU memory.
+        fit_data_fraction (float | None): Target fraction of rows used for fitting, sampled as complete files. None sizes the sample automatically from free GPU memory.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 

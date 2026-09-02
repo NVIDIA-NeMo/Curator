@@ -148,7 +148,7 @@ class TextSemanticDeduplicationWorkflow:
         kmeans_n_init: Number of K-means initialization runs
         kmeans_oversampling_factor: Oversampling factor for K-means
         kmeans_max_samples_per_batch: Maximum samples per batch for K-means
-        kmeans_fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit the KMeans model. If None, select as many complete files as fit the live GPU-memory budget.
+        kmeans_fit_data_fraction: Target fraction of rows (in (0, 1]) used to fit the KMeans model, sampled as complete files. If None, select as many complete files as fit the live GPU-memory budget.
         ranking_strategy: Custom ranking strategy for documents within clusters (None uses which_to_keep/distance_metric)
         pairwise_batch_size: Batch size for pairwise similarity computation
         _duplicates_num_row_groups_hint: Hint for number of row groups in duplicates output
