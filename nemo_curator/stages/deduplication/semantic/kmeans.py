@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterator
 from dataclasses import dataclass
+from itertools import chain
 from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
@@ -27,7 +29,14 @@ from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
-from .utils import break_parquet_partition_into_groups, get_array_from_df
+from .utils import (
+    CUDF_COLUMN_SIZE_LIMIT,
+    ParquetFileInfo,
+    break_parquet_partition_into_groups,
+    get_array_from_df,
+    iter_parquet_chunks,
+    read_parquet_file_info,
+)
 
 if TYPE_CHECKING:
     import cudf
@@ -43,6 +52,7 @@ from loguru import logger
 # Column names
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
+_AUTO_FIT_MEMORY_FRACTION = 0.6
 
 
 class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], DeduplicationIO):
@@ -89,7 +99,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            fit_data_fraction (float | None): Fraction of the dataset (in (0, 1)) used to fit the KMeans model. Pass None to fit on the full dataset (single-pass mode). Sampling is done at the file level: each actor draws `round(fit_data_fraction x num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
+            fit_data_fraction (float | None): Fraction of whole files used to fit KMeans. None selects as many complete files as fit the live GPU-memory budget.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -109,11 +119,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self.n_init = n_init
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
-        if fit_data_fraction is not None and not 0.0 < fit_data_fraction < 1.0:
-            msg = f"fit_data_fraction must be in (0, 1), got {fit_data_fraction}; pass None to fit on the full dataset"
+        if fit_data_fraction is not None and not 0.0 < fit_data_fraction <= 1.0:
+            msg = f"fit_data_fraction must be in (0, 1], got {fit_data_fraction}; pass None for automatic sizing"
             raise ValueError(msg)
         self.fit_data_fraction = fit_data_fraction
-
         self.cache_path = cache_path
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs.copy() if write_kwargs is not None else {}
@@ -132,40 +141,237 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[EmptyTask]:
-        """Process a batch of FileGroupTasks using distributed RAFT KMeans.
-
-        In RAFT mode, each actor processes its assigned tasks, but the KMeans model
-        is trained cooperatively across all actors using RAFT communication.
-
-        When fit_data_fraction is set, uses a memory-efficient two-pass approach:
-          Pass 1: samples files at the actor level, reads only the embedding column from those files
-          Pass 2: loads each (full) original group one at a time for prediction and writing
-        Otherwise, loads all groups simultaneously (original behavior).
-        """
+        """Fit cooperatively, then predict and write each bounded frame."""
 
         if not tasks:
             return []
 
-        # Collect all files from all tasks
         all_files = [file for task in tasks for file in task.data]
-
-        # Break files into subgroups to avoid cudf row limits
         if self.filetype == "parquet":
-            groups = break_parquet_partition_into_groups(
-                all_files,
-                embedding_dim=self.embedding_dim,
-                storage_options=self.input_storage_options,
-            )
-        elif self.filetype == "jsonl":
-            # For JSONL files, just group all files together since we can't easily estimate size
-            groups = [all_files]
-        else:
+            return self._process_parquet(tasks, all_files)
+        if self.filetype != "jsonl":
             msg = f"Unsupported filetype: {self.filetype}. Only jsonl and parquet are supported."
             raise ValueError(msg)
 
+        groups = [all_files]
         if self.fit_data_fraction is not None:
             return self._process_batch_two_pass(tasks, groups)
         return self._process_batch_single_pass(tasks, groups)
+
+    def _process_parquet(self, tasks: list[FileGroupTask], files: list[str]) -> list[EmptyTask]:  # noqa: PLR0915
+        columns = list(dict.fromkeys([self.id_field, self.embedding_field, *self.metadata_fields]))
+        footer_start = time.perf_counter()
+        file_info = read_parquet_file_info(
+            files,
+            retained_columns=[self.id_field, *self.metadata_fields],
+            storage_options=self.input_storage_options,
+        )
+        footer_time = time.perf_counter() - footer_start
+        self._log_metric("kmeans_footer_scan_time", footer_time)
+
+        fit_info, remaining_info = self._sample_fit_files(file_info)
+        total_rows = sum(info.num_rows for info in file_info)
+        fit_rows = sum(info.num_rows for info in fit_info)
+        if fit_rows < self.n_clusters:
+            msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
+            raise ValueError(msg)
+
+        fit_frames = iter(self._iter_parquet_frames(fit_info, columns))
+        first_fit_frame = next(fit_frames)
+        embedding_dim = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
+        fit_embeddings = cp.empty((fit_rows, embedding_dim), dtype=cp.float32)
+        sampled_chunks: list[tuple[cudf.DataFrame, int, int]] = []
+        read_time = 0.0
+        offset = 0
+        read_start = time.perf_counter()
+        for df in chain([first_fit_frame], fit_frames):
+            stop = offset + len(df)
+            embeddings = fit_embeddings[offset:stop]
+            embeddings[...] = get_array_from_df(df, self.embedding_field)
+            embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
+            del df[self.embedding_field]
+            sampled_chunks.append((df, offset, stop))
+            offset = stop
+        read_time += time.perf_counter() - read_start
+        if offset != fit_rows:
+            msg = f"Parquet footers reported {fit_rows} fit rows but the reader returned {offset}"
+            raise RuntimeError(msg)
+        del df, embeddings, first_fit_frame, fit_frames
+
+        fit_start = time.perf_counter()
+        self.kmeans.fit(fit_embeddings, sample_weight=None)
+        fit_labels = cp.asarray(self.kmeans.labels_).astype(cp.int32, copy=True)
+        fit_time = time.perf_counter() - fit_start
+        self._log_metrics(
+            {
+                "kmeans_fit_time": fit_time,
+                "kmeans_fit_rows": fit_rows,
+                "kmeans_fit_files": len(fit_info),
+                "kmeans_fit_data_fraction": fit_rows / total_rows,
+                "kmeans_fit_file_fraction": len(fit_info) / len(file_info),
+            }
+        )
+        centroids = cp.ascontiguousarray(cp.asarray(self.kmeans.cluster_centers_).copy())
+        self._save_centroids(centroids)
+        del self.kmeans
+        gc.collect()
+        cp.get_default_memory_pool().free_all_blocks()
+
+        write_start = time.perf_counter()
+        predicted_rows = 0
+        output_index = 0
+        for metadata, start, stop in sampled_chunks:
+            self._write_output_frame(
+                f"{tasks[0].task_id}_{output_index}.parquet",
+                metadata,
+                fit_embeddings[start:stop],
+                fit_labels[start:stop],
+                centroids,
+            )
+            predicted_rows += len(metadata)
+            output_index += 1
+
+        sampled_chunks.clear()
+        del fit_embeddings
+        gc.collect()
+        cp.get_default_memory_pool().free_all_blocks()
+
+        if remaining_info:
+            read_start = time.perf_counter()
+            for df in self._iter_parquet_frames(remaining_info, columns):
+                read_time += time.perf_counter() - read_start
+                embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+                embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
+                labels = self._predict_labels(embeddings, centroids)
+                del df[self.embedding_field]
+                self._write_output_frame(
+                    f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
+                )
+                predicted_rows += len(df)
+                output_index += 1
+                read_start = time.perf_counter()
+            read_time += time.perf_counter() - read_start
+
+        if predicted_rows != total_rows:
+            msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
+            raise RuntimeError(msg)
+        self._log_metrics(
+            {
+                "kmeans_read_time": read_time,
+                "kmeans_write_time": time.perf_counter() - write_start,
+                "num_rows": total_rows,
+            }
+        )
+        actor_index = getattr(self, "_actor_index", 0)
+        return [
+            EmptyTask(
+                dataset_name=f"kmeans_actor_{actor_index}",
+                _metadata=None,
+                _stage_perf=[],
+                data=None,
+            )
+        ]
+
+    def _sample_fit_files(
+        self, file_info: list[ParquetFileInfo]
+    ) -> tuple[list[ParquetFileInfo], list[ParquetFileInfo]]:
+        rng = random.Random(self.random_state)  # noqa: S311
+        shuffled = rng.sample(file_info, k=len(file_info))
+        if self.fit_data_fraction is not None:
+            count = max(1, round(len(file_info) * self.fit_data_fraction))
+            fit = shuffled[:count]
+        else:
+            free_memory = cp.cuda.runtime.memGetInfo()[0]
+            budget = int(free_memory * _AUTO_FIT_MEMORY_FRACTION)
+            fit = []
+            estimated_bytes = 0
+            embedding_dim = self.embedding_dim or 1024
+            for info in shuffled:
+                file_bytes = info.num_rows * embedding_dim * cp.dtype(cp.float32).itemsize
+                file_bytes += info.metadata_bytes
+                if estimated_bytes + file_bytes > budget:
+                    continue
+                fit.append(info)
+                estimated_bytes += file_bytes
+            if not fit:
+                msg = f"No complete Parquet file fits the automatic KMeans budget of {budget} bytes"
+                raise MemoryError(msg)
+        fit_paths = {info.path for info in fit}
+        remaining = [info for info in file_info if info.path not in fit_paths]
+        logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
+        return fit, remaining
+
+    def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
+        files = [info.path for info in file_info]
+        if not self.input_storage_options and not self.read_kwargs:
+            if self.embedding_dim is not None:
+                max_rows = (CUDF_COLUMN_SIZE_LIMIT - 1) // self.embedding_dim
+                if all(info.num_rows <= max_rows for info in file_info):
+                    for group in break_parquet_partition_into_groups(
+                        files,
+                        embedding_dim=self.embedding_dim,
+                        file_info=file_info,
+                    ):
+                        yield self._read_group(group, columns)
+                    return
+            yield from iter_parquet_chunks(
+                files,
+                columns=columns,
+                footers=[info.footer for info in file_info],
+            )
+            return
+
+        for group in break_parquet_partition_into_groups(
+            files,
+            embedding_dim=self.embedding_dim,
+            storage_options=self.input_storage_options,
+            file_info=file_info,
+        ):
+            yield self._read_group(group, columns)
+
+    def _write_output_frame(
+        self,
+        output_filename: str,
+        metadata: "cudf.DataFrame",
+        embeddings: "cp.ndarray",
+        labels: "cp.ndarray",
+        centroids: "cp.ndarray",
+    ) -> None:
+        if not len(metadata):
+            return
+        frame = metadata.copy(deep=False)
+        frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
+        frame["centroid"] = labels
+        frame = self._assign_distances(frame, self.embedding_field, centroids)
+        self.write_parquet(
+            frame,
+            self.output_path,
+            partition_file_name=output_filename,
+            partition_cols=["centroid"],
+            index=False,
+            storage_options=self.output_storage_options,
+            **self.write_kwargs,
+        )
+
+    def _predict_labels(self, embeddings: "cp.ndarray", centroids: "cp.ndarray") -> "cp.ndarray":
+        from cuml.metrics import pairwise_distances
+
+        labels = cp.empty(len(embeddings), dtype=cp.int32)
+        for start in range(0, len(embeddings), self.max_samples_per_batch):
+            stop = min(start + self.max_samples_per_batch, len(embeddings))
+            distances = pairwise_distances(
+                embeddings[start:stop],
+                centroids,
+                metric="sqeuclidean",
+            )
+            labels[start:stop] = cp.argmin(distances, axis=1).astype(cp.int32)
+        return labels
+
+    def _save_centroids(self, centroids: "cp.ndarray") -> None:
+        if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
+            os.makedirs(self.cache_path, exist_ok=True)
+            cp.save(f"{self.cache_path}/kmeans_centroids.npy", centroids)
+            logger.info(f"Saved {self.n_clusters} KMeans centroids to {self.cache_path}/kmeans_centroids.npy")
 
     def _read_group(self, group: list[str], columns: list[str]) -> "cudf.DataFrame":
         """Read a group of files into a cudf DataFrame."""
@@ -535,7 +741,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        fit_data_fraction (float | None): Fraction of the dataset (in (0, 1)) used to fit the KMeans model. Pass None to fit on the full dataset (single-pass mode). Sampling is done at the file level: each actor draws `round(fit_data_fraction x num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
+        fit_data_fraction (float | None): Fraction of whole files used for fitting. None sizes the sample automatically from free GPU memory.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 
@@ -544,8 +750,8 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         super().__init__()
         # Validate eagerly so bad values surface at construction, not later in
         # decompose() / on a worker.
-        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
-            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
+        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction <= 1.0:
+            msg = f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; pass None for automatic sizing"
             raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:

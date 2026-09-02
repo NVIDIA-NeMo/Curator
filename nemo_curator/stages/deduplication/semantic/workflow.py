@@ -128,8 +128,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             oversampling_factor: K-means++ oversampling factor
             max_samples_per_batch: Max samples per batch for K-means
             distance_metric: Distance metric for similarity ("cosine" or "l2")
-            fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model.
-                If None, fit on the full dataset.
+            fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit the KMeans model.
+                If None, select as many complete files as fit the live GPU-memory budget.
 
             # Pairwise similarity parameters
             which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
@@ -211,8 +211,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             )
 
         # Validate fit_data_fraction
-        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
-            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
+        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction <= 1.0:
+            msg = f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; pass None for automatic sizing"
             raise ValueError(msg)
 
         # Validate distance_metric

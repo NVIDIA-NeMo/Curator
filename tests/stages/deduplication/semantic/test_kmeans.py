@@ -37,7 +37,7 @@ with suppress(ImportError):
     from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
-    from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
+    from nemo_curator.stages.deduplication.semantic.utils import ParquetFileInfo, get_array_from_df
     from nemo_curator.tasks import FileGroupTask
 
 N_CLUSTERS = 4
@@ -304,8 +304,8 @@ class TestKMeansStageIntegration:
         """Output files are written with deterministic, input-derived names and
         partitioned by centroid.
 
-        Each GPU actor writes ``{input_task_id}_{subgroup}.parquet`` where the
-        input task id is the FilePartitioning id (``0_<file_hash>``).
+        Each frame uses ``{input_task_id}_{frame_index}.parquet`` where
+        the input task id is the FilePartitioning id (``0_<file_hash>``).
         We assert the names match that deterministic pattern (never a random
         ``r<uuid>`` fallback) and that the centroid partitioning is correct.
 
@@ -314,17 +314,14 @@ class TestKMeansStageIntegration:
         non-deterministic ``r<uuid>`` fallback) — they are intentionally NOT
         tied to the output filenames, which are derived from the input ids.
         """
-        # One terminal result task per actor.
-        assert len(self.pipeline_results) == 2, f"Expected 2 result tasks, got {len(self.pipeline_results)}"
+        assert self.pipeline_results
 
         # Collect all output filenames across centroid partitions. (The same
         # file name appears under each centroid=* dir, so dedupe into a set.)
         centroid_dirs = list(self.output_dir.glob("centroid=*"))
         actual_filenames = {f.name for d in centroid_dirs for f in d.glob("*.parquet")}
 
-        # Two distinct output files (one per actor), each deterministically
-        # named from its input partition's id: "0_<file_hash>_<subgroup>".
-        assert len(actual_filenames) == 2, f"Expected 2 distinct output files, got {actual_filenames}"
+        assert actual_filenames
         deterministic_name = re.compile(r"^0_[0-9a-f]+_\d+\.parquet$")
         for name in actual_filenames:
             assert deterministic_name.match(name), (
@@ -403,117 +400,22 @@ class TestKMeansReadFitWriteStage:
 
         return _make
 
-    @pytest.mark.parametrize(
-        # expect_break: Whether to expect a call to break_parquet_partition_into_groups
-        # expect_multiple_groups: Whether to expect multiple groups to be returned
-        ("filetype", "expect_break", "expect_multiple_groups"),
-        [
-            ("parquet", True, True),
-            ("jsonl", False, False),
-        ],
-    )
-    def test_process_batch_read_paths(
-        self,
-        tmp_path: Path,
-        filetype: Literal["parquet", "jsonl"],
-        expect_break: bool,
-        expect_multiple_groups: bool,
+    @pytest.mark.parametrize("filetype", ["parquet", "jsonl"])
+    def test_process_batch_routes_by_filetype(
+        self, make_stage: "KMeansReadFitWriteStage", filetype: Literal["parquet", "jsonl"]
     ) -> None:
-        """Ensure process_batch routes reads and grouping by filetype."""
-        input_dir = tmp_path / "input"
-        input_dir.mkdir()
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-
-        stage = KMeansReadFitWriteStage(
-            id_field="id",
-            embedding_field="embeddings",
-            output_path=str(output_dir),
-            filetype=filetype,
-            n_clusters=2,
-            metadata_fields=["metadata_col"],
-            embedding_dim=32,
-        )
-
-        stage._raft_handle = Mock()
-
-        if filetype == "parquet":
-            all_files = [str(input_dir / f"file_{i}.parquet") for i in range(4)]
-            all_tasks = [
-                FileGroupTask(
-                    dataset_name="test_dataset",
-                    data=[file],
-                )
-                for i, file in enumerate(all_files)
-            ]
-            df = cudf.DataFrame(
-                {
-                    "id": list(range(20)),
-                    "embeddings": [[1.0, 0.0]] * 20,
-                    "metadata_col": ["meta"] * 20,
-                }
-            )
-            expected_groups = [all_files[:2], all_files[2:]]
-        else:
-            input_file = input_dir / "data.jsonl"
-            all_files = [str(input_file)]
-            all_tasks = [
-                FileGroupTask(
-                    dataset_name="test_dataset",
-                    data=[str(input_file)],
-                )
-            ]
-            df = cudf.DataFrame(
-                {
-                    "id": [0, 1],
-                    "embeddings": [[1.0, 0.0], [0.0, 1.0]],
-                    "metadata_col": ["a", "b"],
-                }
-            )
-            expected_groups = [all_files]
-
-        total_rows = len(df) * len(expected_groups)
-        stage.kmeans = Mock()
-        stage.kmeans.fit = Mock()
-        stage.kmeans.predict = Mock(return_value=cp.zeros(total_rows, dtype=cp.int32))
-        stage.kmeans.cluster_centers_ = cp.random.random((2, 2), dtype=cp.float32)
+        stage = make_stage(filetype=filetype)
+        suffix = "parquet" if filetype == "parquet" else "jsonl"
+        task = FileGroupTask(dataset_name="test", data=[f"input.{suffix}"])
 
         with (
-            patch(
-                "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups"
-            ) as mock_break,
-            patch.object(stage, "read_parquet", return_value=df) as mock_read_parquet,
-            patch.object(stage, "read_jsonl", return_value=df) as mock_read_jsonl,
-            patch.object(stage, "write_parquet") as mock_write,
+            patch.object(stage, "_process_parquet", return_value=[]) as parquet,
+            patch.object(stage, "_process_batch_single_pass", return_value=[]) as jsonl,
         ):
-            mock_break.return_value = expected_groups
+            stage.process_batch([task])
 
-            results = stage.process_batch(all_tasks)
-
-            if expect_break:
-                mock_break.assert_called_once_with(all_files, embedding_dim=32, storage_options=None)
-            else:
-                mock_break.assert_not_called()
-
-            if filetype == "parquet":
-                assert mock_read_jsonl.call_count == 0
-                assert mock_read_parquet.call_count == len(expected_groups)
-                assert [call.args[0] for call in mock_read_parquet.call_args_list] == expected_groups
-            else:
-                mock_read_jsonl.assert_called_once()
-                mock_read_parquet.assert_not_called()
-                assert mock_read_jsonl.call_args[0][0] == all_files
-
-            for call in mock_read_parquet.call_args_list or [mock_read_jsonl.call_args]:
-                assert call.kwargs["columns"] == ["id", "embeddings", "metadata_col"]
-                assert call.kwargs["assign_id"] is False
-
-            stage.kmeans.fit.assert_called_once()
-            stage.kmeans.predict.assert_called_once()
-
-            assert mock_write.call_count == len(expected_groups)
-            if expect_multiple_groups:
-                assert len(results) == len(expected_groups), "Should return one result per group"
+        assert parquet.called is (filetype == "parquet")
+        assert jsonl.called is (filetype == "jsonl")
 
     def test_assign_distances(self):
         """Test _assign_distances method computes L2 and cosine distances correctly."""
@@ -570,7 +472,7 @@ class TestKMeansReadFitWriteStage:
             atol=1e-5,
         )
 
-    @pytest.mark.parametrize("bad_fraction", [0.0, 1.0, -0.001, 1.001])
+    @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:
         """Both KMeansStage and KMeansReadFitWriteStage reject out-of-range values at construction."""
         with pytest.raises(ValueError, match="fit_data_fraction must be in"):
@@ -591,6 +493,100 @@ class TestKMeansReadFitWriteStage:
                 n_clusters=2,
                 fit_data_fraction=bad_fraction,
             )
+
+    def test_fit_sample_selects_complete_files(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=0.5)
+        file_info = [ParquetFileInfo(f"file-{i}.parquet", i + 1, 10) for i in range(5)]
+
+        fit, remaining = stage._sample_fit_files(file_info)
+
+        assert len(fit) == 2
+        assert {info.path for info in fit}.isdisjoint(info.path for info in remaining)
+        assert {info.path for info in [*fit, *remaining]} == {info.path for info in file_info}
+
+    def test_full_fit_samples_every_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=1.0)
+        file_info = [ParquetFileInfo(f"file-{i}.parquet", 1, 0) for i in range(5)]
+
+        fit, remaining = stage._sample_fit_files(file_info)
+
+        assert {info.path for info in fit} == {info.path for info in file_info}
+        assert remaining == []
+
+    def test_auto_fit_budget_includes_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=None, embedding_dim=2)
+        file_info = [
+            ParquetFileInfo("metadata-heavy.parquet", 1, 1_000),
+            ParquetFileInfo("fits.parquet", 10, 0),
+        ]
+
+        with patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)):
+            fit, remaining = stage._sample_fit_files(file_info)
+
+        assert [info.path for info in fit] == ["fits.parquet"]
+        assert [info.path for info in remaining] == ["metadata-heavy.parquet"]
+
+    def test_local_parquet_groups_legal_files(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(embedding_dim=2)
+        frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
+        file_info = [ParquetFileInfo("file.parquet", 1, 0)]
+
+        with (
+            patch.object(stage, "_read_group", return_value=frame) as reader,
+            patch("nemo_curator.stages.deduplication.semantic.kmeans.iter_parquet_chunks") as chunked_reader,
+        ):
+            assert list(stage._iter_parquet_frames(file_info, ["id", "embeddings"])) == [frame]
+
+        reader.assert_called_once_with(["file.parquet"], ["id", "embeddings"])
+        chunked_reader.assert_not_called()
+
+    def test_local_parquet_chunks_oversized_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(embedding_dim=2)
+        frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
+        footer = object()
+        file_info = [ParquetFileInfo("file.parquet", 1_000_000_000, 0, footer)]
+
+        with patch(
+            "nemo_curator.stages.deduplication.semantic.kmeans.iter_parquet_chunks",
+            return_value=iter([frame]),
+        ) as reader:
+            assert list(stage._iter_parquet_frames(file_info, ["id", "embeddings"])) == [frame]
+
+        reader.assert_called_once_with(
+            ["file.parquet"],
+            columns=["id", "embeddings"],
+            footers=[footer],
+        )
+
+    def test_parquet_fit_and_predict_do_not_copy_frames(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=0.5)
+        fit_info = ParquetFileInfo("fit.parquet", 2, 0)
+        remaining_info = ParquetFileInfo("remaining.parquet", 2, 0)
+        frames = {
+            "fit.parquet": cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]}),
+            "remaining.parquet": cudf.DataFrame({"id": [2, 3], "embeddings": [[1.0, 0.0], [0.0, 1.0]]}),
+        }
+        stage.kmeans.labels_ = cp.array([0, 1], dtype=cp.int32)
+        with (
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.read_parquet_file_info",
+                return_value=[fit_info, remaining_info],
+            ),
+            patch.object(stage, "_sample_fit_files", return_value=([fit_info], [remaining_info])),
+            patch.object(
+                stage,
+                "_iter_parquet_frames",
+                side_effect=lambda info, _columns: iter([frames[info[0].path]]),
+            ),
+            patch.object(stage, "_write_output_frame") as write,
+            patch.object(stage, "_predict_labels", return_value=cp.array([0, 1], dtype=cp.int32)),
+            patch.object(stage, "_log_metrics"),
+            patch.object(cudf.DataFrame, "drop", side_effect=AssertionError("deep frame copy")),
+        ):
+            stage._process_parquet([FileGroupTask(dataset_name="d", data=list(frames))], list(frames))
+
+        assert write.call_count == 2
+        assert all("embeddings" not in call.args[1].columns for call in write.call_args_list)
 
     def test_process_batch_routes_by_fit_data_fraction(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """fit_data_fraction=None -> single-pass; fraction set -> two-pass."""
