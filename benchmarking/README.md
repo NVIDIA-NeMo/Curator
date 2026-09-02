@@ -47,7 +47,7 @@ older release against a newer benchmark suite.
 The package installs a console command:
 
 ```bash
-curator-benchmark run --config benchmarking/nightly-benchmark.yaml
+curator-benchmark run --config benchmarking/benchmarks.yaml
 ```
 
 For local source checkouts, install the benchmark package with the desired
@@ -97,7 +97,7 @@ installed, run directly:
 
 ```bash
 curator-benchmark run \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
 
@@ -107,7 +107,7 @@ To run in a standard Curator container from the host, add `--image`:
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --benchmark-setup auto \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
 
@@ -117,10 +117,28 @@ Add data setup when benchmarks need inputs that are prepared once and reused:
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --benchmark-setup auto \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --config ./my-paths.yaml
 ```
+
+For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the
+full-suite config:
+
+```bash
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --benchmark-setup auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/4xGB200-64CPU.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml \
+  --config ./my-paths.yaml
+```
+
+The `4xGB200-64CPU.yaml` override updates resource counts, timeout values,
+known 4-GPU video throughput thresholds, and workload-specific scaling
+settings. Other performance requirements are inherited from `benchmarks.yaml`
+until 4xGB200-64CPU-specific baselines are measured.
 
 Results are written under the configured `results_path`, grouped by session
 name.
@@ -183,7 +201,7 @@ Run with an explicit image:
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --benchmark-setup auto \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
 
@@ -247,7 +265,7 @@ curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<old-release-tag> \
   --benchmark-suite-dir /path/to/latest/Curator \
   --benchmark-setup auto \
-  --config /path/to/latest/Curator/benchmarking/nightly-benchmark.yaml \
+  --config /path/to/latest/Curator/benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
 
@@ -266,7 +284,7 @@ dependencies. Use setup mode `never` for those environments:
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
   --benchmark-setup never \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
 
@@ -276,7 +294,7 @@ Use `--container` to run inside an existing container:
 curator-benchmark run \
   --container curator-benchmark-dev \
   --benchmark-setup never \
-  --config /opt/curator-benchmark-suite/benchmarking/nightly-benchmark.yaml
+  --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
 ```
 
 When running against an existing container, the caller is responsible for
@@ -325,7 +343,7 @@ definitions, and environment-specific overrides.
 A useful pattern is to keep stable benchmark definitions in one config and layer
 local or machine-specific settings on top. For example,
 `my_paths_and_reports.yaml` can define results and dataset paths plus personal
-sink settings, while `nightly-benchmark.yaml` defines the benchmark entries and
+sink settings, while `benchmarks.yaml` defines the benchmark entries and
 requirements.
 
 This is especially useful during development. Use local path and report settings
@@ -341,7 +359,7 @@ curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --use-host-curator \
   --config ~/curator_benchmarking/my_paths_and_reports.yaml \
-  --config ./benchmarking/nightly-benchmark.yaml
+  --config ./benchmarking/benchmarks.yaml
 ```
 
 ### Configuration Structure
@@ -463,7 +481,12 @@ curator-benchmark run \
   --config machine_specific.yaml
 ```
 
-Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+Files are merged in order using a deep recursive merge, so later files can
+override or extend specific nested values without replacing entire top-level
+keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference
+config and is calibrated for the default 8-GPU H100 nightly environment.
+SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed
+after it to override only the values that differ for that environment.
 
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.
@@ -474,7 +497,7 @@ This makes it practical to write small override files that change only specific 
 
 **Example — overriding a single entry's timeout and requirements:**
 
-Base config (`nightly-benchmark.yaml`) defines many entries including:
+Base config (`benchmarks.yaml`) defines many entries including:
 ```yaml
 entries:
   - name: domain_classification_xenna
@@ -497,7 +520,7 @@ entries:
 Running with both files:
 ```bash
 curator-benchmark run \
-  --config nightly-benchmark.yaml \
+  --config benchmarks.yaml \
   --config my_overrides.yaml
 ```
 
@@ -653,7 +676,7 @@ overrides:
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --benchmark-setup auto \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --config ./my-paths.yaml
 ```
@@ -788,12 +811,12 @@ Expected checks include:
 Examples:
 
 ```bash
-curator-benchmark check --config ./benchmarking/nightly-benchmark.yaml
+curator-benchmark check --config ./benchmarking/benchmarks.yaml
 
 curator-benchmark check \
   --container curator-benchmark-dev \
   --benchmark-setup never \
-  --config /opt/curator-benchmark-suite/benchmarking/nightly-benchmark.yaml
+  --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
 ```
 
 The check command should be advisory by default: it should explain missing or

@@ -1,3 +1,11 @@
+# Canonical full-suite Curator benchmark configuration.
+#
+# This file is complete and runnable by itself. Its resource settings, timeouts,
+# and performance requirements are calibrated for the default 8-GPU H100 nightly
+# environment. To run the same benchmark suite on another SKU, pass this file
+# first and then pass a SKU override file, for example:
+#   --config benchmarking/benchmarks.yaml --config benchmarking/4xGB200-64CPU.yaml
+#
 # The "paths" section defines files and directories used by the benchmarks.
 # Each entry requires a "name" and a "host_path". Paths must exist on the host.
 # If running inside a Docker container started with tools/run.sh, each path is
@@ -109,23 +117,21 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
-  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
-  # extracted <split>/ audio). Pre-stage it once on the benchmark machine via:
-  #   python benchmarking/data_prep/prepare_fleurs_data.py \
-  #       --output-path {datasets_path}/fleurs
-  - name: "fleurs_hy_am"
+  # Shared 750-hour LibriSpeech training manifest for both executors.
+  - name: "librispeech_all_750h"
     formats:
-    - type: "files"
-      path: "{datasets_path}/fleurs"
-  # Three real AMI SDM meetings (~1.25 hours total) with multiple speakers and
-  # overlap. Pre-stage this dataset and the local PyAnnote snapshot once via:
-  #   python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  #       --output-path {datasets_path}/audio_tagging_ami_sdm \
-  #       --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+    - type: "jsonl"
+      path: "{datasets_path}/librispeech_all_train_750h_71cacbfb/manifest.jsonl"
+  # AMI SDM meetings up to 60 minutes, totaling at least 30 hours.
   - name: "audio_tagging_ami_sdm"
     formats:
-    - type: "files"
-      path: "{datasets_path}/audio_tagging_ami_sdm"
+    - type: "jsonl"
+      path: "{datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m/manifest.jsonl"
+  # AMI SDM metadata only; no audio is staged.
+  - name: "alm_ami_sdm"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/alm_ami_sdm_8cdaae2/manifest.jsonl"
   # 99 Common Crawl PDFs (~87MB) extracted from the CC-MAIN zip hierarchy.
   # Web-crawled rather than arXiv, so page counts and layouts vary widely,
   # which keeps the throughput numbers representative of real workloads.
@@ -139,6 +145,11 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/nemotron_parse/NVIDIA-Nemotron-Parse-v1.2"
+  # 1,800 fixed 15-minute bundles from pinned public CC-BY-4.0 LibriSpeech: 450 audio hours.
+  - name: "audio_sortformer_librispeech_450h"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -952,82 +963,121 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 900.0
 
+  # Both backends process the same public cohort with stage-owned defaults.
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
-      --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_sortformer_librispeech_450h,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+      --executor=xenna
       --rttm-out-dir={session_entry_dir}/scratch/rttm
     timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
-          - num_files_processed
-          - throughput_files_per_sec
-          - real_time_factor
-          - total_segments_detected
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
-      - metric: num_files_processed
-        min_value: 1
+      - metric: num_input_rows
+        exact_value: 1800
+      - metric: num_output_rows
+        exact_value: 1800
+      - metric: num_tasks_with_segments
+        exact_value: 1800
+      - metric: total_audio_duration_hours
+        exact_value: 450.0
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
-  - name: audio_fleurs_xenna
+  - name: audio_sortformer_raydata
     enabled: true
-    script: audio_fleurs_benchmark.py
+    script: audio_sortformer_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:fleurs_hy_am,files}
-      --no-auto-download
-      --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
-      --lang=hy_am
-      --split=train
-      --wer-threshold=5.5
-      --gpus=1
-
-    sink_data:
-      - name: slack
-        # time_taken_s intentionally omitted: FLEURS includes dataset download
-        # whose wall-clock varies with network conditions, making it unreliable
-        # as a Slack regression metric. Only throughput/count are reported.
-        additional_metrics:
-          - throughput_tasks_per_sec
-          - num_tasks_processed
-        ping_on_failure:
-          - U03C41SNADV  # Aaftab V
-
-  - name: audio_fleurs_raydata
-    enabled: true
-    script: audio_fleurs_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:fleurs_hy_am,files}
-      --no-auto-download
-      --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
-      --lang=hy_am
-      --split=train
-      --wer-threshold=5.5
-      --gpus=1
+      --raw-data-dir={dataset:audio_sortformer_librispeech_450h,files}
+      --model-path={model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
       --executor=ray_data
-
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
     sink_data:
       - name: slack
-        # time_taken_s intentionally omitted: FLEURS includes dataset download
-        # whose wall-clock varies with network conditions, making it unreliable
-        # as a Slack regression metric. Only throughput/count are reported.
+        additional_metrics:
+          - num_segments_processed
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_input_rows
+        exact_value: 1800
+      - metric: num_output_rows
+        exact_value: 1800
+      - metric: num_tasks_with_segments
+        exact_value: 1800
+      - metric: total_audio_duration_hours
+        exact_value: 450.0
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
+
+  # Shared 750-hour workload; the executor selects workers.
+  - name: audio_librispeech_xenna
+    enabled: true
+    script: audio_librispeech_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
+      --model-name=nvidia/parakeet-tdt-0.6b-v2
+      --wer-threshold=1000
+      --executor=xenna
+      --execution-mode=streaming
+    timeout_s: 13740
+    sink_data:
+      - name: slack
         additional_metrics:
           - throughput_tasks_per_sec
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_tasks_processed
+        min_value: 1
+      - metric: total_audio_duration_hours
+        min_value: 750.0
+        max_value: 750.02
+      - metric: wer_output_coverage_ratio
+        exact_value: 1.0
+
+  # Same real input as Xenna.
+  - name: audio_librispeech_raydata
+    enabled: true
+    script: audio_librispeech_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
+      --model-name=nvidia/parakeet-tdt-0.6b-v2
+      --wer-threshold=1000
+      --executor=ray_data
+    timeout_s: 13740
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_tasks_per_sec
+          - num_tasks_processed
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_tasks_processed
+        min_value: 1
+      - metric: total_audio_duration_hours
+        min_value: 750.0
+        max_value: 750.02
+      - metric: wer_output_coverage_ratio
+        exact_value: 1.0
 
   - name: audio_readspeech_xenna
     enabled: true
@@ -1296,7 +1346,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.7
 
-  - name: ndd_dynamo_dp8
+  - name: ndd_dynamo
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1332,7 +1382,7 @@ entries:
       - metric: throughput_rows_per_sec
         min_value: 150
 
-  - name: ndd_ray_serve_dp8
+  - name: ndd_ray_serve
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1424,110 +1474,80 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.65
 
-  # Consumes the pre-staged AMI data and local PyAnnote snapshot produced by
-  # benchmarking/data_prep/prepare_audio_tagging_data.py. Nightly passes
-  # --no-auto-download and does not require HF_TOKEN or network access.
+  # 56 AMI meetings (30.2032h).
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --input-manifest={dataset:audio_tagging_ami_sdm,jsonl}
       --no-auto-download
-      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
       --max-segment-length=40
-      --asr-batch-size=50
-      --gpu-stage-num-workers=8
+      --asr-batch-size=1
+      --squim-compute-batch-size=8
       --executor=xenna
     timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
-          - num_input_rows
-          - num_output_rows
-          - input_output_row_count_match
-          - num_tasks_processed
-          - num_tasks_with_segments
           - num_segments_processed
-          - segment_output_coverage_ratio
-          - stage_execution_coverage_ratio
-          - total_audio_duration_hours
-          - tagged_audio_duration_hours
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     requirements:
-      - metric: input_output_row_count_match
-        exact_value: true
       - metric: num_input_rows
-        exact_value: 3
-      - metric: num_output_rows
-        exact_value: 3
-      - metric: num_tasks_with_segments
-        exact_value: 3
+        exact_value: 56
+      - metric: segment_task_coverage_ratio
+        exact_value: 1.0
       - metric: num_segments_processed
         min_value: 100
       - metric: segment_output_coverage_ratio
         min_value: 0.7
-      - metric: stage_execution_coverage_ratio
-        exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 1.2
+        min_value: 30
+        max_value: 31
       - metric: tagged_audio_duration_hours
         min_value: 0.2
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
-  # The repeat entry exercises ~10 source-audio hours while reading EOS once.
-  - name: audio_tagging_tts_xenna_repeat
+  - name: audio_tagging_tts_raydata
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --input-manifest={dataset:audio_tagging_ami_sdm,jsonl}
       --no-auto-download
-      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
-      --repeat-factor=8
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
       --max-segment-length=40
-      --asr-batch-size=50
-      --gpu-stage-num-workers=8
-      --executor=xenna
+      --asr-batch-size=1
+      --squim-compute-batch-size=8
+      --executor=ray_data
     timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
-          - num_input_rows
-          - num_output_rows
-          - input_output_row_count_match
-          - num_tasks_processed
-          - num_tasks_with_segments
           - num_segments_processed
-          - segment_output_coverage_ratio
-          - stage_execution_coverage_ratio
-          - total_audio_duration_hours
-          - tagged_audio_duration_hours
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     requirements:
       - metric: num_input_rows
-        exact_value: 24
-      - metric: num_output_rows
-        exact_value: 24
-      - metric: num_tasks_with_segments
-        exact_value: 24
+        exact_value: 56
+      - metric: segment_task_coverage_ratio
+        exact_value: 1.0
       - metric: num_segments_processed
-        min_value: 800
+        min_value: 100
       - metric: segment_output_coverage_ratio
         min_value: 0.7
-      - metric: stage_execution_coverage_ratio
-        exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 9.6
+        min_value: 30
+        max_value: 31
       - metric: tagged_audio_duration_hours
-        min_value: 1.6
+        min_value: 0.2
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
@@ -1723,35 +1743,36 @@ entries:
         min_value: 4630000
         max_value: 5115000
 
-
+  # CPU-only; the 8-GPU runtime target does not apply.
   - name: alm_pipeline_xenna
     enabled: true
     script: alm_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
+      --input-manifest={dataset:alm_ami_sdm,jsonl}
       --executor=xenna
       --target-window-duration=120.0
       --tolerance=0.1
       --min-sample-rate=16000
-      --min-bandwidth=8000
+      --min-bandwidth=0
       --min-speakers=2
       --max-speakers=5
       --overlap-percentage=50
-      --repeat-factor=2000
+      --no-truncation
     timeout_s: 600
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_entries_per_sec
           - throughput_windows_per_sec
-          - time_taken_s
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     ray:
       num_cpus: 8
       num_gpus: 0
     requirements:
+      - metric: num_output_entries
+        exact_value: 168
       - metric: total_builder_windows
         min_value: 1
       - metric: total_filtered_windows
@@ -1762,29 +1783,30 @@ entries:
     script: alm_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
+      --input-manifest={dataset:alm_ami_sdm,jsonl}
       --executor=ray_data
       --target-window-duration=120.0
       --tolerance=0.1
       --min-sample-rate=16000
-      --min-bandwidth=8000
+      --min-bandwidth=0
       --min-speakers=2
       --max-speakers=5
       --overlap-percentage=50
-      --repeat-factor=2000
+      --no-truncation
     timeout_s: 600
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_entries_per_sec
           - throughput_windows_per_sec
-          - time_taken_s
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     ray:
       num_cpus: 8
       num_gpus: 0
     requirements:
+      - metric: num_output_entries
+        exact_value: 168
       - metric: total_builder_windows
         min_value: 1
       - metric: total_filtered_windows

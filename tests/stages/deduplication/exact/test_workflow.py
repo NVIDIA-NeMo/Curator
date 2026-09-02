@@ -221,6 +221,17 @@ class TestExactDuplicatesWorkflow:
         assert identification_stage.use_async_memory is False
         assert identification_stage.actor_kwargs["rmm_async"] is False
 
+    def test_normalize_text_is_forwarded_to_identification(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            normalize_text=True,
+        )
+
+        identification_stage = workflow._create_identification_pipeline(num_input_tasks=1).stages[0]
+
+        assert identification_stage.normalize_text is True
+
     def test_bad_inputs(self, tmpdir: Path) -> None:
         with pytest.raises(NotImplementedError, match="Removal is not implemented"):
             # Removal is not implemented yet

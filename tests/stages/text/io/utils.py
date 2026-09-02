@@ -12,16 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio transcript filtering stages."""
+import pandas as pd
 
-from .abbreviation_concat import AbbreviationConcatStage
-from .regex_substitution import RegexSubstitutionStage
-from .select_best_prediction import SelectBestPredictionStage
-from .whisper_hallucination import WhisperHallucinationStage
 
-__all__ = [
-    "AbbreviationConcatStage",
-    "RegexSubstitutionStage",
-    "SelectBestPredictionStage",
-    "WhisperHallucinationStage",
-]
+def normalize_string_dtypes(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Materialize pandas string extension columns for content comparisons."""
+    string_columns = {
+        column: object for column, dtype in dataframe.dtypes.items() if isinstance(dtype, pd.StringDtype)
+    }
+    return dataframe.astype(string_columns)

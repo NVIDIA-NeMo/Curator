@@ -42,6 +42,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     lsh_rmm_pool_size: int | Literal["auto"] | None = "auto",
     lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
     use_async_memory: bool = True,
+    normalize_text: bool = False,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the duplicate identification benchmark and collect comprehensive metrics."""
@@ -66,6 +67,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
         lsh_rmm_pool_size=lsh_rmm_pool_size,
         lsh_spill_memory_limit=lsh_spill_memory_limit,
         use_async_memory=use_async_memory,
+        normalize_text=normalize_text,
     )
 
     # Run the workflow, extract metrics from the WorkflowRunResult object
@@ -147,6 +149,12 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use CUDA asynchronous memory allocation for the LSH shuffle",
+    )
+    parser.add_argument(
+        "--normalize-text",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Normalize text before computing MinHash signatures",
     )
 
     args = parser.parse_args()
