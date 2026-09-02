@@ -367,14 +367,18 @@ backend = DynamoServerConfig(
 
 ### Choosing `runtime_env` vs. `subprocess_env`
 
-A Dynamo model's actor has its own **isolated Python virtualenv**, built fresh for that actor and not inherited from the environment that launched the driver process. Inside that actor, Dynamo then launches a **worker subprocess** that runs vLLM. `DynamoVLLMModelConfig.runtime_env` is per-model — only that model's actor sees it. `DynamoServerConfig.subprocess_env` is server-wide — it reaches every configured model's worker plus the frontend. Use the mechanism that matches both what you're changing and who needs it:
+A Dynamo model's actor has its own **isolated Python virtualenv**, built fresh for that actor and not inherited from the environment that launched the driver process. Inside that actor, Dynamo then launches a **worker subprocess** that runs vLLM. `DynamoVLLMModelConfig.runtime_env` is per-model — it doesn't reach other models' worker actors. `DynamoServerConfig.subprocess_env` is server-wide — it reaches every configured model's worker plus the frontend. Use the mechanism that matches both what you're changing and who needs it:
 
 | You need to | Use | Why |
 | --- | --- | --- |
 | Install or pin a Python package before the worker starts (a plugin, a newer library version) | `runtime_env` on the model config | Only `runtime_env` builds the isolated actor virtualenv; a package that isn't installed there can't be imported |
-| Set an env var only one model needs (an engine feature flag, a model-specific cache path) | `runtime_env["env_vars"]` on that model config | Scoped to that model's actor; setting it on `subprocess_env` instead would leak it onto every other model's worker |
+| Set an env var only one model's worker needs (an engine feature flag, a model-specific cache path) | `runtime_env["env_vars"]` on that model config | Doesn't reach other models' workers; setting it on `subprocess_env` instead would leak it onto every one of them |
 | Set a value every model's worker (and the frontend) should read at startup (a transport timeout, a shared cache directory) | `subprocess_env` on `DynamoServerConfig` | Applied server-wide, without touching any virtualenv |
 | Make a local module importable everywhere without installing it as a package (for example, a compatibility shim all workers need) | `PYTHONPATH` in `subprocess_env` | `PYTHONPATH` extends `sys.path` at process start; it doesn't require a package install, so it belongs with the other server-wide subprocess settings |
+
+<Note>
+A model's `runtime_env` is not isolated from the shared Dynamo **frontend** actor: NeMo Curator merges every configured model's `runtime_env` onto the frontend's virtualenv so it stays compatible with whatever any model needs. If two models set the same `env_vars` key to different values, the last model in your `models` list wins on the frontend.
+</Note>
 
 <Warning>
 Do not export an installer-relevant or import-relevant variable in the shell that starts your driver process. The driver's shell environment does not propagate into the isolated actor virtualenv, and if the variable does reach Ray itself rather than only the worker subprocess, it can cause Ray to import something unexpected and stall cluster or actor startup. Scope the variable with `runtime_env` or `subprocess_env` instead.

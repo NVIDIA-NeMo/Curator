@@ -21,8 +21,9 @@ configuration.
 Curator's own `pyproject.toml` pins `vllm[flashinfer,runai,otel]==0.22.0+cu129`
 directly (the `vllm` extra) and constrains `transformers>=4.56.0,<5.0`.
 `ai-dynamo>=1.3.1` is *also* a direct optional dependency (via the
-`inference_server` extra, pulled in by `sdg_cuda12`/`text_cuda12`), so the
-driver/base venv can already have Dynamo and vLLM installed.
+`inference_server` extra, pulled in by `sdg_cuda12`), so the driver/base venv
+can already have Dynamo and vLLM installed. `text_cuda12` pulls in the plain
+`vllm` extra but not `inference_server`, so it does not install `ai-dynamo`.
 
 That base install doesn't automatically reach a model's actor, though:
 **each Ray actor gets its own fresh, isolated venv that does not inherit the
@@ -59,16 +60,17 @@ mechanism differs:
 | Need | Mechanism | Where it lands | Config surface |
 |---|---|---|---|
 | Install/override a Python package before the actor starts (a different `transformers`, an extra loader package, a version pin or exclusion) | Ray `runtime_env` (`uv`/`pip` packages) | Isolated actor venv, created fresh outside the project directory | `DynamoVLLMModelConfig.runtime_env`, merged via `dynamo_runtime_env()` / `merge_model_runtime_envs()` in `vllm.py` |
-| Set an env var scoped to **one model** (an engine feature flag, a per-model cache path) | `runtime_env["env_vars"]` on that model | The actor's `os.environ`, inherited by its worker subprocess | Same `runtime_env` field as above; `merge_runtime_envs()` unions `env_vars` too, not just packages |
+| Set an env var scoped to **one model's worker** (an engine feature flag, a per-model cache path) | `runtime_env["env_vars"]` on that model | That model's worker actor's `os.environ`, inherited by its worker subprocess | Same `runtime_env` field as above; `merge_runtime_envs()` unions `env_vars` too, not just packages |
 | Set an env var that should reach **every model's** worker plus the frontend (a transport timeout, a compatibility shim path) | `subprocess_env` on the server | `base_env` folded into every worker/frontend subprocess's OS environment, not just one actor's | `DynamoServerConfig.subprocess_env`, applied in `backend.py` (`_deploy_and_healthcheck`) |
 
 A package install always needs `runtime_env` — there's no `subprocess_env`
 equivalent for that. For a plain env var, the choice is about **scope**, not
-whether a package is involved: `runtime_env["env_vars"]` is per-model
-(`DynamoVLLMModelConfig` is a per-model config, so its actor's env is
-isolated to that model); `subprocess_env` is server-wide, so setting a
+whether a package is involved: `runtime_env["env_vars"]` on one model does
+not reach *other models'* worker actors, so it's the right choice for a
+model-specific flag; `subprocess_env` is server-wide, so setting a
 model-specific flag there would leak it onto every other configured model's
-worker too. Setting an installer- or import-relevant thing as a shell-level
+worker too. This isolation is not absolute, though — see the shared frontend
+actor note below. Setting an installer- or import-relevant thing as a shell-level
 `export` in the *driver* shell is almost always wrong regardless of scope:
 the driver's shell environment does not propagate into the actor's isolated
 venv, and if it reaches Ray itself (not just the worker subprocess), it can
@@ -97,7 +99,12 @@ redeclare the base packages. Other models in the same server that don't set
 `runtime_env` are unaffected; each model's actor gets its own merged env.
 For the **shared frontend actor** (not a per-model worker), `vllm.py` unions
 every model's `runtime_env` with `merge_model_runtime_envs()` so the
-frontend venv is compatible with whatever any configured model needs.
+frontend venv is compatible with whatever any configured model needs. This
+means a model's `runtime_env["env_vars"]` is not perfectly isolated to that
+model's own worker — it also reaches the frontend actor. If two models set
+the same key with different values, `merge_model_runtime_envs()` reduces
+over the model list in order, so the *last* model in the list wins on the
+frontend for that key.
 
 ### `subprocess_env` examples already in this codebase
 
