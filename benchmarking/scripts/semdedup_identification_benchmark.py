@@ -107,7 +107,18 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
 
     num_documents_processed = int(task_metrics.get("kmeans_KMeansStage_custom.num_rows_sum", 0))
+    kmeans_fit_rows = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_rows_sum", 0))
+    kmeans_fit_files = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_files_sum", 0))
+    kmeans_input_files = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_input_files_sum", 0))
+    kmeans_actual_fit_percent = (
+        round(100 * kmeans_fit_rows / num_documents_processed, 2) if num_documents_processed else None
+    )
     logger.info(f"KMeansStage processed {num_documents_processed:,} rows")
+    if kmeans_actual_fit_percent is not None:
+        logger.info(
+            f"KMeans fit used {kmeans_fit_rows:,}/{num_documents_processed:,} rows "
+            f"({kmeans_actual_fit_percent:.2f}%) from {kmeans_fit_files}/{kmeans_input_files} files"
+        )
 
     # Extract metrics from workflow result
     workflow_total_time = workflow_run_result.metadata.get("total_time")
@@ -121,11 +132,22 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     kmeans_fit_predict_percent_time = None
     kmeans_percent_time = None
     pairwise_percent_time = None
+    kmeans_footer_scan_time = 0
+    kmeans_read_time = 0
+    kmeans_write_time = 0
+    kmeans_fit_time = 0
+    kmeans_predict_time = 0
     if workflow_total_time:
         # we get read / fit / write time from task_metrics
+        kmeans_footer_scan_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_footer_scan_time_mean", 0)
         kmeans_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_time_mean", 0)
         kmeans_write_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
-        kmeans_fit_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean", 0)
+        kmeans_fit_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_time_mean", 0)
+        kmeans_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_predict_time_mean", 0)
+        kmeans_fit_predict_time = task_metrics.get(
+            "kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean",
+            kmeans_fit_time + kmeans_predict_time,
+        )
         # this is different than kmeans_time because kmeans_time also includes setting up actors
         # while this is just sum of mean time taken across actors across the three steps
         _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time
@@ -149,6 +171,15 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "pairwise_time": pairwise_time,
             "num_documents_processed": num_documents_processed,
             "num_duplicates": num_duplicates,
+            "kmeans_footer_scan_time_s": kmeans_footer_scan_time,
+            "kmeans_read_time_s": kmeans_read_time,
+            "kmeans_fit_time_s": kmeans_fit_time,
+            "kmeans_predict_time_s": kmeans_predict_time,
+            "kmeans_write_time_s": kmeans_write_time,
+            "kmeans_fit_rows": kmeans_fit_rows,
+            "kmeans_fit_files": kmeans_fit_files,
+            "kmeans_input_files": kmeans_input_files,
+            "kmeans_actual_fit_percent": kmeans_actual_fit_percent,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,
             "kmeans_write_percent_time": kmeans_write_percent_time,

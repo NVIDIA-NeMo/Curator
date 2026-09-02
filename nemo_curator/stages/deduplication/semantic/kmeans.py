@@ -203,6 +203,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 "kmeans_fit_time": fit_time,
                 "kmeans_fit_rows": fit_rows,
                 "kmeans_fit_files": len(fit_info),
+                "kmeans_input_files": len(file_info),
                 "kmeans_fit_data_fraction": fit_rows / total_rows,
                 "kmeans_fit_file_fraction": len(fit_info) / len(file_info),
             }
@@ -212,10 +213,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
-        write_start = time.perf_counter()
+        predict_time = 0.0
+        write_time = 0.0
         predicted_rows = 0
         output_index = 0
         for metadata, start, stop in sampled_chunks:
+            write_start = time.perf_counter()
             self._write_output_frame(
                 f"{tasks[0].task_id}_{output_index}.parquet",
                 metadata,
@@ -223,6 +226,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 fit_labels[start:stop],
                 centroids,
             )
+            write_time += time.perf_counter() - write_start
             predicted_rows += len(metadata)
             output_index += 1
 
@@ -237,11 +241,15 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 read_time += time.perf_counter() - read_start
                 embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
                 embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
+                predict_start = time.perf_counter()
                 labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
+                predict_time += time.perf_counter() - predict_start
                 del df[self.embedding_field]
+                write_start = time.perf_counter()
                 self._write_output_frame(
                     f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
                 )
+                write_time += time.perf_counter() - write_start
                 predicted_rows += len(df)
                 output_index += 1
                 read_start = time.perf_counter()
@@ -255,7 +263,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self._log_metrics(
             {
                 "kmeans_read_time": read_time,
-                "kmeans_write_time": time.perf_counter() - write_start,
+                "kmeans_predict_time": predict_time,
+                "kmeans_write_time": write_time,
                 "num_rows": total_rows,
             }
         )

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 import pyarrow.parquet as pq
 from fsspec.parquet import open_parquet_files
+from fsspec.utils import get_protocol
 from loguru import logger
 
 CUDF_COLUMN_SIZE_LIMIT = 2_000_000_000
@@ -60,7 +61,7 @@ def read_parquet_file_info(  # noqa: C901
 
     retained = set(retained_columns or [])
     try:
-        if storage_options:
+        if storage_options or get_protocol(files[0]) != "file":
             result = []
             for start in range(0, len(files), _FOOTER_BATCH_SIZE):
                 batch = files[start : start + _FOOTER_BATCH_SIZE]

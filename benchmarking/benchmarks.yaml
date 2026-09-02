@@ -618,13 +618,20 @@ entries:
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --dataset-size-ratio=0.20
+      --fit-data-fraction=1.0
     timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
           - num_documents_processed
           - num_duplicates
-          # %percent time taken
+          - kmeans_footer_scan_time_s
+          - kmeans_read_time_s
+          - kmeans_fit_time_s
+          - kmeans_predict_time_s
+          - kmeans_write_time_s
+          - kmeans_actual_fit_percent
+          # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
           - kmeans_fit_predict_percent_time
@@ -662,14 +669,19 @@ entries:
         additional_metrics:
           - num_documents_processed
           - num_duplicates
-          # %percent time taken
+          - kmeans_footer_scan_time_s
+          - kmeans_read_time_s
+          - kmeans_fit_time_s
+          - kmeans_predict_time_s
+          - kmeans_write_time_s
+          - kmeans_actual_fit_percent
+          # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan
-          - U022P8CDX40  # Sarah Yurick
 
     requirements:
       - metric: num_documents_processed

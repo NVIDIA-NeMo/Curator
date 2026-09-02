@@ -15,7 +15,10 @@
 # limitations under the License.
 
 from pathlib import Path
+from unittest.mock import patch
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 
@@ -65,6 +68,39 @@ def test_parquet_file_info_preserves_order(tmp_path: Path) -> None:
     assert [info.path for info in file_info] == files
     assert [info.num_rows for info in file_info] == [7, 7, 7]
     assert [info.embedding_elements for info in file_info] == [14, 14, 14]
+
+
+@pytest.mark.gpu
+def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() -> None:
+    from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
+
+    sink = pa.BufferOutputStream()
+    pq.write_table(
+        pa.table(
+            {
+                "id": [1, 2],
+                "embeddings": pa.array([[1.0, 2.0], [3.0, 4.0]], type=pa.list_(pa.float32())),
+            }
+        ),
+        sink,
+    )
+    remote_path = "s3://public-bucket/input.parquet"
+
+    # The in-memory footer keeps this a unit test while the URI verifies remote-path dispatch.
+    with patch(
+        "nemo_curator.stages.deduplication.semantic.utils.open_parquet_files",
+        return_value=[pa.BufferReader(sink.getvalue())],
+    ) as open_files:
+        [info] = read_parquet_file_info(
+            [remote_path],
+            retained_columns=["id"],
+            embedding_column="embeddings",
+        )
+
+    open_files.assert_called_once_with([remote_path], storage_options=None, row_groups=[])
+    assert info.path == remote_path
+    assert info.num_rows == 2
+    assert info.embedding_elements == 4
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
