@@ -26,18 +26,15 @@ from .features import AudioFeatureExtractor
 class BandPredictor:
     """Class to predict band label (full_band/narrow_band) for audio waveforms."""
 
-    def __init__(self, model_path: str, feature_cache_size: int = 100):
+    def __init__(self, model_path: str):
         """
         Initialize the band predictor.
 
         Args:
             model_path: Path to the trained model file
-            feature_cache_size: Number of feature vectors to cache
         """
         self.model_path = model_path
-        self.feature_cache_size = feature_cache_size
         self.model = None
-        self.feature_cache: dict = {}
 
         self._load_model()
 
@@ -73,29 +70,11 @@ class BandPredictor:
             Array of extracted features
         """
         try:
-            if hasattr(waveform, "cpu"):
-                w_np = waveform.cpu().numpy()
-            else:
-                w_np = waveform.numpy() if hasattr(waveform, "numpy") else waveform
-
-            flat_data = w_np.ravel()
-            step = max(1, len(flat_data) // 1000)
-            cache_key = hash(flat_data[::step].tobytes())
-
-            if cache_key in self.feature_cache:
-                return self.feature_cache[cache_key]
-
             feature_dict = AudioFeatureExtractor.extract_band_features_from_waveform(waveform, sample_rate)
             feature_vector, _ = AudioFeatureExtractor.features_dict_to_vector(feature_dict)
 
             if np.isnan(feature_vector).any():
                 feature_vector = np.nan_to_num(feature_vector, nan=0.0)
-
-            if len(self.feature_cache) >= self.feature_cache_size:
-                oldest_key = next(iter(self.feature_cache))
-                del self.feature_cache[oldest_key]
-
-            self.feature_cache[cache_key] = feature_vector
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing audio for features: {e}")
