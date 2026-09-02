@@ -20,7 +20,7 @@ import tarfile
 import urllib.parse
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import fsspec
 import pandas as pd
@@ -28,6 +28,9 @@ import pandas as pd
 from nemo_curator.tasks.interleaved import RESERVED_COLUMNS
 
 from .base import BaseInterleavedWriter
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # ---------------------------------------------------------------------------
 # Module-level helpers (importable in tests)
@@ -197,7 +200,8 @@ class InterleavedWebdatasetWriterStage(BaseInterleavedWriter):
 
     _SUPPORTED_MODALITIES: ClassVar[frozenset[str]] = frozenset({"metadata", "text", "image"})
 
-    def _write_dataframe(self, df: pd.DataFrame, file_path: str, _write_kwargs: dict[str, Any]) -> None:
+    def _write_table(self, table: pa.Table, file_path: str, _write_kwargs: dict[str, Any]) -> None:
+        df = table.to_pandas(types_mapper=pd.ArrowDtype)
         unsupported = set(df["modality"].dropna().unique()) - self._SUPPORTED_MODALITIES
         if unsupported:
             msg = f"Unsupported modality {sorted(unsupported)!r}. Supported: {sorted(self._SUPPORTED_MODALITIES)}"
