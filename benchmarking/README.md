@@ -860,7 +860,7 @@ that make the requested benchmark run impossible.
 
 ## License
 
-Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 
 Licensed under the Apache License, Version 2.0. See the main repository LICENSE
 file for details.
