@@ -65,6 +65,7 @@ def test_parquet_file_info_preserves_order(tmp_path: Path) -> None:
         files.append(str(path))
     file_info = read_parquet_file_info(files, retained_columns=["id"], embedding_column="embeddings")
 
+    # Grouping consumes this list positionally, so footer batching must not reorder the caller's files.
     assert [info.path for info in file_info] == files
     assert [info.num_rows for info in file_info] == [7, 7, 7]
     assert [info.embedding_elements for info in file_info] == [14, 14, 14]
@@ -114,6 +115,9 @@ class TestBreakParquetPartitionIntoGroups:
         """Test the calculation logic of break_parquet_partition_into_groups without actual files."""
         test_files = [f"mock_file_{i}.parquet" for i in range(1000)]
         file_info = [ParquetFileInfo(path, 10_000, 0, embedding_elements=10_000_000) for path in test_files]
+
+        # The limit is strict: 199 files contain 1.99B embedding leaves and fit, while 200
+        # contain exactly 2B and must start the next group. Therefore 1000 files need 6 groups.
         groups = break_parquet_partition_into_groups(test_files, file_info=file_info)
 
         assert len(groups) == 6
@@ -132,6 +136,8 @@ class TestBreakParquetPartitionIntoGroups:
             ParquetFileInfo(files[2], 1, 0, embedding_elements=1_000_000),
         ]
 
+        # Exact footer counts let the 1.899B and 100M files share a 1.999B group. Adding the
+        # final 1M file would reach the unsupported 2B boundary, so it starts a new group.
         groups = break_parquet_partition_into_groups(files, file_info=file_info)
 
         assert groups == [files[:2], files[2:]]

@@ -25,7 +25,8 @@ from fsspec.utils import get_protocol
 from loguru import logger
 
 CUDF_COLUMN_SIZE_LIMIT = 2_000_000_000
-# Bound simultaneously open local files or remote objects while scanning metadata.
+# Footer scans open one file handle or object stream per input. Batching prevents large datasets
+# from exhausting file descriptors or creating an unbounded number of concurrent remote reads.
 _FOOTER_BATCH_SIZE = 64
 
 
@@ -129,7 +130,8 @@ def break_parquet_partition_into_groups(
     for path in files:
         elements = elements_by_file[path]
         if elements >= CUDF_COLUMN_SIZE_LIMIT:
-            # ponytail: Restore ChunkedParquetReader if real inputs contain a single oversized file.
+            # Whole files are the smallest read unit here. Supporting an individually oversized file
+            # requires switching this path to cuDF's ChunkedParquetReader instead of grouping files.
             msg = f"Parquet file {path!r} has {elements} embedding elements, exceeding cuDF's column-size limit"
             raise ValueError(msg)
         if subgroup and subgroup_elements + elements >= CUDF_COLUMN_SIZE_LIMIT:
