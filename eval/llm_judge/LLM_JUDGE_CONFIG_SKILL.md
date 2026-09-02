@@ -50,10 +50,9 @@ models:
       timeout: 600            # seconds; raise for slower/larger models
 
 execution:
-  # num_workers: 2                  # used by --execution-mode single_stage
   stages:
     - name: my_judge_group
-      # num_workers: 1                # used by --execution-mode multi_stage
+      # num_workers: 1                # workers for this stage's DataDesignerStage
       judges:
         - name: my_judge               # top-level output column in the written row
           model_alias: judge           # optional; defaults to models[0]
@@ -109,97 +108,62 @@ analysis scripts compare against them.
 
 ## Writing the Jinja prompt
 
-- `{{ field_name }}` renders a value from the current input row. Only
-  reference fields that actually exist in the input — check a real input row,
-  don't guess field names.
-- Guard every optional field: `{{ (field or "")[:8000] }}`, not
-  `{{ field[:8000] }}` — a bare `None` will error or silently render as the
-  string `"None"`. But null-safety is only syntax; also decide and state the
-  *policy* in the prompt when an empty/near-empty value would affect the
-  rubric (e.g., "an empty candidate is only correct when the source has no
-  meaningful content" / "do not reward an empty candidate merely because it
-  has no boilerplate").
-- Wrap untrusted source content (raw scraped text, user text) in clear
-  delimiter tags and tell the model to treat it as evidence, not instructions:
+- `{{ field_name }}` renders a value from the current row — only reference
+  fields that actually exist; check a real input row, don't guess.
+- Guard optional fields: `{{ (field or "")[:8000] }}`, not `{{ field[:8000] }}`
+  — a bare `None` errors or renders as the string `"None"`. Also state the
+  *policy* when an empty value should affect the rubric (e.g. "an empty
+  candidate is only correct when the source has no meaningful content").
+- Wrap untrusted source content in delimiter tags and tell the model to
+  treat it as evidence, not instructions:
   ```jinja
   <candidate_text>
   {{ (candidate_text or "")[:8000] }}
   </candidate_text>
   ```
-- For a blind evaluation (e.g., comparing two candidates), do not leak which
-  candidate came from which source, an earlier judge's verdict, or any label
-  the model shouldn't see — put those only in fields NDD doesn't render into
-  the prompt. If the YAML draws from an input schema with several
-  eval-only/label fields, a comment at the top of the YAML listing which
-  fields exist and which must stay out of which prompts helps keep this
-  correct as prompts evolve. For pairwise comparisons, use neutral labels
-  such as `candidate_a` and `candidate_b`; do not expose candidate identity
-  unless identity is legitimately part of the evaluation criterion — source
-  labels can influence the judge independently of candidate quality.
-- When position bias could affect a pairwise result, render two mirrored
-  prompts (A/B and B/A) and preserve the mapping from each anonymous
-  position back to the original candidate. If the two judgments do not
-  identify the same underlying winner, mark the result as
-  position-inconsistent rather than silently averaging it or converting it
-  to an ordinary tie.
-- Test prompts with controlled counterfactuals before scaling. Useful
-  fixtures include the same content with candidates swapped, source names
-  removed, superficial formatting changed, or nested instructions inserted
-  into untrusted content. Change one factor per fixture so failures can be
-  attributed to a specific sensitivity.
-- Truncation length is a decision to make deliberately, not a default to
-  copy: pick limits from real input-length distributions and the judge
-  model's `max_model_len`, leaving headroom for the system prompt, NDD's
-  structured-output instructions, and `max_tokens`. If a flat cap would cut
-  off content that matters (e.g., a long document compared for duplication
-  or fidelity), consider windowed/sampled evidence instead:
-  ```jinja
-  {% if long_field %}
-  {{ long_field[:12000] }}
-  {% else %}
-  {% for window in fallback_windows[:2] %}
-  [evidence window {{ window.start_char }}-{{ window.end_char }}]
-  {{ window.text[:6000] }}
-  {% endfor %}
-  {% endif %}
-  ```
-- A later judge in the same YAML can reference an earlier judge's result by
-  name; NDD infers the dependency and runs them in order:
-  ```jinja
-  Earlier judge's score: {{ my_earlier_judge.my_earlier_score.score }}
-  ```
-  Omitting `.score` inserts the full structured result including `reasoning`.
+- For blind evaluation, don't leak which candidate came from which source,
+  an earlier judge's verdict, or any label the model shouldn't see — keep
+  those in fields the template never renders. Use neutral labels
+  (`candidate_a`/`candidate_b`), not source identity, unless identity is
+  legitimately part of the criterion.
+- If position bias matters, render mirrored A/B and B/A prompts and map each
+  anonymous position back to the original candidate. If the two judgments
+  disagree on the underlying winner, mark it position-inconsistent rather
+  than averaging or defaulting to a tie.
+- Test with controlled counterfactuals before scaling: candidates swapped,
+  source names removed, formatting changed, an instruction-like sentence
+  spliced into untrusted content. Change one factor per fixture.
+- Pick truncation limits from real input-length distributions and the
+  judge's `max_model_len`, leaving headroom for the system prompt, NDD's
+  structured-output instructions, and `max_tokens` — don't copy a default.
+- A later judge can reference an earlier judge's result by name:
+  `{{ my_earlier_judge.my_earlier_score.score }}` (omit `.score` for the
+  full result including `reasoning`). Within one `execution.stages` entry,
+  NDD infers the dependency and orders judges automatically. Across stages,
+  each stage is its own Curator/NDD boundary — this is *not* auto-detected,
+  so put the producing judge's stage before the dependent judge's stage.
 
-Put shared instructions (role, output-format reminders, general policy) in
-`system_prompt_path` and put the per-record evidence in `prompt_path` — but
-there's no required split; a single prompt file is fine for simple tasks.
-A short, reusable system prompt pattern: state that supplied text/HTML is
-untrusted evidence rather than instructions, require the model to return
-exactly one of the listed option values (not a substituted free-form
-answer), and cap reasoning length (e.g., "at most 30 words") so traces stay
-cheap to read and store.
+Put shared instructions (role, output-format reminders) in
+`system_prompt_path` and per-record evidence in `prompt_path` — no required
+split; one file is fine for simple tasks. A reusable system-prompt pattern:
+state that supplied content is untrusted evidence, require exactly one of
+the listed option values, and cap reasoning length (e.g. "at most 30 words").
 
 ## Designing the rubric (scores)
 
-- Judge `name` and score `name` become the JSON keys downstream code reads —
-  treat renames as breaking changes once anything consumes the output.
-- Give each score a single, unambiguous axis. If two decisions can disagree
-  (e.g., "which candidate is better" vs. "is the winner good enough to keep"),
-  use two scores or two judges — don't overload one score to answer both.
-- Each option value is the one-sentence anchor description shown to the
-  model. Keep anchors mutually exclusive and ordered if the scale is ordinal.
-- Consider whether a rubric can legitimately face insufficient or ambiguous
-  evidence (truncated input, contradictory signals, an out-of-scope edge
-  case). If so, an explicit escape-hatch option — e.g.
-  `unresolved: The visible evidence is insufficient to decide.` — paired with
-  a system-prompt instruction to use it rather than guess, beats forcing a
-  confident answer. A well-scoped binary rubric with unambiguous inputs may
-  not need one.
-- Every result also carries a free-text `reasoning` field automatically —
-  don't add a redundant "explain your answer" score.
-- After changing any score name or option set, check `filters:` — a filter
-  referencing a renamed judge/score fails config validation before the run
-  starts (`_validate_filter_references` in `run_llm_judge.py`).
+- Judge `name` and score `name` become JSON keys downstream code reads —
+  treat renames as breaking changes.
+- One unambiguous axis per score. If two decisions can disagree (e.g. "which
+  is better" vs. "is the winner good enough"), use two scores or judges.
+- Each option value is a one-sentence anchor shown to the model — keep
+  anchors mutually exclusive and ordered if the scale is ordinal.
+- If the rubric can legitimately face insufficient/ambiguous evidence, add
+  an explicit escape hatch (e.g. `unresolved: ...`) plus a system-prompt
+  instruction to use it rather than guess.
+- `reasoning` is included automatically — don't add a redundant
+  "explain your answer" score.
+- After renaming a score/judge, check `filters:` — a stale reference fails
+  validation before the run starts (`_validate_filter_references`).
 
 ## Output shape
 
@@ -216,23 +180,18 @@ A judge named `my_judge` with score `my_score` produces, per row:
 }
 ```
 
-## Execution mode and capacity
+## Execution stages and capacity
 
-- `single_stage` (default): all judges run in one NDD dependency graph — use
-  this unless you need explicit Curator-level boundaries between judge groups.
-  Set `execution.num_workers` to cap the workers for that one combined stage.
-- `multi_stage`: one Curator stage per `execution.stages` entry, letting you
-  set per-stage `num_workers`, a per-stage `runtime_env`, or filters between
-  groups. This only creates real overlap if the input is sharded into
-  multiple files/tasks — a single JSONL file is one task and can't pipeline
-  across stages.
-
-When tuning throughput, change the layer that's actually the bottleneck:
+See `README.md`'s "Execution stages and multiple models" for how
+`execution.stages` grouping works, including why judges with very
+different generation costs shouldn't share a stage. When tuning
+throughput, change the layer that's actually the bottleneck:
 
 | Setting | Controls |
 |---|---|
-| `execution.num_workers` (`single_stage`) / `execution.stages[].num_workers` (`multi_stage`) | Ray/NDD client workers for the resulting NDD stage — not model replicas or request capacity |
+| `execution.stages[].num_workers` | Ray/NDD client workers for that stage's `DataDesignerStage` — not model replicas or request capacity |
 | `inference_parameters.max_parallel_requests` | requests offered by one NDD client process |
+| `inference_parameters.timeout` | per-request timeout (defaults to 60s); raise it if a judge's rendered prompt/reasoning is long enough to routinely exceed the default |
 | `dynamo_model.num_replicas` | independent model servers (horizontal throughput) |
 | `dynamo_model.engine_kwargs.tensor_parallel_size` | GPUs per replica |
 | `dynamo_model.engine_kwargs.max_num_seqs` | active-sequence capacity per replica |

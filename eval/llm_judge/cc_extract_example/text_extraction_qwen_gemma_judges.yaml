@@ -1,4 +1,4 @@
-# User-owned evaluation semantics: replace prompts, rubrics, models, and execution mode for another task.
+# User-owned evaluation semantics: replace prompts, rubrics, and models for another task.
 # Prompt candidates are anonymized to keep the judge blind to which extractor produced which text.
 # Fixed mapping (see text_extraction_prompt.jinja / text_extraction_disagreement_prompt.jinja):
 #   candidate_a = justext_text, candidate_b = trafilatura_text.
@@ -107,7 +107,7 @@ execution:
           model_alias: gemma_3
 
 # Optional: filters are placed automatically after the NDD stage that produces
-# their `judge` column (or after the one combined NDD stage in single_stage).
+# their `judge` column.
 # filters:
 #   - judge: qwen3_8_27b_text_extraction_judgment
 #     score: content_fidelity

@@ -86,7 +86,7 @@ If one judge needs an earlier judge's result, reference the nested score in a la
 The first judge gave content fidelity: {{ extraction_quality.content_fidelity.score }}
 ```
 
-NDD detects that dependency and runs the first judge before the dependent one. Omitting `.score` inserts the complete structured result, including its reasoning.
+Within the same execution stage, NDD detects that dependency automatically and runs the producing judge first. Across stages, each stage is its own Curator/NDD boundary, so ordering is not auto-detected — put the judge that produces the column in an earlier `execution.stages` entry than the judge that consumes it. Omitting `.score` inserts the complete structured result, including its reasoning.
 
 ## YAML configuration
 
@@ -129,7 +129,7 @@ execution:
                 5: Excellent.
 ```
 
-Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names, `scores:` count, and `--execution-mode` do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
+Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names and `scores:` count do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
 
 `alias` is the name judges use to select a served model. `model` is the model identifier or local weights path. `served_model_name` is the API name exposed by Dynamo/vLLM and is useful when it differs from the local path.
 
@@ -154,21 +154,17 @@ Two common causes of dropped rows: `max_tokens` set too small for the rubric (mo
 
 Smoke-test any new model against your rubric on a small sample before a full run.
 
-## Execution mode and multiple models
+## Execution stages and multiple models
 
-By default, `--execution-mode single_stage` puts every configured judge into one NDD stage. Use it when NDD should schedule the whole dependency graph, including prompt dependencies between judges.
-
-```text
-reader, optional language filter, one NDD stage, filters, writer
-```
-
-Use `--execution-mode multi_stage` when configured judge groups need explicit Curator boundaries, separate stage runtime environments, or filters between groups.
+Each entry under `execution.stages` becomes its own Curator/NDD stage, run in the order listed:
 
 ```text
-reader, optional language filter, NDD stage, filters, NDD stage, filters, writer
+reader, optional language filter, NDD stage, filters, NDD stage, filters, ..., writer
 ```
 
-In `multi_stage` mode, set `num_workers` on an execution stage to pass a fixed worker count directly to that `DataDesignerStage` through `.with_(num_workers=...)`. This can stop the first NDD stage from taking every available Ray worker before downstream stages can run against their own served models.
+Group judges into one stage when they should share an NDD dependency graph (e.g. one judge's prompt references another's result — see [Prompts](#prompts)) or don't need independent tuning. Split judges into separate stages when they need explicit Curator boundaries, separate stage runtime environments, filters between groups, or independent `num_workers`. In particular, avoid grouping judges with very different generation costs (e.g. a multi-field structured judgment alongside a single-field one) into the same stage — mixing heterogeneous request latencies in one stage's shared concurrency pool can push the slower judge's requests past `inference_parameters.timeout` under load, even though the aggregate concurrency ceiling is unchanged. Giving each judge its own stage (or grouping only similarly-sized judges together) avoids that failure mode.
+
+Set `num_workers` on an execution stage to pass a fixed worker count directly to that `DataDesignerStage` through `.with_(num_workers=...)`. This can stop an earlier NDD stage from taking every available Ray worker before downstream stages can run against their own served models.
 
 ```yaml
 execution:
@@ -181,21 +177,9 @@ execution:
       judges: [ ... ]
 ```
 
-In `single_stage`, use `execution.num_workers` to set the worker count for the one combined NDD stage:
+This setting does not limit requests by itself; each worker can still submit up to its model's `max_parallel_requests`.
 
-```yaml
-execution:
-  num_workers: 2
-  stages:
-    - name: qwen_judges
-      judges: [ ... ]
-```
-
-In `multi_stage`, `num_workers` remains a stage-level setting because one `DataDesignerStage` owns all judge columns in that group. For individual judge limits, put each judge in a separate execution stage and set `execution.stages[].num_workers`. Stage-level values are not applied in `single_stage`; `execution.num_workers` is not applied in `multi_stage`.
-
-Neither setting limits requests by itself; each worker can still submit up to its model's `max_parallel_requests`.
-
-This creates useful multi-stage overlap only when the reader produces multiple Curator tasks. Shard a large input into multiple files; a single JSONL file is one input task and cannot flow into the next NDD stage until its first stage finishes.
+Splitting judges into more stages creates useful pipeline overlap only when the reader produces multiple Curator tasks. Shard a large input into multiple files; a single JSONL file is one input task and cannot flow into the next NDD stage until its first stage finishes.
 
 Multiple models are supported by adding entries with distinct aliases under `models` and selecting `model_alias` per judge. Start every model through the same Dynamo server only when their worker environment requirements are compatible.
 
@@ -294,13 +278,3 @@ Before trusting the rubric, poke it with counterfactuals: take a row with a scor
 The bundled examples set `max_model_len` to the judge model's actual max context length. vLLM would infer that value on its own if the key were omitted; it's spelled out explicitly as a reminder to size prompt truncation (the Jinja character caps) to fit within it.
 
 For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText.
-
-## Common adaptations
-
-| Goal | Prompt fields | Useful scores |
-|---|---|---|
-| Compare extracted text to raw HTML or text | source plus `{{ candidate_text }}` | fidelity, boilerplate removal, usability |
-| Judge PDF parser output | OCR or rendered-page text plus `{{ parsed_text }}` | coverage, reading order, hallucination |
-| Route screening to adjudication | an earlier score plus source fields | pass/fail, final decision |
-
-For every adaptation, begin with a small manually reviewed sample and tune the prompt and rubric before processing a large corpus.

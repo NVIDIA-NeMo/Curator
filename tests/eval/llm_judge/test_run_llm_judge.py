@@ -113,13 +113,6 @@ def test_filter_validation_rejects_stage_local_filter_for_later_judge() -> None:
         subject._validate_filter_references(config, stages)
 
 
-def test_filter_validation_allows_later_judge_for_single_stage_execution() -> None:
-    config, stages = _config_with_filters()
-    stages[0]["filters"] = [{"judge": "safety_judge", "score": "safe", "operator": "eq", "value": "yes"}]
-
-    subject._validate_filter_references(config, stages, enforce_stage_order=False)
-
-
 @pytest.mark.parametrize(
     ("judge_result", "score_name", "operator", "expected", "keep"),
     [
@@ -217,10 +210,9 @@ def test_build_pipeline_orders_reader_judges_filters_and_writer(monkeypatch: pyt
     assert [stage.num_workers() for stage in ndd_stages] == [1, 2]
 
 
-def _main_args(execution_mode: str) -> SimpleNamespace:
+def _main_args() -> SimpleNamespace:
     return SimpleNamespace(
         judge_config="example.yaml",
-        execution_mode=execution_mode,
         input_path="input.jsonl",
         input_format="jsonl",
         output_path="output",
@@ -237,17 +229,8 @@ def _main_args(execution_mode: str) -> SimpleNamespace:
     )
 
 
-def test_main_builds_one_combined_stage_in_single_stage_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured = _run_main_with_fakes(monkeypatch, "single_stage")
-
-    assert captured["builder_judges"] == [["quality_judge", "safety_judge"]]
-    assert [(stage[0], stage[4], [item["judge"] for item in stage[5]]) for stage in captured["judge_stages"]] == [
-        ("all_judges", 3, ["quality_judge", "safety_judge"])
-    ]
-
-
-def test_main_builds_one_stage_per_group_in_multi_stage_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured = _run_main_with_fakes(monkeypatch, "multi_stage")
+def test_main_builds_one_stage_per_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _run_main_with_fakes(monkeypatch)
 
     assert captured["builder_judges"] == [["quality_judge"], ["safety_judge"]]
     stage_details = [
@@ -259,12 +242,12 @@ def test_main_builds_one_stage_per_group_in_multi_stage_mode(monkeypatch: pytest
     ]
 
 
-def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch, execution_mode: str) -> dict[str, Any]:
+def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     config, stages = _config_with_filters()
     config.update(
         {
             "models": [{"alias": "judge", "model": "model"}],
-            "execution": {"runtime_env": {"env": "combined"}, "num_workers": 3, "stages": stages},
+            "execution": {"stages": stages},
         }
     )
     stages[0]["runtime_env"] = {"env": "quality"}
@@ -301,7 +284,7 @@ def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch, execution_mode: str) -
         captured["judge_stages"] = kwargs["judge_stages"]
         return FakePipeline()
 
-    monkeypatch.setattr(subject, "_parse_args", lambda: _main_args(execution_mode))
+    monkeypatch.setattr(subject, "_parse_args", lambda: _main_args())
     monkeypatch.setattr(subject, "_load_yaml", lambda path: config)  # noqa: ARG005
     monkeypatch.setattr(subject, "RayClient", FakeClient)
     monkeypatch.setattr(subject, "_start_inference_server", lambda *args, **kwargs: FakeServer())  # noqa: ARG005

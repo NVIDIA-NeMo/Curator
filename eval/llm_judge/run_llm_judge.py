@@ -17,7 +17,8 @@ Run a config-driven text LLM judge through a NeMo Curator pipeline.
 
 The input records may have any text schema. The Jinja templates and score
 rubrics in ``--judge-config`` define which fields are evaluated, what the
-judge returns, and whether groups share or use separate NDD stages.
+judge returns, and how judges are grouped into ``execution.stages``, each of
+which runs as its own NDD stage.
 
 Example:
     python eval/llm_judge/run_llm_judge.py \
@@ -76,9 +77,7 @@ def _place_filters(config: dict[str, object], stages: list[dict[str, object]]) -
     return stage_filters
 
 
-def _validate_filter_references(
-    config: dict[str, object], stages: list[dict[str, object]], *, enforce_stage_order: bool = True
-) -> None:
+def _validate_filter_references(config: dict[str, object], stages: list[dict[str, object]]) -> None:
     """Ensure filters refer to a configured judge output column and rubric score."""
     judge_scores = {
         str(judge["name"]): {str(score["name"]) for score in judge["scores"]}
@@ -103,11 +102,7 @@ def _validate_filter_references(
         if score_name not in judge_scores[judge_name]:
             msg = f"Filter refers to unknown score {score_name!r} on judge {judge_name!r}."
             raise ValueError(msg)
-        if (
-            enforce_stage_order
-            and filter_stage_index is not None
-            and producer_stage_by_judge[judge_name] > filter_stage_index
-        ):
+        if filter_stage_index is not None and producer_stage_by_judge[judge_name] > filter_stage_index:
             msg = (
                 f"Stage {stages[filter_stage_index].get('name', '<unnamed>')!r} "
                 f"filter refers to judge {judge_name!r} "
@@ -337,12 +332,6 @@ def _parse_args() -> argparse.Namespace:
         help="YAML file defining the model, Jinja templates, and rubrics.",
     )
     parser.add_argument(
-        "--execution-mode",
-        choices=("single_stage", "multi_stage"),
-        default="single_stage",
-        help="Run all judges in one NDD stage or use one NDD stage per configured group (default: single_stage).",
-    )
-    parser.add_argument(
         "--input-path",
         required=True,
         help="JSONL/Parquet path or glob accepted by the Curator reader.",
@@ -402,13 +391,8 @@ def main() -> None:
     config_path = Path(args.judge_config).resolve()
     config = _load_yaml(config_path)
     models = config["models"]
-    execution = config["execution"]
-    configured_stages = execution["stages"]
-    _validate_filter_references(
-        config,
-        configured_stages,
-        enforce_stage_order=args.execution_mode == "multi_stage",
-    )
+    configured_stages = config["execution"]["stages"]
+    _validate_filter_references(config, configured_stages)
     stage_filters = _place_filters(config, configured_stages)
     language_filter_stage = _build_language_filter_stage(
         language=args.language,
@@ -427,62 +411,34 @@ def main() -> None:
     inference_server: InferenceServer | None = None
     try:
         inference_server = _start_inference_server(config, models, config_path=config_path)
-        if args.execution_mode == "single_stage":
-            judges = [judge for stage in configured_stages for judge in stage["judges"]]
+        judge_stages = []
+        for stage, filters_after_stage in zip(configured_stages, stage_filters, strict=True):
             config_builder, model_providers = build_config_builder(
                 args.judge_config,
                 endpoint=inference_server.endpoint,
                 models=models,
-                judges=judges,
+                judges=stage["judges"],
             )
-            pipeline = build_pipeline(
-                input_path=args.input_path,
-                input_format=args.input_format,
-                output_path=args.output_path,
-                output_format=args.output_format,
-                judge_stages=[
-                    (
-                        "all_judges",
-                        config_builder,
-                        model_providers,
-                        execution.get("runtime_env"),
-                        execution.get("num_workers"),
-                        [filter_config for filters in stage_filters for filter_config in filters],
-                    )
-                ],
-                language_filter_stage=language_filter_stage,
-                files_per_partition=args.files_per_partition,
-            )
-            pipeline.run(executor=RayDataExecutor(), checkpoint_path=args.checkpoint_path)
-        else:
-            judge_stages = []
-            for stage, filters_after_stage in zip(configured_stages, stage_filters, strict=True):
-                config_builder, model_providers = build_config_builder(
-                    args.judge_config,
-                    endpoint=inference_server.endpoint,
-                    models=models,
-                    judges=stage["judges"],
+            judge_stages.append(
+                (
+                    str(stage["name"]),
+                    config_builder,
+                    model_providers,
+                    stage.get("runtime_env"),
+                    stage.get("num_workers"),
+                    filters_after_stage,
                 )
-                judge_stages.append(
-                    (
-                        str(stage["name"]),
-                        config_builder,
-                        model_providers,
-                        stage.get("runtime_env"),
-                        stage.get("num_workers"),
-                        filters_after_stage,
-                    )
-                )
-            pipeline = build_pipeline(
-                input_path=args.input_path,
-                input_format=args.input_format,
-                output_path=args.output_path,
-                output_format=args.output_format,
-                judge_stages=judge_stages,
-                language_filter_stage=language_filter_stage,
-                files_per_partition=args.files_per_partition,
             )
-            pipeline.run(executor=RayDataExecutor(), checkpoint_path=args.checkpoint_path)
+        pipeline = build_pipeline(
+            input_path=args.input_path,
+            input_format=args.input_format,
+            output_path=args.output_path,
+            output_format=args.output_format,
+            judge_stages=judge_stages,
+            language_filter_stage=language_filter_stage,
+            files_per_partition=args.files_per_partition,
+        )
+        pipeline.run(executor=RayDataExecutor(), checkpoint_path=args.checkpoint_path)
     finally:
         if inference_server is not None:
             inference_server.stop()
