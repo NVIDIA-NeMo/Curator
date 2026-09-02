@@ -73,6 +73,7 @@ include = [
 
 [tool.setuptools.data-files]
 "share/nemo-curator-benchmarking" = [
-    "nightly-benchmark.yaml",
+    "benchmarks.yaml",
+    "4xGB200-64CPU.yaml",
     "nightly-data-setup.yaml",
 ]

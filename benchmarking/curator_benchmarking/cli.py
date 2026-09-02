@@ -24,9 +24,10 @@ from curator_benchmarking.targets.docker import (
     run_in_target,
     run_setup,
     run_shell,
+    run_start,
 )
 
-_COMMANDS = {"run", "list", "check", "setup", "shell"}
+_COMMANDS = {"run", "list", "check", "setup", "shell", "start"}
 _DOCKER_COMMAND_ARGS = {
     "run": lambda args: ["run", *args],
     "list": lambda args: ["run", "--list", *args],
@@ -43,11 +44,13 @@ commands:
   list    List benchmark entries from one or more configs.
   check   Check the benchmark environment.
   setup   Install benchmark package dependencies.
+  start   Start a named, detached benchmark container.
   shell   Open or run a shell in the current environment, image, or container.
 
-target options for run/list/check/setup/shell:
+target options for run/list/check/setup/start/shell:
   --image [IMAGE]              start a new Docker container from IMAGE
   --container NAME             exec into an existing Docker container
+  --name NAME                  name for a container created by start
   --benchmark-setup MODE       auto, always, or never
   --benchmark-suite-dir PATH   checkout that provides benchmark code/configs
   --benchmark-extra EXTRA      benchmark package extra to install
@@ -95,6 +98,8 @@ def _print_command_help(command: str, args: list[str]) -> int:
 def _run_in_docker_target(target: DockerTarget, command: str, args: list[str]) -> int:
     if command == "setup":
         return run_setup(target)
+    if command == "start":
+        return run_start(target, args)
     if command == "shell":
         return run_shell(target, args)
     command_args_factory = _DOCKER_COMMAND_ARGS.get(command)
@@ -137,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         if help_status >= 0:
             return help_status
 
-        if target.uses_docker:
+        if target.uses_docker or command == "start":
             return _run_in_docker_target(target, command, remainder)
         return _run_in_current_env(command, remainder)
     except ValueError as exc:

@@ -177,7 +177,7 @@ Use this only for `--image` or `--container` workflows. Running benchmarks in
 the current host environment requires the normal benchmark package dependencies
 and the Curator feature dependencies required by the selected benchmarks.
 
-The default flow is:
+The default `run --image` flow is:
 
 1. Start from the standard Curator image.
 2. Mount the selected benchmark suite from the host.
@@ -205,6 +205,23 @@ curator-benchmark run \
   --config ./my-paths.yaml
 ```
 
+Use `start` when you want a reusable container with the same mounts,
+environment variables, and optional benchmark-package setup as an image-based
+run:
+
+```bash
+curator-benchmark start \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --name curator-bench-dev \
+  --benchmark-setup auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+The command starts a named detached container, runs benchmark-package setup when
+requested, and prints follow-up commands for `curator-benchmark run
+--container`, `curator-benchmark shell --container`, and `docker rm --force`.
+
 If `--image` is provided without a value, the default image comes from
 `CURATOR_BENCHMARK_IMAGE`, then `CURATOR_BENCHMARKING_IMAGE`, then
 `nemo_curator:latest`.
@@ -222,15 +239,22 @@ passes all runner arguments through.
 Use shell mode to inspect the exact container environment:
 
 ```bash
-curator-benchmark shell --image nvcr.io/nvidia/nemo-curator:<tag>
+curator-benchmark shell --container curator-bench-dev
 ```
 
 Run a single command in the container:
 
 ```bash
 curator-benchmark shell \
-  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --container curator-bench-dev \
   "curator-benchmark check"
+```
+
+For quick one-off inspection, `shell --image` can still start a temporary
+container:
+
+```bash
+curator-benchmark shell --image nvcr.io/nvidia/nemo-curator:<tag>
 ```
 
 ### GPU Selection
@@ -288,7 +312,18 @@ curator-benchmark run \
   --config ./my-paths.yaml
 ```
 
-Use `--container` to run inside an existing container:
+Use `start` to create a reusable prepared container:
+
+```bash
+curator-benchmark start \
+  --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
+  --name curator-benchmark-dev \
+  --benchmark-setup never \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+Then run inside that container:
 
 ```bash
 curator-benchmark run \
@@ -297,11 +332,11 @@ curator-benchmark run \
   --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
 ```
 
-When running against an existing container, the caller is responsible for
-starting the container with appropriate benchmark-suite, dataset, results,
-GPU, shared-memory, and network configuration. The benchmark runner should
-validate the environment and fail clearly if required paths, tools, or Python
-packages are missing.
+For containers started outside of `curator-benchmark start`, the caller is
+responsible for appropriate benchmark-suite, dataset, results, GPU,
+shared-memory, and network configuration. The benchmark runner should validate
+the environment and fail clearly if required paths, tools, or Python packages
+are missing.
 
 External launchers that create containers themselves should set
 `CURATOR_BENCHMARK_PATH_MODE=container` before invoking `curator-benchmark` or

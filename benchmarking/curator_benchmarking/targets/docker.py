@@ -53,6 +53,7 @@ DEFAULT_SUITE_CONTAINER_DIR = Path("/opt/curator-benchmark-suite")
 class DockerTarget:
     image: str | None = None
     container: str | None = None
+    name: str | None = None
     benchmark_setup: str = "auto"
     benchmark_suite_dir: Path | None = None
     benchmark_suite_container_dir: Path = DEFAULT_SUITE_CONTAINER_DIR
@@ -72,6 +73,9 @@ class DockerTarget:
     def validate(self) -> None:
         if self.image is not None and self.container is not None:
             msg = "--image and --container are mutually exclusive"
+            raise ValueError(msg)
+        if self.name is not None and self.container is not None:
+            msg = "--name cannot be combined with --container"
             raise ValueError(msg)
         if self.benchmark_setup not in {"auto", "always", "never"}:
             msg = "--benchmark-setup must be one of: auto, always, never"
@@ -101,6 +105,11 @@ def add_target_arguments(parser) -> None:  # noqa: ANN001
         "--container",
         default=None,
         help="Run inside an existing Docker container with docker exec.",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Name for a detached container started by `curator-benchmark start`.",
     )
     parser.add_argument(
         "--benchmark-setup",
@@ -168,6 +177,7 @@ def docker_target_from_args(args) -> DockerTarget:  # noqa: ANN001
     return DockerTarget(
         image=args.image,
         container=args.container,
+        name=args.name,
         benchmark_setup=args.benchmark_setup,
         benchmark_suite_dir=args.benchmark_suite_dir,
         benchmark_suite_container_dir=args.benchmark_suite_container_dir,
@@ -197,6 +207,66 @@ def run_in_target(target: DockerTarget, command_args: list[str]) -> int:
         ]
     )
     return _run_shell_command(target, inner_command, command_args=command_args)
+
+
+def run_start(target: DockerTarget, command_args: list[str]) -> int:
+    """Start a named, detached benchmark container for later docker exec runs."""
+    target.validate()
+    if target.container is not None:
+        msg = "`curator-benchmark start` starts a new container; use --image, not --container"
+        raise ValueError(msg)
+    if target.name is None:
+        msg = "`curator-benchmark start` requires --name"
+        raise ValueError(msg)
+
+    if target.image is None:
+        target.image = DEFAULT_IMAGE
+
+    cmd = _docker_run_base_args(target, command_args, remove=False, detach=True)
+    cmd.extend(["--entrypoint", "bash", target.image, "-lc", "sleep infinity"])
+    status = subprocess.call(cmd)  # noqa: S603
+    if status != 0:
+        return status
+
+    setup_target = DockerTarget(
+        container=target.name,
+        benchmark_setup=target.benchmark_setup,
+        benchmark_suite_container_dir=target.benchmark_suite_container_dir,
+        benchmark_extras=target.benchmark_extras,
+        tty=False,
+    )
+    setup_command = _setup_command(setup_target)
+    if setup_command:
+        status = _run_shell_command(setup_target, setup_command, command_args=[])
+        if status != 0:
+            return status
+
+    run_args = _containerize_command_args(target, ["run", *command_args])
+    followup_args = [
+        "curator-benchmark",
+        run_args[0],
+        "--container",
+        target.name,
+        "--benchmark-setup",
+        "never",
+        *run_args[1:],
+    ]
+    shell_args = [
+        "curator-benchmark",
+        "shell",
+        "--container",
+        target.name,
+        "--benchmark-setup",
+        "never",
+    ]
+    print("Started benchmark container.")
+    print("Run benchmarks with:")
+    print("  " + " ".join(shlex.quote(arg) for arg in followup_args))
+    print("Open a shell with:")
+    print("  " + " ".join(shlex.quote(arg) for arg in shell_args))
+    print("Stop and remove it with:")
+    print("  " + " ".join(shlex.quote(arg) for arg in ["docker", "rm", "--force", target.name]))
+    return 0
 
 
 def run_shell(target: DockerTarget, shell_args: list[str]) -> int:
@@ -258,10 +328,24 @@ def _open_interactive_shell(target: DockerTarget) -> int:
     return subprocess.call(cmd)  # noqa: S603
 
 
-def _docker_run_base_args(target: DockerTarget, command_args: list[str]) -> list[str]:
+def _docker_run_base_args(
+    target: DockerTarget,
+    command_args: list[str],
+    *,
+    remove: bool = True,
+    detach: bool = False,
+) -> list[str]:
     suite_dir = resolve_benchmark_suite_dir(target.benchmark_suite_dir)
-    cmd = ["docker", "run", "--rm", "--net", target.network]
-    cmd.extend(_tty_args(target))
+    cmd = ["docker", "run"]
+    if remove:
+        cmd.append("--rm")
+    if detach:
+        cmd.append("--detach")
+    if target.name:
+        cmd.extend(["--name", target.name])
+    cmd.extend(["--net", target.network])
+    if not detach:
+        cmd.extend(_tty_args(target))
     if target.gpus != "none":
         cmd.extend(["--gpus", target.gpus])
     cmd.extend(["--memory", target.memory or str(default_container_memory_bytes())])
@@ -315,6 +399,26 @@ def _docker_env_args(target: DockerTarget, image_digest: str) -> list[str]:  # n
     return args
 
 
+_EXTRA_IMPORT_PROBES = {
+    "audio": ["pyloudnorm", "wget"],
+    "nemotron_parse": ["albumentations", "cv2"],
+    "sinks": ["mlflow", "oauth2client", "pydrive2", "slack_sdk"],
+}
+
+
+def _requested_import_probes(extras: list[str]) -> list[str] | None:
+    probes = {"curator_benchmarking", "runner"}
+    requested = set(extras)
+    if "all" in requested:
+        requested.update(_EXTRA_IMPORT_PROBES)
+    unknown = requested - set(_EXTRA_IMPORT_PROBES) - {"all"}
+    if unknown:
+        return None
+    for extra in requested:
+        probes.update(_EXTRA_IMPORT_PROBES.get(extra, []))
+    return sorted(probes)
+
+
 def _setup_command(target: DockerTarget, force: bool = False) -> str:
     if target.benchmark_setup == "never" and not force:
         return ""
@@ -331,8 +435,17 @@ def _setup_command(target: DockerTarget, force: bool = False) -> str:
     )
     if target.benchmark_setup == "always" or force:
         return install_command
+    probes = _requested_import_probes(target.benchmark_extras)
+    if probes is None:
+        return install_command
+    probe_script = (
+        "import importlib.util, sys; "
+        f"modules = {probes!r}; "
+        "missing = [module for module in modules if importlib.util.find_spec(module) is None]; "
+        "sys.exit(1 if missing else 0)"
+    )
     return (
-        "python -c 'import curator_benchmarking, runner' >/dev/null 2>&1 "
+        f"python -c {shlex.quote(probe_script)} >/dev/null 2>&1 "
         f"|| (echo Installing missing benchmark package && {install_command})"
     )
 
@@ -350,14 +463,23 @@ def _shell_args_to_command(shell_args: list[str]) -> str:
 def _containerize_command_args(target: DockerTarget, args: list[str]) -> list[str]:
     container_args = []
     config_paths = _host_config_paths_from_args(args)
-    config_path_map = dict(_config_file_mount_pairs(config_paths))
+    config_path_map = {} if target.container else dict(_config_file_mount_pairs(config_paths))
 
-    suite_dir = resolve_benchmark_suite_dir(target.benchmark_suite_dir)
+    suite_dir = _suite_dir_for_config_rewrite(target)
     for index, arg in enumerate(args):
         if arg == "--config" and index + 1 < len(args):
             original = Path(args[index + 1]).expanduser().resolve()
             container_args.append(arg)
-            container_args.append(str(_container_path_for_host_path(original, config_path_map, suite_dir, target)))
+            container_args.append(
+                str(
+                    _container_path_for_host_path(
+                        original,
+                        config_path_map,
+                        suite_dir,
+                        target,
+                    )
+                )
+            )
         elif arg.startswith("--config="):
             original = Path(arg.split("=", 1)[1]).expanduser().resolve()
             container_args.append(
@@ -378,13 +500,24 @@ def _containerize_command_args(target: DockerTarget, args: list[str]) -> list[st
     return container_args
 
 
+def _suite_dir_for_config_rewrite(target: DockerTarget) -> Path | None:
+    if target.container and target.benchmark_suite_dir is None:
+        try:
+            return resolve_benchmark_suite_dir()
+        except ValueError:
+            return None
+    return resolve_benchmark_suite_dir(target.benchmark_suite_dir)
+
+
 def _container_path_for_host_path(
     host_path: Path,
     config_path_map: dict[Path, Path],
-    suite_dir: Path,
+    suite_dir: Path | None,
     target: DockerTarget,
 ) -> Path:
     if target.container:
+        if suite_dir is None:
+            return host_path
         try:
             return target.benchmark_suite_container_dir / host_path.relative_to(suite_dir)
         except ValueError:
