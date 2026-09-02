@@ -631,6 +631,8 @@ entries:
           - kmeans_predict_time_s
           - kmeans_write_time_s
           - kmeans_actual_fit_percent
+          - kmeans_fit_data_fraction
+          - kmeans_fit_file_fraction
           # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
@@ -675,6 +677,8 @@ entries:
           - kmeans_predict_time_s
           - kmeans_write_time_s
           - kmeans_actual_fit_percent
+          - kmeans_fit_data_fraction
+          - kmeans_fit_file_fraction
           # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time

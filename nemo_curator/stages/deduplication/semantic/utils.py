@@ -116,19 +116,17 @@ def read_parquet_file_info(  # noqa: C901
 
 
 def break_parquet_partition_into_groups(
-    files: list[str],
-    *,
     file_info: list[ParquetFileInfo],
 ) -> list[list[str]]:
     """Group complete files below cuDF's nested-column element limit."""
-    if not files:
+    if not file_info:
         return []
-    elements_by_file = {info.path: info.embedding_elements for info in file_info}
     subgroups: list[list[str]] = []
     subgroup: list[str] = []
     subgroup_elements = 0
-    for path in files:
-        elements = elements_by_file[path]
+    for info in file_info:
+        path = info.path
+        elements = info.embedding_elements
         if elements >= CUDF_COLUMN_SIZE_LIMIT:
             # Whole files are the smallest read unit here. Supporting an individually oversized file
             # requires switching this path to cuDF's ChunkedParquetReader instead of grouping files.
@@ -143,5 +141,5 @@ def break_parquet_partition_into_groups(
     if subgroup:
         subgroups.append(subgroup)
     if len(subgroups) > 1:
-        logger.debug(f"Broke {len(files)} files into {len(subgroups)} exact element-bounded subgroups")
+        logger.debug(f"Broke {len(file_info)} files into {len(subgroups)} exact element-bounded subgroups")
     return subgroups

@@ -118,7 +118,7 @@ class TestBreakParquetPartitionIntoGroups:
 
         # The limit is strict: 199 files contain 1.99B embedding leaves and fit, while 200
         # contain exactly 2B and must start the next group. Therefore 1000 files need 6 groups.
-        groups = break_parquet_partition_into_groups(test_files, file_info=file_info)
+        groups = break_parquet_partition_into_groups(file_info)
 
         assert len(groups) == 6
         assert all(len(group) <= 199 for group in groups)
@@ -138,6 +138,6 @@ class TestBreakParquetPartitionIntoGroups:
 
         # Exact footer counts let the 1.899B and 100M files share a 1.999B group. Adding the
         # final 1M file would reach the unsupported 2B boundary, so it starts a new group.
-        groups = break_parquet_partition_into_groups(files, file_info=file_info)
+        groups = break_parquet_partition_into_groups(file_info)
 
         assert groups == [files[:2], files[2:]]

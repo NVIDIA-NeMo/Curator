@@ -152,7 +152,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 storage_options=self.input_storage_options,
                 **self.read_kwargs,
             )
-            for group in break_parquet_partition_into_groups(task.data, file_info=file_info)
+            for group in break_parquet_partition_into_groups(file_info)
         ]
         read_time = time.perf_counter() - read_start
         if not frames or not any(len(frame) for frame in frames):
@@ -168,10 +168,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             drop=True
         )
         num_rows = len(metadata_cluster_df)
-        missing_cols = [column for column in metadata_cols if column not in metadata_cluster_df]
-        if missing_cols:
-            raise KeyError(missing_cols[0])
-
         if num_rows == 1:
             result_df = cudf.DataFrame(
                 {

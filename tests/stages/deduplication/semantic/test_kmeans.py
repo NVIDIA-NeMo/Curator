@@ -561,43 +561,25 @@ class TestKMeansReadFitWriteStage:
         assert [info.path for info in fit] == ["fits.parquet"]
         assert [info.path for info in remaining] == ["metadata-heavy.parquet"]
 
-    def test_local_parquet_groups_legal_files(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        """The frame iterator passes each footer-bounded group to the normal cuDF reader."""
-        stage = make_stage()
-        frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
-        file_info = [ParquetFileInfo("file.parquet", 1, 0, embedding_elements=2)]
-
-        with patch.object(stage, "_read_group", return_value=frame) as reader:
-            assert list(stage._iter_parquet_frames(file_info, ["id", "embeddings"])) == [frame]
-
-        reader.assert_called_once_with(["file.parquet"], ["id", "embeddings"])
-
     @pytest.mark.parametrize(
-        ("groups", "fraction", "expected_count"),
+        ("files", "fraction", "expected_count"),
         [
-            ([[f"f{i}.parquet" for i in range(20)]], 0.5, 10),
-            ([[f"f{i}.parquet" for i in range(20)]], 0.25, 5),
-            ([[f"f{i}.parquet" for i in range(10)]], 0.35, 4),  # banker's rounding
-            # multi-group: sampling flattens at the actor level, not within groups
-            (
-                [[f"a{i}.parquet" for i in range(5)], [f"b{i}.parquet" for i in range(5)]],
-                0.5,
-                5,
-            ),
+            ([f"f{i}.jsonl" for i in range(20)], 0.5, 10),
+            ([f"f{i}.jsonl" for i in range(20)], 0.25, 5),
+            ([f"f{i}.jsonl" for i in range(10)], 0.35, 4),  # banker's rounding
         ],
     )
     def test_fit_pass_samples_files_at_actor_level(
-        self, make_stage: "KMeansReadFitWriteStage", groups: list[list[str]], fraction: float, expected_count: int
+        self, make_stage: "KMeansReadFitWriteStage", files: list[str], fraction: float, expected_count: int
     ) -> None:
-        """_fit_pass samples round(fraction * total_files) across all groups, no duplicates."""
+        """_fit_pass samples round(fraction * actor files), without duplicates."""
         stage = make_stage(fit_data_fraction=fraction, filetype="jsonl")
         df = cudf.DataFrame({"embeddings": [[1.0, 0.0]] * 4})
-        all_input = {f for g in groups for f in g}
         with patch.object(stage, "_read_group", return_value=df) as read_group:
-            stage._fit_pass(groups)
+            stage._fit_pass(files)
         sampled_files = read_group.call_args.args[0]
         assert len(sampled_files) == expected_count
-        assert set(sampled_files).issubset(all_input)
+        assert set(sampled_files).issubset(files)
         assert len(set(sampled_files)) == len(sampled_files)
 
     def test_fit_pass_floors_at_one_file_and_warns(self, make_stage: "KMeansReadFitWriteStage") -> None:
@@ -609,9 +591,9 @@ class TestKMeansReadFitWriteStage:
             patch.object(stage, "_read_group", return_value=df) as read_group,
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
-            stage._fit_pass([["only.parquet"]])
+            stage._fit_pass(["only.jsonl"])
         sampled_files = read_group.call_args.args[0]
-        assert sampled_files == ["only.parquet"]
+        assert sampled_files == ["only.jsonl"]
         mock_logger.warning.assert_called_once()
         assert "fit_data_fraction" in mock_logger.warning.call_args.args[0]
 
@@ -642,7 +624,7 @@ class TestKMeansReadFitWriteStage:
         stage._actor_index = actor_index
         df = cudf.DataFrame({"embeddings": [[1.0, 0.0]] * 4})
         with patch.object(stage, "_read_group", return_value=df):
-            stage._fit_pass([[f"f{i}.parquet" for i in range(4)]])
+            stage._fit_pass([f"f{i}.jsonl" for i in range(4)])
 
         if expect_saved:
             npy = cache_path / "kmeans_centroids.npy"
