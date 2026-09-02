@@ -140,14 +140,20 @@ class GlinerPiiRedactor(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
     def redact_entities(self, text: str, entities: list[dict[str, Any]]) -> str:
-        # Ensure the entities are sorted by start index
-        entities = sorted(entities, key=lambda x: x["start"])
-        for entity in entities:
-            # Replace "text" with "{label}"
-            # Only replace the first instance of the entity text
-            # This is safe because the "entities" list is sorted in the order that they appear in the text
-            text = text.replace(entity["text"], f"{{{entity['label']}}}", 1)
-        return text
+        # Redact by character offsets rather than str.replace: replace() would
+        # redact the first occurrence of the entity text, which may be a
+        # different instance than the span GLiNER actually detected.
+        # Process from the end of the text backwards so that each replacement
+        # (which changes the string length) does not invalidate the offsets
+        # of entities appearing earlier in the text.
+        chars = list(text)
+        for entity in sorted(entities, key=lambda x: x["start"], reverse=True):
+            start, end = entity["start"], entity["end"]
+            # Skip malformed or previously-overlapped spans
+            if not (0 <= start < end <= len(text)):
+                continue
+            chars[start:end] = list(f"{{{entity['label']}}}")
+        return "".join(chars)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch | None:
         """

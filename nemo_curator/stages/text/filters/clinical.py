@@ -72,14 +72,17 @@ class ClinicalSectionFilter(DocumentFilter):
     or not clinical reports at all, and are usually undesirable for
     training on clinical text.
 
-    Duplicate mentions of the same section count once, so repetitive
-    boilerplate does not inflate the score.
+    Only *section headers* are counted: a keyword followed by a colon
+    (e.g., "Diagnosis: angina"). Inline mentions such as
+    "the diagnosis was..." in running prose are ignored because they
+    lack the trailing colon. Duplicate mentions of the same section
+    count once, so repetitive boilerplate does not inflate the score.
 
     Attributes:
         language: ISO-like language code selecting the section keyword
             set. One of "en", "it", "es", "fr", "de".
-        min_sections: Minimum number of distinct sections required for
-            a document to be kept.
+        min_sections: Minimum number of distinct section headers required
+            for a document to be kept.
 
     Example:
         Use with ScoreFilter to log scores as metadata for threshold
@@ -95,7 +98,6 @@ class ClinicalSectionFilter(DocumentFilter):
     language: str = "en"
     min_sections: int = 2
     _pattern: re.Pattern[str] = field(init=False, repr=False)
-    _order: dict[str, int] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate configuration and compile the section-matching pattern."""
@@ -111,8 +113,15 @@ class ClinicalSectionFilter(DocumentFilter):
 
         sections = _CLINICAL_SECTIONS[self.language]
         escaped = "|".join(re.escape(s) for s in sections)
-        self._pattern = re.compile(rf"\b({escaped})\b", re.IGNORECASE)
-        self._order = {s: i for i, s in enumerate(sections)}
+        # Match section headers only: keyword followed by optional whitespace
+        # and a colon. This avoids counting inline keyword mentions in running
+        # prose (e.g., "the diagnosis was...") as structural headers, while
+        # still catching headers whether they appear at line start or mid-line
+        # (e.g., "Diagnosis: angina. Plan: follow-up.").
+        self._pattern = re.compile(
+            rf"\b({escaped})[ \t]*:",
+            re.IGNORECASE,
+        )
 
     def score_document(self, text: str) -> int:
         """Count distinct clinical section headers present in the text.
@@ -123,7 +132,7 @@ class ClinicalSectionFilter(DocumentFilter):
         Returns:
             The number of distinct section keywords matched (0 if none).
         """
-        matches = {m.group(0).lower() for m in self._pattern.finditer(text)}
+        matches = {m.group(1).lower() for m in self._pattern.finditer(text)}
         return len(matches)
 
     def keep_document(self, score: int) -> bool:

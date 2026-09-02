@@ -1321,9 +1321,11 @@ class TestClinicalSectionFilter:
     def test_full_english_report_is_kept(self) -> None:
         dataset = list_to_dataset(
             [
-                "Chief complaint: chest pain. History: 65-year-old male, smoker. "
-                "Physical examination: normal heart sounds. Diagnosis: angina pectoris. "
-                "Plan: nitroglycerin and cardiology follow-up.",
+                (
+                    "Chief complaint: chest pain. History: 65-year-old male, smoker. "
+                    "Physical examination: normal heart sounds. Diagnosis: angina pectoris. "
+                    "Plan: nitroglycerin and cardiology follow-up."
+                ),
                 "The quick brown fox jumps over the lazy dog. " * 20,
             ]
         )
@@ -1335,9 +1337,11 @@ class TestClinicalSectionFilter:
             data=pd.DataFrame(
                 {
                     "text": [
-                        "Chief complaint: chest pain. History: 65-year-old male, smoker. "
-                        "Physical examination: normal heart sounds. Diagnosis: angina pectoris. "
-                        "Plan: nitroglycerin and cardiology follow-up.",
+                        (
+                            "Chief complaint: chest pain. History: 65-year-old male, smoker. "
+                            "Physical examination: normal heart sounds. Diagnosis: angina pectoris. "
+                            "Plan: nitroglycerin and cardiology follow-up."
+                        ),
                     ]
                 }
             ),
@@ -1348,8 +1352,10 @@ class TestClinicalSectionFilter:
     def test_italian_report_is_kept(self) -> None:
         dataset = list_to_dataset(
             [
-                "Anamnesi: dolore toracico da tre giorni. Esame obiettivo: parametri nella norma. "
-                "Diagnosi: sospetta angina. Terapia: nitroderivati.",
+                (
+                    "Anamnesi: dolore toracico da tre giorni. Esame obiettivo: parametri nella norma. "
+                    "Diagnosi: sospetta angina. Terapia: nitroderivati."
+                ),
                 "Testo del tutto generico senza alcuna struttura clinica riconoscibile.",
             ]
         )
@@ -1361,8 +1367,10 @@ class TestClinicalSectionFilter:
             data=pd.DataFrame(
                 {
                     "text": [
-                        "Anamnesi: dolore toracico da tre giorni. Esame obiettivo: parametri nella norma. "
-                        "Diagnosi: sospetta angina. Terapia: nitroderivati.",
+                        (
+                            "Anamnesi: dolore toracico da tre giorni. Esame obiettivo: parametri nella norma. "
+                            "Diagnosi: sospetta angina. Terapia: nitroderivati."
+                        ),
                     ]
                 }
             ),
@@ -1385,6 +1393,24 @@ class TestClinicalSectionFilter:
         score = clinical_filter.score_document(text)
 
         assert score == 2
+
+    def test_inline_mentions_do_not_match(self) -> None:
+        # Keywords in running prose (no trailing colon) are not section headers
+        clinical_filter = ClinicalSectionFilter(language="en")
+        text = "The diagnosis was angina and the treatment plan includes follow-up."
+
+        score = clinical_filter.score_document(text)
+
+        assert score == 0
+
+    def test_headers_without_colon_do_not_match(self) -> None:
+        # A bare keyword on its own line without a colon is not a header form
+        clinical_filter = ClinicalSectionFilter(language="en")
+        text = "Diagnosis\nangina pectoris"
+
+        score = clinical_filter.score_document(text)
+
+        assert score == 0
 
     def test_substrings_do_not_match(self) -> None:
         clinical_filter = ClinicalSectionFilter(language="en")

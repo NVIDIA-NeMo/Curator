@@ -454,7 +454,11 @@ fixable = ["ALL"]
 ]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
-    "PLE2515", # ignore \u200b complaint
+    "PLE2515", # ignore ​ complaint
+]
+"tutorials/**/*.jsonl" = [
+    "B018", # JSON data file, not Python code
+    "CPY001", # JSON data file, no copyright header needed
 ]
 "fern/**/*.py" = [
     "INP001", # Fern CLI helper scripts; not an installable package
