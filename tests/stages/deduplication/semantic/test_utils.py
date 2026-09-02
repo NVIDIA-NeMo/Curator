@@ -44,10 +44,10 @@ def test_get_array_from_df() -> None:
 
 
 @pytest.mark.gpu
-def test_chunked_parquet_reader_preserves_order(tmp_path: Path) -> None:
+def test_parquet_file_info_preserves_order(tmp_path: Path) -> None:
     import cudf
 
-    from nemo_curator.stages.deduplication.semantic.utils import iter_parquet_chunks, read_parquet_file_info
+    from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
 
     files = []
     for index in range(3):
@@ -62,18 +62,7 @@ def test_chunked_parquet_reader_preserves_order(tmp_path: Path) -> None:
         files.append(str(path))
     file_info = read_parquet_file_info(files, retained_columns=["id"], embedding_column="embeddings")
 
-    chunks = list(
-        iter_parquet_chunks(
-            files,
-            columns=["id"],
-            footers=[info.footer for info in file_info],
-            chunk_read_limit=64,
-            pass_read_limit=64,
-        )
-    )
-
-    result = cudf.concat(chunks, ignore_index=True)
-    assert result["id"].to_arrow().to_pylist() == list(range(21))
+    assert [info.path for info in file_info] == files
     assert [info.num_rows for info in file_info] == [7, 7, 7]
     assert [info.embedding_elements for info in file_info] == [14, 14, 14]
 

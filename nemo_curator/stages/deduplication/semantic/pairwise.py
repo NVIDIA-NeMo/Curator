@@ -14,7 +14,6 @@
 
 import os
 import time
-from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Literal
@@ -34,10 +33,8 @@ from nemo_curator.utils.file_utils import check_disallowed_kwargs
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy
 from .utils import (
-    ParquetFileInfo,
     break_parquet_partition_into_groups,
     get_array_from_df,
-    iter_parquet_chunks,
     read_parquet_file_info,
 )
 
@@ -147,7 +144,16 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         footer_time = time.perf_counter() - footer_start
 
         read_start = time.perf_counter()
-        frames = list(self._iter_parquet_frames(file_info, columns))
+        frames = [
+            self.read_parquet(
+                group,
+                columns=columns,
+                assign_id=False,
+                storage_options=self.input_storage_options,
+                **self.read_kwargs,
+            )
+            for group in break_parquet_partition_into_groups(task.data, file_info=file_info)
+        ]
         read_time = time.perf_counter() - read_start
         if not frames or not any(len(frame) for frame in frames):
             logger.warning(f"No data found for cluster {cluster_id}")
@@ -264,28 +270,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             _stage_perf=task._stage_perf,
             data=[output_path],
         )
-
-    def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
-        files = [info.path for info in file_info]
-        if not self.input_storage_options and not self.read_kwargs:
-            yield from iter_parquet_chunks(
-                files,
-                columns=columns,
-                footers=[info.footer for info in file_info],
-            )
-            return
-
-        for group in break_parquet_partition_into_groups(
-            files,
-            file_info=file_info,
-        ):
-            yield self.read_parquet(
-                group,
-                columns=columns,
-                assign_id=False,
-                storage_options=self.input_storage_options,
-                **self.read_kwargs,
-            )
 
 
 @dataclass

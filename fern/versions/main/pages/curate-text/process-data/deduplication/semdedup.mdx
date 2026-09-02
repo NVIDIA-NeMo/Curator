@@ -171,14 +171,14 @@ By default, `fit_data_fraction=None` selects as many complete files as fit 60% o
 
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly:
 
-1. **Fit:** Each actor samples `round(fit_data_fraction * number_of_actor_files)` complete files, with a minimum of one. A bounded Parquet reader fills one exactly sized fit array while retaining the sampled rows' metadata.
+1. **Fit:** Each actor samples `round(fit_data_fraction * number_of_actor_files)` complete files, with a minimum of one. Exact footer counts group the files below cuDF's column-size limit and fill one exactly sized fit array while retaining the sampled rows' metadata.
 2. **Predict sampled rows:** The actor predicts and writes directly from the fit array, so sampled files are not read again.
-3. **Predict remaining rows:** The actor reads each remaining file once in bounded chunks and writes each bounded result frame.
+3. **Predict remaining rows:** The actor reads each remaining file once in element-bounded groups and writes each result frame.
 
 Because sampling is file-based rather than row-based, the realized row fraction can differ from the configured value when file sizes vary. Every actor contributes at least one file, so very small fractions can also sample more data than expected on highly parallel runs. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
 
 <Note>
-All input rows receive cluster assignments; the fraction affects only centroid fitting. Both fitting and prediction use exact Parquet footer row counts, and bounded reads keep list columns below cuDF's column-size limit.
+All input rows receive cluster assignments; the fraction affects only centroid fitting. Both fitting and prediction use exact Parquet footer element counts to keep each read below cuDF's column-size limit.
 </Note>
 
 <Tabs>

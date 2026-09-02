@@ -528,32 +528,10 @@ class TestKMeansReadFitWriteStage:
         frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
         file_info = [ParquetFileInfo("file.parquet", 1, 0, embedding_elements=2)]
 
-        with (
-            patch.object(stage, "_read_group", return_value=frame) as reader,
-            patch("nemo_curator.stages.deduplication.semantic.kmeans.iter_parquet_chunks") as chunked_reader,
-        ):
+        with patch.object(stage, "_read_group", return_value=frame) as reader:
             assert list(stage._iter_parquet_frames(file_info, ["id", "embeddings"])) == [frame]
 
         reader.assert_called_once_with(["file.parquet"], ["id", "embeddings"])
-        chunked_reader.assert_not_called()
-
-    def test_local_parquet_chunks_oversized_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage()
-        frame = cudf.DataFrame({"id": [1], "embeddings": [[1.0, 0.0]]})
-        footer = object()
-        file_info = [ParquetFileInfo("file.parquet", 1_000_000_000, 0, footer, 2_000_000_000)]
-
-        with patch(
-            "nemo_curator.stages.deduplication.semantic.kmeans.iter_parquet_chunks",
-            return_value=iter([frame]),
-        ) as reader:
-            assert list(stage._iter_parquet_frames(file_info, ["id", "embeddings"])) == [frame]
-
-        reader.assert_called_once_with(
-            ["file.parquet"],
-            columns=["id", "embeddings"],
-            footers=[footer],
-        )
 
     def test_parquet_fit_and_predict_do_not_copy_frames(self, make_stage: "KMeansReadFitWriteStage") -> None:
         stage = make_stage(fit_data_fraction=0.5)

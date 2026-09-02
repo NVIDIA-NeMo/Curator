@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -34,7 +33,6 @@ class ParquetFileInfo:
     path: str
     num_rows: int
     metadata_bytes: int
-    footer: Any | None = None
     embedding_elements: int = 0
 
 
@@ -108,48 +106,11 @@ def read_parquet_file_info(  # noqa: C901
                     for column in row_group.columns
                     if _root_column(column.meta_data.path_in_schema) == embedding_column
                 )
-                result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, footer, embedding_elements))
+                result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, embedding_elements))
         return result  # noqa: TRY300
     except Exception as error:
         msg = f"Failed to read Parquet footer metadata for one of {len(files)} files"
         raise RuntimeError(msg) from error
-
-
-def iter_parquet_chunks(
-    files: list[str],
-    *,
-    columns: list[str],
-    footers: list[Any] | None = None,
-    chunk_read_limit: int | None = None,
-    pass_read_limit: int | None = None,
-) -> Iterator["cudf.DataFrame"]:
-    """Yield zero-copy cuDF frames from pylibcudf's bounded Parquet reader."""
-    if not files:
-        return
-
-    import cudf
-    import cupy as cp
-    import pylibcudf as plc
-
-    if chunk_read_limit is None:
-        # One output frame can coexist with its two Parquet encoding buffers
-        # and the next frame while reads and writes overlap.
-        chunk_read_limit = cp.cuda.runtime.memGetInfo()[0] // 4
-    if pass_read_limit is None:
-        # Match libcudf's derived pass limit when only an output limit is supplied.
-        pass_read_limit = chunk_read_limit + chunk_read_limit // 2
-
-    source = plc.io.SourceInfo(files)
-    options = plc.io.parquet.ParquetReaderOptions.builder(source).allow_mismatched_pq_schemas(True).build()
-    options.set_column_names(columns)
-    reader = plc.io.parquet.ChunkedParquetReader(
-        options,
-        chunk_read_limit=chunk_read_limit,
-        pass_read_limit=pass_read_limit,
-        parquet_metadatas=footers,
-    )
-    while reader.has_next():
-        yield cudf.DataFrame.from_pylibcudf(reader.read_chunk())
 
 
 def break_parquet_partition_into_groups(
@@ -167,6 +128,7 @@ def break_parquet_partition_into_groups(
     for path in files:
         elements = elements_by_file[path]
         if elements >= CUDF_COLUMN_SIZE_LIMIT:
+            # ponytail: Restore ChunkedParquetReader if real inputs contain a single oversized file.
             msg = f"Parquet file {path!r} has {elements} embedding elements, exceeding cuDF's column-size limit"
             raise ValueError(msg)
         if subgroup and subgroup_elements + elements >= CUDF_COLUMN_SIZE_LIMIT:

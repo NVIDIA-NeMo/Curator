@@ -30,11 +30,9 @@ from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
 from .utils import (
-    CUDF_COLUMN_SIZE_LIMIT,
     ParquetFileInfo,
     break_parquet_partition_into_groups,
     get_array_from_df,
-    iter_parquet_chunks,
     read_parquet_file_info,
 )
 
@@ -301,22 +299,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
     def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
         files = [info.path for info in file_info]
-        if not self.input_storage_options and not self.read_kwargs:
-            if all(info.embedding_elements < CUDF_COLUMN_SIZE_LIMIT for info in file_info):
-                for group in break_parquet_partition_into_groups(files, file_info=file_info):
-                    yield self._read_group(group, columns)
-                return
-            yield from iter_parquet_chunks(
-                files,
-                columns=columns,
-                footers=[info.footer for info in file_info],
-            )
-            return
-
-        for group in break_parquet_partition_into_groups(
-            files,
-            file_info=file_info,
-        ):
+        for group in break_parquet_partition_into_groups(files, file_info=file_info):
             yield self._read_group(group, columns)
 
     def _write_output_frame(
