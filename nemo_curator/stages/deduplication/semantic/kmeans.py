@@ -15,7 +15,6 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import chain
-from math import ceil
 from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
@@ -98,7 +97,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            fit_data_fraction (float | None): Target fraction of rows used to fit KMeans, sampled as complete files. None selects as many complete files as fit the live GPU-memory budget.
+            fit_data_fraction (float | None): Fraction of whole files used to fit KMeans. None selects as many complete files as fit the live GPU-memory budget.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -278,14 +277,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         rng = random.Random(self.random_state)  # noqa: S311
         shuffled = rng.sample(file_info, k=len(file_info))
         if self.fit_data_fraction is not None:
-            target_rows = max(1, ceil(sum(info.num_rows for info in file_info) * self.fit_data_fraction))
-            fit = []
-            sampled_rows = 0
-            for info in shuffled:
-                fit.append(info)
-                sampled_rows += info.num_rows
-                if sampled_rows >= target_rows:
-                    break
+            count = max(1, round(len(file_info) * self.fit_data_fraction))
+            fit = shuffled[:count]
         else:
             free_memory = cp.cuda.runtime.memGetInfo()[0]
             budget = int(free_memory * _AUTO_FIT_MEMORY_FRACTION)
@@ -715,7 +708,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        fit_data_fraction (float | None): Target fraction of rows used for fitting, sampled as complete files. None sizes the sample automatically from free GPU memory.
+        fit_data_fraction (float | None): Fraction of whole files used for fitting. None sizes the sample automatically from free GPU memory.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 

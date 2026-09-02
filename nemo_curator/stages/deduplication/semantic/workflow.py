@@ -126,8 +126,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             oversampling_factor: K-means++ oversampling factor
             max_samples_per_batch: Max samples per batch for K-means
             distance_metric: Distance metric for similarity ("cosine" or "l2")
-            fit_data_fraction: Target fraction of rows (in (0, 1]) used to fit the KMeans model,
-                sampled as complete files. If None, select as many complete files as fit the live GPU-memory budget.
+            fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit the KMeans model.
+                If None, select as many complete files as fit the live GPU-memory budget.
 
             # Pairwise similarity parameters
             which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")

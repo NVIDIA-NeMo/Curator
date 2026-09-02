@@ -497,8 +497,7 @@ class TestKMeansReadFitWriteStage:
 
         fit, remaining = stage._sample_fit_files(file_info)
 
-        assert sum(info.num_rows for info in fit) >= 8
-        assert sum(info.num_rows for info in fit[:-1]) < 8
+        assert len(fit) == 2
         assert {info.path for info in fit}.isdisjoint(info.path for info in remaining)
         assert {info.path for info in [*fit, *remaining]} == {info.path for info in file_info}
 
