@@ -27,7 +27,7 @@ Usage:
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
         --config-name tts_pipeline \\
-        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
+        input_manifest="${PWD}/tests/fixtures/audio/tagging/sample_input.jsonl" \\
         final_manifest=/tmp/tts_output.jsonl \\
         hf_token=<your_hf_token>
 
@@ -35,7 +35,7 @@ Usage:
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
         --config-name tts_pipeline \\
-        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
+        input_manifest="${PWD}/tests/fixtures/audio/tagging/sample_input.jsonl" \\
         final_manifest=/tmp/tts_output.jsonl \\
         hf_token=<your_hf_token> \\
         backend=ray_data
@@ -44,7 +44,7 @@ Usage:
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
         --config-name tts_pipeline \\
-        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
+        input_manifest="${PWD}/tests/fixtures/audio/tagging/sample_input.jsonl" \\
         final_manifest=/tmp/output.jsonl \\
         hf_token=<your_hf_token> \\
         max_segment_length=30 \\

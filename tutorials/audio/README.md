@@ -73,11 +73,15 @@ python nemo_curator/config/run.py \
 ## System dependencies
 
 Most audio pipelines use `ffmpeg` for resampling and format conversion.
-Install it before running those tutorials:
+Make an organization-approved `ffmpeg` executable available on `PATH` on every
+executor node. You can use an administrator-managed package, a trusted
+user-local environment manager, or a reviewed standalone build; root access is
+not required when you control your own environment. Verify the resolved binary
+before starting a distributed run:
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install -y ffmpeg
+command -v ffmpeg
+ffmpeg -version
 ```
 
 | Tutorial | System packages | Pip extras |
