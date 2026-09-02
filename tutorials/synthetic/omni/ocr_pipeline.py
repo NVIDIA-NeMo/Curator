@@ -24,6 +24,7 @@ from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
+from nemo_curator.models.omni.base import OrcaRouterInferenceClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.omni.io import (
     HFDatasetImageReaderStage,
@@ -53,6 +54,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     scoring_qa_max_text_errors: int = 0,
     scoring_qa_fail_on_missing_text: bool = False,
     scoring_qa_dense_dump_prob: float = 0.05,
+    scoring_qa_use_orcarouter: bool = False,
 ) -> Pipeline:
     """Create the OCR pipeline reading images from a HuggingFace dataset.
 
@@ -85,6 +87,9 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
         scoring_qa_fail_on_missing_text: Mark image invalid when the verifier
             reports missing text regions.
         scoring_qa_dense_dump_prob: Probability of dense-dump vs multi-turn QA.
+        scoring_qa_use_orcarouter: Route verifier calls through the
+            [OrcaRouter](https://www.orcarouter.ai) gateway instead of the
+            NVIDIA Inference API. Requires ``ORCAROUTER_API_KEY`` to be set.
 
     Returns:
         Configured NeMo Curator Pipeline.
@@ -107,6 +112,9 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     pipeline.add_stage(OCRNemotronV2Stage(model_dir=nemotron_model_dir))
 
     if run_scoring_qa:
+        scoring_qa_client = None
+        if scoring_qa_use_orcarouter:
+            scoring_qa_client = OrcaRouterInferenceClient()
         pipeline.add_stage(
             OCRScoringQAStage(
                 model_id=scoring_qa_model_id,
@@ -114,6 +122,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
                 max_text_errors=scoring_qa_max_text_errors,
                 fail_on_missing_text=scoring_qa_fail_on_missing_text,
                 dense_dump_prob=scoring_qa_dense_dump_prob,
+                client=scoring_qa_client,
             )
         )
 
@@ -243,6 +252,15 @@ def create_ocr_argparser() -> argparse.ArgumentParser:
         default=0.05,
         help="Probability of dense-dump conversation for complete-OCR images",
     )
+    parser.add_argument(
+        "--scoring-qa-use-orcarouter",
+        action="store_true",
+        default=False,
+        help=(
+            "Route verifier calls through the OrcaRouter gateway (https://www.orcarouter.ai) "
+            "instead of the NVIDIA Inference API. Requires ORCAROUTER_API_KEY to be set."
+        ),
+    )
 
     return parser
 
@@ -271,6 +289,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
         scoring_qa_max_text_errors=args.scoring_qa_max_text_errors,
         scoring_qa_fail_on_missing_text=args.scoring_qa_fail_on_missing_text,
         scoring_qa_dense_dump_prob=args.scoring_qa_dense_dump_prob,
+        scoring_qa_use_orcarouter=args.scoring_qa_use_orcarouter,
     )
 
 

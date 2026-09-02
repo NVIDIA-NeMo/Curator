@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for nemo_curator.models.omni.base.NVInferenceClient."""
+"""Unit tests for nemo_curator.models.omni.base inference clients."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nemo_curator.models.client.llm_client import GenerationConfig
-from nemo_curator.models.omni.base import NVInferenceClient
+from nemo_curator.models.omni.base import NVInferenceClient, OrcaRouterInferenceClient
 
 
 def _content_chunk(content: str | None) -> MagicMock:
@@ -124,3 +124,36 @@ class TestNVInferenceClientStreaming:
         client = _client_with_stream([_content_chunk("ok")], priority_mode=flag)
         _run_query(client, messages=[{"role": "user", "content": "p"}])
         assert client.client.chat.completions.create.call_args.kwargs.get("extra_headers") == expected_header
+
+
+class TestOrcaRouterInferenceClient:
+    def test_defaults_point_to_orcarouter_gateway(self) -> None:
+        client = OrcaRouterInferenceClient()
+        assert client.openai_kwargs["base_url"] == "https://api.orcarouter.ai/v1"
+        assert client.api_key_env_var == "ORCAROUTER_API_KEY"
+
+    def test_setup_raises_when_env_var_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ORCAROUTER_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="ORCAROUTER_API_KEY is not set"):
+            OrcaRouterInferenceClient().setup()
+
+    def test_setup_constructs_asyncopenai_with_resolved_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ORCAROUTER_API_KEY", "key-orca")  # pragma: allowlist secret
+        with patch("nemo_curator.models.client.openai_client.AsyncOpenAI") as AsyncOpenAI:  # noqa: N806
+            OrcaRouterInferenceClient().setup()
+            kwargs = AsyncOpenAI.call_args.kwargs
+            assert kwargs["base_url"] == "https://api.orcarouter.ai/v1"
+            assert kwargs["api_key"] == "key-orca"  # pragma: allowlist secret
+
+    def test_streams_content_like_nv_client(self) -> None:
+        client = OrcaRouterInferenceClient()
+        inner = MagicMock()
+        inner.chat.completions.create = AsyncMock(
+            return_value=_AsyncStreamIter([_content_chunk("hello"), _content_chunk(None), _content_chunk("world")])
+        )
+        client.client = inner  # bypass setup()
+        out = _run_query(client, messages=[{"role": "user", "content": "p"}])
+        assert out == ["helloworld"]
+        call = inner.chat.completions.create.call_args.kwargs
+        assert call["model"] == "test/model"
+        assert call["stream"] is True
