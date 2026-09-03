@@ -116,7 +116,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
         if fit_data_fraction is not None and not 0.0 < fit_data_fraction <= 1.0:
-            msg = f"fit_data_fraction must be in (0, 1], got {fit_data_fraction}; pass None for automatic sizing"
+            msg = (
+                f"fit_data_fraction must be in (0, 1], got {fit_data_fraction}; "
+                "pass None to auto-size Parquet fitting or fit all JSONL input"
+            )
             raise ValueError(msg)
         self.fit_data_fraction = fit_data_fraction
         self.cache_path = cache_path
@@ -627,7 +630,10 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         # Validate eagerly so bad values surface at construction, not later in
         # decompose() / on a worker.
         if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction <= 1.0:
-            msg = f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; pass None for automatic sizing"
+            msg = (
+                f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; "
+                "pass None to auto-size Parquet fitting or fit all JSONL input"
+            )
             raise ValueError(msg)
         if self.fit_data_fraction is None and self.input_filetype == "jsonl":
             logger.warning(

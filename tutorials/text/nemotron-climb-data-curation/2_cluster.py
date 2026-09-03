@@ -77,7 +77,14 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--n-init", type=int, default=1)
     parser.add_argument("--oversampling-factor", type=float, default=2.0)
     parser.add_argument("--max-samples-per-batch", type=int, default=1 << 15)
-    parser.add_argument("--fit-data-fraction", type=float, default=None)
+    parser.add_argument(
+        "--fit-data-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all JSONL input"
+        ),
+    )
     parser.add_argument("--centroids-path", type=str, required=True)
 
     return parser

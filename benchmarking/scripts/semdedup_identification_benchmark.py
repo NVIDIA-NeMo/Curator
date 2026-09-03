@@ -64,7 +64,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         eps: Epsilon value for duplicate identification threshold (cosine_sim >= 1-eps)
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
         pairwise_batch_size: Batch size for pairwise similarity computation
-        fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model.
+        fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit KMeans. When None,
+            Parquet auto-sizes the sample from free GPU memory, while JSONL fits all input files.
         **kwargs: Additional arguments (ignored)
 
     Returns:
@@ -227,7 +228,12 @@ def main() -> int:
         "--pairwise-batch-size", type=int, default=1024, help="Batch size for pairwise similarity computation"
     )
     parser.add_argument(
-        "--fit-data-fraction", type=float, default=None, help="Fraction of the dataset to fit the KMeans model"
+        "--fit-data-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all JSONL input"
+        ),
     )
 
     args = parser.parse_args()
