@@ -48,7 +48,7 @@ class PassthroughStage(ProcessingStage[EmptyTask, EmptyTask]):
 | Ray Data actor stage | Fixed `ActorPoolStrategy(size=N)` | Fixed pool sized as `ceil(N × alive nodes)` with best-effort `SPREAD` | Autoscaling actor pool, minimum 1 with no maximum by default |
 | Ray Data task stage | Fixed `TaskPoolStrategy(size=N)` | Fixed pool sized as `ceil(N × alive nodes)` with best-effort `SPREAD` | Ray Data's default task scheduling; no explicit compute strategy |
 | Xenna | Exactly `N` workers across the cluster | Xenna receives `N` directly as its per-node count | Xenna determines worker allocation |
-| Ray Actor Pool | Requests `N`; caps it if fewer actors fit | Requests `ceil(N × alive nodes)`; caps it if fewer actors fit | Chooses the smaller of work batches and resource capacity |
+| Ray Actor Pool | Requests `N`; caps it if fewer actors fit | Requests `ceil(N × alive nodes)` with best-effort `SPREAD`; caps it if fewer actors fit | Chooses the smaller of work batches and resource capacity |
 
 For the cluster-wide `num_workers` hook, Ray Data and Ray Actor Pool treat `0` and negative values as no fixed-size request. Xenna passes every non-`None` value to its stage specification, so use a positive count or `None`.
 
@@ -141,12 +141,12 @@ Use the same portable override for actor or task stages:
 
 ```python
 stage = PassthroughStage().with_(num_workers_per_node=2)
-executor = RayDataExecutor(ignore_head_node=True)
+executor = RayDataExecutor()
 ```
 
-Ray Data pool sizes are cluster-wide, so Curator counts alive nodes and sets the pool size to `ceil(num_workers_per_node × node count)`. When `ignore_head_node=True`, the head does not contribute to that multiplier. Curator also sets `scheduling_strategy="SPREAD"` unless `RAY_REMOTE_ARGS` supplies another strategy.
+Ray Data pool sizes are cluster-wide, so Curator counts alive nodes and sets the pool size to `ceil(num_workers_per_node × node count)`. Curator also sets `scheduling_strategy="SPREAD"` unless `RAY_REMOTE_ARGS` supplies another strategy.
 
-`SPREAD` is placement intent, not a hard per-node cap or node exclusion. Ray may place workers unevenly when resources differ or placement constraints apply, and `ignore_head_node=True` does not itself prevent a Ray Data worker from landing on the head.
+`SPREAD` is placement intent, not a hard per-node cap. Ray may place workers unevenly when resources differ or placement constraints apply.
 
 ### Ray Data precedence and errors
 
@@ -208,7 +208,7 @@ The legacy `xenna_stage_spec={"num_workers_per_node": N}` form remains supported
 
 ## Ray Actor Pool Resource Capping
 
-`RayActorPoolExecutor` calculates how many actors fit from available CPU and GPU resources. A positive `num_workers()` is honored when it fits. `num_workers_per_node()` first multiplies the value by the alive node count. If either request exceeds capacity, Curator warns and caps the actor count instead of waiting for impossible placements.
+`RayActorPoolExecutor` calculates how many actors fit from available CPU and GPU resources. A positive `num_workers()` is honored when it fits. `num_workers_per_node()` first multiplies the value by the alive node count and uses best-effort `SPREAD` placement. If either request exceeds capacity, Curator warns and caps the actor count instead of waiting for impossible placements.
 
 For example, a stage that requests `Resources(cpus=2.0)` and `num_workers=8` can place at most four actors when eight CPUs are available. Work batch count can further reduce the automatically chosen pool size when `num_workers` is unset.
 
