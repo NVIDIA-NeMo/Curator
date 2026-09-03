@@ -73,7 +73,12 @@ def calculate_optimal_actors_for_stage(
     available_cpus = max(0, available_cpus - reserved_cpus)
     available_gpus = max(0, available_gpus - reserved_gpus)
 
-    return calculate_optimal_actors_for_resources(stage, num_tasks, (available_cpus, available_gpus))
+    return calculate_optimal_actors_for_resources(
+        stage,
+        num_tasks,
+        (available_cpus, available_gpus),
+        ignore_head_node=ignore_head_node,
+    )
 
 
 def calculate_optimal_actors_for_stage_with_wait(  # noqa: PLR0913
@@ -97,6 +102,7 @@ def calculate_optimal_actors_for_stage_with_wait(  # noqa: PLR0913
             stage,
             num_tasks,
             resource_baseline,
+            ignore_head_node=ignore_head_node,
         )
     except ValueError:
         intended_num_actors = 1
@@ -132,6 +138,8 @@ def calculate_optimal_actors_for_resources(
     stage: "ProcessingStage",
     num_tasks: int,
     available_resources: tuple[float, float],
+    *,
+    ignore_head_node: bool = False,
 ) -> int:
     """Calculate an actor count from a supplied CPU/GPU availability snapshot."""
     available_cpus, available_gpus = available_resources
