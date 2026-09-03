@@ -39,7 +39,7 @@ from typing import Any
 # private, untyped implementation modules.
 # ruff: noqa: ANN401
 
-_SUPPORTED_RAY_VERSION = "2.57.0"
+_SUPPORTED_RAY_VERSION = "2.58.0"
 _INSTALL_MARKER = "_nemo_curator_ray_data_diagnostics_installed"
 _INSTALL_LOCK = threading.Lock()
 RAY_DATA_DIAGNOSTICS_ENV_VAR = "NEMO_CURATOR_RAY_DATA_DIAGNOSTICS"
@@ -275,11 +275,11 @@ def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> N
             op,
             consider_downstream_ineligible_ops=True,
         )
-        queue_ratio = self._get_queue_ratio(op)
+        output_pressure = self._get_output_pressure(op)
         if utilized_fraction is not None and utilized_fraction <= self.OBJECT_STORE_BUDGET_UTIL_THRESHOLD:
             result = False
         else:
-            result = queue_ratio > self._backpressure_capacity_ratio
+            result = output_pressure > self._backpressure_capacity_ratio
 
         previous = self._prev_should_backpressure.get(op)
         if previous != result:
@@ -290,17 +290,17 @@ def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> N
             else:
                 started_at = blocked_since.pop(op, None)
                 blocked_duration_ms = None if started_at is None else _milliseconds(time.perf_counter() - started_at)
-            queue_bytes = self._get_queue_size_bytes(op)
             downstream_capacity_bytes = self._get_downstream_capacity_size_bytes(op)
+            output_size_bytes = self._resource_manager.get_mem_op_outputs(op, include_ineligible_downstream=True)
             downstream_policy_module.logger.debug(
                 format_logfmt_event(
                     "ray_data_downstream_capacity_admission",
                     {
                         "operator": op.name,
                         "state": "blocked" if result else "allowed",
-                        "queue_bytes": queue_bytes,
+                        "output_size_bytes": output_size_bytes,
                         "downstream_capacity_bytes": downstream_capacity_bytes,
-                        "queue_ratio": f"{queue_ratio:.2f}",
+                        "output_pressure": f"{output_pressure:.2f}",
                         "configured_ratio": self._backpressure_capacity_ratio,
                         "utilized_object_store_budget_fraction": utilized_fraction,
                         **_object_store_memory_fields(self._resource_manager, op),
