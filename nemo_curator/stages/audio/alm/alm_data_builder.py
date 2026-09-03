@@ -26,6 +26,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -124,7 +125,7 @@ def _record_window_loss(  # noqa: PLR0913
 
 
 @dataclass
-class ALMDataBuilderStage(ProcessingStage[AudioTask, AudioTask]):
+class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Build ALM training windows from audio segments.
 
     Filters segments by sample rate, bandwidth, speaker count, and duration
@@ -148,6 +149,13 @@ class ALMDataBuilderStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Top-level fields to drop from output entry (comma-separated)
     drop_fields_top_level: str = "words,segments"
+    audio_filepath_key: str = "audio_filepath"
+    segments_key: str = "segments"
+    audio_sample_rate_key: str = "audio_sample_rate"
+    windows_key: str = "windows"
+    stats_key: str = "stats"
+    truncation_events_key: str = "truncation_events"
+    swift_audio_filepath_key: str = "swift_audio_filepath"
 
     def __post_init__(self) -> None:
         """Compute derived parameters - EXACT match to SDP."""
@@ -159,17 +167,38 @@ class ALMDataBuilderStage(ProcessingStage[AudioTask, AudioTask]):
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath", "segments", "audio_sample_rate"]
+        return [], [self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.windows_key, self.stats_key, self.truncation_events_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]),
+            writes=IOSpec(data_keys=[self.windows_key, self.stats_key, self.truncation_events_key]),
+            # process() rebuilds task.data selectively (words/segments stripped;
+            # the min_sample_rate branch keeps only a four-key subset).
+            preserves_upstream_keys=False,
+            # Named, not merely implied by preserves_upstream_keys: that flag says the entry is
+            # rebuilt, while this says WHICH keys do not survive. Without the names, a downstream
+            # sink check still counts a waveform this stage has already dropped, and refuses a
+            # pipeline that would have run -- the kind of wrong hard gate that pushes a caller
+            # into faking a value to get past it. Derived from the configured parameter so the
+            # declaration tracks whatever the caller actually set.
+            removes_keys=sorted(self._drop_fields_top_level_set),
+            # Windows are built by sliding over this row's own segments.
+            gates=Gates(per_row_independent=True),
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        num_segments = len(task.data.get("segments", []))
+        num_segments = len(task.data.get(self.segments_key, []))
         result = self._process_single_entry(task.data)
         task.data.clear()
         task.data.update(result)
         process_time = time.perf_counter() - t0
 
-        num_windows = len(task.data.get("windows", []))
+        num_windows = len(task.data.get(self.windows_key, []))
         self._log_metrics(
             {
                 "process_time": process_time,
@@ -184,25 +213,25 @@ class ALMDataBuilderStage(ProcessingStage[AudioTask, AudioTask]):
         """Process a single entry and extract valid training windows."""
         total_truncation_events = 0
 
-        audio_file = entry_data.get("audio_filepath")
-        segments = entry_data.get("segments", [])
+        audio_file = entry_data.get(self.audio_filepath_key)
+        segments = entry_data.get(self.segments_key, [])
         total_dur = sum(seg["end"] - seg["start"] for seg in segments)
 
         stat = BuilderStats(
             total_segments=len(segments),
             total_dur=total_dur,
-            swift_path=entry_data.get("swift_audio_filepath", ""),
-            audio_sample_rate=entry_data.get("audio_sample_rate", 0),
+            swift_path=entry_data.get(self.swift_audio_filepath_key, ""),
+            audio_sample_rate=entry_data.get(self.audio_sample_rate_key, 0),
         )
 
-        if entry_data.get("audio_sample_rate", 0) < self.min_sample_rate:
+        if entry_data.get(self.audio_sample_rate_key, 0) < self.min_sample_rate:
             stat.lost_sr = len(segments)
             stat.dur_lost_sr = total_dur
             return {
-                "audio_filepath": audio_file,
-                "windows": [],
-                "stats": stat.to_dict(),
-                "truncation_events": total_truncation_events,
+                self.audio_filepath_key: audio_file,
+                self.windows_key: [],
+                self.stats_key: stat.to_dict(),
+                self.truncation_events_key: total_truncation_events,
             }
 
         valid_windows: list[dict[str, Any]] = []
@@ -284,8 +313,8 @@ class ALMDataBuilderStage(ProcessingStage[AudioTask, AudioTask]):
             )
 
         result = {k: v for k, v in entry_data.items() if k not in self._drop_fields_top_level_set}
-        result["windows"] = valid_windows
-        result["stats"] = stat.to_dict()
-        result["truncation_events"] = total_truncation_events
+        result[self.windows_key] = valid_windows
+        result[self.stats_key] = stat.to_dict()
+        result[self.truncation_events_key] = total_truncation_events
 
         return result
