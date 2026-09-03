@@ -156,6 +156,20 @@ class TestRayActorPoolExecutor:
         ):
             calculate_optimal_actors_for_stage_with_wait(stage, 4, (4.0, 4.0), timeout=0.5, interval=0.1)
 
+    def test_wait_for_stage_resources_propagates_invalid_worker_count(self) -> None:
+        stage = _stage_with_worker_sizing(
+            num_workers=None,
+            num_workers_per_node=1e308,
+            cpus=1.0,
+            batch_size=1,
+        )
+
+        with (
+            mock.patch("nemo_curator.backends.ray_actor_pool.utils.get_alive_ray_node_count", return_value=2),
+            pytest.raises(ValueError, match="too large"),
+        ):
+            calculate_optimal_actors_for_stage_with_wait(stage, 1, (4.0, 0.0))
+
     def test_actor_pool_resources_apply_reservations_and_update_baseline(self) -> None:
         with mock.patch(
             "nemo_curator.backends.ray_actor_pool.utils.get_available_cpu_gpu_resources",
