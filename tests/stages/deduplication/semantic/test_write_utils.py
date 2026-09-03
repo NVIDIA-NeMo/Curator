@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from threading import Event, Lock
 
 import pytest
@@ -143,3 +144,44 @@ def test_concurrent_writer_preserves_variable_width_metadata() -> None:
 
     written = cudf.concat([part for writer in writers for part in writer.frames]).sort_values("value")
     assert written.to_pandas().reset_index(drop=True).equals(frame.to_pandas())
+
+
+@pytest.mark.gpu
+def test_local_partitioned_writer_preserves_rows_across_bounded_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cudf
+
+    from nemo_curator.stages.deduplication.semantic.write_utils import LocalPartitionedParquetWriter
+
+    # Keep the batches deliberately tiny here. This exercises the same persistent
+    # multi-sink Parquet writer used by KMeans while making both centroid ranges
+    # cross a write boundary in a small test.
+    monkeypatch.setattr(LocalPartitionedParquetWriter, "_rows_per_batch", staticmethod(lambda *_: 2))
+    writer = LocalPartitionedParquetWriter(
+        output_path=str(tmp_path),
+        file_name_prefix="part",
+        n_partitions=2,
+        max_rows_per_partition=3,
+        write_kwargs={},
+    )
+    first = cudf.DataFrame(
+        {
+            "centroid": [1, 0, 1, 0, 1, 0],
+            "value": [0, 1, 2, 3, 4, 5],
+            "metadata": ["", "x", "yy", "zzz", "w" * 4, "v" * 5],
+        }
+    )
+    second = first.copy()
+    second["value"] += len(first)
+    expected = cudf.concat([first, second], ignore_index=True)
+
+    writer.write_table(first)
+    writer.write_table(second)
+    writer.close()
+
+    actual = cudf.read_parquet(str(tmp_path)).sort_values("value").reset_index(drop=True)
+    actual["centroid"] = actual["centroid"].astype(expected["centroid"].dtype)
+    assert actual.to_pandas().equals(expected[actual.columns].to_pandas())
+    assert writer.batch_count > 1
+    assert writer.group_count == 2

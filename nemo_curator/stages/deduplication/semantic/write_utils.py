@@ -12,17 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+import math
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import cupy as cp
 import numpy as np
-from cudf.io.parquet import ParquetDatasetWriter
+from cudf.io.parquet import ParquetDatasetWriter, ParquetWriter
+from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 
 if TYPE_CHECKING:
     import cudf
+
+
+class PartitionedParquetWriter(Protocol):
+    batch_count: int
+    batch_rows: int
+    batch_bytes: int
+
+    @property
+    def group_count(self) -> int: ...
+
+    def write_table(self, frame: "cudf.DataFrame") -> None: ...
+
+    def close(self) -> None: ...
+
+
+def local_path(path: str, storage_options: dict | None) -> str | None:
+    fs, resolved = url_to_fs(path, **(storage_options or {}))
+    return resolved if isinstance(fs, LocalFileSystem) else None
 
 
 def interval_wall_time(intervals: list[tuple[float, float]]) -> float:
@@ -59,6 +82,9 @@ class RollingParquetWriter:
         self._generation = np.zeros(n_partitions, dtype=np.int64)
         self._rows = np.zeros(n_partitions, dtype=np.int64)
         self._target = max_rows_per_partition
+        self.batch_count = 0
+        self.batch_rows = 0
+        self.batch_bytes = 0
 
     def _writer(self, generation: int) -> ParquetDatasetWriter:
         if generation not in self._writers:
@@ -73,6 +99,10 @@ class RollingParquetWriter:
             for start in range(0, len(frame), rows):
                 self.write_table(frame.iloc[start : start + rows])
             return
+
+        self.batch_count += 1
+        self.batch_rows = max(self.batch_rows, len(frame))
+        self.batch_bytes = max(self.batch_bytes, int(frame.memory_usage(deep=True).sum()))
 
         present = counts > 0
         roll = present & (self._rows > 0) & (self._rows + counts > self._target)
@@ -91,13 +121,130 @@ class RollingParquetWriter:
         for writer in self._writers.values():
             writer.close()
 
+    @property
+    def group_count(self) -> int:
+        return len(self._writers)
+
+
+class LocalPartitionedParquetWriter:
+    """Write bounded centroid ranges without cuDF's full-frame partition copy."""
+
+    _PARTITION_COLUMN = "centroid"
+
+    # TODO(https://github.com/NVIDIA/cudf/issues/23502): Use cuDF's partitioned
+    # writer once it can bound the grouped copy and encoder buffers itself.
+
+    def __init__(
+        self,
+        output_path: str,
+        file_name_prefix: str,
+        n_partitions: int,
+        max_rows_per_partition: int,
+        write_kwargs: dict,
+    ) -> None:
+        self._output_path = output_path
+        self._file_name_prefix = file_name_prefix
+        self._n_partitions = n_partitions
+        self._max_rows_per_partition = max_rows_per_partition
+        self._write_kwargs = write_kwargs
+        self._ranges: list[tuple[int, int]] = []
+        self._writers: list[ParquetWriter | None] = []
+        self._generations: list[int] = []
+        self._rows = np.zeros(n_partitions, dtype=np.int64)
+        self.batch_count = 0
+        self.batch_rows = 0
+        self.batch_bytes = 0
+
+    @staticmethod
+    def _rows_per_batch(frame_rows: int, frame_bytes: int) -> int:
+        free_bytes = cp.cuda.runtime.memGetInfo()[0]
+        # A direct partition write holds the gathered batch plus cuDF's
+        # uncompressed and maximum-compressed encoder buffers. Reserving one
+        # input-sized buffer leaves room for the next prediction read.
+        available = max(1, free_bytes - frame_bytes)
+        return max(1, min(frame_rows, frame_rows * available // max(1, 3 * frame_bytes)))
+
+    def _initialize_ranges(self, counts: np.ndarray, rows_per_batch: int) -> None:
+        requested = min(self._n_partitions, math.ceil(counts.sum() / rows_per_batch))
+        cumulative = np.cumsum(counts)
+        boundaries = [0]
+        for target in np.linspace(0, counts.sum(), requested + 1, dtype=np.int64)[1:-1]:
+            boundaries.append(int(np.searchsorted(cumulative, target, side="right")))
+        boundaries.append(self._n_partitions)
+        boundaries = list(dict.fromkeys(boundaries))
+        self._ranges = list(itertools.pairwise(boundaries))
+        self._writers = [None] * len(self._ranges)
+        self._generations = [0] * len(self._ranges)
+
+    def _create_writer(self, range_index: int) -> ParquetWriter:
+        first, last = self._ranges[range_index]
+        generation = self._generations[range_index]
+        paths = []
+        for partition in range(first, last):
+            directory = os.path.join(self._output_path, f"{self._PARTITION_COLUMN}={partition}")
+            os.makedirs(directory, exist_ok=True)
+            paths.append(os.path.join(directory, f"{self._file_name_prefix}_{generation}.parquet"))
+        return ParquetWriter(paths, index=False, **self._write_kwargs)
+
+    def write_table(self, frame: "cudf.DataFrame") -> None:
+        labels = frame[self._PARTITION_COLUMN].values
+        counts = cp.asnumpy(cp.bincount(labels, minlength=self._n_partitions))
+        frame_bytes = int(frame.memory_usage(deep=True).sum())
+        rows_per_batch = self._rows_per_batch(len(frame), frame_bytes)
+        if not self._ranges:
+            self._initialize_ranges(counts, rows_per_batch)
+
+        order = labels.argsort()
+        offsets = np.concatenate(([0], np.cumsum(counts)))
+        for range_index, (first, last) in enumerate(self._ranges):
+            range_counts = counts[first:last]
+            if range_counts.max(initial=0) == 0:
+                continue
+            if np.any(
+                (self._rows[first:last] > 0) & (self._rows[first:last] + range_counts > self._max_rows_per_partition)
+            ):
+                if self._writers[range_index] is not None:
+                    self._writers[range_index].close()
+                self._writers[range_index] = None
+                self._generations[range_index] += 1
+                self._rows[first:last] = 0
+
+            writer = self._writers[range_index]
+            if writer is None:
+                writer = self._writers[range_index] = self._create_writer(range_index)
+            range_start, range_stop = int(offsets[first]), int(offsets[last])
+            for start in range(range_start, range_stop, rows_per_batch):
+                stop = min(start + rows_per_batch, range_stop)
+                batch = frame.take(order[start:stop]).drop(columns=self._PARTITION_COLUMN)
+                partition_info = [
+                    (
+                        max(int(offsets[partition]), start) - start,
+                        max(0, min(int(offsets[partition + 1]), stop) - max(int(offsets[partition]), start)),
+                    )
+                    for partition in range(first, last)
+                ]
+                writer.write_table(batch, partition_info)
+                self.batch_count += 1
+                self.batch_rows = max(self.batch_rows, len(batch))
+                self.batch_bytes = max(self.batch_bytes, frame_bytes * len(batch) // len(frame))
+            self._rows[first:last] += range_counts
+
+    def close(self) -> None:
+        for writer in self._writers:
+            if writer is not None:
+                writer.close()
+
+    @property
+    def group_count(self) -> int:
+        return len(self._ranges)
+
 
 class _WriterLane:
-    def __init__(self, create_writer: Callable[[], RollingParquetWriter], lane_index: int) -> None:
+    def __init__(self, create_writer: Callable[[], PartitionedParquetWriter], lane_index: int) -> None:
         self._create_writer = create_writer
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"parquet-writer-{lane_index}")
         self._future: Future[None] | None = None
-        self._writer: RollingParquetWriter | None = None
+        self._writer: PartitionedParquetWriter | None = None
         self.intervals: list[tuple[float, float]] = []
 
     def _write(self, frame: "cudf.DataFrame") -> None:
@@ -142,16 +289,10 @@ class ConcurrentParquetWriters:
 
     def __init__(
         self,
-        create_writer: Callable[[int], RollingParquetWriter],
+        create_writer: Callable[[int], PartitionedParquetWriter],
     ) -> None:
         self._create_writer = create_writer
         self._lanes: list[_WriterLane] = []
-        self._batch_rows = 0
-        self._batch_bytes = 0
-
-    @staticmethod
-    def _frame_bytes(frame: "cudf.DataFrame") -> int:
-        return int(frame.memory_usage(deep=True).sum())
 
     def _new_lane(self) -> _WriterLane:
         lane_index = len(self._lanes)
@@ -166,8 +307,6 @@ class ConcurrentParquetWriters:
         if not len(frame):
             return
         self.flush()
-        self._batch_rows = max(self._batch_rows, len(frame))
-        self._batch_bytes = max(self._batch_bytes, self._frame_bytes(frame))
         (self._lanes[0] if self._lanes else self._new_lane()).submit(frame)
 
     def flush(self) -> None:
@@ -198,8 +337,16 @@ class ConcurrentParquetWriters:
 
     @property
     def batch_rows(self) -> int:
-        return self._batch_rows
+        return max((lane._writer.batch_rows for lane in self._lanes if lane._writer is not None), default=0)
 
     @property
     def batch_bytes(self) -> int:
-        return self._batch_bytes
+        return max((lane._writer.batch_bytes for lane in self._lanes if lane._writer is not None), default=0)
+
+    @property
+    def batch_count(self) -> int:
+        return sum(lane._writer.batch_count for lane in self._lanes if lane._writer is not None)
+
+    @property
+    def group_count(self) -> int:
+        return sum(lane._writer.group_count for lane in self._lanes if lane._writer is not None)

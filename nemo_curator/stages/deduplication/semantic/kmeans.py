@@ -37,7 +37,7 @@ from .utils import (
     get_array_from_df,
     read_parquet_file_info,
 )
-from .write_utils import ConcurrentParquetWriters, RollingParquetWriter
+from .write_utils import ConcurrentParquetWriters, LocalPartitionedParquetWriter, RollingParquetWriter, local_path
 
 if TYPE_CHECKING:
     import cudf
@@ -274,6 +274,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 "kmeans_write_lane_count": writers.lane_count,
                 "kmeans_write_batch_rows": writers.batch_rows,
                 "kmeans_write_batch_bytes": writers.batch_bytes,
+                "kmeans_write_batch_count": writers.batch_count,
+                "kmeans_write_group_count": writers.group_count,
                 "kmeans_read_backpressure_count": read_backpressure_count,
                 "num_rows": total_rows,
             }
@@ -333,6 +335,22 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         if max_rows_per_partition < 1:
             msg = f"Embedding width {embedding_width} exceeds cuDF's column-size limit"
             raise ValueError(msg)
+        output_path = local_path(self.output_path, self.output_storage_options)
+        if output_path is not None:
+            supported_kwargs = {"compression", "statistics"}
+            unsupported = set(self.write_kwargs).difference(supported_kwargs)
+            if unsupported:
+                msg = f"Incremental KMeans output does not support write kwargs {sorted(unsupported)}"
+                raise ValueError(msg)
+            return ConcurrentParquetWriters(
+                lambda lane_index: LocalPartitionedParquetWriter(
+                    output_path=output_path,
+                    file_name_prefix=f"{tasks[0].task_id}_lane{lane_index}",
+                    n_partitions=self.n_clusters,
+                    max_rows_per_partition=max_rows_per_partition,
+                    write_kwargs=self.write_kwargs,
+                )
+            )
         return ConcurrentParquetWriters(
             lambda lane_index: RollingParquetWriter(
                 create_writer=lambda generation: self._create_dataset_writer(tasks, lane_index, generation),
