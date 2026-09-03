@@ -351,6 +351,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         try:
             return self._read_group(group, columns), False
         except MemoryError:
+            # TODO(https://github.com/NVIDIA/cudf/issues/23502): Remove this backpressure once
+            # partitioned writes no longer materialize an additional device-sized table.
             # A partitioned write temporarily holds a grouped copy of its input. If that leaves
             # too little room for the next read, finish the write and retry the same group once.
             logger.warning("Waiting for the in-flight Parquet write before retrying a prediction read")
