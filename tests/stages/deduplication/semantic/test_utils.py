@@ -79,8 +79,8 @@ def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() 
     pq.write_table(
         pa.table(
             {
-                "id": [1, 2],
-                "embeddings": pa.array([[1.0, 2.0], [3.0, 4.0]], type=pa.list_(pa.float32())),
+                "metadata.with.dot": [1, 2],
+                "embeddings.with.dot": pa.array([[1.0, 2.0], [3.0, 4.0]], type=pa.list_(pa.float32())),
             }
         ),
         sink,
@@ -94,13 +94,14 @@ def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() 
     ) as open_files:
         [info] = read_parquet_file_info(
             [remote_path],
-            retained_columns=["id"],
-            embedding_column="embeddings",
+            retained_columns=["metadata.with.dot"],
+            embedding_column="embeddings.with.dot",
         )
 
     open_files.assert_called_once_with([remote_path], storage_options=None, row_groups=[])
     assert info.path == remote_path
     assert info.num_rows == 2
+    assert info.metadata_bytes > 0
     assert info.embedding_elements == 4
 
 

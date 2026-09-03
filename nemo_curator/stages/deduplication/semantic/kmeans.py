@@ -44,7 +44,6 @@ import os
 import random
 import time
 
-import torch
 from loguru import logger
 
 # Column names
@@ -149,8 +148,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             raise ValueError(msg)
 
         if self.fit_data_fraction is not None:
-            return self._process_batch_two_pass(tasks, all_files)
-        return self._process_batch_single_pass(tasks, all_files)
+            return self._process_jsonl_two_pass(tasks, all_files)
+        return self._process_jsonl_single_pass(tasks, all_files)
 
     def _process_parquet(self, tasks: list[FileGroupTask], files: list[str]) -> list[EmptyTask]:  # noqa: PLR0915
         columns = list(dict.fromkeys([self.id_field, self.embedding_field, *self.metadata_fields]))
@@ -164,7 +163,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         footer_time = time.perf_counter() - footer_start
         self._log_metric("kmeans_footer_scan_time", footer_time)
 
-        fit_info, remaining_info = self._sample_fit_files(file_info)
+        fit_info, prediction_only_info = self._sample_fit_files(file_info)
         total_rows = sum(info.num_rows for info in file_info)
         fit_rows = sum(info.num_rows for info in fit_info)
         if fit_rows < self.n_clusters:
@@ -172,22 +171,21 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             raise ValueError(msg)
 
         fit_frames = iter(self._iter_parquet_frames(fit_info, columns))
+        read_start = time.perf_counter()
         first_fit_frame = next(fit_frames)
         embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
         fit_embeddings = cp.empty((fit_rows, embedding_width), dtype=cp.float32)
         sampled_chunks: list[tuple[cudf.DataFrame, int, int]] = []
-        read_time = 0.0
         offset = 0
-        read_start = time.perf_counter()
         for df in chain([first_fit_frame], fit_frames):
             stop = offset + len(df)
             embeddings = fit_embeddings[offset:stop]
             embeddings[...] = get_array_from_df(df, self.embedding_field)
-            embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
+            self._normalize_embeddings_in_place(embeddings)
             del df[self.embedding_field]
             sampled_chunks.append((df, offset, stop))
             offset = stop
-        read_time += time.perf_counter() - read_start
+        read_time = time.perf_counter() - read_start
         if offset != fit_rows:
             msg = f"Parquet footers reported {fit_rows} fit rows but the reader returned {offset}"
             raise RuntimeError(msg)
@@ -234,12 +232,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
-        if remaining_info:
+        if prediction_only_info:
             read_start = time.perf_counter()
-            for df in self._iter_parquet_frames(remaining_info, columns):
+            for df in self._iter_parquet_frames(prediction_only_info, columns):
                 read_time += time.perf_counter() - read_start
                 embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
-                embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
+                self._normalize_embeddings_in_place(embeddings)
                 predict_start = time.perf_counter()
                 labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
                 predict_time += time.perf_counter() - predict_start
@@ -253,8 +251,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 output_index += 1
                 read_start = time.perf_counter()
             read_time += time.perf_counter() - read_start
-
-        del self.kmeans
 
         if predicted_rows != total_rows:
             msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
@@ -301,9 +297,17 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 msg = f"No complete Parquet file fits the automatic KMeans budget of {budget} bytes"
                 raise MemoryError(msg)
         fit_paths = {info.path for info in fit}
-        remaining = [info for info in file_info if info.path not in fit_paths]
-        logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
-        return fit, remaining
+        prediction_only = [info for info in file_info if info.path not in fit_paths]
+        if self.fit_data_fraction is None and prediction_only:
+            fit_rows = sum(info.num_rows for info in fit)
+            total_rows = sum(info.num_rows for info in file_info)
+            logger.warning(
+                f"Automatic KMeans sizing selected {len(fit)}/{len(file_info)} files "
+                f"({fit_rows}/{total_rows} rows) for fitting. Set fit_data_fraction=1.0 to fit all input rows."
+            )
+        else:
+            logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
+        return fit, prediction_only
 
     def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
         for group in break_parquet_partition_into_groups(file_info):
@@ -360,12 +364,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         msg = f"Unsupported data type: {self.filetype}"
         raise ValueError(msg)
 
-    def _process_batch_single_pass(self, tasks: list[FileGroupTask], files: list[str]) -> list["EmptyTask"]:
+    def _process_jsonl_single_pass(self, tasks: list[FileGroupTask], files: list[str]) -> list["EmptyTask"]:
         """Read, fit, predict, and write JSONL input in one pass."""
         t0 = time.perf_counter()
         df = self._read_group(files, [self.id_field, self.embedding_field, *self.metadata_fields])
-        df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
-        embeddings = get_array_from_df(df, self.embedding_field)
+        embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+        self._normalize_embeddings_in_place(embeddings)
+        df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=df.index)
 
         t1 = time.perf_counter()
         self._log_metrics({"kmeans_read_time": t1 - t0, "num_rows": len(df)})
@@ -396,7 +401,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         return [EmptyTask(dataset_name="kmeans_group_0", _metadata=None, _stage_perf=[], data=None)]
 
-    def _process_batch_two_pass(self, tasks: list[FileGroupTask], files: list[str]) -> list["EmptyTask"]:
+    def _process_jsonl_two_pass(self, tasks: list[FileGroupTask], files: list[str]) -> list["EmptyTask"]:
         """Fit on sampled JSONL files, then predict and write every file."""
         pass1_read_time = self._fit_pass(files)
         results, pass2_read_time, total_rows = self._predict_write_pass(tasks, files)
@@ -436,9 +441,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         t0 = time.perf_counter()
         df = self._read_group(fit_files, [self.embedding_field])
         sampled_rows = len(df)
-        df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
-        # The copy detaches the fit buffer before releasing its DataFrame.
-        concatenated_samples = get_array_from_df(df, self.embedding_field).copy()
+        concatenated_samples = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=True)
+        self._normalize_embeddings_in_place(concatenated_samples)
         del df
         gc.collect()
 
@@ -479,8 +483,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         """
         t_start = time.perf_counter()
         df = self._read_group(files, [self.id_field, self.embedding_field, *self.metadata_fields])
-        df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
-        embeddings = get_array_from_df(df, self.embedding_field)
+        embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+        self._normalize_embeddings_in_place(embeddings)
+        df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=df.index)
         pass2_read_time = time.perf_counter() - t_start
         total_rows = len(df)
 
@@ -532,11 +537,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         )
 
     @staticmethod
-    def normalize_embeddings_col_in_df(df: "cudf.DataFrame", embedding_col: str) -> "cudf.DataFrame":
-        tensor = torch.Tensor(get_array_from_df(df, embedding_col))
-        normalized_tensor = tensor / torch.norm(tensor, dim=1, keepdim=True)
-        df[embedding_col] = create_list_series_from_1d_or_2d_ar(cp.asarray(normalized_tensor), index=df.index)
-        return df
+    def _normalize_embeddings_in_place(embeddings: "cp.ndarray") -> None:
+        embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
 
     @staticmethod
     def _assign_distances(df: "cudf.DataFrame", embedding_col: str, centroids: "cp.ndarray") -> "cudf.DataFrame":
@@ -623,6 +625,11 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction <= 1.0:
             msg = f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; pass None for automatic sizing"
             raise ValueError(msg)
+        if self.fit_data_fraction is None and self.input_filetype == "jsonl":
+            logger.warning(
+                "fit_data_fraction=None fits all JSONL input in one pass; automatic GPU-memory sizing is only "
+                "available for Parquet input"
+            )
 
     def decompose(self) -> list[ProcessingStage]:
         # Set default file extensions based on input_filetype if not provided

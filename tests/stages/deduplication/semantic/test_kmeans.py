@@ -217,7 +217,7 @@ class TestKMeansStageIntegration:
     @pytest.fixture(scope="class", autouse=True)
     def file_format_config(self, request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> None:
         """Setup fixture that runs pipeline once per class."""
-        # Use parquet for the end-to-end integration run (JSONL read is tested in test_process_batch_read_paths).
+        # Use Parquet here; the parameterized integration cases below cover both JSONL paths.
         request.cls.file_format = "parquet"
 
         # Create fresh directories using tmp_path_factory for class-scoped fixture
@@ -478,12 +478,11 @@ class TestKMeansReadFitWriteStage:
             decimal=4,
         )
 
-    def test_normalize_embeddings_col_in_df(self):
-        """Test normalize_embeddings_col_in_df method normalizes embeddings correctly."""
-        df = cudf.DataFrame(
-            {
-                "embedding": [[3, 4, 5], [1, 2, 2], [1, 0, 0]],
-            }
+    def test_normalize_embeddings_in_place(self):
+        """Normalization updates the exact embedding buffer instead of allocating a replacement."""
+        embeddings = cp.array(
+            [[3, 4, 5], [1, 2, 2], [1, 0, 0]],
+            dtype=cp.float32,
         )
         expected_normalized = cp.array(
             [
@@ -493,16 +492,9 @@ class TestKMeansReadFitWriteStage:
             ]
         )
 
-        # Call the function
-        normalized_embeddings = KMeansReadFitWriteStage.normalize_embeddings_col_in_df(df, "embedding")
+        KMeansReadFitWriteStage._normalize_embeddings_in_place(embeddings)
 
-        # Assert the normalized embeddings match the expected values
-        cp.testing.assert_allclose(
-            get_array_from_df(normalized_embeddings, "embedding"),
-            expected_normalized,
-            rtol=1e-5,
-            atol=1e-5,
-        )
+        cp.testing.assert_allclose(embeddings, expected_normalized, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:
@@ -531,21 +523,21 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=0.5)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", i + 1, 10) for i in range(5)]
 
-        fit, remaining = stage._sample_fit_files(file_info)
+        fit, prediction_only = stage._sample_fit_files(file_info)
 
         assert len(fit) == 2
-        assert {info.path for info in fit}.isdisjoint(info.path for info in remaining)
-        assert {info.path for info in [*fit, *remaining]} == {info.path for info in file_info}
+        assert {info.path for info in fit}.isdisjoint(info.path for info in prediction_only)
+        assert {info.path for info in [*fit, *prediction_only]} == {info.path for info in file_info}
 
     def test_full_fit_samples_every_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """A fraction of one is the explicit full-fit path used by the scale benchmark."""
         stage = make_stage(fit_data_fraction=1.0)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", 1, 0) for i in range(5)]
 
-        fit, remaining = stage._sample_fit_files(file_info)
+        fit, prediction_only = stage._sample_fit_files(file_info)
 
         assert {info.path for info in fit} == {info.path for info in file_info}
-        assert remaining == []
+        assert prediction_only == []
 
     def test_auto_fit_budget_includes_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """Auto-fit budgets retained metadata as well as the preallocated embedding buffer."""
@@ -555,11 +547,15 @@ class TestKMeansReadFitWriteStage:
             ParquetFileInfo("fits.parquet", 10, 0, embedding_elements=20),
         ]
 
-        with patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)):
-            fit, remaining = stage._sample_fit_files(file_info)
+        with (
+            patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)),
+            patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
+        ):
+            fit, prediction_only = stage._sample_fit_files(file_info)
 
         assert [info.path for info in fit] == ["fits.parquet"]
-        assert [info.path for info in remaining] == ["metadata-heavy.parquet"]
+        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
+        assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
 
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),

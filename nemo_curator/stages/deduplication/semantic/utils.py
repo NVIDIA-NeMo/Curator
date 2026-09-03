@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     import cudf
     import cupy as cp
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 from fsspec.parquet import open_parquet_files
 from fsspec.utils import get_protocol
@@ -45,8 +46,14 @@ def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
     return df[embedding_col].list.leaves.values.reshape(len(df), -1)
 
 
-def _root_column(path: str | list[str]) -> str:
-    return path[0] if isinstance(path, list) else path.split(".", maxsplit=1)[0]
+def _parquet_leaf_count(data_type: pa.DataType) -> int:
+    """Count physical Parquet columns below an Arrow data type."""
+    return sum(_parquet_leaf_count(data_type.field(i).type) for i in range(data_type.num_fields)) or 1
+
+
+def _top_level_column_names(metadata: pq.FileMetaData) -> list[str]:
+    """Map each physical Parquet column to its top-level Arrow field."""
+    return [field.name for field in metadata.schema.to_arrow_schema() for _ in range(_parquet_leaf_count(field.type))]
 
 
 def read_parquet_file_info(  # noqa: C901
@@ -69,15 +76,16 @@ def read_parquet_file_info(  # noqa: C901
                 parquet_files = open_parquet_files(batch, storage_options=storage_options, row_groups=[])
                 for path, parquet_file in zip(batch, parquet_files, strict=True):
                     metadata = pq.read_metadata(parquet_file)
+                    top_level_columns = _top_level_column_names(metadata)
                     metadata_bytes = 0
                     embedding_elements = 0
                     for row_group_index in range(metadata.num_row_groups):
                         row_group = metadata.row_group(row_group_index)
-                        for column_index in range(row_group.num_columns):
+                        for column_index, top_level_column in enumerate(top_level_columns):
                             column = row_group.column(column_index)
-                            if _root_column(column.path_in_schema) in retained:
+                            if top_level_column in retained:
                                 metadata_bytes += column.total_uncompressed_size
-                            if _root_column(column.path_in_schema) == embedding_column:
+                            if top_level_column == embedding_column:
                                 embedding_elements += column.num_values
                     result.append(
                         ParquetFileInfo(
@@ -97,16 +105,16 @@ def read_parquet_file_info(  # noqa: C901
             footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(batch))
             for path, footer in zip(batch, footers, strict=True):
                 metadata_bytes = sum(
-                    column.meta_data.total_uncompressed_size
+                    column_chunk.meta_data.total_uncompressed_size
                     for row_group in footer.row_groups
-                    for column in row_group.columns
-                    if _root_column(column.meta_data.path_in_schema) in retained
+                    for column_chunk in row_group.columns
+                    if column_chunk.meta_data.path_in_schema[0] in retained
                 )
                 embedding_elements = sum(
-                    column.meta_data.num_values
+                    column_chunk.meta_data.num_values
                     for row_group in footer.row_groups
-                    for column in row_group.columns
-                    if _root_column(column.meta_data.path_in_schema) == embedding_column
+                    for column_chunk in row_group.columns
+                    if column_chunk.meta_data.path_in_schema[0] == embedding_column
                 )
                 result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, embedding_elements))
         return result  # noqa: TRY300
