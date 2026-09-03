@@ -81,11 +81,13 @@ def test_rolling_writer_limits_rows_per_partition() -> None:
         max_rows_per_partition=2,
         partition_column="centroid",
     )
-    writer.write_table(cudf.DataFrame({"centroid": [0, 0, 1], "value": [1, 2, 3]}))
-    writer.write_table(cudf.DataFrame({"centroid": [0, 1], "value": [4, 5]}))
+    # The first call is itself too large for centroid 0; the second call also
+    # checks that each centroid continues in the right generation afterward.
+    writer.write_table(cudf.DataFrame({"centroid": [0, 0, 0, 0, 0, 1], "value": range(6)}))
+    writer.write_table(cudf.DataFrame({"centroid": [0, 1], "value": [6, 7]}))
     writer.close()
 
-    assert [generation for generation, _ in created] == [0, 1]
+    assert [generation for generation, _ in created] == [0, 1, 2]
     for _, created_writer in created:
         partition_counts = cudf.concat(created_writer.frames).groupby("centroid").size()
         assert partition_counts.max() <= 2
