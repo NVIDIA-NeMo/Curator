@@ -301,6 +301,10 @@ All models in one server must have unique `model_name` values. Dynamo also rejec
 | `router` | `DynamoRouterConfig` | Default config | Routing mode and frontend options. |
 | `subprocess_env` | `dict[str, str]` | `{}` | Environment variables propagated to etcd/NATS-aware workers and the frontend. |
 
+<Note>
+NeMo Curator's own resolved `ETCD_ENDPOINTS` and `NATS_SERVER` values always take precedence over any same-named keys in `subprocess_env`, so setting them there to point workers at a different etcd/NATS instance is silently ignored. Use `etcd_endpoint` and `nats_url` instead.
+</Note>
+
 ## Dynamo Routing
 
 ```python
@@ -358,6 +362,31 @@ Use `DynamoServerConfig.subprocess_env` for variables that must reach the Dynamo
 ```python
 backend = DynamoServerConfig(
     subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": "180"},
+)
+```
+
+### Choosing `runtime_env` vs. `subprocess_env`
+
+A Dynamo model's actor has its own **isolated Python virtualenv**, cloned from the environment that launched the driver process and then installed on top of additively (see [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) for this Ray behavior generally). Inside that actor, Dynamo then launches a **worker subprocess** that runs vLLM. `DynamoVLLMModelConfig.runtime_env` is per-model — it doesn't reach other models' worker actors. `DynamoServerConfig.subprocess_env` is server-wide — it reaches every configured model's worker plus the frontend. Use the mechanism that matches both what you're changing and who needs it:
+
+| You need to | Use | Why |
+| --- | --- | --- |
+| Install or pin a Python package before the worker starts (a plugin, a newer library version) | `runtime_env` on the model config | Only `runtime_env` builds the isolated actor virtualenv; a package that isn't installed there can't be imported |
+| Set an env var only one model's worker needs (an engine feature flag, a model-specific cache path) | `runtime_env["env_vars"]` on that model config | Doesn't reach other models' workers; setting it on `subprocess_env` instead would leak it onto every one of them |
+| Set a value every model's worker (and the frontend) should read at startup (a transport timeout, a shared cache directory) | `subprocess_env` on `DynamoServerConfig` | Applied server-wide, without touching any virtualenv |
+| Make a local module importable everywhere without installing it as a package (for example, a compatibility shim all workers need) | `PYTHONPATH` in `subprocess_env` | `PYTHONPATH` extends `sys.path` at process start; it doesn't require a package install, so it belongs with the other server-wide subprocess settings |
+
+<Note>
+A model's `runtime_env` is not isolated from the shared Dynamo **frontend** actor: NeMo Curator merges every configured model's `runtime_env` into the frontend's virtualenv build. `env_vars` merge cleanly (on a conflicting key, the last model in your `models` list wins on the frontend), but `uv`/`pip` package lists are concatenated, not reconciled — if two models pin incompatible versions of the same package, both requirements are installed together and can fail to resolve, which would prevent the frontend (and the whole server) from starting. Keep model-specific package pins compatible across every model in the same server, or move genuinely conflicting models to separate `InferenceServer` instances.
+</Note>
+
+<Warning>
+Do not export an installer-relevant or import-relevant variable in the shell that starts your driver process. The driver's shell environment does not propagate into the isolated actor virtualenv, and if the variable does reach Ray itself rather than only the worker subprocess, it can cause Ray to import something unexpected and stall cluster or actor startup. Scope the variable with `runtime_env` or `subprocess_env` instead.
+</Warning>
+
+```python
+backend = DynamoServerConfig(
+    subprocess_env={"PYTHONPATH": "/abs/path/to/compat-shim-dir"},
 )
 ```
 
@@ -467,6 +496,7 @@ Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num
 - Check the model name returned by `/v1/models`; local paths often need an explicit `model_name` alias.
 - Confirm the requested tensor-parallel groups fit the cluster topology.
 - For Dynamo, inspect subprocess logs under the Ray session's `nemo_curator_dynamo_<id>` directory.
+- If the whole server (including other models) fails to start, check whether two models' `runtime_env` package pins conflict — see [Choosing `runtime_env` vs. `subprocess_env`](#choosing-runtime_env-vs-subprocess_env).
 
 ### Dynamo Cannot Start etcd or NATS
 
@@ -479,6 +509,27 @@ On PCIe systems without peer-to-peer GPU access, restart Ray or the Python kerne
 ### Runtime Environment Times Out
 
 Ensure cluster nodes can reach the package index and share compatible Python, CUDA, and Ray versions. Dynamo actor setup uses a 600-second timeout; prebuild the NeMo Curator container when workers cannot install packages at runtime.
+
+### General Debugging Tips for Dynamo Startup and Compatibility Issues
+
+- **Identify which environment failed.** An error during actor creation, before any worker subprocess log appears, points to a `runtime_env` / virtualenv problem. An error inside the worker's own logs, after the actor already exists, points to something in the already-built virtualenv or `subprocess_env`. See [Choosing `runtime_env` vs. `subprocess_env`](#choosing-runtime_env-vs-subprocess_env).
+- **Remember that installing packages via `runtime_env` can disturb a pin already cloned into the actor virtualenv.** The actor virtualenv starts as a clone of the driver's, but any package `runtime_env` installs on top resolves its own dependencies — which can silently pull in a different version of something the driver already had pinned (its Ray version, an excluded incompatible build). Supply that pin or exclusion again through the model's `runtime_env` rather than assuming the clone protects it.
+- **Rule out GPU memory contention before suspecting a compatibility issue.** A startup failure that looks like a version mismatch can also come from a competing process leaving too little free GPU memory for vLLM's requested `gpu_memory_utilization`. Check with `nvidia-smi` first.
+- **Reproduce with the smallest possible configuration**: one model, one replica, and `enforce_eager` in `engine_kwargs` if graph capture is a suspect. Confirm a fix there before scaling back up to your full topology.
+- **Smoke-test after any `runtime_env`, `subprocess_env`, model, or engine-kwarg change**, with one replica and one request, before trusting a full run. A model appearing at `/v1/models` confirms registration, not that generation itself will succeed.
+
+### Example: A CUTLASS or QuACK Version-Mismatch Error
+
+vLLM JIT-compiles some fused/quantized kernels using **CUTLASS** (NVIDIA's GPU kernel template library, via its Python `cutlass.cute` interface) and, for some kernels, **QuACK**, which is built on that same interface. If the installed CUTLASS/QuACK build doesn't match the rest of the stack, the failure usually doesn't look like a version error — it shows up at kernel warm-up as a plain `AttributeError` naming a missing `cutlass.cute.core` symbol, for example:
+
+```text
+AttributeError: module 'cutlass.cute.core' has no attribute 'ThrMma'
+```
+
+This is easy to mistake for a model or vLLM bug, since nothing in the message mentions CUDA or CUTLASS versions. If you hit something like this:
+
+- Check the CUDA tag on any newly added or newly resolved package against the `cu129` baseline that NeMo Curator's Dynamo stack targets (`vllm==0.22.0+cu129`). A stray `cu13`-tagged wheel is one checkable cause.
+- If the tags all check out, the installed CUTLASS/QuACK build may simply be too old for your GPU architecture — try a newer `ai-dynamo[vllm]` pin.
 
 ## Next Steps
 
