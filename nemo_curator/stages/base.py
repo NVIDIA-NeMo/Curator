@@ -125,6 +125,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
+    # Framework-owned execution identity populated by ``Pipeline``.
+    _curator_stage_id: str = ""
 
     # Source / sink role flags. User-overridable on the stage class or
     # instance. If neither is set explicitly on any stage in the pipeline,
@@ -235,10 +237,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         if isinstance(input_specs, tuple):
             return self._validate_input_spec(input_specs, "inputs()")
         if not isinstance(input_specs, dict):
-            msg = (
-                f"Stage {self.name} inputs() must return an input spec tuple "
-                "or dict of task type to input spec"
-            )
+            msg = f"Stage {self.name} inputs() must return an input spec tuple or dict of task type to input spec"
             raise TypeError(msg)
 
         # Search the task's MRO from most to least specific. For example, given
@@ -246,9 +245,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         # for CustomDocumentBatch first, then DocumentBatch, and finally Task.
         for candidate_type in type(task).mro():
             if candidate_type in input_specs:
-                return self._validate_input_spec(
-                    input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]"
-                )
+                return self._validate_input_spec(input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]")
 
         supported_task_types = ", ".join(supported_type.__name__ for supported_type in input_specs) or "<none>"
         msg = (
@@ -515,6 +512,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         metrics: dict[str, float] = dict(self._custom_metrics)
         del self._custom_metrics
         return metrics
+
+    def requests_performance_records(self) -> bool:
+        """Return whether this stage requires a complete run-scoped record set."""
+        return False
 
 
 class CompositeStage(ProcessingStage[X, Y], ABC):
