@@ -21,6 +21,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+# TODO: Remove the GPU markers when the semantic package can be imported without GPU-only dependencies.
+
 
 @pytest.mark.gpu
 def test_get_array_from_df() -> None:
@@ -105,7 +107,7 @@ def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() 
     assert info.embedding_elements == 4
 
 
-@pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
+@pytest.mark.gpu
 class TestBreakParquetPartitionIntoGroups:
     def test_calculation_logic(self) -> None:
         from nemo_curator.stages.deduplication.semantic.utils import (

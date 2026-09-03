@@ -150,7 +150,7 @@ Compare semantic deduplication with other methods:
 | `model_cache_dir` | str | `None` | Directory to cache model weights |
 | `n_clusters` | int | `100` | Number of clusters for k-means clustering |
 | `kmeans_max_iter` | int | `300` | Maximum iterations for clustering |
-| `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of whole files used to fit K-means. `None` automatically selects complete files within the live GPU-memory budget. |
+| `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of whole files used to fit K-means. With `None`, Parquet automatically selects complete files within the live GPU-memory budget, while JSONL fits all input files. |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
 | `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
@@ -167,7 +167,12 @@ The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` use the parame
 
 ### Reduce K-means fitting memory
 
-By default, `fit_data_fraction=None` selects as many complete files as fit 60% of the actor's currently free GPU memory. The estimate includes both the contiguous float32 fit array and the retained metadata needed to predict and write sampled rows without reading those files again.
+The behavior of `fit_data_fraction=None` depends on the input format:
+
+- **Parquet:** Selects as many complete files as fit 60% of the actor's currently free GPU memory. The estimate includes both the contiguous float32 fit array and the retained metadata needed to predict and write sampled rows without reading those files again.
+- **JSONL:** Fits all input files in one pass because row and embedding counts are not available without reading the data.
+
+Parquet is recommended for large semantic-deduplication workloads. Its footer metadata enables exact memory sizing and reads bounded below cuDF's column-size limit. Parquet also retains sampled rows for prediction, whereas an explicit JSONL fit fraction uses one pass to fit sampled files and a second pass over all files to predict every row.
 
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly:
 
@@ -178,7 +183,8 @@ Set a fraction in `(0, 1]` to choose the number of sampled files explicitly:
 Because sampling is file-based rather than row-based, the realized row fraction can differ from the configured value when file sizes vary. Every actor contributes at least one file, so very small fractions can also sample more data than expected on highly parallel runs. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
 
 <Note>
-All input rows receive cluster assignments; the fraction affects only centroid fitting. Both fitting and prediction use exact Parquet footer element counts to keep each read below cuDF's column-size limit.
+All input rows receive cluster assignments; the fraction affects only centroid fitting. For Parquet input,
+both fitting and prediction use exact footer element counts to keep each read below cuDF's column-size limit.
 </Note>
 
 <Tabs>

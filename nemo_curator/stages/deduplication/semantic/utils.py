@@ -119,6 +119,7 @@ def read_parquet_file_info(  # noqa: C901
                 result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, embedding_elements))
         return result  # noqa: TRY300
     except Exception as error:
+        # TODO: Retry failed footer batches file-by-file so the error can expose the individual filename(s).
         msg = f"Failed to read Parquet footer metadata for one of {len(files)} files"
         raise RuntimeError(msg) from error
 
