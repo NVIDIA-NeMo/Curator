@@ -222,6 +222,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         writers = self._create_concurrent_writers(tasks, embedding_width)
         write_pipeline_start = time.perf_counter()
         predicted_rows = 0
+        read_backpressure_count = 0
         try:
             for metadata, start, stop in sampled_chunks:
                 self._submit_output_batches(
@@ -241,7 +242,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
             if prediction_only_info:
                 read_start = time.perf_counter()
-                for df in self._iter_parquet_frames(prediction_only_info, columns):
+                for group in break_parquet_partition_into_groups(prediction_only_info):
+                    df, was_backpressured = self._read_prediction_group(group, columns, writers)
+                    read_backpressure_count += was_backpressured
                     read_time += time.perf_counter() - read_start
                     embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
                     self._normalize_embeddings_in_place(embeddings)
@@ -265,12 +268,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             {
                 "kmeans_read_time": read_time,
                 "kmeans_predict_time": predict_time,
-                "kmeans_write_pipeline_time": time.perf_counter() - write_pipeline_start,
+                "kmeans_output_pipeline_time": time.perf_counter() - write_pipeline_start,
                 "kmeans_write_work_time": writers.write_work_time,
                 "kmeans_write_wall_time": writers.write_wall_time,
                 "kmeans_write_lane_count": writers.lane_count,
                 "kmeans_write_batch_rows": writers.batch_rows,
                 "kmeans_write_batch_bytes": writers.batch_bytes,
+                "kmeans_read_backpressure_count": read_backpressure_count,
                 "num_rows": total_rows,
             }
         )
@@ -337,6 +341,23 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 partition_column="centroid",
             )
         )
+
+    def _read_prediction_group(
+        self,
+        group: list[str],
+        columns: list[str],
+        writers: ConcurrentParquetWriters,
+    ) -> tuple["cudf.DataFrame", bool]:
+        try:
+            return self._read_group(group, columns), False
+        except MemoryError:
+            # A partitioned write temporarily holds a grouped copy of its input. If that leaves
+            # too little room for the next read, finish the write and retry the same group once.
+            logger.warning("Waiting for the in-flight Parquet write before retrying a prediction read")
+            writers.flush()
+            gc.collect()
+            cp.get_default_memory_pool().free_all_blocks()
+            return self._read_group(group, columns), True
 
     def _create_dataset_writer(
         self,

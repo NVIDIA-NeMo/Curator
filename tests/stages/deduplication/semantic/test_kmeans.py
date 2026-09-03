@@ -452,6 +452,20 @@ class TestKMeansReadFitWriteStage:
         with pytest.raises(ValueError, match="Only jsonl and parquet are supported"):
             stage.process_batch([FileGroupTask(dataset_name="test", data=["input.csv"])])
 
+    def test_prediction_read_waits_for_writer_after_oom(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        """A read that collides with an in-flight write is retried after that write releases memory."""
+        stage = make_stage()
+        frame = cudf.DataFrame({"id": [1]})
+        stage._read_group = Mock(side_effect=[MemoryError, frame])
+        writers = Mock()
+
+        result, was_backpressured = stage._read_prediction_group(["input.parquet"], ["id"], writers)
+
+        assert result is frame
+        assert was_backpressured
+        assert stage._read_group.call_count == 2
+        writers.flush.assert_called_once_with()
+
     def test_assign_distances(self):
         """Test _assign_distances method computes L2 and cosine distances correctly."""
         df = cudf.DataFrame(

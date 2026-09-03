@@ -116,6 +116,9 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913, PLR0915
     kmeans_write_lane_count = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_lane_count_mean")
     kmeans_write_wall_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_wall_time_mean")
     kmeans_write_work_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_work_time_mean")
+    kmeans_write_batch_rows = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_batch_rows_mean")
+    kmeans_write_batch_bytes = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_batch_bytes_mean")
+    kmeans_read_backpressure_count = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_backpressure_count_sum")
     kmeans_actual_fit_percent = (
         round(100 * kmeans_fit_rows / num_documents_processed, 2) if num_documents_processed else None
     )
@@ -146,17 +149,17 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913, PLR0915
     pairwise_percent_time = None
     kmeans_footer_scan_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_footer_scan_time_mean", 0)
     kmeans_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_time_mean", 0)
-    kmeans_write_pipeline_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_pipeline_time_mean")
+    kmeans_output_pipeline_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_output_pipeline_time_mean")
     kmeans_write_time = (
-        kmeans_write_pipeline_time
-        if kmeans_write_pipeline_time is not None
+        kmeans_write_wall_time
+        if kmeans_write_wall_time is not None
         else task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
     )
     kmeans_fit_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_time_mean", 0)
     kmeans_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_predict_time_mean", 0)
     kmeans_fit_predict_time = (
-        kmeans_fit_time
-        if kmeans_write_pipeline_time is not None
+        kmeans_fit_time + kmeans_predict_time
+        if kmeans_output_pipeline_time is not None
         else task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean", kmeans_fit_time)
     )
     if workflow_total_time:
@@ -188,6 +191,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913, PLR0915
             "kmeans_fit_time_s": kmeans_fit_time,
             "kmeans_predict_time_s": kmeans_predict_time,
             "kmeans_write_time_s": kmeans_write_time,
+            "kmeans_output_pipeline_time_s": kmeans_output_pipeline_time,
             "kmeans_fit_rows": kmeans_fit_rows,
             "kmeans_fit_files": kmeans_fit_files,
             "kmeans_input_files": kmeans_input_files,
@@ -197,6 +201,9 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913, PLR0915
             "kmeans_write_lane_count": kmeans_write_lane_count,
             "kmeans_write_wall_time": kmeans_write_wall_time,
             "kmeans_write_work_time": kmeans_write_work_time,
+            "kmeans_write_max_batch_rows": kmeans_write_batch_rows,
+            "kmeans_write_max_batch_bytes": kmeans_write_batch_bytes,
+            "kmeans_read_backpressure_count": kmeans_read_backpressure_count,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,
             "kmeans_write_percent_time": kmeans_write_percent_time,

@@ -166,8 +166,8 @@ class ConcurrentParquetWriters:
         if not len(frame):
             return
         self.flush()
-        self._batch_rows = len(frame)
-        self._batch_bytes = self._frame_bytes(frame)
+        self._batch_rows = max(self._batch_rows, len(frame))
+        self._batch_bytes = max(self._batch_bytes, self._frame_bytes(frame))
         (self._lanes[0] if self._lanes else self._new_lane()).submit(frame)
 
     def flush(self) -> None:
