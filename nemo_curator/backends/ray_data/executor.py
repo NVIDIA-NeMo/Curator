@@ -45,9 +45,9 @@ class RayDataExecutor(BaseExecutor):
         Args:
             config (dict[str, Any], optional): Configuration dictionary.
             ignore_head_node (bool, optional): Whether to skip the Ray head node for
-                ``setup_on_node``. Ray Data controls ``map_batches`` task/actor placement
-                through Ray's scheduler; this flag does not cap actor-pool size or force
-                Ray Data workers away from the head node.
+                ``setup_on_node`` and per-node worker-count calculations. Ray Data controls
+                ``map_batches`` placement, so this flag does not force workers away from
+                the head node.
         """
         super().__init__(config, ignore_head_node)
 
