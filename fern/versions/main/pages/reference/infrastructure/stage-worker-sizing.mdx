@@ -46,7 +46,7 @@ class PassthroughStage(ProcessingStage[EmptyTask, EmptyTask]):
 | Backend | `num_workers=N`, where `N > 0` | `num_workers_per_node=N`, where `N > 0` | Neither set |
 | --- | --- | --- | --- |
 | Ray Data actor stage | Fixed `ActorPoolStrategy(size=N)` | Fixed pool sized as `ceil(N × alive nodes)` with best-effort `SPREAD` | Autoscaling actor pool, minimum 1 with no maximum by default |
-| Ray Data task stage | Fixed `TaskPoolStrategy(size=N)` | Fixed pool sized as `ceil(N × alive nodes)` with best-effort `SPREAD` | Ray Data's default task scheduling; no explicit compute strategy |
+| Ray Data task stage | Concurrency capped by `TaskPoolStrategy(size=N)` | Concurrency capped at `ceil(N × alive nodes)` with best-effort `SPREAD` | Ray Data's default task scheduling; no explicit compute strategy |
 | Xenna | Exactly `N` workers across the cluster | Xenna receives `N` directly as its per-node count | Xenna determines worker allocation |
 | Ray Actor Pool | Requests `N`; caps it if fewer actors fit | Requests `ceil(N × alive nodes)` with best-effort `SPREAD`; caps it if fewer actors fit | Chooses the smaller of work batches and resource capacity |
 
@@ -135,7 +135,7 @@ executor = RayDataExecutor()
 
 Without a positive `num_workers`, a task stage does not set `compute`; Ray Data uses its default task scheduler.
 
-### Fixed pool per node
+### Pool sizing per node
 
 Use the same portable override for actor or task stages:
 

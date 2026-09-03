@@ -190,7 +190,7 @@ results = pipeline.run(executor)
 |-----|------|---------|-------------|
 | `ignore_failures` | `bool` | `False` | If `True`, continue pipeline execution even when tasks fail |
 
-Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for task stages. Configure a fixed cluster-wide pool with `stage.with_(num_workers=N)`, a fixed per-node pool with `stage.with_(num_workers_per_node=N)`, or actor autoscaling with `min_workers`, `max_workers`, and `initial_workers` in `ray_stage_spec`. Per-node sizing uses a cluster-wide pool plus best-effort `SPREAD` placement; it is not a hard node-affinity constraint. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-data-worker-pools) for copy-pasteable examples and conflict rules.
+Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for task stages. Configure fixed actor pools or task concurrency caps with `stage.with_(num_workers=N)` or `stage.with_(num_workers_per_node=N)`. Configure actor autoscaling with `min_workers`, `max_workers`, and `initial_workers` in `ray_stage_spec`. Per-node sizing uses a cluster-wide count plus best-effort `SPREAD` placement; it is not a hard node-affinity constraint. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-data-worker-pools) for copy-pasteable examples and conflict rules.
 
 Ray Data may fuse adjacent operators when their compute and resource requirements are compatible. Matching resources enables the optimization but does not guarantee it; Ray Data makes the final optimizer decision. The [resource matching and fusion reference](/reference/infra/stage-worker-sizing#resource-matching-and-ray-data-fusion) explains the video-stage CPU reservation behavior.
 

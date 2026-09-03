@@ -151,6 +151,12 @@ def calculate_optimal_actors_for_resources(
 ) -> int:
     """Calculate an actor count from a supplied CPU/GPU availability snapshot."""
     available_cpus, available_gpus = available_resources
+    num_workers = stage.num_workers()
+    num_workers_per_node = get_stage_num_workers_per_node(stage)
+    requested_actors = None
+    if num_workers_per_node is not None:
+        num_nodes = get_alive_ray_node_count(ignore_head_node=ignore_head_node)
+        requested_actors = get_num_workers_for_nodes(num_workers_per_node, num_nodes, stage.name)
 
     # Calculate max actors based on CPU constraints
     max_actors_cpu = int(available_cpus // stage.resources.cpus) if stage.resources.cpus > 0 else _LARGE_INT
@@ -169,8 +175,6 @@ def calculate_optimal_actors_for_resources(
         msg = f"No resources available for stage {stage.name}."
         raise _NoResourcesAvailableError(msg)
 
-    num_workers = stage.num_workers()
-    num_workers_per_node = get_stage_num_workers_per_node(stage)
     if num_workers is not None and num_workers > 0:
         if num_workers > max_actors_resources:
             msg = (
@@ -182,9 +186,7 @@ def calculate_optimal_actors_for_resources(
             return max_actors_resources
         return num_workers
 
-    if num_workers_per_node is not None:
-        num_nodes = get_alive_ray_node_count(ignore_head_node=ignore_head_node)
-        requested_actors = get_num_workers_for_nodes(num_workers_per_node, num_nodes, stage.name)
+    if requested_actors is not None:
         if requested_actors > max_actors_resources:
             msg = (
                 f"Stage {stage.name} requires {requested_actors} actors from num_workers_per_node(), "
