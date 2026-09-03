@@ -39,7 +39,7 @@ def mock_tokenizer() -> Mock:
     tokenizer.vocab_size = 2**12
     tokenizer.eos_token_id = 1
 
-    def mock_batch_encode_plus(texts: list[str], **kwargs: Any) -> MockTokenizerOutput:  # noqa: ANN401 ARG001
+    def mock_tokenize(texts: list[str], **kwargs: Any) -> MockTokenizerOutput:  # noqa: ANN401 ARG001
         input_ids: list[list[int]] = []
         attention_masks: list[list[int]] = []
 
@@ -57,7 +57,7 @@ def mock_tokenizer() -> Mock:
 
         return MockTokenizerOutput(input_ids, attention_masks)
 
-    tokenizer.batch_encode_plus = mock_batch_encode_plus
+    tokenizer.side_effect = mock_tokenize
     return tokenizer
 
 
@@ -87,7 +87,7 @@ def test_mocks_are_working_automatically(tmpdir: str):
     assert stage.tokenizer is not None
     assert stage.tokenizer.vocab_size is not None
     assert stage.tokenizer.eos_token_id is not None
-    assert hasattr(stage.tokenizer, "batch_encode_plus")
+    assert callable(stage.tokenizer)
 
 
 class TestMegatronTokenizerWriter:

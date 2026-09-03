@@ -12,7 +12,7 @@ Every classifier expects the text column to be tokenized before feeding it into 
 
 The `setup_on_node` function is used to download the tokenizer and model locally, while the `setup` function is used to load the tokenizer per actor. Tokenization is done entirely on the CPU, so it uses the default `Resource` specification which underlies all `ProcessingStage` classes (`Resources(cpus=1)`).
 
-Tokenization occurs in the `process` function. The `max_chars` parameter is used to slice the text before inputting it into the tokenizer, if desired. Then, we use `batch_encode_plus` to tokenize multiple texts at a time. Finally, we use the `sort_by_length` boolean to determine whether or not to sort the output tokens by their length. Sorting is recommended as it can lead to better performance in the model inference stage, so this parameter defaults to `True`. This creates a column called `"_curator_seq_order"` so that we can unsort to the original order of the input data at the end of the pipeline.
+Tokenization occurs in the `process` function. The `max_chars` parameter is used to slice the text before inputting it into the tokenizer, if desired. Then, we call the tokenizer to tokenize multiple texts at a time. Finally, we use the `sort_by_length` boolean to determine whether or not to sort the output tokens by their length. Sorting is recommended as it can lead to better performance in the model inference stage, so this parameter defaults to `True`. This creates a column called `"_curator_seq_order"` so that we can unsort to the original order of the input data at the end of the pipeline.
 
 Please refer to `base.py` as an example of how the `TokenizerStage` can be used as part of the `CompositeStage` making up the base `DistributedDataClassifier` class.
 
