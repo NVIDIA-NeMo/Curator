@@ -36,8 +36,9 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         duplicate_id_field: Name of the column containing image IDs to remove
         verbose: Whether to log verbose output
 
-    To cap concurrent actors per node (for example, to avoid OOM when each actor loads
-    the same removal Parquet files), configure ``.with_(num_workers_per_node=...)``.
+    To size the worker pool from the cluster's node count, configure
+    ``.with_(num_workers_per_node=...)``. Ray placement is best-effort, not a hard
+    per-node cap.
     """
 
     removal_parquets_dir: str
