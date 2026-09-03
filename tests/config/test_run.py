@@ -485,8 +485,8 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
             "enable_prefix_caching": True,
             "prefix_caching_hash_algo": "xxhash",
             "limit_mm_per_prompt": {
-                "image": 0,
-                "video": 0,
+                "image": 1,
+                "video": 1,
                 "audio": 2,
             },
             "seed": 1234,

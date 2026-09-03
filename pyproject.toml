@@ -83,14 +83,14 @@ cv2 = [
     "opencv-python-headless",
 ]
 vllm = [
-    "vllm[flashinfer,runai,otel]==0.22.0+cu129; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "vllm[flashinfer,runai,otel]==0.26.0+cu129; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
-    "ai-dynamo>=1.3.1; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "ai-dynamo>=1.4.2; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "ray[serve]>=2.58.0",
 ]
@@ -117,7 +117,7 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
-    "transformers>=4.57.6,<5.0",
+    "transformers==5.5.3",
     "accelerate>=1.12.0",
     "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
     "opencc-python-reimplemented",
@@ -250,7 +250,7 @@ video_cuda12 = [
 # NVDEC HW decode; opt-in, kept off `all` (wheel vendors CVE ffmpeg). CPU-decode fallback exists.
 video_media = [
     "nemo_curator[video_cuda12]",
-    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "PyNvVideoCodec==2.0.4; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Math Curation Dependencies
@@ -348,24 +348,23 @@ constraint-dependencies = [
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wandb>=0.28.0", # prebuilt wandb-core drops apache/thrift and ships grpc 1.81.1 (replaces docker go-rebuild patch)
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
-    "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
     "fsspec>=2025.3.0", # required for nemo-toolkit[asr]==2.7.2 (fsspec==2024.12.0), override due to data-designer-engine==0.5.5 requires >=2025.3.0
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
-    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
+    "huggingface-hub>=1.5,<2.0", # Shared range for Transformers 5.5, vLLM 0.26, and data-designer
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
+    "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.26 requires numba 0.65.0
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
-    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
+    "torchcodec~=0.14.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # vLLM 0.26 requires TorchCodec 0.14+; x86_64-only since aarch64 lacks wheels
+    "transformers==5.5.3", # Match vLLM 0.26's baseline; override qwen-asr's stale 4.57.6 pin
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
-    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap
     "pandas>=3.0.0, <= 3.0.4" # Override data-designers constraint of <3
 ]
@@ -383,7 +382,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "vllm-cu129"
-url = "https://wheels.vllm.ai/0.22.0/cu129"
+url = "https://wheels.vllm.ai/0.26.0/cu129"
 explicit = true
 
 [tool.uv.sources]

@@ -72,8 +72,8 @@ stages:
         enable_prefix_caching: true
         prefix_caching_hash_algo: xxhash
         limit_mm_per_prompt:
-          image: 0
-          video: 0
+          image: 1
+          video: 1
           audio: 2
         seed: 1234
       sampling_kwargs:

@@ -37,7 +37,7 @@ Install the inference-server extra:
 ```bash
 uv pip install \
   --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
   "nemo-curator[inference_server]"
 ```
 
@@ -53,8 +53,8 @@ The stack uses:
 - CUDA 12.9.1 in the NeMo Curator container.
 - PyTorch 2.11.
 - Ray Serve 2.58.0 or later.
-- vLLM 0.22.0 with CUDA 12.9.
-- A public ai-dynamo release 1.3.1 or later and NIXL 0.10.0 or later for the
+- vLLM 0.26.0 with CUDA 12.9.
+- A public ai-dynamo release 1.4.2 or later and NIXL 0.10.0 or later for the
   Dynamo backend.
 
 Start or connect to a Ray cluster before creating the server. The examples below use `RayClient`; an externally managed Ray cluster works as well.
@@ -528,7 +528,7 @@ AttributeError: module 'cutlass.cute.core' has no attribute 'ThrMma'
 
 This is easy to mistake for a model or vLLM bug, since nothing in the message mentions CUDA or CUTLASS versions. If you hit something like this:
 
-- Check the CUDA tag on any newly added or newly resolved package against the `cu129` baseline that NeMo Curator's Dynamo stack targets (`vllm==0.22.0+cu129`). A stray `cu13`-tagged wheel is one checkable cause.
+- Check the CUDA tag on any newly added or newly resolved package against the `cu129` baseline that NeMo Curator's Dynamo stack targets (`vllm==0.26.0+cu129`). A stray `cu13`-tagged wheel is one checkable cause.
 - If the tags all check out, the installed CUTLASS/QuACK build may simply be too old for your GPU architecture — try a newer `ai-dynamo[vllm]` pin.
 
 ## Next Steps
