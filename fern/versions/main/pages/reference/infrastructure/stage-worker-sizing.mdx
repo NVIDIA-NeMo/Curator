@@ -144,7 +144,7 @@ stage = PassthroughStage().with_(num_workers_per_node=2)
 executor = RayDataExecutor()
 ```
 
-Ray Data pool sizes are cluster-wide, so Curator counts alive nodes and sets the pool size to `ceil(num_workers_per_node × node count)`. Curator also sets `scheduling_strategy="SPREAD"` unless `RAY_REMOTE_ARGS` supplies another strategy.
+Ray Data pool sizes are cluster-wide, so Curator counts alive nodes and sets the pool size to `ceil(num_workers_per_node × node count)`. For this per-node configuration, Curator sets `scheduling_strategy="SPREAD"` unless `RAY_REMOTE_ARGS` supplies another strategy.
 
 `SPREAD` is placement intent, not a hard per-node cap. Ray may place workers unevenly when resources differ or placement constraints apply.
 

@@ -79,6 +79,16 @@ def test_xenna_executor_accepts_legacy_num_workers_per_node_spec(monkeypatch: py
     assert captured["num_workers_per_node"] == 0.5
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_xenna_executor_rejects_non_finite_legacy_num_workers_per_node(
+    monkeypatch: pytest.MonkeyPatch, value: float
+) -> None:
+    stage = ConfigurableStage(xenna_stage_spec={"num_workers_per_node": value})
+
+    with pytest.raises(ValueError, match="must be finite and > 0"):
+        _execute_and_capture_stage_spec(monkeypatch, stage)
+
+
 def test_xenna_executor_rejects_num_workers_with_num_workers_per_node() -> None:
     with pytest.raises(ValueError, match=r"num_workers\(\).*num_workers_per_node"):
         ConfigurableStage(num_workers=3, num_workers_per_node=0.5)

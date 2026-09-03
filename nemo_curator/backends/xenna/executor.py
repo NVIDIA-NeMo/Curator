@@ -20,7 +20,11 @@ from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import get_stage_num_workers_per_node, register_loguru_serializer
+from nemo_curator.backends.utils import (
+    get_stage_num_workers_per_node,
+    register_loguru_serializer,
+    validate_num_workers_per_node,
+)
 from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
@@ -84,7 +88,9 @@ class XennaExecutor(BaseExecutor):
 
             num_workers = stage.num_workers()
             num_workers_per_node = get_stage_num_workers_per_node(stage)
-            legacy_num_workers_per_node = stage_config.get("num_workers_per_node")
+            legacy_num_workers_per_node = validate_num_workers_per_node(
+                stage_config.get("num_workers_per_node"), stage.name
+            )
             if num_workers_per_node is not None and legacy_num_workers_per_node is not None:
                 msg = (
                     f"Stage {stage.name} sets both num_workers_per_node() and "

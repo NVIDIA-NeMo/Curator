@@ -138,18 +138,22 @@ class RayStageSpecKeys(str, Enum):
     RAY_NUM_CPUS = "ray_num_cpus"
 
 
-def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None:
-    """Return a stage's validated per-node worker request."""
-    value = stage.num_workers_per_node()
+def validate_num_workers_per_node(value: object, stage_name: str) -> int | float | None:
+    """Validate a per-node worker request."""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        msg = f"num_workers_per_node() for stage {stage.name} must be a positive number."
+        msg = f"num_workers_per_node for stage {stage_name} must be a positive number."
         raise TypeError(msg)
     if value <= 0 or (isinstance(value, float) and not math.isfinite(value)):
-        msg = f"num_workers_per_node() for stage {stage.name} must be finite and > 0."
+        msg = f"num_workers_per_node for stage {stage_name} must be finite and > 0."
         raise ValueError(msg)
     return value
+
+
+def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None:
+    """Return a stage's validated per-node worker request."""
+    return validate_num_workers_per_node(stage.num_workers_per_node(), stage.name)
 
 
 def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
