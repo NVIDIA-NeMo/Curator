@@ -166,7 +166,7 @@ def num_workers_per_node(self) -> float | None:
     return None
 ```
 
-The executor converts the value to a cluster-wide request. Ray Data uses `ceil(num_workers_per_node × alive node count)` and best-effort `SPREAD` placement, Xenna forwards the per-node value directly, and Ray Actor Pool applies the same multiplier before capping the result to available resource capacity. Fractional values are supported; values must be positive.
+The executor converts the value to a cluster-wide request. Ray Data and Ray Actor Pool use `ceil(num_workers_per_node × alive node count)` with best-effort `SPREAD` placement; Ray Actor Pool also caps the result to available resource capacity. Xenna forwards the per-node value directly. Fractional values are supported; values must be positive.
 
 Like `num_workers`, `num_workers_per_node` is reserved as a method. Override it for a class-level default, or use `stage.with_(num_workers_per_node=...)` for one pipeline instance. Do not combine it with `num_workers()` or Ray Data's `min_workers`, `max_workers`, or `initial_workers` actor-pool keys.
 

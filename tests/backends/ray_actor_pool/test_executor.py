@@ -16,7 +16,7 @@ from unittest import mock
 
 import pytest
 
-from nemo_curator.backends.ray_actor_pool.executor import RayActorPoolExecutor, _parse_runtime_env
+from nemo_curator.backends.ray_actor_pool.executor import RayActorPoolExecutor, _get_actor_options, _parse_runtime_env
 from nemo_curator.backends.ray_actor_pool.utils import (
     calculate_optimal_actors_for_stage,
     calculate_optimal_actors_for_stage_with_wait,
@@ -39,6 +39,28 @@ class TestRayActorPoolExecutor:
         assert _parse_runtime_env(without_env_var) == {
             "env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""},
             "some_other_key": "some_other_value",
+        }
+
+    @pytest.mark.parametrize(
+        ("num_workers_per_node", "expected_strategy"),
+        [(None, None), (2, "SPREAD")],
+    )
+    def test_actor_options_spread_per_node_workers(
+        self, num_workers_per_node: float | None, expected_strategy: str | None
+    ) -> None:
+        stage = _stage_with_worker_sizing(
+            num_workers=None,
+            num_workers_per_node=num_workers_per_node,
+            cpus=2.0,
+            batch_size=1,
+        )
+
+        options = _get_actor_options(stage)
+
+        assert options == {
+            "num_cpus": 2.0,
+            "num_gpus": 0.0,
+            **({"scheduling_strategy": expected_strategy} if expected_strategy else {}),
         }
 
     @pytest.mark.parametrize(
