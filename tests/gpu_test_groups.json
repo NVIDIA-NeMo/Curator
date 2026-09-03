@@ -17,7 +17,12 @@
   },
   "audio": {
     "extras": ["audio_cuda12"],
-    "paths": ["tests/stages/audio", "tests/models/asr/test_nemo_asr.py", "tests/models/sed/test_cnn14.py"]
+    "paths": [
+      "tests/stages/audio",
+      "tests/models/asr/test_nemo_asr.py",
+      "tests/models/asr/test_faster_whisper_gpu.py",
+      "tests/models/sed/test_cnn14.py"
+    ]
   },
   "audio_qwen_asr": {
     "extras": ["audio_cuda12", "vllm"],
