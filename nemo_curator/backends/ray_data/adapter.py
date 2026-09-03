@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import copy
-import math
 from collections.abc import Callable
 from typing import Any
 
@@ -23,6 +22,7 @@ from ray.data import ActorPoolStrategy, Dataset, TaskPoolStrategy
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
+    get_num_workers_for_nodes,
     get_stage_num_workers_per_node,
     get_worker_metadata_and_node_id,
 )
@@ -107,7 +107,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         if node_count <= 0:
             msg = f"No alive Ray nodes available for num_workers_per_node sizing on stage {self.stage.name}."
             raise ValueError(msg)
-        return max(1, math.ceil(num_workers_per_node * node_count))
+        return get_num_workers_for_nodes(num_workers_per_node, node_count, self.stage.name)
 
     def process_dataset(self, dataset: Dataset) -> Dataset:
         """Process a Ray Data dataset through this stage.

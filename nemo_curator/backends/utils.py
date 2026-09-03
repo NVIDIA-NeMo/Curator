@@ -156,6 +156,15 @@ def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None
     return validate_num_workers_per_node(stage.num_workers_per_node(), stage.name)
 
 
+def get_num_workers_for_nodes(num_workers_per_node: float, node_count: int, stage_name: str) -> int:
+    """Convert a per-node request to a finite cluster-wide worker count."""
+    total = num_workers_per_node * node_count
+    if isinstance(total, float) and not math.isfinite(total):
+        msg = f"num_workers_per_node for stage {stage_name} is too large for {node_count} nodes."
+        raise ValueError(msg)
+    return max(1, math.ceil(total))
+
+
 def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
     """Get the worker metadata and node id from the runtime context."""
     ray_context = ray.get_runtime_context()

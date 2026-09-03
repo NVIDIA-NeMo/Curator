@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING
 import ray
 from loguru import logger
 
-from nemo_curator.backends.utils import get_available_cpu_gpu_resources, get_stage_num_workers_per_node
+from nemo_curator.backends.utils import (
+    get_available_cpu_gpu_resources,
+    get_num_workers_for_nodes,
+    get_stage_num_workers_per_node,
+)
 from nemo_curator.utils.ray_utils import get_alive_ray_node_count
 
 if TYPE_CHECKING:
@@ -176,7 +180,7 @@ def calculate_optimal_actors_for_resources(
 
     if num_workers_per_node is not None:
         num_nodes = get_alive_ray_node_count(ignore_head_node=ignore_head_node)
-        requested_actors = max(1, math.ceil(num_workers_per_node * num_nodes))
+        requested_actors = get_num_workers_for_nodes(num_workers_per_node, num_nodes, stage.name)
         if requested_actors > max_actors_resources:
             msg = (
                 f"Stage {stage.name} requires {requested_actors} actors from num_workers_per_node(), "
