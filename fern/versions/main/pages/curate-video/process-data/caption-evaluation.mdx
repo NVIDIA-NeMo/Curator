@@ -1,0 +1,252 @@
+---
+description: "Build a diverse video benchmark and evaluate caption alignment with Summarize-then-Align and CosmosEmbed1"
+categories: ["video-curation"]
+tags: ["captions", "evaluation", "cosmos-embed1", "benchmarking", "k-means"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "tutorial"
+modality: "video-only"
+---
+
+# Evaluate Video Caption Quality
+
+Use the repository's Summarize-then-Align tools to build a fixed, diverse video benchmark and detect large semantic regressions in generated captions.
+
+<Note>
+This workflow is evaluation tooling, not a stage in the main NeMo Curator pipeline. It reads artifacts produced by video pipelines and writes benchmark symlinks, cached summaries, and a score CSV. It does not filter or modify a curated dataset.
+</Note>
+
+## How Summarize-then-Align Works
+
+Long captions can exceed the CosmosEmbed1 text encoder's context and can receive different scores merely because one model is more verbose. The scorer therefore:
+
+1. Reads and concatenates the window captions for each clip.
+2. Uses a summarizer LLM to retain visible objects, actions, positions, colors, clothing, and on-screen text in fewer than 80 words.
+3. Encodes the summary with the text side of CosmosEmbed1.
+4. Computes cosine similarity between the text embedding and the precomputed video embedding.
+5. Reports the mean for each captioning model and writes every per-clip score to CSV.
+
+Use the score as a regression signal, not as an absolute quality judgment. It measures semantic alignment in one embedding space; it does not directly measure fluency, completeness, temporal precision, hallucination severity, or usefulness for a downstream task.
+
+## Before You Start
+
+- Run from a source checkout because `eval/video/build_benchmark_dataset.py` and `eval/video/caption_clipscore.py` are repository tools.
+- Use a Linux host with an NVIDIA CUDA GPU. Benchmark construction runs the GPU video pipeline, and scoring loads the summarizer and CosmosEmbed1 on CUDA in BF16.
+- Install the `video_cuda12` environment described in [Get Started with Video Curation](/get-started/video). The environment includes vLLM, Transformers, PyTorch, and the video dependencies; the development groups provide scikit-learn for K-means.
+- Provide enough local storage for the sampled pipeline output. The final benchmark uses symlinks, but `_pipeline_output` retains generated clips, metadata, and embeddings.
+- Obtain the model assets before an offline run. The scorer uses local files only for CosmosEmbed1.
+
+The supported CosmosEmbed1 variants are:
+
+| Variant | Hugging Face model | Frames and embedding width | Workflow support |
+| --- | --- | --- | --- |
+| `224p` | [`nvidia/Cosmos-Embed1-224p`](https://huggingface.co/nvidia/Cosmos-Embed1-224p) | 8 frames, 256 dimensions | Benchmark builder and scorer default; recommended for this workflow. |
+| `336p` | [`nvidia/Cosmos-Embed1-336p`](https://huggingface.co/nvidia/Cosmos-Embed1-336p) | 8 frames, 768 dimensions | Scorer only when the supplied video embeddings were generated with 336p. |
+| `448p` | [`nvidia/Cosmos-Embed1-448p`](https://huggingface.co/nvidia/Cosmos-Embed1-448p) | 8 frames, 768 dimensions | Scorer only when the supplied video embeddings were generated with 448p. |
+
+The model root must contain the Hugging Face organization and repository directories. For example, `--cosmos-model-dir /models` with `--variant 224p` resolves `/models/nvidia/Cosmos-Embed1-224p`.
+
+<Warning>
+`build_benchmark_dataset.py` always generates 224p embeddings. Keep the scorer's default `--variant 224p` for those artifacts. Supplying a different variant does not convert existing embeddings and can cause incompatible vector shapes.
+</Warning>
+
+## Step 1: Build a Diverse Benchmark
+
+The builder samples source videos, creates fixed-stride clips, filters them by aesthetic score, computes 224p embeddings, clusters all surviving clips with K-means, and selects the clip nearest each centroid. It tries to select only one clip per source video; when a cluster has no unused source, it falls back to its nearest clip.
+
+The input can be [OpenVid-1M](https://huggingface.co/datasets/nkp37/OpenVid-1M) or another dataset you are licensed to use. The script scans only the top level of `--video-dir` for filenames ending in lowercase `.mp4`; discovery is not recursive.
+
+From the repository root, run:
+
+```bash
+uv run python eval/video/build_benchmark_dataset.py \
+  --video-dir /data/openvid/videos \
+  --output-dir /data/caption-benchmark-200 \
+  --model-dir /models \
+  --sample-size 3000 \
+  --num-clusters 200 \
+  --split-duration 10.0 \
+  --aesthetic-threshold 3.5 \
+  --seed 42
+```
+
+### Builder Arguments
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--video-dir` | Required | Flat directory of source `.mp4` files. |
+| `--output-dir` | Required | Workspace for sampled inputs, full pipeline output, and selected benchmark links. |
+| `--model-dir` | Required | Root model directory used by the video pipeline, including CosmosEmbed1 and aesthetic-model assets. Missing pipeline models can be downloaded from Hugging Face when network access is available. |
+| `--sample-size` | `3000` | Number of source videos sampled without replacement. Uses all discovered videos when the directory contains no more than this value. |
+| `--num-clusters` | `200` | K-means cluster count and requested final clip count. Must not exceed the number of surviving embedded clips. |
+| `--split-duration` | `10.0` | Fixed-stride clip duration in seconds. |
+| `--aesthetic-threshold` | `3.5` | Drops clips whose aesthetic score is below this value. |
+| `--seed` | `42` | Seed for source sampling and scikit-learn K-means. |
+
+### Benchmark Layout
+
+```text
+/data/caption-benchmark-200/
+├── _sample_input/             # symlinks for sampled source videos
+├── _pipeline_output/
+│   ├── ce1_embd/              # all surviving 224p embeddings
+│   ├── clips/                 # all surviving clips
+│   └── metas/v0/              # per-clip pipeline metadata
+├── ce1_embd/                  # symlinks for selected embeddings
+├── clips/                     # symlinks for selected clips
+├── input/                     # one symlink per selected source video
+└── selected_uids.txt          # selected clip identity and source span
+```
+
+Each line of `selected_uids.txt` is tab-separated:
+
+```text
+<clip-uuid>    <source-video-basename>    <start-seconds>    <end-seconds>
+```
+
+The source basename and duration span let the scorer resolve a selected clip after a new pipeline run generates different clip UUIDs.
+
+<Warning>
+The benchmark directories contain absolute symlinks and are not portable by themselves. Preserve `_pipeline_output` and the original source videos, or materialize the links before moving the benchmark to another machine. For a clean rebuild, use a new `--output-dir`; existing links are skipped, and stale pipeline artifacts are not removed automatically.
+</Warning>
+
+## Step 2: Generate Comparable Captions
+
+Run every captioning model with the same benchmark inputs, split duration, filtering, and embedding variant. The current video example generates embeddings by default, so no separate `--generate-embeddings` flag is needed.
+
+```bash
+uv run python tutorials/video/getting-started/video_split_clip_example.py \
+  --video-dir /data/caption-benchmark-200/input \
+  --output-path /data/captions-qwen25 \
+  --model-dir /models \
+  --splitting-algorithm fixed_stride \
+  --fixed-stride-split-duration 10.0 \
+  --embedding-algorithm cosmos-embed1-224p \
+  --generate-captions \
+  --captioning-algorithm qwen2.5 \
+  --aesthetic-threshold 3.5
+```
+
+Repeat the command with a new output path and another supported `--captioning-algorithm`, such as `qwen3`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`, or `nemotron-3-nano-omni`. Refer to [Captions and Preview](/curate-video/process-data/captions-preview) for caption-model configuration.
+
+The scorer expects each caption output directory to contain `metas/v0/<uuid>.json`. A minimal record looks like:
+
+```json
+{
+  "source_video": "/data/caption-benchmark-200/input/example.mp4",
+  "duration_span": [0.0, 10.0],
+  "windows": [
+    {
+      "start_frame": 0,
+      "end_frame": 255,
+      "qwen2.5_caption": "A dog runs across a grassy field."
+    }
+  ]
+}
+```
+
+<Warning>
+For each window, the scorer uses the first nonblank string whose key contains `caption`. The `LABEL` in `--caption-dirs LABEL=PATH` names a result column; it does not select a metadata key. Use an output directory containing only the caption field you intend to evaluate, rather than mixing original and enhanced caption fields in one record.
+</Warning>
+
+## Step 3: Score and Cache Summaries
+
+Choose one caption run's `ce1_embd/` directory as the shared video-embedding source. The scorer evaluates only UUIDs present in that directory and in every caption directory, then applies the optional selected-UID filter.
+
+Use a summarizer from a different model family than the captioners to reduce vocabulary and phrasing bias:
+
+```bash
+CUBLAS_WORKSPACE_CONFIG=:4096:8 \
+uv run python eval/video/caption_clipscore.py \
+  --embedding-dir /data/captions-qwen25/ce1_embd \
+  --cosmos-model-dir /models \
+  --summarizer-model /models/Meta-Llama-3.1-8B-Instruct \
+  --caption-dirs \
+    qwen25=/data/captions-qwen25 \
+    qwen3=/data/captions-qwen3 \
+    nemotron=/data/captions-nemotron \
+  --uid-list /data/caption-benchmark-200/selected_uids.txt \
+  --save-summaries /data/caption-benchmark-200/summaries.json \
+  --variant 224p \
+  --output-csv /data/caption-benchmark-200/results.csv
+```
+
+The summarizer runs first with temperature 0, a 120-token generation limit, BF16 weights, and 50% vLLM GPU-memory utilization. It is unloaded before CosmosEmbed1 is loaded, so both models do not need to reside on the GPU simultaneously.
+
+### Scorer Arguments
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--embedding-dir` | Required | Directory of `<uuid>.pickle` CosmosEmbed1 video embeddings. |
+| `--cosmos-model-dir` | Required | Root containing `nvidia/Cosmos-Embed1-<variant>/`. |
+| `--summarizer-model` | None | Local model path or Transformers identifier for the vLLM summarizer. Required unless `--load-summaries` is used. |
+| `--caption-dirs` | Required | One or more `LABEL=PATH` pairs. Each path must contain `metas/v0/*.json`; labels become CSV columns and summary-cache keys. |
+| `--uid-list` | None | Optional selected-clip file. Supports UUID-only lines or the four-column builder format for source/span resolution. |
+| `--save-summaries` | None | Writes generated summaries as JSON for later identical scoring. |
+| `--load-summaries` | None | Loads summary JSON and skips the summarizer entirely. |
+| `--variant` | `224p` | CosmosEmbed1 text encoder: `224p`, `336p`, or `448p`. Must match the video embeddings. |
+| `--output-csv` | `clipscore_results.csv` | Destination for per-clip cosine similarities. |
+
+To rerun the same comparison without loading the summarizer:
+
+```bash
+uv run python eval/video/caption_clipscore.py \
+  --embedding-dir /data/captions-qwen25/ce1_embd \
+  --cosmos-model-dir /models \
+  --load-summaries /data/caption-benchmark-200/summaries.json \
+  --caption-dirs \
+    qwen25=/data/captions-qwen25 \
+    qwen3=/data/captions-qwen3 \
+    nemotron=/data/captions-nemotron \
+  --uid-list /data/caption-benchmark-200/selected_uids.txt \
+  --output-csv /data/caption-benchmark-200/results-rerun.csv
+```
+
+The summary cache is nested by clip UUID and label:
+
+```json
+{
+  "7ecfd2f0": {
+    "qwen25": "A dog runs through a green field.",
+    "qwen3": "A brown dog crosses grass beside a fence."
+  }
+}
+```
+
+Cache labels and caption contents together as one evaluation fixture. If you rename a label, change captions, or add a model, regenerate the affected summaries. A missing cache entry becomes an empty string and produces a warning, but scoring continues; treat that result as invalid.
+
+## Outputs and Interpretation
+
+The CSV contains the resolved clip UUID, the source video reported by the first caption directory, and one score column per label:
+
+```csv
+uuid,source_video,qwen25,qwen3,nemotron
+7ecfd2f0,/data/source/a.mp4,0.4012,0.4178,0.3920
+```
+
+Scores are cosine similarities with a theoretical range of -1 to 1. Compare means only across runs that use the same benchmark, video embeddings, CosmosEmbed1 variant, summarizer prompt/model, cache policy, and caption-window extraction behavior.
+
+For the original 200-clip OpenVid-1M benchmark, observed means were approximately 0.39 for Qwen2.5-VL and Qwen3-VL and 0.38 for Nemotron-VL. These values are reference observations, not universal thresholds. A practical regression workflow is:
+
+1. Keep the benchmark and summaries fixed.
+2. Flag a mean decrease greater than 5% relative to your own accepted baseline.
+3. Sort the new model's CSV column and review at least the ten lowest-scoring clips.
+4. Decide from human review whether the change is a real semantic regression or an artifact of summary style, verbosity, or the embedding model.
+
+## Reproducibility and Failure Modes
+
+- `--seed` controls Python sampling and the K-means random state, but library versions, model revisions, decoding, GPU kernels, and source-file ordering can still affect the selected benchmark. Version the resulting `selected_uids.txt` rather than rebuilding it for every comparison.
+- `CUBLAS_WORKSPACE_CONFIG=:4096:8`, temperature 0, and cached summaries reduce variation, but do not guarantee bitwise-identical scores across different hardware or software stacks.
+- The scorer uses the intersection of embeddings and all caption metadata directories. Missing outputs silently reduce the evaluated set; compare the logged `Evaluating N clips` value with the expected benchmark size.
+- Source/span fallback reads metadata only from the first `--caption-dirs` path. Pass the most complete caption run first; a benchmark clip missing there cannot be resolved from a later caption directory.
+- Source/span fallback uses the source-video basename and timestamps rounded to four decimal places. Duplicate basenames or changed split settings can resolve incorrectly or not at all.
+- Empty caption windows are concatenated to an empty caption and are still summarized. Inspect metadata before treating a low score as a model-quality result.
+- `--num-clusters` must not exceed the number of embeddings left after splitting and aesthetic filtering. Lower the cluster count, sample more videos, or relax filtering if K-means rejects the input.
+- Reuse a single embedding directory only when every caption run represents the same clips and CosmosEmbed1 variant.
+
+## Related Guides
+
+- [Generate video captions](/curate-video/process-data/captions-preview)
+- [Generate CosmosEmbed1 embeddings](/curate-video/process-data/embeddings)
+- [Split videos into fixed-stride clips](/curate-video/process-data/clipping)
+- [Understand video output directories](/curate-video/save-export)
