@@ -78,11 +78,11 @@ class FasterWhisperASR:
         _download_whisper_model(self.model_id, self.revision)
 
     def load_model(self, *, num_gpus: int) -> None:
+        if not isinstance(num_gpus, int) or isinstance(num_gpus, bool) or num_gpus not in (0, 1):
+            msg = f"num_gpus must be non-negative; FasterWhisperASR accepts only the integer 0 or 1, got {num_gpus!r}"
+            raise ValueError(msg)
         if self._model is not None:
             return
-        if num_gpus < 0:
-            msg = "num_gpus must be non-negative"
-            raise ValueError(msg)
 
         device = "cuda" if num_gpus else "cpu"
         compute_type = self.compute_type if num_gpus else self.cpu_compute_type
