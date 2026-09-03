@@ -37,6 +37,10 @@ if TYPE_CHECKING:
 _LARGE_INT = 2**31 - 1
 
 
+class _NoResourcesAvailableError(ValueError):
+    pass
+
+
 def get_available_actor_pool_resources(
     reserved_cpus: float = 0.0,
     reserved_gpus: float = 0.0,
@@ -108,7 +112,7 @@ def calculate_optimal_actors_for_stage_with_wait(  # noqa: PLR0913
             resource_baseline,
             ignore_head_node=ignore_head_node,
         )
-    except ValueError:
+    except _NoResourcesAvailableError:
         intended_num_actors = 1
 
     required_cpus = intended_num_actors * stage.resources.cpus
@@ -163,7 +167,7 @@ def calculate_optimal_actors_for_resources(
 
     if max_actors_resources == 0:
         msg = f"No resources available for stage {stage.name}."
-        raise ValueError(msg)
+        raise _NoResourcesAvailableError(msg)
 
     num_workers = stage.num_workers()
     num_workers_per_node = get_stage_num_workers_per_node(stage)
