@@ -159,6 +159,14 @@ def _fix_for(code: str) -> str | None:
         ),
         "gpu_unavailable": "run on a GPU host or set the stage to CPU resources",
         "composite": "decompose the composite (it hides its true I/O) before validating downstream",
+        "composite_unrunnable": (
+            "the executor refuses this composite's SHAPE, so no configuration of it will run: "
+            "Pipeline._decompose_stages substitutes children only when there is more than one, and "
+            "rejects a child that is itself a decomposing composite. Replace the composite with the "
+            "stages it decomposes into, written out at the top level of the recipe -- that is the "
+            "same schedule, in a shape the executor accepts. This is an error rather than a warning "
+            "because it is a certainty, not a gap in what validation could see"
+        ),
         "key_removed_upstream": "reorder so the reader runs before the stage that removes the key, or re-produce the key",
         "unsatisfied_reads_in_composite": (
             "a stage INSIDE a composite reads a key nothing upstream produces. The composite's own "
