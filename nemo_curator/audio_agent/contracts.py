@@ -312,7 +312,7 @@ class Verdict:
 
     * ``ok`` / ``keys_ok`` are the *data-flow* necessary conditions ONLY (roles connect,
       then literal keys connect). They are **not** "safe to run": a recipe can be
-      ``ok=True`` while a card constraint (e.g. ``task_type_mismatch``, batch > model max)
+      ``ok=True`` while a card constraint (e.g. a batch above the model's max)
       or an environment gate makes it unrunnable.
     * ``runnable`` / ``status == "pass"`` are the deterministic mechanical
       prerequisite for execution. The host must also complete the advisory

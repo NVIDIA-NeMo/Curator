@@ -159,6 +159,13 @@ def _fix_for(code: str) -> str | None:
         ),
         "gpu_unavailable": "run on a GPU host or set the stage to CPU resources",
         "composite": "decompose the composite (it hides its true I/O) before validating downstream",
+        "task_type_mismatch": (
+            "consecutive stages disagree on the task type they hand over, which fails on the "
+            "first task rather than on some rows. Insert a converter between them, or reorder "
+            "so the types line up. The common case is a DocumentBatch reaching an AudioTask-only "
+            "sink: serialize it with DocumentBatchJsonlWriterStage instead of ManifestWriterStage, "
+            "or move every AudioTask-only stage ahead of AudioToDocumentStage"
+        ),
         "composite_unrunnable": (
             "the executor refuses this composite's SHAPE, so no configuration of it will run: "
             "Pipeline._decompose_stages substitutes children only when there is more than one, and "
@@ -542,54 +549,6 @@ def _check_request_type_sanity(ctx: CheckContext) -> CheckResult:
         )
         for _implied, hint in missing_implied(ctx.request_type, ctx.acceptance_criteria)
     ]
-    return CheckResult(issues=out)
-
-
-@register("task_type")
-def _check_task_type(ctx: CheckContext) -> CheckResult:
-    """Consecutive stages must be task-type compatible.
-
-    A ``DocumentBatch`` producer (e.g. ``AudioToDocumentStage``) feeding an
-    ``AudioTask``-only stage is the ``AudioToDocument -> ManifestWriter`` bug
-    class. Types are auto-derived from the ``ProcessingStage[X, Y]`` generic;
-    a boundary where a type can't be derived is skipped (no false mismatch).
-    """
-    from nemo_curator.stages.audio import agent as foundation
-
-    contracts: list[Any] = []
-    for st in ctx.stages:
-        try:
-            contracts.append(foundation.build_contract(st))
-        except Exception:  # noqa: BLE001
-            contracts.append(None)
-    out: list[Issue] = []
-    for i in range(len(contracts) - 1):
-        up, dn = contracts[i], contracts[i + 1]
-        if up is None or dn is None:
-            continue
-        prod, acc = up.produces_task_type, dn.accepts_task_type
-        if prod and acc and prod != acc:
-            up_name, dn_name = type(ctx.stages[i]).__name__, type(ctx.stages[i + 1]).__name__
-            fix = (
-                "use DocumentBatchJsonlWriterStage when serializing this "
-                "DocumentBatch, or move every AudioTask-only stage before "
-                "AudioToDocumentStage"
-                if prod == "DocumentBatch" and acc == "AudioTask"
-                else (
-                    f"insert a converter that accepts {prod} and produces {acc}, "
-                    "or reorder the stages so their task types line up"
-                )
-            )
-            out.append(
-                Issue(
-                    "task_type_mismatch",
-                    "error",
-                    f"{up_name} produces {prod} but {dn_name} accepts {acc}",
-                    stage_index=i + 1,
-                    stage=dn_name,
-                    fix=fix,
-                )
-            )
     return CheckResult(issues=out)
 
 
