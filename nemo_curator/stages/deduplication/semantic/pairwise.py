@@ -15,6 +15,7 @@
 import os
 import time
 from dataclasses import dataclass
+from itertools import chain
 from typing import Any, Literal
 
 import cudf
@@ -31,7 +32,11 @@ from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy
-from .utils import break_parquet_partition_into_groups, get_array_from_df
+from .utils import (
+    break_parquet_partition_into_groups,
+    get_array_from_df,
+    read_parquet_file_info,
+)
 
 
 def pairwise_cosine_similarity_batched(
@@ -82,7 +87,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         ranking_strategy: RankingStrategy,
         pairwise_batch_size: int = 1024,
         verbose: bool = False,
-        embedding_dim: int | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
     ):
@@ -95,7 +99,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             ranking_strategy: Strategy for ranking/sorting clusters before similarity computation.
             pairwise_batch_size: Batch size for pairwise similarity computation.
             verbose: Whether to print verbose output.
-            embedding_dim: Embedding dimension for memory estimation.
             read_kwargs: Kwargs for reading parquet files.
             write_kwargs: Kwargs for writing parquet files.
         """
@@ -103,7 +106,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.embedding_field = embedding_field
         self.output_path = output_path
         self.pairwise_batch_size = pairwise_batch_size
-        self.embedding_dim = embedding_dim
         self.ranking_strategy = ranking_strategy
         self.verbose = verbose
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
@@ -115,7 +117,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.name = "PairwiseCosineSimilarityStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
 
-    def process(self, task: FileGroupTask) -> FileGroupTask:
+    def process(self, task: FileGroupTask) -> FileGroupTask:  # noqa: PLR0915
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
         if task._metadata.get("filetype") != "parquet":
             msg = f"PairwiseCosineSimilarityStage only supports parquet files, got {task._metadata.get('filetype')}"
@@ -129,33 +131,31 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
 
         t1 = time.perf_counter()
 
-        # Read all file groups and concatenate
-        dfs = []
-        num_rows = 0
-
-        # Break input files into groups to avoid 2bn row limit
-        file_groups = break_parquet_partition_into_groups(
-            task.data, embedding_dim=self.embedding_dim, storage_options=self.input_storage_options
-        )
-
-        # Determine which columns to read based on ranking strategy
+        footer_start = time.perf_counter()
         additional_cols = self.ranking_strategy.metadata_cols if self.ranking_strategy.strategy == "sort" else []
-
-        # We do the list(dict.fromkeys(...)) to remove duplicates from the list of columns to read, in case additional_cols contains self.id_field
         metadata_cols = list(dict.fromkeys([self.id_field, *additional_cols]))
-        for file_group in file_groups:
-            # Read required columns including metadata columns for ranking
-            df = self.read_parquet(
-                file_group,
-                columns=[*metadata_cols, self.embedding_field],
+        columns = [*metadata_cols, self.embedding_field]
+        file_info = read_parquet_file_info(
+            task.data,
+            retained_columns=metadata_cols,
+            embedding_column=self.embedding_field,
+            storage_options=self.input_storage_options,
+        )
+        footer_time = time.perf_counter() - footer_start
+
+        read_start = time.perf_counter()
+        frames = [
+            self.read_parquet(
+                group,
+                columns=columns,
                 assign_id=False,
                 storage_options=self.input_storage_options,
                 **self.read_kwargs,
             )
-            dfs.append(df)
-            num_rows += len(df)
-
-        if not dfs:
+            for group in break_parquet_partition_into_groups(file_info)
+        ]
+        read_time = time.perf_counter() - read_start
+        if not frames or not any(len(frame) for frame in frames):
             logger.warning(f"No data found for cluster {cluster_id}")
             return FileGroupTask(
                 dataset_name=task.dataset_name,
@@ -164,14 +164,15 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[],
             )
 
-        num_rows = sum(len(df) for df in dfs)
-
-        # Handle single item clusters
+        metadata_cluster_df = cudf.concat([frame[metadata_cols] for frame in frames], ignore_index=True).reset_index(
+            drop=True
+        )
+        num_rows = len(metadata_cluster_df)
         if num_rows == 1:
             result_df = cudf.DataFrame(
                 {
-                    "id": dfs[0][self.id_field],
-                    "max_id": dfs[0][self.id_field],
+                    "id": metadata_cluster_df[self.id_field],
+                    "max_id": metadata_cluster_df[self.id_field],
                     "cosine_sim_score": cudf.Series([0], dtype="float32"),
                 }
             )
@@ -188,32 +189,38 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[os.path.join(self.output_path, f"cluster_{cluster_id}.parquet")],
             )
 
-        # Cannot concatenate dataframes with embeddings due to cudf 2bn row limit
-        # Instead, concatenate metadata columns and handle embeddings separately
-        metadata_dfs, embedding_arrays = [], []
-        for df in dfs:
-            metadata_dfs.append(df[metadata_cols])
-            embedding_arrays.append(get_array_from_df(df, self.embedding_field))
-
-        metadata_cluster_df = cudf.concat(metadata_dfs, ignore_index=True).reset_index(drop=True)
-
-        # Add original index to track reordering
+        rank_start = time.perf_counter()
         metadata_cluster_df["_original_idx"] = metadata_cluster_df.index
-
         ranked_metadata_df = self.ranking_strategy.rank_cluster(metadata_cluster_df)
-        # Get reorder indices from the ranked dataframe (TODO: we get it to CPU, but maybe we can do it on GPU todo)
-        reorder_indices = ranked_metadata_df["_original_idx"].to_arrow().to_pylist()
-        # Remove the helper column
+        reorder_indices = ranked_metadata_df["_original_idx"].values
         ranked_metadata_df = ranked_metadata_df.drop(columns=["_original_idx"])
+        destination_indices = cp.empty(num_rows, dtype=cp.int64)
+        destination_indices[reorder_indices] = cp.arange(num_rows, dtype=cp.int64)
 
-        # Convert numpy arrays to torch tensors before concatenating
-        concatenated_embeddings = torch.cat([torch.as_tensor(arr, device="cuda") for arr in embedding_arrays], dim=0)
-        cluster_embeddings = concatenated_embeddings[reorder_indices]
+        first_embeddings = get_array_from_df(frames[0], self.embedding_field)
+        ranked_embeddings = cp.empty((num_rows, first_embeddings.shape[1]), dtype=first_embeddings.dtype)
+        source_offset = 0
+        embedding_arrays = (get_array_from_df(frame, self.embedding_field) for frame in frames[1:])
+        for embeddings in chain([first_embeddings], embedding_arrays):
+            source_stop = source_offset + len(embeddings)
+            ranked_embeddings[destination_indices[source_offset:source_stop]] = embeddings
+            source_offset = source_stop
+        if source_offset != num_rows:
+            msg = f"Pairwise metadata contained {num_rows} rows but embedding reads returned {source_offset}"
+            raise RuntimeError(msg)
+        del embeddings, first_embeddings, embedding_arrays, frames
+        cluster_embeddings = torch.as_tensor(ranked_embeddings, device="cuda")
+        rank_time = time.perf_counter() - rank_start
 
         ids = ranked_metadata_df[self.id_field]
 
         # Compute pairwise similarities
+        compute_start = time.perf_counter()
         max_similarity, max_indices = pairwise_cosine_similarity_batched(cluster_embeddings, self.pairwise_batch_size)
+        torch.cuda.synchronize()
+        del cluster_embeddings, ranked_embeddings
+        torch.cuda.empty_cache()
+        compute_time = time.perf_counter() - compute_start
 
         # Convert indices back to IDs
         max_indices_id = ids.iloc[max_indices].reset_index(drop=True)
@@ -228,12 +235,23 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         )
 
         # Write results
+        write_start = time.perf_counter()
         self.write_parquet(
             points_to_remove_df,
             output_path,
             storage_options=self.output_storage_options,
             index=False,
             **self.write_kwargs,
+        )
+        write_time = time.perf_counter() - write_start
+        self._log_metrics(
+            {
+                "pairwise_footer_scan_time": footer_time,
+                "pairwise_read_time": read_time,
+                "pairwise_rank_time": rank_time,
+                "pairwise_compute_time": compute_time,
+                "pairwise_write_time": write_time,
+            }
         )
 
         t2 = time.perf_counter()
@@ -263,7 +281,6 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     ranking_strategy: RankingStrategy | None = None
 
     # Optional parameters
-    embedding_dim: int | None = None
     pairwise_batch_size: int = 1024
     verbose: bool = False
     read_kwargs: dict[str, Any] | None = None
@@ -315,7 +332,6 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
                 pairwise_batch_size=self.pairwise_batch_size,
                 verbose=self.verbose,
                 ranking_strategy=self.ranking_strategy,
-                embedding_dim=self.embedding_dim,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
             ),
