@@ -37,7 +37,13 @@ from .utils import (
     get_array_from_df,
     read_parquet_file_info,
 )
-from .write_utils import ConcurrentParquetWriters, LocalPartitionedParquetWriter, RollingParquetWriter, local_path
+from .write_utils import (
+    ConcurrentParquetWriters,
+    LocalPartitionedParquetWriter,
+    RollingParquetWriter,
+    WriteMemoryBudget,
+    local_path,
+)
 
 if TYPE_CHECKING:
     import cudf
@@ -341,6 +347,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             # benchmarks; a fourth only increased memory pressure. Each lane
             # sizes batches from live free memory, leaving fit sizing unchanged.
             write_lanes = LocalPartitionedParquetWriter.WRITE_LANES
+            memory_budget = WriteMemoryBudget(write_lanes)
             supported_kwargs = {"compression", "statistics"}
             unsupported = set(self.write_kwargs).difference(supported_kwargs)
             if unsupported:
@@ -353,6 +360,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                     n_partitions=self.n_clusters,
                     max_rows_per_partition=max_rows_per_partition,
                     write_kwargs=self.write_kwargs,
+                    memory_budget=memory_budget,
                 ),
                 max_lanes=write_lanes,
             )

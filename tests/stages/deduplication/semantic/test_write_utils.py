@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Barrier, Event, Lock
 
@@ -157,23 +158,45 @@ def test_concurrent_writer_preserves_variable_width_metadata() -> None:
 
 
 @pytest.mark.gpu
+def test_write_memory_budget_coordinates_concurrent_lanes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import cupy as cp
+
+    from nemo_curator.stages.deduplication.semantic.write_utils import WriteMemoryBudget
+
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (700, 1_000))
+    budget = WriteMemoryBudget(max_lanes=3)
+
+    # Each overlapping claim receives one share of the same 300-byte budget.
+    # This guards against every lane independently treating all free memory as
+    # its own, which only becomes visible as an OOM at production scale.
+    with (
+        budget.claim(frame_rows=100, frame_bytes=100) as first,
+        budget.claim(frame_rows=100, frame_bytes=100) as second,
+        budget.claim(frame_rows=100, frame_bytes=100) as third,
+    ):
+        assert (first, second, third) == (20, 20, 20)
+
+
+@pytest.mark.gpu
 def test_local_partitioned_writer_preserves_rows_across_bounded_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import cudf
 
-    from nemo_curator.stages.deduplication.semantic.write_utils import LocalPartitionedParquetWriter
+    from nemo_curator.stages.deduplication.semantic.write_utils import LocalPartitionedParquetWriter, WriteMemoryBudget
 
     # Keep the batches deliberately tiny here. This exercises the same persistent
     # multi-sink Parquet writer used by KMeans while making both centroid ranges
     # cross a write boundary in a small test.
-    monkeypatch.setattr(LocalPartitionedParquetWriter, "_rows_per_batch", lambda *_: 2)
+    memory_budget = WriteMemoryBudget(1)
+    monkeypatch.setattr(memory_budget, "claim", lambda *_: nullcontext(2))
     writer = LocalPartitionedParquetWriter(
         output_path=str(tmp_path),
         file_name_prefix="part",
         n_partitions=2,
         max_rows_per_partition=3,
         write_kwargs={},
+        memory_budget=memory_budget,
     )
     first = cudf.DataFrame(
         {

@@ -16,8 +16,10 @@ import itertools
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from threading import Lock
 from typing import TYPE_CHECKING, Protocol
 
 import cupy as cp
@@ -135,19 +137,21 @@ class LocalPartitionedParquetWriter:
     # TODO(https://github.com/NVIDIA/cudf/issues/23502): Use cuDF's partitioned
     # writer once it can bound the grouped copy and encoder buffers itself.
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         output_path: str,
         file_name_prefix: str,
         n_partitions: int,
         max_rows_per_partition: int,
         write_kwargs: dict,
+        memory_budget: "WriteMemoryBudget",
     ) -> None:
         self._output_path = output_path
         self._file_name_prefix = file_name_prefix
         self._n_partitions = n_partitions
         self._max_rows_per_partition = max_rows_per_partition
         self._write_kwargs = write_kwargs
+        self._memory_budget = memory_budget
         self._ranges: list[tuple[int, int]] = []
         self._writers: list[ParquetWriter | None] = []
         self._generations: list[int] = []
@@ -155,14 +159,6 @@ class LocalPartitionedParquetWriter:
         self.batch_count = 0
         self.batch_rows = 0
         self.batch_bytes = 0
-
-    def _rows_per_batch(self, frame_rows: int, frame_bytes: int) -> int:
-        free_bytes = cp.cuda.runtime.memGetInfo()[0]
-        # The source frame is already resident and therefore excluded from
-        # free_bytes. Divide the remaining memory between writer lanes; each
-        # lane then bounds its gathered table and two encoder buffers.
-        available = max(1, free_bytes // self.WRITE_LANES)
-        return max(1, min(frame_rows, frame_rows * available // max(1, 3 * frame_bytes)))
 
     def _initialize_ranges(self, counts: np.ndarray, rows_per_batch: int) -> None:
         requested = min(self._n_partitions, math.ceil(counts.sum() / rows_per_batch))
@@ -190,44 +186,45 @@ class LocalPartitionedParquetWriter:
         labels = frame[self._PARTITION_COLUMN].values
         counts = cp.asnumpy(cp.bincount(labels, minlength=self._n_partitions))
         frame_bytes = int(frame.memory_usage(deep=True).sum())
-        rows_per_batch = self._rows_per_batch(len(frame), frame_bytes)
-        if not self._ranges:
-            self._initialize_ranges(counts, rows_per_batch)
+        with self._memory_budget.claim(len(frame), frame_bytes) as rows_per_batch:
+            if not self._ranges:
+                self._initialize_ranges(counts, rows_per_batch)
 
-        order = labels.argsort()
-        offsets = np.concatenate(([0], np.cumsum(counts)))
-        for range_index, (first, last) in enumerate(self._ranges):
-            range_counts = counts[first:last]
-            if range_counts.max(initial=0) == 0:
-                continue
-            if np.any(
-                (self._rows[first:last] > 0) & (self._rows[first:last] + range_counts > self._max_rows_per_partition)
-            ):
-                if self._writers[range_index] is not None:
-                    self._writers[range_index].close()
-                self._writers[range_index] = None
-                self._generations[range_index] += 1
-                self._rows[first:last] = 0
+            order = labels.argsort()
+            offsets = np.concatenate(([0], np.cumsum(counts)))
+            for range_index, (first, last) in enumerate(self._ranges):
+                range_counts = counts[first:last]
+                if range_counts.max(initial=0) == 0:
+                    continue
+                if np.any(
+                    (self._rows[first:last] > 0)
+                    & (self._rows[first:last] + range_counts > self._max_rows_per_partition)
+                ):
+                    if self._writers[range_index] is not None:
+                        self._writers[range_index].close()
+                    self._writers[range_index] = None
+                    self._generations[range_index] += 1
+                    self._rows[first:last] = 0
 
-            writer = self._writers[range_index]
-            if writer is None:
-                writer = self._writers[range_index] = self._create_writer(range_index)
-            range_start, range_stop = int(offsets[first]), int(offsets[last])
-            for start in range(range_start, range_stop, rows_per_batch):
-                stop = min(start + rows_per_batch, range_stop)
-                batch = frame.take(order[start:stop]).drop(columns=self._PARTITION_COLUMN)
-                partition_info = [
-                    (
-                        max(int(offsets[partition]), start) - start,
-                        max(0, min(int(offsets[partition + 1]), stop) - max(int(offsets[partition]), start)),
-                    )
-                    for partition in range(first, last)
-                ]
-                writer.write_table(batch, partition_info)
-                self.batch_count += 1
-                self.batch_rows = max(self.batch_rows, len(batch))
-                self.batch_bytes = max(self.batch_bytes, frame_bytes * len(batch) // len(frame))
-            self._rows[first:last] += range_counts
+                writer = self._writers[range_index]
+                if writer is None:
+                    writer = self._writers[range_index] = self._create_writer(range_index)
+                range_start, range_stop = int(offsets[first]), int(offsets[last])
+                for start in range(range_start, range_stop, rows_per_batch):
+                    stop = min(start + rows_per_batch, range_stop)
+                    batch = frame.take(order[start:stop]).drop(columns=self._PARTITION_COLUMN)
+                    partition_info = [
+                        (
+                            max(int(offsets[partition]), start) - start,
+                            max(0, min(int(offsets[partition + 1]), stop) - max(int(offsets[partition]), start)),
+                        )
+                        for partition in range(first, last)
+                    ]
+                    writer.write_table(batch, partition_info)
+                    self.batch_count += 1
+                    self.batch_rows = max(self.batch_rows, len(batch))
+                    self.batch_bytes = max(self.batch_bytes, frame_bytes * len(batch) // len(frame))
+                self._rows[first:last] += range_counts
 
     def close(self) -> None:
         for writer in self._writers:
@@ -237,6 +234,50 @@ class LocalPartitionedParquetWriter:
     @property
     def group_count(self) -> int:
         return len(self._ranges)
+
+
+class WriteMemoryBudget:
+    """Coordinate transient device memory across concurrent Parquet writers."""
+
+    # TODO(https://github.com/NVIDIA/cudf/issues/23502): Replace this upper
+    # bound when cuDF exposes or internally bounds partitioned-write memory.
+    _BYTES_PER_INPUT_BYTE = 5
+
+    def __init__(self, max_lanes: int) -> None:
+        free_bytes, total_bytes = cp.cuda.runtime.memGetInfo()
+        # Writing should not need a larger device allocation than the data it
+        # is draining. When fit already occupies most of the GPU, free memory
+        # naturally becomes the tighter bound.
+        self._capacity = min(free_bytes, total_bytes - free_bytes)
+        self._max_lanes = max_lanes
+        self._reserved = 0
+        self._active = 0
+        self._lock = Lock()
+
+    @contextmanager
+    def claim(self, frame_rows: int, frame_bytes: int) -> Iterator[int]:
+        with self._lock:
+            free_bytes = cp.cuda.runtime.memGetInfo()[0]
+            remaining = min(self._capacity - self._reserved, free_bytes - self._reserved)
+            lanes_left = self._max_lanes - self._active
+            available = max(1, remaining // max(1, lanes_left))
+            # The input size comes from the complete runtime schema, including
+            # variable-width metadata. The multiplier also covers the grouped
+            # table, encoder buffers, and state retained by persistent writers.
+            multiplier = self._BYTES_PER_INPUT_BYTE
+            rows = max(1, min(frame_rows, frame_rows * available // max(1, multiplier * frame_bytes)))
+            reservation = max(1, multiplier * frame_bytes * rows // frame_rows)
+            if reservation > remaining:
+                msg = f"Insufficient GPU memory for one Parquet row: need {reservation} bytes, have {remaining}"
+                raise MemoryError(msg)
+            self._reserved += reservation
+            self._active += 1
+        try:
+            yield rows
+        finally:
+            with self._lock:
+                self._reserved -= reservation
+                self._active -= 1
 
 
 class _WriterLane:
