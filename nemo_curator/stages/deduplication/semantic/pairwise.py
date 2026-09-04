@@ -160,16 +160,11 @@ def pairwise_cosine_similarity_batched(
     cluster_reps = cluster_reps.to(device="cuda", dtype=resolved_compute_dtype)
     batch_size = min(batch_size, len(cluster_reps))
 
-    num_rows, embedding_width = cluster_reps.shape
+    num_rows = len(cluster_reps)
     max_similarity = torch.zeros(num_rows, dtype=cluster_reps.dtype, device=cluster_reps.device)
     max_indices = torch.zeros(num_rows, dtype=torch.int64, device=cluster_reps.device)
     pairwise_sim_workspace = torch.empty(
         (num_rows, batch_size),
-        dtype=cluster_reps.dtype,
-        device=cluster_reps.device,
-    )
-    batch_workspace = torch.empty(
-        (batch_size, embedding_width),
         dtype=cluster_reps.dtype,
         device=cluster_reps.device,
     )
@@ -188,11 +183,8 @@ def pairwise_cosine_similarity_batched(
         # query columns), so only the candidate prefix through this query block can
         # contain valid entries.
         candidate_reps = cluster_reps[:end_idx]
-        batch_workspace[:batch_width].copy_(cluster_reps[start_idx:end_idx])
-        if batch_width < batch_size:
-            batch_workspace[batch_width:].zero_()
-        torch.mm(candidate_reps, batch_workspace.T, out=pairwise_sim_workspace[:end_idx])
         pairwise_sim_matrix = pairwise_sim_workspace[:end_idx, :batch_width]
+        torch.mm(candidate_reps, cluster_reps[start_idx:end_idx].T, out=pairwise_sim_matrix)
 
         # Candidate rows from earlier blocks remain valid. Within the current block,
         # candidate row >= query column represents self or a later-ranked candidate;
@@ -390,8 +382,11 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
 
         conversion_start = time.perf_counter()
         resolved_compute_dtype = _resolve_compute_dtype(cluster_embeddings, self.compute_dtype)
+        storage_was_converted = cluster_embeddings.dtype != resolved_compute_dtype
         cluster_embeddings = cluster_embeddings.to(dtype=resolved_compute_dtype)
         torch.cuda.synchronize()
+        if storage_was_converted:
+            ranked_embeddings = None
         conversion_time = time.perf_counter() - conversion_start
 
         # Compute pairwise similarities after any requested precision conversion.

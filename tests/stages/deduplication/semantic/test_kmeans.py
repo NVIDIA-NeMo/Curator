@@ -474,7 +474,8 @@ class TestKMeansReadFitWriteStage:
         centroids = cp.array([[1, 0], [0, 1]])
 
         # Call _assign_distances
-        df_with_distances = KMeansReadFitWriteStage._assign_distances(df, "embedding", centroids)
+        embeddings = get_array_from_df(df, "embedding")
+        df_with_distances = KMeansReadFitWriteStage._assign_distances(df, embeddings, centroids)
 
         # Assert the distances match the expected values
         np.testing.assert_almost_equal(
