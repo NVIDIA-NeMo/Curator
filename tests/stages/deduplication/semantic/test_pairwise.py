@@ -16,7 +16,7 @@
 
 from contextlib import suppress
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
@@ -188,13 +188,8 @@ class TestPairwiseCosineSimilarityStage:
 
         assert stage._consume_custom_metrics() == {"pairwise_read_time": 3.0}
 
-    def test_single_item_cluster(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_single_item_cluster(self, tmp_path: Path) -> None:
         """Test processing a cluster with a single item."""
-        release = Mock()
-        monkeypatch.setattr(
-            "nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory",
-            release,
-        )
         # Create test data with single embedding
         test_data = cudf.DataFrame({"id": [1], "embedding": [[0.1, 0.2, 0.3]]})
 
@@ -245,7 +240,8 @@ class TestPairwiseCosineSimilarityStage:
         assert "cosine_sim_score" in result_df.columns
         assert result_df["cosine_sim_score"].iloc[0] == 0.0
         assert result_df["cosine_sim_score"].dtype == np.dtype("float32")
-        stage.teardown()
+        with patch("nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory") as release:
+            stage.teardown()
         release.assert_called_once_with()
 
     @pytest.mark.parametrize(
@@ -389,15 +385,8 @@ class TestPairwiseCosineSimilarityStage:
         assert len(result_df) == 3
         assert result_df["id"].to_arrow().to_pylist() == [2, 3, 1]
 
-    def test_pairwise_stage_ranking_fails_on_missing_columns(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_pairwise_stage_ranking_fails_on_missing_columns(self, tmp_path: Path) -> None:
         """Test that ranking fails when required columns are missing."""
-        release = Mock()
-        monkeypatch.setattr(
-            "nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory",
-            release,
-        )
         # Create test data without distance columns
         embeddings = [[1.0, 0.0], [0.0, 1.0]]
         embeddings_tensor = torch.tensor(embeddings, dtype=torch.float32)
@@ -442,7 +431,10 @@ class TestPairwiseCosineSimilarityStage:
         )
 
         # Process task - should fail due to missing distance columns
-        with pytest.raises(KeyError, match="cosine_dist_to_cent"):
+        with (
+            patch("nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory") as release,
+            pytest.raises(KeyError, match="cosine_dist_to_cent"),
+        ):
             stage.process(task)
         release.assert_called_once_with()
 
