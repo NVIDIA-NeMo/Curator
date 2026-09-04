@@ -292,13 +292,18 @@ class RayActorPoolExecutor(BaseExecutor):
         return actors
 
     def _generate_task_batches(
-        self, tasks: list[Task], batch_size: int | None = None, num_output_tasks: int | None = None
+        self,
+        tasks: list[Task],
+        batch_size: int | None = None,
+        num_output_tasks: int | None = None,
+        task_weights: list[int] | None = None,
     ) -> list[list[Task]]:
         """Generate task batches from a list of tasks.
         Args:
             tasks: List of Task objects to process
             batch_size: The size of the batch
             num_output_tasks: The number of output tasks to generate.
+            task_weights: Optional weights used to balance tasks across output batches.
             Either batch_size or num_output_tasks must be provided but not both.
         Returns:
             List of task batches
@@ -310,6 +315,20 @@ class RayActorPoolExecutor(BaseExecutor):
             err_msg = "Either batch_size or num_output_tasks must be provided but not both"
             raise ValueError(err_msg)
         elif num_output_tasks is not None:
+            if task_weights is not None:
+                if len(task_weights) != len(tasks):
+                    msg = "task_weights must have the same length as tasks"
+                    raise ValueError(msg)
+                num_batches = min(num_output_tasks, len(tasks))
+                batches: list[list[Task]] = [[] for _ in range(num_batches)]
+                batch_weights = [0] * num_batches
+                for task, weight in sorted(
+                    zip(tasks, task_weights, strict=True), key=lambda item: item[1], reverse=True
+                ):
+                    batch_index = min(range(num_batches), key=batch_weights.__getitem__)
+                    batches[batch_index].append(task)
+                    batch_weights[batch_index] += weight
+                return batches
             return [batch.tolist() for batch in np.array_split(tasks, num_output_tasks) if len(batch) > 0]
         else:
             return [tasks[i : i + batch_size] for i in range(0, len(tasks), batch_size)]
@@ -335,7 +354,12 @@ class RayActorPoolExecutor(BaseExecutor):
                     f"Stage {_stage.name} is a RAFT stage but has a batch size of {stage_batch_size}. Ignoring batch size."
                 )
             num_actors = len(actor_pool._idle_actors)
-            task_batches = self._generate_task_batches(tasks, num_output_tasks=num_actors)
+            task_weights = [(task._metadata or {}).get("task_weight") for task in tasks]
+            task_batches = self._generate_task_batches(
+                tasks,
+                num_output_tasks=num_actors,
+                task_weights=task_weights if all(weight is not None for weight in task_weights) else None,
+            )
         else:
             # For non-RAFT stages, we batch it based on the stage batch size
             task_batches = self._generate_task_batches(tasks, batch_size=stage_batch_size)

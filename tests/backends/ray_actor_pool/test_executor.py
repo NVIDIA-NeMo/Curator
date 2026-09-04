@@ -24,9 +24,23 @@ from nemo_curator.backends.ray_actor_pool.utils import (
     update_resource_baseline,
 )
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
 
 
 class TestRayActorPoolExecutor:
+    def test_generate_task_batches_balances_weights(self) -> None:
+        executor = RayActorPoolExecutor()
+        tasks = [EmptyTask(dataset_name=str(i)) for i in range(6)]
+
+        batches = executor._generate_task_batches(
+            tasks,
+            num_output_tasks=2,
+            task_weights=[10, 9, 8, 3, 2, 1],
+        )
+
+        weights = {str(i): weight for i, weight in enumerate([10, 9, 8, 3, 2, 1])}
+        assert [sum(weights[task.dataset_name] for task in batch) for batch in batches] == [16, 17]
+
     def test_parse_runtime_env(self):
         # With noset defined we should override it to be empty
         with_noset_defined = {"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": mock.ANY}}
