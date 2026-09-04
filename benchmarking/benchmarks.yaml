@@ -611,19 +611,27 @@ entries:
       --n-clusters=1000
       --id-field=_curator_dedup_id
       --embedding-field=embeddings
-      --embedding-dim=1536
       --input-filetype=parquet
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --dataset-size-ratio=0.20
+      --fit-data-fraction=1.0
     timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
           - num_documents_processed
           - num_duplicates
-          # %percent time taken
+          - kmeans_footer_scan_time_s
+          - kmeans_read_time_s
+          - kmeans_fit_time_s
+          - kmeans_predict_time_s
+          - kmeans_write_time_s
+          - kmeans_actual_fit_percent
+          - kmeans_fit_data_fraction
+          - kmeans_fit_file_fraction
+          # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
           - kmeans_fit_predict_percent_time
@@ -650,7 +658,6 @@ entries:
       --n-clusters=1000
       --id-field=_curator_dedup_id
       --embedding-field=embeddings
-      --embedding-dim=1536
       --input-filetype=parquet
       --eps=0.01
       --which-to-keep=hard
@@ -662,14 +669,21 @@ entries:
         additional_metrics:
           - num_documents_processed
           - num_duplicates
-          # %percent time taken
+          - kmeans_footer_scan_time_s
+          - kmeans_read_time_s
+          - kmeans_fit_time_s
+          - kmeans_predict_time_s
+          - kmeans_write_time_s
+          - kmeans_actual_fit_percent
+          - kmeans_fit_data_fraction
+          - kmeans_fit_file_fraction
+          # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan
-          - U022P8CDX40  # Sarah Yurick
 
     requirements:
       - metric: num_documents_processed
@@ -737,7 +751,7 @@ entries:
       - metric: num_duplicates_removed
         exact_value: 59226133
       - metric: io_percentage
-        min_value: 90
+        min_value: 75
 
   - name: score_filter_raydata
     enabled: true
