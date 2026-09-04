@@ -325,7 +325,10 @@ class RayActorPoolExecutor(BaseExecutor):
                 for task, weight in sorted(
                     zip(tasks, task_weights, strict=True), key=lambda item: item[1], reverse=True
                 ):
-                    batch_index = min(range(num_batches), key=batch_weights.__getitem__)
+                    # Break equal-weight ties by task count so zero-weight tasks still reach every RAFT actor.
+                    batch_index = min(
+                        range(num_batches), key=lambda index: (batch_weights[index], len(batches[index]))
+                    )
                     batches[batch_index].append(task)
                     batch_weights[batch_index] += weight
                 return batches

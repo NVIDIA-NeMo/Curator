@@ -50,6 +50,14 @@ class TestRayActorPoolExecutor:
 
         assert [sum(weights[task.dataset_name] for task in batch) for batch in batches] == [27, 6]
 
+    def test_generate_task_batches_distributes_zero_weights(self) -> None:
+        executor = RayActorPoolExecutor()
+        tasks = [EmptyTask(dataset_name=str(i)) for i in range(6)]
+
+        batches = executor._generate_task_batches(tasks, num_output_tasks=3, task_weights=[0] * len(tasks))
+
+        assert [len(batch) for batch in batches] == [2, 2, 2]
+
     def test_parse_runtime_env(self):
         # With noset defined we should override it to be empty
         with_noset_defined = {"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": mock.ANY}}
