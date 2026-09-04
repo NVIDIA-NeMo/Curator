@@ -1,46 +1,120 @@
-# NeMo Curator Benchmarking Framework
+# NeMo Curator Benchmarks
 
-A comprehensive benchmarking framework for measuring and tracking the performance of NeMo Curator. This tool enables developers to ensure quality and performance by running standardized benchmark scripts in reproducible environments.
+NeMo Curator benchmarks are a separate benchmark suite for measuring Curator
+runtime behavior, validating release candidates, comparing historical releases,
+and tracking performance over time.
+
+The benchmark suite is intentionally separate from the released Curator runtime.
+Some benchmark dependencies are large, license-gated, or otherwise unsuitable
+for redistribution in the standard Curator image. Benchmark users install those
+dependencies explicitly by installing the separate, manually-installed
+`nemo-curator-benchmarking` package from this repository.
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
-- [Nightly Benchmark Ownership](#nightly-benchmark-ownership)
-- [Concepts](#concepts)
+- [Benchmark Package Model](#benchmark-package-model)
+- [Bare-Metal Quick Start](#bare-metal-quick-start)
+- [Container Quick Start](#container-quick-start)
+- [Running Benchmarks in Containers](#running-benchmarks-in-containers)
+- [Benchmarking Older Curator Images](#benchmarking-older-curator-images)
+- [Prepared Images and Running Containers](#prepared-images-and-running-containers)
+- [CI Orchestration](#ci-orchestration)
 - [Configuration](#configuration)
-- [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
-- [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
-- [Writing Benchmark Scripts](#writing-benchmark-scripts)
-- [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
+- [Benchmark Data Setup](#benchmark-data-setup)
+- [Authoring Benchmarks](#authoring-benchmarks)
+- [Reporting Sinks](#reporting-sinks)
+- [Programmatic APIs](#programmatic-apis)
+- [Environment Checks](#environment-checks)
 
 ---
 
-## Quick Start
+## Benchmark Package Model
 
-**1. Build the Docker image:**
+The benchmark package provides the benchmark runner, benchmark scripts, data
+setup scripts, YAML configs, reporting sinks, and benchmark-only Python
+dependencies. It is installed into an environment where Curator is already
+available.
 
-Assuming the working directory is the NeMo Curator repo root dir:
+This separation keeps two versions explicit:
+
+- **Curator under test**: the `nemo-curator` package installed in the active
+  environment or prebuilt Curator image.
+- **Benchmark suite**: the `nemo-curator-benchmarking` package installed from a
+  selected `benchmarking/` directory.
+
+The benchmark package must not replace the Curator package under test. This is
+especially important when benchmarking a released Curator image or comparing an
+older release against a newer benchmark suite.
+
+The package installs a console command:
+
 ```bash
-./benchmarking/tools/build_docker.sh --tag-as-latest
+curator-benchmark run --config benchmarking/benchmarks.yaml
 ```
 
-This builds the `curator_benchmarking` image with:
-- CUDA support
-- Python 3.12 environment
-- NeMo Curator from source in repo root dir
-- All NeMo Curator dependencies
-- Benchmarking framework and scripts
+For local source checkouts, install the benchmark package in editable mode with
+the desired extras:
 
-Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
+```bash
+uv pip install -e ./benchmarking[all]
+```
 
-**2. Update config:**
+Use narrower extras when possible:
 
-Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/benchmarks.yaml`
+```bash
+uv pip install -e ./benchmarking[sinks]
+```
+
+Available extras include `sinks`, `audio`, `visual`, `video`, and
+`nemotron_parse`.
+These extras are limited to benchmark-package-owned dependencies; Curator
+feature stacks such as audio, video, CUDA/vLLM, and interleaved data processing
+remain owned by the main Curator package. The `all` extra installs every
+benchmark-package Python dependency used by the standard benchmark suite,
+including dependencies that CI previously installed directly at benchmark
+runtime.
+
+Benchmark entries, data setup entries, and sinks declare logical dependency
+groups with `dependencies:`. A dependency group can be backed by a Python extra
+in `benchmarking/pyproject.toml`, a system dependency script directory under
+`benchmarking/system_deps/`, or both. The group name is the contract: an entry
+that declares `dependencies: [video]` uses the `video` package extra when it
+exists and the `system_deps/video/` scripts when system dependency setup or
+checking is requested. Entry names such as `video_transcoding_xenna` are only
+human-readable names; dependency setup does not infer behavior from those
+prefixes.
+
+If the environment is a released Curator image, use constraints or a benchmark
+environment setup mode that prevents the benchmark install from upgrading or
+replacing the packages that define the runtime being measured.
+
+Use a non-editable install only when you want a fixed package snapshot instead
+of live source-checkout edits:
+
+```bash
+uv pip install ./benchmarking[all]
+```
+
+---
+
+## Bare-Metal Quick Start
+
+The default workflow runs benchmarks in the current environment. This is the
+recommended path for benchmark authors and users who already have Curator
+installed on the target machine.
+
+Install the benchmark package from the checkout:
+
+```bash
+uv pip install -e ./benchmarking[all]
+```
+
+Create a small path override file for machine-specific storage:
 
 ```yaml
 paths:
   - name: results_path
-    host_path: /path/where/results/are/stored
+    host_path: /path/to/results
   - name: datasets_path
     host_path: /path/to/datasets
     container_path: /datasets
@@ -49,134 +123,394 @@ paths:
     container_path: /model_weights
 ```
 
-Keep `model_weights_path` configured when running benchmarks that consume
-pre-staged model snapshots or caches, such as audio tagging.
-
-**3. Run benchmarks:**
+Run directly:
 
 ```bash
-./benchmarking/tools/run.sh \
+curator-benchmark run \
   --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml
+  --config ./my-paths.yaml
 ```
 
-For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the full-suite config:
+Add data setup when benchmarks need inputs that are prepared once and reused:
 
 ```bash
-./benchmarking/tools/run.sh \
-  --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/4xGB200-64CPU.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml
-```
-
-The 4xGB200-64CPU override updates resource counts, timeout values, known 4-GPU video
-throughput thresholds, and workload-specific scaling settings. Other performance
-requirements are inherited from `benchmarks.yaml` until 4xGB200-64CPU-specific
-baselines are measured.
-
-To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
-```bash
-./benchmarking/tools/run.sh \
+curator-benchmark run \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
-  --use-host-curator
+  --config ./my-paths.yaml
 ```
-This is especially useful during active development and debugging since it avoids a costly rebuild step.
 
+For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the
+full-suite config:
 
-**4. View results:**
+```bash
+curator-benchmark run \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/4xGB200-64CPU.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml \
+  --config ./my-paths.yaml
+```
 
-Results are written to the `results_path` specified in your configuration, organized by session timestamp.
+The `4xGB200-64CPU.yaml` override updates resource counts, timeout values,
+known 4-GPU video throughput thresholds, and workload-specific scaling
+settings. Other performance requirements are inherited from `benchmarks.yaml`
+until 4xGB200-64CPU-specific baselines are measured.
+
+Results are written under the configured `results_path`, grouped by session
+name.
+
+## Container Quick Start
+
+Container support uses the same `curator-benchmark` entrypoint. The host
+environment only needs enough Python support to start Docker; the benchmark
+package and dependency setup run inside the container.
+
+To run in a standard Curator image from the host, add `--image`:
+
+```bash
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --setup-benchmark-env auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+Use the same additional config layering shown in the bare-metal examples when
+you need data setup entries or SKU-specific overrides.
+
+For container-only use from a restricted host environment, the host Python
+environment needs only the package code and the small set of dependencies used
+before Docker starts. A minimal host install can be done with:
+
+```bash
+uv pip install pyyaml
+uv pip install --no-deps ./benchmarking
+```
+
+Or with `pip` in a throwaway virtual environment:
+
+```bash
+python -m pip install pyyaml
+python -m pip install --no-deps ./benchmarking
+```
+
+Use this only for `--image` or `--container` workflows. Running benchmarks in
+the current host environment requires the normal benchmark package dependencies
+and the Curator feature dependencies required by the selected benchmarks.
+
+## Running Benchmarks in Containers
+
+`curator-benchmark` is the primary entrypoint for bare-metal, image, and
+running-container use cases. Without `--image` or `--container`, it runs in the
+current environment. With `--image`, it starts a new Docker container. With
+`--container`, it execs into an existing running container.
+
+For image-based runs, the command reads the YAML configs on the host, creates
+Docker volume mounts for configured paths, forwards GPUs and reporting
+environment variables, mounts the selected benchmark suite package directory,
+and starts the selected Curator image.
+
+Path resolution is controlled by `CURATOR_BENCHMARK_PATH_MODE`, which accepts
+`auto`, `host`, or `container`. Docker image and running-container targets set
+this to `container` automatically for the command they launch. Bare-metal runs
+normally use host paths. Direct `python benchmarking/run.py` and
+`curator-benchmark check` invocations can override this with
+`--path-mode host`, `--path-mode container`, or `--path-mode auto`.
+
+The default `run --image` flow is:
+
+1. Start from the standard Curator image.
+2. Mount the selected benchmark suite from the host.
+3. Resolve dependency groups from the selected configs and entries.
+4. Install or refresh benchmark dependencies when benchmark environment setup
+   mode allows it. For Docker targets this also runs the system dependency
+   install scripts for the dependency groups declared by the selected benchmark
+   entries.
+5. Re-run `curator-benchmark run` inside the container with the supplied config
+   files and runner args.
+
+Benchmark environment setup mode controls whether installation is attempted:
+
+| Mode | Behavior |
+| --- | --- |
+| `auto` | Install or refresh the benchmark package from the mounted suite with the dependency groups declared by the selected configs and entries. For Docker targets, also run matching system dependency install scripts. |
+| `yes` | Same as `auto`, but intended for callers that want setup to be treated as an explicit required step. |
+| `no` | Do not install anything. Fail fast if the benchmark package or dependencies are missing. |
+
+System-tool installation is automatic only for Docker targets started or
+entered by `curator-benchmark`. When running setup in the current environment,
+`curator-benchmark setup` installs Python packages only. Use
+`--install-system-tools` only when you explicitly want the current environment
+to be modified, for example from inside a manually managed container shell:
+
+```bash
+curator-benchmark setup \
+  --install-system-tools \
+  --config ./benchmarking/benchmarks.yaml \
+  --entry-name video_transcoding_xenna
+```
+
+Run with an explicit image:
+
+```bash
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --setup-benchmark-env auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+Use `start` when you want a reusable container with the same mounts,
+environment variables, and optional benchmark-package setup as an image-based
+run:
+
+```bash
+curator-benchmark start \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --name curator-bench-dev \
+  --setup-benchmark-env auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+The command starts a named detached container, runs benchmark-package setup when
+requested, and prints follow-up commands for `curator-benchmark run
+--container`, `curator-benchmark shell --container`, and `docker rm --force`.
+
+For active benchmark development inside a reusable container, use an editable
+install from the mounted benchmark suite so source edits are picked up by later
+commands:
+
+```bash
+curator-benchmark shell --container curator-bench-dev \
+  -- uv pip install -e /opt/curator-benchmark-suite[all]
+```
+
+If `--image` is provided without a value, the default image comes from
+`CURATOR_BENCHMARK_IMAGE`, then `CURATOR_BENCHMARKING_IMAGE`, then
+`nemo_curator:latest`.
+
+Use `--use-host-curator` only when the host Curator checkout itself is the
+Curator version being tested. Do not use it when the Curator-under-test is the
+package already installed in a release image.
+
+### Shell Access
+
+Use shell mode to inspect the exact container environment. Shells started from
+an image, or from a container created by `curator-benchmark start`, start in the
+mounted benchmark suite when it is available and print a short banner with the
+most useful paths.
+
+The tool exports these variables in Docker targets:
+
+| Variable | Value |
+| --- | --- |
+| `CURATOR_BENCHMARK_SUITE_DIR` | Directory containing the benchmark suite, usually `/opt/curator-benchmark-suite`. |
+| `CURATOR_BENCHMARK_CONFIG` | Default benchmark config, usually `/opt/curator-benchmark-suite/benchmarks.yaml`. |
+
+Open a shell in an existing container:
+
+```bash
+curator-benchmark shell --container curator-bench-dev
+```
+
+Run a single command in an existing container by placing the command after
+`--`:
+
+```bash
+curator-benchmark shell \
+  --container curator-bench-dev \
+  -- curator-benchmark check
+```
+
+If the command needs container-side shell expansion, pass it as one quoted shell
+command after `--`:
+
+```bash
+curator-benchmark shell \
+  --container curator-bench-dev \
+  -- 'curator-benchmark check --config "$CURATOR_BENCHMARK_CONFIG"'
+```
+
+For quick one-off inspection, `shell --image` starts a temporary container:
+
+```bash
+curator-benchmark shell --image nvcr.io/nvidia/nemo-curator:<tag>
+```
+
+With `--image`, config arguments before `--` are used by the host-side tool to
+create the same mounts as a benchmark run before opening the shell:
+
+```bash
+curator-benchmark shell \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+To run one command in that temporary container, put the command after `--`.
+Arguments after `--` are passed literally to `bash` inside the container, so use
+paths that are visible inside the container:
+
+```bash
+curator-benchmark shell \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml \
+  -- 'curator-benchmark check --config "$CURATOR_BENCHMARK_CONFIG" --config /MOUNT/path/to/my-paths.yaml'
+```
+
+Do not pass `--config` to `shell --container` unless it belongs to the command
+after `--`. Existing containers must already have the required mounts because
+`docker exec` cannot add them later.
+
+### GPU Selection
+
+Use `--gpus` to control Docker GPU visibility for containers started by
+`curator-benchmark run --image` or `curator-benchmark start`:
+
+```bash
+curator-benchmark run --image nvcr.io/nvidia/nemo-curator:<tag> --gpus all
+curator-benchmark run --image nvcr.io/nvidia/nemo-curator:<tag> --gpus "device=0,1"
+curator-benchmark run --image nvcr.io/nvidia/nemo-curator:<tag> --gpus none
+```
+
+`--gpus`, `--container-memory`, `--shm-size`, and `--network` cannot be used
+with `--container` because they configure `docker run` and cannot be changed by
+`docker exec` after a container already exists.
 
 ---
 
-## Nightly Benchmark Ownership
+## Benchmarking Older Curator Images
 
-Curator owns the benchmark workload: `benchmarking/benchmarks.yaml`,
-the benchmark runner, benchmark scripts, data setup scripts, and local developer
-tools such as `benchmarking/tools/run.sh`.
+A common release-validation workflow is to benchmark an older Curator image with
+the latest benchmark suite. This avoids using stale benchmark scripts and YAML
+files that were baked into the old image.
 
-The scheduled nightly run is orchestrated outside of the Curator repository by
-CI infrastructure. That pipeline reads Curator's
-`benchmarking/benchmarks.yaml` plus any selected SKU override config, generates
-one scheduler job per enabled entry from the merged config, and starts each job
-in a benchmark runtime environment.
+In this mode:
 
-Each generated job invokes Curator's `benchmarking/run.py` for its assigned
-entry. The jobs share a session name and results root so their per-entry outputs
-are collected as one logical nightly benchmark session. The CI layer also
-provides environment-specific path overrides, such as mapping the public
-benchmark config's logical dataset and results paths to the storage locations
-available in that runtime environment.
+- The old image provides the Curator package under test.
+- The current checkout's `benchmarking/` directory provides the benchmark
+  package, scripts, and configs.
+- The benchmark package install must not replace the Curator package in the old
+  image.
 
-CI-only files that control job generation, path mapping, and runtime launch
-behavior live in a CI orchestration repository outside Curator. Keeping those
-files out of Curator lets benchmark infrastructure change independently of the
-Curator source ref or prebuilt Curator image being benchmarked, which is
-important for release-candidate and historical-image runs.
+Example:
+
+```bash
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<old-release-tag> \
+  --benchmark-suite-dir /path/to/latest/Curator/benchmarking \
+  --setup-benchmark-env auto \
+  --config /path/to/latest/Curator/benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+`--benchmark-suite-dir` also accepts a Curator checkout root and normalizes it
+to the checkout's `benchmarking/` directory.
+
+Benchmark results should record both the Curator version under test and the
+benchmark suite version or git SHA. This makes historical comparisons
+interpretable when the benchmark suite evolves between releases.
 
 ---
 
-## Concepts
+## Prepared Images and Running Containers
 
-### Session
+Some users maintain images or running containers that already include benchmark
+dependencies. Use `--setup-benchmark-env no` for those environments:
 
-A **session** represents a single invocation of the benchmarking framework. Each session:
-- Has a unique name with timestamp (e.g., `benchmark-run__2025-01-23__14-30-00`)
-- Contains one or more benchmark entries
-- Produces a session directory with results
-- Captures environment metadata (system info, package versions, etc.)
+```bash
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
+  --setup-benchmark-env no \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
 
-### Scripts
+Use `start` to create a reusable prepared container:
 
-**Benchmark scripts** are Python programs that:
-- Reside in the `scripts/` directory
-- Receive arguments from the framework (paths, parameters, etc.)
-- Execute Curator operations and collect metrics
-- Write standardized output files (params.json, metrics.json, tasks.pkl)
-- Can be run standalone outside of the benchmark framework to debug problems, perform useful work, or be used as examples.
-- Can be written by users to benchmark specific use cases.
-- Are referenced in the YAML configuration as "entries" to be included in benchmark runs with specific options.
+```bash
+curator-benchmark start \
+  --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
+  --name curator-benchmark-dev \
+  --setup-benchmark-env no \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
 
-See [Writing Benchmark Scripts](#writing-benchmark-scripts) for details.
+Then run inside that container:
 
-### Entry
+```bash
+curator-benchmark run \
+  --container curator-benchmark-dev \
+  --setup-benchmark-env no \
+  --config /opt/curator-benchmark-suite/benchmarks.yaml
+```
 
-An **entry** is a single benchmark run within a session. Each entry:
-- Runs a specific benchmark script with defined arguments
-- Has its own timeout, Ray configuration, sink configuration, pass/fail requirments, or can inherit from session-wide defaults
-- Produces metrics, parameters, and run performance data
-- Can reference datasets using template syntax
-- Can pass additional data to sinks to provide for customized operations unique to the entry. For example, the `slack_sink` can accept additional metrics to report for an entry that other entries may not have.
-- Can specify specific requirements that must be met in order to return a passing status. For example, an entry can require that a specific throughput metric meet or exceed a minimum value.
+For containers started outside of `curator-benchmark start`, the caller is
+responsible for appropriate benchmark-suite, dataset, results, GPU,
+shared-memory, and network configuration. The benchmark runner should validate
+the environment and fail clearly if required paths, tools, or Python packages
+are missing.
 
-### Sinks
+External launchers that create containers themselves should set
+`CURATOR_BENCHMARK_PATH_MODE=container` before invoking `curator-benchmark` or
+`python benchmarking/run.py` inside the container. Their path config should use
+real host-visible storage paths as `host_path` and the already-mounted
+container-visible locations as `container_path`.
 
-**Sinks** are pluggable modules that are called by the framework at various stages to allow for custom processing of benchmark data:
-- Initialize at session start
-- Process each entry's individual benchmark results
-- Finalize at session end
+---
 
-Built-in sinks include:
-- **Slack**: Post results to Slack channels
-- **Google Drive**: Upload results to cloud storage (extensible)
-- **MLflow**: Track experiments and metrics
+## CI Orchestration
 
-See [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions) for details.
+External CI and scheduler systems should treat Curator benchmarks as a selected
+benchmark suite plus a selected Curator runtime. The Curator repository owns the
+benchmark workload: YAML configs, runner code, benchmark scripts, data setup
+scripts, package metadata, and local container launcher.
+
+CI orchestration should remain responsible for:
+
+- selecting the Curator image or environment under test
+- selecting the benchmark suite version
+- installing `nemo-curator-benchmarking` when needed
+- applying machine-specific path overrides
+- launching one or more benchmark entries
+- collecting results and logs
+
+Keeping dependency metadata in the benchmark package lets benchmark authors
+update scripts and dependencies in a single Curator PR. CI no longer needs
+benchmark-specific dependency installation logic for each new benchmark.
 
 ## Configuration
 
 ### YAML Configuration Files
 
-The framework uses one or more YAML files to configure benchmark sessions. Multiple configuration files are merged, allowing separation of concerns (e.g., machine-specific paths vs. benchmark definitions).
+The benchmark runner uses one or more YAML files to configure benchmark
+sessions. Multiple configuration files are merged, allowing separation of
+concerns such as machine-specific paths, reporting settings, benchmark
+definitions, and environment-specific overrides.
 
-A useful pattern is to use multiple YAML files, where configuration that does not typically change is in one or more files, and user or machine-specific configuration is others.  For example, `my_paths_and_reports.yaml` could have results / datasets paths and personal sink settings (individual slack channel, etc.), and `release-benchmarks.yaml` could have the team-wide configuration containing the individual benchmark entries and performance requirements.
+A useful pattern is to keep stable benchmark definitions in one config and layer
+local or machine-specific settings on top. For example,
+`my_paths_and_reports.yaml` can define results and dataset paths plus personal
+sink settings, while `benchmarks.yaml` defines the benchmark entries and
+requirements.
 
-This can be especially useful during development. During development you'll not only want to use your own paths and report settings, you'll also want to use the standard benchmarking environment (i.e. a container), but cannot afford to rebuild the Docker image for each code change you're evaluating. The `--use-host-curator` flag is intended for this case. This flag will use your Curator source dir on host inside the container via a volume mount (this works because the container has curator installed in editable mode), and no image rebuild step is needed.
+This is especially useful during development. Use local path and report settings
+while running the benchmark suite from the current checkout. Use
+`--use-host-curator` only when the Curator source checkout on the host is the
+Curator version being tested. When benchmarking a released Curator image, leave
+the image's installed Curator package in place and install or reuse only the
+separate benchmark package.
 
 An example of a development scenario using this pattern looks like this:
 ```bash
-./benchmarking/tools/run.sh --use-host-curator --config ~/curator_benchmarking/my_paths_and_reports.yaml --config ./benchmarking/release-benchmarks.yaml
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --use-host-curator \
+  --config ~/curator_benchmarking/my_paths_and_reports.yaml \
+  --config ./benchmarking/benchmarks.yaml
 ```
 
 ### Configuration Structure
@@ -185,9 +519,10 @@ An example of a development scenario using this pattern looks like this:
 # Required: Paths to files and directories used by the benchmarks.
 # Each entry must have a "name" and a "host_path". The name can be referenced elsewhere
 # in the config using {name} placeholders (e.g. {datasets_path}).
-# When running in Docker with tools/run.sh, each path is automatically mounted into the
-# container. An optional "container_path" overrides the default mount point
-# (which is the host_path prefixed with "/MOUNT").
+# host_path is the path visible outside the container. container_path is the
+# path visible inside the container. When running with --image, each path is
+# automatically mounted from host_path to container_path. If container_path is
+# omitted, it defaults to the host_path prefixed with "/MOUNT".
 # An entry with name "results_path" is required.
 paths:
   - name: results_path
@@ -220,8 +555,9 @@ viewer_url: "http://viewer.example.com/run-viewer?dir=/path/to/results/session"
 viewer_url_template: "http://viewer.example.com/run-viewer?dir={results_path_url}&run={session_name_url}"
 
 # Optional: Delete scratch directories after each entry completes
-# The path {session_entry_dir}/scratch is automatically created when an entry starts and can be used by benchmark
-#scripts for writing temp files. This directory is automatically cleaned up on completion of the entry if
+# The path {session_entry_dir}/scratch is automatically created when an entry
+# starts and can be used by benchmark scripts for writing temp files.
+# This directory is automatically cleaned up on completion of the entry if
 # delete_scratch is true.
 delete_scratch: true
 
@@ -229,14 +565,20 @@ delete_scratch: true
 sinks:
   - name: mlflow
     enabled: true
+    dependencies:
+      - sinks
     tracking_uri: ${MLFLOW_TRACKING_URI}
     experiment: my-experiment
   - name: slack
     enabled: true
+    dependencies:
+      - sinks
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
   - name: gdrive
     enabled: false
+    dependencies:
+      - sinks
     drive_folder_id: ${GDRIVE_FOLDER_ID}
     service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
@@ -260,6 +602,8 @@ entries:
   - name: my_benchmark
     enabled: true  # Optional: Whether to run this entry (default: true)
     script: my_script.py
+    dependencies:
+      - visual
     args: >-
       --input {dataset:common_crawl,parquet}
       --output {session_entry_dir}/output
@@ -290,13 +634,18 @@ entries:
 **Multiple config files:**
 
 ```bash
-python benchmarking/run.py \
+curator-benchmark run \
   --config config.yaml \
   --config paths.yaml \
   --config machine_specific.yaml
 ```
 
-Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference config and is calibrated for the default 8-GPU H100 nightly environment. SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed after it to override only the values that differ for that environment.
+Files are merged in order using a deep recursive merge, so later files can
+override or extend specific nested values without replacing entire top-level
+keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference
+config and is calibrated for the default 8-GPU H100 nightly environment.
+SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed
+after it to override only the values that differ for that environment.
 
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.
@@ -329,7 +678,7 @@ entries:
 
 Running with both files:
 ```bash
-python benchmarking/run.py \
+curator-benchmark run \
   --config benchmarks.yaml \
   --config my_overrides.yaml
 ```
@@ -339,7 +688,7 @@ Results in `domain_classification_xenna` using `timeout_s: 2000` and `min_value:
 **Session naming:**
 
 ```bash
-python benchmarking/run.py \
+curator-benchmark run \
   --config config.yaml \
   --session-name my-experiment-v2
 ```
@@ -349,7 +698,7 @@ python benchmarking/run.py \
 To include a link to a benchmark run viewer in sinks such as Slack, pass a resolved URL with `--viewer-url`:
 
 ```bash
-python benchmarking/run.py \
+curator-benchmark run \
   --config config.yaml \
   --viewer-url "http://viewer.example.com/run-viewer?dir=/path/to/results/&run=my-session"
 ```
@@ -357,7 +706,7 @@ python benchmarking/run.py \
 If part of the URL depends on the selected results path or session name, use `--viewer-url-template`. The template is rendered after the final session name and session path are known. When benchmarks run in a container with configured `host_path` / `container_path` mounts, path placeholders use the host-visible path so links work outside the container:
 
 ```bash
-python benchmarking/run.py \
+curator-benchmark run \
   --config config.yaml \
   --session-name my-session \
   --viewer-url-template "http://viewer.example.com/run-viewer?dir={results_path_url}&run={session_name_url}"
@@ -366,7 +715,7 @@ python benchmarking/run.py \
 For a viewer that reads results from a remote host path, include the host in the template:
 
 ```bash
-python benchmarking/run.py \
+curator-benchmark run \
   --config config.yaml \
   --viewer-url-template "http://rratzel-ws1:5050/run-viewer?dir=dgx-a100-01%3A{results_path_url}%2F&run={session_name_url}"
 ```
@@ -435,6 +784,22 @@ Resolves to the entry's unique directory within the session (e.g., `/results/ses
 
 **enabled**: Controls whether an entry is run (default: `true`). Useful for temporarily disabling entries without removing them from the configuration.
 
+**dependencies**: Declares benchmark dependency groups required by an entry.
+Each name should match a package extra in `benchmarking/pyproject.toml`, a
+directory under `benchmarking/system_deps/`, or both:
+
+```yaml
+entries:
+  - name: video_transcoding_xenna
+    dependencies:
+      - video
+```
+
+The `curator-benchmark setup`, `check`, and Docker/image launch paths use these
+groups to install or verify the dependencies for selected entries. Dependency
+groups are explicit metadata; they are not inferred from the benchmark entry
+name.
+
 **sink_data**: Provides entry-specific configuration for sinks. For example, the Slack sink can accept `additional_metrics` to report metrics beyond the default set:
 
 ```yaml
@@ -473,346 +838,230 @@ entries:
 
 ---
 
-## Running benchmarks and using the container
+## Benchmark Data Setup
 
-The `benchmarking/tools/run.sh` script provides a convenient way to run benchmarks in a Docker container with proper volume mounts, GPU access, and environment configuration.
+Data setup entries prepare reusable input data before benchmark entries run.
+They are configured separately from benchmark entries so expensive downloads or
+conversion steps can be run once and reused by later benchmark sessions.
 
-### Basic Usage
-
-Run benchmarks using a configuration file:
-
-```bash
-./benchmarking/tools/run.sh --config benchmarking/my-benchmark.yaml
-```
-
-This command:
-- Reads the configuration file and extracts `results_path` and `datasets_path`
-- Automatically creates volume mounts to map these paths into the container
-- Runs the benchmarking framework with the Curator code built into the Docker image
-- Passes environment variables like `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `MLFLOW_TRACKING_URI` to the container
-
-### Using Host Curator Sources
-
-To run benchmarks using Curator source code from your local repository instead of the version built into the image:
+Run the checked-in setup config with the benchmark config and your local path
+overrides:
 
 ```bash
-./benchmarking/tools/run.sh --use-host-curator --config benchmarking/my-benchmark.yaml
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --setup-benchmark-env auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml \
+  --config ./my-paths.yaml
 ```
 
-This mounts your local Curator repository (from `$HOST_CURATOR_DIR`) into the container at `/opt/Curator`, allowing you to:
-- Test local changes without rebuilding the Docker image
-- Quickly iterate on Curator development
-- Debug issues with modified source code
+All config files are merged before execution. Setup entries can use the same
+path, dataset placeholders, and `dependencies:` metadata as benchmark entries.
+Logs are written under the session directory at
+`data_setup/<setup-name>/logs/stdouterr.log`.
 
-The `HOST_CURATOR_DIR` environment variable defaults to the repository root but can be overridden:
+For setup-only workflows, use a standalone config that defines only paths,
+sinks, and data setup entries. An empty benchmark entry list is written as:
 
-```bash
-HOST_CURATOR_DIR=/path/to/my/curator/fork ./benchmarking/tools/run.sh --use-host-curator --config my-benchmark.yaml
+```yaml
+entries: []
+sinks: []
 ```
 
-### Interactive Shell
+If you layer a setup config on top of a full benchmark config, remember that
+configuration files are merged. `entries: []` in a later file does not remove
+entries already loaded from an earlier file. In that case, either use a
+setup-only base config or pass an `--entries` selector that matches no benchmark
+entries.
 
-Get an interactive bash shell in the container environment:
+Data preparation code lives under `benchmarking/data_prep/`. Keep those scripts
+idempotent: they should verify existing staged data, reuse it when valid, and
+only download or transform data when required. Benchmark scripts should read
+prepared data by path and should not modify persistent dataset directories
+during scheduled runs.
 
-```bash
-./benchmarking/tools/run.sh --shell
+## Authoring Benchmarks
+
+Benchmark authors should be able to update benchmark code, config, and
+benchmark-only dependencies in one Curator PR.
+
+Place benchmark scripts in `benchmarking/scripts/` and reference them by
+filename from YAML. Each benchmark script must accept
+`--benchmark-results-path`; the runner passes this automatically and expects the
+script to write its output files there.
+
+Required output files:
+
+| File | Purpose |
+|---|---|
+| `params.json` | Parameters and input paths used for the run. |
+| `metrics.json` | Metrics used by requirement checks and reporting sinks. |
+| `tasks.pkl` | Pickled Curator `Task` objects with detailed timing data. |
+
+Benchmark-only dependency changes belong in the benchmark package metadata
+under `benchmarking/pyproject.toml`. Keep the benchmark package separate from
+the main Curator package: it should install benchmark tools and optional
+benchmark-only dependencies without reinstalling or replacing the Curator
+package being tested. Dependencies for Curator feature stacks belong in the
+main Curator package extras instead of being duplicated here.
+
+If a benchmark needs non-Python system dependencies, add a dependency-group
+directory under `benchmarking/system_deps/` with `check.sh` and `install.sh`.
+Use the same group name in the entry's `dependencies:` list. The setup/check
+tools discover these scripts by directory name, so benchmark authors do not need
+to edit Python code to add a new system dependency group.
+
+When a benchmark requires data, add or update a data setup script and the
+corresponding data setup YAML in the same PR. The benchmark entry should then
+refer to the staged dataset using placeholders rather than downloading data at
+runtime.
+
+Benchmarks may be run against older Curator release images using the latest
+benchmark package and configs. If a script requires a newer Curator API, fail
+with a clear error message or document the minimum supported Curator version for
+that benchmark.
+
+Reference implementations:
+
+- `benchmarking/scripts/domain_classification_benchmark.py`
+- `benchmarking/scripts/embedding_generation_benchmark.py`
+- `benchmarking/scripts/removal_benchmark.py`
+- `benchmarking/scripts/audio_tagging_benchmark.py`
+
+## Reporting Sinks
+
+Sinks handle reporting and side effects for benchmark lifecycle events. Built-in
+sinks include Slack, MLflow, and Google Drive support. Sink failures are logged
+by the runner and should not cause a benchmark entry to fail.
+
+Example Slack sink:
+
+```yaml
+sinks:
+  - name: slack
+    channel_id: C1234567890
+    enabled: true
+    dependencies:
+      - sinks
 ```
 
-This is useful for:
-- Exploring the container environment
-- Running benchmarks manually for debugging
-- Checking installed packages and versions
-- Testing commands before adding them to scripts
+Slack reporting requires `SLACK_BOT_TOKEN` in the environment. `channel_id` may
+be provided in YAML or through the environment expected by the runner.
 
-### Running Commands in the Container
-
-Execute a specific command in the container without an interactive shell:
-
-```bash
-./benchmarking/tools/run.sh --shell "uv pip list"
-```
-
-This runs the command and exits. Examples:
-
-```bash
-# Check installed packages
-./benchmarking/tools/run.sh --shell "uv pip list | grep curator"
-
-# Verify Python environment
-./benchmarking/tools/run.sh --shell "python -c 'import nemo_curator; print(nemo_curator.__version__)'"
-
-# List available benchmark scripts
-./benchmarking/tools/run.sh --shell "ls -l /opt/Curator/benchmarking/scripts/"
-```
-
-### Controlling GPU Access
-
-Use the `GPUS` environment variable to control which GPUs are visible to the container:
-
-```bash
-# Use all GPUs (default)
-./benchmarking/tools/run.sh --config my-benchmark.yaml
-
-# Use specific GPUs
-GPUS="device=0,1" ./benchmarking/tools/run.sh --config my-benchmark.yaml
-
-# Use only GPU 2
-GPUS="device=2" ./benchmarking/tools/run.sh --config my-benchmark.yaml
-
-# Run without GPU access
-GPUS="none" ./benchmarking/tools/run.sh --config my-benchmark.yaml
-```
-
-The `GPUS` value is passed directly to Docker's `--gpus` flag.
-
-### More details
-For more details, refer to the `--help` output for `run.sh`
-```bash
-./benchmarking/tools/run.sh --help
-```
-
----
-
-## Audio Benchmark Data Setup
-
-Audio benchmarks that depend on external corpora use the same two-layer setup:
-
-1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
-   machine to populate persistent paths under `{datasets_path}` and, when
-   needed, `{model_weights_path}`.
-2. Run nightly entries from the staged data and local model paths so the
-   benchmark itself never downloads inputs during the scheduled run. Entries
-   that support a standalone download fallback also pass `--no-auto-download`.
-
-Benchmarks that expose a standalone auto-download path keep it for ad hoc local
-debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
-local scratch path and uses a stable Hugging Face cache to avoid re-fetching
-blobs across reruns, but it is not the nightly path.
-
-To run the checked-in audio setup before the benchmark session, pass
-`--config benchmarking/nightly-data-setup.yaml` alongside the main benchmark
-config to `benchmarking/tools/run.sh`. All supplied config files are merged
-before the setup entries reuse an existing versioned manifest, or download and
-stage it into the configured paths before the nightly benchmark entries start.
-
-Current audio setup commands:
-
-```bash
-python benchmarking/data_prep/prepare_librispeech_data.py \
-  --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb \
-  --cache-dir {datasets_path}/_hf_cache/librispeech \
-  --hf-repo-id openslr/librispeech_asr \
-  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
-  --hf-config all \
-  --hf-split train.clean.100+train.clean.360+train.other.500 \
-  --target-audio-hours 750.0
-
-python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
-  --min-audio-hours 30 --max-meeting-duration-minutes 60 \
-  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
-
-python benchmarking/data_prep/prepare_alm_data.py \
-  --output-path {datasets_path}/alm_ami_sdm_8cdaae2
-
-python benchmarking/data_prep/prepare_audio_sortformer_data.py \
-  --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
-  --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
-```
-
-The setup pins each Hugging Face revision and selects the configured workload
-scale in one pass. Timed entries consume these versioned paths and validate
-pipeline outputs without rescanning or downloading the staged corpus.
-
-| Workload | Before | Current result and target decision |
-| --- | --- | --- |
-| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
-| Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
-| ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
-
----
-
-## Writing Benchmark Scripts
-
-### Script Location
-
-Benchmark scripts should be placed in the `benchmarking/scripts/` directory. Scripts are referenced by filename in the YAML configuration.
-
-### Required Script Interface
-
-Benchmark scripts must follow these requirements:
-
-#### 1. Accept Framework Arguments
-
-Your script must accept the `--benchmark-results-path` argument. This is automatically passed by the framework and specifies the directory where output files should be written. You can add any additional custom arguments your benchmark needs.
-
-#### 2. Generate Required Output Files
-
-Your script **must** write three JSON/pickle files to the `--benchmark-results-path` directory:
-
-**`params.json`** - A JSON file containing all parameters used in the benchmark run (input paths, configuration options, etc.). This allows for reproducibility and tracking of what settings were used.
-
-**`metrics.json`** - A JSON file containing all measured metrics from the benchmark (execution time, throughput, memory usage, etc.). Metric names used here can be referenced in entry requirements and sink configurations.
-
-**`tasks.pkl`** - A pickle file containing NeMo Curator `Task` objects that capture detailed performance data. Use `nemo_curator.tasks.Task` with `TaskPerfUtils()` to wrap operations in your script, then save all tasks using `Task.get_all_tasks()`.
-
-### Reference Implementations
-
-See existing scripts in `scripts/` for complete examples:
-- `alm_pipeline_benchmark.py` - ALM audio pipeline benchmark
-- `domain_classification_benchmark.py` - Domain classification with model inference
-- `embedding_generation_benchmark.py` - Embedding generation benchmark
-- `removal_benchmark.py` - Data removal operations benchmark
-
----
-
-## Sinks: Custom Reporting & Actions
-
-### Overview
-
-Sinks extend the framework to perform custom actions at various stages of the benchmark lifecycle:
-
-1. **Initialize**: Called once at session start with session metadata
-2. **Process Result**: Called after each entry completes with that entry's results
-3. **Finalize**: Called once at session end to perform final actions
-
-### Built-in Sinks
-
-#### MLflow Sink
-
-Tracks experiments and metrics in MLflow:
+Example MLflow sink:
 
 ```yaml
 sinks:
   - name: mlflow
     tracking_uri: http://mlflow-server:5000
-    experiment: my-experiment
+    experiment: curator-benchmarks
     enabled: true
+    dependencies:
+      - sinks
 ```
 
-#### Slack Sink
-
-Posts results to Slack channels:
+Entry-specific sink configuration belongs under `sink_data` on the entry. For
+example, Slack can be asked to display additional metrics for a specific
+benchmark:
 
 ```yaml
-sinks:
+sink_data:
   - name: slack
-    channel_id: C1234567890  # Your Slack channel ID
-    enabled: true
+    additional_metrics:
+      - throughput_docs_per_sec
+      - num_documents_processed
 ```
 
-Results are posted as interactive Slack messages with environment info and metrics. Requires:
-- `SLACK_BOT_TOKEN` environment variable set to your Slack Bot User OAuth Token
-- `SLACK_CHANNEL_ID` in config or environment variable for the target channel
+Custom sinks live under `benchmarking/runner/sinks/` and subclass
+`runner.sinks.sink.Sink`. Register new sink names with the runner's sink loading
+logic, then enable the sink from YAML.
 
-#### Google Drive Sink
+## Programmatic APIs
 
-Placeholder for uploading results to Google Drive:
+External launchers can use `nemo-curator-benchmarking` as the source of truth
+for benchmark config semantics instead of duplicating YAML parsing and path
+handling logic.
 
-```yaml
-sinks:
-  - name: gdrive
-    enabled: false
-```
-
-### Writing a Custom Sink
-
-**1. Create a new sink class** in `runner/sinks/`:
+Useful APIs include:
 
 ```python
-# runner/sinks/my_custom_sink.py
-from typing import Any
-from loguru import logger
-from runner.sinks.sink import Sink
-
-
-class MyCustomSink(Sink):
-    def __init__(self, config: dict[str, Any]):
-        super().__init__(config)
-        self.config = config
-        self.enabled = config.get("enabled", True)
-        self.api_endpoint = config.get("api_endpoint")
-
-        # Initialize any resources
-        if not self.api_endpoint:
-            raise ValueError("MyCustomSink: api_endpoint is required")
-
-    def initialize(self, session_name: str, env_data: dict[str, Any]) -> None:
-        """Called at session start."""
-        self.session_name = session_name
-        self.env_data = env_data
-
-        if self.enabled:
-            logger.info(f"MyCustomSink: Starting session {session_name}")
-            # Perform initialization (e.g., create remote session)
-
-    def process_result(self, result: dict[str, Any]) -> None:
-        """Called after each entry completes."""
-        if self.enabled:
-            logger.info(f"MyCustomSink: Processing {result['name']}")
-            # Send result to your API, database, etc.
-            self._send_to_api(result)
-
-    def finalize(self) -> None:
-        """Called at session end."""
-        if self.enabled:
-            logger.info("MyCustomSink: Finalizing session")
-            # Perform cleanup, send summary, etc.
-
-    def _send_to_api(self, data: dict) -> None:
-        """Helper method for API calls."""
-        # Your implementation
-        pass
+from curator_benchmarking.config import (
+    build_benchmark_config_plan,
+    entry_names,
+    exact_entry_config,
+    legacy_path_config,
+    load_benchmark_config,
+    plan_entry_slurm_timeout,
+)
+from curator_benchmarking.dependencies import (
+    dependency_groups_from_config,
+    python_extras_for_dependency_groups,
+    system_dependency_groups_for_dependency_groups,
+    validate_dependency_groups,
+)
+from curator_benchmarking.paths import volume_mount_pairs_from_configs
 ```
 
-**2. Register your sink** in `runner/matrix.py`:
+`load_benchmark_config()` and `build_benchmark_config_plan()` expose Curator's
+name-keyed YAML merge behavior and effective per-entry defaults without
+constructing a runner `Session`. This is intended for orchestration code that
+needs to list enabled entries, calculate job timeouts, or generate one job per
+entry before the benchmark runtime environment exists.
 
-```python
-@classmethod
-def load_sinks(cls, sink_configs: list[dict]) -> list[Sink]:
-    sinks = []
-    for sink_config in sink_configs:
-        sink_name = sink_config["name"]
-        if sink_name == "my_custom":
-            from runner.sinks.my_custom_sink import MyCustomSink
-            sinks.append(MyCustomSink(config=sink_config))
-        # ... other sinks ...
-    return sinks
+`exact_entry_config()` creates a temporary `entries:` override for compatibility
+with older runners that do not support `--entries-exact`. `legacy_path_config()`
+converts modern `paths:` configs into the older top-level `results_path`,
+`datasets_path`, and `model_weights_path` shape when older Curator images still
+need it.
+
+`dependency_groups_from_config()` reads explicit dependency metadata from the
+merged benchmark config. `python_extras_for_dependency_groups()` maps those
+groups to benchmark package extras when matching extras exist.
+`system_dependency_groups_for_dependency_groups()` reports which groups have
+system dependency scripts, and `validate_dependency_groups()` catches typos or
+missing dependency metadata before launchers submit jobs.
+
+## Environment Checks
+
+Use `curator-benchmark check` to check whether the active environment is ready
+to run benchmarks. This command is intended for both containers and bare-metal
+environments.
+
+Checks include:
+
+- Curator, benchmark package, and runner import/version detection.
+- Python package requirements from `benchmarking/pyproject.toml`, including
+  core requirements and optional dependencies selected by the dependency groups
+  in the requested configs.
+- `docker` and `uv` availability, reported as advisory tool status.
+- Configured path existence after host/container path resolution.
+- System dependency checks from matching
+  `benchmarking/system_deps/<dependency>/check.sh` scripts.
+
+Python requirement checks use `packaging` to evaluate requirement strings and
+version specifiers. That dependency is needed in the environment being checked,
+but it is not required by a minimal host install used only to launch checks or
+runs inside Docker.
+
+Examples:
+
+```bash
+curator-benchmark check --config ./benchmarking/benchmarks.yaml
+
+curator-benchmark check \
+  --container curator-benchmark-dev \
+  --setup-benchmark-env no \
+  --config /opt/curator-benchmark-suite/benchmarks.yaml
 ```
 
-**3. Use in configuration:**
-
-```yaml
-sinks:
-  - name: my_custom
-    api_endpoint: https://api.example.com/benchmarks
-    enabled: true
-```
-
-### Result Data Structure
-
-Results passed to `process_result()` contain:
-
-```python
-{
-    "name": "entry_name",
-    "success": True,
-    "exec_time_s": 123.45,
-    "timeout": False,
-    "script_params": { ... },  # From params.json
-    "script_metrics": { ... },  # From metrics.json
-    "tasks": [ ... ],  # From tasks.pkl
-    "command": "python script.py ...",
-    "returncode": 0,
-    "stdouterr_file": "/path/to/log.txt"
-}
-```
-
----
+The check command should be advisory by default: it should explain missing or
+risky environment pieces clearly and return a nonzero exit code only for checks
+that make the requested benchmark run impossible.
 
 ## License
 
-Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 
-Licensed under the Apache License, Version 2.0. See the main repository LICENSE file for details.
+Licensed under the Apache License, Version 2.0. See the main repository LICENSE
+file for details.

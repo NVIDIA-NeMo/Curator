@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -27,8 +28,18 @@ if TYPE_CHECKING:
     from runner.datasets import DatasetResolver
     from runner.path_resolver import PathResolver
 
-_curator_repo_path = Path(__file__).parent.parent.parent
-_entry_script_base_path = _curator_repo_path / "benchmarking/scripts"
+_benchmarking_root_path = Path(__file__).resolve().parent.parent
+_entry_script_base_path = _benchmarking_root_path / "scripts"
+
+
+def _curator_repo_path() -> Path:
+    env_path = os.environ.get("CURATOR_REPO_DIR")
+    if env_path:
+        return Path(env_path)
+    container_path = Path("/opt/Curator")
+    if container_path.exists():
+        return container_path
+    return _benchmarking_root_path.parent
 
 
 @dataclass
@@ -38,6 +49,7 @@ class Entry:
     args: str | None = None
     script_base_path: Path = _entry_script_base_path
     timeout_s: int | None = None
+    dependencies: list[str] = field(default_factory=list)
     sink_data: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     requirements: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
@@ -63,6 +75,12 @@ class Entry:
                 f"{self.gpu_mem_use_warning_threshold}; must be between 0 and 1 inclusive."
             )
             raise ValueError(msg)
+
+        if not isinstance(self.dependencies, list) or not all(
+            isinstance(dependency, str) for dependency in self.dependencies
+        ):
+            msg = f"Invalid dependencies for entry '{self.name}': must be a list of strings."
+            raise TypeError(msg)
 
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:
@@ -122,7 +140,10 @@ class Entry:
                 min_value = req["min_value"]
                 max_value = req["max_value"]
                 if max_value < min_value:
-                    msg = f"Invalid requirement for metric '{metric_name}': max_value ({max_value}) < min_value ({min_value})"
+                    msg = (
+                        f"Invalid requirement for metric '{metric_name}': "
+                        f"max_value ({max_value}) < min_value ({min_value})"
+                    )
                     raise ValueError(msg)
         self.requirements = requirements
 
@@ -202,7 +223,7 @@ class Entry:
         curator_repo_dir_pattern = re.compile(r"\{curator_repo_dir\}")
 
         def _replace_curator_repo_dir(match: re.Match[str]) -> str:  # noqa: ARG001
-            return str(_curator_repo_path)
+            return str(_curator_repo_path())
 
         dataset_pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
 

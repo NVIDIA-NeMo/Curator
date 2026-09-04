@@ -8,9 +8,9 @@
 #
 # The "paths" section defines files and directories used by the benchmarks.
 # Each entry requires a "name" and a "host_path". Paths must exist on the host.
-# If running inside a Docker container started with tools/run.sh, each path is
-# automatically mounted into the container. An optional "container_path" overrides
-# the default mount point (default is host_path prefixed with "/MOUNT").
+# If running inside a Docker container started with curator-benchmark, each path
+# is automatically mounted into the container. An optional "container_path"
+# overrides the default mount point (default is host_path prefixed with "/MOUNT").
 # The "name" can be used as a placeholder elsewhere in this file
 # (e.g. {datasets_path}) and will be substituted with either host_path or
 # container_path based on the environment.
@@ -164,10 +164,14 @@ min_timeout_s: 600
 sinks:
 #  - name: mlflow
 #    enabled: false
+#    dependencies:
+#      - sinks
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
   - name: slack
     enabled: true
+    dependencies:
+      - sinks
     live_updates: true
     thread_replies_for_failures_or_warnings_only: true
     channel_id: ${SLACK_CHANNEL_ID}
@@ -175,6 +179,8 @@ sinks:
     ping_users_on_failure: true
 #  - name: gdrive
 #    enabled: false
+#    dependencies:
+#      - sinks
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
 #    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
@@ -981,6 +987,8 @@ entries:
   - name: audio_sortformer_xenna
     enabled: true
     script: audio_sortformer_benchmark.py
+    dependencies:
+      - audio
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
@@ -1011,6 +1019,8 @@ entries:
   - name: audio_sortformer_raydata
     enabled: true
     script: audio_sortformer_benchmark.py
+    dependencies:
+      - audio
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
@@ -1042,6 +1052,8 @@ entries:
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
+    dependencies:
+      - audio
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-manifest={dataset:librispeech_all_750h,jsonl}
@@ -1070,6 +1082,8 @@ entries:
   - name: audio_librispeech_raydata
     enabled: true
     script: audio_librispeech_benchmark.py
+    dependencies:
+      - audio
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-manifest={dataset:librispeech_all_750h,jsonl}
@@ -1096,6 +1110,8 @@ entries:
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
+    dependencies:
+      - audio
     # Hang guard only (3h30m). Full dataset with all filters runs ~3.24h on 4×A100.
     # Performance regressions should be tracked via a `requirements` check on
     # `time_taken_s` once a stable baseline is established (follow-up).
@@ -1125,6 +1141,8 @@ entries:
   - name: audio_readspeech_raydata
     enabled: true
     script: audio_readspeech_benchmark.py
+    dependencies:
+      - audio
     # Hang guard only (3h30m). Mirrors xenna config so the two executors are
     # directly comparable on the same workload (full dataset, all filters).
     timeout_s: 12600
@@ -1211,6 +1229,8 @@ entries:
   - name: video_embedding_xenna
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1235,6 +1255,8 @@ entries:
   - name: video_embedding_raydata
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1259,6 +1281,8 @@ entries:
   - name: video_transcoding_xenna
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1284,6 +1308,8 @@ entries:
   - name: video_transcoding_raydata
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1309,6 +1335,8 @@ entries:
   - name: video_captioning_xenna
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1336,6 +1364,8 @@ entries:
   - name: video_captioning_raydata
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1435,6 +1465,8 @@ entries:
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1463,6 +1495,8 @@ entries:
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_raydata
     enabled: true
     script: video_pipeline_benchmark.py
+    dependencies:
+      - video
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
@@ -1492,6 +1526,8 @@ entries:
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
+    dependencies:
+      - audio
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
@@ -1530,6 +1566,8 @@ entries:
   - name: audio_tagging_tts_raydata
     enabled: true
     script: audio_tagging_benchmark.py
+    dependencies:
+      - audio
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
@@ -1568,6 +1606,8 @@ entries:
   - name: interleaved_filter_raydata_materialize
     enabled: true
     script: interleaved_filter_benchmark.py
+    dependencies:
+      - visual
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=ray_data
@@ -1602,6 +1642,8 @@ entries:
   - name: interleaved_filter_xenna_materialize
     enabled: true
     script: interleaved_filter_benchmark.py
+    dependencies:
+      - visual
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=xenna
@@ -1636,6 +1678,8 @@ entries:
   - name: nemotron_parse_pdf_xenna
     enabled: true
     script: nemotron_parse_pdf_benchmark.py
+    dependencies:
+      - nemotron_parse
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=xenna
@@ -1698,6 +1742,8 @@ entries:
   - name: nemotron_parse_pdf_raydata
     enabled: true
     script: nemotron_parse_pdf_benchmark.py
+    dependencies:
+      - nemotron_parse
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=ray_data
@@ -1831,6 +1877,8 @@ entries:
   - name: math_preprocess_raydata
     enabled: true
     script: math_pipeline_benchmark.py
+    dependencies:
+      - math
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:finemath4plus_enriched_pdx_10x,parquet}
@@ -1855,6 +1903,8 @@ entries:
   - name: math_preprocess_xenna
     enabled: true
     script: math_pipeline_benchmark.py
+    dependencies:
+      - math
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:finemath4plus_enriched_pdx_10x,parquet}
