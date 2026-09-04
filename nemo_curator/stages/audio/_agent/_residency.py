@@ -207,11 +207,11 @@ def _as_soundfile_array(waveform: Any) -> Any:  # noqa: ANN401
     if hasattr(waveform, "numpy"):
         waveform = waveform.numpy()
     if getattr(waveform, "ndim", 0) == 2:  # noqa: PLR2004 - 2 == a (channels, samples) 2-D array
-        channels, samples = waveform.shape
-        if channels == 1:
+        if waveform.shape[0] == 1:
             return waveform[0]
-        if channels < samples:
-            return waveform.T
+        # The shared representation is channel-first. SoundFile expects frames first,
+        # including for a valid but very short (channels > samples) waveform.
+        return waveform.T
     return waveform
 
 
@@ -243,7 +243,11 @@ def write_audio_stable(
 
     os.makedirs(output_dir, exist_ok=True)
     digest = hashlib.sha256(arr.tobytes())
-    digest.update(f"|{int(sample_rate)}".encode())
+    # ``tobytes`` alone loses array shape: mono ``(1, 32000)`` and stereo
+    # ``(2, 16000)`` silence have identical flattened bytes. Include the
+    # representation SoundFile will write so distinct audio layouts cannot
+    # claim the same stable path.
+    digest.update(f"|{arr.shape!r}|{arr.dtype.str}|{int(sample_rate)}|wav".encode())
     path = os.path.join(output_dir, f"{stem}{f'_{tag}' if tag else ''}_{digest.hexdigest()[:16]}.wav")
     # Write beside the target and rename, so a killed or concurrent writer cannot leave a
     # half-written file at a name the next run treats as finished.

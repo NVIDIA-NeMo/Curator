@@ -181,7 +181,7 @@ def expand_composites(stages: list[Any]) -> Expansion:
         # can tell perfectly well that it will run the outer composite and raise.
         nested = next((c for c in children if _nested_composite(c)), None)
         if nested is not None:
-            opaque[index] = (
+            unrunnable[index] = (
                 f"decomposition returned another composite ({type(nested).__name__}); "
                 "nested composition is not supported"
             )

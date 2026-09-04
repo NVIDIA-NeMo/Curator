@@ -778,6 +778,19 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     output_path: str
     name: str = "manifest_writer"
 
+    # ``output_path`` is required, so static discovery cannot instantiate this
+    # stage. Publish invariant sink behavior so an agent never mistakes it for
+    # a pure pass-through before it has configuration values.
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            requires_serializable_input=True,
+            per_row_independent=True,
+        )
+    )
+
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
