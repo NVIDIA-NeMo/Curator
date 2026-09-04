@@ -15,7 +15,7 @@
 # limitations under the License.
 
 from pathlib import Path
-from threading import Event, Lock
+from threading import Barrier, Event, Lock
 
 import pytest
 
@@ -94,18 +94,20 @@ def test_rolling_writer_limits_rows_per_partition() -> None:
 
 
 @pytest.mark.gpu
-def test_concurrent_writer_hands_frame_to_background_thread() -> None:
+def test_concurrent_writer_uses_persistent_lanes_for_overlapping_writes() -> None:
     import cudf
 
     from nemo_curator.stages.deduplication.semantic.write_utils import ConcurrentParquetWriters
 
     lock = Lock()
     release = Event()
+    started = Barrier(3)
     writers = []
 
     def create_writer(lane_index: int) -> _RecordingWriter:
         class BlockingWriter(_RecordingWriter):
             def write_table(self, frame: object) -> None:
+                started.wait(timeout=5)
                 release.wait(timeout=5)
                 super().write_table(frame)
 
@@ -114,15 +116,21 @@ def test_concurrent_writer_hands_frame_to_background_thread() -> None:
             writers.append((lane_index, writer))
         return writer
 
-    concurrent = ConcurrentParquetWriters(create_writer)
-    concurrent.submit(cudf.DataFrame({"value": [0, 1, 2, 3]}))
+    concurrent = ConcurrentParquetWriters(create_writer, max_lanes=2)
+    frame = cudf.DataFrame({"value": [0, 1, 2, 3]})
+    concurrent.submit(frame)
+    concurrent.submit(frame + 4)
+    started.wait(timeout=5)
+
+    # Neither write can finish yet, so reaching two writers proves the second
+    # submission did not quietly serialize behind the first one.
+    assert [lane for lane, _ in writers] == [0, 1]
     release.set()
     concurrent.close()
 
-    assert [lane for lane, _ in writers] == [0]
     assert 0 < concurrent.write_wall_time <= concurrent.write_work_time
     values = [frame["value"].iloc[0] for _, writer in writers for frame in writer.frames]
-    assert values == [0]
+    assert values == [0, 4]
     assert all(writer.closed for _, writer in writers)
 
 
@@ -159,7 +167,7 @@ def test_local_partitioned_writer_preserves_rows_across_bounded_writes(
     # Keep the batches deliberately tiny here. This exercises the same persistent
     # multi-sink Parquet writer used by KMeans while making both centroid ranges
     # cross a write boundary in a small test.
-    monkeypatch.setattr(LocalPartitionedParquetWriter, "_rows_per_batch", staticmethod(lambda *_: 2))
+    monkeypatch.setattr(LocalPartitionedParquetWriter, "_rows_per_batch", lambda *_: 2)
     writer = LocalPartitionedParquetWriter(
         output_path=str(tmp_path),
         file_name_prefix="part",

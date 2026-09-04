@@ -130,6 +130,7 @@ class LocalPartitionedParquetWriter:
     """Write bounded centroid ranges without cuDF's full-frame partition copy."""
 
     _PARTITION_COLUMN = "centroid"
+    WRITE_LANES = 3
 
     # TODO(https://github.com/NVIDIA/cudf/issues/23502): Use cuDF's partitioned
     # writer once it can bound the grouped copy and encoder buffers itself.
@@ -155,13 +156,12 @@ class LocalPartitionedParquetWriter:
         self.batch_rows = 0
         self.batch_bytes = 0
 
-    @staticmethod
-    def _rows_per_batch(frame_rows: int, frame_bytes: int) -> int:
+    def _rows_per_batch(self, frame_rows: int, frame_bytes: int) -> int:
         free_bytes = cp.cuda.runtime.memGetInfo()[0]
-        # A direct partition write holds the gathered batch plus cuDF's
-        # uncompressed and maximum-compressed encoder buffers. Reserving one
-        # input-sized buffer leaves room for the next prediction read.
-        available = max(1, free_bytes - frame_bytes)
+        # The source frame is already resident and therefore excluded from
+        # free_bytes. Divide the remaining memory between writer lanes; each
+        # lane then bounds its gathered table and two encoder buffers.
+        available = max(1, free_bytes // self.WRITE_LANES)
         return max(1, min(frame_rows, frame_rows * available // max(1, 3 * frame_bytes)))
 
     def _initialize_ranges(self, counts: np.ndarray, rows_per_batch: int) -> None:
@@ -262,6 +262,14 @@ class _WriterLane:
             raise RuntimeError(msg)
         self._future = self._executor.submit(self._write, frame)
 
+    def is_available(self) -> bool:
+        if self._future is None:
+            return True
+        if not self._future.done():
+            return False
+        self.wait()
+        return True
+
     def wait(self) -> None:
         if self._future is not None:
             try:
@@ -285,13 +293,15 @@ class _WriterLane:
 
 
 class ConcurrentParquetWriters:
-    """Overlap one whole-frame Parquet write with preparation of the next frame."""
+    """Keep a small number of persistent Parquet writers busy concurrently."""
 
     def __init__(
         self,
         create_writer: Callable[[int], PartitionedParquetWriter],
+        max_lanes: int = 1,
     ) -> None:
         self._create_writer = create_writer
+        self._max_lanes = max_lanes
         self._lanes: list[_WriterLane] = []
 
     def _new_lane(self) -> _WriterLane:
@@ -306,8 +316,20 @@ class ConcurrentParquetWriters:
     def submit(self, frame: "cudf.DataFrame") -> None:
         if not len(frame):
             return
-        self.flush()
-        (self._lanes[0] if self._lanes else self._new_lane()).submit(frame)
+
+        for lane in self._lanes:
+            if lane.is_available():
+                lane.submit(frame)
+                return
+
+        if len(self._lanes) < self._max_lanes:
+            self._new_lane().submit(frame)
+            return
+
+        # Reusing the oldest lane bounds the number of resident input frames.
+        lane = self._lanes[0]
+        lane.wait()
+        lane.submit(frame)
 
     def flush(self) -> None:
         for lane in self._lanes:

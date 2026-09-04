@@ -337,6 +337,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             raise ValueError(msg)
         output_path = local_path(self.output_path, self.output_storage_options)
         if output_path is not None:
+            # Three lanes saturated the target distributed filesystem in
+            # benchmarks; a fourth only increased memory pressure. Each lane
+            # sizes batches from live free memory, leaving fit sizing unchanged.
+            write_lanes = LocalPartitionedParquetWriter.WRITE_LANES
             supported_kwargs = {"compression", "statistics"}
             unsupported = set(self.write_kwargs).difference(supported_kwargs)
             if unsupported:
@@ -349,7 +353,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                     n_partitions=self.n_clusters,
                     max_rows_per_partition=max_rows_per_partition,
                     write_kwargs=self.write_kwargs,
-                )
+                ),
+                max_lanes=write_lanes,
             )
         return ConcurrentParquetWriters(
             lambda lane_index: RollingParquetWriter(
