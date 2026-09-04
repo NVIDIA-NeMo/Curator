@@ -340,9 +340,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         if not len(metadata):
             return
         frame = metadata.copy(deep=False)
-        frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
         frame["centroid"] = labels
-        frame = self._assign_distances(frame, self.embedding_field, centroids)
+        frame = self._assign_distances(frame, embeddings, centroids)
         self._set_output_embeddings(frame, embeddings)
         self.write_parquet(
             frame,
@@ -355,12 +354,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         )
 
     def _set_output_embeddings(self, frame: "cudf.DataFrame", embeddings: "cp.ndarray") -> None:
-        """Store FP16 as uint16 bit patterns until cuDF supports numeric FP16 columns."""
+        """Materialize embeddings, carrying FP16 as uint16 until cuDF supports it."""
         if self.embedding_output_dtype == "float16":
-            frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(
-                embeddings.astype(cp.float16).view(cp.uint16),
-                index=frame.index,
-            )
+            embeddings = embeddings.astype(cp.float16).view(cp.uint16)
+        frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
 
     def _save_centroids(self, centroids: "cp.ndarray") -> None:
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
@@ -395,7 +392,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         df = self._read_group(files, [self.id_field, self.embedding_field, *self.metadata_fields])
         embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
         self._normalize_embeddings_in_place(embeddings)
-        df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=df.index)
 
         t1 = time.perf_counter()
         self._log_metrics({"kmeans_read_time": t1 - t0, "num_rows": len(df)})
@@ -409,7 +405,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self._log_metric("kmeans_fit_predict_time", t2 - t1)
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
 
-        df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
+        df = self._assign_distances(df, embeddings, self.kmeans.cluster_centers_)
         self._set_output_embeddings(df, embeddings)
         self.write_parquet(
             df,
@@ -511,13 +507,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         df = self._read_group(files, [self.id_field, self.embedding_field, *self.metadata_fields])
         embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
         self._normalize_embeddings_in_place(embeddings)
-        df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=df.index)
         pass2_read_time = time.perf_counter() - t_start
         total_rows = len(df)
 
         labels = self.kmeans.predict(embeddings).astype(cp.int32)
         df["centroid"] = labels
-        df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
+        df = self._assign_distances(df, embeddings, self.kmeans.cluster_centers_)
         self._set_output_embeddings(df, embeddings)
         self.write_parquet(
             df,
@@ -568,12 +563,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
 
     @staticmethod
-    def _assign_distances(df: "cudf.DataFrame", embedding_col: str, centroids: "cp.ndarray") -> "cudf.DataFrame":
+    def _assign_distances(
+        df: "cudf.DataFrame", normalized_embeddings: "cp.ndarray", centroids: "cp.ndarray"
+    ) -> "cudf.DataFrame":
         """
         Computes the L2 distance to nearest centroid to each embedding in the DataFrame.
         Embeddings are normalized. For cosine we'll need to normalize the centroids as well.
         """
-        normalized_embeddings = get_array_from_df(df, embedding_col)
         # We normalize the centroids as well for cosine distance
         normalized_centroids = centroids / cp.linalg.norm(centroids, axis=1, keepdims=True)
 

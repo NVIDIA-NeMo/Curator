@@ -60,12 +60,12 @@ class TestPairwiseCosineSimilarityBatched:
         self.expected_indices = np.array([0, 0, 1, 2, 0, 0])
 
     @pytest.mark.parametrize(
-        ("input_dtype", "compute_dtype", "batch_size", "output_dtype"),
+        ("input_dtype", "compute_dtype", "batch_size"),
         [
-            (torch.float32, "auto", 1, "float32"),
-            (torch.float32, "float16", 2, "float16"),
-            (torch.float16, "auto", 6, "float16"),
-            (torch.float16, "float16", 3, "float16"),
+            (torch.float32, "auto", 1),
+            (torch.float32, "float16", 2),
+            (torch.float16, "auto", 6),
+            (torch.float16, "float16", 3),
         ],
     )
     def test_pairwise_cosine_similarity_batched(
@@ -73,20 +73,21 @@ class TestPairwiseCosineSimilarityBatched:
         input_dtype: torch.dtype,
         compute_dtype: str,
         batch_size: int,
-        output_dtype: str,
     ) -> None:
         """Fixed batches preserve compute precision and earlier-rank behavior."""
         max_similarity, max_indices = pairwise_cosine_similarity_batched(
             self.input_embeddings.to(input_dtype), batch_size, compute_dtype
         )
+        is_fp16 = input_dtype == torch.float16 or compute_dtype == "float16"
+        tolerance = 2e-3 if is_fp16 else 1e-6
         np.testing.assert_allclose(
             max_similarity.tolist(),
             self.expected_pairwise_similarity,
-            rtol=2e-3 if input_dtype == torch.float16 or output_dtype == "float16" else 1e-6,
-            atol=2e-3 if input_dtype == torch.float16 or output_dtype == "float16" else 1e-6,
+            rtol=tolerance,
+            atol=tolerance,
         )
         np.testing.assert_array_equal(max_indices.tolist(), self.expected_indices)
-        assert max_similarity.dtype == cp.dtype(output_dtype)
+        assert max_similarity.dtype == (cp.float16 if is_fp16 else cp.float32)
 
     def test_rejects_upcasting_fp16_embeddings(self) -> None:
         with pytest.raises(ValueError, match="float16 embeddings"):
@@ -224,21 +225,22 @@ class TestPairwiseCosineSimilarityStage:
         release.assert_called_once_with()
 
     @pytest.mark.parametrize(
-        "case",
+        ("storage_dtype", "compute_dtype", "batch_size"),
         [
-            ("float16", "auto", 2, 2),
-            ("float32", "auto", 8, 4),
-            ("float32", "float16", 2, 2),
+            ("float16", "auto", 2),
+            ("float32", "auto", 8),
+            ("float32", "float16", 2),
         ],
     )
     def test_multi_item_cluster(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        case: tuple[str, str, int, int],
+        storage_dtype: str,
+        compute_dtype: str,
+        batch_size: int,
     ) -> None:
         """Exercise storage/compute precision, file groups, ranking, ties, and metrics together."""
-        storage_dtype, compute_dtype, batch_size, expected_batch_size = case
         embeddings = cp.asarray(
             [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.8, 0.6, 0.0]],
             dtype=cp.float32,
@@ -286,11 +288,12 @@ class TestPairwiseCosineSimilarityStage:
         assert result_df["id"].to_arrow().to_pylist() == [10, 20, 30, 40]
         assert result_df["max_id"].to_arrow().to_pylist() == [10, 10, 20, 10]
         assert result_df["cosine_sim_score"].dtype == np.dtype("float32")
+        tolerance = 2e-3 if storage_dtype == "float16" or compute_dtype == "float16" else 1e-6
         np.testing.assert_allclose(
             result_df["cosine_sim_score"].to_numpy(),
             [0.0, 0.8, 0.6, 0.0],
-            rtol=2e-3 if storage_dtype == "float16" or compute_dtype == "float16" else 1e-6,
-            atol=2e-3 if storage_dtype == "float16" or compute_dtype == "float16" else 1e-6,
+            rtol=tolerance,
+            atol=tolerance,
         )
 
         metrics = stage._consume_custom_metrics()
@@ -306,7 +309,7 @@ class TestPairwiseCosineSimilarityStage:
         }
         assert all(metrics[name] >= 0 for name in metrics if name.endswith("_time"))
         assert metrics["pairwise_num_rows"] == 4
-        assert metrics["pairwise_resolved_batch_size"] == expected_batch_size
+        assert metrics["pairwise_resolved_batch_size"] == min(batch_size, len(embeddings))
 
     def test_pairwise_stage_with_custom_metadata_ranking(self, tmp_path: Path) -> None:
         """Test PairwiseCosineSimilarityStage with custom metadata-based ranking."""
