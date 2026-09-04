@@ -272,8 +272,19 @@ def _derived_dispatch(cls: type, declared: str) -> str:
 
 
 def _task_type_name(t: Any) -> str | None:  # noqa: ANN401
-    """The class name of a generic arg, or None for a TypeVar/non-type."""
-    return t.__name__ if isinstance(t, type) else None
+    """The class name of a generic arg, or None for a TypeVar/non-type.
+
+    A union (``ProcessingStage[AudioTask | DocumentBatch, ...]``) renders as its members joined
+    by ``|``, which the task-type check reads as "any of these". Collapsing it to None instead
+    would be the wrong kind of silence: a stage that honestly accepts two task types would
+    disable the check for its whole neighbourhood rather than describe itself.
+    """
+    if isinstance(t, type):
+        return t.__name__
+    args = get_args(t)
+    if args and all(isinstance(a, type) for a in args):
+        return "|".join(a.__name__ for a in args)
+    return None
 
 
 def _task_types(cls: type) -> tuple[str | None, str | None]:

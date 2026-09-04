@@ -415,6 +415,7 @@ class _Walk:
     removed_roles: set[str] = field(default_factory=set)
     key_producer: dict[str, str] = field(default_factory=dict)
     past_composite: bool = False  # an UNEXPANDABLE composite hid its writes; reads past it can't be judged
+    task_type: str | None = None  # task type the previous stage produces; None == not known
 
 
 def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:
@@ -507,12 +508,111 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
     ]
 
 
+def _declared_produces(stage: Any) -> str | None:  # noqa: ANN401 - any recipe stage
+    """The task type a stage says it produces, or None if it cannot say.
+
+    Used for a composite the expander could not open: what it is opaque about is the inner
+    stages and their writes, not the ``ProcessingStage[X, Y]`` it is declared over. Keeping
+    that one fact is what lets the task-type check survive an opaque reader at the head of
+    a recipe instead of switching itself off for everything after it.
+    """
+    try:
+        return build_contract(stage).produces_task_type
+    except Exception:  # noqa: BLE001 - a stage that cannot describe itself declares nothing
+        return None
+
+
+def _task_types_compatible(produced: str, accepted: str) -> bool:
+    """Whether a task of type ``produced`` may be handed to a stage accepting ``accepted``.
+
+    Three ways to be compatible, in the order they cost anything to check:
+
+    * the same name;
+    * ``accepted`` is a union (``AudioTask|DocumentBatch``) and ``produced`` is one of its
+      members -- a stage that takes either really does take either;
+    * ``accepted`` names a BASE of ``produced``. A stage declared over ``Task`` accepts every
+      task, and one declared over ``SentinelTask`` accepts ``EmptyTask``; refusing those would
+      make the check fire on pipelines that run correctly today, which is the one outcome a
+      hard error cannot afford.
+
+    A name that resolves to no task class is treated as incompatible only if the other side
+    resolves and disagrees -- see the caller, which skips the check entirely when either side
+    is unknown.
+    """
+    accepted_names = accepted.split("|")
+    if produced in accepted_names:
+        return True
+    produced_cls = _task_class(produced)
+    if produced_cls is None:
+        return False
+    return any((cls := _task_class(name)) is not None and issubclass(produced_cls, cls) for name in accepted_names)
+
+
+def _task_class(name: str) -> type | None:
+    """The task class for a declared type name, or None if it names no known task."""
+    from nemo_curator import tasks
+
+    cls = getattr(tasks, name, None)
+    return cls if isinstance(cls, type) else None
+
+
+def _task_type_issue(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:
+    """The stage cannot accept the task the one before it produces.
+
+    This is a certainty rather than an inference -- the types come off the ``ProcessingStage[X, Y]``
+    generic, not from a heuristic -- so it is an error. It catches the class of recipe that reads
+    perfectly at the key level and dies immediately at runtime: a folder source produces an
+    ``AudioTask``, ``ManifestReaderStage`` accepts a ``FileGroupTask``, and handed the former it
+    treats the row's dict keys as manifest paths and raises ``FileNotFoundError``.
+
+    Skipped whenever either side is unknown -- an unparametrized generic. Unlike the read check
+    this survives a composite nobody could expand: what such a composite hides is its inner
+    WRITES, while its task types are declared on the class itself. Dropping the check there
+    would disable it for most real recipes, which begin at a composite reader.
+    """
+    produced, accepted = walk.task_type, contract.accepts_task_type
+    if not produced or not accepted or _task_types_compatible(produced, accepted):
+        return []
+    return [
+        PipelineIssue(
+            site.index,
+            site.name,
+            "error",
+            "task_type_mismatch",
+            f"accepts {accepted} but the stage before it produces {produced}; "
+            f"insert a stage that converts {produced} to {accepted}, or reorder so the task "
+            f"types line up",
+        )
+    ]
+
+
 def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
     """Fold one stage's writes, removals and tensor residency into the running state."""
     produced = produced_roles(contract)
+    written = _write_key_values(contract)
+    if not contract.preserves_upstream_keys:
+        # A stage that rebuilds the task rather than adding to it: whatever it does not write
+        # is not downstream. Folding its writes into the inherited state would keep every
+        # upstream key alive in the model while the runtime task has already dropped them --
+        # the failure mode is a downstream read validating clean and raising on contact.
+        # Cleared BEFORE the writes are folded in, so a key this stage re-writes survives on
+        # its own authority rather than on the vanished producer's.
+        dropped_keys = walk.available_keys - written
+        dropped_roles = walk.available - produced
+        walk.available_keys -= dropped_keys
+        walk.available -= dropped_roles
+        walk.removed_roles |= dropped_roles
+        for key in dropped_keys:
+            walk.key_producer.pop(key, None)
+        # Tensor residency deliberately survives this. The flag is coarser than it looks:
+        # ALMDataBuilderStage sets it because SOME branch rebuilds task.data, while still
+        # carrying the waveform on the ordinary path. Clearing residency here would retract
+        # the ``tensor_into_sink`` block on a pipeline that really does hand a resident
+        # waveform to a JSON sink -- a safety gate whose false NEGATIVE is the expensive
+        # direction. A stage that genuinely ends residency says so through ``removes_keys``
+        # or ``sanitizes_output``, both handled below.
     walk.available |= produced
     walk.removed_roles -= produced  # a re-produced role is no longer "removed"
-    written = _write_key_values(contract)
     # Most recent writer wins -- that is who a downstream reader would actually get.
     walk.key_producer.update(dict.fromkeys(written, name))
     walk.available_keys |= written
@@ -545,6 +645,7 @@ def validate_pipeline(  # noqa: C901
     *,
     initial_roles: set[str] | None = None,
     initial_keys: set[str] | None = None,
+    initial_task_type: str | None = None,
     available_gpus: float | None = None,
 ) -> PipelineReport:
     """Validate that an ordered list of configured stages composes.
@@ -559,6 +660,10 @@ def validate_pipeline(  # noqa: C901
             Defaults to ``{"audio_filepath"}``. Seeding this lets the
             literal-key check (``keys_ok``) recognize reads satisfied by the
             input rather than by an upstream producer.
+        initial_task_type: Class name of the task the first stage will be handed
+            (e.g. ``"EmptyTask"`` for a pipeline that starts at a source, ``"AudioTask"``
+            for a suffix resumed from a manifest). ``None`` -- the default -- leaves the
+            first stage's input unchecked rather than guessing at it.
         available_gpus: If given, stages whose contract declares ``requires_gpu``
             while this is ``<= 0`` raise a warning.
 
@@ -580,6 +685,7 @@ def validate_pipeline(  # noqa: C901
     walk = _Walk(
         available=set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES),
         available_keys=seed_keys,
+        task_type=initial_task_type,
     )
     expansion = expand_composites(stages)
     leaves = expansion.by_recipe_index()
@@ -609,6 +715,7 @@ def validate_pipeline(  # noqa: C901
                 )
             )
             walk.past_composite = True
+            walk.task_type = _declared_produces(recipe_stage)
             continue
         if index in opaque:
             issues.append(
@@ -622,6 +729,7 @@ def validate_pipeline(  # noqa: C901
                 )
             )
             walk.past_composite = True
+            walk.task_type = _declared_produces(recipe_stage)
             continue
         if index in partly_opaque:
             issues.append(
@@ -641,6 +749,11 @@ def validate_pipeline(  # noqa: C901
             # unknown part is how a working pipeline gets failed on the name of a stage the
             # caller never wrote.
             walk.past_composite = True
+            # The unreadable child is DROPPED from the walk rather than walked and skipped, so
+            # the type chain has a hole in it exactly here: ManifestReader's FilePartitioningStage
+            # has no describe(), and carrying EmptyTask across it made its own ManifestReaderStage
+            # -- which correctly accepts the FileGroupTask that child produces -- look mismatched.
+            walk.task_type = None
 
         for item in leaves.get(index, []):
             stage = item.stage
@@ -648,6 +761,10 @@ def validate_pipeline(  # noqa: C901
                 contract = build_contract(stage)
             except Exception as e:  # noqa: BLE001 - a stage that can't describe itself is an error
                 issues.append(PipelineIssue(index, item.label, "error", "contract_error", f"describe() failed: {e}"))
+                # Its output type is unknown too, so the chain restarts here rather than
+                # carrying the last KNOWN type across it and judging the next stage against
+                # a task two stages stale.
+                walk.task_type = None
                 continue
             site = _Site(
                 index=index,
@@ -670,13 +787,19 @@ def validate_pipeline(  # noqa: C901
                     )
                 )
                 walk.past_composite = True
+                walk.task_type = contract.produces_task_type
                 continue
 
             issues.extend(_read_issues(walk, site, contract))
+            issues.extend(_task_type_issue(walk, site, contract))
             # Serialization / GPU gates reason about the environment rather than about roles, so
             # they run for every concrete stage even downstream of a composite nobody could expand.
             issues.extend(_gate_issues(site, contract, available_gpus, tensor_resident=bool(walk.tensor_keys)))
             _advance(walk, contract, site.name)
+            # An undeclared output type is not "unchanged": it is unknown, and carrying the
+            # previous stage's type past it would judge the next stage against a task that is
+            # two stages stale.
+            walk.task_type = contract.produces_task_type
 
     return PipelineReport(issues=issues, produced_roles=walk.available, produced_keys=walk.available_keys)
 

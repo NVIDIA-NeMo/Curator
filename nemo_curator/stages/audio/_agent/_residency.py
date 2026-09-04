@@ -198,6 +198,58 @@ def resolve_audio(  # noqa: PLR0913 (complexity accepted: keyword-only residency
     return None
 
 
+def reject_sinkless_conversion(
+    *,
+    stage: str,
+    keep_waveform_in_task: bool,
+    write_to_disk: bool,
+    update_audio_filepath: bool,
+) -> None:
+    """Refuse a conversion configuration that converts audio into nowhere.
+
+    A converting stage has exactly two places to put its result: the task (``keep_waveform_in_task``)
+    and disk (``write_to_disk``). With neither, the stage still writes its metadata -- ``is_mono``,
+    ``num_channels``, ``duration`` -- describing audio no consumer can reach, while the row keeps
+    whatever it arrived with. That is worse than an error at any later point: the corpus that comes
+    out is the unconverted one, labelled as converted.
+
+    ``update_audio_filepath`` without ``write_to_disk`` is the same mistake one step on: there is no
+    written file to repoint at, so the request is silently dropped and ``audio_filepath`` keeps
+    naming the original audio.
+
+    Raised in ``__post_init__`` so a recipe dies where it is written rather than mid-corpus.
+    """
+    if not (keep_waveform_in_task or write_to_disk):
+        msg = (
+            f"{stage}: at least one of keep_waveform_in_task or write_to_disk must be True. "
+            f"With neither, the converted audio is discarded and the row keeps its original "
+            f"audio while the metadata claims the conversion happened."
+        )
+        raise ValueError(msg)
+    if update_audio_filepath and not write_to_disk:
+        msg = (
+            f"{stage}: update_audio_filepath=True requires write_to_disk=True -- there is no "
+            f"written file to repoint audio_filepath at, so the original path would survive."
+        )
+        raise ValueError(msg)
+
+
+def drop_resident_audio(data: dict[str, Any], *, waveform_key: str, sample_rate_key: str) -> None:
+    """Remove the resident audio a disk-only conversion has just superseded.
+
+    Not assigning the converted tensor is not the same as removing the stale one. A row that
+    arrived with a resident waveform keeps it otherwise, and the next stage at
+    ``input_residency="auto"`` prefers a resident waveform over the file -- so it reads the
+    PRE-conversion audio while the metadata this stage wrote says the conversion happened.
+    Whatever the conversion was for (mono, a channel count) is silently undone.
+
+    The sample rate goes with it: kept alone it describes a waveform that is no longer there,
+    and a reader pairing it with the file's audio would mis-time every offset it computes.
+    """
+    data.pop(waveform_key, None)
+    data.pop(sample_rate_key, None)
+
+
 def _as_soundfile_array(waveform: Any) -> Any:  # noqa: ANN401
     waveform = ensure_waveform_2d(waveform)
     if hasattr(waveform, "detach"):

@@ -35,7 +35,9 @@ from loguru import logger
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
+    drop_resident_audio,
     produce_audio_filepath,
+    reject_sinkless_conversion,
     residency_read_specs,
     resolve_audio,
     write_audio_stable,
@@ -107,6 +109,12 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
+        reject_sinkless_conversion(
+            stage="MonoConversionStage",
+            keep_waveform_in_task=self.keep_waveform_in_task,
+            write_to_disk=self.write_to_disk,
+            update_audio_filepath=self.update_audio_filepath,
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -150,6 +158,10 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=writes, produces=produces),
+            # A disk-only conversion ends the resident audio rather than replacing it, so the
+            # keys leave the task. Declared so validation can fail a downstream waveform reader
+            # here, instead of letting it read the pre-conversion tensor at runtime.
+            removes_keys=[] if self.keep_waveform_in_task else [self.waveform_key, self.sample_rate_key],
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 output_path_params=["output_dir"],
@@ -234,6 +246,14 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         path,
                         key=self.audio_filepath_key,
                         original_key=self.original_audio_filepath_key,
+                    )
+                if not self.keep_waveform_in_task:
+                    # After the file exists, so a write that raised leaves the row exactly as it
+                    # arrived rather than stripped of the audio nothing replaced.
+                    drop_resident_audio(
+                        task.data,
+                        waveform_key=self.waveform_key,
+                        sample_rate_key=self.sample_rate_key,
                     )
 
         except (OSError, RuntimeError) as e:
