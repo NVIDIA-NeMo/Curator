@@ -650,6 +650,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
                 file_paths=self.input_path,
                 file_extensions=file_extensions,
                 files_per_partition=1,  # We set this to one, and then the RaftActor will break it up into smaller groups
+                include_file_size=True,
                 storage_options=self.read_kwargs.get("storage_options") if self.read_kwargs is not None else None,
             ),
             KMeansReadFitWriteStage(

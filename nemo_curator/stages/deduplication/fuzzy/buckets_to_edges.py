@@ -85,6 +85,10 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         return FileGroupTask(
             dataset_name=f"{task.dataset_name}_edges",
             data=[output_path],
-            _metadata={**task._metadata, "storage_options": self.write_storage_options},
+            _metadata={
+                **task._metadata,
+                "storage_options": self.write_storage_options,
+                "task_weight": len(edges),
+            },
             _stage_perf=task._stage_perf,
         )
