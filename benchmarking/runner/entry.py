@@ -49,6 +49,7 @@ class Entry:
     args: str | None = None
     script_base_path: Path = _entry_script_base_path
     timeout_s: int | None = None
+    dependencies: list[str] = field(default_factory=list)
     sink_data: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     requirements: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
@@ -74,6 +75,12 @@ class Entry:
                 f"{self.gpu_mem_use_warning_threshold}; must be between 0 and 1 inclusive."
             )
             raise ValueError(msg)
+
+        if not isinstance(self.dependencies, list) or not all(
+            isinstance(dependency, str) for dependency in self.dependencies
+        ):
+            msg = f"Invalid dependencies for entry '{self.name}': must be a list of strings."
+            raise TypeError(msg)
 
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:

@@ -43,7 +43,7 @@ commands:
   run     Run benchmarks in the current environment, image, or container.
   list    List benchmark entries from one or more configs.
   check   Check the benchmark environment.
-  setup   Install benchmark package dependencies.
+  setup   Install benchmark dependencies.
   start   Start a named, detached benchmark container.
   shell   Open or run a shell in the current environment, image, or container.
 
@@ -51,13 +51,13 @@ target options for run/list/check/setup/start/shell:
   --image [IMAGE]              start a new Docker container from IMAGE
   --container NAME             exec into an existing Docker container
   --name NAME                  name for a container created by start
-  --run-benchmark-setup MODE   auto, yes, or no
-  --benchmark-suite-dir PATH   checkout that provides benchmark code/configs
-  --benchmark-extra EXTRA      benchmark package extra to install
+  --setup-benchmark-env MODE   auto, yes, or no
+  --benchmark-suite-dir PATH   benchmark package dir; checkout root accepted
   --use-host-curator           mount the host checkout as Curator under test
-  --gpus VALUE                 value passed to docker run --gpus
-  --container-memory VALUE     value passed to docker run --memory
-  --shm-size VALUE             value passed to docker run --shm-size
+  --gpus VALUE                 docker run --gpus value for --image/start
+  --container-memory VALUE     docker run --memory value for --image/start
+  --shm-size VALUE             docker run --shm-size value for --image/start
+  --network VALUE              docker run --net value for --image/start
 
 When no command is provided, arguments are treated as `run` arguments for
 compatibility with the previous `benchmarking/run.py` interface.
@@ -97,7 +97,7 @@ def _print_command_help(command: str, args: list[str]) -> int:
 
 def _run_in_docker_target(target: DockerTarget, command: str, args: list[str]) -> int:
     if command == "setup":
-        return run_setup(target)
+        return run_setup(target, args)
     if command == "start":
         return run_start(target, args)
     if command == "shell":

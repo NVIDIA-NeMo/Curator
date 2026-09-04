@@ -13,7 +13,8 @@ dependencies explicitly by installing the separate, manually-installed
 ## Table of Contents
 
 - [Benchmark Package Model](#benchmark-package-model)
-- [Quick Start](#quick-start)
+- [Bare-Metal Quick Start](#bare-metal-quick-start)
+- [Container Quick Start](#container-quick-start)
 - [Running Benchmarks in Containers](#running-benchmarks-in-containers)
 - [Benchmarking Older Curator Images](#benchmarking-older-curator-images)
 - [Prepared Images and Running Containers](#prepared-images-and-running-containers)
@@ -22,6 +23,7 @@ dependencies explicitly by installing the separate, manually-installed
 - [Benchmark Data Setup](#benchmark-data-setup)
 - [Authoring Benchmarks](#authoring-benchmarks)
 - [Reporting Sinks](#reporting-sinks)
+- [Programmatic APIs](#programmatic-apis)
 - [Environment Checks](#environment-checks)
 
 ---
@@ -38,7 +40,7 @@ This separation keeps two versions explicit:
 - **Curator under test**: the `nemo-curator` package installed in the active
   environment or prebuilt Curator image.
 - **Benchmark suite**: the `nemo-curator-benchmarking` package installed from a
-  selected Curator checkout.
+  selected `benchmarking/` directory.
 
 The benchmark package must not replace the Curator package under test. This is
 especially important when benchmarking a released Curator image or comparing an
@@ -50,33 +52,62 @@ The package installs a console command:
 curator-benchmark run --config benchmarking/benchmarks.yaml
 ```
 
-For local source checkouts, install the benchmark package with the desired
-extras:
+For local source checkouts, install the benchmark package in editable mode with
+the desired extras:
 
 ```bash
-uv pip install ./benchmarking[all]
+uv pip install -e ./benchmarking[all]
 ```
 
 Use narrower extras when possible:
 
 ```bash
-uv pip install ./benchmarking[sinks]
+uv pip install -e ./benchmarking[sinks]
 ```
 
-Available extras include `sinks`, `audio`, and `nemotron_parse`. These extras
-are limited to benchmark-package-owned dependencies; Curator feature stacks such
-as audio, video, CUDA/vLLM, and interleaved data processing remain owned by the
-main Curator package. The `all` extra installs every benchmark-package Python
-dependency used by the standard benchmark suite, including dependencies that CI
-previously installed directly at benchmark runtime.
+Available extras include `sinks`, `audio`, `visual`, `video`, and
+`nemotron_parse`.
+These extras are limited to benchmark-package-owned dependencies; Curator
+feature stacks such as audio, video, CUDA/vLLM, and interleaved data processing
+remain owned by the main Curator package. The `all` extra installs every
+benchmark-package Python dependency used by the standard benchmark suite,
+including dependencies that CI previously installed directly at benchmark
+runtime.
 
-If the environment is a released Curator image, use constraints or a run setup mode
-that prevents the benchmark install from upgrading or replacing the packages
-that define the runtime being measured.
+Benchmark entries, data setup entries, and sinks declare logical dependency
+groups with `dependencies:`. A dependency group can be backed by a Python extra
+in `benchmarking/pyproject.toml`, a system dependency script directory under
+`benchmarking/system_deps/`, or both. The group name is the contract: an entry
+that declares `dependencies: [video]` uses the `video` package extra when it
+exists and the `system_deps/video/` scripts when system dependency setup or
+checking is requested. Entry names such as `video_transcoding_xenna` are only
+human-readable names; dependency setup does not infer behavior from those
+prefixes.
+
+If the environment is a released Curator image, use constraints or a benchmark
+environment setup mode that prevents the benchmark install from upgrading or
+replacing the packages that define the runtime being measured.
+
+Use a non-editable install only when you want a fixed package snapshot instead
+of live source-checkout edits:
+
+```bash
+uv pip install ./benchmarking[all]
+```
 
 ---
 
-## Quick Start
+## Bare-Metal Quick Start
+
+The default workflow runs benchmarks in the current environment. This is the
+recommended path for benchmark authors and users who already have Curator
+installed on the target machine.
+
+Install the benchmark package from the checkout:
+
+```bash
+uv pip install -e ./benchmarking[all]
+```
 
 Create a small path override file for machine-specific storage:
 
@@ -92,21 +123,10 @@ paths:
     container_path: /model_weights
 ```
 
-When the active environment already has Curator and benchmark dependencies
-installed, run directly:
+Run directly:
 
 ```bash
 curator-benchmark run \
-  --config ./benchmarking/benchmarks.yaml \
-  --config ./my-paths.yaml
-```
-
-To run in a standard Curator container from the host, add `--image`:
-
-```bash
-curator-benchmark run \
-  --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -115,8 +135,6 @@ Add data setup when benchmarks need inputs that are prepared once and reused:
 
 ```bash
 curator-benchmark run \
-  --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --config ./my-paths.yaml
@@ -127,8 +145,6 @@ full-suite config:
 
 ```bash
 curator-benchmark run \
-  --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --run-benchmark-setup auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/4xGB200-64CPU.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
@@ -143,26 +159,24 @@ until 4xGB200-64CPU-specific baselines are measured.
 Results are written under the configured `results_path`, grouped by session
 name.
 
----
+## Container Quick Start
 
-## Running Benchmarks in Containers
+Container support uses the same `curator-benchmark` entrypoint. The host
+environment only needs enough Python support to start Docker; the benchmark
+package and dependency setup run inside the container.
 
-`curator-benchmark` is the primary entrypoint for bare-metal, image, and
-running-container use cases. Without `--image` or `--container`, it runs in the
-current environment. With `--image`, it starts a new Docker container. With
-`--container`, it execs into an existing running container.
+To run in a standard Curator image from the host, add `--image`:
 
-For image-based runs, the command reads the YAML configs on the host, creates
-Docker volume mounts for configured paths, forwards GPUs and reporting
-environment variables, mounts the selected benchmark-suite checkout, and starts
-the selected Curator image.
+```bash
+curator-benchmark run \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --setup-benchmark-env auto \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
 
-Path resolution is controlled by `CURATOR_BENCHMARK_PATH_MODE`, which accepts
-`auto`, `host`, or `container`. Docker image and running-container targets set
-this to `container` automatically for the command they launch. Bare-metal runs
-normally use host paths. Direct `python benchmarking/run.py` and
-`curator-benchmark check` invocations can override this with
-`--path-mode host`, `--path-mode container`, or `--path-mode auto`.
+Use the same additional config layering shown in the bare-metal examples when
+you need data setup entries or SKU-specific overrides.
 
 For container-only use from a restricted host environment, the host Python
 environment needs only the package code and the small set of dependencies used
@@ -173,34 +187,75 @@ uv pip install pyyaml
 uv pip install --no-deps ./benchmarking
 ```
 
+Or with `pip` in a throwaway virtual environment:
+
+```bash
+python -m pip install pyyaml
+python -m pip install --no-deps ./benchmarking
+```
+
 Use this only for `--image` or `--container` workflows. Running benchmarks in
 the current host environment requires the normal benchmark package dependencies
 and the Curator feature dependencies required by the selected benchmarks.
+
+## Running Benchmarks in Containers
+
+`curator-benchmark` is the primary entrypoint for bare-metal, image, and
+running-container use cases. Without `--image` or `--container`, it runs in the
+current environment. With `--image`, it starts a new Docker container. With
+`--container`, it execs into an existing running container.
+
+For image-based runs, the command reads the YAML configs on the host, creates
+Docker volume mounts for configured paths, forwards GPUs and reporting
+environment variables, mounts the selected benchmark suite package directory,
+and starts the selected Curator image.
+
+Path resolution is controlled by `CURATOR_BENCHMARK_PATH_MODE`, which accepts
+`auto`, `host`, or `container`. Docker image and running-container targets set
+this to `container` automatically for the command they launch. Bare-metal runs
+normally use host paths. Direct `python benchmarking/run.py` and
+`curator-benchmark check` invocations can override this with
+`--path-mode host`, `--path-mode container`, or `--path-mode auto`.
 
 The default `run --image` flow is:
 
 1. Start from the standard Curator image.
 2. Mount the selected benchmark suite from the host.
-3. Check whether the benchmark package and requested extras are already
-   installed.
-4. Install missing benchmark dependencies when run setup mode allows it.
+3. Resolve dependency groups from the selected configs and entries.
+4. Install or refresh benchmark dependencies when benchmark environment setup
+   mode allows it. For Docker targets this also runs the system dependency
+   install scripts for the dependency groups declared by the selected benchmark
+   entries.
 5. Re-run `curator-benchmark run` inside the container with the supplied config
    files and runner args.
 
-Run setup mode controls whether installation is attempted:
+Benchmark environment setup mode controls whether installation is attempted:
 
 | Mode | Behavior |
 | --- | --- |
-| `auto` | Check for the benchmark package first. Install only when missing or incomplete. |
-| `yes` | Install or refresh the benchmark package from the mounted suite before running. |
+| `auto` | Install or refresh the benchmark package from the mounted suite with the dependency groups declared by the selected configs and entries. For Docker targets, also run matching system dependency install scripts. |
+| `yes` | Same as `auto`, but intended for callers that want setup to be treated as an explicit required step. |
 | `no` | Do not install anything. Fail fast if the benchmark package or dependencies are missing. |
+
+System-tool installation is automatic only for Docker targets started or
+entered by `curator-benchmark`. When running setup in the current environment,
+`curator-benchmark setup` installs Python packages only. Use
+`--install-system-tools` only when you explicitly want the current environment
+to be modified, for example from inside a manually managed container shell:
+
+```bash
+curator-benchmark setup \
+  --install-system-tools \
+  --config ./benchmarking/benchmarks.yaml \
+  --entry-name video_transcoding_xenna
+```
 
 Run with an explicit image:
 
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --run-benchmark-setup auto \
+  --setup-benchmark-env auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -213,7 +268,7 @@ run:
 curator-benchmark start \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
   --name curator-bench-dev \
-  --run-benchmark-setup auto \
+  --setup-benchmark-env auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -221,6 +276,15 @@ curator-benchmark start \
 The command starts a named detached container, runs benchmark-package setup when
 requested, and prints follow-up commands for `curator-benchmark run
 --container`, `curator-benchmark shell --container`, and `docker rm --force`.
+
+For active benchmark development inside a reusable container, use an editable
+install from the mounted benchmark suite so source edits are picked up by later
+commands:
+
+```bash
+curator-benchmark shell --container curator-bench-dev \
+  -- uv pip install -e /opt/curator-benchmark-suite[all]
+```
 
 If `--image` is provided without a value, the default image comes from
 `CURATOR_BENCHMARK_IMAGE`, then `CURATOR_BENCHMARKING_IMAGE`, then
@@ -230,42 +294,90 @@ Use `--use-host-curator` only when the host Curator checkout itself is the
 Curator version being tested. Do not use it when the Curator-under-test is the
 package already installed in a release image.
 
-`benchmarking/tools/run.sh` remains as a compatibility wrapper for older
-workflows. It defaults to `curator-benchmark run --image <default-image>` and
-passes all runner arguments through.
-
 ### Shell Access
 
-Use shell mode to inspect the exact container environment:
+Use shell mode to inspect the exact container environment. Shells started from
+an image, or from a container created by `curator-benchmark start`, start in the
+mounted benchmark suite when it is available and print a short banner with the
+most useful paths.
+
+The tool exports these variables in Docker targets:
+
+| Variable | Value |
+| --- | --- |
+| `CURATOR_BENCHMARK_SUITE_DIR` | Directory containing the benchmark suite, usually `/opt/curator-benchmark-suite`. |
+| `CURATOR_BENCHMARK_CONFIG` | Default benchmark config, usually `/opt/curator-benchmark-suite/benchmarks.yaml`. |
+
+Open a shell in an existing container:
 
 ```bash
 curator-benchmark shell --container curator-bench-dev
 ```
 
-Run a single command in the container:
+Run a single command in an existing container by placing the command after
+`--`:
 
 ```bash
 curator-benchmark shell \
   --container curator-bench-dev \
-  "curator-benchmark check"
+  -- curator-benchmark check
 ```
 
-For quick one-off inspection, `shell --image` can still start a temporary
-container:
+If the command needs container-side shell expansion, pass it as one quoted shell
+command after `--`:
+
+```bash
+curator-benchmark shell \
+  --container curator-bench-dev \
+  -- 'curator-benchmark check --config "$CURATOR_BENCHMARK_CONFIG"'
+```
+
+For quick one-off inspection, `shell --image` starts a temporary container:
 
 ```bash
 curator-benchmark shell --image nvcr.io/nvidia/nemo-curator:<tag>
 ```
 
+With `--image`, config arguments before `--` are used by the host-side tool to
+create the same mounts as a benchmark run before opening the shell:
+
+```bash
+curator-benchmark shell \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml
+```
+
+To run one command in that temporary container, put the command after `--`.
+Arguments after `--` are passed literally to `bash` inside the container, so use
+paths that are visible inside the container:
+
+```bash
+curator-benchmark shell \
+  --image nvcr.io/nvidia/nemo-curator:<tag> \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./my-paths.yaml \
+  -- 'curator-benchmark check --config "$CURATOR_BENCHMARK_CONFIG" --config /MOUNT/path/to/my-paths.yaml'
+```
+
+Do not pass `--config` to `shell --container` unless it belongs to the command
+after `--`. Existing containers must already have the required mounts because
+`docker exec` cannot add them later.
+
 ### GPU Selection
 
-Use `--gpus` to control Docker GPU visibility:
+Use `--gpus` to control Docker GPU visibility for containers started by
+`curator-benchmark run --image` or `curator-benchmark start`:
 
 ```bash
 curator-benchmark run --image nvcr.io/nvidia/nemo-curator:<tag> --gpus all
 curator-benchmark run --image nvcr.io/nvidia/nemo-curator:<tag> --gpus "device=0,1"
 curator-benchmark run --image nvcr.io/nvidia/nemo-curator:<tag> --gpus none
 ```
+
+`--gpus`, `--container-memory`, `--shm-size`, and `--network` cannot be used
+with `--container` because they configure `docker run` and cannot be changed by
+`docker exec` after a container already exists.
 
 ---
 
@@ -278,7 +390,8 @@ files that were baked into the old image.
 In this mode:
 
 - The old image provides the Curator package under test.
-- The current checkout provides the benchmark package and configs.
+- The current checkout's `benchmarking/` directory provides the benchmark
+  package, scripts, and configs.
 - The benchmark package install must not replace the Curator package in the old
   image.
 
@@ -287,11 +400,14 @@ Example:
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<old-release-tag> \
-  --benchmark-suite-dir /path/to/latest/Curator \
-  --run-benchmark-setup auto \
+  --benchmark-suite-dir /path/to/latest/Curator/benchmarking \
+  --setup-benchmark-env auto \
   --config /path/to/latest/Curator/benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
+
+`--benchmark-suite-dir` also accepts a Curator checkout root and normalizes it
+to the checkout's `benchmarking/` directory.
 
 Benchmark results should record both the Curator version under test and the
 benchmark suite version or git SHA. This makes historical comparisons
@@ -302,12 +418,12 @@ interpretable when the benchmark suite evolves between releases.
 ## Prepared Images and Running Containers
 
 Some users maintain images or running containers that already include benchmark
-dependencies. Use `--run-benchmark-setup no` for those environments:
+dependencies. Use `--setup-benchmark-env no` for those environments:
 
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
-  --run-benchmark-setup no \
+  --setup-benchmark-env no \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -318,7 +434,7 @@ Use `start` to create a reusable prepared container:
 curator-benchmark start \
   --image nvcr.io/nvidia/nemo-curator:<tag-with-benchmark-deps> \
   --name curator-benchmark-dev \
-  --run-benchmark-setup no \
+  --setup-benchmark-env no \
   --config ./benchmarking/benchmarks.yaml \
   --config ./my-paths.yaml
 ```
@@ -328,8 +444,8 @@ Then run inside that container:
 ```bash
 curator-benchmark run \
   --container curator-benchmark-dev \
-  --run-benchmark-setup no \
-  --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
+  --setup-benchmark-env no \
+  --config /opt/curator-benchmark-suite/benchmarks.yaml
 ```
 
 For containers started outside of `curator-benchmark start`, the caller is
@@ -356,7 +472,7 @@ scripts, package metadata, and local container launcher.
 CI orchestration should remain responsible for:
 
 - selecting the Curator image or environment under test
-- selecting the benchmark-suite checkout
+- selecting the benchmark suite version
 - installing `nemo-curator-benchmarking` when needed
 - applying machine-specific path overrides
 - launching one or more benchmark entries
@@ -449,14 +565,20 @@ delete_scratch: true
 sinks:
   - name: mlflow
     enabled: true
+    dependencies:
+      - sinks
     tracking_uri: ${MLFLOW_TRACKING_URI}
     experiment: my-experiment
   - name: slack
     enabled: true
+    dependencies:
+      - sinks
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
   - name: gdrive
     enabled: false
+    dependencies:
+      - sinks
     drive_folder_id: ${GDRIVE_FOLDER_ID}
     service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
@@ -480,6 +602,8 @@ entries:
   - name: my_benchmark
     enabled: true  # Optional: Whether to run this entry (default: true)
     script: my_script.py
+    dependencies:
+      - visual
     args: >-
       --input {dataset:common_crawl,parquet}
       --output {session_entry_dir}/output
@@ -660,6 +784,22 @@ Resolves to the entry's unique directory within the session (e.g., `/results/ses
 
 **enabled**: Controls whether an entry is run (default: `true`). Useful for temporarily disabling entries without removing them from the configuration.
 
+**dependencies**: Declares benchmark dependency groups required by an entry.
+Each name should match a package extra in `benchmarking/pyproject.toml`, a
+directory under `benchmarking/system_deps/`, or both:
+
+```yaml
+entries:
+  - name: video_transcoding_xenna
+    dependencies:
+      - video
+```
+
+The `curator-benchmark setup`, `check`, and Docker/image launch paths use these
+groups to install or verify the dependencies for selected entries. Dependency
+groups are explicit metadata; they are not inferred from the benchmark entry
+name.
+
 **sink_data**: Provides entry-specific configuration for sinks. For example, the Slack sink can accept `additional_metrics` to report metrics beyond the default set:
 
 ```yaml
@@ -710,15 +850,16 @@ overrides:
 ```bash
 curator-benchmark run \
   --image nvcr.io/nvidia/nemo-curator:<tag> \
-  --run-benchmark-setup auto \
+  --setup-benchmark-env auto \
   --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --config ./my-paths.yaml
 ```
 
 All config files are merged before execution. Setup entries can use the same
-path and dataset placeholders as benchmark entries. Logs are written under the
-session directory at `data_setup/<setup-name>/logs/stdouterr.log`.
+path, dataset placeholders, and `dependencies:` metadata as benchmark entries.
+Logs are written under the session directory at
+`data_setup/<setup-name>/logs/stdouterr.log`.
 
 For setup-only workflows, use a standalone config that defines only paths,
 sinks, and data setup entries. An empty benchmark entry list is written as:
@@ -765,6 +906,12 @@ benchmark-only dependencies without reinstalling or replacing the Curator
 package being tested. Dependencies for Curator feature stacks belong in the
 main Curator package extras instead of being duplicated here.
 
+If a benchmark needs non-Python system dependencies, add a dependency-group
+directory under `benchmarking/system_deps/` with `check.sh` and `install.sh`.
+Use the same group name in the entry's `dependencies:` list. The setup/check
+tools discover these scripts by directory name, so benchmark authors do not need
+to edit Python code to add a new system dependency group.
+
 When a benchmark requires data, add or update a data setup script and the
 corresponding data setup YAML in the same PR. The benchmark entry should then
 refer to the staged dataset using placeholders rather than downloading data at
@@ -795,6 +942,8 @@ sinks:
   - name: slack
     channel_id: C1234567890
     enabled: true
+    dependencies:
+      - sinks
 ```
 
 Slack reporting requires `SLACK_BOT_TOKEN` in the environment. `channel_id` may
@@ -808,6 +957,8 @@ sinks:
     tracking_uri: http://mlflow-server:5000
     experiment: curator-benchmarks
     enabled: true
+    dependencies:
+      - sinks
 ```
 
 Entry-specific sink configuration belongs under `sink_data` on the entry. For
@@ -826,22 +977,72 @@ Custom sinks live under `benchmarking/runner/sinks/` and subclass
 `runner.sinks.sink.Sink`. Register new sink names with the runner's sink loading
 logic, then enable the sink from YAML.
 
+## Programmatic APIs
+
+External launchers can use `nemo-curator-benchmarking` as the source of truth
+for benchmark config semantics instead of duplicating YAML parsing and path
+handling logic.
+
+Useful APIs include:
+
+```python
+from curator_benchmarking.config import (
+    build_benchmark_config_plan,
+    entry_names,
+    exact_entry_config,
+    legacy_path_config,
+    load_benchmark_config,
+    plan_entry_slurm_timeout,
+)
+from curator_benchmarking.dependencies import (
+    dependency_groups_from_config,
+    python_extras_for_dependency_groups,
+    system_dependency_groups_for_dependency_groups,
+    validate_dependency_groups,
+)
+from curator_benchmarking.paths import volume_mount_pairs_from_configs
+```
+
+`load_benchmark_config()` and `build_benchmark_config_plan()` expose Curator's
+name-keyed YAML merge behavior and effective per-entry defaults without
+constructing a runner `Session`. This is intended for orchestration code that
+needs to list enabled entries, calculate job timeouts, or generate one job per
+entry before the benchmark runtime environment exists.
+
+`exact_entry_config()` creates a temporary `entries:` override for compatibility
+with older runners that do not support `--entries-exact`. `legacy_path_config()`
+converts modern `paths:` configs into the older top-level `results_path`,
+`datasets_path`, and `model_weights_path` shape when older Curator images still
+need it.
+
+`dependency_groups_from_config()` reads explicit dependency metadata from the
+merged benchmark config. `python_extras_for_dependency_groups()` maps those
+groups to benchmark package extras when matching extras exist.
+`system_dependency_groups_for_dependency_groups()` reports which groups have
+system dependency scripts, and `validate_dependency_groups()` catches typos or
+missing dependency metadata before launchers submit jobs.
+
 ## Environment Checks
 
 Use `curator-benchmark check` to check whether the active environment is ready
 to run benchmarks. This command is intended for both containers and bare-metal
 environments.
 
-Expected checks include:
+Checks include:
 
-- Curator import and version detection.
-- Benchmark package version or git revision.
-- Python executable and environment details.
-- GPU visibility when GPU benchmarks are requested.
-- Ray availability and object-store configuration.
-- Required system tools such as `ffmpeg` and `ffprobe` when relevant.
-- Required sink environment variables when sinks are enabled.
-- Whether setup was skipped even though benchmark dependencies appear missing.
+- Curator, benchmark package, and runner import/version detection.
+- Python package requirements from `benchmarking/pyproject.toml`, including
+  core requirements and optional dependencies selected by the dependency groups
+  in the requested configs.
+- `docker` and `uv` availability, reported as advisory tool status.
+- Configured path existence after host/container path resolution.
+- System dependency checks from matching
+  `benchmarking/system_deps/<dependency>/check.sh` scripts.
+
+Python requirement checks use `packaging` to evaluate requirement strings and
+version specifiers. That dependency is needed in the environment being checked,
+but it is not required by a minimal host install used only to launch checks or
+runs inside Docker.
 
 Examples:
 
@@ -850,8 +1051,8 @@ curator-benchmark check --config ./benchmarking/benchmarks.yaml
 
 curator-benchmark check \
   --container curator-benchmark-dev \
-  --run-benchmark-setup no \
-  --config /opt/curator-benchmark-suite/benchmarking/benchmarks.yaml
+  --setup-benchmark-env no \
+  --config /opt/curator-benchmark-suite/benchmarks.yaml
 ```
 
 The check command should be advisory by default: it should explain missing or

@@ -27,6 +27,7 @@ dependencies = [
     "gpustat",
     "loguru",
     "nvidia-ml-py",
+    "packaging",
     "pytest",
     "pyyaml",
     "rich",
@@ -49,6 +50,12 @@ sinks = [
     "oauth2client",
     "pydrive2",
     "slack-sdk",
+]
+visual = [
+    "opencv-python-headless",
+]
+video = [
+    "opencv-python-headless",
 ]
 all = [
     "albumentations",
@@ -76,4 +83,19 @@ include = [
     "benchmarks.yaml",
     "4xGB200-64CPU.yaml",
     "nightly-data-setup.yaml",
+]
+"share/nemo-curator-benchmarking/system_deps" = [
+    "system_deps/README.md",
+]
+"share/nemo-curator-benchmarking/system_deps/audio" = [
+    "system_deps/audio/check.sh",
+    "system_deps/audio/install.sh",
+]
+"share/nemo-curator-benchmarking/system_deps/math" = [
+    "system_deps/math/check.sh",
+    "system_deps/math/install.sh",
+]
+"share/nemo-curator-benchmarking/system_deps/video" = [
+    "system_deps/video/check.sh",
+    "system_deps/video/install.sh",
 ]
