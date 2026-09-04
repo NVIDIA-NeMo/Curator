@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+
 import pandas as pd
 import pytest
+import torch
 
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
@@ -80,3 +83,33 @@ def test_process_batch_single_task() -> None:
     assert len(result) == 1
     assert len(result[0].data) == 1
     assert result[0].data.iloc[0]["text"] == "hi"
+
+
+class TestAudioToDocumentSerializationBoundary:
+    """Nothing that cannot be JSON-encoded may cross into a DocumentBatch.
+
+    Lifted from tests/stages/audio/test_agent_simulation_pipelines.py, which held the only
+    coverage of this boundary. It drives one stage, so it belongs here.
+    """
+
+    def test_a_tensor_is_stripped_and_segments_are_opt_in(self) -> None:
+        task = AudioTask(
+            dataset_name="t",
+            data={
+                "audio_filepath": "src.wav",
+                "text": "hello world",
+                "waveform": torch.randn(1, 8000),
+                "segments": [{"start": 0.0, "end": 0.5, "text": "hello"}],
+            },
+        )
+
+        row = AudioToDocumentStage().process_batch([task])[0].to_pandas().iloc[0].to_dict()
+        assert "waveform" not in row, "a tensor must never reach the document boundary"
+        assert "segments" not in row, "segments are dropped unless asked for"
+        assert row["text"] == "hello world"
+        json.dumps(row)  # raises if anything non-serializable leaked
+
+        kept = AudioToDocumentStage(serialize_segments=True).process_batch([task])[0]
+        seg_row = kept.to_pandas().iloc[0].to_dict()
+        assert "waveform" not in seg_row, "the tensor stays stripped even when segments are kept"
+        assert seg_row["segments"][0]["text"] == "hello"
