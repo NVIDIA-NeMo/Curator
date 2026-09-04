@@ -38,7 +38,9 @@ from data_designer.interface import DataDesigner
 
 def _minimal_config_builder() -> dd.DataDesignerConfigBuilder:
     """Real minimal DataDesignerConfigBuilder (avoids 'model configs required' where no local defaults)."""
-    return dd.DataDesignerConfigBuilder(model_configs=[dd.ModelConfig(alias="test_model", model="test/model")])
+    return dd.DataDesignerConfigBuilder(
+        model_configs=[dd.ModelConfig(alias="test_model", model="test/model", provider="openai")]
+    )
 
 
 class TestBaseDataDesignerStage:
