@@ -16,12 +16,13 @@
 
 from contextlib import suppress
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
     import cudf
     import cupy as cp
+    from rmm.allocators.torch import rmm_torch_allocator
 
 import numpy as np
 import pytest
@@ -148,6 +149,19 @@ class TestPairwiseCosineSimilarityBatched:
 class TestPairwiseCosineSimilarityStage:
     """Test cases for PairwiseCosineSimilarityStage."""
 
+    @patch("torch.cuda.memory.change_current_allocator")
+    def test_setup_uses_rmm_torch_allocator(self, change_current_allocator: Mock) -> None:
+        stage = PairwiseCosineSimilarityStage(
+            id_field="id",
+            embedding_field="embedding",
+            output_path="/unused",
+            ranking_strategy=RankingStrategy.random(),
+        )
+
+        stage.setup()
+
+        change_current_allocator.assert_called_once_with(rmm_torch_allocator)
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
@@ -211,8 +225,6 @@ class TestPairwiseCosineSimilarityStage:
             read_kwargs={},
             write_kwargs={},
         )
-        stage.setup()
-
         # Create task
         task = FileGroupTask(
             dataset_name="test",
@@ -240,9 +252,6 @@ class TestPairwiseCosineSimilarityStage:
         assert "cosine_sim_score" in result_df.columns
         assert result_df["cosine_sim_score"].iloc[0] == 0.0
         assert result_df["cosine_sim_score"].dtype == np.dtype("float32")
-        with patch("nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory") as release:
-            stage.teardown()
-        release.assert_called_once_with()
 
     @pytest.mark.parametrize(
         ("storage_dtype", "compute_dtype", "batch_size"),
@@ -364,8 +373,6 @@ class TestPairwiseCosineSimilarityStage:
             read_kwargs={},
             write_kwargs={},
         )
-        stage.setup()
-
         # Create task
         task = FileGroupTask(
             dataset_name="test",
@@ -421,8 +428,6 @@ class TestPairwiseCosineSimilarityStage:
             read_kwargs={},
             write_kwargs={},
         )
-        stage.setup()
-
         # Create task
         task = FileGroupTask(
             dataset_name="test",
@@ -431,12 +436,8 @@ class TestPairwiseCosineSimilarityStage:
         )
 
         # Process task - should fail due to missing distance columns
-        with (
-            patch("nemo_curator.stages.deduplication.semantic.pairwise._release_cached_memory") as release,
-            pytest.raises(KeyError, match="cosine_dist_to_cent"),
-        ):
+        with pytest.raises(KeyError, match="cosine_dist_to_cent"):
             stage.process(task)
-        release.assert_called_once_with()
 
 
 @pytest.mark.gpu
@@ -600,9 +601,8 @@ class TestPairwiseStage:
             assert isinstance(stages[0], ClusterWiseFilePartitioningStage)
             assert isinstance(stages[1], PairwiseCosineSimilarityStage)
 
-            # Setup and run the similarity stage
+            # Run the similarity stage
             similarity_stage = stages[1]
-            similarity_stage.setup()
 
             # Create task
             task = FileGroupTask(

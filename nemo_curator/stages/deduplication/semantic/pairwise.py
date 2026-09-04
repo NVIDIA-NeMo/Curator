@@ -12,18 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import gc
 import os
 import time
 import traceback
 from dataclasses import dataclass
 from itertools import chain
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
 import cupy as cp
 import torch
 from loguru import logger
+from rmm.allocators.torch import rmm_torch_allocator
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
@@ -39,22 +39,10 @@ from .utils import (
     read_parquet_file_info,
 )
 
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import WorkerMetadata
+
 PairwiseComputeDtype = Literal["auto", "float16", "float32"]
-
-
-def _release_cached_memory() -> None:
-    """Best-effort cleanup of caches owned directly by Pairwise operations."""
-    cleanup_actions = (
-        ("Python", gc.collect),
-        ("Torch", torch.cuda.empty_cache),
-        ("CuPy device", lambda: cp.get_default_memory_pool().free_all_blocks()),
-        ("CuPy pinned", lambda: cp.get_default_pinned_memory_pool().free_all_blocks()),
-    )
-    for allocator, action in cleanup_actions:
-        try:
-            action()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to release {allocator} allocator cache: {exc}")
 
 
 def _decode_embedding_array(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
@@ -250,15 +238,18 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.name = "PairwiseCosineSimilarityStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
 
+    def setup(self, _: "WorkerMetadata | None" = None) -> None:
+        """Make Torch allocate from the RMM resource already used by cuDF and CuPy."""
+        torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
+
     def process(self, task: FileGroupTask) -> FileGroupTask:
-        """Process one cluster, releasing cached allocations if it fails."""
+        """Process one cluster, dropping failed frames so RMM can reclaim their allocations."""
         try:
             return self._process(task)
         except BaseException as exc:
             # An exception's traceback otherwise keeps the unwound _process
             # frame—and its large GPU objects—alive until after this finalizer.
             traceback.clear_frames(exc.__traceback__)
-            _release_cached_memory()
             raise
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
@@ -274,10 +265,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 batch_metrics[name] = batch_metrics.get(name, 0.0) + value
         self._log_metrics(batch_metrics)
         return results
-
-    def teardown(self) -> None:
-        """Release worker-local caches once after all clusters are processed."""
-        _release_cached_memory()
 
     def _process(self, task: FileGroupTask) -> FileGroupTask:  # noqa: PLR0915
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
@@ -411,7 +398,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         # returning their now-unused Torch workspace to the allocator.
         torch.cuda.synchronize()
         del cluster_embeddings, ranked_embeddings
-        torch.cuda.empty_cache()
         compute_time = time.perf_counter() - compute_start
 
         # Convert indices back to IDs
