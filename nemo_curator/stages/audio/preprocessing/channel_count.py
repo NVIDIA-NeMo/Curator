@@ -46,7 +46,9 @@ from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOS
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
+    drop_resident_audio,
     produce_audio_filepath,
+    reject_sinkless_conversion,
     residency_read_specs,
     resolve_audio,
     write_audio_stable,
@@ -246,6 +248,14 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def _validate_convert(self) -> None:
+        # Before the target checks below: a conversion with nowhere to put its result is wrong
+        # for every target, including the default mono one that needs no target_channels.
+        reject_sinkless_conversion(
+            stage="ChannelCountStage(action='convert')",
+            keep_waveform_in_task=self.keep_waveform_in_task,
+            write_to_disk=self.write_to_disk,
+            update_audio_filepath=self.update_audio_filepath,
+        )
         # Type as well as range. YAML reads ``target_channels: 2.0`` as a float, which used to
         # construct fine and then die inside a worker at ``waveform.repeat(2.0, 1)`` with a
         # TypeError -- not one of the (OSError, RuntimeError) this stage drops rows for, so it
@@ -327,6 +337,10 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=self._written_keys(), produces=produces),
+            # A disk-only conversion ends the resident audio rather than replacing it, so the
+            # keys leave the task. Declared so validation can fail a downstream waveform reader
+            # here, instead of letting it read the pre-conversion tensor at runtime.
+            removes_keys=[] if self.keep_waveform_in_task else [self.waveform_key, self.sample_rate_key],
             # Downmixing to mono always succeeds, but any other target refuses the conversions
             # it cannot do correctly (N > target > 1) and drops those rows. That makes the stage
             # a filter for those configurations, and saying so is what puts a seam in the
@@ -463,7 +477,9 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return []
         return task
 
-    def _convert_row(self, task: AudioTask) -> AudioTask | list[AudioTask]:
+    def _convert_row(  # noqa: C901 (complexity accepted: residency x sink x update branch matrix, as in MonoConversionStage.process)
+        self, task: AudioTask
+    ) -> AudioTask | list[AudioTask]:
         """Convert the audio's channel count. Returns [] for a row that cannot be converted."""
         try:
             resolved = resolve_audio(
@@ -510,6 +526,14 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         path,
                         key=self.audio_filepath_key,
                         original_key=self.original_audio_filepath_key,
+                    )
+                if not self.keep_waveform_in_task:
+                    # After the file exists, so a write that raised leaves the row exactly as it
+                    # arrived rather than stripped of the audio nothing replaced.
+                    drop_resident_audio(
+                        task.data,
+                        waveform_key=self.waveform_key,
+                        sample_rate_key=self.sample_rate_key,
                     )
 
         except (OSError, RuntimeError) as e:

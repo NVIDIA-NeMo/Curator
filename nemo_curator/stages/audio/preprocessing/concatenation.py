@@ -146,6 +146,11 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
             metadata_writes=["segment_mappings"],
             cardinality="N:1",
             iteration_key=self.segments_key,
+            # process returns a NEW AudioTask built from a fresh dict: the segments it
+            # consumed and every unrelated upstream column (transcripts, ids, scores) are gone,
+            # not carried through. Left at the default True, a downstream reader of any of them
+            # validated clean and then raised at runtime on the missing key.
+            preserves_upstream_keys=False,
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 output_path_params=["output_dir"],
