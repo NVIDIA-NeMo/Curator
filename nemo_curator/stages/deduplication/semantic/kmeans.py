@@ -239,9 +239,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                     centroids,
                 )
                 predicted_rows += len(metadata)
+            # In-flight writer frames keep their own shallow references. Drop
+            # the original metadata as soon as it has been handed off so
+            # completed writes release it while the remaining lanes drain.
+            sampled_chunks.clear()
+            del metadata, sampled_chunks
             writers.flush()
 
-            sampled_chunks.clear()
             del fit_embeddings, fit_labels
             gc.collect()
             cp.get_default_memory_pool().free_all_blocks()
