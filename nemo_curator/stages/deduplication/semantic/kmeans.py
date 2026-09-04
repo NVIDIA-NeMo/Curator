@@ -84,7 +84,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         cache_path: str | None = None,
         read_kwargs: dict[dict] | None = None,
         write_kwargs: dict[dict] | None = None,
-        embedding_output_dtype: KMeansEmbeddingOutputDtype = "float16",
+        embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32",
     ):
         """KMeans clustering stage that requires RAFT for distributed processing.
 
@@ -616,7 +616,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
     max_samples_per_batch: int = 1 << 15
     fit_data_fraction: float | None = None
     cache_path: str | None = None
-    embedding_output_dtype: KMeansEmbeddingOutputDtype = "float16"
+    embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32"
     """KMeans clustering stage that requires RAFT for distributed processing.
 
     Args:

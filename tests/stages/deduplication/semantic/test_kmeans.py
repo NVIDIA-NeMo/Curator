@@ -307,7 +307,7 @@ class TestKMeansStageIntegration:
         cosine_dtype = output_df["cosine_dist_to_cent"].dtype
         assert l2_dtype == np.float32, f"L2 distance should be float, got {l2_dtype}"
         assert cosine_dtype == np.float32, f"Cosine distance should be float, got {cosine_dtype}"
-        assert get_array_from_df(output_df, "embeddings").dtype == cp.uint16
+        assert get_array_from_df(output_df, "embeddings").dtype == cp.float32
 
     def test_output_filenames_and_structure(self) -> None:
         """Output files are written with deterministic, input-derived names and

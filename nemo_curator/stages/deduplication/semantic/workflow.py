@@ -109,8 +109,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Execution parameters
         verbose: bool = True,
         # Pairwise precision (appended for positional compatibility)
-        pairwise_compute_dtype: PairwiseComputeDtype = "auto",
-        kmeans_embedding_output_dtype: KMeansEmbeddingOutputDtype = "float16",
+        pairwise_compute_dtype: PairwiseComputeDtype = "float32",
+        kmeans_embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32",
     ):
         """
         Initialize the semantic deduplication workflow.

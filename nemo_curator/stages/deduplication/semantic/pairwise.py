@@ -102,7 +102,7 @@ def _resolve_compute_dtype(cluster_reps: "torch.Tensor", compute_dtype: Pairwise
 def pairwise_cosine_similarity_batched(
     cluster_reps: "torch.Tensor",
     batch_size: int = 1024,
-    compute_dtype: PairwiseComputeDtype = "auto",
+    compute_dtype: PairwiseComputeDtype = "float32",
 ) -> tuple["cp.ndarray", "cp.ndarray"]:
     """Return each ranked row's most similar earlier row and its similarity.
 
@@ -217,7 +217,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         verbose: bool = False,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
-        compute_dtype: PairwiseComputeDtype = "auto",
+        compute_dtype: PairwiseComputeDtype = "float32",
     ):
         """Initialize the pairwise cosine similarity stage.
 
@@ -260,6 +260,20 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             traceback.clear_frames(exc.__traceback__)
             _release_cached_memory()
             raise
+
+    def process_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
+        """Process clusters while aggregating their phase timings for the adapter batch."""
+        results = []
+        batch_metrics: dict[str, float] = {}
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+            results.append(self.process(task))
+            for name, value in self._consume_custom_metrics().items():
+                batch_metrics[name] = batch_metrics.get(name, 0.0) + value
+        self._log_metrics(batch_metrics)
+        return results
 
     def teardown(self) -> None:
         """Release worker-local caches once after all clusters are processed."""
@@ -336,8 +350,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                     "pairwise_conversion_time": 0.0,
                     "pairwise_compute_time": 0.0,
                     "pairwise_write_time": time.perf_counter() - write_start,
-                    "pairwise_num_rows": 1,
-                    "pairwise_resolved_batch_size": 1,
                 }
             )
             return FileGroupTask(
@@ -392,7 +404,9 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         # Compute pairwise similarities after any requested precision conversion.
         compute_start = time.perf_counter()
         resolved_batch_size = min(self.pairwise_batch_size, num_rows)
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(cluster_embeddings, resolved_batch_size)
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(
+            cluster_embeddings, resolved_batch_size, compute_dtype=self.compute_dtype
+        )
         # Finish the matrix multiplications before recording compute time and
         # returning their now-unused Torch workspace to the allocator.
         torch.cuda.synchronize()
@@ -431,8 +445,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 "pairwise_conversion_time": conversion_time,
                 "pairwise_compute_time": compute_time,
                 "pairwise_write_time": write_time,
-                "pairwise_num_rows": num_rows,
-                "pairwise_resolved_batch_size": resolved_batch_size,
             }
         )
 
@@ -471,7 +483,7 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     which_to_keep: Literal["hard", "easy", "random"] = "hard"
     sim_metric: Literal["cosine", "l2"] = "cosine"
     random_seed: int = 42
-    compute_dtype: PairwiseComputeDtype = "auto"
+    compute_dtype: PairwiseComputeDtype = "float32"
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
