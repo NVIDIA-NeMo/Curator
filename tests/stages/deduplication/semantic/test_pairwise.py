@@ -123,7 +123,9 @@ class TestPairwiseCosineSimilarityBatched:
         )
         embeddings = embeddings / torch.linalg.vector_norm(embeddings, dim=1, keepdim=True)
 
-        fp16_scores, fp16_indices = pairwise_cosine_similarity_batched(embeddings.to(torch.float16), 2)
+        fp16_scores, fp16_indices = pairwise_cosine_similarity_batched(
+            embeddings.to(torch.float16), 2, compute_dtype="float16"
+        )
         fp32_scores, fp32_indices = pairwise_cosine_similarity_batched(embeddings, 2)
 
         assert fp16_scores.dtype == cp.float16
@@ -163,6 +165,28 @@ class TestPairwiseCosineSimilarityStage:
                 ranking_strategy=RankingStrategy.random(),
                 **kwargs,
             )
+
+    def test_process_batch_sums_cluster_timings(self) -> None:
+        stage = PairwiseCosineSimilarityStage(
+            id_field="id",
+            embedding_field="embedding",
+            output_path="/unused",
+            ranking_strategy=RankingStrategy.random(),
+        )
+        tasks = [
+            FileGroupTask(dataset_name="test", data=["unused"], _metadata={"centroid_id": centroid_id})
+            for centroid_id in range(2)
+        ]
+        durations = iter([1.0, 2.0])
+
+        def process(task: FileGroupTask) -> FileGroupTask:
+            stage._log_metric("pairwise_read_time", next(durations))
+            return task
+
+        with patch.object(stage, "process", side_effect=process):
+            assert stage.process_batch(tasks) == tasks
+
+        assert stage._consume_custom_metrics() == {"pairwise_read_time": 3.0}
 
     def test_single_item_cluster(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test processing a cluster with a single item."""
@@ -304,12 +328,8 @@ class TestPairwiseCosineSimilarityStage:
             "pairwise_conversion_time",
             "pairwise_compute_time",
             "pairwise_write_time",
-            "pairwise_num_rows",
-            "pairwise_resolved_batch_size",
         }
         assert all(metrics[name] >= 0 for name in metrics if name.endswith("_time"))
-        assert metrics["pairwise_num_rows"] == 4
-        assert metrics["pairwise_resolved_batch_size"] == min(batch_size, len(embeddings))
 
     def test_pairwise_stage_with_custom_metadata_ranking(self, tmp_path: Path) -> None:
         """Test PairwiseCosineSimilarityStage with custom metadata-based ranking."""

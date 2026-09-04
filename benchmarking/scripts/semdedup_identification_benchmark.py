@@ -47,8 +47,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     which_to_keep: str = "hard",
     pairwise_batch_size: int = 1024,
     fit_data_fraction: float | None = None,
-    pairwise_compute_dtype: str = "float16",
-    kmeans_embedding_output_dtype: str = "float16",
+    pairwise_compute_dtype: str = "float32",
+    kmeans_embedding_output_dtype: str = "float32",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the semantic duplicate identification benchmark and collect comprehensive metrics.
@@ -162,11 +162,6 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         "pairwise_conversion_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_conversion_time_sum", 0),
         "pairwise_compute_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_compute_time_sum", 0),
         "pairwise_write_time_s": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_write_time_sum", 0),
-        "pairwise_num_rows": int(task_metrics.get(f"{pairwise_metric_prefix}.pairwise_num_rows_sum", 0)),
-        "pairwise_rows_per_cluster_mean": task_metrics.get(f"{pairwise_metric_prefix}.pairwise_num_rows_mean", 0),
-        "pairwise_resolved_batch_size_mean": task_metrics.get(
-            f"{pairwise_metric_prefix}.pairwise_resolved_batch_size_mean", 0
-        ),
     }
     if workflow_total_time:
         # this is different than kmeans_time because kmeans_time also includes setting up actors
@@ -248,13 +243,13 @@ def main() -> int:
     parser.add_argument(
         "--kmeans-embedding-output-dtype",
         choices=["float16", "float32"],
-        default="float16",
+        default="float32",
         help="Precision used to store KMeans embedding output",
     )
     parser.add_argument(
         "--pairwise-compute-dtype",
         choices=["auto", "float16", "float32"],
-        default="float16",
+        default="float32",
         help="Multiplication precision used by Pairwise",
     )
     parser.add_argument(
