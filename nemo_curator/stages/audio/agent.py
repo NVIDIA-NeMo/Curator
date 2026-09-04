@@ -69,6 +69,7 @@ from nemo_curator.stages.audio._agent._catalog import (
     get_agent_ready_stage_class,
     list_agent_ready_stages,
     role_index,
+    unavailable_modules,
 )
 from nemo_curator.stages.audio._agent._conformance import (
     assert_contract_wellformed,
@@ -101,5 +102,6 @@ __all__ = [
     "role_index",
     "static_contract",
     "to_json_schema",
+    "unavailable_modules",
     "validate_pipeline",
 ]

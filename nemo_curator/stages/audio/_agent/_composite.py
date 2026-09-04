@@ -32,10 +32,14 @@ children carry the parameters the caller actually set, so ``SplitASRAlignJoinSta
 segments_key="diar_segments")`` yields ``SplitLongAudioStage(segments_key="diar_segments")`` and
 the check reflects what will run rather than what the defaults would have run.
 
-When a composite cannot be expanded -- it raises, returns nothing, returns something that is not
-a stage, or returns another composite (which the executor itself refuses) -- no leaf is invented
-for it. It is reported in :attr:`Expansion.opaque` so callers can fall back to whatever they did
-before rather than reason from a fabricated stage list.
+When a composite cannot be expanded -- it raises, returns nothing, or returns something that is
+not a stage -- no leaf is invented for it. It is reported in :attr:`Expansion.opaque` so callers
+can fall back to whatever they did before rather than reason from a fabricated stage list.
+
+A composite the executor will refuse outright -- one that decomposes into a single stage, or one
+that returns another composite -- is reported in :attr:`Expansion.unrunnable` instead. That is a
+known failure rather than an unknown, and has to reach the caller as an error rather than as the
+warning an opaque stage earns.
 """
 
 from __future__ import annotations
@@ -181,7 +185,7 @@ def expand_composites(stages: list[Any]) -> Expansion:
         # can tell perfectly well that it will run the outer composite and raise.
         nested = next((c for c in children if _nested_composite(c)), None)
         if nested is not None:
-            opaque[index] = (
+            unrunnable[index] = (
                 f"decomposition returned another composite ({type(nested).__name__}); "
                 "nested composition is not supported"
             )
