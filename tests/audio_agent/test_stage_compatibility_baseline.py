@@ -193,7 +193,14 @@ ADDITIVE_STAGE_NAMES = (
 # not part of this hash. No constructor default, param, read, write, gate or dispatch changed.
 # This needed no cardinality field on StaticHints and no stage-module change: the value is
 # derived from the literals describe() already returns.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "4dd5963290c825aafe3905b11203bccfde1fb229ca0c2852d7aae5930facc441"
+# Regenerated when ManifestWriterStage gained AGENT_STATIC. That is the ONLY entry that
+# moved -- its gates go from the all-default view (writes_to_disk=False, no output path,
+# no lifecycle side effect, no serialization constraint) to the four its configured
+# contract has always reported, plus per_row_independent. The other 45 stages are
+# byte-identical. Declaring them is the point: static discovery cannot instantiate a
+# stage whose output_path is required, so before this an agent reading the static view
+# saw a destructive JSON sink as a pure stage.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "fb75765c46b0bb93e53b4c4b3e38e9fbaba61880458dea56ce899c825da2172c"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
