@@ -615,12 +615,17 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
+      --kmeans-embedding-output-dtype=float32
+      --pairwise-compute-dtype=float32
       --dataset-size-ratio=0.20
       --fit-data-fraction=1.0
     timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
+          - workflow_total_time
+          - kmeans_time
+          - pairwise_time
           - num_documents_processed
           - num_duplicates
           - kmeans_footer_scan_time_s
@@ -631,6 +636,9 @@ entries:
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
+          - pairwise_read_time_s
+          - pairwise_conversion_time_s
+          - pairwise_compute_time_s
           # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
@@ -662,11 +670,16 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
+      --kmeans-embedding-output-dtype=float32
+      --pairwise-compute-dtype=float32
       --fit-data-fraction=0.20
     timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
+          - workflow_total_time
+          - kmeans_time
+          - pairwise_time
           - num_documents_processed
           - num_duplicates
           - kmeans_footer_scan_time_s
@@ -677,6 +690,9 @@ entries:
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
+          - pairwise_read_time_s
+          - pairwise_conversion_time_s
+          - pairwise_compute_time_s
           # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time

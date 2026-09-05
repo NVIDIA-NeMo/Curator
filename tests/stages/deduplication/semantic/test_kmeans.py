@@ -189,7 +189,7 @@ class TestKMeansStage:
 
         assert stages[0].file_extensions == [".pq"]
 
-    def test_unsupported_input_filetype_raises(self, tmp_path: Path) -> None:
+    def test_unsupported_configuration_raises(self, tmp_path: Path) -> None:
         stage = KMeansStage(
             id_field="id",
             embedding_field="embeddings",
@@ -201,6 +201,15 @@ class TestKMeansStage:
 
         with pytest.raises(ValueError, match="Unsupported filetype: csv"):
             stage.decompose()
+        with pytest.raises(ValueError, match="embedding_output_dtype"):
+            KMeansStage(
+                id_field="id",
+                embedding_field="embeddings",
+                n_clusters=2,
+                input_path=str(tmp_path / "input"),
+                output_path=str(tmp_path / "output"),
+                embedding_output_dtype="float64",
+            )
 
 
 @pytest.mark.gpu
@@ -298,6 +307,7 @@ class TestKMeansStageIntegration:
         cosine_dtype = output_df["cosine_dist_to_cent"].dtype
         assert l2_dtype == np.float32, f"L2 distance should be float, got {l2_dtype}"
         assert cosine_dtype == np.float32, f"Cosine distance should be float, got {cosine_dtype}"
+        assert get_array_from_df(output_df, "embeddings").dtype == cp.float32
 
     def test_output_filenames_and_structure(self) -> None:
         """Output files are written with deterministic, input-derived names and
@@ -464,7 +474,8 @@ class TestKMeansReadFitWriteStage:
         centroids = cp.array([[1, 0], [0, 1]])
 
         # Call _assign_distances
-        df_with_distances = KMeansReadFitWriteStage._assign_distances(df, "embedding", centroids)
+        embeddings = get_array_from_df(df, "embedding")
+        df_with_distances = KMeansReadFitWriteStage._assign_distances(df, embeddings, centroids)
 
         # Assert the distances match the expected values
         np.testing.assert_almost_equal(
@@ -495,6 +506,34 @@ class TestKMeansReadFitWriteStage:
         KMeansReadFitWriteStage._normalize_embeddings_in_place(embeddings)
 
         cp.testing.assert_allclose(embeddings, expected_normalized, rtol=1e-5, atol=1e-5)
+
+    @pytest.mark.parametrize(
+        ("embedding_output_dtype", "stored_dtype"),
+        [("float16", cp.uint16), ("float32", cp.float32)],
+    )
+    def test_write_output_frame_uses_configured_embedding_dtype(
+        self,
+        make_stage: "KMeansReadFitWriteStage",
+        embedding_output_dtype: str,
+        stored_dtype: "cp.dtype",
+    ) -> None:
+        stage = make_stage(embedding_output_dtype=embedding_output_dtype)
+        embeddings = cp.asarray([[1.0, 0.0], [0.6, 0.8]], dtype=cp.float32)
+
+        stage._write_output_frame(
+            "output.parquet",
+            cudf.DataFrame({"id": [1, 2]}),
+            embeddings,
+            cp.asarray([0, 1], dtype=cp.int32),
+            stage.kmeans.cluster_centers_,
+        )
+
+        output = cudf.read_parquet(stage.output_path)
+        stored_embeddings = get_array_from_df(output, "embeddings")
+        assert stored_embeddings.dtype == stored_dtype
+        decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
+        cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
+        cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
 
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:

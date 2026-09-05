@@ -38,6 +38,15 @@ from nemo_curator.stages.deduplication.id_generator import (
     kill_id_generator_actor,
     write_id_generator_to_disk,
 )
+from nemo_curator.stages.deduplication.semantic.kmeans import (
+    KMeansEmbeddingOutputDtype,
+    validate_embedding_output_dtype,
+)
+from nemo_curator.stages.deduplication.semantic.pairwise import (
+    PairwiseComputeDtype,
+    validate_pairwise_batch_size,
+    validate_pairwise_compute_dtype,
+)
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
@@ -113,6 +122,9 @@ class TextSemanticDeduplicationWorkflow:
     # Execution parameters
     verbose: bool = True
     clear_output: bool = True
+    # Pairwise precision (appended for positional compatibility)
+    pairwise_compute_dtype: PairwiseComputeDtype = "float32"
+    kmeans_embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32"
     """
     Initialize the text semantic deduplication workflow.
 
@@ -149,8 +161,10 @@ class TextSemanticDeduplicationWorkflow:
         kmeans_fit_data_fraction: Fraction of generated Parquet embedding files (in (0, 1]) used to
             fit the KMeans model. When None, selects as many complete embedding files as fit the live
             GPU-memory budget.
+        kmeans_embedding_output_dtype: Precision used to store embeddings for Pairwise.
         ranking_strategy: Custom ranking strategy for documents within clusters (None uses which_to_keep/distance_metric)
-        pairwise_batch_size: Batch size for pairwise similarity computation
+        pairwise_compute_dtype: Multiplication precision for Pairwise, or ``"auto"`` to retain decoded precision.
+        pairwise_batch_size: Positive batch size for the bounded Pairwise workspace.
         _duplicates_num_row_groups_hint: Hint for number of row groups in duplicates output
 
         # ID generator parameters
@@ -176,6 +190,13 @@ class TextSemanticDeduplicationWorkflow:
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
+
+        validate_pairwise_batch_size(self.pairwise_batch_size)
+        validate_pairwise_compute_dtype(self.pairwise_compute_dtype)
+        validate_embedding_output_dtype(self.kmeans_embedding_output_dtype)
+        if self.kmeans_embedding_output_dtype == "float16" and self.pairwise_compute_dtype == "float32":
+            msg = "FP16 KMeans output cannot be restored for FP32 Pairwise compute"
+            raise ValueError(msg)
 
         # Core paths
         self.cache_path = self.cache_path or self.output_path
@@ -326,10 +347,12 @@ class TextSemanticDeduplicationWorkflow:
             oversampling_factor=self.kmeans_oversampling_factor,
             max_samples_per_batch=self.kmeans_max_samples_per_batch,
             fit_data_fraction=self.kmeans_fit_data_fraction,
+            kmeans_embedding_output_dtype=self.kmeans_embedding_output_dtype,
             # Pairwise similarity parameters
             distance_metric=self.distance_metric,
             which_to_keep=self.which_to_keep,
             ranking_strategy=self.ranking_strategy,
+            pairwise_compute_dtype=self.pairwise_compute_dtype,
             pairwise_batch_size=self.pairwise_batch_size,
             # Duplicate identification parameters (optional)
             eps=self.eps,

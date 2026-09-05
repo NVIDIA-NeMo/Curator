@@ -153,7 +153,9 @@ Compare semantic deduplication with other methods:
 | `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of generated Parquet embedding files used to fit K-means. `None` automatically selects complete embedding files within the live GPU-memory budget. |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
-| `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
+| `kmeans_embedding_output_dtype` | str | `"float32"` | Precision used to store KMeans embeddings for Pairwise (`"float16"` or `"float32"`) |
+| `pairwise_compute_dtype` | str | `"float32"` | Pairwise multiplication precision: `"auto"`, `"float16"`, or `"float32"` |
+| `pairwise_batch_size` | int | `1024` | Positive batch size for the bounded similarity workspace |
 | `distance_metric` | str | `"cosine"` | Distance metric for similarity ("cosine" or "l2") |
 | `perform_removal` | bool | `True` | Whether to perform duplicate removal |
 | `text_field` | str | `"text"` | Name of the text field in input data |
@@ -164,6 +166,16 @@ The same discovery rules apply to `TextSemanticDeduplicationWorkflow`, the pre-c
 `TextSemanticDeduplicationWorkflow` always writes Parquet embeddings before clustering, regardless of
 the original `input_filetype`. The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` accept
 precomputed Parquet or JSONL embeddings and use the parameter name `fit_data_fraction`.
+
+### Control Pairwise memory and precision
+
+Pairwise comparison keeps a reusable `N x B` similarity workspace, where `N` is the cluster size and `B` is `pairwise_batch_size`. The default is `1024`; a smaller positive value lowers peak memory at the cost of more matrix multiplications. A larger value also computes more self/later-row products before masking them, so the largest batch that fits is not necessarily the fastest. Only earlier-ranked rows are valid neighbors, and equal similarity scores deterministically choose the earliest-ranked row.
+
+KMeans fit, prediction, and distance calculations remain FP32. By default, KMeans retains FP32 embeddings in its output. Set `kmeans_embedding_output_dtype="float16"` to cast normalized embeddings to FP16 and store their bit patterns in uint16 list leaves because cuDF does not support numeric FP16 columns. The uint16 representation does not guarantee half-sized Parquet files because Parquet stores uint16 values using an INT32 physical type.
+
+Pairwise infers storage precision from the embedding list leaves: uint16 leaves are decoded as FP16 bit patterns, FP32 leaves keep their precision, and legacy FP64 leaves are normalized to FP32. With `pairwise_compute_dtype="auto"`, FP16 embeddings use FP16 multiplication and FP32 embeddings use FP32. FP32 embeddings can instead use `"float16"` multiplication; upcasting stored FP16 embeddings is rejected because it cannot restore the discarded precision.
+
+FP16 scores remain FP16 through multiplication and reduction, then are promoted to FP32 because cuDF does not support an FP16 numeric output column. Pairwise records cumulative footer scan, read, rank, precision conversion, compute, and write time.
 
 ### Control K-means fitting memory
 
