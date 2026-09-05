@@ -5567,6 +5567,7 @@ all = [
     { name = "easydict" },
     { name = "einops" },
     { name = "fasttext" },
+    { name = "fastwarc" },
     { name = "ftfy" },
     { name = "google-cloud-translate" },
     { name = "gpustat" },
@@ -5625,7 +5626,6 @@ all = [
     { name = "transformers" },
     { name = "vllm", version = "0.22.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux'" },
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, extra = ["otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "warcio" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 audio-common = [
@@ -5759,6 +5759,7 @@ math-cpu = [
     { name = "beautifulsoup4" },
     { name = "boto3" },
     { name = "fasttext" },
+    { name = "fastwarc" },
     { name = "ftfy" },
     { name = "justext" },
     { name = "lxml" },
@@ -5771,7 +5772,6 @@ math-cpu = [
     { name = "sentence-transformers" },
     { name = "sentencepiece" },
     { name = "trafilatura" },
-    { name = "warcio" },
 ]
 math-cuda12 = [
     { name = "beautifulsoup4" },
@@ -5780,6 +5780,7 @@ math-cuda12 = [
     { name = "cudf-streaming-cu12" },
     { name = "cuml-cu12" },
     { name = "fasttext" },
+    { name = "fastwarc" },
     { name = "ftfy" },
     { name = "gpustat" },
     { name = "justext" },
@@ -5800,7 +5801,6 @@ math-cuda12 = [
     { name = "trafilatura" },
     { name = "vllm", version = "0.22.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux'" },
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "warcio" },
 ]
 sdg-cpu = [
     { name = "data-designer" },
@@ -5817,6 +5817,7 @@ sdg-cuda12 = [
 text-cpu = [
     { name = "beautifulsoup4" },
     { name = "fasttext" },
+    { name = "fastwarc" },
     { name = "ftfy" },
     { name = "justext" },
     { name = "lxml" },
@@ -5828,7 +5829,6 @@ text-cpu = [
     { name = "sentence-transformers" },
     { name = "sentencepiece" },
     { name = "trafilatura" },
-    { name = "warcio" },
 ]
 text-cuda12 = [
     { name = "beautifulsoup4" },
@@ -5836,6 +5836,7 @@ text-cuda12 = [
     { name = "cudf-streaming-cu12" },
     { name = "cuml-cu12" },
     { name = "fasttext" },
+    { name = "fastwarc" },
     { name = "ftfy" },
     { name = "gpustat" },
     { name = "justext" },
@@ -5854,7 +5855,6 @@ text-cuda12 = [
     { name = "sentencepiece" },
     { name = "trafilatura" },
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, extra = ["otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "warcio" },
 ]
 translation-all = [
     { name = "aiohttp" },
@@ -5979,6 +5979,7 @@ requires-dist = [
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
+    { name = "fastwarc", marker = "extra == 'text-cpu'", specifier = "<1" },
     { name = "fsspec" },
     { name = "ftfy", marker = "extra == 'text-cpu'", specifier = ">=6.3.1" },
     { name = "google-cloud-translate", marker = "extra == 'translation-google'" },
@@ -6114,7 +6115,6 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'math-cuda12'", specifier = ">=0.13" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'math-cuda12'", specifier = ">=0.13", index = "https://wheels.vllm.ai/0.22.0/cu129" },
     { name = "vllm", extras = ["flashinfer", "otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = "==0.22.0+cu129", index = "https://wheels.vllm.ai/0.22.0/cu129" },
-    { name = "warcio", marker = "extra == 'text-cpu'" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=3.8.4" },
 ]
 provides-extras = ["cuda12", "cv2", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "lance", "text-cuda12", "video-cpu", "video-cuda12", "video-media", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
@@ -12014,18 +12014,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d8/5d/1385ce3c219cb5bd30d4027687e3f8d25969c7dfd09adad1cbd5080e1a72/wandb-0.28.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:325b2d0bd88be6eda5db10542499bad3710927f2569c81a84dc5eeaffc76825c", size = 26764727, upload-time = "2026-06-23T00:38:33.775Z" },
     { url = "https://files.pythonhosted.org/packages/89/67/9be00fb2db2281063af24a148636d2dd363d337317642ab5d8e93572c794/wandb-0.28.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:9fec6c908554c2dad33110c1312bc3028cc2e430f0679f16b84f82c8ea801e3b", size = 27074113, upload-time = "2026-06-23T00:38:38.737Z" },
     { url = "https://files.pythonhosted.org/packages/c6/c4/c7bed5e981679c74e9fbb22c03ff31c42e95f266199d03d8d325f4d0e6df/wandb-0.28.0-py3-none-win_amd64.whl", hash = "sha256:ac1f82292e2da4f98297b78c3a46726b3a6c5734ecb75fc39b8db2c8a4989159", size = 24525214, upload-time = "2026-06-23T00:38:44.549Z" },
-]
-
-[[package]]
-name = "warcio"
-version = "1.7.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "six" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f2/2b/d825506924cb4508c90cd950dbda2a4dbfa9f5609e2ae76b53deaba656db/warcio-1.7.5.tar.gz", hash = "sha256:7247b57e68074cfd9433cb6dc226f8567d6777052abec2d3c78346cffa4d19b9", size = 61691, upload-time = "2024-12-10T21:31:48.939Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/f0/3f19085980f8a4485f4265cc9dba1099b2fa35ef7552390a8446e149c293/warcio-1.7.5-py2.py3-none-any.whl", hash = "sha256:ca96130bde7747e49da714097d144c6ff939458d4f93e1beb1e42455db4326d4", size = 40568, upload-time = "2024-12-10T21:31:46.291Z" },
 ]
 
 [[package]]
