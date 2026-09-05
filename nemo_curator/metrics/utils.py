@@ -263,8 +263,15 @@ def write_grafana_configs(grafana_web_port: int, prometheus_web_port: int, metri
     xenna_dashboard_src = os.path.join(os.path.dirname(__file__), "xenna_grafana_dashboard.json")
     xenna_dashboard_src = os.path.abspath(xenna_dashboard_src)
     xenna_dashboard_dst = os.path.join(dashboards_path, "xenna_grafana_dashboard.json")
-    if os.path.isfile(xenna_dashboard_src) and not os.path.isfile(xenna_dashboard_dst):
-        shutil.copy(xenna_dashboard_src, xenna_dashboard_dst)
+    if not os.path.isfile(xenna_dashboard_dst):
+        if os.path.isfile(xenna_dashboard_src):
+            shutil.copy(xenna_dashboard_src, xenna_dashboard_dst)
+        else:
+            logger.warning(
+                f"Xenna Grafana dashboard not found at {xenna_dashboard_src}; "
+                "the Xenna dashboard will not be provisioned. This usually means the "
+                "packaged data file is missing from the installed nemo_curator distribution."
+            )
 
     # Generate Ray's default Grafana dashboards
     _write_ray_default_dashboards(dashboards_path)
