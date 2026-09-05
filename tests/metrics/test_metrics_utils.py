@@ -16,6 +16,7 @@ import os
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import yaml
 
 from nemo_curator.metrics.constants import (
@@ -33,6 +34,7 @@ from nemo_curator.metrics.utils import (
     is_grafana_running,
     is_prometheus_running,
     remove_ray_prometheus_metrics_service_discovery,
+    write_grafana_configs,
 )
 
 
@@ -251,3 +253,48 @@ class TestRemoveRayPrometheusMetricsServiceDiscovery:
             f.write(PROMETHEUS_YAML_TEMPLATE)
 
         remove_ray_prometheus_metrics_service_discovery("/ray/cluster1", str(tmp_path))
+
+
+class TestWriteGrafanaConfigs:
+    @pytest.mark.parametrize(
+        ("src_present", "dst_present", "expect_copy", "expect_warning"),
+        [
+            (True, False, True, False),  # packaged json present -> copied
+            (True, True, False, False),  # already provisioned -> no-op
+            (False, False, False, True),  # missing from package -> warn
+            (False, True, False, False),  # missing but provisioned -> silent
+        ],
+    )
+    def test_xenna_dashboard_provisioning(  # noqa: PLR0913
+        self,
+        tmp_path: pathlib.Path,
+        caplog: pytest.LogCaptureFixture,
+        src_present: bool,
+        dst_present: bool,
+        expect_copy: bool,
+        expect_warning: bool,
+    ) -> None:
+        """A missing packaged dashboard must warn, unless it is already provisioned."""
+        pkg_dir = tmp_path / "pkg"
+        pkg_dir.mkdir()
+        if src_present:
+            (pkg_dir / "xenna_grafana_dashboard.json").write_text('{"title": "xenna"}')
+        metrics_dir = tmp_path / "metrics"
+        dst = metrics_dir / "grafana" / "dashboards" / "xenna_grafana_dashboard.json"
+        if dst_present:
+            dst.parent.mkdir(parents=True)
+            dst.write_text('{"title": "stale"}')
+
+        with (
+            patch("nemo_curator.metrics.utils.__file__", str(pkg_dir / "utils.py")),
+            patch("nemo_curator.metrics.utils._write_ray_default_dashboards"),
+        ):
+            ini_path = write_grafana_configs(3000, 9090, metrics_dir=str(metrics_dir))
+
+        assert os.path.isfile(ini_path)  # other config still written
+        assert dst.is_file() == (expect_copy or dst_present)
+        if dst_present:
+            assert dst.read_text() == '{"title": "stale"}'  # never overwritten
+        elif expect_copy:
+            assert dst.read_text() == '{"title": "xenna"}'  # content transferred
+        assert ("will not be provisioned" in caplog.text) == expect_warning
