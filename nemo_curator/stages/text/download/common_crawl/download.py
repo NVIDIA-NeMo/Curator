@@ -22,8 +22,8 @@ from urllib.parse import urljoin, urlparse
 
 import pandas as pd
 import requests
+from fastwarc.warc import ArchiveIterator, WarcRecordType
 from loguru import logger
-from warcio.archiveiterator import ArchiveIterator
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download import DocumentDownloader
@@ -285,10 +285,11 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
 
             try:
                 stream = io.BytesIO(decompressed)
-                archive_iterator = ArchiveIterator(stream)
+                archive_iterator = ArchiveIterator(
+                    stream, record_types=WarcRecordType.response, auto_decode="all", strict_mode=False
+                )
                 for record in archive_iterator:
-                    if record.rec_type == "response":
-                        return record.content_stream().read()
+                    return record.reader.read()
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"Failed to parse WARC record {filename}: {e}, returning decompressed bytes")
                 return decompressed
@@ -302,13 +303,13 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             logger.warning(f"S3 fetch failed for {filename}: {e}")
             return None
 
-    def _read_warc_record(self, row: pd.Series) -> bytes | None:  # noqa: C901, PLR0911
+    def _read_warc_record(self, row: pd.Series) -> bytes | None:  # noqa: PLR0911
         """Fetch a single WARC record using HTTPS range request.
 
         This method:
         1. Fetches gzip-compressed WARC record bytes via HTTP range request
         2. Decompresses the gzip content
-        3. Parses the WARC record format using warcio
+        3. Parses the WARC record format using fastwarc
         4. Extracts and returns the HTTP response body (the actual content)
         """
         filename = None
@@ -349,14 +350,15 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                 # Content might not be gzip-compressed, use as-is
                 decompressed = raw_bytes
 
-            # Parse the WARC record using warcio to extract HTTP response body
+            # Parse the WARC record using fastwarc to extract HTTP response body
             try:
                 stream = io.BytesIO(decompressed)
-                archive_iterator = ArchiveIterator(stream)
+                archive_iterator = ArchiveIterator(
+                    stream, record_types=WarcRecordType.response, auto_decode="all", strict_mode=False
+                )
                 for record in archive_iterator:
-                    if record.rec_type == "response":
-                        # Return the HTTP response body (content after HTTP headers)
-                        return record.content_stream().read()
+                    # Return the HTTP response body (content after HTTP headers)
+                    return record.reader.read()
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"Failed to parse WARC record {filename}: {e}, returning decompressed bytes")
                 return decompressed

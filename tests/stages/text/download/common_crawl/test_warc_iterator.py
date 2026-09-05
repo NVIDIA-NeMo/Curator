@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gzip
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -20,6 +22,24 @@ import pytest
 from loguru import logger
 
 from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
+
+_OK_BODY = b"<html><body>ok</body></html>"
+_OK_HTTP = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + _OK_BODY
+
+
+def _response_record(record_id: str, http_payload: bytes, version: str = "WARC/1.0") -> bytes:
+    """Build a single WARC response record wrapping an already-serialized HTTP response."""
+    header = (
+        f"{version}\r\n"
+        f"WARC-Type: response\r\n"
+        f"WARC-Record-ID: <urn:uuid:{record_id}>\r\n"
+        f"WARC-Date: 2022-01-01T00:00:00Z\r\n"
+        f"WARC-Target-URI: http://example.com/{record_id}\r\n"
+        f"Content-Type: application/http;msgtype=response\r\n"
+        f"Content-Length: {len(http_payload)}\r\n"
+        f"\r\n"
+    ).encode()
+    return header + http_payload + b"\r\n\r\n"
 
 
 class TestCommonCrawlWarcIterator:
@@ -63,7 +83,7 @@ class TestCommonCrawlWarcIterator:
         raw_warc_path = tmp_path / "test.warc"
 
         # Create a WARC file with a response record that has no WARC-Record-ID header
-        # This will cause the get_header to return None, leading to the subscriptable error
+        # This makes headers.get return None, leading to the subscriptable error
         http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body>Test</body></html>\r\n"
         http_response_bytes = http_response.encode("utf-8")
         content_length = len(http_response_bytes)
@@ -119,6 +139,8 @@ class TestCommonCrawlWarcIterator:
                 "content": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Test Page</h1></body></html>\r\n",
                 "id": "response123",
                 "target_uri": "http://example.com/page",
+                # Marks the payload as an HTTP response, as Common Crawl's own WARC files do.
+                "content_type": "application/http;msgtype=response",
             },
             {
                 "type": "metadata",
@@ -147,6 +169,9 @@ class TestCommonCrawlWarcIterator:
             if config["target_uri"]:
                 header_parts.append(f"WARC-Target-URI: {config['target_uri']}\r\n")
 
+            if config.get("content_type"):
+                header_parts.append(f"Content-Type: {config['content_type']}\r\n")
+
             header_parts.append(f"Content-Length: {content_length}\r\n\r\n")
 
             warc_record = "".join(header_parts).encode() + content_bytes + b"\r\n\r\n"
@@ -166,11 +191,77 @@ class TestCommonCrawlWarcIterator:
         assert record["url"] == "http://example.com/page"
         assert record["warc_id"] == "response123"  # Stripped <urn:uuid: and >
         assert record["source_id"] == "mixed_types.warc"
-        # The content should be just the HTML body (warcio extracts body from HTTP response)
+        # The content should be just the HTML body, with the HTTP headers stripped
         assert record["content"] == html_content
 
         # Verify the content contains expected HTML
         assert b"<h1>Test Page</h1>" in record["content"]
+
+    @pytest.mark.parametrize(
+        ("content_encoding", "encode"),
+        [
+            (None, lambda body: body),
+            ("gzip", gzip.compress),
+        ],
+    )
+    def test_http_body_is_returned_decoded(
+        self,
+        tmp_path: Path,
+        content_encoding: str | None,
+        encode: Callable[[bytes], bytes],
+    ) -> None:
+        """The yielded content is the decoded HTTP body, whatever Content-Encoding the server used."""
+        body = b"<html><body>decoded</body></html>"
+        encoding_header = f"Content-Encoding: {content_encoding}\r\n" if content_encoding else ""
+        http_payload = (f"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{encoding_header}\r\n").encode() + encode(body)
+
+        raw_warc_path = tmp_path / "encoded.warc"
+        raw_warc_path.write_bytes(_response_record("encoded123", http_payload))
+
+        records = list(CommonCrawlWarcIterator().iterate(str(raw_warc_path)))
+
+        assert len(records) == 1
+        assert records[0]["content"] == body
+
+    # expected_errors is 0 for both corrupt-record cases on purpose: fastwarc 0.x
+    # resynchronizes past the bad record and offers no way to observe that it did,
+    # so the drop cannot be logged (see the comment in CommonCrawlWarcIterator.iterate).
+    @pytest.mark.parametrize(
+        ("warc_bytes", "expected_ids", "expected_errors"),
+        [
+            (
+                _response_record("corrupt", _OK_HTTP, version="WARC/XX") + _response_record("good", _OK_HTTP),
+                ["good"],
+                0,
+            ),
+            (
+                _response_record("first", _OK_HTTP)
+                + _response_record("corrupt", _OK_HTTP, version="WARC/XX")
+                + _response_record("last", _OK_HTTP),
+                ["first", "last"],
+                0,
+            ),
+            (b"\x00\x01not-a-warc\r\n\r\n" + _response_record("good", _OK_HTTP), [], 1),
+        ],
+        ids=["corrupt-first", "corrupt-mid", "unreadable-stream"],
+    )
+    def test_corrupt_record_does_not_abandon_the_rest_of_the_file(
+        self,
+        tmp_path: Path,
+        warc_bytes: bytes,
+        expected_ids: list[str],
+        expected_errors: int,
+    ) -> None:
+        """A corrupt WARC header is resynchronized past; a stream the parser cannot open is logged once."""
+        raw_warc_path = tmp_path / "corrupt.warc"
+        raw_warc_path.write_bytes(warc_bytes)
+
+        with mock.patch.object(logger, "error") as mock_logger:
+            yielded = list(CommonCrawlWarcIterator().iterate(str(raw_warc_path)))
+
+        assert [record["warc_id"] for record in yielded] == expected_ids
+        assert [record["content"] for record in yielded] == [_OK_BODY] * len(expected_ids)
+        assert mock_logger.call_count == expected_errors
 
     def test_output_columns(self) -> None:
         """Test that output_columns returns the expected column names."""

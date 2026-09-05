@@ -197,13 +197,16 @@ translation_all = [
 text_cpu = [
     # Download / Extract
     "beautifulsoup4",
+    # fastwarc and resiliparse pin each other exactly, so this cap also holds resiliparse
+    # below 1.x; both are used well beyond WARC parsing (see html_extractors/resiliparse.py).
+    # fastwarc 1.x also drops strict_mode's resync past a corrupt WARC header (warc_iterator.py).
+    "fastwarc<1",
     "justext",
     "lxml",
     "pycld2",
     "resiliparse",
     "s5cmd",
     "trafilatura==2.0.0",
-    "warcio",
     # Filters
     "fasttext==0.9.3",
     "sentencepiece",
