@@ -102,6 +102,7 @@ class CLIPImageEmbeddings(ModelInterface):
             inputs = inputs.to(self.device)
 
         embed = self.clip.get_image_features(pixel_values=inputs)
+        embed = getattr(embed, "pooler_output", embed)
 
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
@@ -122,6 +123,7 @@ class CLIPImageEmbeddings(ModelInterface):
         inputs = self.processor(text=texts, return_tensors="pt", padding=True, truncation=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         embed = self.clip.get_text_features(**inputs)
+        embed = getattr(embed, "pooler_output", embed)
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
 
     @classmethod

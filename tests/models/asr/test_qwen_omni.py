@@ -134,10 +134,10 @@ def test_qwen_adapter_rejects_adapter_owned_vllm_kwargs(reserved_key: str) -> No
         adapter.load_model(num_gpus=1)
 
 
-def test_qwen_adapter_defaults_to_audio_only_multimodal_limits() -> None:
+def test_qwen_adapter_defaults_to_supported_multimodal_limits() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 
-    assert adapter.vllm_kwargs["limit_mm_per_prompt"] == {"image": 0, "video": 0, "audio": 2}
+    assert adapter.vllm_kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 2}
 
 
 def test_qwen_adapter_infer_batch_returns_length_stopped_output() -> None:

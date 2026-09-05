@@ -75,7 +75,7 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
    uv pip install --no-build-isolation \
      --override text_cuda12-overrides.txt \
      --torch-backend cu129 \
-     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+     --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
      "nemo-curator[all]"
    ```
 
@@ -226,7 +226,7 @@ the public PyTorch and vLLM CUDA 12.9 wheel indexes:
 ```bash
 python -m pip install \
   --extra-index-url https://download.pytorch.org/whl/cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
   "nemo-curator[inference_server]"
 ```
 
@@ -241,7 +241,7 @@ curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/
 uv pip install \
   --override text_cuda12-overrides.txt \
   --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
   "nemo-curator[text_cuda12]"
 ```
 
@@ -251,7 +251,7 @@ uv pip install \
 
 <Warning>
 **Standard pip is not supported for `text_cuda12` or for installing all extras
-together.** vLLM 0.22 requires `numba==0.65.0`, while RAPIDS 25.10 declares
+together.** vLLM 0.26 requires `numba==0.65.0`, while RAPIDS 25.10 declares
 `numba<0.62`. Use `uv pip install` with the explicit override shown above, `uv
 sync` from a source checkout, or the [NeMo Curator
 container](#container-installation). Plain `uv pip install` without the

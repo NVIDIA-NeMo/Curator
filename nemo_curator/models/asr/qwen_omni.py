@@ -82,8 +82,7 @@ def _default_vllm_kwargs() -> dict[str, Any]:
         "trust_remote_code": True,
         "enable_prefix_caching": True,
         "prefix_caching_hash_algo": "xxhash",
-        # TODO: Re-evaluate with vLLM 0.24, which includes https://github.com/vllm-project/vllm/pull/44264.
-        "limit_mm_per_prompt": {"image": 0, "video": 0, "audio": 2},
+        "limit_mm_per_prompt": {"image": 1, "video": 1, "audio": 2},
         "seed": 1234,
     }
 
