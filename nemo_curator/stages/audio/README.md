@@ -135,9 +135,10 @@ Key differences from a CPU stage:
 ### Setting `batch_size` for GPU inference
 
 The `batch_size` field on a GPU stage controls how many `AudioTask` tasks
-the backend groups into a single `process_batch()` call.  This directly
-determines how many files are passed to your model in one batched GPU
-inference call.
+the backend groups into a single `process_batch()` call. The stage can then
+make one or more model calls from that finite candidate window. For example,
+`ASRStage` can segment long parents, locally regroup model items by duration,
+and apply a separate adapter-call item cap.
 
 **Defining batch_size in the stage class:**
 
@@ -164,19 +165,19 @@ pipeline.add_stage(
 )
 ```
 
-The `.with_()` method sets any stage field.  Here it bumps `batch_size`
-from the default `16` to `32` and assigns 1 GPU.
+The `.with_()` method supports common execution overrides such as `resources`
+and `batch_size`. Here it sets `batch_size` to `32` and assigns 1 GPU. Put
+stage- or model-specific fields in the stage constructor.
 
 **Overriding batch_size via Hydra YAML:**
 
 ```yaml
-pipeline:
-  stages:
-    - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-      adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
-      model_id: nvidia/parakeet-tdt-0.6b-v2
-      audio_filepath_key: audio_filepath
-      batch_size: 32
+stages:
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt-0.6b-v2
+    audio_filepath_key: audio_filepath
+    batch_size: 32
 ```
 
 For Hydra to accept `batch_size` from YAML, it must be a dataclass field
@@ -189,19 +190,25 @@ Backend reads stage.batch_size
     → groups N tasks into batches of batch_size
     → sends each batch to a worker
     → worker calls stage.process_batch(tasks)
-        → your override receives exactly batch_size tasks
-          (or fewer for the last batch)
+        → your override receives that finite candidate window
+        → stage-specific code makes one or more model calls
 ```
+
+For variable-duration audio, `batch_size` is not necessarily the exact number
+of items in one model call. See
+[Local Duration Bucketing for Audio GPU Inference](inference/README.md) for the
+current `ASRStage` behavior, the duration-packing theory, and the integration
+contract for other GPU stages.
 
 **Choosing a good batch_size:**
 
-- **Too small** (e.g. `1`) — GPU is underutilised; kernel launch overhead
-  dominates.  Each call processes one file, losing the benefit of batching.
-- **Too large** (e.g. `1024`) — may exceed GPU memory (OOM), especially
-  with long audio files or large models.
-- **Sweet spot** — depends on model size, audio length, and GPU VRAM.
-  Start with `16` and increase until you see OOM or throughput plateaus.
-  For NeMo ASR FastConformer models, `16–64` is typical on a single GPU.
+- **Too small** (e.g. `1`) — gives the stage little opportunity to form useful
+  model batches or duration-coherent groups.
+- **Too large** (e.g. `1024`) — can increase waveform preparation and host
+  memory pressure before the stage makes any model calls.
+- **Sweet spot** — depends on the model, audio distribution, GPU memory, and
+  any stage-level model-call caps. Tune with representative inputs rather than
+  treating the backend window as the model batch size.
 
 ## What you must always declare
 
