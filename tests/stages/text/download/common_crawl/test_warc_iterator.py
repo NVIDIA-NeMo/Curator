@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gzip
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -20,6 +22,21 @@ import pytest
 from loguru import logger
 
 from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
+
+
+def _response_record(record_id: str, http_payload: bytes, version: str = "WARC/1.0") -> bytes:
+    """Build a single WARC response record wrapping an already-serialized HTTP response."""
+    header = (
+        f"{version}\r\n"
+        f"WARC-Type: response\r\n"
+        f"WARC-Record-ID: <urn:uuid:{record_id}>\r\n"
+        f"WARC-Date: 2022-01-01T00:00:00Z\r\n"
+        f"WARC-Target-URI: http://example.com/{record_id}\r\n"
+        f"Content-Type: application/http;msgtype=response\r\n"
+        f"Content-Length: {len(http_payload)}\r\n"
+        f"\r\n"
+    ).encode()
+    return header + http_payload + b"\r\n\r\n"
 
 
 class TestCommonCrawlWarcIterator:
@@ -171,6 +188,50 @@ class TestCommonCrawlWarcIterator:
 
         # Verify the content contains expected HTML
         assert b"<h1>Test Page</h1>" in record["content"]
+
+    @pytest.mark.parametrize(
+        ("content_encoding", "encode"),
+        [
+            (None, lambda body: body),
+            ("gzip", gzip.compress),
+        ],
+    )
+    def test_http_body_is_returned_decoded(
+        self,
+        tmp_path: Path,
+        content_encoding: str | None,
+        encode: Callable[[bytes], bytes],
+    ) -> None:
+        """The yielded content is the decoded HTTP body, whatever Content-Encoding the server used."""
+        body = b"<html><body>decoded</body></html>"
+        encoding_header = f"Content-Encoding: {content_encoding}\r\n" if content_encoding else ""
+        http_payload = (f"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{encoding_header}\r\n").encode() + encode(body)
+
+        raw_warc_path = tmp_path / "encoded.warc"
+        raw_warc_path.write_bytes(_response_record("encoded123", http_payload))
+
+        records = list(CommonCrawlWarcIterator().iterate(str(raw_warc_path)))
+
+        assert len(records) == 1
+        assert records[0]["content"] == body
+
+    def test_corrupt_record_is_logged_once_and_iteration_stops(self, tmp_path: Path) -> None:
+        """A record the parser cannot read is logged once and ends the file instead of looping forever."""
+        http_payload = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body>ok</body></html>"
+        raw_warc_path = tmp_path / "corrupt.warc"
+        raw_warc_path.write_bytes(
+            _response_record("first", http_payload)
+            + _response_record("corrupt", http_payload, version="WARC/XX")
+            + _response_record("last", http_payload)
+        )
+
+        with mock.patch.object(logger, "error") as mock_logger:
+            records = list(CommonCrawlWarcIterator().iterate(str(raw_warc_path)))
+
+        # Only the records read before the corruption are yielded, and the error is reported once.
+        assert [record["warc_id"] for record in records] == ["first"]
+        assert mock_logger.call_count == 1
+        assert mock_logger.call_args.args[0].startswith("Error processing record 1 in corrupt.warc: ")
 
     def test_output_columns(self) -> None:
         """Test that output_columns returns the expected column names."""
