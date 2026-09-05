@@ -26,6 +26,7 @@ from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
     execute_setup_on_node,
+    get_stage_num_workers_per_node,
     register_loguru_serializer,
 )
 from nemo_curator.tasks import EmptyTask, Task
@@ -56,6 +57,16 @@ def _parse_runtime_env(runtime_env: dict) -> dict:
         )
     env_vars["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] = ""
     return user_runtime_env
+
+
+def _get_actor_options(stage: "ProcessingStage") -> dict:
+    options = {
+        "num_cpus": stage.resources.cpus,
+        "num_gpus": stage.resources.gpus,
+    }
+    if get_stage_num_workers_per_node(stage) is not None:
+        options["scheduling_strategy"] = "SPREAD"
+    return options
 
 
 class RayActorPoolExecutor(BaseExecutor):
@@ -207,10 +218,7 @@ class RayActorPoolExecutor(BaseExecutor):
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
         """Create an ActorPool for a specific stage."""
         actors = []
-        actor_options: dict = {
-            "num_cpus": stage.resources.cpus,
-            "num_gpus": stage.resources.gpus,
-        }
+        actor_options = _get_actor_options(stage)
         if stage.runtime_env:
             actor_options["runtime_env"] = stage.runtime_env
         for i in range(num_actors):
@@ -233,8 +241,7 @@ class RayActorPoolExecutor(BaseExecutor):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolRAFTAdapter)
                 .options(
-                    num_cpus=stage.resources.cpus,
-                    num_gpus=stage.resources.gpus,
+                    **_get_actor_options(stage),
                     name=f"{stage.name}Actor-{actor_idx}",
                 )
                 .remote(
@@ -272,8 +279,7 @@ class RayActorPoolExecutor(BaseExecutor):
         actors = []
         for actor_idx in range(num_actors):
             actor = ShuffleStageAdapter.options(
-                num_cpus=stage.resources.cpus,
-                num_gpus=stage.resources.gpus,
+                **_get_actor_options(stage),
                 name=f"{stage.name}-Worker_{actor_idx}",
             ).remote(stage=stage, rank=actor_idx, nranks=num_actors, num_input_tasks=num_tasks)
             actors.append(actor)

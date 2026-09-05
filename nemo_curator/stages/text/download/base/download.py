@@ -15,7 +15,6 @@
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 
 from loguru import logger
 
@@ -159,7 +158,5 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             _stage_perf=task._stage_perf,
         )
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {
-            "num_workers_per_node": self.downloader.num_workers_per_node(),
-        }
+    def num_workers_per_node(self) -> float | None:
+        return self.downloader.num_workers_per_node()

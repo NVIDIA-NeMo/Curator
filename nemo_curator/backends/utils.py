@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import os
 import time
 from copy import deepcopy
@@ -23,7 +24,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
+from nemo_curator.utils.ray_utils import get_alive_ray_nodes, get_head_node_id, submit_on_each_node
 
 if TYPE_CHECKING:
     import loguru
@@ -137,6 +138,33 @@ class RayStageSpecKeys(str, Enum):
     RAY_NUM_CPUS = "ray_num_cpus"
 
 
+def validate_num_workers_per_node(value: object, stage_name: str) -> int | float | None:
+    """Validate a per-node worker request."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = f"num_workers_per_node for stage {stage_name} must be a positive number."
+        raise TypeError(msg)
+    if value <= 0 or (isinstance(value, float) and not math.isfinite(value)):
+        msg = f"num_workers_per_node for stage {stage_name} must be finite and > 0."
+        raise ValueError(msg)
+    return value
+
+
+def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None:
+    """Return a stage's validated per-node worker request."""
+    return validate_num_workers_per_node(stage.num_workers_per_node(), stage.name)
+
+
+def get_num_workers_for_nodes(num_workers_per_node: float, node_count: int, stage_name: str) -> int:
+    """Convert a per-node request to a finite cluster-wide worker count."""
+    total = num_workers_per_node * node_count
+    if isinstance(total, float) and not math.isfinite(total):
+        msg = f"num_workers_per_node for stage {stage_name} is too large for {node_count} nodes."
+        raise ValueError(msg)
+    return max(1, math.ceil(total))
+
+
 def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
     """Get the worker metadata and node id from the runtime context."""
     ray_context = ray.get_runtime_context()
@@ -212,13 +240,8 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
     the sum of per-stage times — important when setup is heavy (model downloads, weight
     loads) and stages don't contend for the same resources.
     """
-    head_node_id = get_head_node_id() if ignore_head_node else None
-    for node in ray.nodes():
-        if not node.get("Alive"):
-            continue
+    for node in get_alive_ray_nodes(ignore_head_node=ignore_head_node):
         node_id = node["NodeID"]
-        if ignore_head_node and node_id == head_node_id:
-            continue
         logger.info(f"Executing setup on node {node_id} for {len(stages)} stages")
 
     refs: list = []

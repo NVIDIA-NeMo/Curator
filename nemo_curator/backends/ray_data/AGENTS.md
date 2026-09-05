@@ -305,6 +305,7 @@ only when the Curator API has no equivalent, and set them before pipeline execut
 |---|---|---|
 | Change Task rows per stage call | `stage.with_(batch_size=N)` | Batch size counts Tasks, not records inside a Task |
 | Fixed worker pool | `stage.with_(num_workers=N)` | Fixed ActorPool or capped TaskPool, depending on stage type |
+| Fixed workers per node | `stage.with_(num_workers_per_node=N)` | Fixed cluster-wide pool of `ceil(N × alive nodes)` with best-effort `SPREAD` placement |
 | Autoscaling actor bounds | `stage.with_(ray_stage_spec={RayStageSpecKeys.MIN_WORKERS: N, RayStageSpecKeys.MAX_WORKERS: M})` | Maps to Ray `min_size` and `max_size` |
 | Actor startup size | `stage.with_(ray_stage_spec={RayStageSpecKeys.INITIAL_WORKERS: N})` | Startup target only; does not retain actors above `MIN_WORKERS` |
 | Force actor or task | `stage.with_(ray_stage_spec={RayStageSpecKeys.IS_ACTOR_STAGE: bool})` | Overrides adapter selection |
