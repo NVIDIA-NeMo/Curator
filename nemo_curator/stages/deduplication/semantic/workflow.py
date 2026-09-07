@@ -72,7 +72,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Core data configuration
         id_field: str = "id",
         embedding_field: str = "embeddings",
-        embedding_dim: int | None = None,
         metadata_fields: list[str] | None = None,
         input_filetype: Literal["parquet", "jsonl"] = "parquet",
         input_file_extensions: list[str] | None = None,
@@ -114,7 +113,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             # Core data configuration
             id_field: Name of the ID field in the data
             embedding_field: Name of the embedding field in the data
-            embedding_dim: Embedding dimension (for memory estimation)
             metadata_fields: List of metadata field names to preserve in output
             input_filetype: Type of input files ("parquet" or "jsonl")
             input_file_extensions: List of file extensions to process
@@ -128,8 +126,9 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             oversampling_factor: K-means++ oversampling factor
             max_samples_per_batch: Max samples per batch for K-means
             distance_metric: Distance metric for similarity ("cosine" or "l2")
-            fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model.
-                If None, fit on the full dataset.
+            fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit the KMeans model.
+                When None, Parquet selects as many complete files as fit the live GPU-memory budget,
+                while JSONL fits all input files in one pass.
 
             # Pairwise similarity parameters
             which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
@@ -161,7 +160,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Data configuration
         self.id_field = id_field
         self.embedding_field = embedding_field
-        self.embedding_dim = embedding_dim
         self.metadata_fields = metadata_fields
         self.input_filetype = input_filetype
         self.input_file_extensions = input_file_extensions
@@ -211,8 +209,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             )
 
         # Validate fit_data_fraction
-        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
-            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
+        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction <= 1.0:
+            msg = (
+                f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; "
+                "pass None to auto-size Parquet fitting or fit all JSONL input"
+            )
             raise ValueError(msg)
 
         # Validate distance_metric
@@ -263,7 +264,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             input_path=self.input_path,
             output_path=self.kmeans_output_path,
             metadata_fields=self.metadata_fields,
-            embedding_dim=self.embedding_dim,
             input_filetype=self.input_filetype,
             input_file_extensions=self.input_file_extensions,
             verbose=self.verbose,
@@ -299,7 +299,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             input_path=self.kmeans_output_path,
             output_path=self.pairwise_output_path,
             ranking_strategy=self.ranking_strategy,
-            embedding_dim=self.embedding_dim,
             pairwise_batch_size=self.pairwise_batch_size,
             verbose=self.verbose,
             which_to_keep=self.which_to_keep,

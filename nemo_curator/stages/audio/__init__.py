@@ -30,6 +30,7 @@ from importlib import import_module
 _LAZY = {
     "ALMDataBuilderStage": "nemo_curator.stages.audio.alm",
     "ALMDataOverlapStage": "nemo_curator.stages.audio.alm",
+    "AbbreviationConcatStage": "nemo_curator.stages.audio.text_filtering",
     "AudioDataFilterStage": "nemo_curator.stages.audio.advanced_pipelines",
     "BandFilterStage": "nemo_curator.stages.audio.filtering",
     "CreateInitialManifestAudioFolderStage": "nemo_curator.stages.audio.common",
@@ -42,6 +43,7 @@ _LAZY = {
     "SampleRateFilterStage": "nemo_curator.stages.audio.preprocessing",
     "PreserveByValueConditionsStage": "nemo_curator.stages.audio.common",
     "PreserveByValueStage": "nemo_curator.stages.audio.common",
+    "RegexSubstitutionStage": "nemo_curator.stages.audio.text_filtering",
     "SIGMOSFilterStage": "nemo_curator.stages.audio.filtering",
     "SegmentConcatenationStage": "nemo_curator.stages.audio.preprocessing",
     "SpeakerSeparationStage": "nemo_curator.stages.audio.segmentation",
@@ -54,6 +56,7 @@ _LAZY = {
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
+    "AbbreviationConcatStage",
     "AudioDataFilterStage",
     "BandFilterStage",
     "ChannelCountStage",
@@ -65,6 +68,7 @@ __all__ = [
     "MonoConversionStage",
     "PreserveByValueConditionsStage",
     "PreserveByValueStage",
+    "RegexSubstitutionStage",
     "SIGMOSFilterStage",
     "SampleRateFilterStage",
     "SegmentConcatenationStage",

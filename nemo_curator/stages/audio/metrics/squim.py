@@ -294,7 +294,7 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
         in batches on GPU, then scatters results back to the originating
         task's segment.
         """
-        if not tasks:
+        if len(tasks) == 0:
             return tasks
 
         # Collect all valid waveforms with their origin (task_idx, segment_idx)

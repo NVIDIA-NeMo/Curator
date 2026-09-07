@@ -59,3 +59,4 @@ The full procedure and guardrails live in
 | Backend | Reference |
 |---|---|
 | Ray Data — scheduler internals, log events, tuning knobs | [`nemo_curator/backends/ray_data/AGENTS.md`](nemo_curator/backends/ray_data/AGENTS.md) |
+| `InferenceServer` / Dynamo — runtime_env and startup troubleshooting | [`nemo_curator/core/serve/dynamo/AGENTS.md`](nemo_curator/core/serve/dynamo/AGENTS.md) |

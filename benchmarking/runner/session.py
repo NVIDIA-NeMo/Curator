@@ -212,9 +212,7 @@ class Session:
         #   provided list, with strict exact-name matching. Every requested name must
         #   correspond to a configured (enabled) entry; otherwise ValueError is raised.
         #   Duplicates in the input are collapsed; result order follows the YAML.
-        #   Use this for automated callers (e.g. CI per-job invocations) and any context
-        #   where substring matching would dangerously match prefix-overlapping siblings
-        #   (e.g. "audio_tagging_tts_xenna" matching "audio_tagging_tts_xenna_repeat").
+        #   Use this for CI callers or entries with shared name prefixes.
         # - entry_filter_expr accepts a pytest "-k" style substring expression, e.g.
         #   "foo and not foobar" includes all entries containing "foo" but not "foobar".
         if entries_exact is not None:

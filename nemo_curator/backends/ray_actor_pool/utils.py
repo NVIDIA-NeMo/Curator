@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import math
+import time
 from typing import TYPE_CHECKING
 
 import ray
@@ -31,6 +32,33 @@ if TYPE_CHECKING:
 _LARGE_INT = 2**31 - 1
 
 
+def get_available_actor_pool_resources(
+    reserved_cpus: float = 0.0,
+    reserved_gpus: float = 0.0,
+    ignore_head_node: bool = False,
+) -> tuple[float, float]:
+    """Return currently available CPU/GPU resources after executor reservations."""
+    available_cpus, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=ignore_head_node)
+    return (
+        max(0.0, available_cpus - reserved_cpus),
+        max(0.0, available_gpus - reserved_gpus),
+    )
+
+
+def update_resource_baseline(
+    resource_baseline: tuple[float, float],
+    reserved_cpus: float = 0.0,
+    reserved_gpus: float = 0.0,
+    ignore_head_node: bool = False,
+) -> tuple[float, float]:
+    """Update a CPU/GPU high-water mark from current availability."""
+    current_available = get_available_actor_pool_resources(reserved_cpus, reserved_gpus, ignore_head_node)
+    return (
+        max(resource_baseline[0], current_available[0]),
+        max(resource_baseline[1], current_available[1]),
+    )
+
+
 def calculate_optimal_actors_for_stage(
     stage: "ProcessingStage",
     num_tasks: int,
@@ -39,11 +67,73 @@ def calculate_optimal_actors_for_stage(
     ignore_head_node: bool = False,
 ) -> int:
     """Calculate optimal number of actors for a stage."""
-    # Get available resources (not total cluster resources)
     available_cpus, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=ignore_head_node)
     # Reserve resources for system overhead
     available_cpus = max(0, available_cpus - reserved_cpus)
     available_gpus = max(0, available_gpus - reserved_gpus)
+
+    return calculate_optimal_actors_for_resources(stage, num_tasks, (available_cpus, available_gpus))
+
+
+def calculate_optimal_actors_for_stage_with_wait(  # noqa: PLR0913
+    stage: "ProcessingStage",
+    num_tasks: int,
+    resource_baseline: tuple[float, float],
+    *,
+    reserved_cpus: float = 0.0,
+    reserved_gpus: float = 0.0,
+    ignore_head_node: bool = False,
+    timeout: float = 5.0,
+    interval: float = 0.2,
+) -> int:
+    """Wait for enough resources to create the baseline-sized actor pool."""
+    if timeout < 0 or interval <= 0:
+        msg = "resource_wait_timeout_s must be non-negative and resource_wait_interval_s must be positive"
+        raise ValueError(msg)
+
+    try:
+        intended_num_actors = calculate_optimal_actors_for_resources(
+            stage,
+            num_tasks,
+            resource_baseline,
+        )
+    except ValueError:
+        intended_num_actors = 1
+
+    required_cpus = intended_num_actors * stage.resources.cpus
+    required_gpus = intended_num_actors * stage.resources.gpus
+    deadline = time.monotonic() + timeout
+
+    while True:
+        available_resources = get_available_actor_pool_resources(reserved_cpus, reserved_gpus, ignore_head_node)
+        if available_resources[0] >= required_cpus and available_resources[1] >= required_gpus:
+            return intended_num_actors
+
+        if time.monotonic() >= deadline:
+            details = (
+                f"required CPUs={required_cpus}, GPUs={required_gpus}; "
+                f"available CPUs={available_resources[0]}, GPUs={available_resources[1]}"
+            )
+            msg = (
+                f"Timed out after {timeout}s waiting for the intended {intended_num_actors}-actor pool "
+                f"for {stage.name}: {details}."
+            )
+            raise TimeoutError(msg)
+
+        logger.info(
+            f"      Waiting for resources for {stage.name}: CPUs={available_resources[0]}/{required_cpus}, "
+            f"GPUs={available_resources[1]}/{required_gpus}"
+        )
+        time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+
+
+def calculate_optimal_actors_for_resources(
+    stage: "ProcessingStage",
+    num_tasks: int,
+    available_resources: tuple[float, float],
+) -> int:
+    """Calculate an actor count from a supplied CPU/GPU availability snapshot."""
+    available_cpus, available_gpus = available_resources
 
     # Calculate max actors based on CPU constraints
     max_actors_cpu = int(available_cpus // stage.resources.cpus) if stage.resources.cpus > 0 else _LARGE_INT
@@ -53,6 +143,10 @@ def calculate_optimal_actors_for_stage(
 
     # Take the minimum constraint
     max_actors_resources = min(max_actors_cpu, max_actors_gpu)
+
+    logger.info(f"    Resource calculation: CPU limit={max_actors_cpu}, GPU limit={max_actors_gpu}")
+    logger.info(f"    Available: {available_cpus} CPUs, {available_gpus} GPUs")
+    logger.info(f"    Stage requirements: {stage.resources.cpus} CPUs, {stage.resources.gpus} GPUs")
 
     if max_actors_resources == 0:
         msg = f"No resources available for stage {stage.name}."
@@ -77,13 +171,7 @@ def calculate_optimal_actors_for_stage(
     optimal_actors = min(number_of_batches, max_actors_resources)
 
     # Ensure at least 1 actor if we have tasks
-    optimal_actors = max(1, optimal_actors) if num_tasks > 0 else 0
-
-    logger.info(f"    Resource calculation: CPU limit={max_actors_cpu}, GPU limit={max_actors_gpu}")
-    logger.info(f"    Available: {available_cpus} CPUs, {available_gpus} GPUs")
-    logger.info(f"    Stage requirements: {stage.resources.cpus} CPUs, {stage.resources.gpus} GPUs")
-
-    return optimal_actors
+    return max(1, optimal_actors) if num_tasks > 0 else 0
 
 
 def create_named_ray_actor_pool_stage_adapter(
