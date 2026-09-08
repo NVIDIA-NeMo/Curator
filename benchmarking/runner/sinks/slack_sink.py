@@ -187,8 +187,9 @@ class SlackMessageBase:
 class SlackParentMessage(SlackMessageBase):
     """Represents a parent message in a Slack channel containing benchmark run summary.
 
-    Maintains a list of benchmark entries and their status, along with metadata about the
-    benchmark run such as session name and environment information.
+    Maintains a list of benchmark entries and their status so the parent
+    message can show bounded live summary counts. Detailed per-entry data is
+    reported in threaded replies and the run viewer.
     """
 
     def __init__(self, session_name: str, env_dict: dict[str, Any], viewer_url: str | None = None):
@@ -214,10 +215,63 @@ class SlackParentMessage(SlackMessageBase):
             entry_name: Name of the benchmark entry.
             status: Status string (e.g., "✅ success", "❌ FAILED", "▶️ running", "⏳ waiting to start").
         """
-        # Check if this is actually a change
+        # Check if this is actually a change.
         if entry_name not in self.entries or self.entries[entry_name] != status:
             self.entries[entry_name] = status
             self._has_updates = True
+
+    def _get_entry_status_counts(self) -> dict[str, int]:
+        """Summarize entry statuses for the parent Slack message."""
+        total = len(self.entries)
+        passed = sum(status.startswith("✅") for status in self.entries.values())
+        failed = sum(status.startswith("❌") for status in self.entries.values())
+        running = sum(status.startswith("▶️") for status in self.entries.values())
+        waiting = sum(status.startswith("⏳") for status in self.entries.values())
+        return {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "running": running,
+            "waiting": waiting,
+        }
+
+    def _get_entry_status_summary_text(self, markdown: bool) -> str:
+        """Format the session status counts for Slack blocks or fallback text."""
+        counts = self._get_entry_status_counts()
+        separator = "  •  "
+        if markdown:
+            return separator.join(
+                [
+                    f"*Total entries:* {counts['total']}",
+                    f"*passed ✅:* {counts['passed']}",
+                    f"*failed ❌:* {counts['failed']}",
+                    f"*running ▶️:* {counts['running']}",
+                    f"*waiting ⏳:* {counts['waiting']}",
+                ]
+            )
+        return separator.join(
+            [
+                f"Total entries: {counts['total']}",
+                f"passed ✅: {counts['passed']}",
+                f"failed ❌: {counts['failed']}",
+                f"running ▶️: {counts['running']}",
+                f"waiting ⏳: {counts['waiting']}",
+            ]
+        )
+
+    def _get_run_status_text(self, markdown: bool) -> str:
+        """Format the overall session status for Slack blocks or fallback text."""
+        counts = self._get_entry_status_counts()
+        if counts["running"] or counts["waiting"]:
+            status = "▶️ running"
+        elif counts["failed"]:
+            status = "❌ complete with failures"
+        else:
+            status = "✅ complete"
+
+        if markdown:
+            return f"*Run status:* {status}"
+        return f"Run status: {status}"
 
     def to_slack_blocks(self) -> list[dict[str, Any]]:
         """Convert the parent message data to Slack blocks format.
@@ -236,20 +290,21 @@ class SlackParentMessage(SlackMessageBase):
             {"type": "divider"},
         ]
 
-        # Overall status
-        all_statuses = self.entries.values()
-        if any("⏳" in status or "▶️" in status for status in all_statuses):
-            overall_status = "⏳ In progress"
-        elif any("❌" in status for status in all_statuses):
-            overall_status = "❌ one or more FAILED"
-        else:
-            overall_status = "✅ All passed"
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Overall Status:* {overall_status}",
+                    "text": self._get_run_status_text(markdown=True),
+                },
+            }
+        )
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": self._get_entry_status_summary_text(markdown=True),
                 },
             }
         )
@@ -261,32 +316,10 @@ class SlackParentMessage(SlackMessageBase):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*Results viewer:* <{self.viewer_url}|open run>",
+                        "text": f"*Results viewer:* <{self.viewer_url}|{self.session_name}>",
                     },
                 }
             )
-
-        # Table of benchmark entries, their status, and the environment
-        blocks.append({"type": "divider"})
-        rows = []
-        indent = "-    "  # start with a dash since leading whitespace is stripped
-        for entry_name, status in self.entries.items():
-            rows.append(self._get_two_column_row_bold(entry_name, status))
-        rows.append(self._TWO_COL_BLANK_ROW)
-        rows.append(self._get_two_column_row_bold("ENVIRONMENT", " "))
-        for var, val in self.env_dict.items():
-            if var in {"pip_freeze_txt", "conda_explicit_txt"}:
-                continue
-            (fvar, fval) = self._get_formatted_metric_value_tuple(var, val)
-            rows.append(self._get_two_column_row(f"{indent}{fvar}", fval))
-        rows.append(self._TWO_COL_BLANK_ROW)
-
-        blocks.append(
-            {
-                "type": "table",
-                "rows": rows,
-            }
-        )
 
         return blocks
 
@@ -296,11 +329,14 @@ class SlackParentMessage(SlackMessageBase):
         Returns:
             Fallback text string for use with chat_postMessage API.
         """
-        lines = [f"Curator Benchmark Summary - {self.session_name}"]
-        if self.entries:
-            lines.append("\nBenchmark Entries:")
-            for entry_name, status in self.entries.items():
-                lines.append(f"  • {entry_name}: {status}")
+        lines = [
+            f"Curator Benchmark Summary - {self.session_name}",
+            "",
+            self._get_run_status_text(markdown=False),
+            self._get_entry_status_summary_text(markdown=False),
+        ]
+        if self.viewer_url:
+            lines.append(f"Results viewer: {self.session_name} ({self.viewer_url})")
         return "\n".join(lines)
 
     def get_channel_id(self) -> str | None:
@@ -486,8 +522,14 @@ class SlackSink(Sink):
         # to remove the per-entry lists. Default True preserves existing behavior.
         self.ping_users_on_failure: bool = sink_config.get("ping_users_on_failure", True)
 
-        # Optional run-viewer URL surfaced as a "Results viewer" link in the parent
-        # Slack message. Typically populated in-process by run.py from --viewer-url.
+        # When true, post threaded per-entry replies only for failures or entries
+        # with warnings. The parent summary is still updated for every entry.
+        self.thread_replies_for_failures_or_warnings_only: bool = sink_config.get(
+            "thread_replies_for_failures_or_warnings_only", False
+        )
+
+        # Optional legacy sink-level run-viewer URL. Prefer Session.viewer_url for
+        # new callers so the value is available to any sink, not just Slack.
         self.viewer_url: str | None = sink_config.get("viewer_url")
 
         self.default_metrics: list[str] = sink_config.get("default_metrics", [])
@@ -530,6 +572,7 @@ class SlackSink(Sink):
         self.session_name = session_name
         self.env_dict = env_dict
         self.session = session
+        self.viewer_url = session.viewer_url or self.viewer_url
         self._child_messages = []
         self._state_path = self._get_state_path()
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -566,7 +609,11 @@ class SlackSink(Sink):
                 os.write(fd, payload)
             else:
                 state = self._wait_for_session_state(self._state_path)
-                self._parent_message = SlackParentMessage(session_name=session_name, env_dict=env_dict)
+                self._parent_message = SlackParentMessage(
+                    session_name=session_name,
+                    env_dict=env_dict,
+                    viewer_url=self.viewer_url,
+                )
                 self._parent_message.set_response({"ts": state["ts"], "channel": state["channel"], "ok": True})
                 for entry_name, entry_status in state["entries"].items():
                     self._parent_message.entries[entry_name] = entry_status
@@ -603,17 +650,17 @@ class SlackSink(Sink):
         else:
             pings = sink_data.get("ping_on_failure", [])
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
-
         warnings = result_dict.get("warnings", [])
 
-        # Create a new message for the entry to post in the thread.
-        msg = self._create_benchmark_entry_message(
-            benchmark_entry,
-            (self.default_metrics + additional_metrics, result_dict),
-            pings,
-            warnings,
-        )
-        self._child_messages.append(msg)
+        if self._should_post_benchmark_entry_message(result_dict, warnings):
+            # Create a new message for the entry to post in the thread.
+            msg = self._create_benchmark_entry_message(
+                benchmark_entry,
+                (self.default_metrics + additional_metrics, result_dict),
+                pings,
+                warnings,
+            )
+            self._child_messages.append(msg)
         # Update the session summary message with the new entry status.
         self._update_parent_entry(benchmark_entry.name, status_text)
 
@@ -672,6 +719,12 @@ class SlackSink(Sink):
             pings=pings,
             warnings=warnings,
         )
+
+    def _should_post_benchmark_entry_message(self, result_dict: dict[str, Any], warnings: list[str]) -> bool:
+        """Return whether to post a threaded per-entry Slack reply."""
+        if not self.thread_replies_for_failures_or_warnings_only:
+            return True
+        return not result_dict["success"] or bool(warnings)
 
     def _update_parent_entry(self, entry_name: str, status: str) -> None:
         """Update a single entry's status in the shared state file and post the update to Slack.

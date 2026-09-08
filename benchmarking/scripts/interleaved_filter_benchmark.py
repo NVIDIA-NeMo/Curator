@@ -28,6 +28,7 @@ from utils import (
     write_benchmark_results,
 )
 
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.interleaved.filter import (
     InterleavedBlurFilterStage,
@@ -42,6 +43,7 @@ from nemo_curator.stages.interleaved.io import (
     InterleavedWebdatasetWriterStage,
 )
 from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 
 def create_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -54,7 +56,7 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     if args.reader_type == "wds":
         pipeline.add_stage(
             InterleavedWebdatasetReader(
-                file_paths=args.input_path,
+                file_paths=args.input_files,
                 files_per_partition=args.files_per_partition,
                 blocksize=args.input_blocksize,
                 max_batch_bytes=args.output_max_batch_bytes,
@@ -66,7 +68,7 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     else:
         pipeline.add_stage(
             InterleavedParquetReader(
-                file_paths=args.input_path,
+                file_paths=args.input_files,
                 files_per_partition=args.files_per_partition,
                 blocksize=args.input_blocksize,
                 max_batch_bytes=args.output_max_batch_bytes,
@@ -88,13 +90,24 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
             score_threshold=args.qrcode_score_threshold,
         )
     )
-    pipeline.add_stage(
-        InterleavedCLIPScoreFilterStage(
-            drop_invalid_rows=args.drop_invalid_rows,
-            model_dir=args.clip_model_dir,
-            min_score=args.clip_min_score,
-        )
+    clip_stage = InterleavedCLIPScoreFilterStage(
+        drop_invalid_rows=args.drop_invalid_rows,
+        model_dir=args.clip_model_dir,
+        min_score=args.clip_min_score,
     )
+    available_cpus, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
+    clip_num_workers = min(
+        int(available_cpus / clip_stage.resources.cpus),
+        int(available_gpus) * int(1 / clip_stage.resources.gpus),
+    )
+    logger.info(
+        "Using {} CLIP workers from {} available CPUs and {} available GPUs",
+        clip_num_workers,
+        available_cpus,
+        available_gpus,
+    )
+    pipeline.add_stage(clip_stage.with_(num_workers=clip_num_workers))
+    args.clip_num_workers = clip_num_workers
     pipeline.add_stage(
         InterleavedImageToTextRatioFilterStage(
             drop_invalid_rows=args.drop_invalid_rows,
@@ -135,6 +148,11 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     executor = setup_executor(args.executor)
     input_path = str(Path(args.input_path).absolute())
+    extension = ".parquet" if args.reader_type == "parquet" else ".tar"
+    args.input_files = get_all_file_paths_under(
+        args.input_path, recurse_subdirectories=True, keep_extensions=extension
+    )[: args.num_files]
+    logger.info("Using {} input files", len(args.input_files))
     output_path = Path(args.output_path).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -142,7 +160,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     collect_fn = (
         collect_interleaved_parquet_metrics if args.reader_type == "parquet" else collect_interleaved_wds_metrics
     )
-    input_metrics = {f"input_{k}": v for k, v in collect_fn(args.input_path).items()}
+    input_metrics = {f"input_{k}": v for k, v in collect_fn(args.input_files).items()}
     input_metrics_elapsed = time.perf_counter() - input_metrics_start
     logger.info("collect_input_metrics took {:.3f}s", input_metrics_elapsed)
 
@@ -192,6 +210,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "parquet_compression": args.parquet_compression,
             "mode": args.mode,
             "clip_model_dir": args.clip_model_dir,
+            "clip_num_workers": args.clip_num_workers,
             "drop_invalid_rows": args.drop_invalid_rows,
             "blur_score_threshold": args.blur_score_threshold,
             "qrcode_score_threshold": args.qrcode_score_threshold,
@@ -222,6 +241,7 @@ def main() -> int:
     parser.add_argument("--benchmark-results-path", type=Path, required=True)
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"])
     parser.add_argument("--input-path", type=str, required=True)
+    parser.add_argument("--num-files", type=int, default=None, help="Limit number of input files (default: all)")
     parser.add_argument("--output-path", type=str, required=True)
     parser.add_argument("--clip-model-dir", type=str, required=True)
     parser.add_argument("--reader-type", default="wds", choices=["wds", "parquet"])

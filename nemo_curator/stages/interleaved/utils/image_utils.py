@@ -16,16 +16,27 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import cv2
 import numpy as np
 from loguru import logger
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
 
+_CV2_INSTALL_HINT = (
+    "opencv-python-headless is required for cv2-based image decoding. "
+    "Install with: pip install nemo_curator[cv2]"
+)
+
 
 def image_bytes_to_array(image_bytes: bytes, *, row_index: Hashable | None = None) -> np.ndarray | None:
     """Decode image bytes to RGB numpy array for OpenCV."""
+    if cv2 is None:
+        raise ImportError(_CV2_INSTALL_HINT)
     try:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         image = cv2.imdecode(arr, cv2.IMREAD_COLOR)

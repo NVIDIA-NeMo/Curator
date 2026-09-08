@@ -53,7 +53,7 @@ jobs:
           echo "head_ref=$(cat .preview-metadata/head_ref)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '20'
 
@@ -64,7 +64,7 @@ jobs:
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
-        run: fern docs md generate
+        run: fern docs md generate --library nemo-curator
 
       - name: Generate preview URL
         id: generate-docs

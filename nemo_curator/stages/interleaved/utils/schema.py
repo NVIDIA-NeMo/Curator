@@ -108,3 +108,15 @@ def align_table(table: pa.Table, target: pa.Schema) -> pa.Table:
         else:
             arrays.append(pa.nulls(table.num_rows, type=field.type))
     return pa.table(arrays, schema=target)
+
+
+def align_interleaved_table(table: pa.Table, schema: pa.Schema | None = None) -> pa.Table:
+    """Reconcile or strictly align an interleaved Arrow table.
+
+    With ``schema=None``, reserved interleaved columns are cast to the canonical
+    types while passthrough columns are preserved. With an explicit schema, the
+    table is padded, reordered, and cast exactly to that schema.
+    """
+    if schema is not None:
+        return align_table(table, schema)
+    return table.cast(reconcile_schema(table.schema))

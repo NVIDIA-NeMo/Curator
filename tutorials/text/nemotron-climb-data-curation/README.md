@@ -1,4 +1,4 @@
-# Nemotron-Climb Data Curation
+# Nemotron-CLIMB Data Curation
 
 [CLustering-based Iterative Data Mixture Bootstrapping (Nemotron-CLIMB)](https://arxiv.org/abs/2504.13161) is an automated framework that discovers, evaluates, and refines data mixtures in a pretraining setting. Specifically, Nemotron-CLIMB embeds and clusters large-scale datasets in a semantic space and then iteratively searches for optimal mixtures using a smaller proxy model and a predictor.
 

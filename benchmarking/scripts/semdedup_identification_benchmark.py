@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 """Semantic duplicate identification benchmarking script for nightly benchmarking framework.
 
 This script runs semantic duplicate identification benchmarks with comprehensive metrics collection
@@ -31,6 +30,7 @@ from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.file_utils import get_default_file_extensions
 
 
 def run_semdedup_identification_benchmark(  # noqa: PLR0913
@@ -42,11 +42,11 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     n_clusters: int = 1000,
     id_field: str = "id",
     embedding_field: str = "embeddings",
-    embedding_dim: int | None = None,
     input_filetype: str = "parquet",
     eps: float = 0.01,
     which_to_keep: str = "hard",
     pairwise_batch_size: int = 1024,
+    fit_data_fraction: float | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the semantic duplicate identification benchmark and collect comprehensive metrics.
@@ -60,11 +60,12 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         n_clusters: Number of clusters for K-means clustering
         id_field: Name of the ID field in the data
         embedding_field: Name of the embedding field in the data
-        embedding_dim: Embedding dimension (for memory estimation)
         input_filetype: Input file type ("parquet" or "jsonl")
         eps: Epsilon value for duplicate identification threshold (cosine_sim >= 1-eps)
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
         pairwise_batch_size: Batch size for pairwise similarity computation
+        fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit KMeans. When None,
+            Parquet auto-sizes the sample from free GPU memory, while JSONL fits all input files.
         **kwargs: Additional arguments (ignored)
 
     Returns:
@@ -74,23 +75,30 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     Path(output_path).mkdir(parents=True, exist_ok=True)
     Path(cache_path).mkdir(parents=True, exist_ok=True)
 
-    logger.info("Starting semantic duplicate identification benchmark")
-    run_start_time = time.perf_counter()
+    input_files = load_dataset_files(
+        input_path,
+        dataset_ratio=dataset_size_ratio,
+        keep_extensions=get_default_file_extensions(input_filetype),
+    )
+    logger.info(f"Selected {len(input_files)} input files")
 
     # Create and run workflow
     workflow = SemanticDeduplicationWorkflow(
-        input_path=load_dataset_files(input_path, dataset_ratio=dataset_size_ratio),
+        input_path=input_files,
         output_path=output_path,
         cache_path=cache_path,
         n_clusters=n_clusters,
         id_field=id_field,
         embedding_field=embedding_field,
-        embedding_dim=embedding_dim,
         input_filetype=input_filetype,
         eps=eps,
         which_to_keep=which_to_keep,
         pairwise_batch_size=pairwise_batch_size,
+        fit_data_fraction=fit_data_fraction,
     )
+
+    logger.info("Starting semantic duplicate identification benchmark")
+    run_start_time = time.perf_counter()
 
     # Run the workflow, extract metrics from the WorkflowRunResult object
     executor_obj = setup_executor(executor)
@@ -98,6 +106,26 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
 
     run_time_taken = time.perf_counter() - run_start_time
     task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
+
+    num_documents_processed = int(task_metrics.get("kmeans_KMeansStage_custom.num_rows_sum", 0))
+    kmeans_fit_rows = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_rows_sum", 0))
+    kmeans_fit_files = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_files_sum", 0))
+    kmeans_input_files = int(task_metrics.get("kmeans_KMeansStage_custom.kmeans_input_files_sum", 0))
+    kmeans_fit_data_fraction = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_data_fraction_mean")
+    kmeans_fit_file_fraction = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_file_fraction_mean")
+    kmeans_actual_fit_percent = (
+        round(100 * kmeans_fit_rows / num_documents_processed, 2) if num_documents_processed else None
+    )
+    logger.info(f"KMeansStage processed {num_documents_processed:,} rows")
+    if kmeans_actual_fit_percent is not None:
+        logger.info(
+            f"KMeans fit used {kmeans_fit_rows:,}/{num_documents_processed:,} rows "
+            f"({kmeans_actual_fit_percent:.2f}%) from {kmeans_fit_files}/{kmeans_input_files} files"
+        )
+    if kmeans_fit_data_fraction is not None and kmeans_fit_file_fraction is not None:
+        logger.info(
+            f"Mean actor fit fractions: rows={kmeans_fit_data_fraction:.4f}, files={kmeans_fit_file_fraction:.4f}"
+        )
 
     # Extract metrics from workflow result
     workflow_total_time = workflow_run_result.metadata.get("total_time")
@@ -111,11 +139,16 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     kmeans_fit_predict_percent_time = None
     kmeans_percent_time = None
     pairwise_percent_time = None
+    kmeans_footer_scan_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_footer_scan_time_mean", 0)
+    kmeans_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_time_mean", 0)
+    kmeans_write_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
+    kmeans_fit_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_time_mean", 0)
+    kmeans_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_predict_time_mean", 0)
+    kmeans_fit_predict_time = task_metrics.get(
+        "kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean",
+        kmeans_fit_time + kmeans_predict_time,
+    )
     if workflow_total_time:
-        # we get read / fit / write time from task_metrics
-        kmeans_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_time_mean", 0)
-        kmeans_write_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
-        kmeans_fit_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean", 0)
         # this is different than kmeans_time because kmeans_time also includes setting up actors
         # while this is just sum of mean time taken across actors across the three steps
         _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time
@@ -137,8 +170,19 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "workflow_total_time": workflow_total_time,
             "kmeans_time": kmeans_time,
             "pairwise_time": pairwise_time,
-            "num_documents_processed": int(task_metrics.get("kmeans_KMeansStage_custom.num_rows_sum", 0)),
+            "num_documents_processed": num_documents_processed,
             "num_duplicates": num_duplicates,
+            "kmeans_footer_scan_time_s": kmeans_footer_scan_time,
+            "kmeans_read_time_s": kmeans_read_time,
+            "kmeans_fit_time_s": kmeans_fit_time,
+            "kmeans_predict_time_s": kmeans_predict_time,
+            "kmeans_write_time_s": kmeans_write_time,
+            "kmeans_fit_rows": kmeans_fit_rows,
+            "kmeans_fit_files": kmeans_fit_files,
+            "kmeans_input_files": kmeans_input_files,
+            "kmeans_actual_fit_percent": kmeans_actual_fit_percent,
+            "kmeans_fit_data_fraction": kmeans_fit_data_fraction,
+            "kmeans_fit_file_fraction": kmeans_fit_file_fraction,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,
             "kmeans_write_percent_time": kmeans_write_percent_time,
@@ -146,6 +190,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             # between workflows
             "kmeans_percent_time": kmeans_percent_time,
             "pairwise_percent_time": pairwise_percent_time,
+            "fit_data_fraction": fit_data_fraction,
         },
         "tasks": workflow_run_result,
     }
@@ -166,7 +211,6 @@ def main() -> int:
     parser.add_argument("--n-clusters", type=int, default=1000, help="Number of clusters for K-means")
     parser.add_argument("--id-field", default="id", help="ID field name in the data")
     parser.add_argument("--embedding-field", default="embeddings", help="Embedding field name in the data")
-    parser.add_argument("--embedding-dim", type=int, default=None, help="Embedding dimension (optional)")
     parser.add_argument("--input-filetype", default="parquet", choices=["jsonl", "parquet"], help="Input filetype")
     parser.add_argument(
         "--eps",
@@ -182,6 +226,14 @@ def main() -> int:
     )
     parser.add_argument(
         "--pairwise-batch-size", type=int, default=1024, help="Batch size for pairwise similarity computation"
+    )
+    parser.add_argument(
+        "--fit-data-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all JSONL input"
+        ),
     )
 
     args = parser.parse_args()

@@ -22,7 +22,7 @@ from fsspec.core import url_to_fs
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.client_utils import FSPath
 
 
@@ -43,7 +43,7 @@ class ClientPartitioningStage(FilePartitioningStage):
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._fs, self._root = url_to_fs(self.file_paths, **self.storage_options or {})
 
-    def process(self, _: _EmptyTask) -> list[FileGroupTask]:
+    def process(self, _: EmptyTask) -> list[FileGroupTask]:
         if not self._fs or not self._root:
             msg = "Stage not initialized. Call setup() before process()."
             raise RuntimeError(msg)

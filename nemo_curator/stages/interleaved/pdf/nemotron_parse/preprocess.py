@@ -215,6 +215,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
             page_images = self._render_with_timeout(pdf_bytes, file_name)
             if not page_images:
+                logger.warning(f"No pages rendered from {file_name}; skipping")
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")

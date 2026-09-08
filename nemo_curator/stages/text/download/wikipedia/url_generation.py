@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from nemo_curator.stages.text.download import URLGenerator
+
+from .constants import WIKIMEDIA_REQUEST_HEADERS
 
 # Request timeout in seconds
 REQUEST_TIMEOUT = 30
@@ -47,15 +49,23 @@ class WikipediaUrlGenerator(URLGenerator):
         wiki_latest_dump = urljoin(wiki_index_url + "/", dump_date)
         wiki_latest_dump_status = urljoin(wiki_latest_dump, "dumpstatus.json")
 
-        raw_dump_data = requests.get(wiki_latest_dump_status, timeout=REQUEST_TIMEOUT)
+        raw_dump_data = requests.get(
+            wiki_latest_dump_status,
+            headers=WIKIMEDIA_REQUEST_HEADERS,
+            timeout=REQUEST_TIMEOUT,
+        )
+        if raw_dump_data.status_code == requests.codes.not_found:
+            logger.warning(f"Dump status is not available at {wiki_latest_dump_status}")
+            return None
+        raw_dump_data.raise_for_status()
         try:
             dump_data = json.loads(raw_dump_data.content)
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.warning(f"Unable to load dump data for {wiki_latest_dump_status}: {e}")
             return None
         return dump_data
 
-    def _get_wikipedia_urls(self) -> list[str]:
+    def _get_wikipedia_urls(self) -> list[str]:  # noqa: C901, PLR0912, PLR0915
         """
         Retrieves all URLs pointing to Wikipedia dumps for the specified language and date.
 
@@ -68,31 +78,64 @@ class WikipediaUrlGenerator(URLGenerator):
         if not dump_date:
             # Get the latest dump date from the index
             logger.info(f"Fetching latest dump date from {wiki_index_url}")
-            raw_wiki_index = requests.get(wiki_index_url, timeout=REQUEST_TIMEOUT)
+            raw_wiki_index = requests.get(
+                wiki_index_url,
+                headers=WIKIMEDIA_REQUEST_HEADERS,
+                timeout=REQUEST_TIMEOUT,
+            )
+            raw_wiki_index.raise_for_status()
             wiki_index = raw_wiki_index.content.decode("utf-8")
             wiki_index_parsed = BeautifulSoup(wiki_index, "lxml")
 
-            # Get all dumps available in the index
-            dumps = wiki_index_parsed.find_all("a")
-            for dump in reversed(dumps[:-1]):
-                if dump.text.strip("/").isdigit():
-                    candidate_dump_date = dump.text
-                    dump_data = self._get_data_for_dump(candidate_dump_date, wiki_index_url)
-                    if dump_data is None:
-                        logger.warning(f"Cannot load dump data for {candidate_dump_date[:-1]}")
+            # Extract and sort date directories instead of relying on link order or
+            # assuming that "latest/" is the final link in the index.
+            dump_dates = {
+                link.text.strip("/")
+                for link in wiki_index_parsed.find_all("a")
+                if len(link.text.strip("/")) == 8 and link.text.strip("/").isdigit()  # noqa: PLR2004
+            }
+            dump_data = None
+            for candidate_date in sorted(dump_dates, reverse=True):
+                candidate_dump_date = f"{candidate_date}/"
+                try:
+                    candidate_dump_data = self._get_data_for_dump(candidate_dump_date, wiki_index_url)
+                except requests.HTTPError as e:
+                    status_code = e.response.status_code if e.response is not None else None
+                    if status_code is not None and (
+                        status_code in (requests.codes.request_timeout, requests.codes.too_many_requests)
+                        or status_code >= requests.codes.internal_server_error
+                    ):
+                        logger.warning(
+                            f"Unable to load dump data for {candidate_date} due to HTTP {status_code}; "
+                            "trying next dump"
+                        )
                         continue
+                    raise
+                except requests.RequestException as e:
+                    logger.warning(
+                        f"Unable to load dump data for {candidate_date} due to {type(e).__name__}: {e}; "
+                        "trying next dump"
+                    )
+                    continue
+                if candidate_dump_data is None:
+                    logger.warning(f"Cannot load dump data for {candidate_date}")
+                    continue
 
-                    if dump_data["jobs"].get("articlesmultistreamdump", {}).get("status") == "done":
-                        dump_date = candidate_dump_date
-                        break
-                    else:
-                        logger.warning(f"Dump {candidate_dump_date[:-1]} is not finished, trying next dump")
-                        continue
+                if candidate_dump_data.get("jobs", {}).get("articlesmultistreamdump", {}).get("status") == "done":
+                    dump_date = candidate_dump_date
+                    dump_data = candidate_dump_data
+                    break
+
+                logger.warning(f"Dump {candidate_date} is not finished, trying next dump")
+
+            if dump_date is None or dump_data is None:
+                error_msg = f"Unable to find a completed Wikipedia dump at {wiki_index_url}"
+                raise ValueError(error_msg)
 
             logger.info(f"Found latest dump date: {dump_date[:-1]}")
         else:
             # A trailing / is needed for the URL
-            dump_date = dump_date + "/"
+            dump_date = dump_date.rstrip("/") + "/"
             dump_data = self._get_data_for_dump(dump_date, wiki_index_url)
             if dump_data is None:
                 error_msg = f"Unable to load dump data for {dump_date[:-1]}"

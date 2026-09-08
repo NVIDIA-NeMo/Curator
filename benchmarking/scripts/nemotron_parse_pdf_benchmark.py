@@ -20,7 +20,7 @@ metrics collection.
 """
 
 import argparse
-import contextlib
+import json
 import sys
 import time
 import traceback
@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import collect_parquet_output_metrics, setup_executor, write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tutorials" / "interleaved" / "nemotron_parse_pdf"))
@@ -37,6 +37,85 @@ from main import (  # noqa: E402
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
 )
+
+from nemo_curator.tasks.utils import TaskPerfUtils  # noqa: E402
+
+
+def _safe_div(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator else 0.0
+
+
+def _sample_ids_from_table(data: Any) -> set[str]:  # noqa: ANN401
+    """Pull sample ids from an in-memory Arrow table, if that is what the task carries."""
+    if data is None or not hasattr(data, "column"):
+        return set()
+    try:
+        return set(data.column("sample_id").to_pylist())
+    except Exception:  # column may be absent for non-interleaved payloads
+        return set()
+
+
+def _sample_ids_from_metadata(task: Any) -> set[str]:  # noqa: ANN401
+    """Derive sample ids from the manifest entries recorded in task metadata.
+
+    The parquet writer returns a ``FileGroupTask`` whose ``data`` is a list of
+    written file paths, so the sample ids only survive in ``_metadata``.
+    """
+    metadata = getattr(task, "_metadata", None) or {}
+    ids: set[str] = set()
+    for entry in metadata.get("source_files") or []:
+        if not isinstance(entry, str):
+            continue
+        name = entry
+        try:
+            record = json.loads(entry)
+        except ValueError:
+            pass  # plain filename rather than a serialized manifest record
+        else:
+            if isinstance(record, dict) and record.get("file_name"):
+                name = record["file_name"]
+        # Mirror PDFPreprocessStage's sample_id convention exactly: strip only the
+        # extension, keeping any directory prefix. Using Path().stem here would
+        # collapse "a/x.pdf" and "b/x.pdf" onto the same id and undercount.
+        ids.add(name.rsplit(".", 1)[0])
+    return ids
+
+
+def _count_unique_pdfs(output_tasks: list) -> int:
+    """Count distinct source PDFs represented in the pipeline output.
+
+    Handles both shapes the pipeline emits: a materialized Arrow table carrying
+    ``sample_id``, and the default parquet-writer output where the ids are only
+    recoverable from ``_metadata['source_files']``.
+    """
+    unique: set[str] = set()
+    for task in output_tasks:
+        ids = _sample_ids_from_table(getattr(task, "data", None))
+        if not ids:
+            ids = _sample_ids_from_metadata(task)
+        unique |= ids
+    return len(unique)
+
+
+def _compute_pdf_parse_metrics(output_tasks: list, run_time_taken: float) -> dict[str, float]:
+    """Compute benchmark-level throughput metrics from additive task stats."""
+    task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
+    metric_prefix = "task_nemotron_parse_inference_custom"
+
+    num_valid_pages = task_metrics.get(f"{metric_prefix}.num_valid_pages_sum", 0.0)
+    total_output_tokens = task_metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
+
+    return {
+        # Surfaced as first-class metrics (not just throughput denominators) so
+        # entries can assert on work actually completed rather than on wall-clock
+        # rates, which vary with cluster load. Page count is exactly reproducible
+        # for a fixed input; token count is not (dynamic batching shifts where the
+        # model emits EOS), so it is asserted as a band rather than an exact value.
+        "num_pages_processed": num_valid_pages,
+        "num_output_tokens": total_output_tokens,
+        "throughput_pages_per_sec": _safe_div(num_valid_pages, run_time_taken),
+        "throughput_output_tokens_per_sec": _safe_div(total_output_tokens, run_time_taken),
+    }
 
 
 def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]:
@@ -65,34 +144,14 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        unique_samples: set[str] = set()
-        for task in output_tasks:
-            if hasattr(task, "data") and task.data is not None and hasattr(task.data, "column"):
-                with contextlib.suppress(Exception):
-                    unique_samples.update(task.data.column("sample_id").to_pylist())
-
-        num_pdfs_processed = len(unique_samples)
-        parquet_metrics = collect_parquet_output_metrics(output_dir)
-
-        stage_perf: dict[str, list[float]] = {}
-        for task in output_tasks:
-            for perf in task._stage_perf:
-                stage_perf.setdefault(perf.stage_name, []).append(perf.process_time)
-
-        stage_summary = {}
-        for stage_name, times in stage_perf.items():
-            stage_summary[stage_name] = {
-                "count": len(times),
-                "total_s": sum(times),
-                "mean_s": sum(times) / len(times) if times else 0,
-                "min_s": min(times) if times else 0,
-                "max_s": max(times) if times else 0,
-            }
+        num_pdfs_processed = _count_unique_pdfs(output_tasks)
+        pdf_parse_metrics = _compute_pdf_parse_metrics(output_tasks, run_time_taken)
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_pdfs_processed} PDFs")
+        logger.success(f"Page throughput: {pdf_parse_metrics['throughput_pages_per_sec']:.2f} pages/s")
         logger.success(
-            f"Output: {parquet_metrics.get('num_rows', 0)} rows in {parquet_metrics.get('num_output_files', 0)} files"
+            f"Output token throughput: {pdf_parse_metrics['throughput_output_tokens_per_sec']:.2f} tokens/s"
         )
         success = True
 
@@ -102,8 +161,14 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         logger.debug(f"Full traceback:\n{error_traceback}")
         run_time_taken = time.perf_counter() - run_start_time
         num_pdfs_processed = 0
-        parquet_metrics = {}
-        stage_summary = {}
+        # Keep the metric keys stable across success and failure so entry
+        # requirements always have a value to compare against.
+        pdf_parse_metrics = {
+            "num_pages_processed": 0.0,
+            "num_output_tokens": 0.0,
+            "throughput_pages_per_sec": 0.0,
+            "throughput_output_tokens_per_sec": 0.0,
+        }
 
     return {
         "params": {
@@ -128,8 +193,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "num_pdfs_processed": num_pdfs_processed,
             "num_output_tasks": len(output_tasks),
             "throughput_pdfs_per_sec": num_pdfs_processed / run_time_taken if run_time_taken > 0 else 0,
-            **parquet_metrics,
-            "stage_performance": stage_summary,
+            **pdf_parse_metrics,
         },
         "tasks": output_tasks,
     }

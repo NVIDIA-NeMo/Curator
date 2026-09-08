@@ -17,12 +17,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import cv2
 import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
@@ -32,10 +36,16 @@ if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_BLUR_SCORE_THRESHOLD: float = 100.0
+_CV2_INSTALL_HINT = (
+    "opencv-python-headless is required for the interleaved blur filter. "
+    "Install with: pip install nemo_curator[cv2]"
+)
 
 
 def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> float:
     """Compute Laplacian variance as sharpness score; higher is sharper."""
+    if cv2 is None:
+        raise ImportError(_CV2_INSTALL_HINT)
     try:
         return float(cv2.Laplacian(image, cv2.CV_64F).var())
     except cv2.error as e:

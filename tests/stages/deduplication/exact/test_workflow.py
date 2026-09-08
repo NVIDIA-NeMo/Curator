@@ -186,6 +186,52 @@ class TestExactDuplicatesWorkflow:
         removal_ids_df = cudf.read_parquet(tmpdir / "ExactDuplicateIds")
         assert len(removal_ids_df) == 0
 
+    def test_input_file_extensions_default_to_input_filetype(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            input_filetype="jsonl",
+        )
+
+        stages = workflow._create_input_filegroups().stages
+
+        assert stages[0].file_extensions == [".jsonl", ".json"]
+
+    def test_input_file_extensions_override_default(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            input_filetype="parquet",
+            input_file_extensions=[".pq"],
+        )
+
+        stages = workflow._create_input_filegroups().stages
+
+        assert stages[0].file_extensions == [".pq"]
+
+    def test_use_async_memory_is_forwarded_to_shuffler(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            use_async_memory=False,
+        )
+
+        identification_stage = workflow._create_identification_pipeline(num_input_tasks=3).stages[0]
+
+        assert identification_stage.use_async_memory is False
+        assert identification_stage.actor_kwargs["rmm_async"] is False
+
+    def test_normalize_text_is_forwarded_to_identification(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            normalize_text=True,
+        )
+
+        identification_stage = workflow._create_identification_pipeline(num_input_tasks=1).stages[0]
+
+        assert identification_stage.normalize_text is True
+
     def test_bad_inputs(self, tmpdir: Path) -> None:
         with pytest.raises(NotImplementedError, match="Removal is not implemented"):
             # Removal is not implemented yet

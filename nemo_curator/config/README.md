@@ -10,6 +10,8 @@ python run.py --config-path ./{target_dir} --config-name {target_file}.yaml para
 
 Where `{target_dir}` is the subdirectory containing the YAML file, `{target_file}` is the YAML file name, and `param_1=... param_2=...` are any parameters in the YAML file which are formatted with:
 
+When the configuration file is named `pipeline.yaml`, `--config-name` may be omitted. Use `--config-name` for differently named configuration files.
+
 ```bash
 param_1: ???
 param_2: ???

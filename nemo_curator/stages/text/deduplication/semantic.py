@@ -45,7 +45,7 @@ from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.tasks import Task
-from nemo_curator.utils.file_utils import create_or_overwrite_dir
+from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_default_file_extensions
 
 
 @dataclass
@@ -79,7 +79,6 @@ class TextSemanticDeduplicationWorkflow:
     # Semantic deduplication parameters
     n_clusters: int = 100
     id_field: str = CURATOR_DEDUP_ID_STR
-    embedding_dim: int | None = None
     metadata_fields: list[str] | None = None
     distance_metric: Literal["cosine", "l2"] = "cosine"
     which_to_keep: Literal["hard", "easy", "random"] = "hard"
@@ -136,7 +135,6 @@ class TextSemanticDeduplicationWorkflow:
         # Semantic deduplication parameters
         n_clusters: Number of clusters for K-means
         id_field: Name of the ID field in the data
-        embedding_dim: Embedding dimension (for memory estimation)
         metadata_fields: List of metadata field names to preserve
         distance_metric: Distance metric for similarity ("cosine" or "l2")
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
@@ -148,7 +146,9 @@ class TextSemanticDeduplicationWorkflow:
         kmeans_n_init: Number of K-means initialization runs
         kmeans_oversampling_factor: Oversampling factor for K-means
         kmeans_max_samples_per_batch: Maximum samples per batch for K-means
-        kmeans_fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model. If None, fit on the full dataset
+        kmeans_fit_data_fraction: Fraction of generated Parquet embedding files (in (0, 1]) used to
+            fit the KMeans model. When None, selects as many complete embedding files as fit the live
+            GPU-memory budget.
         ranking_strategy: Custom ranking strategy for documents within clusters (None uses which_to_keep/distance_metric)
         pairwise_batch_size: Batch size for pairwise similarity computation
         _duplicates_num_row_groups_hint: Hint for number of row groups in duplicates output
@@ -194,8 +194,11 @@ class TextSemanticDeduplicationWorkflow:
 
     def _validate_config(self) -> None:
         """Validate workflow configuration."""
-        if self.kmeans_fit_data_fraction is not None and not 0.0 < self.kmeans_fit_data_fraction < 1.0:
-            msg = f"kmeans_fit_data_fraction must be in (0, 1), got {self.kmeans_fit_data_fraction}; pass None to fit on the full dataset"
+        if self.kmeans_fit_data_fraction is not None and not 0.0 < self.kmeans_fit_data_fraction <= 1.0:
+            msg = (
+                f"kmeans_fit_data_fraction must be in (0, 1], got {self.kmeans_fit_data_fraction}; "
+                "pass None to auto-size fitting for the generated Parquet embeddings"
+            )
             raise ValueError(msg)
 
         if self.perform_removal and self.eps is None:
@@ -249,7 +252,7 @@ class TextSemanticDeduplicationWorkflow:
                     + [self.text_field]
                     + (self.metadata_fields or [])
                 ),
-                file_extensions=self.input_file_extensions,
+                file_extensions=self.input_file_extensions or get_default_file_extensions(self.input_filetype),
                 _generate_ids=self.use_id_generator,
                 read_kwargs=self.read_kwargs,
             )
@@ -263,7 +266,7 @@ class TextSemanticDeduplicationWorkflow:
                     + [self.text_field]
                     + (self.metadata_fields or [])
                 ),
-                file_extensions=self.input_file_extensions,
+                file_extensions=self.input_file_extensions or get_default_file_extensions(self.input_filetype),
                 read_kwargs=self.read_kwargs,
                 _generate_ids=self.use_id_generator,
             )
@@ -278,6 +281,7 @@ class TextSemanticDeduplicationWorkflow:
             model_identifier=self.model_identifier,
             text_field=self.text_field,
             embedding_field=self.embedding_field,
+            metadata_fields=list(dict.fromkeys([self.id_field, *(self.metadata_fields or [])])),
             max_chars=self.embedding_max_chars,
             pretokenize=self.embedding_pretokenize,
             vllm_init_kwargs=self.embedding_vllm_init_kwargs,
@@ -312,7 +316,6 @@ class TextSemanticDeduplicationWorkflow:
             # Core data configuration
             id_field=self.id_field,
             embedding_field=self.embedding_field,
-            embedding_dim=self.embedding_dim,
             metadata_fields=self.metadata_fields,
             # K-means clustering parameters
             max_iter=self.kmeans_max_iter,
@@ -374,6 +377,7 @@ class TextSemanticDeduplicationWorkflow:
             output_kwargs=self.write_kwargs,
             output_fields=self.output_fields,
             output_mode="ignore",
+            drop_id_field=self.use_id_generator and self.output_fields is None,
         )
 
         return workflow.run(executor=executor)

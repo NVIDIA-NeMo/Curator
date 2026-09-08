@@ -1,0 +1,67 @@
+# PANNs CNN14 sound-event-detection pipeline.
+#
+# Each input JSONL row must contain an audio file path, for example:
+#   {"audio_filepath": "/absolute/path/to/audio.wav"}
+#
+# Usage from the Curator repository root:
+#   uv run --extra audio_cuda12 python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/sed \
+#     --config-name pipeline \
+#     manifest_path=/absolute/path/to/input.jsonl \
+#     output_dir=/absolute/path/to/sed_output
+#
+# With no checkpoint path, the standard PyTorch Hub checkpoint file is loaded
+# when present or populated automatically when missing. To apply the same rule
+# at an exact file location, append:
+#   'checkpoint_path=/absolute/path/to/Cnn14_DecisionLevelMax_mAP\=0.385.pth'
+# A missing path is populated automatically; an existing file is loaded without
+# network access.
+#
+# Cnn14_mAP=0.431.pth is a clip-level audio-tagging checkpoint, not a
+# framewise SED checkpoint. Use the decision-level checkpoint shown above.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+checkpoint_path: null
+output_dir: ./sed_output
+batch_size: 32
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
+    adapter_target: nemo_curator.models.sed.panns.PANNsSEDAdapter
+    checkpoint_path: ${checkpoint_path}
+    # Match the published Cnn14_DecisionLevelMax checkpoint frontend.
+    sample_rate: 32000
+    waveform_key: null
+    audio_filepath_key: audio_filepath
+    save_npz: true
+    output_dir: ${output_dir}
+    framewise_dtype: float16
+    batch_size: ${batch_size}
+    resources:
+      cpus: 1.0
+      gpu_memory_gb: 4.0
+    adapter_kwargs:
+      model_type: Cnn14_DecisionLevelMax
+      window_size: 1024
+      hop_size: 320
+      mel_bins: 64
+      fmin: 50
+      fmax: 14000
+      classes_num: 527
+      pad_short_segments: true

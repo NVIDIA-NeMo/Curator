@@ -18,7 +18,7 @@ import pytest
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage, URLGenerator
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 class MockURLGenerator(URLGenerator):
@@ -101,6 +101,8 @@ class TestURLGenerationStage:
 
         # Test ray stage spec
         assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
 
     def test_stage_properties_with_limit(self) -> None:
         """Test stage properties when limit is set."""
@@ -116,7 +118,7 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         # Create input task
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -147,7 +149,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=urls)
         stage = URLGenerationStage(url_generator=generator, limit=3)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -167,7 +169,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=[])
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -184,7 +186,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=urls)
         stage = URLGenerationStage(url_generator=generator, limit=10)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -200,7 +202,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator()
         stage = URLGenerationStage(url_generator=generator, limit=0)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -219,7 +221,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator()
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -235,7 +237,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=urls)
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={"original": "metadata"},
@@ -254,7 +256,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=urls)
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -277,7 +279,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=urls)
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -293,7 +295,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator(urls=urls)
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -311,7 +313,7 @@ class TestURLGenerationStage:
         generator = MockURLGenerator()
         stage = URLGenerationStage(url_generator=generator)
 
-        input_task = _EmptyTask(
+        input_task = EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={},

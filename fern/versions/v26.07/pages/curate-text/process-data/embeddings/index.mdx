@@ -1,0 +1,84 @@
+---
+description: "Generate text embeddings using vLLM, Sentence Transformers, or Hugging Face models for deduplication, similarity search, and downstream tasks"
+categories: ["how-to-guides"]
+tags: ["embeddings", "vllm", "sentence-transformers", "gpu-accelerated", "similarity-search"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
+---
+
+# Text Embedding
+
+Generate text embeddings for large-scale datasets using NeMo Curator's built-in embedding stages. Text embeddings enable downstream tasks such as semantic deduplication, similarity search, and clustering.
+
+## How It Works
+
+NeMo Curator provides three embedding backends for text data, each suited to different model sizes and throughput requirements:
+
+1. **`EmbeddingCreatorStage`** — A composite stage that handles tokenization and embedding in sequence. Supports both Sentence Transformers' `SentenceTransformer` and Hugging Face's `AutoModel` classes via the `use_sentence_transformer` flag.
+2. **`VLLMEmbeddingModelStage`** — A standalone stage that uses vLLM for GPU-accelerated embedding generation with optional pretokenization. Best for large embedding models where vLLM's batching and GPU utilization provide significant throughput gains.
+3. **`SentenceTransformerEmbeddingModelStage`** — A model stage that uses the `sentence-transformers` library directly. Used internally by `EmbeddingCreatorStage` when `use_sentence_transformer=True`.
+
+## Choosing an Embedding Backend
+
+| Backend | Best For | GPU Utilization | Setup |
+| --- | --- | --- | --- |
+| `EmbeddingCreatorStage` (Sentence Transformers) | Small to medium models (e.g., all-MiniLM-L6-v2) | Good | Included in `text_cuda12` extra |
+| `VLLMEmbeddingModelStage` | Large models (e.g., `google/embeddinggemma-300m`) and semantic deduplication | Excellent | Included in `text_cuda12` extra |
+| `EmbeddingCreatorStage` (AutoModel) | Custom pooling strategies | Good | Set `use_sentence_transformer=False` |
+
+<Note>
+Benchmarks on 5 GB of Common Crawl data show that vLLM outperforms Sentence Transformers for larger embedding models, while Sentence Transformers is faster for smaller models. The vLLM `pretokenize` mode provides the best per-task throughput across both model sizes when amortized over many tasks.
+</Note>
+
+## Quick Start
+
+### EmbeddingCreatorStage
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+
+pipeline = Pipeline(
+    name="text_embeddings",
+    stages=[
+        ParquetReader(file_paths="input_data/", files_per_partition=1, fields=["text"]),
+        EmbeddingCreatorStage(
+            model_identifier="sentence-transformers/all-MiniLM-L6-v2",
+            text_field="text",
+            embedding_field="embeddings",
+            model_inference_batch_size=256,
+        ),
+        ParquetWriter(path="output/", fields=["text", "embeddings"]),
+    ],
+)
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+### VLLMEmbeddingModelStage (Recommended for Semantic Deduplication)
+
+`VLLMEmbeddingModelStage` is the default embedding backend for semantic deduplication, using `google/embeddinggemma-300m`. It provides better GPU utilization and throughput for large embedding models. See the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) guide for setup, configuration, and code examples.
+
+---
+
+## Available Embedding Tools
+
+<Cards>
+
+<Card title="vLLM Embedder" href="/curate-text/process-data/embeddings/vllm-embedder">
+Generate embeddings using vLLM for high-throughput GPU-accelerated inference with large embedding models.
+</Card>
+
+</Cards>
+
+---
+
+## Integration with Semantic Deduplication
+
+Text embeddings are a key input for [semantic deduplication](/curate-text/process-data/deduplication/semdedup). The `TextSemanticDeduplicationWorkflow` uses `VLLMEmbeddingModelStage` internally, but you can also generate embeddings separately and feed them into the deduplication workflow for more control over the embedding process.

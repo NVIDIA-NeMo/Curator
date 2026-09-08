@@ -20,7 +20,7 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.text.io.reader.parquet import ParquetReader, ParquetReaderStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.tasks.document import DocumentBatch
 
 
@@ -86,6 +86,7 @@ def test_parquet_reader_stage_pandas_reads_and_concatenates(sample_parquet_files
     ):
         out = stage.process(task)
         assert isinstance(out, DocumentBatch)
+        assert out._metadata == {"source_files": sample_parquet_files[:2]}
 
         df = out.to_pandas()
         assert isinstance(df, pd.DataFrame)
@@ -155,6 +156,23 @@ def test_parquet_reader_stage_pandas_raises_when_all_columns_missing(tmp_path: P
 
     with pytest.raises(pa.lib.ArrowInvalid):
         _ = stage.process(task)
+
+
+def test_parquet_reader_stage_empty_file_uses_base_reader_policy(tmp_path: Path):
+    f = tmp_path / "empty.parquet"
+    pd.DataFrame({"text": pd.Series(dtype="string"), "score": pd.Series(dtype="float64")}).to_parquet(
+        f,
+        index=False,
+    )
+    task = _make_file_group_task([str(f)])
+
+    with pytest.raises(ValueError, match="No data read from files"):
+        ParquetReaderStage().process(task)
+
+    out = ParquetReaderStage(allow_empty=True).process(task)
+    assert isinstance(out, DocumentBatch)
+    assert out.num_items == 0
+    assert out.to_pandas().columns.tolist() == ["text", "score"]
 
 
 def test_parquet_reader_stage_pyarrow_reads_and_concatenates(tmp_path: Path):
@@ -290,5 +308,5 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogC
     # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should warn
     file_partitioning_stage = stage.decompose()[0]
     with caplog.at_level("WARNING"):
-        file_partitioning_stage.process(_EmptyTask)
+        file_partitioning_stage.process(EmptyTask)
     assert "File group task has exceeded the storage limit per partition" in caplog.text

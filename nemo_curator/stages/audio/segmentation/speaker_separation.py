@@ -44,7 +44,6 @@ except ImportError:
     SortformerEncLabelModel = None
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
 from nemo_curator.stages.base import ProcessingStage
@@ -101,9 +100,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["waveform", "sample_rate", "speaker_id", "num_speakers", "duration"]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         try:

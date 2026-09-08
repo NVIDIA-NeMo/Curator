@@ -38,7 +38,6 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
         return [
             SampleTask(
                 data=pd.DataFrame({"text": ["Hello world", "Test sentence"]}),
-                task_id="1",
                 dataset_name="test",
             )
         ]

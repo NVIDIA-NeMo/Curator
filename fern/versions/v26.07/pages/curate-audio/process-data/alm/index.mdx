@@ -1,0 +1,88 @@
+---
+description: "ALM data curation stages for constructing and filtering training windows from diarized audio segments"
+categories: ["workflows"]
+tags: ["alm", "audio-language-model", "windowing", "overlap-filtering", "training-data"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "audio-only"
+---
+
+# ALM Data Curation
+
+Curate training data for audio language models by extracting fixed-duration windows from diarized audio segments. The ALM stages read JSONL manifests, build candidate windows that meet quality constraints, remove overlapping windows, and write the filtered results.
+
+## How it Works
+
+The ALM pipeline processes audio manifests through a four-stage chain:
+
+1. **ALMManifestReader** reads JSONL manifests line-by-line, producing one `AudioTask` per entry
+2. **ALMDataBuilderStage** constructs candidate windows from consecutive segments, applying sample rate, bandwidth, speaker count, and duration constraints
+3. **ALMDataOverlapStage** removes windows that share too much audio content, keeping windows closest to the target duration
+4. **ALMManifestWriterStage** writes filtered results as JSONL
+
+All stages run on CPU and support both Xenna and Ray Data backends.
+
+## ALM Stages
+
+<Cards>
+
+<Card title="ALM Data Builder" href="/curate-audio/process-data/alm/data-builder">
+Construct candidate training windows from diarized audio segments with quality filtering
+windowing
+speaker-count
+bandwidth
+</Card>
+
+<Card title="ALM Overlap Filtering" href="/curate-audio/process-data/alm/overlap-filtering">
+Remove redundant overlapping windows based on configurable thresholds
+deduplication
+overlap-ratio
+target-duration
+</Card>
+
+</Cards>
+
+## Quick Example
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.alm import (
+    ALMManifestReader,
+    ALMDataBuilderStage,
+    ALMDataOverlapStage,
+    ALMManifestWriterStage,
+)
+
+pipeline = Pipeline(name="alm_curation")
+
+# Read input manifests
+pipeline.add_stage(ALMManifestReader(manifest_path="/data/manifests/"))
+
+# Build 120-second training windows
+pipeline.add_stage(
+    ALMDataBuilderStage(
+        target_window_duration=120.0,
+        tolerance=0.1,
+        min_speakers=2,
+        max_speakers=5,
+    )
+)
+
+# Remove windows with more than 50% overlap
+pipeline.add_stage(
+    ALMDataOverlapStage(
+        overlap_percentage=50,
+        target_duration=120.0,
+    )
+)
+
+# Write results
+pipeline.add_stage(ALMManifestWriterStage(output_path="/data/output/alm.jsonl"))
+```
+
+## Related Topics
+
+- **[ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline)**: Architectural overview of the ALM pipeline
+- **[ALM Tutorial](/curate-audio/tutorials/alm)**: Step-by-step guide with sample data
+- **[Manifests and Ingest](/about/concepts/audio/manifests-ingest)**: General manifest format concepts

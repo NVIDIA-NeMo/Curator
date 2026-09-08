@@ -350,3 +350,26 @@ class TestFineMathClassifier:
         # [10.0, -5.0, 0.0, 5.0, 2.5, 4.9, 5.1] -> [5, 0, 0, 5, 2, 5, 5]
         expected_int = np.array([5, 0, 0, 5, 2, 5, 5])
         np.testing.assert_array_equal(result["finemath_int_scores"], expected_int)
+
+    @pytest.mark.gpu
+    def test_classify_math_documents(self, math_dataset: DocumentBatch) -> None:
+        """Classify math documents with the real tokenizer and GPU model."""
+        classifier = FineMathClassifier(model_inference_batch_size=2)
+        stages = classifier.decompose()
+        result = math_dataset
+
+        try:
+            for stage in stages:
+                stage.setup_on_node()
+                stage.setup()
+                result = stage.process(result)
+        finally:
+            for stage in reversed(stages):
+                stage.teardown()
+
+        assert result.data["text"].tolist() == math_dataset.data["text"].tolist()
+        assert result.data["finemath_scores"].between(0.0, 5.0).all()
+        np.testing.assert_array_equal(
+            result.data["finemath_int_scores"].to_numpy(),
+            result.data["finemath_scores"].round().to_numpy(),
+        )

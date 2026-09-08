@@ -33,7 +33,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 )
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import FileGroupTask
-from nemo_curator.utils.file_utils import get_fs
+from nemo_curator.utils.file_utils import get_default_file_extensions, get_fs
 
 ID_GENERATOR_OUTPUT_FILENAME = "fuzzy_id_generator.json"
 
@@ -79,11 +79,13 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         num_bands: int = 20,
         minhashes_per_band: int = 13,
         use_64_bit_hash: bool = False,
+        normalize_text: bool = False,
         bands_per_iteration: int = 5,
         lsh_num_output_partitions: int | None = None,
         lsh_rmm_pool_size: int | Literal["auto"] | None = "auto",
         lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
+        use_async_memory: bool = True,
     ):
         """
         Configuration for MinHash based fuzzy duplicates detection.
@@ -132,6 +134,8 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             Number of hashes per bucket/band.
         use_64_bit_hash: bool
             Whether to use a 32bit or 64bit hash function for minhashing.
+        normalize_text: bool
+            Whether to normalize text before computing minhashes.
         bands_per_iteration: int
             Number of bands/buckets to shuffle concurrently.
             Larger values process larger batches by processing multiple bands
@@ -148,6 +152,8 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             Size of the RMM GPU memory pool in bytes for the LSH stage.
             If "auto", the memory pool is set to 90% of the free GPU memory.
             If None, the memory pool is set to 50% of free GPU memory and can expand if needed.
+        use_async_memory: bool = True
+            Whether to use a CUDA asynchronous memory resource for the LSH shuffle.
         lsh_spill_memory_limit: int | Literal["auto"] | None = "auto"
             Device memory limit in bytes for spilling to host during the LSH stage.
             If "auto", the limit is set to 80% of the RMM pool size.
@@ -171,12 +177,14 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         self.num_bands = num_bands
         self.minhashes_per_band = minhashes_per_band
         self.use_64_bit_hash = use_64_bit_hash
+        self.normalize_text = normalize_text
         self.bands_per_iteration = bands_per_iteration
 
         self.env_vars = env_vars
 
         self.lsh_num_output_partitions = lsh_num_output_partitions
         self.lsh_rmm_pool_size = lsh_rmm_pool_size
+        self.use_async_memory = use_async_memory
         self.lsh_spill_memory_limit = lsh_spill_memory_limit
 
         self.num_hashes = self.num_bands * self.minhashes_per_band
@@ -203,7 +211,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             stages.append(
                 FilePartitioningStage(
                     file_paths=self.input_path,
-                    file_extensions=self.input_file_extensions,
+                    file_extensions=(self.input_file_extensions or get_default_file_extensions(self.input_filetype)),
                     blocksize=self.input_blocksize,
                     storage_options=self.read_kwargs.get("storage_options") if self.read_kwargs is not None else None,
                 ),
@@ -216,6 +224,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 num_hashes=self.num_hashes,
                 seed=self.seed,
                 use_64bit_hash=self.use_64_bit_hash,
+                normalize_text=self.normalize_text,
                 read_format=self.input_filetype,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.cache_kwargs,
@@ -249,6 +258,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                     bands_per_iteration=self.bands_per_iteration,
                     total_nparts=self.lsh_num_output_partitions,
                     rmm_pool_size=self.lsh_rmm_pool_size,
+                    use_async_memory=self.use_async_memory,
                     spill_memory_limit=self.lsh_spill_memory_limit,
                 ),
             ],

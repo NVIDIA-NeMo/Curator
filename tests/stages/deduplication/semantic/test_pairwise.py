@@ -145,8 +145,7 @@ class TestPairwiseCosineSimilarityStage:
         assert "cosine_sim_score" in result_df.columns
         assert result_df["cosine_sim_score"].iloc[0] == 0.0
 
-    @patch("nemo_curator.stages.deduplication.semantic.pairwise.break_parquet_partition_into_groups")
-    def test_multi_item_cluster(self, mock_break_into_groups: patch, tmp_path: Path) -> None:
+    def test_multi_item_cluster(self, tmp_path: Path) -> None:
         """Test processing a cluster with multiple items."""
         # Create test data with multiple embeddings (similar to setup_method in test_semdedup.py)
         embeddings = [
@@ -164,10 +163,6 @@ class TestPairwiseCosineSimilarityStage:
         # Save to parquet file
         input_file = tmp_path / "multi_item.parquet"
         test_data.to_parquet(input_file)
-        # Mock break_parquet_partition_into_groups to return the actual file in a single group
-        # This tests the scenario where we need to concatenate multiple DataFrames
-        mock_break_into_groups.return_value = [[str(input_file)]]
-
         # Create output directory
         output_dir = tmp_path / "output"
         output_dir.mkdir()
@@ -215,12 +210,6 @@ class TestPairwiseCosineSimilarityStage:
         # with each other (cosine_sim_score close to 1.0)
         similarities = result_df["cosine_sim_score"].to_arrow().to_pylist()
         assert any(sim > 0.9 for sim in similarities), "Should have high similarity between identical embeddings"
-
-        # Verify that break_parquet_partition_into_groups was called
-        # This ensures our mocking is working and the function is being tested
-        mock_break_into_groups.assert_called_once()
-        # Verify it was called with the correct arguments (the input file)
-        mock_break_into_groups.assert_called_with([str(input_file)], embedding_dim=None, storage_options=None)
 
     def test_pairwise_stage_with_custom_metadata_ranking(self, tmp_path: Path) -> None:
         """Test PairwiseCosineSimilarityStage with custom metadata-based ranking."""
@@ -359,7 +348,6 @@ class TestPairwiseStage:
             embedding_field="embedding",
             input_path="/input/path",
             output_path="/output/path",
-            embedding_dim=512,
             pairwise_batch_size=1024,
             verbose=True,
         )
@@ -527,12 +515,6 @@ class TestPairwiseStage:
             result_ids = result_df["id"].to_arrow().to_pylist()
             result_max_ids = result_df["max_id"].to_arrow().to_pylist()
             result_cosine_sim_scores = result_df["cosine_sim_score"].to_arrow().to_pylist()
-
-            # Verify that break_parquet_partition_into_groups was called
-            mock_break_into_groups.assert_called_once()
-            mock_break_into_groups.assert_called_with(
-                [str(input_file) for input_file in input_files], embedding_dim=None, storage_options=None
-            )
 
             return result_ids, result_max_ids, result_cosine_sim_scores
 

@@ -49,9 +49,10 @@ import importlib
 
 import hydra
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.core.client import RayClient
 from nemo_curator.tasks.utils import TaskPerfUtils
 
 _EXECUTOR_FACTORIES = {
@@ -63,52 +64,59 @@ _EXECUTOR_FACTORIES = {
 def _create_executor(backend: str) -> object:
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
     mod = importlib.import_module(module_path)
-    return getattr(mod, class_name)()
+    cls = getattr(mod, class_name)
+    return cls()
 
 
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
     """Run ALM pipeline using Hydra configuration."""
-    pipeline = create_pipeline_from_yaml(cfg)
+    ray_client = RayClient()
+    try:
+        ray_client.start()
+        logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
+        pipeline = create_pipeline_from_yaml(cfg, log_config=False)
 
-    logger.info(pipeline.describe())
-    logger.info("\n" + "=" * 50 + "\n")
+        logger.info(pipeline.describe())
+        logger.info("\n" + "=" * 50 + "\n")
 
-    backend = cfg.get("backend", "xenna")
-    if backend not in _EXECUTOR_FACTORIES:
-        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
-        raise ValueError(msg)
-    logger.info(f"Using backend: {backend}")
-    executor = _create_executor(backend)
+        backend = cfg.get("backend", "xenna")
+        if backend not in _EXECUTOR_FACTORIES:
+            msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+            raise ValueError(msg)
+        logger.info(f"Using backend: {backend}")
+        executor = _create_executor(backend)
 
-    logger.info("Starting pipeline execution...")
-    results = pipeline.run(executor)
+        logger.info("Starting pipeline execution...")
+        results = pipeline.run(executor)
 
-    output_files = []
-    for task in results or []:
-        output_files.extend(task.data)
-    unique_files = sorted(set(output_files))
+        output_files = []
+        for task in results or []:
+            output_files.extend(task.data)
+        unique_files = sorted(set(output_files))
 
-    logger.info("\n" + "=" * 50)
-    logger.info("PIPELINE COMPLETE")
-    logger.info("=" * 50)
-    logger.info(f"  Output files written: {len(unique_files)}")
-    for fp in unique_files:
-        logger.info(f"    - {fp}")
+        logger.info("\n" + "=" * 50)
+        logger.info("PIPELINE COMPLETE")
+        logger.info("=" * 50)
+        logger.info(f"  Output files written: {len(unique_files)}")
+        for fp in unique_files:
+            logger.info(f"    - {fp}")
 
-    stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
-    for stage_name, metrics in stage_metrics.items():
-        logger.info(f"  [{stage_name}]")
-        logger.info(
-            f"    process_time: mean={metrics['process_time'].mean():.4f}s, total={metrics['process_time'].sum():.2f}s"
-        )
-        logger.info(f"    items_processed: {metrics['num_items_processed'].sum():.0f}")
-        if "custom.windows_created" in metrics:
-            logger.info(f"    windows_created: {metrics['custom.windows_created'].sum():.0f}")
-        if "custom.output_windows" in metrics:
-            logger.info(f"    output_windows (after overlap): {metrics['custom.output_windows'].sum():.0f}")
-        if "custom.filtered_dur" in metrics:
-            logger.info(f"    filtered_audio_duration: {metrics['custom.filtered_dur'].sum():.1f}s")
+        stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
+        for stage_name, metrics in stage_metrics.items():
+            logger.info(f"  [{stage_name}]")
+            logger.info(
+                f"    process_time: mean={metrics['process_time'].mean():.4f}s, total={metrics['process_time'].sum():.2f}s"
+            )
+            logger.info(f"    items_processed: {metrics['num_items_processed'].sum():.0f}")
+            if "custom.windows_created" in metrics:
+                logger.info(f"    windows_created: {metrics['custom.windows_created'].sum():.0f}")
+            if "custom.output_windows" in metrics:
+                logger.info(f"    output_windows (after overlap): {metrics['custom.output_windows'].sum():.0f}")
+            if "custom.filtered_dur" in metrics:
+                logger.info(f"    filtered_audio_duration: {metrics['custom.filtered_dur'].sum():.1f}s")
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":

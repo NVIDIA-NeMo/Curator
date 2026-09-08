@@ -174,6 +174,12 @@ class TestManifestReaderStage:
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
 
+    def test_worker_defaults(self) -> None:
+        stage = ManifestReaderStage()
+        assert stage.num_workers() == 1
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+        assert stage.xenna_stage_spec() == {}
+
     def test_reads_multiple_manifests(self, tmp_path: Path) -> None:
         m1 = tmp_path / "m1.jsonl"
         m2 = tmp_path / "m2.jsonl"
@@ -491,7 +497,7 @@ class TestManifestWriterStage:
 
     def test_xenna_stage_spec(self, tmp_path: Path) -> None:
         writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
-        assert writer.xenna_stage_spec() == {"num_workers": 1}
+        assert writer.xenna_stage_spec() == {}
 
 
 class TestManifestWriterRoundTrip:

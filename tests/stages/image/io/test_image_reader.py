@@ -128,6 +128,7 @@ def test_inputs_outputs_and_name() -> None:
     assert stage.inputs() == ([], [])
     assert stage.outputs() == (["data"], ["image_data", "image_path", "image_id"])
     assert stage.name == "image_reader"
+    assert stage.ray_stage_spec()["is_fanout_stage"] is True
 
 
 def test_init_allows_cpu_when_no_cuda() -> None:

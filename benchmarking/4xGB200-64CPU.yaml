@@ -1,0 +1,247 @@
+# 4xGB200-64CPU benchmark overrides.
+#
+# Layer this file after benchmarks.yaml for a 4-GPU, 64-CPU GB200 environment.
+# This override halves the default Ray CPU/GPU resources, increases timeout
+# values within the existing 3h59m job-runtime ceiling, and adjusts
+# workload-specific scaling settings. Known historical 4-GPU video throughput
+# requirements are included here; other performance requirements are inherited
+# from benchmarks.yaml until 4xGB200-64CPU-specific baselines are measured and added.
+#
+# NDD entries override their serving replica count from 8 to 4.
+# Their current 8x performance thresholds
+# are inherited because the older dp4 thresholds predate later workload changes.
+
+default_timeout_s: 14340
+max_timeout_s: 14340
+cleanup_timeout_s: 60
+min_timeout_s: 600
+# 400 GiB leaves headroom for 4xGB200-64CPU jobs whose /dev/shm may be smaller
+# than the default 500 GiB object store used by benchmarks.yaml.
+object_store_size: 429496729600
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false
+entries:
+  - name: domain_classification_raydata
+    timeout_s: 2400
+
+  - name: domain_classification_xenna
+    timeout_s: 2400
+
+  - name: embedding_generation_raydata
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 4000
+
+  - name: embedding_generation_xenna
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 4000
+
+  - name: exact_dedup_identification
+    timeout_s: 2400
+
+  - name: fuzzy_dedup_identification
+    timeout_s: 2400
+
+  - name: minhash_file_group_task_ray_actors
+    timeout_s: 1024
+
+  - name: minhash_file_group_task_xenna
+    timeout_s: 1024
+
+  - name: minhash_file_group_task_ray_data
+    timeout_s: 1024
+
+  - name: minhash_document_batch_xenna
+    timeout_s: 1240
+
+  - name: minhash_document_batch_ray_data
+    timeout_s: 2800
+
+  - name: minhash_document_batch_ray_data_num_workers_8
+    timeout_s: 2800
+
+  - name: semdedup_identification_xenna_dataset_size_ratio
+    timeout_s: 2400
+
+  - name: semdedup_identification_xenna_fit_data_fraction
+    timeout_s: 3600
+
+  - name: dedup_removal_raydata
+    timeout_s: 3600
+
+  - name: dedup_removal_xenna
+    timeout_s: 3600
+
+  - name: score_filter_raydata
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 10000
+
+  - name: score_filter_xenna
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 10000
+
+  - name: fasttext_filter_raydata
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 40000
+
+  - name: fasttext_filter_xenna
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 50000
+
+  - name: modifier_raydata
+    timeout_s: 2400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 50000
+
+  - name: modifier_xenna
+    timeout_s: 2400
+
+  - name: image_curation_raydata
+    timeout_s: 3600
+
+  - name: image_curation_xenna
+    timeout_s: 3000
+
+  - name: audio_sortformer_xenna
+    timeout_s: 3600
+
+  - name: audio_readspeech_xenna
+    timeout_s: 14340
+
+  - name: audio_readspeech_raydata
+    timeout_s: 14340
+
+  - name: arxiv_e2e_pipeline_raydata
+    timeout_s: 2400
+
+  - name: arxiv_e2e_pipeline_xenna
+    timeout_s: 2400
+
+  - name: video_embedding_xenna
+    timeout_s: 3600
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 4.0
+
+  - name: video_embedding_raydata
+    timeout_s: 4000
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 2.0
+
+  - name: video_transcoding_xenna
+    timeout_s: 3600
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 5.0
+
+  - name: video_transcoding_raydata
+    timeout_s: 3600
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 3.0
+
+  - name: video_captioning_xenna
+    timeout_s: 3600
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 0.25
+
+  - name: video_captioning_raydata
+    timeout_s: 3600
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 0.25
+
+  - name: ndd_dynamo
+    timeout_s: 4200
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+      --health-check-timeout-s=1200
+    ray:
+      num_cpus: 16
+
+  - name: ndd_ray_serve
+    timeout_s: 4200
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=ray-serve
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1, "max_model_len": 131072}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+      --tiktoken-cache-dir={model_weights_path}/tiktoken_cache
+    ray:
+      num_cpus: 16
+    requirements:
+      - metric: throughput_rows_per_sec
+        min_value: 100
+
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
+    timeout_s: 3600
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 0.25
+
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings_raydata
+    timeout_s: 4800
+    requirements:
+      - metric: throughput_clips_per_sec
+        min_value: 0.1
+
+  - name: audio_tagging_tts_xenna
+    timeout_s: 7200
+
+  - name: audio_tagging_tts_raydata
+    timeout_s: 7200
+
+  - name: interleaved_filter_raydata_materialize
+    timeout_s: 3600
+
+  - name: interleaved_filter_xenna_materialize
+    timeout_s: 3600
+
+  - name: nemotron_parse_pdf_xenna
+    timeout_s: 2400
+
+  - name: nemotron_parse_pdf_raydata
+    timeout_s: 2400
+
+  - name: alm_pipeline_xenna
+    timeout_s: 1200
+
+  - name: alm_pipeline_ray_data
+    timeout_s: 1200
+
+  - name: math_preprocess_raydata
+    timeout_s: 7200
+
+  - name: math_preprocess_xenna
+    timeout_s: 14340

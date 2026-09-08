@@ -21,7 +21,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from nemo_curator.core.utils import split_table_by_group_max_bytes
+from nemo_curator.core.utils import split_table_by_group
 from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
@@ -373,19 +373,19 @@ def test_aspect_ratio_filter_works_on_png_images() -> None:
     assert out["position"].tolist() == [0, 1]
 
 
-# --- split_table_by_group_max_bytes tests ---
+# --- split_table_by_group tests ---
 
 
 def test_split_table_none_max_bytes() -> None:
     table = pa.table({"g": ["a", "a", "b"], "v": [1, 2, 3]})
-    result = split_table_by_group_max_bytes(table, "g", None)
+    result = split_table_by_group(table, "g", max_batch_bytes=None)
     assert len(result) == 1
     assert result[0].num_rows == 3
 
 
 def test_split_table_empty_table() -> None:
     table = pa.table({"g": pa.array([], type=pa.string()), "v": pa.array([], type=pa.int64())})
-    result = split_table_by_group_max_bytes(table, "g", 100)
+    result = split_table_by_group(table, "g", max_batch_bytes=100)
     assert len(result) == 1
     assert result[0].num_rows == 0
 
@@ -393,18 +393,18 @@ def test_split_table_empty_table() -> None:
 def test_split_table_invalid_max_bytes() -> None:
     table = pa.table({"g": ["a"], "v": [1]})
     with pytest.raises(ValueError, match="max_batch_bytes must be > 0"):
-        split_table_by_group_max_bytes(table, "g", 0)
+        split_table_by_group(table, "g", max_batch_bytes=0)
 
 
 def test_split_table_missing_column() -> None:
     table = pa.table({"g": ["a"], "v": [1]})
     with pytest.raises(ValueError, match="not found in table"):
-        split_table_by_group_max_bytes(table, "missing", 100)
+        split_table_by_group(table, "missing", max_batch_bytes=100)
 
 
 def test_split_table_single_large_group() -> None:
     table = pa.table({"g": ["a"] * 100, "v": list(range(100))})
-    result = split_table_by_group_max_bytes(table, "g", 1)
+    result = split_table_by_group(table, "g", max_batch_bytes=1)
     assert len(result) == 1
     assert result[0].num_rows == 100
 
@@ -412,7 +412,7 @@ def test_split_table_single_large_group() -> None:
 def test_split_table_multiple_groups_split() -> None:
     table = pa.table({"g": ["a", "a", "b", "b", "c", "c"], "v": [1, 2, 3, 4, 5, 6]})
     small_limit = table.slice(0, 2).nbytes + 1
-    result = split_table_by_group_max_bytes(table, "g", small_limit)
+    result = split_table_by_group(table, "g", max_batch_bytes=small_limit)
     assert len(result) >= 2
     total_rows = sum(t.num_rows for t in result)
     assert total_rows == 6
@@ -420,10 +420,29 @@ def test_split_table_multiple_groups_split() -> None:
 
 def test_split_table_preserves_group_integrity() -> None:
     table = pa.table({"g": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
-    result = split_table_by_group_max_bytes(table, "g", 1)
+    result = split_table_by_group(table, "g", max_batch_bytes=1)
+    assert pa.concat_tables(result).equals(table)
     for chunk in result:
         groups = chunk["g"].to_pylist()
         assert len(set(groups)) == 1 or all(g == groups[0] for g in groups)
+
+
+def test_split_table_supports_row_limits() -> None:
+    table = pa.table({"g": ["a", "a", "b", "b", "c", "c"], "v": [1, 2, 3, 4, 5, 6]})
+    result = split_table_by_group(
+        table,
+        "g",
+        max_batch_rows=3,
+    )
+
+    assert [chunk["g"].to_pylist() for chunk in result] == [["a", "a"], ["b", "b"], ["c", "c"]]
+
+
+def test_split_table_rejects_null_groups() -> None:
+    table = pa.table({"g": ["a", None], "v": [1, 2]})
+
+    with pytest.raises(ValueError, match="contains null values"):
+        split_table_by_group(table, "g", max_batch_rows=1)
 
 
 # --- basic_row_validity_mask tests ---

@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -46,7 +45,7 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -100,7 +99,7 @@ def _check_duplicate_audio_basename(
 
 
 @dataclass
-class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
+class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
 
     Each line in ``input_manifest`` is parsed as JSON and re-emitted as
@@ -116,7 +115,7 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     fallback collapsed per-source metrics and could collide tar member
     names when source times matched).
 
-    This is the entry-point ``_EmptyTask -> list[AudioTask]`` fan-out
+    This is the entry-point ``EmptyTask -> list[AudioTask]`` fan-out
     stage following the same pattern as
     ``CreateInitialManifestReadSpeechStage``.
 
@@ -155,13 +154,10 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "id", "segments"]
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+    def num_workers(self) -> int | None:
+        return 1
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
-
-    def process(self, _: _EmptyTask) -> list[AudioTask]:
+    def process(self, _: EmptyTask) -> list[AudioTask]:
         t0 = time.perf_counter()
         if self.audio_path_resolution not in _AUDIO_PATH_RESOLUTION_MODES:
             msg = (

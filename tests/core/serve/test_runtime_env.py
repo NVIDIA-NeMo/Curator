@@ -115,7 +115,7 @@ class TestMergeModelRuntimeEnvs:
     def test_user_dict_form_uv_concatenates_install_options(self) -> None:
         # User passes a dict-form ``uv`` override carrying its own
         # ``uv_pip_install_options``; merger appends packages and concatenates
-        # options without dropping the Curator-owned flash-attn rebuild flags.
+        # options without dropping the Curator-owned runtime-env override flags.
         models = [
             DynamoVLLMModelConfig(
                 model_identifier="m",

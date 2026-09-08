@@ -50,14 +50,14 @@ jobs:
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ env.TARGET_BRANCH }}
           submodules: recursive
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           python-version: "3.13"
 
@@ -70,7 +70,7 @@ jobs:
         run: uv lock --upgrade
 
       - name: Upload lock file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: lock-file-${{ needs.pre-flight.outputs.bump-branch }}
           path: uv.lock
@@ -83,7 +83,7 @@ jobs:
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ env.TARGET_BRANCH }}
@@ -94,12 +94,12 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Download lock file
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lock-file-${{ env.SOURCE_BRANCH }}
 
       - name: Create Bump PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
         id: create-pull-request
         env:
           title: "chore(beep boop 🤖): Bump `uv.lock` (${{ inputs.target-branch || github.event.inputs.target-branch }}) (${{ needs.pre-flight.outputs.date }})"

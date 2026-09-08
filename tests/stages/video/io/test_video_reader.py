@@ -607,9 +607,9 @@ class TestVideoReader:
         assert stage.name == "video_reader"
 
         # Test that it's a composite stage (should raise error when trying to process)
-        from nemo_curator.tasks import _EmptyTask
+        from nemo_curator.tasks import EmptyTask
 
-        empty_task = _EmptyTask(dataset_name="test", data=None)
+        empty_task = EmptyTask(dataset_name="test", data=None)
         with pytest.raises(RuntimeError, match="Composite stage 'video_reader' should not be executed directly"):
             stage.process(empty_task)
 
