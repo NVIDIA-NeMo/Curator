@@ -241,10 +241,10 @@ def test_build_language_filter_stage_builds_score_filter(monkeypatch: pytest.Mon
             super().__init__()
             self.kwargs = kwargs
 
-        def score_document(self, text: str) -> float:  # noqa: ARG002
+        def score_document(self, text: str) -> float:
             return 1.0
 
-        def keep_document(self, scores: float) -> bool:  # noqa: ARG002
+        def keep_document(self, scores: float) -> bool:
             return True
 
     monkeypatch.setattr("nemo_curator.stages.text.filters.fasttext.FastTextLangId", FakeFastTextLangId)

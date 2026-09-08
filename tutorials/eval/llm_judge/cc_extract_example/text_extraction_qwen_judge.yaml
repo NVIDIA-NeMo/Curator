@@ -29,6 +29,11 @@ dynamo_server:
   subprocess_env:
     DYN_SYSTEM_PORT: "0"
 
+# A 27B model can take longer than the 300s default to load; raise the
+# health-check timeout so startup isn't mistaken for a failed server.
+inference_server:
+  health_check_timeout_s: 1800
+
 execution:
   stages:
     - name: extraction_quality
