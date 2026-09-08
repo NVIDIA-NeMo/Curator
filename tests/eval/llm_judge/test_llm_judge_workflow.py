@@ -234,9 +234,18 @@ def test_build_language_filter_stage_rejects_invalid_config(
 
 
 def test_build_language_filter_stage_builds_score_filter(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeFastTextLangId:
+    from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
+
+    class FakeFastTextLangId(DocumentFilter):
         def __init__(self, **kwargs: object) -> None:
+            super().__init__()
             self.kwargs = kwargs
+
+        def score_document(self, text: str) -> float:  # noqa: ARG002
+            return 1.0
+
+        def keep_document(self, scores: float) -> bool:  # noqa: ARG002
+            return True
 
     monkeypatch.setattr("nemo_curator.stages.text.filters.fasttext.FastTextLangId", FakeFastTextLangId)
 
@@ -246,9 +255,11 @@ def test_build_language_filter_stage_builds_score_filter(monkeypatch: pytest.Mon
 
     assert isinstance(stage, subject.ScoreFilter)
     assert stage.name == "fasttext_language_filter"
-    assert isinstance(stage.filter_obj, FakeFastTextLangId)
-    assert stage.filter_obj.kwargs == {"model_path": "/path/to/model", "min_langid_score": 0.5, "lang": "en"}
-    assert stage.text_field == "raw_text"
+    assert isinstance(stage.filter_obj, list)
+    assert len(stage.filter_obj) == 1
+    assert isinstance(stage.filter_obj[0], FakeFastTextLangId)
+    assert stage.filter_obj[0].kwargs == {"model_path": "/path/to/model", "min_langid_score": 0.5, "lang": "en"}
+    assert stage.text_field == ["raw_text"]
 
 
 def test_workflow_run_builds_pipeline_and_returns_result(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
