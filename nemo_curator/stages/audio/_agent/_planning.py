@@ -640,11 +640,46 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         walk.tensor_keys.clear()
 
 
-def validate_pipeline(  # noqa: C901
+def _seed_walk(
+    initial_roles: set[str] | None,
+    initial_keys: set[str] | None,
+    initial_tensor_keys: set[str] | None,
+    initial_task_type: str | None,
+) -> _Walk:
+    """The state the first stage is handed: what the input task already carries."""
+    if initial_keys is not None:
+        seed_keys = set(initial_keys)
+    elif initial_roles is not None:
+        # Both seeds describe ONE task, so they cannot default independently: "no roles" does
+        # not also mean "the default columns". Seed only the roles that ARE their own key name --
+        # roles and key values coincide for ``audio_filepath`` and diverge immediately after, so
+        # seeding ``transcript`` as a literal column invents a key the task does not carry.
+        seed_keys = {r for r in initial_roles if role_for_value(r) == r}
+    else:
+        seed_keys = set(_DEFAULT_INITIAL_KEYS)
+    # An input that arrives carrying a waveform is exactly as resident as one a stage
+    # produced, so the serialization gate has to see it. Only writes used to seed this,
+    # which left the gate blind to the resident-input case validate_pipeline documents:
+    # ``initial_keys={"waveform"}`` into a JSON sink validated clean and then raised
+    # ``TypeError: Object of type Tensor is not JSON serializable``.
+    if initial_tensor_keys is not None:
+        seed_tensors = set(initial_tensor_keys)
+    else:
+        seed_tensors = {k for k in seed_keys if role_for_value(k) == _TENSOR_ROLE}
+    return _Walk(
+        available=set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES),
+        available_keys=seed_keys,
+        tensor_keys=seed_tensors,
+        task_type=initial_task_type,
+    )
+
+
+def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task, not unrelated knobs
     stages: list[Any],
     *,
     initial_roles: set[str] | None = None,
     initial_keys: set[str] | None = None,
+    initial_tensor_keys: set[str] | None = None,
     initial_task_type: str | None = None,
     available_gpus: float | None = None,
 ) -> PipelineReport:
@@ -660,6 +695,10 @@ def validate_pipeline(  # noqa: C901
             Defaults to ``{"audio_filepath"}``. Seeding this lets the
             literal-key check (``keys_ok``) recognize reads satisfied by the
             input rather than by an upstream producer.
+        initial_tensor_keys: Which seeded keys hold a resident tensor. ``None`` --
+            the default -- infers them from ``initial_keys`` by role, which covers
+            the canonical ``waveform``. Pass this when the input carries a tensor
+            under a name whose role cannot be inferred (e.g. ``audio_tensor``).
         initial_task_type: Class name of the task the first stage will be handed
             (e.g. ``"EmptyTask"`` for a pipeline that starts at a source, ``"AudioTask"``
             for a suffix resumed from a manifest). ``None`` -- the default -- leaves the
@@ -672,21 +711,7 @@ def validate_pipeline(  # noqa: C901
         found (role-level); ``report.keys_ok`` additionally confirms literal-key
         identity (see the class docstring).
     """
-    if initial_keys is not None:
-        seed_keys = set(initial_keys)
-    elif initial_roles is not None:
-        # Both seeds describe ONE task, so they cannot default independently: "no roles" does
-        # not also mean "the default columns". Seed only the roles that ARE their own key name --
-        # roles and key values coincide for ``audio_filepath`` and diverge immediately after, so
-        # seeding ``transcript`` as a literal column invents a key the task does not carry.
-        seed_keys = {r for r in initial_roles if role_for_value(r) == r}
-    else:
-        seed_keys = set(_DEFAULT_INITIAL_KEYS)
-    walk = _Walk(
-        available=set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES),
-        available_keys=seed_keys,
-        task_type=initial_task_type,
-    )
+    walk = _seed_walk(initial_roles, initial_keys, initial_tensor_keys, initial_task_type)
     expansion = expand_composites(stages)
     leaves = expansion.by_recipe_index()
     opaque = dict(expansion.opaque)

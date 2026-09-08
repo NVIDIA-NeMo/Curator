@@ -156,7 +156,10 @@ class SampleRateFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         """
         declared = task.data.get(self.sample_rate_key)
         declared = int(declared) if isinstance(declared, (int, float)) and int(declared) > 0 else None
-        if declared is not None and self.waveform_key in task.data:
+        # The VALUE has to be there, not just the column: a row carrying ``waveform=None``
+        # is no more resident than one with no waveform column at all, and believing it
+        # authenticates exactly the stale metadata this guard exists to distrust.
+        if declared is not None and task.data.get(self.waveform_key) is not None:
             return declared
 
         path = task.data.get(self.audio_filepath_key)

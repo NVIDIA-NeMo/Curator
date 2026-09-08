@@ -562,7 +562,12 @@ class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask])
 
     def describe(self) -> StageContract:
         return StageContract(
-            writes=IOSpec(data_keys=["audio_filepath"]),
+            # The row is emitted verbatim, so the path column this reader was pointed at IS
+            # the column downstream sees. Hard-coding ``audio_filepath`` claimed a key the
+            # rows do not carry whenever ``include_files_key`` is configured: a manifest of
+            # ``recording_path`` validated clean against a default consumer, which then found
+            # no path at runtime.
+            writes=IOSpec(data_keys=[self.include_files_key]),
             cardinality="1:N fan-out",
             gates=Gates(lifecycle_side_effects=True, per_row_independent=True),
         )

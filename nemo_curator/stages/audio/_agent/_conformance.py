@@ -380,7 +380,21 @@ def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: on
     elif c.cardinality == "filter":
         assert len(results) <= (len(task) if batch_input else 1), f"{name}: filter increased task count"
 
-    # (3) declared writes appear; (4) no undeclared top-level keys (non-fanout)
+    # (3) declared writes appear on EVERY emitted row, and declared removals are gone from
+    # each. Checking only 1:1 shapes left the two cardinalities that rewrite the row set --
+    # a fan-out source and an N:1 collapse -- free to declare writes they never make:
+    # ManifestReaderStage claimed ``audio_filepath`` while emitting whatever columns the
+    # manifest happened to carry. The undeclared-keys check below stays off for those,
+    # because a manifest row's columns come from the file and cannot be declared in advance.
+    if c.cardinality in {"1:N fan-out", "N:1"} and results:
+        for position, result in enumerate(results):
+            row = _data_of(result)
+            for key in c.writes.data_keys:
+                assert key in row, f"{name}: declared write {key!r} missing from result {position}"
+            for key in c.removes_keys:
+                assert key not in row, f"{name}: declared removes_keys {key!r} still present in result {position}"
+
+    # (4) no undeclared top-level keys (non-fanout)
     if c.cardinality in {"1:1", "1:1 nested-list", "filter"} and results:
         out_data = _data_of(results[0])
         for key in c.writes.data_keys:

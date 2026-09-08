@@ -31,6 +31,7 @@ from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio._agent._residency import resolve_audio, write_audio_stable
 from nemo_curator.stages.audio.common import (
     CreateInitialManifestAudioFolderStage,
+    ManifestCheckpointStage,
     ManifestReader,
     ManifestReaderStage,
     ManifestWriterStage,
@@ -40,9 +41,10 @@ from nemo_curator.stages.audio.common import (
 from nemo_curator.stages.audio.preprocessing import (
     ChannelCountStage,
     MonoConversionStage,
+    SampleRateFilterStage,
     SegmentConcatenationStage,
 )
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -234,3 +236,83 @@ def test_concatenation_does_not_promise_upstream_keys_it_drops() -> None:
     )
     assert "text" not in after_concat.produced_keys
     assert "segments" not in after_concat.produced_keys
+
+
+@pytest.mark.parametrize("sink", [ManifestWriterStage, ManifestCheckpointStage])
+def test_an_input_that_arrives_with_a_waveform_is_blocked_from_a_json_sink(sink: type, tmp_path: Path) -> None:
+    """validate_pipeline advertises a resident-waveform input; the sink gate must see it."""
+    stage = sink(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [stage],
+        initial_roles={"waveform", "sample_rate"},
+        initial_keys={"waveform", "sample_rate"},
+    )
+    assert not report.ok
+    assert any(i.code == "tensor_into_sink" and i.severity == "error" for i in report.issues)
+
+    # The runtime failure the gate stands in for.
+    stage.setup()
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        stage.process(AudioTask(dataset_name="d", data={"waveform": torch.zeros(1, 16), "sample_rate": 16000}))
+
+
+def test_a_tensor_under_an_uninferable_name_can_be_declared_resident(tmp_path: Path) -> None:
+    """A custom carrier has no role to infer from, so the seed has to be sayable outright."""
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    assert validate_pipeline([writer], initial_keys={"audio_tensor"}).ok
+    assert not validate_pipeline([writer], initial_keys={"audio_tensor"}, initial_tensor_keys={"audio_tensor"}).ok
+
+
+def test_a_plain_manifest_input_still_reaches_a_json_sink(tmp_path: Path) -> None:
+    """The seeding must not make every pipeline look tensor-resident."""
+    report = validate_pipeline([ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))])
+    assert report.ok
+    assert not any(i.code == "tensor_into_sink" for i in report.issues)
+
+
+def test_a_custom_manifest_path_column_is_what_the_reader_declares(tmp_path: Path) -> None:
+    """The reader emits the row verbatim, so its contract must name the column it was pointed at."""
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text('{"recording_path": "/tmp/a.wav", "text": "hi"}\n')
+    reader = ManifestReaderStage(include_files_key="recording_path")
+
+    assert build_contract(reader).writes.data_keys == ["recording_path"]
+    emitted = reader.process(FileGroupTask(dataset_name="d", data=[str(manifest)]))
+    assert "recording_path" in emitted[0].data
+    assert "audio_filepath" not in emitted[0].data
+
+    # Seeded empty because the input is a FileGroupTask of manifest PATHS: it carries no
+    # audio columns, and the default seed would otherwise supply the very ``audio_filepath``
+    # whose absence is the point.
+    seed = {"initial_keys": set(), "initial_roles": set(), "initial_task_type": "FileGroupTask"}
+
+    # A default consumer reads ``audio_filepath``, which this manifest does not carry.
+    assert not validate_pipeline([reader, MonoConversionStage()], **seed).keys_ok
+
+    # Pointed at the same column, it validates.
+    assert validate_pipeline([reader, MonoConversionStage(audio_filepath_key="recording_path")], **seed).keys_ok
+
+    # And the ordinary manifest still pairs with the ordinary consumer.
+    assert validate_pipeline([ManifestReaderStage(), MonoConversionStage()], **seed).keys_ok
+
+
+def test_a_null_waveform_does_not_authenticate_a_stale_sample_rate(tmp_path: Path) -> None:
+    """Residency is about the VALUE; a present-but-empty column must not vouch for metadata."""
+    path = tmp_path / "a.wav"
+    sf.write(path, torch.zeros(48000).numpy(), 48000)  # really 48 kHz
+    stage = SampleRateFilterStage(allowed_sample_rates=[16000])
+
+    for data in (
+        {"audio_filepath": str(path), "sample_rate": 16000},  # no waveform column
+        {"audio_filepath": str(path), "sample_rate": 16000, "waveform": None},  # column, no value
+    ):
+        task = AudioTask(dataset_name="d", data=dict(data))
+        assert stage._observed_rate(task) == 48000, "the file header must win over stale metadata"
+        assert not stage.process(task), "a 48 kHz file must not pass a 16 kHz-only filter"
+
+    # A genuinely resident waveform still authenticates its own rate without a header read.
+    resident = AudioTask(
+        dataset_name="d",
+        data={"audio_filepath": str(path), "sample_rate": 16000, "waveform": torch.zeros(1, 16000)},
+    )
+    assert stage._observed_rate(resident) == 16000
