@@ -15,15 +15,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from jinja2 import Environment, StrictUndefined
 
-from eval.llm_judge import run_llm_judge as subject
+from eval.llm_judge import llm_judge_workflow as subject
 
-EXAMPLE_DIR = Path(__file__).parents[3] / "eval" / "llm_judge" / "cc_extract_example"
+EXAMPLE_DIR = Path(__file__).parents[3] / "tutorials" / "eval" / "llm_judge" / "cc_extract_example"
 
 
 def _config_with_filters() -> tuple[dict[str, object], list[dict[str, object]]]:
@@ -210,27 +209,8 @@ def test_build_pipeline_orders_reader_judges_filters_and_writer(monkeypatch: pyt
     assert [stage.num_workers() for stage in ndd_stages] == [1, 2]
 
 
-def _main_args() -> SimpleNamespace:
-    return SimpleNamespace(
-        judge_config="example.yaml",
-        input_path="input.jsonl",
-        input_format="jsonl",
-        output_path="output",
-        output_format="jsonl",
-        files_per_partition=None,
-        language=None,
-        fasttext_langid_model_path=None,
-        min_langid_score=0.3,
-        language_text_field="raw_text",
-        checkpoint_path="checkpoint",
-        ray_temp_dir="/tmp/ray",  # noqa: S108
-        num_cpus=None,
-        num_gpus=None,
-    )
-
-
-def test_main_builds_one_stage_per_group(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured = _run_main_with_fakes(monkeypatch)
+def test_workflow_run_builds_one_stage_per_group(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured = _run_workflow_with_fakes(monkeypatch, tmp_path)
 
     assert captured["builder_judges"] == [["quality_judge"], ["safety_judge"]]
     stage_details = [
@@ -240,9 +220,11 @@ def test_main_builds_one_stage_per_group(monkeypatch: pytest.MonkeyPatch) -> Non
         ("quality", {"env": "quality"}, 1, ["quality_judge"]),
         ("safety", {"env": "safety"}, 2, ["safety_judge"]),
     ]
+    assert captured["server_stopped"] is True
+    assert captured["run_kwargs"]["checkpoint_path"] == "checkpoint"
 
 
-def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+def _run_workflow_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
     config, stages = _config_with_filters()
     config.update(
         {
@@ -256,16 +238,6 @@ def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     stages[1]["num_workers"] = 2
     captured: dict[str, Any] = {"builder_judges": []}
 
-    class FakeClient:
-        def __init__(self, **kwargs: object) -> None:
-            captured["client_kwargs"] = kwargs
-
-        def start(self) -> None:
-            captured["client_started"] = True
-
-        def stop(self) -> None:
-            captured["client_stopped"] = True
-
     class FakeServer:
         endpoint = "http://judge"
 
@@ -273,8 +245,9 @@ def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             captured["server_stopped"] = True
 
     class FakePipeline:
-        def run(self, **kwargs: object) -> None:
+        def run(self, **kwargs: object) -> list[object]:
             captured["run_kwargs"] = kwargs
+            return []
 
     def fake_builder(*args: object, **kwargs: object) -> tuple[str, list[str]]:  # noqa: ARG001
         captured["builder_judges"].append([judge["name"] for judge in kwargs["judges"]])
@@ -284,12 +257,18 @@ def _run_main_with_fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         captured["judge_stages"] = kwargs["judge_stages"]
         return FakePipeline()
 
-    monkeypatch.setattr(subject, "_parse_args", lambda: _main_args())
     monkeypatch.setattr(subject, "_load_yaml", lambda path: config)  # noqa: ARG005
-    monkeypatch.setattr(subject, "RayClient", FakeClient)
     monkeypatch.setattr(subject, "_start_inference_server", lambda *args, **kwargs: FakeServer())  # noqa: ARG005
     monkeypatch.setattr(subject, "build_config_builder", fake_builder)
     monkeypatch.setattr(subject, "build_pipeline", fake_build_pipeline)
-    monkeypatch.setattr(subject, "RayDataExecutor", lambda: "executor")
-    subject.main()
+
+    config_path = tmp_path / "judge.yaml"
+    config_path.write_text("models: []\n", encoding="utf-8")
+    workflow = subject.LLMJudgeWorkflow(
+        judge_config=config_path,
+        input_path="input.jsonl",
+        output_path="output",
+        checkpoint_path="checkpoint",
+    )
+    workflow.run()
     return captured

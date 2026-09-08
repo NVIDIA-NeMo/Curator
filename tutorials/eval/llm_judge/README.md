@@ -1,6 +1,6 @@
 # LLM judge runner
 
-Use this example to add LLM-based evaluations to JSONL or Parquet records. The YAML configuration defines the served judge model, Jinja prompt files, rubric scores, and optional output filters. The runner starts a local Curator Dynamo/vLLM server, executes NeMo Data Designer (NDD) judge columns, and writes the original records with the judge results added.
+Use this example to add LLM-based evaluations to JSONL or Parquet records. The YAML configuration defines the served judge model, Jinja prompt files, rubric scores, and optional output filters. The runner starts a local Curator Dynamo/vLLM server, executes NeMo Data Designer judge columns, and writes the original records with the judge results added.
 
 The included example compares jusText and Trafilatura web-text extractions. The same runner can judge parser output, extraction quality, or any task whose inputs can be rendered into a Jinja prompt.
 
@@ -16,8 +16,8 @@ This is a minimal integration example, not a calibrated production evaluation. I
 4. Run a small input first.
 
 ```bash
-python eval/llm_judge/run_llm_judge.py \
-  --judge-config eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
+python tutorials/eval/llm_judge/run_llm_judge.py \
+  --judge-config tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
   --input-path data/extracted.jsonl \
   --input-format jsonl \
   --output-path output/judged \
@@ -41,7 +41,7 @@ The runner does not require a fixed text schema. A prompt can reference any fiel
 }
 ```
 
-NDD adds one top-level column for each judge. A judge named `extraction_quality` with a `quality` score produces a result shaped like this:
+Data Designer adds one top-level column for each judge. A judge named `extraction_quality` with a `quality` score produces a result shaped like this:
 
 ```json
 {
@@ -62,7 +62,7 @@ For a large evaluation, split the input into many JSONL or Parquet files and sub
 
 A single input file is one source task and cannot be divided across array elements. Use multiple input files (typically with `--files-per-partition 1`) to create enough work to distribute. Array elements can write part files to a shared `--output-path`; use one shared, durable `--checkpoint-path` for the logical run and reuse it only when retrying that same run.
 
-See the [Slurm tutorial](../../tutorials/slurm/README.md) for submission, runtime configuration, and retry patterns.
+See the [Slurm tutorial](../../slurm/README.md) for submission, runtime configuration, and retry patterns.
 
 ## Prompts
 
@@ -78,7 +78,7 @@ Jinja inserts values from the current row: `{{ field_name }}` becomes the value 
 </candidate_b>
 ```
 
-The bundled extraction prompts use character caps as conservative protection against unusually large Common Crawl pages. Those caps are task-specific starting points, not a general truncation policy. Choose limits from representative input lengths and the context window of the judge model. Reserve enough context for the system prompt, rendered prompt, NDD's structured-output instructions, and the requested completion.
+The bundled extraction prompts use character caps as conservative protection against unusually large Common Crawl pages. Those caps are task-specific starting points, not a general truncation policy. Choose limits from representative input lengths and the context window of the judge model. Reserve enough context for the system prompt, rendered prompt, Data Designer's structured-output instructions, and the requested completion.
 
 If one judge needs an earlier judge's result, reference the nested score in a later prompt:
 
@@ -86,7 +86,7 @@ If one judge needs an earlier judge's result, reference the nested score in a la
 The first judge gave content fidelity: {{ extraction_quality.content_fidelity.score }}
 ```
 
-Within the same execution stage, NDD detects that dependency automatically and runs the producing judge first. Across stages, each stage is its own Curator/NDD boundary, so ordering is not auto-detected — put the judge that produces the column in an earlier `execution.stages` entry than the judge that consumes it. Omitting `.score` inserts the complete structured result, including its reasoning.
+Within the same execution stage, Data Designer detects that dependency automatically and runs the producing judge first. Across stages, each stage is its own Curator/Data Designer boundary, so ordering is not auto-detected — put the judge that produces the column in an earlier `execution.stages` entry than the judge that consumes it. Omitting `.score` inserts the complete structured result, including its reasoning.
 
 ## YAML configuration
 
@@ -156,15 +156,15 @@ Smoke-test any new model against your rubric on a small sample before a full run
 
 ## Execution stages and multiple models
 
-Each entry under `execution.stages` becomes its own Curator/NDD stage, run in the order listed:
+Each entry under `execution.stages` becomes its own Curator/Data Designer stage, run in the order listed:
 
 ```text
-reader, optional language filter, NDD stage, filters, NDD stage, filters, ..., writer
+reader, optional language filter, Data Designer stage, filters, Data Designer stage, filters, ..., writer
 ```
 
-Group judges into one stage when they should share an NDD dependency graph (e.g. one judge's prompt references another's result — see [Prompts](#prompts)) or don't need independent tuning. Split judges into separate stages when they need explicit Curator boundaries, separate stage runtime environments, filters between groups, or independent `num_workers`. In particular, avoid grouping judges with very different generation costs (e.g. a multi-field structured judgment alongside a single-field one) into the same stage — mixing heterogeneous request latencies in one stage's shared concurrency pool can push the slower judge's requests past `inference_parameters.timeout` under load, even though the aggregate concurrency ceiling is unchanged. Giving each judge its own stage (or grouping only similarly-sized judges together) avoids that failure mode.
+Group judges into one stage when they should share a Data Designer dependency graph (e.g. one judge's prompt references another's result — see [Prompts](#prompts)) or don't need independent tuning. Split judges into separate stages when they need explicit Curator boundaries, separate stage runtime environments, filters between groups, or independent `num_workers`. In particular, avoid grouping judges with very different generation costs (e.g. a multi-field structured judgment alongside a single-field one) into the same stage — mixing heterogeneous request latencies in one stage's shared concurrency pool can push the slower judge's requests past `inference_parameters.timeout` under load, even though the aggregate concurrency ceiling is unchanged. Giving each judge its own stage (or grouping only similarly-sized judges together) avoids that failure mode.
 
-Set `num_workers` on an execution stage to pass a fixed worker count directly to that `DataDesignerStage` through `.with_(num_workers=...)`. This can stop an earlier NDD stage from taking every available Ray worker before downstream stages can run against their own served models.
+Set `num_workers` on an execution stage to pass a fixed worker count directly to that `DataDesignerStage` through `.with_(num_workers=...)`. This can stop an earlier Data Designer stage from taking every available Ray worker before downstream stages can run against their own served models.
 
 ```yaml
 execution:
@@ -179,7 +179,7 @@ execution:
 
 This setting does not limit requests by itself; each worker can still submit up to its model's `max_parallel_requests`.
 
-Splitting judges into more stages creates useful pipeline overlap only when the reader produces multiple Curator tasks. Shard a large input into multiple files; a single JSONL file is one input task and cannot flow into the next NDD stage until its first stage finishes.
+Splitting judges into more stages creates useful pipeline overlap only when the reader produces multiple Curator tasks. Shard a large input into multiple files; a single JSONL file is one input task and cannot flow into the next Data Designer stage until its first stage finishes.
 
 Multiple models are supported by adding entries with distinct aliases under `models` and selecting `model_alias` per judge. Start every model through the same Dynamo server only when their worker environment requirements are compatible.
 

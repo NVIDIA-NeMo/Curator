@@ -32,6 +32,7 @@ dynamo_server:
 execution:
   stages:
     - name: extraction_quality
+      num_workers: 2
       judges:
         - name: qwen3_8_27b_text_extraction_judgment
           model_alias: judge
@@ -64,6 +65,7 @@ execution:
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
     - name: semantic_disagreement
+      num_workers: 2
       # runtime_env:
       #   env_vars:
       #     SOME_STAGE_SETTING: value

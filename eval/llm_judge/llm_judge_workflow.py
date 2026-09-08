@@ -13,34 +13,30 @@
 # limitations under the License.
 
 """
-Run a config-driven text LLM judge through a NeMo Curator pipeline.
+Config-driven text LLM judge workflow, run through a NeMo Curator pipeline.
 
 The input records may have any text schema. The Jinja templates and score
-rubrics in ``--judge-config`` define which fields are evaluated, what the
+rubrics in the judge config define which fields are evaluated, what the
 judge returns, and how judges are grouped into ``execution.stages``, each of
 which runs as its own NDD stage.
-
-Example:
-    python eval/llm_judge/run_llm_judge.py \
-        --judge-config eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
-        --input-path extracted.jsonl --input-format jsonl \
-        --output-path judged --output-format jsonl
 """
 
 from __future__ import annotations
 
-import argparse
+import time
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import Literal
 
 import data_designer.config as dd
 import yaml
+from loguru import logger
 
 from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.core.client import RayClient
 from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.synthetic.nemo_data_designer import DataDesignerStage
 from nemo_curator.stages.text.filters import Filter, ScoreFilter
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -104,8 +100,7 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
             raise ValueError(msg)
         if filter_stage_index is not None and producer_stage_by_judge[judge_name] > filter_stage_index:
             msg = (
-                f"Stage {stages[filter_stage_index].get('name', '<unnamed>')!r} "
-                f"filter refers to judge {judge_name!r} "
+                f"Stage {stages[filter_stage_index].get('name', '<unnamed>')!r} filter refers to judge {judge_name!r} "
             )
             msg += "produced by a later stage."
             raise ValueError(msg)
@@ -171,10 +166,10 @@ def _build_language_filter_stage(
     if not language:
         return None
     if not model_path:
-        msg = "--fasttext-langid-model-path is required when --language is provided."
+        msg = "fasttext_langid_model_path is required when language is provided."
         raise ValueError(msg)
     if not 0.0 <= min_score <= 1.0:
-        msg = "--min-langid-score must be between 0 and 1."
+        msg = "min_langid_score must be between 0 and 1."
         raise ValueError(msg)
 
     # FastText is optional, so import it only for jobs that enable this stage.
@@ -324,98 +319,65 @@ def build_pipeline(  # noqa: PLR0913
     )
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument(
-        "--judge-config",
-        required=True,
-        help="YAML file defining the model, Jinja templates, and rubrics.",
-    )
-    parser.add_argument(
-        "--input-path",
-        required=True,
-        help="JSONL/Parquet path or glob accepted by the Curator reader.",
-    )
-    parser.add_argument("--input-format", required=True, choices=("jsonl", "parquet"))
-    parser.add_argument("--output-path", required=True, help="Directory for Curator output partitions.")
-    parser.add_argument("--output-format", default="jsonl", choices=("jsonl", "parquet"))
-    parser.add_argument("--files-per-partition", type=int, default=None)
-    parser.add_argument(
-        "--language",
-        default=None,
-        help=("FastText language code to retain, such as 'en'. Omit this option to disable language filtering."),
-    )
-    parser.add_argument(
-        "--fasttext-langid-model-path",
-        default=None,
-        help="Path to the FastText language-ID model; required only with --language.",
-    )
-    parser.add_argument(
-        "--min-langid-score",
-        type=float,
-        default=0.3,
-        help="Minimum FastText language-ID confidence when --language is used (default: 0.3).",
-    )
-    parser.add_argument(
-        "--language-text-field",
-        default="raw_text",
-        help="Input column used for FastText language ID (default: raw_text).",
-    )
-    parser.add_argument(
-        "--checkpoint-path",
-        default=None,
-        help="Optional durable Curator checkpoint directory for this pipeline.",
-    )
-    parser.add_argument(
-        "--ray-temp-dir",
-        default="/tmp/ray",  # noqa: S108
-        help="Ray runtime directory (default: /tmp/ray).",
-    )
-    parser.add_argument(
-        "--num-cpus",
-        type=int,
-        default=None,
-        help="Optional CPU count for the local Ray client (default: all available CPUs).",
-    )
-    parser.add_argument(
-        "--num-gpus",
-        type=int,
-        default=None,
-        help="Optional GPU count for the local Ray client (default: all available GPUs).",
-    )
-    return parser.parse_args()
+@dataclass
+class LLMJudgeWorkflow(WorkflowBase):
+    """End-to-end config-driven LLM judge workflow.
 
+    Loads a judge config YAML (models, Jinja prompt templates, score rubrics,
+    and ``execution.stages``), starts a Dynamo/vLLM inference server hosting
+    the configured judge models, then runs one Curator pipeline containing:
+    reader -> optional FastText language gate -> one NDD ``DataDesignerStage``
+    (+ its filters) per judge stage -> writer.
+    """
 
-def main() -> None:
-    args = _parse_args()
-    config_path = Path(args.judge_config).resolve()
-    config = _load_yaml(config_path)
-    models = config["models"]
-    configured_stages = config["execution"]["stages"]
-    _validate_filter_references(config, configured_stages)
-    stage_filters = _place_filters(config, configured_stages)
-    language_filter_stage = _build_language_filter_stage(
-        language=args.language,
-        model_path=args.fasttext_langid_model_path,
-        min_score=args.min_langid_score,
-        text_field=args.language_text_field,
-    )
+    # required args
+    judge_config: str | Path
+    input_path: str
+    output_path: str
 
-    client = RayClient(
-        num_cpus=args.num_cpus,
-        num_gpus=args.num_gpus,
-        include_dashboard=False,
-        ray_temp_dir=args.ray_temp_dir,
-    )
-    client.start()
-    inference_server: InferenceServer | None = None
-    try:
-        inference_server = _start_inference_server(config, models, config_path=config_path)
+    # I/O
+    input_format: DataFormat = "jsonl"
+    output_format: DataFormat = "jsonl"
+    files_per_partition: int | None = None
+
+    # optional FastText language gate
+    language: str | None = None
+    fasttext_langid_model_path: str | None = None
+    min_langid_score: float = 0.3
+    language_text_field: str = "raw_text"
+
+    # execution
+    checkpoint_path: str | None = None
+
+    config_path: Path = field(init=False)
+    config: dict[str, object] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.config_path = Path(self.judge_config).resolve()
+        self.config = _load_yaml(self.config_path)
+        stages = self.config["execution"]["stages"]
+        _validate_filter_references(self.config, stages)
+
+    def _build_judge_stages(
+        self, *, endpoint: str
+    ) -> list[
+        tuple[
+            str,
+            dd.DataDesignerConfigBuilder,
+            list[dd.ModelProvider],
+            dict[str, object] | None,
+            int | None,
+            list[dict[str, object]],
+        ]
+    ]:
+        models = self.config["models"]
+        stages = self.config["execution"]["stages"]
+        stage_filters = _place_filters(self.config, stages)
         judge_stages = []
-        for stage, filters_after_stage in zip(configured_stages, stage_filters, strict=True):
+        for stage, filters_after_stage in zip(stages, stage_filters, strict=True):
             config_builder, model_providers = build_config_builder(
-                args.judge_config,
-                endpoint=inference_server.endpoint,
+                self.judge_config,
+                endpoint=endpoint,
                 models=models,
                 judges=stage["judges"],
             )
@@ -429,21 +391,52 @@ def main() -> None:
                     filters_after_stage,
                 )
             )
-        pipeline = build_pipeline(
-            input_path=args.input_path,
-            input_format=args.input_format,
-            output_path=args.output_path,
-            output_format=args.output_format,
-            judge_stages=judge_stages,
-            language_filter_stage=language_filter_stage,
-            files_per_partition=args.files_per_partition,
+        return judge_stages
+
+    def run(self) -> WorkflowRunResult:
+        """Run the complete LLM judge pipeline.
+
+        Assumes a Ray cluster is already running (start/stop a ``RayClient``
+        around this call; the workflow does not manage Ray itself).
+
+        Returns:
+            WorkflowRunResult containing the pipeline output tasks and timing metadata.
+        """
+        executor = RayDataExecutor()
+        workflow_result = WorkflowRunResult(workflow_name="llm_judge")
+
+        language_filter_stage = _build_language_filter_stage(
+            language=self.language,
+            model_path=self.fasttext_langid_model_path,
+            min_score=self.min_langid_score,
+            text_field=self.language_text_field,
         )
-        pipeline.run(executor=RayDataExecutor(), checkpoint_path=args.checkpoint_path)
-    finally:
-        if inference_server is not None:
-            inference_server.stop()
-        client.stop()
 
+        inference_server: InferenceServer | None = None
+        start_time = time.time()
+        try:
+            inference_server = _start_inference_server(
+                self.config, self.config["models"], config_path=self.config_path
+            )
+            judge_stages = self._build_judge_stages(endpoint=inference_server.endpoint)
+            pipeline = build_pipeline(
+                input_path=self.input_path,
+                input_format=self.input_format,
+                output_path=self.output_path,
+                output_format=self.output_format,
+                judge_stages=judge_stages,
+                language_filter_stage=language_filter_stage,
+                files_per_partition=self.files_per_partition,
+            )
+            output_tasks = pipeline.run(executor=executor, checkpoint_path=self.checkpoint_path)
+        except Exception as e:
+            logger.error(f"LLM judge pipeline failed: {e}")
+            raise
+        finally:
+            if inference_server is not None:
+                inference_server.stop()
 
-if __name__ == "__main__":
-    main()
+        execution_time = time.time() - start_time
+        workflow_result.add_pipeline_tasks("llm_judge", output_tasks)
+        workflow_result.add_metadata("total_time", execution_time)
+        return workflow_result

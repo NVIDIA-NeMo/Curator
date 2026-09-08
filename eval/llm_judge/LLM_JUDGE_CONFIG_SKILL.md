@@ -5,8 +5,9 @@ description: Create or revise Curator LLM judge Jinja prompts and YAML configura
 
 # Curator LLM judge configuration
 
-Writes configs for `run_llm_judge.py` (see `README.md` in this directory
-for the full runner documentation). Every judge config is three things: one or
+Writes configs for `LLMJudgeWorkflow` (see `llm_judge_workflow.py` in this
+directory, and `tutorials/eval/llm_judge/README.md` for the full runner
+documentation). Every judge config is three things: one or
 more Jinja prompt files, a YAML file wiring models to prompts to rubrics, and
 optional filters on the results. Prefer adapting an existing working YAML/Jinja
 pair in this repo as a starting point rather than writing from scratch, then
@@ -182,7 +183,7 @@ A judge named `my_judge` with score `my_score` produces, per row:
 
 ## Execution stages and capacity
 
-See `README.md`'s "Execution stages and multiple models" for how
+See `tutorials/eval/llm_judge/README.md`'s "Execution stages and multiple models" for how
 `execution.stages` grouping works, including why judges with very
 different generation costs shouldn't share a stage. When tuning
 throughput, change the layer that's actually the bottleneck:

@@ -16,7 +16,7 @@
 Prepare a Common Crawl extraction-comparison dataset for this LLM-judge example.
 
 Example:
-    python eval/llm_judge/cc_extract_example/prepare_cc_extraction_dataset.py \
+    python tutorials/eval/llm_judge/cc_extract_example/prepare_cc_extraction_dataset.py \
         --download-dir data/cc_warcs --output-path data/cc_extractions
 """
 
