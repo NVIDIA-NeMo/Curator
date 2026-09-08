@@ -150,7 +150,14 @@ class TestPairwiseCosineSimilarityStage:
     """Test cases for PairwiseCosineSimilarityStage."""
 
     @patch("torch.cuda.memory.change_current_allocator")
-    def test_setup_uses_rmm_torch_allocator(self, change_current_allocator: Mock) -> None:
+    @patch("rmm.mr.set_current_device_resource")
+    @patch("rmm.mr.PoolMemoryResource")
+    def test_setup_uses_shared_rmm_pool(
+        self,
+        pool_memory_resource: Mock,
+        set_current_device_resource: Mock,
+        change_current_allocator: Mock,
+    ) -> None:
         stage = PairwiseCosineSimilarityStage(
             id_field="id",
             embedding_field="embedding",
@@ -160,6 +167,9 @@ class TestPairwiseCosineSimilarityStage:
 
         stage.setup()
 
+        pool_memory_resource.assert_called_once()
+        set_current_device_resource.assert_called_once_with(pool_memory_resource.return_value)
+        assert stage._rmm_memory_resource is pool_memory_resource.return_value
         change_current_allocator.assert_called_once_with(rmm_torch_allocator)
 
     @pytest.mark.parametrize(

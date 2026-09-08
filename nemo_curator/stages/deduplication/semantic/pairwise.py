@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
 import cupy as cp
+import rmm.mr
 import torch
 from loguru import logger
 from rmm.allocators.torch import rmm_torch_allocator
@@ -239,7 +240,12 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.resources = Resources(cpus=1.0, gpus=1.0)
 
     def setup(self, _: "WorkerMetadata | None" = None) -> None:
-        """Make Torch allocate from the RMM resource already used by cuDF and CuPy."""
+        """Make cuDF, CuPy, and Torch share a growing RMM pool."""
+        self._rmm_memory_resource = rmm.mr.PoolMemoryResource(
+            rmm.mr.CudaMemoryResource(),
+            initial_pool_size="1GB",
+        )
+        rmm.mr.set_current_device_resource(self._rmm_memory_resource)
         torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
