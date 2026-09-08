@@ -93,6 +93,8 @@ def pairwise_cosine_similarity_batched(
 ) -> tuple["cp.ndarray", "cp.ndarray"]:
     """Return each ranked row's most similar earlier row and its similarity.
 
+    ``cluster_reps`` must be a prepared CUDA tensor in the desired compute dtype.
+
     The input order is a preservation preference: row ``A`` is preferred over
     ``B``, ``B`` over ``C``, and so on. For example, consider these normalized
     four-dimensional embeddings::
@@ -143,11 +145,17 @@ def pairwise_cosine_similarity_batched(
     Multiplication and returned scores use the prepared CUDA tensor's dtype.
     """
     validate_pairwise_batch_size(batch_size)
-    batch_size = min(batch_size, len(cluster_reps))
+    if not cluster_reps.is_cuda:
+        msg = "pairwise_cosine_similarity_batched requires a CUDA tensor"
+        raise ValueError(msg)
 
     num_rows = len(cluster_reps)
     max_similarity = torch.zeros(num_rows, dtype=cluster_reps.dtype, device=cluster_reps.device)
     max_indices = torch.zeros(num_rows, dtype=torch.int64, device=cluster_reps.device)
+    if not num_rows:
+        return cp.asarray(max_similarity), cp.asarray(max_indices)
+
+    batch_size = min(batch_size, num_rows)
     pairwise_sim_workspace = torch.empty(
         (num_rows, batch_size),
         dtype=cluster_reps.dtype,

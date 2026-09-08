@@ -126,6 +126,13 @@ class TestPairwiseCosineSimilarityBatched:
         np.testing.assert_array_equal(max_indices.tolist(), [0, 0])
         np.testing.assert_allclose(max_similarity.tolist(), [0.0, -1.0])
 
+    def test_cuda_input_contract(self) -> None:
+        with pytest.raises(ValueError, match="CUDA tensor"):
+            pairwise_cosine_similarity_batched(torch.empty((0, 2)), 2)
+
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(torch.empty((0, 2), device="cuda"), 2)
+        assert max_similarity.shape == max_indices.shape == (0,)
+
 
 @pytest.mark.gpu
 class TestPairwiseCosineSimilarityStage:
