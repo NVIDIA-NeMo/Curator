@@ -55,6 +55,8 @@ finally:
 
 `LLMJudgeWorkflow` does not start or stop Ray itself — start a `RayClient` before calling `run()` and stop it after, as shown above.
 
+`eval` is a repo-root package, not installed with `nemo-curator`, so `from eval.llm_judge import LLMJudgeWorkflow` only resolves when the repo root is on `sys.path`. Running this snippet from a script under the repo (e.g. via `pytest`, or via `python -m` from the repo root) works without extra setup; a standalone script run directly (`python your_script.py`) needs the repo root added explicitly first, e.g. `sys.path.insert(0, "/path/to/Curator")` before the import (see the same bootstrap at the top of `run_llm_judge.py`).
+
 ## Input and output
 
 The runner does not require a fixed text schema. A prompt can reference any fields present in an input JSONL or Parquet row. Keep a stable identifier such as `document_id` when you need to join results to another dataset.
