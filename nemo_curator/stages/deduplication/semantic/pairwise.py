@@ -90,7 +90,6 @@ def _resolve_compute_dtype(cluster_reps: "torch.Tensor", compute_dtype: Pairwise
 def pairwise_cosine_similarity_batched(
     cluster_reps: "torch.Tensor",
     batch_size: int = 1024,
-    compute_dtype: PairwiseComputeDtype = "float32",
 ) -> tuple["cp.ndarray", "cp.ndarray"]:
     """Return each ranked row's most similar earlier row and its similarity.
 
@@ -141,12 +140,9 @@ def pairwise_cosine_similarity_batched(
     Materializing all of ``S`` requires ``O(N^2)`` memory. This implementation
     computes query columns in batches of width ``B`` and retains only an ``N x B``
     workspace, without changing which neighbor the full masked matrix would select.
-    Multiplication uses ``compute_dtype`` and returns scores in that same dtype.
+    Multiplication and returned scores use the prepared CUDA tensor's dtype.
     """
     validate_pairwise_batch_size(batch_size)
-    resolved_compute_dtype = _resolve_compute_dtype(cluster_reps, compute_dtype)
-    if cluster_reps.device.type != "cuda" or cluster_reps.dtype != resolved_compute_dtype:
-        cluster_reps = cluster_reps.to(device="cuda", dtype=resolved_compute_dtype)
     batch_size = min(batch_size, len(cluster_reps))
 
     num_rows = len(cluster_reps)
@@ -375,9 +371,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         # Compute pairwise similarities after any requested precision conversion.
         compute_start = time.perf_counter()
         resolved_batch_size = min(self.pairwise_batch_size, num_rows)
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(
-            cluster_embeddings, resolved_batch_size, compute_dtype="auto"
-        )
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(cluster_embeddings, resolved_batch_size)
         # Finish the matrix multiplications before recording compute time and
         # returning their now-unused Torch workspace to the allocator.
         torch.cuda.synchronize()

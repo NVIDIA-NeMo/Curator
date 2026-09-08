@@ -56,30 +56,18 @@ class TestPairwiseCosineSimilarityBatched:
             dtype=torch.float32,
         )
         # Normalize the input array
-        self.input_embeddings = input_embeddings / torch.norm(input_embeddings, dim=1, keepdim=True)
+        self.input_embeddings = (input_embeddings / torch.norm(input_embeddings, dim=1, keepdim=True)).cuda()
         self.expected_pairwise_similarity = np.array([0.0000, 0.974631, 0.998190, 0.999618, 1.0000, 1.0000])
         self.expected_indices = np.array([0, 0, 1, 2, 0, 0])
 
-    @pytest.mark.parametrize(
-        ("input_dtype", "compute_dtype", "batch_size"),
-        [
-            (torch.float32, "auto", 1),
-            (torch.float32, "float16", 2),
-            (torch.float16, "auto", 6),
-            (torch.float16, "float16", 3),
-        ],
-    )
+    @pytest.mark.parametrize("input_dtype", [torch.float16, torch.float32])
     def test_pairwise_cosine_similarity_batched(
         self,
         input_dtype: torch.dtype,
-        compute_dtype: str,
-        batch_size: int,
     ) -> None:
         """Fixed batches preserve compute precision and earlier-rank behavior."""
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(
-            self.input_embeddings.to(input_dtype), batch_size, compute_dtype
-        )
-        is_fp16 = input_dtype == torch.float16 or compute_dtype == "float16"
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(self.input_embeddings.to(input_dtype), 2)
+        is_fp16 = input_dtype == torch.float16
         tolerance = 2e-3 if is_fp16 else 1e-6
         np.testing.assert_allclose(
             max_similarity.tolist(),
@@ -89,10 +77,6 @@ class TestPairwiseCosineSimilarityBatched:
         )
         np.testing.assert_array_equal(max_indices.tolist(), self.expected_indices)
         assert max_similarity.dtype == (cp.float16 if is_fp16 else cp.float32)
-
-    def test_rejects_upcasting_fp16_embeddings(self) -> None:
-        with pytest.raises(ValueError, match="float16 embeddings"):
-            pairwise_cosine_similarity_batched(self.input_embeddings.to(torch.float16), compute_dtype="float32")
 
     @pytest.mark.parametrize("batch_size", [7, 64])
     def test_pairwise_cosine_similarity_batched_rand_array(self, batch_size: int) -> None:
@@ -124,9 +108,7 @@ class TestPairwiseCosineSimilarityBatched:
         )
         embeddings = embeddings / torch.linalg.vector_norm(embeddings, dim=1, keepdim=True)
 
-        fp16_scores, fp16_indices = pairwise_cosine_similarity_batched(
-            embeddings.to(torch.float16), 2, compute_dtype="float16"
-        )
+        fp16_scores, fp16_indices = pairwise_cosine_similarity_batched(embeddings.to(torch.float16), 2)
         fp32_scores, fp32_indices = pairwise_cosine_similarity_batched(embeddings, 2)
 
         assert fp16_scores.dtype == cp.float16
@@ -137,7 +119,7 @@ class TestPairwiseCosineSimilarityBatched:
     @pytest.mark.parametrize("batch_size", [1, 2])
     def test_negative_similarity_is_not_replaced_by_masked_zero(self, batch_size: int) -> None:
         """Masking future rows must not beat a valid negative earlier-row similarity."""
-        embeddings = torch.tensor([[1.0, 0.0], [-1.0, 0.0]], dtype=torch.float32)
+        embeddings = torch.tensor([[1.0, 0.0], [-1.0, 0.0]], dtype=torch.float32, device="cuda")
 
         max_similarity, max_indices = pairwise_cosine_similarity_batched(embeddings, batch_size)
 
@@ -245,6 +227,8 @@ class TestPairwiseCosineSimilarityStage:
         ("storage_dtype", "compute_dtype", "batch_size"),
         [
             ("float16", "auto", 2),
+            ("float16", "float16", 2),
+            ("float16", "float32", 2),
             ("float32", "auto", 8),
             ("float32", "float16", 2),
         ],
@@ -292,14 +276,18 @@ class TestPairwiseCosineSimilarityStage:
             pairwise_batch_size=batch_size,
             compute_dtype=compute_dtype,
         )
-
-        stage.process(
-            FileGroupTask(
-                dataset_name="test",
-                data=input_files,
-                _metadata={"centroid_id": 7, "filetype": "parquet"},
-            )
+        task = FileGroupTask(
+            dataset_name="test",
+            data=input_files,
+            _metadata={"centroid_id": 7, "filetype": "parquet"},
         )
+
+        if storage_dtype == "float16" and compute_dtype == "float32":
+            with pytest.raises(ValueError, match="float16 embeddings"):
+                stage.process(task)
+            return
+
+        stage.process(task)
 
         result_df = cudf.read_parquet(output_dir / "cluster_7.parquet")
         assert result_df["id"].to_arrow().to_pylist() == [10, 20, 30, 40]
