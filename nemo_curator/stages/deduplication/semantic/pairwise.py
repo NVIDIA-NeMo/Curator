@@ -14,7 +14,6 @@
 
 import os
 import time
-import traceback
 from dataclasses import dataclass
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Literal
@@ -146,7 +145,8 @@ def pairwise_cosine_similarity_batched(
     """
     validate_pairwise_batch_size(batch_size)
     resolved_compute_dtype = _resolve_compute_dtype(cluster_reps, compute_dtype)
-    cluster_reps = cluster_reps.to(device="cuda", dtype=resolved_compute_dtype)
+    if cluster_reps.device.type != "cuda" or cluster_reps.dtype != resolved_compute_dtype:
+        cluster_reps = cluster_reps.to(device="cuda", dtype=resolved_compute_dtype)
     batch_size = min(batch_size, len(cluster_reps))
 
     num_rows = len(cluster_reps)
@@ -248,32 +248,10 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         rmm.mr.set_current_device_resource(self._rmm_memory_resource)
         torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
 
-    def process(self, task: FileGroupTask) -> FileGroupTask:
-        """Process one cluster, dropping failed frames so RMM can reclaim their allocations."""
-        try:
-            return self._process(task)
-        except BaseException as exc:
-            # An exception's traceback otherwise keeps the unwound _process
-            # frame—and its large GPU objects—alive until after this finalizer.
-            traceback.clear_frames(exc.__traceback__)
-            raise
-
-    def process_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
-        """Process clusters while aggregating their phase timings for the adapter batch."""
-        results = []
-        batch_metrics: dict[str, float] = {}
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
-            results.append(self.process(task))
-            for name, value in self._consume_custom_metrics().items():
-                batch_metrics[name] = batch_metrics.get(name, 0.0) + value
-        self._log_metrics(batch_metrics)
-        return results
-
-    def _process(self, task: FileGroupTask) -> FileGroupTask:  # noqa: PLR0915
+    def process(self, task: FileGroupTask) -> FileGroupTask:  # noqa: PLR0915
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
+        # TODO(NMCUR-457): Remove IdentifyDuplicatesStage's temporary Pairwise
+        # metric propagation once core preserves every input across N-to-1 fan-in.
         if task._metadata.get("filetype") != "parquet":
             msg = f"PairwiseCosineSimilarityStage only supports parquet files, got {task._metadata.get('filetype')}"
             raise ValueError(msg)
@@ -398,7 +376,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         compute_start = time.perf_counter()
         resolved_batch_size = min(self.pairwise_batch_size, num_rows)
         max_similarity, max_indices = pairwise_cosine_similarity_batched(
-            cluster_embeddings, resolved_batch_size, compute_dtype=self.compute_dtype
+            cluster_embeddings, resolved_batch_size, compute_dtype="auto"
         )
         # Finish the matrix multiplications before recording compute time and
         # returning their now-unused Torch workspace to the allocator.

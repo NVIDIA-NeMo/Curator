@@ -171,6 +171,30 @@ precomputed Parquet or JSONL embeddings and use the parameter name `fit_data_fra
 
 Pairwise comparison keeps a reusable `N x B` similarity workspace, where `N` is the cluster size and `B` is `pairwise_batch_size`. The default is `1024`; a smaller positive value lowers peak memory at the cost of more matrix multiplications. A larger value also computes more self/later-row products before masking them, so the largest batch that fits is not necessarily the fastest. Only earlier-ranked rows are valid neighbors, and equal similarity scores deterministically choose the earliest-ranked row.
 
+#### How Pairwise chooses duplicates
+
+Input order is the preservation preference: `A` is preferred over `B`, `B` over `C`, and so on. Consider these normalized embeddings:
+
+```text
+A [1.00, 0.00, 0.00, 0.00]
+B [0.96, 0.28, 0.00, 0.00]
+C [0.00, 1.00, 0.00, 0.00]
+D [0.00, 0.00, 1.00, 0.00]
+E [0.00, 0.96, 0.00, 0.28]
+```
+
+Because they have unit length, `X @ X.T` is their cosine-similarity matrix:
+
+| Query \ candidate | A | B | C | D | E |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 1.0000 | 0.9600 | 0.0000 | 0.0000 | 0.0000 |
+| B | 0.9600 | 1.0000 | 0.2800 | 0.0000 | 0.2688 |
+| C | 0.0000 | 0.2800 | 1.0000 | 0.0000 | 0.9600 |
+| D | 0.0000 | 0.0000 | 0.0000 | 1.0000 | 0.0000 |
+| E | 0.0000 | 0.2688 | 0.9600 | 0.0000 | 1.0000 |
+
+Only candidates to the left of the query's diagonal are eligible. Pairwise therefore selects `B -> A (0.96)`, `C -> B (0.28)`, `D -> A (0.00)`, and `E -> C (0.96)`. With `eps=0.1`, the duplicate threshold is `1 - eps = 0.9`, so the next stage removes query rows `B` and `E` while preserving `A`, `C`, and `D`. An earlier-ranked candidate remains eligible even if that candidate is itself later marked for removal.
+
 KMeans fit, prediction, and distance calculations remain FP32. By default, KMeans retains FP32 embeddings in its output. Set `kmeans_embedding_output_dtype="float16"` to cast normalized embeddings to FP16 and store their bit patterns in uint16 list leaves because cuDF does not support numeric FP16 columns. The uint16 representation does not guarantee half-sized Parquet files because Parquet stores uint16 values using an INT32 physical type.
 
 Pairwise infers storage precision from the embedding list leaves: uint16 leaves are decoded as FP16 bit patterns, FP32 leaves keep their precision, and legacy FP64 leaves are normalized to FP32. With `pairwise_compute_dtype="auto"`, FP16 embeddings use FP16 multiplication and FP32 embeddings use FP32. FP32 embeddings can instead use `"float16"` multiplication; upcasting stored FP16 embeddings is rejected because it cannot restore the discarded precision.

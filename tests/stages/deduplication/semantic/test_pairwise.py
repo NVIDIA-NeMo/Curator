@@ -190,28 +190,6 @@ class TestPairwiseCosineSimilarityStage:
                 **kwargs,
             )
 
-    def test_process_batch_sums_cluster_timings(self) -> None:
-        stage = PairwiseCosineSimilarityStage(
-            id_field="id",
-            embedding_field="embedding",
-            output_path="/unused",
-            ranking_strategy=RankingStrategy.random(),
-        )
-        tasks = [
-            FileGroupTask(dataset_name="test", data=["unused"], _metadata={"centroid_id": centroid_id})
-            for centroid_id in range(2)
-        ]
-        durations = iter([1.0, 2.0])
-
-        def process(task: FileGroupTask) -> FileGroupTask:
-            stage._log_metric("pairwise_read_time", next(durations))
-            return task
-
-        with patch.object(stage, "process", side_effect=process):
-            assert stage.process_batch(tasks) == tasks
-
-        assert stage._consume_custom_metrics() == {"pairwise_read_time": 3.0}
-
     def test_single_item_cluster(self, tmp_path: Path) -> None:
         """Test processing a cluster with a single item."""
         # Create test data with single embedding
