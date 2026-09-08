@@ -321,7 +321,8 @@ def build_pipeline(  # noqa: PLR0913
 
 @dataclass
 class LLMJudgeWorkflow(WorkflowBase):
-    """End-to-end config-driven LLM judge workflow.
+    """
+    End-to-end config-driven LLM judge workflow.
 
     Loads a judge config YAML (models, Jinja prompt templates, score rubrics,
     and ``execution.stages``), starts a Dynamo/vLLM inference server hosting
@@ -394,10 +395,8 @@ class LLMJudgeWorkflow(WorkflowBase):
         return judge_stages
 
     def run(self) -> WorkflowRunResult:
-        """Run the complete LLM judge pipeline.
-
-        Assumes a Ray cluster is already running (start/stop a ``RayClient``
-        around this call; the workflow does not manage Ray itself).
+        """
+        Run the complete LLM judge pipeline.
 
         Returns:
             WorkflowRunResult containing the pipeline output tasks and timing metadata.

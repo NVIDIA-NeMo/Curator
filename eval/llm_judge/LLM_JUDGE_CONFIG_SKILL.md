@@ -42,13 +42,13 @@ models:
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768
-        max_num_seqs: 32
-        gpu_memory_utilization: 0.8
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.85
     inference_parameters:
       temperature: 0.0
-      max_tokens: 512
-      max_parallel_requests: 8
+      max_tokens: 4096
       timeout: 600            # seconds; raise for slower/larger models
+      max_parallel_requests: 64
 
 execution:
   stages:

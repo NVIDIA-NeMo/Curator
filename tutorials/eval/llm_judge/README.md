@@ -10,6 +10,8 @@ Start by copying and editing the files in `cc_extract_example/`. The YAML refers
 
 This is a minimal integration example, not a calibrated production evaluation. Its prompts, rubrics, model settings, thresholds, and concurrency values are illustrative and have not been optimized. Validate and adapt them on a manually reviewed sample before relying on results.
 
+As bundled, [text_extraction_qwen_judge.yaml](cc_extract_example/text_extraction_qwen_judge.yaml) uses **4 GPUs** (`dynamo_model.num_replicas: 4` × `engine_kwargs.tensor_parallel_size: 1`, one model). If you have a different GPU count, edit `num_replicas` (more/fewer independent replicas) and/or `tensor_parallel_size` (GPUs per replica) to match before running.
+
 1. Set `models[0].model` in [text_extraction_qwen_judge.yaml](cc_extract_example/text_extraction_qwen_judge.yaml) to a model identifier or local model path.
 2. Update [text_extraction_prompt.jinja](cc_extract_example/text_extraction_prompt.jinja) with the field names from your input rows.
 3. Define the rubric outputs under each judge's `scores:` list.
@@ -18,15 +20,40 @@ This is a minimal integration example, not a calibrated production evaluation. I
 ```bash
 python tutorials/eval/llm_judge/run_llm_judge.py \
   --judge-config tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
-  --input-path data/extracted.jsonl \
+  --input-path data/cc_extractions \
   --input-format jsonl \
-  --output-path output/judged \
+  --output-path data/qwen_judgements \
   --output-format jsonl
 ```
 
-The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_extraction_qwen_gemma_judges.yaml) runs the same extraction rubrics with both Qwen and Gemma. Use it when you want to compare model agreement; update the model paths and serving settings for your hardware before running it.
+The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_extraction_qwen_gemma_judges.yaml) runs the same extraction rubrics with both Qwen and Gemma, and as bundled uses **8 GPUs** (two models, each `num_replicas: 4` × `tensor_parallel_size: 1`). Use it when you want to compare model agreement; update the model paths, `num_replicas`/`tensor_parallel_size` per model, and other serving settings for your hardware before running it.
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
+
+`run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`eval/llm_judge/llm_judge_workflow.py`, importable as `from eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
+
+```python
+from nemo_curator.core.client import RayClient
+
+from eval.llm_judge import LLMJudgeWorkflow
+
+workflow = LLMJudgeWorkflow(
+    judge_config="tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml",
+    input_path="data/cc_extractions",
+    input_format="jsonl",
+    output_path="data/qwen_judgements",
+    output_format="jsonl",
+)
+
+ray_client = RayClient()
+ray_client.start()
+try:
+    result = workflow.run()  # WorkflowRunResult
+finally:
+    ray_client.stop()
+```
+
+`LLMJudgeWorkflow` does not start or stop Ray itself — start a `RayClient` before calling `run()` and stop it after, as shown above.
 
 ## Input and output
 
@@ -103,12 +130,13 @@ models:
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768
-        max_num_seqs: 32
-        gpu_memory_utilization: 0.8
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.85
     inference_parameters:
       temperature: 0.0
-      max_tokens: 512
-      max_parallel_requests: 8
+      max_tokens: 4096
+      timeout: 600
+      max_parallel_requests: 64
 
 execution:
   stages:
@@ -203,26 +231,9 @@ The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. M
 
 Running the same rubric through multiple LLMs turns judge agreement into a signal, not just a sanity check: where the models agree, the record is likely easy and the score can be trusted with less scrutiny; where they disagree, look into why before trusting the rubric or filter at scale. A disagreement can mean the record is genuinely ambiguous or hard to score — evidence for a human-in-the-loop or an `unresolved`-style rubric option — or it can mean the prompt or rubric wording is too vague or underspecified for a model to apply consistently, which calls for tightening the prompt rather than trusting either score.
 
-The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory, then pull each judge's nested score into its own column.
+The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory with your preferred JSON/Parquet tooling (for example `pandas.read_json(..., lines=True)` per part file, concatenated). Running `text_extraction_qwen_gemma_judges.yaml` writes a column per judge — `qwen3_8_27b_text_extraction_judgment` and `gemma_3_27b_text_extraction_judgment` — each holding the nested `{score_name: {"score": ..., "reasoning": ...}}` structure from [Output shape](#output-shape). Pull each judge's `quality.score` into its own column, subtract the two to get a per-row agreement diff, and sort by the absolute difference to surface the largest disagreements.
 
-```python
-import glob
-import pandas as pd
-
-df = pd.concat(pd.read_json(path, lines=True) for path in glob.glob("output/judged/*.jsonl"))
-
-# Two judges applying the same rubric to different models.
-df["qwen_quality"] = df["extraction_quality_qwen"].apply(lambda r: r["quality"]["score"])
-df["gemma_quality"] = df["extraction_quality_gemma"].apply(lambda r: r["quality"]["score"])
-
-df["quality_diff"] = df["qwen_quality"] - df["gemma_quality"]
-print(df["quality_diff"].value_counts().sort_index())  # agreement distribution
-
-disagreements = df[df["quality_diff"].abs() >= 2].sort_values("quality_diff", key=abs, ascending=False)
-disagreements[["document_id", "qwen_quality", "gemma_quality"]].head(20)
-```
-
-Read both `reasoning` fields on a disagreement (`df.loc[idx, "extraction_quality_qwen"]["quality"]["reasoning"]`) to tell the two causes apart: differing-but-reasonable justifications point to a genuinely hard record, while justifications that latch onto different aspects of the same instructions point to a vague prompt. The same pattern extends to comparing two rubrics on one model, or checking a filter threshold before committing to it.
+Read both `reasoning` fields on a disagreement to tell the two causes apart: differing-but-reasonable justifications point to a genuinely hard record, while justifications that latch onto different aspects of the same instructions point to a vague prompt. The same pattern extends to comparing two rubrics on one model, or checking a filter threshold before committing to it.
 
 ### Position bias / order-swap check
 
@@ -253,17 +264,7 @@ Add a second Jinja template and a second judge entry in the YAML, same pattern a
   scores: [ ... ]  # same rubric as the original judge
 ```
 
-```python
-df["best_extraction"] = df["qwen3_8_27b_text_extraction_judgment"].apply(lambda r: r["best_extraction"]["score"])
-df["best_extraction_swapped"] = df["qwen3_8_27b_text_extraction_judgment_swapped"].apply(lambda r: r["best_extraction"]["score"])
-
-# Remap the swapped judge's answer back to the original candidate labels before comparing.
-swap_map = {"candidate_a": "candidate_b", "candidate_b": "candidate_a", "raw": "raw", "none": "none"}
-df["best_extraction_swapped_normalized"] = df["best_extraction_swapped"].map(swap_map)
-
-stable = df["best_extraction"] == df["best_extraction_swapped_normalized"]
-print(stable.value_counts())  # how often the verdict holds under order swap
-```
+Pull each judge's `best_extraction.score` into its own column, then remap the swapped judge's answer back to the original candidate labels before comparing — since candidates were swapped in the prompt, `candidate_a` and `candidate_b` need to be swapped back in the result (`raw`/`none` map to themselves). Compare the original judge's verdict to the remapped swapped-judge verdict row by row: matches mean the verdict held under the order swap, mismatches mean it didn't.
 
 Rows where the normalized verdict flips are evidence of position bias rather than a genuine judgment; read both `reasoning` fields the same way as a model-agreement disagreement to decide whether the rubric or prompt needs tightening. This costs one extra LLM call per row for the swapped judge, so run it on a calibration sample before deciding whether to keep it in a full production run.
 

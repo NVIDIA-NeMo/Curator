@@ -23,17 +23,25 @@ which runs as its own NDD stage.
 Example:
     python tutorials/eval/llm_judge/run_llm_judge.py \
         --judge-config tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml \
-        --input-path extracted.jsonl --input-format jsonl \
-        --output-path judged --output-format jsonl
+        --input-path data/cc_extractions --input-format jsonl \
+        --output-path data/qwen_judgements --output-format jsonl
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
-from nemo_curator.core.client import RayClient
+# `eval` is a repo-root package, not installed with nemo-curator, so it is only
+# importable when the repo root is on sys.path. Running this script directly
+# (`python run_llm_judge.py` or `python path/to/run_llm_judge.py`) does not put
+# the repo root on sys.path — only the script's own directory is added
+# automatically — so add it explicitly before importing from `eval`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from eval.llm_judge import LLMJudgeWorkflow
+from nemo_curator.core.client import RayClient
 
 
 def _parse_args() -> argparse.Namespace:

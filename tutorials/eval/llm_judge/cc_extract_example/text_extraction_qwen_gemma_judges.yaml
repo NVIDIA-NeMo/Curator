@@ -8,37 +8,38 @@ models:
     # Keep the Hugging Face identifier as the API name while serving local weights.
     served_model_name: Qwen/Qwen3.8-27B
     dynamo_model:
-      num_replicas: 2
+      num_replicas: 4
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 8
-        gpu_memory_utilization: 0.8
-        enforce_eager: true
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.85
     inference_parameters:
       temperature: 0.0
       # Structured judging needs the final JSON, not Qwen's private deliberation.
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
-      max_tokens: 512
-      max_parallel_requests: 16
-  - alias: gemma_3
+      max_tokens: 4096
+      timeout: 600
+      max_parallel_requests: 64
+  - alias: gemma
     model: /path/to/your/hf_cache/gemma-3-27b-it
     served_model_name: google/gemma-3-27b-it
     dynamo_model:
-      num_replicas: 2
+      num_replicas: 4
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 8
-        gpu_memory_utilization: 0.8
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.85
     inference_parameters:
       temperature: 0.0
-      max_tokens: 512
-      max_parallel_requests: 16
+      max_tokens: 4096
+      timeout: 600
+      max_parallel_requests: 64
 
 dynamo_server:
   subprocess_env:
@@ -99,12 +100,12 @@ execution:
       judges:
         - <<: *qwen_extraction_quality
           name: gemma_3_27b_text_extraction_judgment
-          model_alias: gemma_3
+          model_alias: gemma
     - name: gemma_semantic_disagreement
       judges:
         - <<: *qwen_semantic_disagreement
           name: gemma_3_27b_text_extraction_disagreement
-          model_alias: gemma_3
+          model_alias: gemma
 
 # Optional: filters are placed automatically after the NDD stage that produces
 # their `judge` column.

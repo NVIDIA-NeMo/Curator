@@ -13,17 +13,17 @@ models:
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 256
-        gpu_memory_utilization: 0.8
-        enforce_eager: true
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.85
     inference_parameters:
       temperature: 0.0
       # Structured judging needs the final JSON, not Qwen's private deliberation.
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
-      max_tokens: 512
-      max_parallel_requests: 32
+      max_tokens: 4096
+      timeout: 600
+      max_parallel_requests: 64
 
 dynamo_server:
   subprocess_env:

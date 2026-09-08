@@ -209,8 +209,50 @@ def test_build_pipeline_orders_reader_judges_filters_and_writer(monkeypatch: pyt
     assert [stage.num_workers() for stage in ndd_stages] == [1, 2]
 
 
-def test_workflow_run_builds_one_stage_per_group(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    captured = _run_workflow_with_fakes(monkeypatch, tmp_path)
+def test_build_language_filter_stage_returns_none_when_language_not_set() -> None:
+    assert (
+        subject._build_language_filter_stage(language=None, model_path=None, min_score=0.3, text_field="raw_text")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_path", "min_score", "message"),
+    [
+        (None, 0.3, "fasttext_langid_model_path is required"),
+        ("/path/to/model", -0.1, "min_langid_score must be between 0 and 1"),
+        ("/path/to/model", 1.1, "min_langid_score must be between 0 and 1"),
+    ],
+)
+def test_build_language_filter_stage_rejects_invalid_config(
+    model_path: str | None, min_score: float, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        subject._build_language_filter_stage(
+            language="en", model_path=model_path, min_score=min_score, text_field="raw_text"
+        )
+
+
+def test_build_language_filter_stage_builds_score_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeFastTextLangId:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setattr("nemo_curator.stages.text.filters.fasttext.FastTextLangId", FakeFastTextLangId)
+
+    stage = subject._build_language_filter_stage(
+        language="en", model_path="/path/to/model", min_score=0.5, text_field="raw_text"
+    )
+
+    assert isinstance(stage, subject.ScoreFilter)
+    assert stage.name == "fasttext_language_filter"
+    assert isinstance(stage.filter_obj, FakeFastTextLangId)
+    assert stage.filter_obj.kwargs == {"model_path": "/path/to/model", "min_langid_score": 0.5, "lang": "en"}
+    assert stage.text_field == "raw_text"
+
+
+def test_workflow_run_builds_pipeline_and_returns_result(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured, result = _run_workflow_with_fakes(monkeypatch, tmp_path, output_tasks=["task-a", "task-b"])
 
     assert captured["builder_judges"] == [["quality_judge"], ["safety_judge"]]
     stage_details = [
@@ -220,11 +262,74 @@ def test_workflow_run_builds_one_stage_per_group(monkeypatch: pytest.MonkeyPatch
         ("quality", {"env": "quality"}, 1, ["quality_judge"]),
         ("safety", {"env": "safety"}, 2, ["safety_judge"]),
     ]
+    assert captured["build_pipeline_kwargs"]["language_filter_stage"] is None
     assert captured["server_stopped"] is True
     assert captured["run_kwargs"]["checkpoint_path"] == "checkpoint"
+    assert result.workflow_name == "llm_judge"
+    assert result.pipeline_tasks == {"llm_judge": ["task-a", "task-b"]}
+    assert result.get_metadata("total_time") >= 0
 
 
-def _run_workflow_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
+def test_workflow_run_builds_language_filter_stage_when_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sentinel_stage = object()
+    monkeypatch.setattr(subject, "_build_language_filter_stage", lambda **kwargs: sentinel_stage)  # noqa: ARG005
+
+    captured, _result = _run_workflow_with_fakes(
+        monkeypatch,
+        tmp_path,
+        workflow_kwargs={
+            "language": "en",
+            "fasttext_langid_model_path": "/path/to/model",
+        },
+    )
+
+    assert captured["build_pipeline_kwargs"]["language_filter_stage"] is sentinel_stage
+
+
+def test_workflow_run_stops_inference_server_even_when_pipeline_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(RuntimeError, match="pipeline exploded"):
+        _run_workflow_with_fakes(monkeypatch, tmp_path, pipeline_run_error=RuntimeError("pipeline exploded"))
+
+
+def test_llm_judge_workflow_post_init_validates_filters_eagerly(tmp_path: Path) -> None:
+    config_path = tmp_path / "judge.yaml"
+    config_path.write_text(
+        """
+models:
+  - alias: judge
+    model: model
+execution:
+  stages:
+    - name: quality
+      judges:
+        - name: quality_judge
+          scores:
+            - name: quality
+      filters:
+        - judge: missing_judge
+          score: quality
+          operator: gte
+          value: 4
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unknown judge output column"):
+        subject.LLMJudgeWorkflow(judge_config=config_path, input_path="input.jsonl", output_path="output")
+
+
+def _run_workflow_with_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    output_tasks: list[object] | None = None,
+    pipeline_run_error: Exception | None = None,
+    workflow_kwargs: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], subject.WorkflowRunResult]:
     config, stages = _config_with_filters()
     config.update(
         {
@@ -247,7 +352,9 @@ def _run_workflow_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     class FakePipeline:
         def run(self, **kwargs: object) -> list[object]:
             captured["run_kwargs"] = kwargs
-            return []
+            if pipeline_run_error is not None:
+                raise pipeline_run_error
+            return output_tasks if output_tasks is not None else []
 
     def fake_builder(*args: object, **kwargs: object) -> tuple[str, list[str]]:  # noqa: ARG001
         captured["builder_judges"].append([judge["name"] for judge in kwargs["judges"]])
@@ -255,12 +362,14 @@ def _run_workflow_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     def fake_build_pipeline(**kwargs: object) -> FakePipeline:
         captured["judge_stages"] = kwargs["judge_stages"]
+        captured["build_pipeline_kwargs"] = kwargs
         return FakePipeline()
 
     monkeypatch.setattr(subject, "_load_yaml", lambda path: config)  # noqa: ARG005
     monkeypatch.setattr(subject, "_start_inference_server", lambda *args, **kwargs: FakeServer())  # noqa: ARG005
     monkeypatch.setattr(subject, "build_config_builder", fake_builder)
     monkeypatch.setattr(subject, "build_pipeline", fake_build_pipeline)
+    monkeypatch.setattr(subject, "RayDataExecutor", lambda: "executor")
 
     config_path = tmp_path / "judge.yaml"
     config_path.write_text("models: []\n", encoding="utf-8")
@@ -269,6 +378,10 @@ def _run_workflow_with_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         input_path="input.jsonl",
         output_path="output",
         checkpoint_path="checkpoint",
+        **(workflow_kwargs or {}),
     )
-    workflow.run()
-    return captured
+    try:
+        result = workflow.run()
+    finally:
+        assert captured.get("server_stopped") is True
+    return captured, result
