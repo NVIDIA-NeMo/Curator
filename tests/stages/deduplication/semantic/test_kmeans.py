@@ -507,15 +507,11 @@ class TestKMeansReadFitWriteStage:
 
         cp.testing.assert_allclose(embeddings, expected_normalized, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.parametrize(
-        ("embedding_output_dtype", "stored_dtype"),
-        [("float16", cp.uint16), ("float32", cp.float32)],
-    )
+    @pytest.mark.parametrize("embedding_output_dtype", ["float16", "float32"])
     def test_write_output_frame_uses_configured_embedding_dtype(
         self,
         make_stage: "KMeansReadFitWriteStage",
         embedding_output_dtype: str,
-        stored_dtype: "cp.dtype",
     ) -> None:
         stage = make_stage(embedding_output_dtype=embedding_output_dtype)
         embeddings = cp.asarray([[1.0, 0.0], [0.6, 0.8]], dtype=cp.float32)
@@ -530,6 +526,7 @@ class TestKMeansReadFitWriteStage:
 
         output = cudf.read_parquet(stage.output_path)
         stored_embeddings = get_array_from_df(output, "embeddings")
+        stored_dtype = cp.uint16 if embedding_output_dtype == "float16" else cp.float32
         assert stored_embeddings.dtype == stored_dtype
         decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
         cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
