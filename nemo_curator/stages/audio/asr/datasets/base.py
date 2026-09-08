@@ -27,6 +27,7 @@ so handlers run with ``xenna_workers=1`` by default.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from abc import ABC
@@ -88,6 +89,7 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
     extraction_workers: int = 10
     target_sample_rate: int = 16000
     target_channels: int = 1
+    audio_format: str = "opus"
     skip_untar: bool = False
     write_manifest: bool = False
     manifest_splits: list[str] | None = None
@@ -105,8 +107,16 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
         if not self.langs:
             msg = f"langs is required for {type(self).__name__}"
             raise ValueError(msg)
+        if self.audio_format not in ("wav", "opus"):
+            msg = f"audio_format must be 'wav' or 'opus', got '{self.audio_format}'"
+            raise ValueError(msg)
         # Give the single Xenna worker enough CPUs for internal parallel extraction.
         self.resources = Resources(cpus=float(max(self.extraction_workers, 1)))
+
+    @property
+    def audio_ext(self) -> str:
+        """File extension for converted audio (no leading dot)."""
+        return "opus" if self.audio_format == "opus" else "wav"
 
     # ------------------------------------------------------------------
     # Framework wiring
@@ -157,13 +167,31 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
     # ------------------------------------------------------------------
     # Shared helpers for subclasses
     # ------------------------------------------------------------------
-    def convert_audio(self, array: Any, sample_rate: int, orig_channels: int, dst_path: str) -> dict[str, Any]:  # noqa: ANN401
-        """Convert one clip to WAV/target-SR/mono/PCM16 and write it to ``dst_path``.
+    def _write_opus_atomic(self, dst_path: str, arr: Any, sample_rate: int) -> None:  # noqa: ANN401
+        """Encode ``arr`` to OGG/Opus and write it atomically to ``dst_path``.
 
-        ``array`` must already be decoded by the concrete dataset handler. Returns
-        a dict with ``duration``, ``orig_sample_rate`` and ``orig_num_channels``.
-        When ``skip_untar`` is set and ``dst_path`` already exists, the file is
-        probed instead of rewritten.
+        Encodes to an in-memory buffer, writes to a temp file, fsyncs, then
+        renames so ``dst_path`` never references a partial file (important for
+        ``skip_untar`` resume, which treats a present file as complete). Opus only
+        supports 8/12/16/24/48 kHz input, satisfied by ``target_sample_rate``.
+        """
+        buf = io.BytesIO()
+        self._sf.write(buf, arr, sample_rate, format="OGG", subtype="OPUS")
+        tmp_path = f"{dst_path}.tmp.{os.getpid()}"
+        with open(tmp_path, "wb") as handle:
+            handle.write(buf.getvalue())
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, dst_path)
+
+    def convert_audio(self, array: Any, sample_rate: int, orig_channels: int, dst_path: str) -> dict[str, Any]:  # noqa: ANN401
+        """Convert one clip to target-SR/mono and write it to ``dst_path``.
+
+        Output encoding follows ``audio_format``: ``wav`` (PCM16) or ``opus``
+        (OGG/Opus). ``array`` must already be decoded by the concrete dataset
+        handler. Returns a dict with ``duration``, ``orig_sample_rate`` and
+        ``orig_num_channels``. When ``skip_untar`` is set and ``dst_path`` already
+        exists, the file is probed instead of rewritten.
         """
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
@@ -180,7 +208,10 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
         if orig_sample_rate != self.target_sample_rate:
             arr = self._librosa.resample(arr, orig_sr=orig_sample_rate, target_sr=self.target_sample_rate)
 
-        self._sf.write(dst_path, arr, self.target_sample_rate, subtype="PCM_16")
+        if self.audio_format == "opus":
+            self._write_opus_atomic(dst_path, arr, self.target_sample_rate)
+        else:
+            self._sf.write(dst_path, arr, self.target_sample_rate, subtype="PCM_16")
         duration = float(len(arr) / self.target_sample_rate) if self.target_sample_rate else 0.0
         return {
             "duration": duration,

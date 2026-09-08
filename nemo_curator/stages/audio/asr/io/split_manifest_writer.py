@@ -61,8 +61,11 @@ class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
     langs: list[str] | None = None
     splits: list[str] | None = None
     is_sink_stage: bool = True
+    flush_interval: int = 2000
+    write_buffer_bytes: int = 1 << 20
     _handles: dict[tuple[str, str], Any] = field(default_factory=dict, init=False, repr=False)
     _counts: dict[tuple[str, str], int] = field(default_factory=dict, init=False, repr=False)
+    _since_flush: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -84,6 +87,7 @@ class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         self._handles = {}
         self._counts = {}
+        self._since_flush = 0
         # Pre-create (truncate) declared manifests so all expected files exist.
         if self.langs and self.splits:
             for lang in self.langs:
@@ -100,22 +104,42 @@ class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
         if handle is None:
             path = self._path(lang, split)
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            handle = open(path, "w", encoding="utf-8")  # noqa: SIM115
+            # Large write buffer: let the OS batch page-sized writes instead of
+            # issuing a syscall per line.
+            handle = open(path, "w", encoding="utf-8", buffering=self.write_buffer_bytes)  # noqa: SIM115
             self._handles[key] = handle
             self._counts[key] = 0
             logger.info(f"[{self.name}] writing manifest -> {path}")
         return handle
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def _flush_all(self) -> None:
+        for handle in self._handles.values():
+            handle.flush()
+        self._since_flush = 0
+
+    def _write_one(self, task: AudioTask) -> None:
         lang = str(task.data.get(self.lang_key, "unknown"))
         split = str(task.data.get(self.split_key, "unknown"))
         handle = self._open(lang, split)
         handle.write(json.dumps(task.data, ensure_ascii=False) + "\n")
-        # Flush every write: the executor may terminate the worker without
-        # invoking teardown(), so we cannot rely on close() to flush the buffer.
-        handle.flush()
         self._counts[(lang, split)] += 1
+        self._since_flush += 1
+
+    def process(self, task: AudioTask) -> AudioTask:
+        self._write_one(task)
+        # Periodic flush (not per-line): the executor may terminate the worker
+        # without invoking teardown(), so we bound in-flight loss to ~flush_interval
+        # rows while avoiding a flush()/fsync syscall on every write.
+        if self._since_flush >= self.flush_interval:
+            self._flush_all()
         return task
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        for task in tasks:
+            self._write_one(task)
+        # One flush per batch keeps data durable at batch boundaries cheaply.
+        self._flush_all()
+        return tasks
 
     def teardown(self) -> None:
         for (lang, split), handle in self._handles.items():

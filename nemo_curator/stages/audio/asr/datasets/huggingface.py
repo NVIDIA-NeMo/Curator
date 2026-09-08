@@ -158,9 +158,10 @@ class HuggingFaceASRDatasetHandler(BaseASRDatasetHandlerStage):
         return arr.mean(axis=1), sample_rate, int(arr.shape[1])
 
     def _audio_filename(self, row: dict, utt_id: str) -> str:
+        ext = self.audio_ext
         if self.filename_key and row.get(self.filename_key):
-            return f"{Path(str(row[self.filename_key])).stem}.wav"
-        return f"{utt_id}.wav"
+            return f"{Path(str(row[self.filename_key])).stem}.{ext}"
+        return f"{utt_id}.{ext}"
 
     def _process_row(self, row: dict, index: int, lang: str, native_split: str) -> _RowResult:
         if self.text_key not in row or row.get(self.text_key) is None:
