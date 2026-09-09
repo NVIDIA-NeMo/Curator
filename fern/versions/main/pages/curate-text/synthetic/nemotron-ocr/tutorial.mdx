@@ -100,6 +100,19 @@ python -m tutorials.synthetic.omni.ocr_pipeline \
 
 Add `--scoring-qa-fail-on-missing-text` to invalidate images with uncovered text. Otherwise missing regions are recorded, dense dump is disabled for that image, and QA uses boxes that passed scoring. Add `--valid-only` to exclude invalid images; without it, failed records remain with an `error` string.
 
+### Route the verifier through OrcaRouter
+
+Instead of the NVIDIA Inference API, you can route verifier calls through the [OrcaRouter](https://www.orcarouter.ai) gateway — an OpenAI-compatible endpoint that exposes many model providers on one base URL. It also runs gateway-level, zero-trust security for AI agents on the same endpoint — screening every prompt/response and governing every tool call on a default-deny basis, with no application code changes.
+
+Create an OrcaRouter API key at [orcarouter.ai](https://www.orcarouter.ai), then export it:
+
+```bash
+read -s ORCAROUTER_API_KEY
+export ORCAROUTER_API_KEY
+```
+
+Add `--scoring-qa-use-orcarouter` to the CLI invocation in the previous step. The verifier model ID still defaults to the NVIDIA reasoning model; OrcaRouter routes it to an equivalent reasoning model behind the scenes.
+
 ## CLI reference
 
 | Argument | Default | Description |
@@ -121,6 +134,7 @@ Add `--scoring-qa-fail-on-missing-text` to invalidate images with uncovered text
 | `--scoring-qa-max-text-errors` | `0` | Inclusive maximum text errors. |
 | `--scoring-qa-fail-on-missing-text` | False | Invalidate images with missing regions. |
 | `--scoring-qa-dense-dump-prob` | `0.05` | Dense-turn probability for complete OCR. |
+| `--scoring-qa-use-orcarouter` | False | Route the verifier through the OrcaRouter gateway (requires `ORCAROUTER_API_KEY`). |
 
 OCR `merge_level`, verifier generation/batch settings, priority mode, and API client concurrency are Python-only settings.
 
@@ -194,6 +208,20 @@ pipeline.add_stage(JsonlSampleWriterStage(
     valid_only=False,
     image_parent="/workspace/ocr-data/images",
 ))
+```
+
+To route the verifier through [OrcaRouter](https://www.orcarouter.ai) instead of NVIDIA, pass an `OrcaRouterInferenceClient` as the stage `client`:
+
+```python
+from nemo_curator.models.omni.base import OrcaRouterInferenceClient
+
+OCRScoringQAStage(
+    client=OrcaRouterInferenceClient(),  # reads ORCAROUTER_API_KEY
+    temperature=1.0,
+    max_tokens=16384,
+    min_bbox_match=5,
+    max_text_errors=0,
+)
 ```
 
 `JsonlSampleWriterStage` defaults `valid_only=True` when constructed directly, while the tutorial CLI defaults `--valid-only` to false and passes that value explicitly. Set `valid_only=False` to retain invalid records for inspection or a later rerun.

@@ -1,10 +1,10 @@
-"""NVIDIA Inference API client for reasoning VLMs.
+"""OpenAI-compatible streaming clients for reasoning VLMs.
 
-Reasoning models on NVIDIA Inference (e.g. Nemotron-Nano-Omni-Reasoning) split
+Reasoning models on remote endpoints (e.g. Nemotron-Nano-Omni-Reasoning) split
 their output into ``delta.reasoning_content`` (chain-of-thought) and
 ``delta.content`` (the final answer), and their non-stream response shape is not
-deserialized cleanly by the OpenAI SDK. This client therefore streams and
-reassembles only ``delta.content``.
+deserialized cleanly by the OpenAI SDK. These clients therefore stream and
+reassemble only ``delta.content``.
 """
 
 import os
@@ -16,26 +16,26 @@ from nemo_curator.models.client.llm_client import ConversationFormatter, Generat
 _PRIORITY_HEADER = {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"}
 
 
-class NVInferenceClient(AsyncOpenAIClient):
+class _OpenAIStreamingClient(AsyncOpenAIClient):
     """Async OpenAI-compatible client that streams reasoning-model output.
 
     Resolves the API key from ``api_key_env_var`` at ``setup()`` time (so the
     key is read on the worker, not serialized from the driver), then reassembles
-    ``delta.content`` from a streaming completion.
+    ``delta.content`` from a streaming completion. Subclasses set the endpoint
+    and key environment variable; ``_extra_headers`` optionally adds provider
+    request headers.
     """
 
     def __init__(
         self,
         *,
-        base_url: str = "https://integrate.api.nvidia.com/v1",
-        api_key_env_var: str = "NVINFERENCE_API_KEY",
-        priority_mode: bool = False,
+        base_url: str,
+        api_key_env_var: str,
         max_concurrent_requests: int = 10,
         timeout: int = 120,
     ) -> None:
         super().__init__(max_concurrent_requests=max_concurrent_requests, base_url=base_url, timeout=timeout)
         self.api_key_env_var = api_key_env_var
-        self.priority_mode = priority_mode
 
     def setup(self) -> None:
         if getattr(self, "client", None) is not None:
@@ -72,8 +72,9 @@ class NVInferenceClient(AsyncOpenAIClient):
             "stream": True,
             "timeout": self.timeout,
         }
-        if self.priority_mode:
-            create_kwargs["extra_headers"] = _PRIORITY_HEADER
+        extra_headers = getattr(self, "_extra_headers", None)
+        if extra_headers:
+            create_kwargs["extra_headers"] = extra_headers
         # extra_kwargs wins on overlap, matching AsyncOpenAIClient.
         if generation_config.extra_kwargs:
             create_kwargs.update(generation_config.extra_kwargs)
@@ -87,3 +88,56 @@ class NVInferenceClient(AsyncOpenAIClient):
             if delta is not None:
                 parts.append(delta)
         return ["".join(parts)]
+
+
+class NVInferenceClient(_OpenAIStreamingClient):
+    """NVIDIA Inference API client for reasoning VLMs.
+
+    Uses the NVIDIA integration endpoint (``https://integrate.api.nvidia.com/v1``)
+    and reads ``NVINFERENCE_API_KEY``. ``priority_mode`` adds the NVIDIA priority
+    queue header for lower latency at higher cost.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str = "https://integrate.api.nvidia.com/v1",
+        api_key_env_var: str = "NVINFERENCE_API_KEY",
+        priority_mode: bool = False,
+        max_concurrent_requests: int = 10,
+        timeout: int = 120,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            api_key_env_var=api_key_env_var,
+            max_concurrent_requests=max_concurrent_requests,
+            timeout=timeout,
+        )
+        self.priority_mode = priority_mode
+        self._extra_headers = _PRIORITY_HEADER if priority_mode else None
+
+
+class OrcaRouterInferenceClient(_OpenAIStreamingClient):
+    """OrcaRouter gateway client for reasoning VLMs.
+
+    Uses the [OrcaRouter](https://www.orcarouter.ai) gateway endpoint
+    (``https://api.orcarouter.ai/v1``) and reads ``ORCAROUTER_API_KEY``.
+    OrcaRouter exposes OpenAI-compatible ``chat/completions`` on a single
+    endpoint that routes to many model providers, so the same streaming
+    reassembly used for NVIDIA reasoning models applies.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str = "https://api.orcarouter.ai/v1",
+        api_key_env_var: str = "ORCAROUTER_API_KEY",
+        max_concurrent_requests: int = 10,
+        timeout: int = 120,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            api_key_env_var=api_key_env_var,
+            max_concurrent_requests=max_concurrent_requests,
+            timeout=timeout,
+        )

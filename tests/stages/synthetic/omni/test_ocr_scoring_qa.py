@@ -91,6 +91,25 @@ class TestOCRScoringQAStage:
 
     # ----- build_prompt --------------------------------------------------
 
+    def test_custom_orcarouter_client_is_threaded_through(self) -> None:
+        custom_client = MagicMock()
+        with patch(
+            "nemo_curator.stages.synthetic.omni.ocr_scoring_qa.NVInferenceClient",
+            return_value=MagicMock(),
+        ):
+            stage = OCRScoringQAStage(client=custom_client)
+        assert stage.client is custom_client
+
+    def test_default_client_is_nv_inference(self) -> None:
+        nv_mock = MagicMock()
+        with patch(
+            "nemo_curator.stages.synthetic.omni.ocr_scoring_qa.NVInferenceClient",
+            return_value=nv_mock,
+        ) as mock_cls:
+            stage = OCRScoringQAStage()
+        assert stage.client is nv_mock
+        mock_cls.assert_called_once_with(priority_mode=False)
+
     def test_build_prompt_skips_when_no_bboxes(self) -> None:
         stage = _make_stage()
         for words in (None, []):

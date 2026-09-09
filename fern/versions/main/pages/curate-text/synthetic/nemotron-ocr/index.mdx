@@ -122,6 +122,8 @@ The verifier returns `ocr_mode`, indexed box scores, and `missing_text`. Missing
 
 `NVInferenceClient` uses the NVIDIA integration endpoint, reads `NVINFERENCE_API_KEY`, streams final-answer content, allows 10 concurrent requests per worker, uses a 120-second timeout, and retries rate-limit and connection failures three times with exponential backoff and jitter.
 
+To use the [OrcaRouter](https://www.orcarouter.ai) gateway instead, pass `OrcaRouterInferenceClient` (reads `ORCAROUTER_API_KEY`, endpoint `https://api.orcarouter.ai/v1`) as the `client` argument to `OCRScoringQAStage`, or add `--scoring-qa-use-orcarouter` to the tutorial CLI. OrcaRouter exposes OpenAI-compatible `chat/completions` on a single endpoint that routes to many model providers.
+
 ## QA interaction shapes
 
 The source defines five QA type constants. Four tag and balance the multi-turn families; the fifth, `dense_dump`, names the separate single-turn all-words path. Single-occurrence and repeated-text routing within the four tagged families produces six user-visible shapes:
