@@ -20,6 +20,7 @@ import gc
 from copy import deepcopy
 from dataclasses import dataclass, field
 from numbers import Integral
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
@@ -84,6 +85,8 @@ class NeMoASRAdapter:
 
     model_id: str = _DEFAULT_FASTCONFORMER_CTC_MODEL
     num_workers: int = 0
+    inference_batch_size: int | None = None
+    empty_audio_marks_skip: bool = True
     verbose: bool = False
     enable_local_attention: bool = False
     local_attention_context_size: tuple[int, int] = (128, 128)
@@ -96,6 +99,14 @@ class NeMoASRAdapter:
         if self.num_workers < 0:
             msg = "NeMoASRAdapter.num_workers must be non-negative"
             raise ValueError(msg)
+        if self.inference_batch_size is not None:
+            if isinstance(self.inference_batch_size, bool) or not isinstance(self.inference_batch_size, Integral):
+                msg = "NeMoASRAdapter.inference_batch_size must be a positive integer or None"
+                raise ValueError(msg)
+            if self.inference_batch_size <= 0:
+                msg = "NeMoASRAdapter.inference_batch_size must be a positive integer or None"
+                raise ValueError(msg)
+            self.inference_batch_size = int(self.inference_batch_size)
         try:
             context_size = tuple(self.local_attention_context_size)
         except TypeError as exc:
@@ -110,9 +121,23 @@ class NeMoASRAdapter:
 
     def download_weights_on_node(self) -> None:
         """Download a pretrained checkpoint without allocating a GPU model."""
+        if self.model_id.endswith(".nemo"):
+            if not Path(self.model_id).is_file():
+                msg = f"Local NeMo checkpoint not found: {self.model_id}"
+                raise FileNotFoundError(msg)
+            return
         _nemo_asr_module().models.ASRModel.from_pretrained(model_name=self.model_id, return_model_file=True)
 
     def _load_checkpoint(self, device: Any) -> Any:  # noqa: ANN401
+        if self.model_id.endswith(".nemo"):
+            if not Path(self.model_id).is_file():
+                msg = f"Local NeMo checkpoint not found: {self.model_id}"
+                raise FileNotFoundError(msg)
+            return _nemo_asr_module().models.ASRModel.restore_from(
+                restore_path=self.model_id,
+                map_location=device,
+                strict=self.strict,
+            )
         return _nemo_asr_module().models.ASRModel.from_pretrained(
             model_name=self.model_id,
             map_location=device,
@@ -134,6 +159,9 @@ class NeMoASRAdapter:
             self._configure_local_attention(model)
         if self.use_cuda_graph_decoder is not None:
             self._configure_rnnt_cuda_graph_decoder(model)
+        eval_model = getattr(model, "eval", None)
+        if callable(eval_model):
+            eval_model()
         self._model = model
 
     def _configure_local_attention(self, model: Any) -> None:  # noqa: ANN401
@@ -169,6 +197,7 @@ class NeMoASRAdapter:
         decoding_cfg = deepcopy(decoding_cfg)
         with open_dict(decoding_cfg.greedy):
             decoding_cfg.greedy.use_cuda_graph_decoder = self.use_cuda_graph_decoder
+            decoding_cfg.greedy.allow_cuda_graphs = self.use_cuda_graph_decoder
         change_decoding_strategy(decoding_cfg=decoding_cfg)
 
     def unload_model(self) -> None:
@@ -177,6 +206,22 @@ class NeMoASRAdapter:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def _transcribe_waveforms(self, waveforms: list[np.ndarray]) -> list[str]:
+        """Run one NeMo call with an independently bounded loader batch size."""
+        inference_batch_size = min(self.inference_batch_size or len(waveforms), len(waveforms))
+        outputs = self._model.transcribe(
+            audio=waveforms,
+            batch_size=inference_batch_size,
+            return_hypotheses=False,
+            num_workers=self.num_workers,
+            verbose=self.verbose,
+        )
+        texts = _extract_nemo_transcription_texts(outputs)
+        if len(texts) != len(waveforms):
+            msg = f"NeMo returned {len(texts)} transcriptions for {len(waveforms)} inputs"
+            raise RuntimeError(msg)
+        return texts
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe one adapter call while preserving input order."""
@@ -205,18 +250,18 @@ class NeMoASRAdapter:
             waveforms.append(np.ascontiguousarray(waveform))
             valid_indices.append(index)
 
-        results = [ASRResult(text="", skipped=True, skip_reason="empty_audio") for _ in items]
+        results = [
+            ASRResult(
+                text="",
+                skipped=self.empty_audio_marks_skip,
+                skip_reason="empty_audio" if self.empty_audio_marks_skip else None,
+            )
+            for _ in items
+        ]
         if not waveforms:
             return results
 
-        outputs = self._model.transcribe(
-            audio=waveforms,
-            batch_size=len(waveforms),
-            return_hypotheses=False,
-            num_workers=self.num_workers,
-            verbose=self.verbose,
-        )
-        texts = _extract_nemo_transcription_texts(outputs)
+        texts = self._transcribe_waveforms(waveforms)
         if len(texts) != len(valid_indices):
             msg = f"NeMo returned {len(texts)} transcriptions for {len(valid_indices)} valid inputs"
             raise RuntimeError(msg)
