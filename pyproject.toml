@@ -303,7 +303,7 @@ sdg_cuda12 = [
 
 # All dependencies
 all = [
-    "nemo_curator[audio_cuda12]",
+    "nemo_curator[audio_sed_tensorrt]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
