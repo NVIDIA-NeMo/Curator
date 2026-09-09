@@ -111,6 +111,9 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     missing_group: str = "unknown"
     timeline_flush_rows: int = 100
     name: str = "manifest_group_export"
+    # Per-group files aggregate many source rows. Retrying only unfinished
+    # sources cannot safely reconstruct or append those shared files.
+    is_resumable = False
     # output_dir is required, so discovery cannot instantiate this stage; declare the gates
     # instance-free too or a planner would see a disk writer with no disk gate.
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
