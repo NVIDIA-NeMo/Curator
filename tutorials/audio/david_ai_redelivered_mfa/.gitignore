@@ -1,0 +1,33 @@
+# Raw or generated audio/data
+*.wav
+*.opus
+*.rttm
+*.TextGrid
+*.json
+*.jsonl
+*.csv
+*.tsv
+*.tar
+*.tar.gz
+*.tar.zst
+*.zst
+
+# Pipeline outputs and scratch
+.done/
+audio_16k/
+audio_16k_masked/
+audio_mixed/
+logs/
+textgrids/
+workdir*/
+
+# Credentials and local environments
+.env
+.env.*
+*.key
+*.pem
+
+# Python/tool caches
+__pycache__/
+.pytest_cache/
+.ruff_cache/
