@@ -12,24 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Mapping
-
 from ray.data import ActorPoolStrategy
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
-
-ACTOR_POOL_SIZING_KEYS = (
-    RayStageSpecKeys.MIN_WORKERS,
-    RayStageSpecKeys.MAX_WORKERS,
-    RayStageSpecKeys.INITIAL_WORKERS,
-)
-
-
-def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) -> list[str]:
-    """Return actor-pool sizing keys configured in a ray stage spec."""
-    stage_spec_keys = {key.value if isinstance(key, RayStageSpecKeys) else key for key in ray_stage_spec}
-    return [key.value for key in ACTOR_POOL_SIZING_KEYS if key.value in stage_spec_keys]
 
 
 def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStrategy:

@@ -115,6 +115,18 @@ class BackendConfiguredStage(ConcreteProcessingStage):
         return 2
 
 
+class PerNodeConfiguredStage(ConcreteProcessingStage):
+    """Stage whose per-node worker count is configured at construction."""
+
+    name = "PerNodeConfiguredStage"
+
+    def __init__(self, num_workers_per_node: float | None):
+        self._num_workers_per_node = num_workers_per_node
+
+    def num_workers_per_node(self) -> float | None:
+        return self._num_workers_per_node
+
+
 @pytest.mark.parametrize("table_factory", [pa.table, pd.DataFrame], ids=["pyarrow", "pandas"])
 def test_validate_input_with_tabular_columns(
     table_factory: Callable[[dict[str, list[str]]], pa.Table | pd.DataFrame],
@@ -401,6 +413,21 @@ class TestProcessingStageWith:
         assert stage.num_workers_per_node() is None
         assert stage_new.num_workers_per_node() == 2
         assert stage_reset.num_workers_per_node() is None
+
+    @pytest.mark.parametrize(
+        ("value", "error"),
+        [
+            (0, ValueError),
+            (-1, ValueError),
+            (float("nan"), ValueError),
+            (float("inf"), ValueError),
+            (True, TypeError),
+            ("2", TypeError),
+        ],
+    )
+    def test_worker_sizing_rejects_invalid_num_workers_per_node(self, value: object, error: type[Exception]) -> None:
+        with pytest.raises(error, match="num_workers_per_node"):
+            PerNodeConfiguredStage(value)  # type: ignore[arg-type]
 
     @pytest.mark.parametrize("num_workers", [0, 2])
     def test_worker_sizing_rejects_num_workers_with_num_workers_per_node(self, num_workers: int):

@@ -165,23 +165,6 @@ class TestRayDataStageAdapter:
         ):
             _map_batches_kwargs(stage)
 
-    @pytest.mark.parametrize(
-        ("value", "error"),
-        [
-            (0, ValueError),
-            (-1, ValueError),
-            (float("nan"), ValueError),
-            (float("inf"), ValueError),
-            (True, TypeError),
-            ("2", TypeError),
-        ],
-    )
-    def test_num_workers_per_node_rejects_invalid_values(self, value: object, error: type[Exception]):
-        stage = ConfigurableTaskStage(num_workers_per_node=value)  # type: ignore[arg-type]
-
-        with pytest.raises(error, match="num_workers_per_node"):
-            _map_batches_kwargs(stage)
-
     def test_source_fanout_task_stage_uses_task_pool_strategy_for_single_worker_default(self):
         stage = ConfigurableTaskStage(
             ray_stage_spec={RayStageSpecKeys.IS_FANOUT_STAGE: True},

@@ -211,16 +211,19 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def _validate_worker_sizing(self) -> None:
         """Reject ambiguous combinations of backend worker-sizing options."""
+        from nemo_curator.backends.utils import (
+            get_configured_actor_pool_sizing_keys,
+            get_stage_num_workers_per_node,
+        )
+
         configured = [
             name
             for name, value in (
                 ("num_workers()", self.num_workers()),
-                ("num_workers_per_node()", self.num_workers_per_node()),
+                ("num_workers_per_node()", get_stage_num_workers_per_node(self)),
             )
             if value is not None
         ]
-
-        from nemo_curator.backends.ray_data.utils import get_configured_actor_pool_sizing_keys
 
         if get_configured_actor_pool_sizing_keys(self.ray_stage_spec()):
             configured.append("actor-pool sizing keys (min/max/initial_workers)")

@@ -15,6 +15,7 @@
 import math
 import os
 import time
+from collections.abc import Mapping
 from copy import deepcopy
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -136,6 +137,19 @@ class RayStageSpecKeys(str, Enum):
     INITIAL_WORKERS = "initial_workers"
     RAY_REMOTE_ARGS = "ray_remote_args"
     RAY_NUM_CPUS = "ray_num_cpus"
+
+
+ACTOR_POOL_SIZING_KEYS = (
+    RayStageSpecKeys.MIN_WORKERS,
+    RayStageSpecKeys.MAX_WORKERS,
+    RayStageSpecKeys.INITIAL_WORKERS,
+)
+
+
+def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) -> list[str]:
+    """Return actor-pool sizing keys configured in a Ray stage spec."""
+    stage_spec_keys = {key.value if isinstance(key, RayStageSpecKeys) else key for key in ray_stage_spec}
+    return [key.value for key in ACTOR_POOL_SIZING_KEYS if key.value in stage_spec_keys]
 
 
 def validate_num_workers_per_node(value: object, stage_name: str) -> int | float | None:

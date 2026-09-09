@@ -22,6 +22,7 @@ from ray.data import ActorPoolStrategy, Dataset, TaskPoolStrategy
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
+    get_configured_actor_pool_sizing_keys,
     get_num_workers_for_nodes,
     get_stage_num_workers_per_node,
     get_worker_metadata_and_node_id,
@@ -29,7 +30,7 @@ from nemo_curator.backends.utils import (
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.utils.ray_utils import get_alive_ray_node_count
 
-from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
+from .utils import get_actor_compute_strategy_for_stage, is_actor_stage
 
 CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
