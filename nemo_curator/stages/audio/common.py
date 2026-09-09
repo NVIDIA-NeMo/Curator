@@ -705,6 +705,32 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
     def num_workers(self) -> int | None:
         return 1
 
+    @staticmethod
+    def _item_id(relative_path: str) -> str:
+        """Flatten a relative stem without confusing separators with filename text."""
+        stem = os.path.splitext(relative_path)[0]
+        encoded_components: list[str] = []
+        for component in stem.split(os.sep):
+            encoded: list[str] = []
+            last = len(component) - 1
+            for index, char in enumerate(component):
+                if char == "~":
+                    # Reserve ``~`` for the underscore escape below.
+                    encoded.append("~~")
+                elif char == "_" and (
+                    index in (0, last)
+                    or component[index - 1] == "_"
+                    or component[index + 1] == "_"
+                ):
+                    # Encoded components must neither contain ``__`` nor touch a
+                    # separator with ``_``; otherwise two different component
+                    # boundaries can flatten to the same string.
+                    encoded.append("~u")
+                else:
+                    encoded.append(char)
+            encoded_components.append("".join(encoded))
+        return "__".join(encoded_components)
+
     def _collect_audio_files(self) -> list[str]:
         exts = tuple((e if e.startswith(".") else f".{e}").lower() for e in self.extensions)
         if not os.path.isdir(self.data_dir):
@@ -746,9 +772,9 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
             # Relpath, not basename: ``recursive`` defaults True and speaker-per-folder is the
             # standard layout, so a basename id gives spk1/utt1.wav and spk2/utt1.wav the same
             # id -- and downstream that id becomes an output filename. A flat corpus is
-            # unaffected. Not injective: a flat ``spk1__utt1.wav`` still aliases spk1/utt1.wav.
+            # unaffected unless its name needs escaping to remain distinct from a path separator.
             rel = os.path.relpath(abspath, os.path.abspath(self.data_dir))
-            item_id = os.path.splitext(rel)[0].replace(os.sep, "__")
+            item_id = self._item_id(rel)
             tasks.append(
                 AudioTask(
                     dataset_name="local-audio-folder",
