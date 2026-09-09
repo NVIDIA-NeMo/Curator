@@ -48,6 +48,20 @@ class TestCreateInitialManifestAudioFolderStage:
 
         assert ids == ["spk1__utt1", "spk2__utt1"], ids
 
+    def test_flattened_path_and_literal_separator_get_distinct_ids(self, tmp_path) -> None:  # noqa: ANN001
+        root = str(tmp_path)
+        for rel in ["spk1/utt1.wav", "spk1__utt1.wav"]:
+            _touch(root, rel)
+
+        tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
+        ids_by_path = {
+            os.path.relpath(task.data["audio_filepath"], root): task.data["audio_item_id"] for task in tasks
+        }
+
+        assert ids_by_path[os.path.join("spk1", "utt1.wav")] == "spk1__utt1"
+        assert ids_by_path["spk1__utt1.wav"] == "spk1~u~uutt1"
+        assert len(set(ids_by_path.values())) == 2
+
     def test_a_flat_folder_keeps_the_plain_ids_it_always_had(self, tmp_path) -> None:  # noqa: ANN001
         """relpath IS the basename for a flat corpus, so those ids must not move."""
         root = str(tmp_path)
