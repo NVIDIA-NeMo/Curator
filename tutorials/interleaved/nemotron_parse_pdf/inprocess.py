@@ -172,6 +172,7 @@ def _write_perf_summary(results: list, output_dir: str, wall_time: float) -> Non
 
 def main() -> None:
     parser = create_nemotron_parse_pdf_argparser()
+    parser.add_argument("--backend", default="vllm", choices=["hf", "vllm"], help="In-process inference backend")
     args = parser.parse_args()
 
     args.output_dir = os.path.abspath(args.output_dir)
@@ -186,7 +187,7 @@ def main() -> None:
     ray_client.start()
 
     try:
-        pipeline = create_nemotron_parse_pdf_pipeline(args)
+        pipeline = create_nemotron_parse_pdf_pipeline(args, inprocess_backend=args.backend)
         logger.info(f"\n{pipeline.describe()}")
 
         executor = XennaExecutor(

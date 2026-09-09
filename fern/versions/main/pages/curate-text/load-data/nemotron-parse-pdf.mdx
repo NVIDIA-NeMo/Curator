@@ -106,9 +106,9 @@ source for the complete lifecycle and [Inference Server](/curate-text/synthetic/
 for the underlying configuration objects. For executor options, refer to
 [Execution Backends](/reference/infra/execution-backends).
 
-The shared `backend="vllm"` value names the model engine; the `main.py` entry
-point selects the Dynamo HTTP-serving topology. For local validation without an
-inference server, run `inprocess.py`, which also supports `backend="hf"`.
+`main.py` always starts Dynamo with vLLM and does not expose a backend option.
+For local validation without an inference server, run `inprocess.py` with
+`--backend vllm` or `--backend hf`.
 
 For programmatic use, the helper returns an unstarted `InferenceServer`; use it
 as a context manager to start it, wait for health, and stop it:

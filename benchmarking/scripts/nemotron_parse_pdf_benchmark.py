@@ -219,6 +219,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             inference_server_startup_s = time.perf_counter() - server_start
             pipeline = create_nemotron_parse_pdf_pipeline(
                 args,
+                inprocess_backend=args.backend,
                 inference_server_endpoint=inference_server.endpoint,
                 inference_server_model_name=model_name,
                 inference_server_client_num_workers=inference_stage_parallelism,
@@ -229,7 +230,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         else:
             num_inference_gpus = _available_gpu_count()
             inference_stage_parallelism = num_inference_gpus
-            pipeline = create_nemotron_parse_pdf_pipeline(args)
+            pipeline = create_nemotron_parse_pdf_pipeline(args, inprocess_backend=args.backend)
 
         run_start_time = time.perf_counter()
         logger.info("Running Nemotron-Parse PDF pipeline...")
@@ -343,6 +344,12 @@ def main() -> int:
         default="xenna",
         choices=["xenna", "ray_data"],
         help="Executor to use for pipeline execution",
+    )
+    parser.add_argument(
+        "--backend",
+        default="vllm",
+        choices=["hf", "vllm"],
+        help="In-process inference backend; inference-server runs require vllm",
     )
     parser.add_argument(
         "--inference-server-type",

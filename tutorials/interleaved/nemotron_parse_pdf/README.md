@@ -60,10 +60,8 @@ and stops Dynamo. No separately managed server process is required. It fixes
 the HTTP stage pool at `4 * num_gpus` workers. Use `CUDA_VISIBLE_DEVICES` or
 your Ray cluster resources to control which GPUs are used.
 
-The shared `--backend` option names the model engine: `main.py` requires its
-default value, `vllm`, because Dynamo serves the vLLM engine. The entry point—not
-a separate `vllm_inference_server` backend value—selects HTTP serving versus
-in-process inference.
+`main.py` always starts Dynamo with vLLM and does not expose a `--backend`
+option.
 
 **Alternative — Run inference in process:**
 
@@ -130,7 +128,7 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--backend` | `vllm` | Model engine. `main.py` requires `vllm`; `inprocess.py` also supports `hf`. |
+| `--backend` | `vllm` | In-process engine (`inprocess.py` only); also supports `hf`. |
 | `--enforce-eager` | off | Skip vLLM CUDA graph capture (~35 min savings on first run) |
 | `--max-num-seqs` | 64 | Max concurrent sequences for vLLM |
 | `--inference-batch-size` | 32 (`main.py`), 4 (`inprocess.py`) | Concurrent requests per HTTP worker, or pages per in-process HF pass |

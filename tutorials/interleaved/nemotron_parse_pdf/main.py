@@ -30,9 +30,6 @@ def main() -> None:
     parser.set_defaults(inference_batch_size=32)
     args = parser.parse_args()
 
-    if args.backend != "vllm":
-        parser.error("Dynamo serving requires --backend vllm")
-
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 

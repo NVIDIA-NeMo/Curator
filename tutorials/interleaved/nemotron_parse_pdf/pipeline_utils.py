@@ -42,13 +42,6 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         default="nvidia/NVIDIA-Nemotron-Parse-v1.2",
         help="HuggingFace model ID or local path",
     )
-    parser.add_argument(
-        "--backend",
-        default="vllm",
-        choices=["hf", "vllm"],
-        help="Model engine; the Dynamo entry point requires vllm",
-    )
-
     parser.add_argument("--pdfs-per-task", type=int, default=10, help="PDFs per processing task")
     parser.add_argument("--max-pdfs", type=int, default=None, help="Limit total PDFs (for testing)")
     parser.add_argument("--dpi", type=int, default=300, help="PDF rendering resolution")
@@ -95,6 +88,7 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
 def create_nemotron_parse_pdf_pipeline(
     args: argparse.Namespace,
     *,
+    inprocess_backend: str = "vllm",
     inference_server_endpoint: str | None = None,
     inference_server_model_name: str | None = None,
     inference_server_client_num_workers: int = 4,
@@ -116,7 +110,7 @@ def create_nemotron_parse_pdf_pipeline(
             pdf_dir=args.pdf_dir,
             jsonl_base_dir=args.jsonl_base_dir,
             model_path=args.model_path,
-            backend=args.backend,
+            backend=inprocess_backend,
             pdfs_per_task=args.pdfs_per_task,
             max_pdfs=args.max_pdfs,
             dpi=args.dpi,
