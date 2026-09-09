@@ -2,19 +2,21 @@
 
 Convert PDFs into structured, interleaved parquet — text blocks, tables, images, and captions in reading order — using **Nemotron-Parse v1.2**.
 
-For production PDF pipelines, use NeMo Curator's Dynamo-backed
+We recommend using NeMo Curator's Dynamo-backed
 `InferenceServer` with the HTTP client stage instead of loading vLLM inside the
 pipeline stage. Internal comparisons found this to be the better default
 because the serving layer can batch requests across pipeline tasks and keep
 model replicas fed while PDF rendering and postprocessing scale independently.
 
-Use this starting configuration:
+We tested the tutorial on 8 H100 GPUs with request concurrency values of 32 and
+64. Use this starting configuration:
 
 - One inference-server replica per GPU.
 - A fixed HTTP stage pool of `4 * num_gpus` workers.
-- `inference_batch_size=32` or `64`, which is the maximum number of concurrent
-  page requests sent by each HTTP client worker. Start with 32 and try 64 when
-  the server still has scheduling headroom.
+- `inference_batch_size=32`, which is the maximum number of concurrent page
+  requests sent by each HTTP client worker. Because the best value depends on
+  the GPU and corpus, benchmark 64 on the target workload and keep it only if it
+  improves throughput without request failures or out-of-memory errors.
 
 ## Setup
 
@@ -26,10 +28,11 @@ uv sync --extra interleaved_cuda12 --extra inference_server
 ```
 
 The NeMo Curator container includes the `etcd` and `nats-server` binaries that
-Dynamo starts. When using a source environment outside the container, install
-those binaries before running the Dynamo entry point.
+Dynamo starts. For a source environment outside the container, install them
+with [`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh)
+before running the recommended entry point.
 
-## Local smoke test
+## Run the tutorial
 
 **Step 1 — Create a manifest listing your PDFs:**
 
@@ -40,23 +43,10 @@ for f in /path/to/pdfs/*.pdf; do
 done
 ```
 
-**Step 2 — Run the in-process pipeline:**
+**Step 2 — Start Dynamo and run the pipeline (recommended):**
 
 ```bash
 uv run python tutorials/interleaved/nemotron_parse_pdf/main.py \
-    --manifest manifest.jsonl \
-    --pdf-dir /path/to/pdfs \
-    --output-dir /path/to/output \
-    --backend vllm \
-    --enforce-eager
-```
-
-## Recommended inference-server pipeline
-
-Run the Dynamo tutorial entry point:
-
-```bash
-uv run python tutorials/interleaved/nemotron_parse_pdf/dynamo.py \
     --manifest manifest.jsonl \
     --pdf-dir /path/to/pdfs \
     --output-dir /path/to/output \
@@ -64,13 +54,30 @@ uv run python tutorials/interleaved/nemotron_parse_pdf/dynamo.py \
     --inference-batch-size 32
 ```
 
-`dynamo.py` detects the Ray-visible GPUs, starts one Dynamo model replica per
-GPU, waits for the OpenAI-compatible endpoint to become healthy, and calls
-`create_nemotron_parse_pdf_pipeline`. It fixes the HTTP stage pool at
-`4 * num_gpus` workers and stops Dynamo after the pipeline finishes. Use
-`CUDA_VISIBLE_DEVICES` or your Ray cluster resources to control which GPUs are
-used. The default inference batch size for this entry point is 32; pass 64 to
-compare the higher per-worker request concurrency on your corpus.
+`main.py` detects the Ray-visible GPUs, starts one Dynamo model replica per GPU,
+waits for the OpenAI-compatible endpoint to become healthy, runs the pipeline,
+and stops Dynamo. No separately managed server process is required. It fixes
+the HTTP stage pool at `4 * num_gpus` workers. Use `CUDA_VISIBLE_DEVICES` or
+your Ray cluster resources to control which GPUs are used.
+
+The shared `--backend` option names the model engine: `main.py` requires its
+default value, `vllm`, because Dynamo serves the vLLM engine. The entry point—not
+a separate `vllm_inference_server` backend value—selects HTTP serving versus
+in-process inference.
+
+**Alternative — Run inference in process:**
+
+```bash
+uv run python tutorials/interleaved/nemotron_parse_pdf/inprocess.py \
+    --manifest manifest.jsonl \
+    --pdf-dir /path/to/pdfs \
+    --output-dir /path/to/output \
+    --backend vllm \
+    --enforce-eager
+```
+
+Use `inprocess.py` for local validation and debugging when you do not want a
+separate serving topology.
 
 The entry point uses `create_nemotron_parse_inference_server`, which keeps the
 Nemotron-Parse vLLM, Dynamo, and runtime-environment settings shared with the
@@ -123,10 +130,10 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--backend` | `vllm` | Inference backend (`vllm` or `hf`) |
+| `--backend` | `vllm` | Model engine. `main.py` requires `vllm`; `inprocess.py` also supports `hf`. |
 | `--enforce-eager` | off | Skip vLLM CUDA graph capture (~35 min savings on first run) |
 | `--max-num-seqs` | 64 | Max concurrent sequences for vLLM |
-| `--inference-batch-size` | 4 | Pages per HF pass or concurrent requests per HTTP client; use 32 or 64 with an inference server |
+| `--inference-batch-size` | 32 (`main.py`), 4 (`inprocess.py`) | Concurrent requests per HTTP worker, or pages per in-process HF pass |
 | `--pdfs-per-task` | 10 | PDFs batched per processing task |
 | `--max-pdfs` | — | Cap total PDFs (for testing) |
 | `--dpi` | 300 | PDF rendering resolution |

@@ -51,7 +51,7 @@ Pass exactly one of `pdf_dir`, `zip_base_dir`, or `jsonl_base_dir` so the prepro
 | In-process `vllm` | Small local runs or debugging without a separate server lifecycle. |
 | In-process `hf` | Compatibility fallback when vLLM is unavailable. |
 
-For the recommended topology, use a fixed HTTP stage pool of `4 * num_gpus` workers and set `inference_batch_size` to 32 or 64 concurrent page requests per worker. Start with 32 and try 64 when the server still has scheduling headroom. The in-process stage retries transient port collisions when starting vLLM; non-retryable startup failures fail immediately.
+For the recommended topology, use a fixed HTTP stage pool of `4 * num_gpus` workers and start with `inference_batch_size=32` concurrent page requests per worker. We validated both 32 and 64 on 8 H100 GPUs and retained 32 because 64 improved aggregate page throughput only slightly while increasing individual request latency. Because the best value depends on the GPU and corpus, benchmark 64 on the target workload and keep it only when it improves throughput without request failures or out-of-memory errors. The in-process stage retries transient port collisions when starting vLLM; non-retryable startup failures fail immediately.
 
 ---
 
@@ -66,8 +66,10 @@ uv sync --extra interleaved_cuda12 --extra inference_server
 ```
 
 Dynamo starts local `etcd` and `nats-server` processes. The NeMo Curator
-container includes both binaries; a source environment outside the container
-must install them before running the entry point.
+container includes both binaries; for a source environment outside the
+container, install them with
+[`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh)
+before running the entry point.
 
 Create a manifest with one PDF filename per line:
 
@@ -78,7 +80,7 @@ Create a manifest with one PDF filename per line:
 Start Dynamo and run the pipeline with one command:
 
 ```bash
-uv run python tutorials/interleaved/nemotron_parse_pdf/dynamo.py \
+uv run python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --manifest ./pdfs.jsonl \
     --pdf-dir /data/pdfs \
     --output-dir ./parsed_pdfs \
@@ -99,10 +101,14 @@ vLLM, and sets the frontend and model-worker options needed by Nemotron-Parse.
 The shared `create_nemotron_parse_inference_server` helper owns those
 model-specific settings so tutorials and benchmarks use the same configuration.
 It does not use `dyn_chat_processor`. See the runnable
-[`dynamo.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/interleaved/nemotron_parse_pdf/dynamo.py)
+[`main.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/interleaved/nemotron_parse_pdf/main.py)
 source for the complete lifecycle and [Inference Server](/curate-text/synthetic/inference-server)
 for the underlying configuration objects. For executor options, refer to
 [Execution Backends](/reference/infra/execution-backends).
+
+The shared `backend="vllm"` value names the model engine; the `main.py` entry
+point selects the Dynamo HTTP-serving topology. For local validation without an
+inference server, run `inprocess.py`, which also supports `backend="hf"`.
 
 For programmatic use, the helper returns an unstarted `InferenceServer`; use it
 as a context manager to start it, wait for health, and stop it:
@@ -176,7 +182,7 @@ NemotronParsePDFReader(
 | `max_pdfs` | int \| None | `None` | Hard cap on total PDFs processed (debug aid). |
 | `dpi` | int | `300` | Render DPI for PDF pages. |
 | `max_pages` | int | `50` | Maximum pages rendered per PDF; longer PDFs are truncated. |
-| `inference_batch_size` | int | `4` | Pages per HF pass or concurrent page requests per HTTP worker. Use 32 or 64 with an inference server. |
+| `inference_batch_size` | int | `4` | Pages per HF pass or concurrent page requests per HTTP worker. The HTTP stage warns below the validated starting point of 32. |
 | `max_num_seqs` | int | `64` | Maximum concurrent vLLM sequences. |
 | `max_tokens` | int | `8192` | Maximum output tokens generated per page. |
 | `text_in_pic` | bool | `False` | When `True`, treat embedded text within rendered images as part of the text content. |
@@ -358,14 +364,13 @@ print(f"{output_tokens_per_second:.2f} output tokens/s")
 | `total_output_chars` | vLLM, HTTP | Characters in generated text across valid pages. |
 | `num_output_length_truncated` | vLLM, HTTP | Completions whose finish reason was `length`. |
 | `num_empty_outputs` | vLLM, HTTP | Requests with no completion or blank completion text. |
-| `num_request_errors` | HTTP | Page requests that still failed after client retries. |
 | `vllm_retries` | vLLM | Inference-engine resets after generation failures. This does not count startup port-collision retries. |
 
 <Note>
 The HF backend records image-loading and page-count metrics, but it does not expose token, character, truncation, or retry metrics. The HTTP stage reports server-request time rather than in-process image-loading or vLLM-engine time.
 </Note>
 
-Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the configured `max_tokens` limit (8,192 by default) and warrants inspection of those pages; `num_empty_outputs`, `num_request_errors`, and `num_skipped_pages` identify model-output, request, and image failures that raw pages-per-second figures can hide.
+Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the configured `max_tokens` limit (8,192 by default) and warrants inspection of those pages; `num_empty_outputs` and `num_skipped_pages` identify model-output and image failures that raw pages-per-second figures can hide. HTTP request failures are not counted as partial successes: after retries are exhausted, the task raises.
 
 ## Retry Behavior
 
@@ -373,7 +378,7 @@ There are three separate retry paths:
 
 1. **Engine startup:** `create_vllm_llm()` chooses a new `MASTER_PORT` and retries up to `max_port_retries=3` times for direct address-in-use errors or vLLM v1's wrapped `Engine core initialization failed` error. Retries wait two to five seconds with jitter. Known non-retryable failures, including out-of-memory, device-side assertion, and invalid configuration errors, are raised immediately.
 2. **Inference:** vLLM generation is attempted up to three times. After a failed attempt, the stage resets the engine before retrying. Successful retries contribute to the `vllm_retries` task metric; the final exception is raised after the third failed attempt.
-3. **HTTP requests:** `NemotronParseHTTPClientStage` uses the existing `AsyncOpenAIClient` exponential-backoff retry behavior. Configure the retry count with `inference_server_max_retries`; requests that still fail are counted in `num_request_errors`.
+3. **HTTP requests:** `NemotronParseHTTPClientStage` uses the existing `AsyncOpenAIClient` exponential-backoff retry behavior. Configure the retry count with `inference_server_max_retries`; a request that still fails raises the task so the pipeline cannot silently emit a partial document.
 
 If startup retries are exhausted, first check the worker log for the original failure. For repeated port collisions, reduce the number of vLLM replicas starting simultaneously or set a larger stage-level `max_port_retries` through `engine_kwargs`. Do not mask CUDA out-of-memory or invalid-model errors by increasing retries; tune memory-related engine settings or correct the model configuration instead.
 
@@ -385,11 +390,11 @@ You don't need to configure this — it works automatically. If you find legitim
 
 ## Benchmarking
 
-A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. It uses `TaskPerfUtils` to report stage-normalized per-GPU pages, input tokens, and output tokens per second for both in-process and inference-server runs, along with end-to-end throughput. Use a representative manifest and the public tutorial arguments to compare configurations before scaling to your full corpus; the repository's nightly benchmark orchestration is not required.
+A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. It uses `TaskPerfUtils` to report stage-normalized per-GPU pages, input tokens, and output tokens per second for both in-process and inference-server runs. The benchmark harness still records full-script `exec_time_s`, including inference-server startup; `time_taken_s` covers `pipeline.run()`, and `inference_server_startup_s` reports server startup separately. Use a representative manifest and the public tutorial arguments to compare configurations before scaling to your full corpus; the repository's nightly benchmark orchestration is not required.
 
 ## Best Practices
 
-- **Use Dynamo serving for production**: keep one model replica per GPU, four HTTP workers per GPU, and 32 or 64 concurrent requests per HTTP worker. Retain in-process vLLM and HF for small validation runs or debugging.
+- **Use Dynamo serving for production**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small validation runs or debugging.
 - **Cap `max_pages` for outliers**: very long PDFs (1000+ pages) can dominate runtime. The default 50 pages handles most academic papers and articles; raise to 200+ for book-length sources.
 - **Tune `pdfs_per_task` for parallelism**: smaller values (5–10) parallelize better across many GPUs; larger values (20–50) reduce per-task overhead on smaller clusters.
 - **Set `enforce_eager=True` in restricted environments**: vLLM's torch.compile path can fail on certain hosts. Disabling compilation trades throughput for compatibility.

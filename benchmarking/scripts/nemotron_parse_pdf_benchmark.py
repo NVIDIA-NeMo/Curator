@@ -17,7 +17,7 @@
 """Nemotron-Parse PDF pipeline benchmarking script.
 
 Reuses the pipeline and argparser from
-tutorials/interleaved/nemotron_parse_pdf/main.py with comprehensive
+tutorials/interleaved/nemotron_parse_pdf/pipeline_utils.py with comprehensive
 metrics collection.
 """
 
@@ -37,7 +37,7 @@ from utils import setup_executor, write_benchmark_results
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tutorials" / "interleaved" / "nemotron_parse_pdf"))
 
-from main import (
+from pipeline_utils import (
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
 )
@@ -132,7 +132,6 @@ def _compute_pdf_parse_metrics(
     num_valid_pages = task_metrics.get(f"{metric_prefix}.num_valid_pages_sum", 0.0)
     total_input_tokens = task_metrics.get(f"{metric_prefix}.total_prompt_tokens_sum", 0.0)
     total_output_tokens = task_metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
-    num_request_errors = task_metrics.get(f"{metric_prefix}.num_request_errors_sum", 0.0)
     inference_stage_process_time_sum_s = task_metrics.get("task_nemotron_parse_inference_process_time_sum", 0.0)
 
     throughput_pages_per_sec = _safe_div(num_valid_pages, run_time_taken)
@@ -147,7 +146,6 @@ def _compute_pdf_parse_metrics(
         # model emits EOS), so it is asserted as a band rather than an exact value.
         "num_pages_processed": num_valid_pages,
         "num_output_tokens": total_output_tokens,
-        "num_request_errors": num_request_errors,
         # Stage process time excludes model/server setup. Normalizing the sum
         # across the stage's concurrent workers estimates the active inference
         # wall time for both in-process and HTTP inference. These intermediate
@@ -262,8 +260,6 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         )
         if not num_pdfs_processed or not pdf_parse_metrics["num_pages_processed"]:
             logger.error("Benchmark produced no PDFs or pages")
-        elif pdf_parse_metrics["num_request_errors"]:
-            logger.error(f"Inference server request errors: {pdf_parse_metrics['num_request_errors']:.0f}")
         else:
             success = True
 
@@ -278,7 +274,6 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         pdf_parse_metrics = {
             "num_pages_processed": 0.0,
             "num_output_tokens": 0.0,
-            "num_request_errors": 0.0,
             "inference_stage_pages_per_sec_per_gpu": 0.0,
             "inference_stage_input_tokens_per_sec_per_gpu": 0.0,
             "inference_stage_output_tokens_per_sec_per_gpu": 0.0,

@@ -583,6 +583,20 @@ class TestNemotronParseHTTPClientStage:
                 inference_batch_size=0,
             )
 
+    def test_warns_when_request_concurrency_is_below_recommended_starting_point(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        with patch("nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.logger.warning") as warning:
+            NemotronParseHTTPClientStage(
+                endpoint="http://localhost:8000/v1",
+                model_name="nemotron-parse",
+                inference_batch_size=4,
+            )
+
+        warning.assert_called_once()
+
     def test_query_pages_runs_up_to_inference_batch_size_concurrently(self) -> None:
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
             NemotronParseHTTPClientStage,
@@ -691,53 +705,4 @@ class TestNemotronParseHTTPClientStage:
         assert result._metadata["proc_size"] == [2048, 1664]
         assert stage._custom_metrics["total_prompt_tokens"] == 5.0
         assert stage._custom_metrics["total_output_tokens"] == 7.0
-        assert stage._custom_metrics["num_request_errors"] == 0.0
         assert "vllm_inference_time" not in stage._custom_metrics
-
-
-class TestNemotronParsePipelineFactory:
-    def test_creates_one_http_inference_stage_with_configured_workers(self) -> None:
-        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
-            NemotronParseHTTPClientStage,
-            NemotronParseInferenceStage,
-        )
-        from tutorials.interleaved.nemotron_parse_pdf.main import (
-            create_nemotron_parse_pdf_argparser,
-            create_nemotron_parse_pdf_pipeline,
-        )
-
-        args = create_nemotron_parse_pdf_argparser().parse_args(
-            [
-                "--manifest",
-                "manifest.jsonl",
-                "--pdf-dir",
-                "pdfs",
-                "--output-dir",
-                "output",
-                "--max-tokens",
-                "1234",
-                "--inference-batch-size",
-                "32",
-            ]
-        )
-
-        pipeline = create_nemotron_parse_pdf_pipeline(
-            args,
-            inference_server_endpoint="http://localhost:8000/v1",
-            inference_server_model_name="nemotron-parse",
-            inference_server_client_num_workers=8,
-        )
-        pipeline.build()
-
-        inference_stages = [
-            stage
-            for stage in pipeline.stages
-            if isinstance(stage, (NemotronParseInferenceStage, NemotronParseHTTPClientStage))
-        ]
-        assert len(inference_stages) == 1
-        assert isinstance(inference_stages[0], NemotronParseHTTPClientStage)
-        assert inference_stages[0].endpoint == "http://localhost:8000/v1"
-        assert inference_stages[0].model_name == "nemotron-parse"
-        assert inference_stages[0].inference_batch_size == 32
-        assert inference_stages[0].max_tokens == 1234
-        assert inference_stages[0].num_workers() == 8

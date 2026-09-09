@@ -38,6 +38,7 @@ from nemo_curator.tasks import InterleavedBatch
 DEFAULT_MODEL_PATH = "nvidia/NVIDIA-Nemotron-Parse-v1.2"
 PROMPT_BASE = "</s><s><predict_bbox><predict_classes><output_markdown>"
 DEFAULT_MAX_TOKENS = 8192
+_RECOMMENDED_HTTP_CONCURRENCY = 32
 
 _NEMOTRON_PARSE_SAMPLING_PARAMS: dict[str, Any] = {
     "temperature": 0,
@@ -391,8 +392,9 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
 
     ``model_name`` is the served name used in requests. ``model_path`` is the
     underlying model identifier recorded for postprocessing and defaults to the
-    served name. For Dynamo, set ``inference_batch_size`` to 32 or 64 concurrent
-    requests per worker. ``proc_size`` must match the served model's image processor.
+    served name. We validated ``inference_batch_size=32`` on 8 H100 GPUs as a
+    starting point; tune the concurrency on the target hardware and corpus.
+    ``proc_size`` must match the served model's image processor.
     A page request that still fails after client retries raises the whole task,
     matching in-process inference and preventing partial document output.
     """
@@ -419,6 +421,12 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         if self.inference_batch_size < 1:
             msg = "inference_batch_size must be at least 1"
             raise ValueError(msg)
+        if self.inference_batch_size < _RECOMMENDED_HTTP_CONCURRENCY:
+            logger.warning(
+                "NemotronParseHTTPClientStage inference_batch_size={} may underutilize the server; "
+                "start with 32 concurrent requests per HTTP worker and tune on the target hardware and corpus",
+                self.inference_batch_size,
+            )
         self._generation_config = _nemotron_parse_server_generation_config(self.max_tokens)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -500,7 +508,6 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             "total_output_chars": total_output_chars,
             "num_output_length_truncated": float(sum(result.finish_reason == "length" for result in results)),
             "num_empty_outputs": float(sum(not result.text.strip() for result in results)),
-            "num_request_errors": 0.0,
         }
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:

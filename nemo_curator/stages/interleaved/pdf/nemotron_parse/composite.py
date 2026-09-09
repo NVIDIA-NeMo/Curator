@@ -66,8 +66,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         Maximum pages to render per PDF.
     inference_batch_size
         Pages per GPU forward pass for HF, or maximum concurrent page requests
-        from each HTTP client worker for an inference server. Use 32 or 64 for
-        production inference-server pipelines.
+        from each HTTP client worker for an inference server. Start with 32;
+        tune on the target hardware and corpus.
     max_num_seqs
         Maximum concurrent sequences (vLLM only).
     text_in_pic

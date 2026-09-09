@@ -48,8 +48,10 @@ the NVIDIA package index.
 Local GPU serving through this extra supports **x86_64 Linux** and **aarch64
 Linux**. The vLLM, ai-dynamo, and NIXL dependencies are not installed on macOS.
 The NeMo Curator container also includes the `etcd` and `nats-server` binaries
-that Dynamo starts. Install those binaries separately when using a source
-environment outside the container, or configure existing endpoints.
+that Dynamo starts. When using a source environment outside the container,
+install them with
+[`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh),
+or configure existing endpoints.
 
 The stack uses:
 
@@ -441,7 +443,10 @@ CPU-only pipelines can use any executor while the server is active.
 For Nemotron-Parse PDF pipelines, use the Dynamo backend with
 `NemotronParseHTTPClientStage`. Start with one model replica per GPU, a fixed
 HTTP stage pool of `4 * num_gpus` workers, and 32 concurrent requests per HTTP
-worker; try 64 when the server has scheduling headroom. The
+worker. This starting point was validated on 8 H100 GPUs. Because request
+concurrency is hardware- and corpus-dependent, benchmark 64 on the target
+workload and keep it only if throughput improves without request failures or
+out-of-memory errors. The
 [Nemotron-Parse PDF guide](/curate-text/load-data/nemotron-parse-pdf) provides
 the exact install and run commands.
 </Tip>
