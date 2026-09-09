@@ -17,17 +17,24 @@ Audio Splitting and Joining Stages.
 
 """
 
+import contextlib
 import hashlib
 import math
+import os
 import posixpath
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass
+from typing import Any, ClassVar
 
 import torchaudio
 from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
+from fsspec.spec import AbstractFileSystem
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -48,9 +55,21 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             split files remain beside the source audio for backward compatibility.
     """
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_dir"],
+            per_row_independent=False,
+        )
+    )
+
     # Split parameters
     suggested_max_len: float = 3600.0
     min_len: float = 1.0
+
+    # Stage metadata. Keep the legacy positional fields before additive keys.
+    name: str = "SplitLongAudio"
+
     duration_key: str = "duration"
     segments_key: str = "segments"
     audio_filepath_key: str = "resampled_audio_filepath"
@@ -60,10 +79,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     split_offsets_key: str = "split_offsets"
     split_timestamps_key: str = "split_timestamps"
 
-    # Stage metadata
-    name: str = "SplitLongAudio"
-    # Additive agent-only routing knob. Keep it after every legacy field so
-    # positional construction retains its historical argument order.
+    # Additive agent-only routing knob.
     output_dir: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -95,9 +111,8 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             cardinality="1:1 nested-list",
             iteration_key=self.split_metadata_key,
             # A row splits by its own duration and segments. With an ``output_dir`` every file
-            # shares one flat namespace, so the stem carries a hash of the source path -- which
-            # separates ``spk1/utt1.wav`` from ``spk2/utt1.wav`` but not two rows naming the same
-            # path with different segments. Without one, splits land beside their source.
+            # shares one flat namespace, so the stem carries the source and effective split-plan
+            # identity. Without one, splits land beside their source.
             gates=Gates(
                 writes_to_disk=True,
                 output_path_params=["output_dir"],
@@ -123,13 +138,13 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         return splits
 
-    def _prepare_output_dir(self) -> str:
+    def _prepare_output_dir(self) -> tuple[AbstractFileSystem | None, str]:
         """Create and resolve an explicit output directory."""
         if self.output_dir is None:
-            return ""
+            return None, ""
         output_fs, resolved_output_dir = url_to_fs(self.output_dir)
         output_fs.makedirs(resolved_output_dir, exist_ok=True)
-        return resolved_output_dir
+        return output_fs, resolved_output_dir
 
     def _split_paths(
         self,
@@ -144,6 +159,57 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             split_resolved = f"{resolved_parent}/{split_name}" if resolved_parent else split_name
             return split_filepath, split_resolved
         return posixpath.join(self.output_dir, split_name), posixpath.join(resolved_output_dir, split_name)
+
+    def _shared_output_stem(
+        self,
+        stem: str,
+        audio_path: str,
+        splits: list[float],
+        sample_rate: int,
+        total_frames: int,
+    ) -> str:
+        """Return a corpus-flat name keyed by source and effective split plan."""
+        accepted_boundaries = []
+        split_start = 0
+        for split in splits:
+            split_end = math.ceil(split * sample_rate)
+            if split_end - split_start > self.min_len * sample_rate:
+                accepted_boundaries.append(split_end)
+                split_start = split_end
+        if total_frames - split_start > self.min_len * sample_rate:
+            accepted_boundaries.append(total_frames)
+
+        identity = hashlib.sha256()
+        identity.update(audio_path.encode())
+        identity.update(
+            (
+                f"|{sample_rate}|{total_frames}|{self.suggested_max_len}|{self.min_len}|"
+                + ",".join(str(boundary) for boundary in accepted_boundaries)
+            ).encode()
+        )
+        return f"{stem}_{identity.hexdigest()[:32]}"
+
+    def _save_split(
+        self,
+        path: str,
+        waveform: Any,  # noqa: ANN401 - torchaudio accepts tensor-like waveforms
+        sample_rate: int,
+        output_fs: AbstractFileSystem | None,
+    ) -> None:
+        """Write directly locally or upload a temporary WAV through fsspec."""
+        if output_fs is None or isinstance(output_fs, LocalFileSystem):
+            torchaudio.save(path, waveform, sample_rate)
+            return
+
+        fd, local_temp = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        try:
+            torchaudio.save(local_temp, waveform, sample_rate)
+            with open(local_temp, "rb") as source, output_fs.open(path, "wb") as target:
+                shutil.copyfileobj(source, target)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(local_temp)
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process entry to split long audio files."""
@@ -179,15 +245,13 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         parent_url, filename = audio_path.rsplit("/", 1) if "/" in audio_path else ("", audio_path)
         resolved_parent = resolved_path.rsplit("/", 1)[0] if "/" in resolved_path else ""
         stem = filename.rsplit(".", 1)[0] if "." in filename else filename
-        if self.output_dir is not None:
-            # output_dir flattens the corpus into one namespace, and the parent folder was the
-            # only thing keeping two ``utt1.wav`` apart. Unset, splits land beside their source,
-            # so that route keeps byte-identical names.
-            stem = f"{stem}_{hashlib.sha256(audio_path.encode()).hexdigest()[:8]}"
-
-        resolved_output_dir = self._prepare_output_dir()
+        output_fs, resolved_output_dir = self._prepare_output_dir()
 
         audio, sr = torchaudio.load(resolved_path)
+        if self.output_dir is not None:
+            # The default remains byte-for-byte source-adjacent. A shared directory needs the
+            # source and effective split plan because either can otherwise overwrite another row.
+            stem = self._shared_output_stem(stem, audio_path, splits, sr, len(audio[0]))
 
         split_start = 0
         split_filepaths, actual_splits, split_durations = [], [], []
@@ -203,7 +267,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             split_end = math.ceil(split * sr)
 
             if split_end - split_start > self.min_len * sr:
-                torchaudio.save(split_resolved, audio[:, split_start:split_end], sr)
+                self._save_split(split_resolved, audio[:, split_start:split_end], sr, output_fs)
                 split_filepaths.append(split_filepath)
                 actual_splits.append(split_start / sr)
                 split_durations.append((split_end - split_start) / sr)
@@ -220,7 +284,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         remaining_frames = last_frame - split_start
 
         if remaining_frames > self.min_len * sr:
-            torchaudio.save(split_resolved, audio[:, split_start:], sr)
+            self._save_split(split_resolved, audio[:, split_start:], sr, output_fs)
             split_filepaths.append(split_filepath)
             split_durations.append(remaining_frames / sr)
             actual_splits.append(split_start / sr)
@@ -294,12 +358,15 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
     """
 
     text_key: str = "text"
+
+    # Stage metadata. Keep the legacy positional fields before additive keys.
+    name: str = "JoinSplitAudioMetadata"
+
     split_filepaths_key: str = "split_filepaths"
     split_metadata_key: str = "split_metadata"
     split_offsets_key: str = "split_offsets"
     split_timestamps_key: str = "split_timestamps"
     alignment_key: str = "alignment"
-    name: str = "JoinSplitAudioMetadata"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [

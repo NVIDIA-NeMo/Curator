@@ -28,16 +28,26 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
+from typing import ClassVar
 
 import soundfile
 from fsspec.core import url_to_fs
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     cleanup_temp_files,
+    drop_resident_audio,
     produce_audio_filepath,
+    reject_sinkless_conversion,
     residency_read_specs,
     resolve_audio_path,
 )
@@ -56,6 +66,15 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     updated paths.
 
     """
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            requires_ffmpeg=True,
+            output_path_params=["resampled_audio_dir"],
+            per_row_independent=True,
+        )
+    )
 
     # Processing parameters
     resampled_audio_dir: str
@@ -82,9 +101,12 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     name: str = "ResampleAudio"
 
     def __post_init__(self) -> None:
-        if not (self.keep_waveform_in_task or self.write_to_disk):
-            msg = "At least one of keep_waveform_in_task or write_to_disk must be True"
-            raise ValueError(msg)
+        reject_sinkless_conversion(
+            stage=type(self).__name__,
+            keep_waveform_in_task=self.keep_waveform_in_task,
+            write_to_disk=self.write_to_disk,
+            update_audio_filepath=self.update_audio_filepath,
+        )
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -98,6 +120,17 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
 
+    def validate_input(self, task: AudioTask) -> bool:
+        """Validate the configured file/waveform residency alternative."""
+        data = task.data
+        has_file = bool(data.get(self.audio_filepath_key))
+        has_waveform = data.get(self.waveform_key) is not None and data.get(self.sample_rate_key) is not None
+        if self.input_residency == "file":
+            return has_file
+        if self.input_residency == "waveform":
+            return has_waveform
+        return has_file or has_waveform
+
     def outputs(self) -> tuple[list[str], list[str]]:
         outputs = [self.audio_item_id_key, self.duration_key]
         if self.write_to_disk:
@@ -105,12 +138,13 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.keep_waveform_in_task:
             outputs.extend([self.waveform_key, self.sample_rate_key])
         if self.update_audio_filepath:
-            outputs.append(self.audio_filepath_key)
+            outputs.extend([self.audio_filepath_key, self.original_audio_filepath_key])
         return [], outputs
 
     def describe(self) -> StageContract:
         writes = [self.audio_item_id_key, self.duration_key]
         produces = []
+        conditional_writes = []
         if self.write_to_disk:
             writes.append(self.resampled_audio_filepath_key)
             produces.append("disk")
@@ -119,6 +153,15 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             produces.append("tensor")
         if self.update_audio_filepath:
             writes.append(self.audio_filepath_key)
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.original_audio_filepath_key]),
+                    condition=(
+                        f"'{self.audio_filepath_key}' exists and "
+                        f"'{self.original_audio_filepath_key}' is not already present"
+                    ),
+                )
+            )
         return StageContract(
             reads_one_of=residency_read_specs(
                 self.input_residency,
@@ -127,6 +170,12 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=writes, produces=produces),
+            removes_keys=(
+                [self.waveform_key, self.sample_rate_key]
+                if self.write_to_disk and not self.keep_waveform_in_task
+                else []
+            ),
+            conditional_writes=conditional_writes,
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 requires_ffmpeg=True,
@@ -177,7 +226,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return False
         return info.samplerate == self.target_sample_rate and info.channels == self.target_nchannels
 
-    def process(self, task: AudioTask) -> AudioTask:  # noqa: C901, PLR0912, PLR0915
+    def process(self, task: AudioTask) -> AudioTask:
         """
         Process a single task by resampling the audio file.
 
@@ -229,6 +278,31 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             fd, output_audio_path = tempfile.mkstemp(suffix=f".{self.target_format}")
             os.close(fd)
 
+        try:
+            return self._convert_and_update(
+                task,
+                input_audio_path=input_audio_path,
+                output_audio_path=output_audio_path,
+                original_audio_filepath=original_audio_filepath,
+                started_at=t0,
+            )
+        finally:
+            cleanup_temp_files(temp_paths)
+            if not self.write_to_disk:
+                cleanup_temp_files([output_audio_path])
+
+    def _convert_and_update(
+        self,
+        task: AudioTask,
+        *,
+        input_audio_path: str,
+        output_audio_path: str,
+        original_audio_filepath: str | None,
+        started_at: float,
+    ) -> AudioTask:
+        """Convert one resolved input and update its task metadata."""
+        data_entry = task.data
+
         # Convert audio file if not already done
         fs, output_path = url_to_fs(output_audio_path)
         skipped_conversion = self.write_to_disk and fs.exists(output_path) and self._matches_target(output_path)
@@ -264,12 +338,10 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
                 os.replace(staged, output_audio_path)
             except subprocess.CalledProcessError as e:
-                cleanup_temp_files([staged, *temp_paths])
                 msg = f"Error converting {input_audio_path}: {e}"
                 raise RuntimeError(msg) from e
-
-        # Input temp WAV (materialized from a waveform) is no longer needed after conversion.
-        cleanup_temp_files(temp_paths)
+            finally:
+                cleanup_temp_files([staged])
 
         # Update metadata — preserve original URL for cloud paths.
         if original_audio_filepath is not None:
@@ -287,17 +359,18 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             waveform, sample_rate = load_audio_file(output_audio_path, mono=False)
             data_entry[self.waveform_key] = waveform
             data_entry[self.sample_rate_key] = sample_rate
+        elif self.write_to_disk:
+            drop_resident_audio(
+                data_entry,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            )
         duration = get_audio_duration(output_audio_path)
         data_entry[self.duration_key] = duration
-        if not self.write_to_disk:
-            try:  # noqa: SIM105
-                os.remove(output_audio_path)
-            except OSError:
-                pass
 
         self._log_metrics(
             {
-                "process_time": time.perf_counter() - t0,
+                "process_time": time.perf_counter() - started_at,
                 "duration": max(duration, 0.0),
                 "skipped_conversion": float(skipped_conversion),
             }
