@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -33,7 +34,12 @@ from nemo_curator.stages.audio._agent._catalog import unavailable_modules
 from nemo_curator.stages.audio._agent._composite import expand_composites
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
-from nemo_curator.stages.audio._agent._residency import resolve_audio, write_audio_stable
+from nemo_curator.stages.audio._agent._residency import (
+    cleanup_temp_files,
+    resolve_audio,
+    resolve_audio_path,
+    write_audio_stable,
+)
 from nemo_curator.stages.audio.common import (
     CreateInitialManifestAudioFolderStage,
     ManifestCheckpointStage,
@@ -54,6 +60,33 @@ from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_resolve_audio_path_auto_prefers_complete_resident_audio(tmp_path: Path) -> None:
+    """Auto residency must not silently choose a stale file over a complete waveform."""
+    file_path = tmp_path / "one_second.wav"
+    sf.write(file_path, torch.zeros(16000).numpy(), 16000)
+    resident = torch.ones(1, 32000)
+    item = {
+        "audio_filepath": str(file_path),
+        "waveform": resident,
+        "sample_rate": 16000,
+    }
+    temporary_paths: list[str] = []
+
+    resolved = resolve_audio_path(item, residency="auto", temp_dir=str(tmp_path), register_temp=temporary_paths)
+
+    assert resolved is not None
+    assert resolved != str(file_path)
+    assert temporary_paths == [resolved]
+    loaded, sample_rate = sf.read(resolved)
+    assert sample_rate == 16000
+    assert len(loaded) == 32000
+    assert loaded.mean() > 0.9
+    assert resolve_audio_path(item, residency="file") == str(file_path)
+
+    cleanup_temp_files(temporary_paths)
+    assert not os.path.exists(resolved)
 
 
 def test_stable_audio_names_include_layout_and_written_short_stereo_shape(tmp_path: Path) -> None:
