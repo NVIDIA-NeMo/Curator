@@ -22,6 +22,11 @@ import soundfile as sf
 from fsspec.core import url_to_fs
 
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
+    MergeAlignmentDiarizationStage,
+)
 from nemo_curator.stages.audio.tagging.split import (
     JoinSplitAudioMetadataStage,
     SplitASRAlignJoinStage,
@@ -382,18 +387,80 @@ def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 
+    def test_contract_guarantees_outputs_and_removes_temporary_keys(self) -> None:
+        stage = JoinSplitAudioMetadataStage(
+            text_key="transcript",
+            alignment_key="word_alignment",
+            split_filepaths_key="chunk_paths",
+            split_metadata_key="chunks",
+        )
+
+        contract = build_contract(stage)
+
+        assert contract.writes.data_keys == ["transcript", "word_alignment"]
+        assert contract.removes_keys == ["chunk_paths", "chunks"]
+
     def test_no_split_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
-        """Entry with split_filepaths=None (no split occurred) returns entry without key."""
+        """No-split preserves existing outputs while dropping both temporary keys."""
         stage = JoinSplitAudioMetadataStage()
+        original_alignment = [{"word": "hello", "start": 0.0, "end": 0.5}]
         task = audio_task(
             audio_item_id="x",
             split_filepaths=None,
+            split_metadata=[{"text": "must not replace the top-level value"}],
+            split_offsets=[1.25],
+            split_timestamps=[2.5],
             text="hello",
+            alignment=original_alignment,
         )
-        result = stage.process(task)
-        out = result.data
+
+        assert_agent_ready(
+            stage,
+            lambda: task,
+            available_keys={
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+            },
+        )
+
+        out = task.data
         assert "split_filepaths" not in out
+        assert "split_metadata" not in out
         assert out["text"] == "hello"
+        assert out["alignment"] is original_alignment
+        assert out["split_offsets"] == [1.25]
+        assert out["split_timestamps"] == [2.5]
+
+    def test_empty_split_supplies_safe_defaults(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Empty split metadata supplies outputs without removing unrelated split timing."""
+        stage = JoinSplitAudioMetadataStage()
+        task = audio_task(
+            audio_item_id="empty",
+            split_filepaths=[],
+            split_metadata=[],
+            split_offsets=[],
+            split_timestamps=[],
+        )
+
+        assert_agent_ready(
+            stage,
+            lambda: task,
+            available_keys={
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+            },
+        )
+
+        assert task.data["text"] == ""
+        assert task.data["alignment"] == []
+        assert "split_filepaths" not in task.data
+        assert "split_metadata" not in task.data
+        assert task.data["split_offsets"] == []
+        assert task.data["split_timestamps"] == []
 
     def test_join_split_metadata_concatenates_text_and_alignments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Meta-entry with split_metadata joins text and adjusts alignment timestamps."""
@@ -418,9 +485,21 @@ class TestJoinSplitAudioMetadataStage:
                 },
             ],
             split_offsets=[0.0, 5.0],
+            split_timestamps=[5.0],
         )
-        result = stage.process(task)
-        out = result.data
+
+        assert_agent_ready(
+            stage,
+            lambda: task,
+            available_keys={
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+            },
+        )
+
+        out = task.data
         assert out["text"] == "first part second part"
         assert "split_filepaths" not in out
         assert "split_metadata" not in out
@@ -432,3 +511,46 @@ class TestJoinSplitAudioMetadataStage:
         assert align[2]["word"] == "second"
         assert align[2]["start"] == 5.0
         assert align[2]["end"] == 5.5
+
+    @pytest.mark.parametrize(
+        ("removed_key", "consumer"),
+        [
+            (
+                "split_filepaths",
+                MergeAlignmentDiarizationStage(alignment_key="split_filepaths"),
+            ),
+            (
+                "split_metadata",
+                MergeAlignmentDiarizationStage(segments_key="split_metadata"),
+            ),
+        ],
+    )
+    def test_planner_does_not_carry_removed_temporary_key(
+        self,
+        removed_key: str,
+        consumer: MergeAlignmentDiarizationStage,
+    ) -> None:
+        report = validate_pipeline(
+            [JoinSplitAudioMetadataStage(), consumer],
+            initial_roles={"alignment", "segments", "text"},
+            initial_keys={
+                "alignment",
+                "segments",
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+                "text",
+            },
+            initial_task_type="AudioTask",
+        )
+
+        assert report.ok
+        assert not report.keys_ok
+        assert removed_key not in report.produced_keys
+        assert any(
+            issue.stage_index == 1
+            and issue.code == "dangling_key"
+            and removed_key in issue.message
+            for issue in report.issues
+        )

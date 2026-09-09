@@ -21,7 +21,13 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -67,7 +73,14 @@ class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, Audi
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(data_keys=[self.alignment_key, self.segments_key]),
-            writes=IOSpec(segment_data_keys=[self.text_key, self.words_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.text_key, self.words_key]),
+                    condition=(
+                        f"both '{self.alignment_key}' and '{self.segments_key}' are non-empty"
+                    ),
+                )
+            ],
             # Merges this row's own alignment with this row's own segments.
             gates=Gates(per_row_independent=True),
         )

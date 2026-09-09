@@ -390,6 +390,7 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
                 ]
             ),
             writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+            removes_keys=[self.split_filepaths_key, self.split_metadata_key],
             # Rejoins the chunks THIS row was split into, all of which came from its own file.
             gates=Gates(per_row_independent=True),
         )
@@ -409,11 +410,14 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
         # Check if this is a meta-entry with split information
         if self.split_filepaths_key in data_entry:
             if data_entry[self.split_filepaths_key] is None:
-                del data_entry[self.split_filepaths_key]
+                data_entry.setdefault(self.text_key, "")
+                data_entry.setdefault(self.alignment_key, [])
+                for key in [self.split_filepaths_key, self.split_metadata_key]:
+                    data_entry.pop(key, None)
             else:
-                splits_joined = len(data_entry.get(self.split_metadata_key, []))
+                splits_joined = len(data_entry.get(self.split_metadata_key, []) or [])
                 self._join_split_metadata(data_entry)
-                words_aligned = len(data_entry.get(self.alignment_key, []))
+            words_aligned = len(data_entry.get(self.alignment_key, []) or [])
 
         self._log_metrics(
             {
@@ -430,7 +434,10 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
         split_offsets = meta_entry.get(self.split_offsets_key, [])
 
         if not split_metadata:
-            del meta_entry[self.split_filepaths_key]
+            meta_entry.setdefault(self.text_key, "")
+            meta_entry.setdefault(self.alignment_key, [])
+            for key in [self.split_filepaths_key, self.split_metadata_key]:
+                meta_entry.pop(key, None)
             return
 
         transcripts = []

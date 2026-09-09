@@ -26,6 +26,7 @@ from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAl
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )
+from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -219,6 +220,57 @@ class TestNeMoASRAlignerStage:
 
         with pytest.raises(ValueError, match="failed validation"):
             merger.process_batch([task])
+
+    def test_tutorial_full_asr_join_merge_chain(self) -> None:
+        aligner = NeMoASRAlignerStage(resources=Resources(cpus=1.0))
+        joiner = JoinSplitAudioMetadataStage()
+        merger = MergeAlignmentDiarizationStage()
+        stages = [aligner, joiner, merger]
+        initial_keys = {
+            "duration",
+            "segments",
+            "split_filepaths",
+            "split_metadata",
+            "split_offsets",
+            "split_timestamps",
+        }
+
+        report = validate_pipeline(
+            stages,
+            initial_roles={"duration", "segments"},
+            initial_keys=initial_keys,
+            initial_task_type="AudioTask",
+        )
+
+        assert report.ok
+        assert report.keys_ok
+        assert "text" in report.produced_keys
+        assert "alignment" in report.produced_keys
+        assert "split_filepaths" not in report.produced_keys
+        assert "split_metadata" not in report.produced_keys
+
+        _stub_asr(aligner)
+        task = AudioTask(
+            dataset_name="test",
+            data={
+                "duration": 2.0,
+                "segments": [{"speaker": "s1", "start": 0.0, "end": 2.0}],
+                "split_filepaths": ["chunk.wav"],
+                "split_metadata": [{"start": 0.0, "end": 2.0}],
+                "split_offsets": [0.0],
+                "split_timestamps": [],
+            },
+        )
+
+        for stage in stages:
+            stage.process(task)
+
+        assert task.data["text"] == "hello"
+        assert task.data["alignment"][0]["word"] == "hello"
+        assert task.data["segments"][0]["text"] == "hello"
+        assert task.data["segments"][0]["words"] == task.data["alignment"]
+        assert "split_filepaths" not in task.data
+        assert "split_metadata" not in task.data
 
     def test_setup_configures_rnnt_cuda_graphs(self) -> None:
         model = MagicMock()
