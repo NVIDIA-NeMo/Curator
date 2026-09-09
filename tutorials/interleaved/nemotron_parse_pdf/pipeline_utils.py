@@ -69,13 +69,6 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         "utilization enforcement.",
     )
 
-    parser.add_argument(
-        "--execution-mode",
-        default="streaming",
-        choices=["streaming", "batch"],
-        help="XennaExecutor execution mode",
-    )
-
     parser.add_argument("--file-name-field", default="file_name", help="JSONL field for single PDF filename")
     parser.add_argument(
         "--file-names-field", default="cc_pdf_file_names", help="JSONL field for list of PDF filenames"

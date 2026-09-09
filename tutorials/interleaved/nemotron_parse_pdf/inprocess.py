@@ -192,7 +192,7 @@ def main() -> None:
 
         executor = XennaExecutor(
             config={
-                "execution_mode": args.execution_mode,
+                "execution_mode": "streaming",
                 "ignore_failures": True,
                 "failures_return_nones": True,
                 "reset_workers_on_failure": True,
