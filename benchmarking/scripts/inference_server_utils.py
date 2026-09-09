@@ -74,7 +74,19 @@ def start_inference_server(
     ray_serve_deployment_config: dict[str, Any] | None = None,
     health_check_timeout_s: int = 900,
 ) -> InferenceServer:
-    """Build, start, and return an inference server."""
+    """Build, start, and return an inference server.
+
+    If ``model_path`` is set, the server loads weights from that local path
+    while exposing ``model_id`` as the served model name.
+
+    ``model_runtime_env`` is passed to Ray Serve replicas or Dynamo workers.
+    For gpt-oss, set ``TIKTOKEN_RS_CACHE_DIR`` there to read the Harmony
+    encoding from a pre-populated local cache instead of downloading it from
+    Azure at startup (see https://github.com/openai/harmony/issues/101).
+
+    ``health_check_timeout_s`` controls how long server startup waits for the
+    model to register at ``/v1/models``.
+    """
     from nemo_curator.core.serve import InferenceServer
 
     if num_replicas < 1:
