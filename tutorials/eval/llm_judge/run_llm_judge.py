@@ -30,18 +30,9 @@ Example:
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
-# `eval` is a repo-root package, not installed with nemo-curator, so it is only
-# importable when the repo root is on sys.path. Running this script directly
-# (`python run_llm_judge.py` or `python path/to/run_llm_judge.py`) does not put
-# the repo root on sys.path — only the script's own directory is added
-# automatically — so add it explicitly before importing from `eval`.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
-from eval.llm_judge import LLMJudgeWorkflow
 from nemo_curator.core.client import RayClient
+from nemo_curator.eval.llm_judge import LLMJudgeWorkflow
 
 
 def _parse_args() -> argparse.Namespace:

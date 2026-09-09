@@ -104,6 +104,25 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         import data_designer.config as dd
 
         num_input_records = batch.num_items
+        if num_input_records == 0:
+            # NDD's preview() raises for num_records=0, so a fully filtered
+            # partition must short-circuit before calling it.
+            self._log_metrics(
+                {
+                    "ndd_running_time": 0.0,
+                    "num_input_records": 0.0,
+                    "num_output_records": 0.0,
+                    "input_tokens_median_per_record": 0.0,
+                    "output_tokens_median_per_record": 0.0,
+                }
+            )
+            return DocumentBatch(
+                dataset_name=batch.dataset_name,
+                data=batch.to_pandas(),
+                _metadata=batch._metadata,
+                _stage_perf=batch._stage_perf,
+            )
+
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
 

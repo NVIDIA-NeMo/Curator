@@ -30,12 +30,11 @@ The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_ext
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
 
-`run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`eval/llm_judge/llm_judge_workflow.py`, importable as `from eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
+`run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`nemo_curator/eval/llm_judge/llm_judge_workflow.py`, importable as `from nemo_curator.eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
 
 ```python
 from nemo_curator.core.client import RayClient
-
-from eval.llm_judge import LLMJudgeWorkflow
+from nemo_curator.eval.llm_judge import LLMJudgeWorkflow
 
 workflow = LLMJudgeWorkflow(
     judge_config="tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_judge.yaml",
@@ -54,8 +53,6 @@ finally:
 ```
 
 `LLMJudgeWorkflow` does not start or stop Ray itself — start a `RayClient` before calling `run()` and stop it after, as shown above.
-
-`eval` is a repo-root package, not installed with `nemo-curator`, so `from eval.llm_judge import LLMJudgeWorkflow` only resolves when the repo root is on `sys.path`. Running this snippet from a script under the repo (e.g. via `pytest`, or via `python -m` from the repo root) works without extra setup; a standalone script run directly (`python your_script.py`) needs the repo root added explicitly first, e.g. `sys.path.insert(0, "/path/to/Curator")` before the import (see the same bootstrap at the top of `run_llm_judge.py`).
 
 ## Input and output
 

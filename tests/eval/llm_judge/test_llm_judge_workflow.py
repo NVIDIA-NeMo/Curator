@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from jinja2 import Environment, StrictUndefined
 
-from eval.llm_judge import llm_judge_workflow as subject
+from nemo_curator.eval.llm_judge import llm_judge_workflow as subject
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "tutorials" / "eval" / "llm_judge" / "cc_extract_example"
 

@@ -79,15 +79,25 @@ class JusTextTrafilaturaExtractor(DocumentExtractor):
         language: str | None = None
         justext_text: str | None = None
         trafilatura_text: str | None = None
+        stop_words: frozenset[str] | None = None
         try:
             language = lang_detect(html)
             stop_words = self.stop_lists.get(language)
-            if stop_words is not None:
-                justext_text = _extract_text(self.justext, html, stop_words, language)
-                trafilatura_text = _extract_text(self.trafilatura, html, stop_words, language)
         except Exception:  # noqa: BLE001, S110
-            # Keep the raw HTML row even when language detection or one extractor fails.
+            # Keep the raw HTML row even when language detection fails.
             pass
+
+        if stop_words is not None:
+            try:
+                justext_text = _extract_text(self.justext, html, stop_words, language)
+            except Exception:  # noqa: BLE001, S110
+                # Keep the raw HTML row even when one extractor fails.
+                pass
+            try:
+                trafilatura_text = _extract_text(self.trafilatura, html, stop_words, language)
+            except Exception:  # noqa: BLE001, S110
+                # Keep the raw HTML row even when one extractor fails.
+                pass
 
         return {
             "url": record["url"],

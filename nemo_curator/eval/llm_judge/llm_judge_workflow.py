@@ -44,6 +44,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 DataFormat = Literal["jsonl", "parquet"]
 FilterOperator = Literal["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in"]
+_FILTER_OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in"}
 
 
 def _load_yaml(path: Path) -> dict[str, object]:
@@ -92,11 +93,15 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
     for filter_config, filter_stage_index in filters:
         judge_name = str(filter_config["judge"])
         score_name = str(filter_config["score"])
+        operator = str(filter_config["operator"])
         if judge_name not in judge_scores:
             msg = f"Filter refers to unknown judge output column {judge_name!r}."
             raise ValueError(msg)
         if score_name not in judge_scores[judge_name]:
             msg = f"Filter refers to unknown score {score_name!r} on judge {judge_name!r}."
+            raise ValueError(msg)
+        if operator not in _FILTER_OPERATORS:
+            msg = f"Filter on judge {judge_name!r} score {score_name!r} has unsupported operator {operator!r}."
             raise ValueError(msg)
         if filter_stage_index is not None and producer_stage_by_judge[judge_name] > filter_stage_index:
             msg = (
@@ -134,7 +139,10 @@ def _keep_judge_score(  # noqa: PLR0911
             return actual <= expected
         if operator == "in":
             return actual in expected
-        return actual not in expected  # noqa: TRY300
+        if operator == "not_in":
+            return actual not in expected  # noqa: TRY300
+        msg = f"Unsupported filter operator {operator!r}."
+        raise ValueError(msg)
     except TypeError:
         return False
 

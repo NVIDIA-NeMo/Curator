@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eval.llm_judge.llm_judge_workflow import LLMJudgeWorkflow
+from .llm_judge_workflow import LLMJudgeWorkflow
 
 __all__ = ["LLMJudgeWorkflow"]
