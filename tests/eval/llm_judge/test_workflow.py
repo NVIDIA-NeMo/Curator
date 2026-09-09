@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from jinja2 import Environment, StrictUndefined
 
-from nemo_curator.eval.llm_judge import llm_judge_workflow as subject
+from nemo_curator.eval.llm_judge import workflow as subject
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "tutorials" / "eval" / "llm_judge" / "cc_extract_example"
 
@@ -306,7 +306,7 @@ def test_workflow_run_stops_inference_server_even_when_pipeline_fails(
         _run_workflow_with_fakes(monkeypatch, tmp_path, pipeline_run_error=RuntimeError("pipeline exploded"))
 
 
-def test_llm_judge_workflow_post_init_validates_filters_eagerly(tmp_path: Path) -> None:
+def test_workflow_post_init_validates_filters_eagerly(tmp_path: Path) -> None:
     config_path = tmp_path / "judge.yaml"
     config_path.write_text(
         """

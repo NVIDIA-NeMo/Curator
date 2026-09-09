@@ -30,7 +30,7 @@ The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_ext
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
 
-`run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`nemo_curator/eval/llm_judge/llm_judge_workflow.py`, importable as `from nemo_curator.eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
+`run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`nemo_curator/eval/llm_judge/workflow.py`, importable as `from nemo_curator.eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
 
 ```python
 from nemo_curator.core.client import RayClient

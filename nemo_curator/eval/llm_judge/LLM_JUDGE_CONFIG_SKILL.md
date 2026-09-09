@@ -5,7 +5,7 @@ description: Create or revise Curator LLM judge Jinja prompts and YAML configura
 
 # Curator LLM judge configuration
 
-Writes configs for `LLMJudgeWorkflow` (see `llm_judge_workflow.py` in this
+Writes configs for `LLMJudgeWorkflow` (see `workflow.py` in this
 directory, and `tutorials/eval/llm_judge/README.md` for the full runner
 documentation). Every judge config is three things: one or
 more Jinja prompt files, a YAML file wiring models to prompts to rubrics, and
