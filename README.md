@@ -84,7 +84,7 @@ curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/
 uv pip install \
   --override text_cuda12-overrides.txt \
   --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
   "nemo-curator[text_cuda12]"
 python tutorials/quickstart.py
 ```

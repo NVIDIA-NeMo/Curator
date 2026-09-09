@@ -4,8 +4,8 @@ Use this guide when diagnosing or tuning a NeMo Curator pipeline running on the
 Ray Data backend. Start from measured scheduler behavior; do not apply a setting
 only because it helped another pipeline.
 
-**Supported baseline:** Curator requires Ray 2.57.0 or later. The diagnostic shim
-in `diagnostics.py` targets exactly Ray 2.57.0 unless the installed Ray version
+**Supported baseline:** Curator requires Ray 2.58.0 or later. The diagnostic shim
+in `diagnostics.py` targets exactly Ray 2.58.0 unless the installed Ray version
 already provides the diagnostics natively. Ray Data defaults and private APIs can
 change between releases, so re-check source before carrying this guidance forward.
 
@@ -99,7 +99,7 @@ operator timing and GPU telemetry.
 | Inputs are queued but work is not admitted | `scheduling_reason`, remaining budget, actor slots | Resource, capacity, concurrency, or actor-slot limit | Change the indicated limit only |
 | Autoscaling pool stays near its minimum despite backlog | `utilization`, `tasks_in_flight`, scheduling reason | In-flight/concurrency ratio cannot reach scale-up threshold, or backpressure suppresses scaling | Fix the ratio or the blocking condition |
 | Producer stops while object-store bytes rise | Resource admission reason and internal/output bytes | Pending output or total object-store budget is exhausted | Reduce per-task payload or increase object-store capacity |
-| Frequent downstream blocked/allowed transitions | Queue ratio, configured ratio, recovered blocked duration | Producer is repeatedly outrunning consumer capacity | Compare one capacity-ratio change on the same workload |
+| Frequent downstream blocked/allowed transitions | Output pressure, configured ratio, recovered blocked duration | Producer is repeatedly outrunning consumer capacity | Compare one capacity-ratio change on the same workload |
 | `INITIAL_WORKERS=N` starts N actors, then the pool shrinks | Autoscaling decisions after first input | Initial size is not a minimum | Set `MIN_WORKERS`, or use `num_workers` for a fixed pool |
 | Concurrency 2 lowers idle gaps but raises processing time or memory | Task timings, queued bytes, object-store and GPU memory | Batching overlap helps, but preparation/contention costs increased | Compare concurrency 1 and 2 with all other settings fixed |
 
@@ -170,9 +170,9 @@ Emitted when an upstream operator changes between downstream-capacity `allowed` 
 | Field | Interpretation |
 |---|---|
 | `state` | `allowed` or `blocked` |
-| `queue_bytes` | Upstream output queued for downstream consumption |
+| `output_size_bytes` | Producer output bytes, including buffered output and downstream in-flight input |
 | `downstream_capacity_bytes` | Bytes held by pending downstream task inputs |
-| `queue_ratio`, `configured_ratio` | Current queue/capacity ratio and its threshold |
+| `output_pressure`, `configured_ratio` | Buffered-output/downstream-capacity pressure and its threshold |
 | `utilized_object_store_budget_fraction` | Object-store budget utilization gate |
 | `object_store_internal_bytes`, `object_store_output_bytes` | Producer-attributed object-store categories |
 | `blocked_duration_ms` | Completed blocked interval, populated on recovery |
@@ -215,18 +215,29 @@ passed through `RAY_REMOTE_ARGS`.
 
 ### Downstream-capacity backpressure
 
-When object-store utilization is available, downstream-capacity backpressure blocks
-an upstream operator only when both are true:
+Ray 2.58 computes output pressure as:
+
+```text
+output_pressure = output_size_bytes / downstream_capacity_bytes - 1
+```
+
+`output_size_bytes` includes buffered producer output and downstream in-flight input,
+so subtracting one isolates buffered output relative to consumer capacity. When
+downstream capacity is zero, Ray treats output pressure as zero. When object-store
+utilization is available, downstream-capacity backpressure blocks an upstream
+operator only when both are true:
 
 1. its object-store budget utilization is greater than `0.5`; and
-2. `queue_bytes / downstream_capacity_bytes` is greater than the configured ratio,
-   which defaults to `2.0`.
+2. `output_pressure` is greater than the configured ratio, which defaults to `2.0`.
 
-If utilization is unavailable, Ray evaluates the queue ratio alone. If downstream
-capacity is zero because no downstream tasks are pending, the queue ratio is treated
-as zero. When the policy blocks, Ray stops both new task admission and pulling
-additional task output. Lower ratios throttle producers sooner but can starve or
-suppress scaling of the consumer. Tune the ratio only with controlled measurements.
+If utilization is unavailable, Ray evaluates output pressure alone. When the policy
+blocks, Ray stops both new task admission and pulling additional task output. Lower
+ratios throttle producers sooner but can starve or suppress scaling of the consumer.
+Tune the ratio only with controlled measurements.
+
+Ray 2.58 skips this backpressure when the producer or an eligible downstream operator
+is a blocking materializer. Do not diagnose an unthrottled producer in that topology
+as a broken capacity policy.
 
 If every operator is blocked and no task is active, Ray can bypass backpressure to
 dispatch pending work and preserve liveness.
@@ -286,6 +297,24 @@ not time it. To compare the inline path, set the variable to `0` before Ray Data
 imported, restart the driver, and use a controlled run only when other evidence points
 to metadata retrieval.
 
+### No-progress timeout and actor initialization
+
+Ray 2.58 fails ordinary streaming executions after 30 minutes without any operator
+producing or consuming output. This guard does not apply when the topology contains a
+legacy all-to-all or hash-shuffle operator. A long-running UDF can therefore raise
+`ExecutionTimeoutError` even when its Ray task is still alive. Set
+`DataContext.get_current().execution_no_progress_timeout_s` before creating the
+Dataset, or `RAY_DATA_EXECUTION_NO_PROGRESS_TIMEOUT_S` before process startup; use
+`-1` only when disabling the guard is intentional.
+
+Ray 2.58 also distinguishes an exception raised by a UDF constructor from an actor
+process that dies during initialization. `actor_init_retry_on_errors` and
+`actor_init_max_retries` control in-process constructor retries. The new
+`DataContext.max_consecutive_actor_init_deaths` controls replacement after process
+death and defaults to `0`, so the first death fails the operator. `-1` allows
+unlimited replacements. `wait_for_min_actors_s` still fails immediately if a minimum
+actor dies while the pool is starting.
+
 ### Operator fusion
 
 Ray can fuse TaskPool → TaskPool or TaskPool → ActorPool map operators when their
@@ -325,9 +354,11 @@ only when the Curator API has no equivalent, and set them before pipeline execut
 | Actors added per decision | `DataContext.get_current().autoscaling_config.actor_pool_max_upscaling_delta = N` | `1` |
 | In-flight tasks per actor | `DataContext.get_current().max_tasks_in_flight_per_actor = N` | Global override; otherwise `2 * max_concurrency` |
 | Reserved resource fraction | `DataContext.get_current().op_resource_reservation_ratio = R` | `0.5` |
-| Downstream queue/capacity ratio | `DataContext.get_current().downstream_capacity_backpressure_ratio = R` | `2.0` |
+| Downstream output-pressure ratio | `DataContext.get_current().downstream_capacity_backpressure_ratio = R` | `2.0` |
 | Downstream object-store gate | `RAY_DATA_DOWNSTREAM_CAPACITY_OBJECT_STORE_BUDGET_UTIL_THRESHOLD` | `0.5` |
 | Metadata fetch path | `RAY_DATA_METADATA_PREFETCH_ON_THREAD` | Background thread enabled |
+| No-progress timeout | `DataContext.get_current().execution_no_progress_timeout_s = S` | `1800`; `-1` disables |
+| Consecutive actor-init deaths | `DataContext.get_current().max_consecutive_actor_init_deaths = N` | `0`; `-1` allows unlimited replacements |
 
 ## Guardrails
 

@@ -25,7 +25,7 @@ export NVIDIA_API_KEY="your-api-key-here"
   ```bash
   uv pip install \
     --torch-backend cu129 \
-    --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+    --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
     "nemo-curator[sdg_cuda12]"
   ```
 

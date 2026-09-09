@@ -160,7 +160,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df[self.text_field] = df[self.text_field].str.slice(0, self.max_chars)
 
         with torch.no_grad():
-            tokens = self.tokenizer.batch_encode_plus(
+            tokens = self.tokenizer(
                 df[self.text_field].tolist(),
                 max_length=self.max_seq_length,
                 padding="max_length",

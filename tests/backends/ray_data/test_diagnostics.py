@@ -103,6 +103,10 @@ def test_scheduler_diagnostics_are_written_to_ray_session_log(
         assert "object_store_internal_bytes=" in event_lines[event]
         assert "object_store_output_bytes=" in event_lines[event]
 
+    downstream_event = event_lines["ray_data_downstream_capacity_admission"]
+    assert "output_size_bytes=" in downstream_event
+    assert "output_pressure=" in downstream_event
+
     actor_event = event_lines["ray_data_actor_autoscaling_decision"]
     assert "object_store_internal_bytes=" in actor_event
     assert "object_store_output_bytes=" in actor_event

@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import pathlib
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -147,7 +148,7 @@ class TestCLIPImageEmbeddings:
         mock_clip = Mock()
         # Deterministic embeddings to verify normalization easily
         embed = torch.tensor([[3.0, 4.0], [1.0, 2.0]], dtype=torch.float32)
-        mock_clip.get_image_features.return_value = embed
+        mock_clip.get_image_features.return_value = SimpleNamespace(pooler_output=embed)
         self.model.clip = mock_clip
         # Ensure processor is not consulted for numpy path
         self.model.processor = Mock()
@@ -224,7 +225,7 @@ class TestCLIPImageEmbeddings:
 
         mock_clip = Mock()
         embed = torch.tensor([[3.0, 4.0], [1.0, 2.0]], dtype=torch.float32)
-        mock_clip.get_text_features.return_value = embed
+        mock_clip.get_text_features.return_value = SimpleNamespace(pooler_output=embed)
 
         mock_processor = Mock()
         input_ids = torch.tensor([[1, 2, 3], [4, 5, 0]], dtype=torch.long)

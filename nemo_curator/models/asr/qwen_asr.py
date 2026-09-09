@@ -44,8 +44,21 @@ _MIN_SAMPLES = 1600
 
 
 def _qwen_asr_model_cls() -> Any:  # noqa: ANN401
+    # qwen-asr 0.0.6 uses the Transformers 4 decorator-factory form, while
+    # vLLM 0.26 requires Transformers 5 where the decorator accepts a function.
+    from transformers.utils import generic
+
+    check_model_inputs = generic.check_model_inputs
+
+    def check_model_inputs_compat(func: Any = None) -> Any:  # noqa: ANN401
+        return check_model_inputs if func is None else check_model_inputs(func)
+
+    generic.check_model_inputs = check_model_inputs_compat
     try:
-        from qwen_asr import Qwen3ASRModel
+        try:
+            from qwen_asr import Qwen3ASRModel
+        finally:
+            generic.check_model_inputs = check_model_inputs
     except ImportError as exc:
         msg = "QwenASRAdapter requires the audio_cuda12 and vllm extras: uv sync --extra audio_cuda12 --extra vllm"
         raise ImportError(msg) from exc

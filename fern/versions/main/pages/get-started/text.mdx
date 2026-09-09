@@ -50,13 +50,13 @@ curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/
 uv pip install \
   --override text_cuda12-overrides.txt \
   --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.26.0/cu129 \
   "nemo-curator[text_cuda12]"
 ```
 
 <Warning>
 Standard `pip install` and plain `uv pip install` without the override are not
-supported for `text_cuda12`. vLLM 0.22 requires `numba==0.65.0`, while RAPIDS
+supported for `text_cuda12`. vLLM 0.26 requires `numba==0.65.0`, while RAPIDS
 25.10 declares `numba<0.62`.
 </Warning>
 

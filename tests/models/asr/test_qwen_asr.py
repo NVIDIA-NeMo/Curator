@@ -27,7 +27,7 @@ import pytest
 import torch
 
 from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.qwen_asr import _MIN_SAMPLES, QwenASRAdapter
+from nemo_curator.models.asr.qwen_asr import _MIN_SAMPLES, QwenASRAdapter, _qwen_asr_model_cls
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.tasks import AudioTask
 
@@ -381,10 +381,10 @@ def _load_short_fixture() -> np.ndarray:
 
 def _require_real_qwen_stack() -> type:
     try:
-        from qwen_asr import Qwen3ASRModel
+        model_cls = _qwen_asr_model_cls()
     except ImportError as exc:
         pytest.fail(f"The Qwen3-ASR GPU test environment is missing qwen-asr: {exc}")
-    return Qwen3ASRModel
+    return model_cls
 
 
 @pytest.mark.gpu
