@@ -93,13 +93,13 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
     for filter_config, filter_stage_index in filters:
         judge_name = str(filter_config["judge"])
         score_name = str(filter_config["score"])
-        operator = str(filter_config["operator"])
         if judge_name not in judge_scores:
             msg = f"Filter refers to unknown judge output column {judge_name!r}."
             raise ValueError(msg)
         if score_name not in judge_scores[judge_name]:
             msg = f"Filter refers to unknown score {score_name!r} on judge {judge_name!r}."
             raise ValueError(msg)
+        operator = str(filter_config["operator"])
         if operator not in _FILTER_OPERATORS:
             msg = f"Filter on judge {judge_name!r} score {score_name!r} has unsupported operator {operator!r}."
             raise ValueError(msg)
