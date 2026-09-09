@@ -200,7 +200,12 @@ ADDITIVE_STAGE_NAMES = (
 # byte-identical. Declaring them is the point: static discovery cannot instantiate a
 # stage whose output_path is required, so before this an agent reading the static view
 # saw a destructive JSON sink as a pure stage.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "fb75765c46b0bb93e53b4c4b3e38e9fbaba61880458dea56ce899c825da2172c"
+# Regenerated for the tagging contract corrections. Exactly three entries moved:
+# NeMoASRAlignerStage now reports its default nested-list cardinality, while
+# ResampleAudioStage and SplitLongAudioStage expose the invariant disk/output-path
+# gates that configured contracts already report. Constructor defaults and the other
+# 43 stage entries remain unchanged.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "1ecfb9add5f7956e45fef6e94b832fccb7cc933dedd013b0f1babb9058baf619"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
