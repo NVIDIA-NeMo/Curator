@@ -115,6 +115,18 @@ class BackendConfiguredStage(ConcreteProcessingStage):
         return 2
 
 
+class PerNodeConfiguredStage(ConcreteProcessingStage):
+    """Stage whose per-node worker count is configured at construction."""
+
+    name = "PerNodeConfiguredStage"
+
+    def __init__(self, num_workers_per_node: float | None):
+        self._num_workers_per_node = num_workers_per_node
+
+    def num_workers_per_node(self) -> float | None:
+        return self._num_workers_per_node
+
+
 @pytest.mark.parametrize("table_factory", [pa.table, pd.DataFrame], ids=["pyarrow", "pandas"])
 def test_validate_input_with_tabular_columns(
     table_factory: Callable[[dict[str, list[str]]], pa.Table | pd.DataFrame],
@@ -392,6 +404,47 @@ class TestProcessingStageWith:
         assert stage.num_workers() == 2
         assert stage_new.num_workers() is None
 
+    def test_num_workers_per_node_override_accepts_none_as_explicit_override(self):
+        stage = ConcreteProcessingStage()
+
+        stage_new = stage.with_(num_workers_per_node=2)
+        stage_reset = stage_new.with_(num_workers_per_node=None)
+
+        assert stage.num_workers_per_node() is None
+        assert stage_new.num_workers_per_node() == 2
+        assert stage_reset.num_workers_per_node() is None
+
+    @pytest.mark.parametrize(
+        ("value", "error"),
+        [
+            (0, ValueError),
+            (-1, ValueError),
+            (float("nan"), ValueError),
+            (float("inf"), ValueError),
+            (True, TypeError),
+            ("2", TypeError),
+        ],
+    )
+    def test_worker_sizing_rejects_invalid_num_workers_per_node(self, value: object, error: type[Exception]) -> None:
+        with pytest.raises(error, match="num_workers_per_node"):
+            PerNodeConfiguredStage(value)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("num_workers", [0, 2])
+    def test_worker_sizing_rejects_num_workers_with_num_workers_per_node(self, num_workers: int):
+        with pytest.raises(ValueError, match=r"num_workers\(\).*num_workers_per_node"):
+            ConcreteProcessingStage().with_(num_workers=num_workers, num_workers_per_node=2)
+
+    def test_worker_sizing_rejects_existing_num_workers_with_num_workers_per_node(self):
+        with pytest.raises(ValueError, match=r"num_workers\(\).*num_workers_per_node"):
+            BackendConfiguredStage().with_(num_workers_per_node=2)
+
+    def test_worker_sizing_rejects_actor_pool_keys_with_num_workers_per_node(self):
+        with pytest.raises(ValueError, match=r"num_workers_per_node.*actor-pool sizing"):
+            ConcreteProcessingStage().with_(
+                num_workers_per_node=2,
+                ray_stage_spec={"max_workers": 4},
+            )
+
 
 class TestProcessingStageInputSpecs:
     """Test legacy and task-type-specific input specs."""
@@ -585,6 +638,17 @@ class TestProcessingStageOverriddenProperties:
                 name = "MockStageNumWorkersAttribute"
                 resources = Resources(cpus=1.0)
                 num_workers: int = 1
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
+    def test_num_workers_per_node_attribute(self):
+        with pytest.raises(TypeError, match="must not define 'num_workers_per_node' as a stage attribute"):
+
+            class MockStageNumWorkersPerNodeAttribute(ProcessingStage[MockTask, MockTask]):
+                name = "MockStageNumWorkersPerNodeAttribute"
+                resources = Resources(cpus=1.0)
+                num_workers_per_node: float = 1
 
                 def process(self, task: MockTask) -> MockTask:
                     return task
