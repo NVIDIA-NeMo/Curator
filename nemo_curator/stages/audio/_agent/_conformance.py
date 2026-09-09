@@ -282,6 +282,20 @@ def _data_of(task: Any) -> dict[str, Any]:  # noqa: ANN401
     return data if isinstance(data, dict) else {}
 
 
+def _data_keys_of(task: Any) -> set[str]:  # noqa: ANN401
+    """Top-level fields carried by an AudioTask dict or DocumentBatch frame."""
+    data = getattr(task, "data", None)
+    if isinstance(data, dict):
+        return set(data)
+    columns = getattr(data, "columns", None)
+    if columns is None:
+        return set()
+    try:
+        return {str(column) for column in columns}
+    except TypeError:
+        return set()
+
+
 def _check_gpu_gate(stage: Any, c: StageContract, name: str) -> None:  # noqa: ANN401
     """A stage that reserves GPU resources must not report that it needs none.
 
@@ -364,7 +378,7 @@ def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: on
 
     task = fixture_factory()
     batch_input = isinstance(task, list)
-    input_keys = set(_data_of(task[0] if batch_input else task))
+    input_keys = _data_keys_of(task[0] if batch_input else task)
 
     if c.batch_only or _supports_batch(stage):
         out = stage.process_batch(task if batch_input else [task])
@@ -388,11 +402,13 @@ def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: on
     # because a manifest row's columns come from the file and cannot be declared in advance.
     if c.cardinality in {"1:N fan-out", "N:1"} and results:
         for position, result in enumerate(results):
-            row = _data_of(result)
+            output_keys = _data_keys_of(result)
             for key in c.writes.data_keys:
-                assert key in row, f"{name}: declared write {key!r} missing from result {position}"
+                assert key in output_keys, f"{name}: declared write {key!r} missing from result {position}"
             for key in c.removes_keys:
-                assert key not in row, f"{name}: declared removes_keys {key!r} still present in result {position}"
+                assert key not in output_keys, (
+                    f"{name}: declared removes_keys {key!r} still present in result {position}"
+                )
 
     # (4) no undeclared top-level keys (non-fanout)
     if c.cardinality in {"1:1", "1:1 nested-list", "filter"} and results:

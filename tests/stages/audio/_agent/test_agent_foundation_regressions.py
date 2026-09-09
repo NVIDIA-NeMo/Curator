@@ -16,17 +16,22 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import pytest
 import soundfile as sf
 import torch
 
 from nemo_curator.stages import audio
 from nemo_curator.stages.audio import agent
+from nemo_curator.stages.audio._agent import _catalog
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._catalog import unavailable_modules
 from nemo_curator.stages.audio._agent._composite import expand_composites
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio._agent._residency import resolve_audio, write_audio_stable
 from nemo_curator.stages.audio.common import (
@@ -44,7 +49,8 @@ from nemo_curator.stages.audio.preprocessing import (
     SampleRateFilterStage,
     SegmentConcatenationStage,
 )
-from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -105,6 +111,34 @@ def test_public_facade_exposes_unavailable_modules_and_folder_source() -> None:
     assert agent.unavailable_modules is unavailable_modules
     assert CreateInitialManifestAudioFolderStage is FolderSource
     assert "CreateInitialManifestAudioFolderStage" in audio.__all__
+
+
+def test_public_discovery_reports_an_optional_import_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A partial install exposes skipped modules through the public facade."""
+    missing_module = "nemo_curator.stages.audio.optional_missing"
+    monkeypatch.setattr(_catalog, "_IMPORTED", False)
+    monkeypatch.setattr(_catalog, "_SKIPPED", [])
+    monkeypatch.setattr(
+        _catalog.pkgutil,
+        "walk_packages",
+        lambda *_args, **_kwargs: [SimpleNamespace(name=missing_module)],
+    )
+
+    def fail_optional_import(name: str) -> None:
+        assert name == missing_module
+        message = "optional dependency is not installed"
+        raise ModuleNotFoundError(message)
+
+    monkeypatch.setattr(_catalog.importlib, "import_module", fail_optional_import)
+    with pytest.warns(UserWarning, match="optional_missing"):
+        missing = agent.unavailable_modules()
+
+    assert missing == [
+        {
+            "module": missing_module,
+            "error": "ModuleNotFoundError: optional dependency is not installed",
+        }
+    ]
 
 
 def _stereo_task(tmp_path: Path, sample_rate: int = 16000) -> tuple[AudioTask, str]:
@@ -263,6 +297,18 @@ def test_a_tensor_under_an_uninferable_name_can_be_declared_resident(tmp_path: P
     assert not validate_pipeline([writer], initial_keys={"audio_tensor"}, initial_tensor_keys={"audio_tensor"}).ok
 
 
+def test_an_explicit_empty_tensor_seed_overrides_waveform_name_inference(tmp_path: Path) -> None:
+    """A nullable waveform-named manifest column is not automatically a resident tensor."""
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [writer],
+        initial_keys={"waveform"},
+        initial_tensor_keys=set(),
+    )
+    assert report.ok
+    assert not any(issue.code == "tensor_into_sink" for issue in report.issues)
+
+
 def test_a_plain_manifest_input_still_reaches_a_json_sink(tmp_path: Path) -> None:
     """The seeding must not make every pipeline look tensor-resident."""
     report = validate_pipeline([ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))])
@@ -280,6 +326,12 @@ def test_a_custom_manifest_path_column_is_what_the_reader_declares(tmp_path: Pat
     emitted = reader.process(FileGroupTask(dataset_name="d", data=[str(manifest)]))
     assert "recording_path" in emitted[0].data
     assert "audio_filepath" not in emitted[0].data
+    assert_agent_ready(
+        reader,
+        lambda: FileGroupTask(dataset_name="d", data=[str(manifest)]),
+        expected_cardinality="1:N fan-out",
+        available_keys=set(),
+    )
 
     # Seeded empty because the input is a FileGroupTask of manifest PATHS: it carries no
     # audio columns, and the default seed would otherwise supply the very ``audio_filepath``
@@ -294,6 +346,61 @@ def test_a_custom_manifest_path_column_is_what_the_reader_declares(tmp_path: Pat
 
     # And the ordinary manifest still pairs with the ordinary consumer.
     assert validate_pipeline([ManifestReaderStage(), MonoConversionStage()], **seed).keys_ok
+
+
+def test_fanout_conformance_checks_every_emitted_result(tmp_path: Path) -> None:
+    """A later fan-out row cannot omit a write that only the first row carries."""
+    manifest = tmp_path / "mixed.jsonl"
+    manifest.write_text(
+        '{"recording_path": "/tmp/a.wav"}\n{"text": "missing the declared recording_path"}\n',
+        encoding="utf-8",
+    )
+    reader = ManifestReaderStage(include_files_key="recording_path")
+
+    with pytest.raises(AssertionError, match="missing from result 1"):
+        assert_agent_ready(
+            reader,
+            lambda: FileGroupTask(dataset_name="d", data=[str(manifest)]),
+            expected_cardinality="1:N fan-out",
+            available_keys=set(),
+        )
+
+
+class _DataFrameFanInStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]):
+    """Small stand-in for the full agent branch's AudioToDocumentStage."""
+
+    BATCH_ONLY = True
+    name = "dataframe_fan_in"
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=["text"]),
+            cardinality="N:1",
+        )
+
+    def process(self, _task: AudioTask) -> DocumentBatch:
+        raise NotImplementedError
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[DocumentBatch]:
+        return [
+            DocumentBatch(
+                dataset_name=tasks[0].dataset_name,
+                data=pd.DataFrame([{"text": task.data["text"]} for task in tasks]),
+            )
+        ]
+
+
+def test_n_to_one_conformance_reads_document_batch_columns() -> None:
+    """Declared N:1 writes are DataFrame columns in a DocumentBatch, not dict keys."""
+    assert_agent_ready(
+        _DataFrameFanInStage(),
+        lambda: [
+            AudioTask(dataset_name="d", data={"text": "one"}),
+            AudioTask(dataset_name="d", data={"text": "two"}),
+        ],
+        expected_cardinality="N:1",
+        available_keys={"text"},
+    )
 
 
 def test_a_null_waveform_does_not_authenticate_a_stale_sample_rate(tmp_path: Path) -> None:

@@ -699,6 +699,8 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
             the default -- infers them from ``initial_keys`` by role, which covers
             the canonical ``waveform``. Pass this when the input carries a tensor
             under a name whose role cannot be inferred (e.g. ``audio_tensor``).
+            Pass an empty set when a schema contains a waveform-named column but
+            the input values are known not to be resident tensors.
         initial_task_type: Class name of the task the first stage will be handed
             (e.g. ``"EmptyTask"`` for a pipeline that starts at a source, ``"AudioTask"``
             for a suffix resumed from a manifest). ``None`` -- the default -- leaves the
