@@ -112,6 +112,26 @@ class TestDataFlowChecks:
         assert "tensor_into_sink" in _codes(r)
         assert r.get("status") == "fail"
 
+    def test_a_nonresident_waveform_named_input_can_override_inference(self) -> None:
+        inferred = _validate([_WRITER], initial_keys=["waveform"], initial_roles=[])
+        assert "tensor_into_sink" in _codes(inferred)
+
+        nonresident = _validate(
+            [_WRITER],
+            initial_keys=["waveform"],
+            initial_roles=[],
+            initial_tensor_keys=[],
+        )
+        assert "tensor_into_sink" not in _codes(nonresident)
+
+    def test_manifest_backed_waveform_column_is_not_assumed_to_be_a_tensor(self) -> None:
+        result = _validate(
+            [_READER, _WRITER],
+            data=str(_READER_MANIFEST),
+            initial_keys=["audio_filepath", "waveform"],
+        )
+        assert "tensor_into_sink" not in _codes(result)
+
     def test_sanitized_flow_clears_tensor_into_sink(self) -> None:
         r = _validate(
             [

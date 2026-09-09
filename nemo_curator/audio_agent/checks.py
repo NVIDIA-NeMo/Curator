@@ -49,6 +49,7 @@ class CheckContext:
     initial_roles: set[str]
     initial_keys: set[str]
     available_gpus: float
+    initial_tensor_keys: set[str] | None = None
     expected_outputs: list[str] = field(default_factory=list)  # roles the user asked for
     acceptance_criteria: list[Any] = field(default_factory=list)  # parsed AcceptanceCriterion list (1A.1)
     request_type: str | None = None  # goal/request kind, for request-type sanity (1A.1)
@@ -214,6 +215,7 @@ def _check_data_flow(ctx: CheckContext) -> CheckResult:
         ctx.stages,
         initial_roles=ctx.initial_roles,
         initial_keys=ctx.initial_keys,
+        initial_tensor_keys=ctx.initial_tensor_keys,
         available_gpus=None,
     )
     issues = [

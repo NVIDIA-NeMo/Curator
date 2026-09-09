@@ -930,6 +930,7 @@ def validate(  # noqa: C901, PLR0912, PLR0913, PLR0915
     data: str | None = None,
     initial_keys: list[str] | None = None,
     initial_roles: list[str] | None = None,
+    initial_tensor_keys: list[str] | None = None,
     expected_outputs: list[str] | None = None,
     acceptance_criteria: list[dict[str, Any]] | None = None,
     request_type: str | None = None,
@@ -960,6 +961,9 @@ def validate(  # noqa: C901, PLR0912, PLR0913, PLR0915
 
     The first supported source stage's parameters are execution truth. ``data``
     and ``Recipe.inputs`` are optional assertions and never rewrite that stage.
+    ``initial_tensor_keys`` disambiguates genuinely resident input tensors from
+    identically named JSON manifest columns; manifest-backed validation defaults
+    it to empty because a JSON row cannot carry a framework tensor.
     """
     from nemo_curator.audio_agent.acceptance import expected_roles_from_criteria, parse_criteria
     from nemo_curator.audio_agent.checks import CheckContext, run_checks
@@ -1035,6 +1039,17 @@ def validate(  # noqa: C901, PLR0912, PLR0913, PLR0915
         roles0 = set(initial_roles)
     if initial_keys is not None:
         keys0 = set(initial_keys)
+    if initial_tensor_keys is not None:
+        tensor_keys0: set[str] | None = set(initial_tensor_keys)
+    elif data_profile is not None:
+        # A profiled source is JSON/file backed. Its schema may contain a nullable
+        # ``waveform`` column, but key presence alone does not make that value a
+        # resident framework tensor.
+        tensor_keys0 = set()
+    else:
+        # No source evidence: preserve the foundation's conservative inference
+        # for callers validating an already-resident in-memory task.
+        tensor_keys0 = None
 
     recipe_criteria = parse_criteria(rec.acceptance_criteria)
     if acceptance_criteria is None:
@@ -1062,6 +1077,7 @@ def validate(  # noqa: C901, PLR0912, PLR0913, PLR0915
         initial_roles=roles0,
         initial_keys=keys0,
         available_gpus=float(env.gpu_count) if env.has_gpu else 0.0,
+        initial_tensor_keys=tensor_keys0,
         expected_outputs=sorted(expected),
         acceptance_criteria=criteria,
         request_type=request_type,
