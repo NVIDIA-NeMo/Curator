@@ -672,7 +672,7 @@ entries:
       --pairwise-batch-size=1024
       --kmeans-embedding-output-dtype=float16
       --pairwise-compute-dtype=float16
-      --fit-data-fraction=0.20
+      --fit-data-fraction=auto
     timeout_s: 1800
     sink_data:
       - name: slack
