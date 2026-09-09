@@ -44,8 +44,6 @@ from nemo_curator.stages.deduplication.semantic.kmeans import (
 )
 from nemo_curator.stages.deduplication.semantic.pairwise import (
     PairwiseComputeDtype,
-    validate_pairwise_batch_size,
-    validate_pairwise_compute_dtype,
 )
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
@@ -191,8 +189,6 @@ class TextSemanticDeduplicationWorkflow:
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
 
-        validate_pairwise_batch_size(self.pairwise_batch_size)
-        validate_pairwise_compute_dtype(self.pairwise_compute_dtype)
         validate_embedding_output_dtype(self.kmeans_embedding_output_dtype)
         if self.kmeans_embedding_output_dtype == "float16" and self.pairwise_compute_dtype == "float32":
             msg = "FP16 KMeans output cannot be restored for FP32 Pairwise compute"

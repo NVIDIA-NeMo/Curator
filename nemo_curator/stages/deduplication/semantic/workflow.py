@@ -44,8 +44,6 @@ from nemo_curator.stages.deduplication.semantic.kmeans import (
 from nemo_curator.stages.deduplication.semantic.pairwise import (
     PairwiseComputeDtype,
     PairwiseStage,
-    validate_pairwise_batch_size,
-    validate_pairwise_compute_dtype,
 )
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
@@ -194,8 +192,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         self.distance_metric = distance_metric
         self.which_to_keep = which_to_keep
         self.ranking_strategy = ranking_strategy
-        validate_pairwise_batch_size(pairwise_batch_size)
-        validate_pairwise_compute_dtype(pairwise_compute_dtype)
         if kmeans_embedding_output_dtype == "float16" and pairwise_compute_dtype == "float32":
             msg = "FP16 KMeans output cannot be restored for FP32 Pairwise compute"
             raise ValueError(msg)

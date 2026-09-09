@@ -66,14 +66,7 @@ def validate_pairwise_batch_size(batch_size: object) -> None:
         raise ValueError(msg)
 
 
-def validate_pairwise_compute_dtype(compute_dtype: object) -> None:
-    if compute_dtype not in {"auto", "float16", "float32"}:
-        msg = f"Unsupported compute_dtype: {compute_dtype}"
-        raise ValueError(msg)
-
-
 def _resolve_compute_dtype(cluster_reps: "torch.Tensor", compute_dtype: PairwiseComputeDtype) -> "torch.dtype":
-    validate_pairwise_compute_dtype(compute_dtype)
     if cluster_reps.dtype not in {torch.float16, torch.float32}:
         msg = f"Pairwise requires float16 or float32 embeddings, got {cluster_reps.dtype}"
         raise TypeError(msg)
@@ -230,7 +223,9 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.output_path = output_path
         validate_pairwise_batch_size(pairwise_batch_size)
         self.pairwise_batch_size = pairwise_batch_size
-        validate_pairwise_compute_dtype(compute_dtype)
+        if compute_dtype not in {"auto", "float16", "float32"}:
+            msg = f"Unsupported compute_dtype: {compute_dtype}"
+            raise ValueError(msg)
         self.compute_dtype = compute_dtype
         self.ranking_strategy = ranking_strategy
         self.verbose = verbose
@@ -460,8 +455,6 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
         super().__init__()
-        validate_pairwise_batch_size(self.pairwise_batch_size)
-        validate_pairwise_compute_dtype(self.compute_dtype)
         if self.ranking_strategy is None:
             if self.which_to_keep == "random":
                 self.ranking_strategy = RankingStrategy(
