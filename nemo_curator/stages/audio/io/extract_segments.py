@@ -309,6 +309,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     output_format: str = DEFAULT_OUTPUT_FORMAT
     output_key: str = "extracted_path"
     batch_size: int = 64
+    # Output names use cross-row counters and metadata.csv is rewritten from
+    # in-memory run state, so a partial source retry cannot reproduce the same
+    # complete output safely.
+    is_resumable = False
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
