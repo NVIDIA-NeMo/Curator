@@ -35,7 +35,13 @@ from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
 from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -289,23 +295,35 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         if self.infer_segment_only:
             reads = IOSpec(data_keys=[self.resampled_audio_filepath_key, self.segments_key])
             writes = IOSpec(segment_data_keys=[self.text_key, self.words_key])
+            iteration_key = self.segments_key
+            conditional_writes = []
         else:
             reads = IOSpec(
                 data_keys=["duration", self.segments_key, self.split_filepaths_key, self.split_metadata_key]
             )
-            writes = IOSpec(
-                data_keys=[self.text_key, self.alignment_key],
-                segment_data_keys=[self.text_key, self.words_key],
-            )
+            writes = IOSpec(segment_data_keys=[self.text_key, self.alignment_key])
+            iteration_key = self.split_metadata_key
+            conditional_writes = [
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+                    condition=(
+                        f"'{self.split_filepaths_key}' is an empty list, or a transcribed split "
+                        f"has no corresponding item in '{self.split_metadata_key}'"
+                    ),
+                )
+            ]
         return StageContract(
             reads=reads,
             writes=writes,
+            cardinality="1:1 nested-list",
+            iteration_key=iteration_key,
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
                 requires_internet_first_run=self.model_path is None,
                 # Batched for GPU throughput, but each row is transcribed and aligned on its own.
                 per_row_independent=True,
             ),
+            conditional_writes=conditional_writes,
         )
 
     def get_alignments_text(self, hypotheses: Any) -> tuple[list, str]:  # noqa: ANN401
