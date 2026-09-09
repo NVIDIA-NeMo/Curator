@@ -30,6 +30,16 @@ from nemo_curator.models.sed.tensorrt import SedCore, extract_features, postproc
 _MEL_BINS = 64
 _SAMPLE_RATE = 32000
 _SPLIT_ATOL = 1e-6
+_MODEL_TYPE = "Cnn14_DecisionLevelMax"
+_FRONTEND = {
+    "sample_rate": _SAMPLE_RATE,
+    "window_size": 1024,
+    "hop_size": 320,
+    "mel_bins": _MEL_BINS,
+    "fmin": 50,
+    "fmax": 14000,
+    "classes_num": 527,
+}
 
 
 def _sha256(path: Path) -> str:
@@ -133,10 +143,11 @@ def _build_engine(args: argparse.Namespace, onnx_path: Path) -> tuple[float, str
     minimum = (args.min_batch, 1, args.min_frames, _MEL_BINS)
     optimum = (args.opt_batch, 1, args.opt_frames, _MEL_BINS)
     maximum = (args.max_batch, 1, args.max_frames, _MEL_BINS)
-    if profile.set_shape("logmel", minimum, optimum, maximum) is False:
+    profile.set_shape("logmel", minimum, optimum, maximum)
+    profile_index = config.add_optimization_profile(profile)
+    if profile_index < 0:
         msg = f"TensorRT rejected logmel profile: {minimum}/{optimum}/{maximum}"
         raise RuntimeError(msg)
-    config.add_optimization_profile(profile)
 
     started = time.monotonic()
     serialized_engine = builder.build_serialized_network(network, config)
@@ -194,9 +205,13 @@ def main() -> None:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     onnx_path = args.onnx_output or args.output.with_suffix(".onnx")
+    if onnx_path.resolve() == args.output.resolve():
+        msg = "ONNX output and TensorRT engine output must be different files"
+        raise ValueError(msg)
     _, _, split_max_abs = _export_onnx(args.checkpoint, onnx_path)
     build_seconds, tensorrt_version = _build_engine(args, onnx_path)
     metadata = {
+        "schema_version": 1,
         "build_seconds": build_seconds,
         "builder_optimization_level": args.optimization_level,
         "checkpoint": str(args.checkpoint.resolve()),
@@ -207,6 +222,8 @@ def main() -> None:
         "engine_bytes": args.output.stat().st_size,
         "engine_sha256": _sha256(args.output),
         "gpu": torch.cuda.get_device_name(),
+        "model_type": _MODEL_TYPE,
+        "frontend": _FRONTEND,
         "onnx": str(onnx_path.resolve()),
         "onnx_sha256": _sha256(onnx_path),
         "precision": "fp16" if args.fp16 else "fp32",

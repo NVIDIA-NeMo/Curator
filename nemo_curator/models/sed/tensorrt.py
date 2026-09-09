@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import gc
+import hashlib
 import json
 from dataclasses import dataclass
 from numbers import Integral
@@ -38,6 +39,51 @@ if TYPE_CHECKING:
 
 
 _TENSORRT_MODEL_TYPE = "Cnn14_DecisionLevelMax"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_engine_metadata(
+    engine_path: Path,
+    expected: Mapping[str, object],
+    *,
+    compute_capability: list[int],
+    tensorrt_version: str,
+) -> dict[str, object]:
+    """Reject an engine whose immutable build contract differs from this adapter."""
+    metadata_path = engine_path.with_suffix(engine_path.suffix + ".json")
+    if not metadata_path.is_file():
+        msg = f"Missing engine provenance sidecar: {metadata_path}"
+        raise RuntimeError(msg)
+    metadata = json.loads(metadata_path.read_text())
+    if not isinstance(metadata, dict):
+        msg = f"Engine provenance sidecar must contain a JSON object: {metadata_path}"
+        raise TypeError(msg)
+
+    runtime_expected = {
+        "compute_capability": compute_capability,
+        "engine_sha256": _sha256(engine_path),
+        "tensorrt_version": tensorrt_version,
+        **expected,
+    }
+    mismatches = {
+        key: {"engine": metadata.get(key), "runtime": value}
+        for key, value in runtime_expected.items()
+        if metadata.get(key) != value
+    }
+    if mismatches:
+        details = ", ".join(
+            f"{key}: engine={values['engine']!r}, runtime={values['runtime']!r}" for key, values in mismatches.items()
+        )
+        msg = f"TensorRT engine contract mismatch ({details})"
+        raise RuntimeError(msg)
+    return metadata
 
 
 class SedCore(nn.Module):
@@ -110,7 +156,7 @@ def _trt_dtype_to_torch(dtype: object) -> torch.dtype:
 class TensorRTRunner:
     """Persistent TensorRT runner with shape-specific context memory."""
 
-    def __init__(self, engine_path: str | Path) -> None:
+    def __init__(self, engine_path: str | Path, *, expected_metadata: Mapping[str, object]) -> None:
         if not torch.cuda.is_available():
             msg = "TensorRT SED inference requires CUDA"
             raise RuntimeError(msg)
@@ -127,7 +173,7 @@ class TensorRTRunner:
             raise RuntimeError(msg) from error
 
         self._trt = trt
-        self._validate_target(path)
+        self._metadata = self._validate_target(path, expected_metadata)
         logger = trt.Logger(trt.Logger.ERROR)
         self._runtime = trt.Runtime(logger)
         self._engine = self._runtime.deserialize_cuda_engine(path.read_bytes())
@@ -149,23 +195,45 @@ class TensorRTRunner:
             else:
                 self._output_names.append(name)
 
-    def _validate_target(self, path: Path) -> None:
-        metadata_path = path.with_suffix(path.suffix + ".json")
-        if not metadata_path.is_file():
-            msg = f"Missing engine provenance sidecar: {metadata_path}"
-            raise RuntimeError(msg)
-        metadata = json.loads(metadata_path.read_text())
-        current_cc = list(torch.cuda.get_device_capability())
-        if metadata.get("compute_capability") != current_cc:
+        if self._input_names != ["logmel"] or self._output_names != ["segmentwise"]:
             msg = (
-                "Engine compute capability mismatch: "
-                f"built for {metadata.get('compute_capability')}, current GPU is {current_cc}"
+                "TensorRT engine I/O mismatch; expected input ['logmel'] and output ['segmentwise'], "
+                f"got inputs={self._input_names}, outputs={self._output_names}"
             )
             raise RuntimeError(msg)
-        if metadata.get("tensorrt_version") != self._trt.__version__:
+        self._validate_engine_io()
+
+    def _validate_target(self, path: Path, expected_metadata: Mapping[str, object]) -> dict[str, object]:
+        return _validate_engine_metadata(
+            path,
+            expected_metadata,
+            compute_capability=list(torch.cuda.get_device_capability()),
+            tensorrt_version=self._trt.__version__,
+        )
+
+    def _validate_engine_io(self) -> None:
+        expected_shapes = {"logmel": (-1, 1, -1, 64), "segmentwise": (-1, -1, 527)}
+        for name, expected_shape in expected_shapes.items():
+            actual_shape = tuple(self._engine.get_tensor_shape(name))
+            if actual_shape != expected_shape:
+                msg = f"TensorRT engine tensor {name!r} has shape {actual_shape}; expected {expected_shape}"
+                raise RuntimeError(msg)
+            actual_dtype = _trt_dtype_to_torch(self._engine.get_tensor_dtype(name))
+            if actual_dtype != torch.float32:
+                msg = f"TensorRT engine tensor {name!r} has dtype {actual_dtype}; expected torch.float32"
+                raise RuntimeError(msg)
+
+        if self._engine.num_optimization_profiles != 1:
+            msg = f"TensorRT SED engine must have exactly one optimization profile, got {self._engine.num_optimization_profiles}"
+            raise RuntimeError(msg)
+        profile = self._engine.get_tensor_profile_shape("logmel", 0)
+        actual_profile = {key: list(shape) for key, shape in zip(("min", "opt", "max"), profile, strict=True)}
+        metadata_profiles = self._metadata.get("profiles")
+        expected_profile = metadata_profiles.get("logmel") if isinstance(metadata_profiles, dict) else None
+        if actual_profile != expected_profile:
             msg = (
-                "Engine TensorRT version mismatch: "
-                f"built with {metadata.get('tensorrt_version')}, runtime is {self._trt.__version__}"
+                "TensorRT engine profile differs from its provenance sidecar; "
+                f"engine={actual_profile}, sidecar={expected_profile!r}"
             )
             raise RuntimeError(msg)
 
@@ -198,20 +266,23 @@ class TensorRTRunner:
             if accepted is False:
                 msg = f"Input shape {tuple(tensor.shape)} is outside the TensorRT profile for {name!r}"
                 raise ValueError(msg)
-            self._context.set_tensor_address(name, tensor.data_ptr())
+            if not self._context.set_tensor_address(name, tensor.data_ptr()):
+                msg = f"TensorRT rejected the device address for input {name!r}"
+                raise RuntimeError(msg)
         return device
 
     def _prepare_device_memory(self, device: torch.device) -> None:
+        unresolved = self._context.infer_shapes()
+        if unresolved:
+            msg = f"TensorRT could not infer shapes for tensors: {sorted(unresolved)}"
+            raise RuntimeError(msg)
         required = self._context.update_device_memory_size_for_shapes()
-        if required < 0:
+        if required <= 0:
             msg = "TensorRT could not determine shape-specific context memory"
             raise RuntimeError(msg)
         if self._device_memory is None or self._device_memory.numel() < required:
             self._device_memory = torch.empty(required, dtype=torch.uint8, device=device)
-        accepted = self._context.set_device_memory(self._device_memory.data_ptr(), self._device_memory.numel())
-        if accepted is False:
-            msg = f"TensorRT rejected {self._device_memory.numel()} bytes of context memory"
-            raise RuntimeError(msg)
+        self._context.set_device_memory(self._device_memory.data_ptr(), self._device_memory.numel())
 
     def __call__(self, **inputs: torch.Tensor) -> dict[str, torch.Tensor]:
         device = self._bind_inputs(inputs)
@@ -228,7 +299,9 @@ class TensorRTRunner:
                 device=device,
             )
             outputs[name] = output
-            self._context.set_tensor_address(name, output.data_ptr())
+            if not self._context.set_tensor_address(name, output.data_ptr()):
+                msg = f"TensorRT rejected the device address for output {name!r}"
+                raise RuntimeError(msg)
 
         stream = torch.cuda.current_stream(device).cuda_stream
         if not self._context.execute_async_v3(stream_handle=stream):
@@ -246,10 +319,16 @@ class TensorRTRunner:
 class TensorRTSed:
     """Reusable SED adapter preserving the checkpoint's PyTorch frontend."""
 
-    def __init__(self, model: nn.Module, engine_path: str | Path) -> None:
+    def __init__(
+        self,
+        model: nn.Module,
+        engine_path: str | Path,
+        *,
+        expected_metadata: Mapping[str, object],
+    ) -> None:
         self.spectrogram = model.spectrogram_extractor.to("cuda").eval()
         self.logmel = model.logmel_extractor.to("cuda").eval()
-        self.runner = TensorRTRunner(engine_path)
+        self.runner = TensorRTRunner(engine_path, expected_metadata=expected_metadata)
 
     @torch.inference_mode()
     def __call__(self, waveforms: torch.Tensor) -> torch.Tensor:
@@ -310,8 +389,26 @@ class TensorRTPANNsSEDAdapter(PANNsSEDAdapter):
         model.eval()
 
         self._device = torch.device("cuda")
-        self._model = TensorRTSed(model, self.tensorrt_engine_path)
         checkpoint_source = self._resolve_checkpoint_path()
+        expected_metadata: dict[str, object] = {
+            "schema_version": 1,
+            "checkpoint_sha256": _sha256(checkpoint_source),
+            "model_type": self.model_type,
+            "frontend": {
+                "sample_rate": self.sample_rate,
+                "window_size": self.window_size,
+                "hop_size": self.hop_size,
+                "mel_bins": self.mel_bins,
+                "fmin": self.fmin,
+                "fmax": self.fmax,
+                "classes_num": self.classes_num,
+            },
+        }
+        self._model = TensorRTSed(
+            model,
+            self.tensorrt_engine_path,
+            expected_metadata=expected_metadata,
+        )
         logger.info(
             "Loaded {} from {} with TensorRT engine {}",
             self.model_type,

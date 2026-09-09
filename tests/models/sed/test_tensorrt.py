@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +25,7 @@ from nemo_curator.models.sed.base import SEDAdapter
 from nemo_curator.models.sed.tensorrt import (
     TensorRTPANNsSEDAdapter,
     _trt_dtype_to_torch,
+    _validate_engine_metadata,
     postprocess,
 )
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
@@ -172,7 +175,24 @@ def test_load_model_uses_the_checkpoint_frontend_and_tensorrt_runtime(tmp_path: 
     torch_load.assert_called_once_with(checkpoint_path, map_location="cpu", weights_only=True)
     model.load_state_dict.assert_called_once_with({"weight": "value"})
     model.eval.assert_called_once_with()
-    runtime_cls.assert_called_once_with(model, str(engine_path))
+    runtime_cls.assert_called_once_with(
+        model,
+        str(engine_path),
+        expected_metadata={
+            "schema_version": 1,
+            "checkpoint_sha256": hashlib.sha256(b"").hexdigest(),
+            "model_type": "Cnn14_DecisionLevelMax",
+            "frontend": {
+                "sample_rate": 22050,
+                "window_size": 2048,
+                "hop_size": 512,
+                "mel_bins": 80,
+                "fmin": 20,
+                "fmax": 10000,
+                "classes_num": 100,
+            },
+        },
+    )
     assert adapter._model is runtime
     assert adapter._device == torch.device("cuda")
 
@@ -237,3 +257,70 @@ def test_tensorrt_dtypes_map_to_torch(tensorrt_dtype: str, torch_dtype: torch.dt
 def test_unknown_tensorrt_dtype_is_rejected() -> None:
     with pytest.raises(TypeError, match="Unsupported TensorRT tensor dtype"):
         _trt_dtype_to_torch("DataType.FP8")
+
+
+def test_engine_metadata_requires_exact_checkpoint_frontend_and_target(tmp_path: Path) -> None:
+    engine_path = tmp_path / "cnn14.plan"
+    engine_path.touch()
+    expected = {
+        "schema_version": 1,
+        "checkpoint_sha256": "checkpoint-digest",
+        "model_type": "Cnn14_DecisionLevelMax",
+        "frontend": {
+            "sample_rate": 32000,
+            "window_size": 1024,
+            "hop_size": 320,
+            "mel_bins": 64,
+            "fmin": 50,
+            "fmax": 14000,
+            "classes_num": 527,
+        },
+    }
+    metadata = {
+        **expected,
+        "compute_capability": [8, 6],
+        "engine_sha256": hashlib.sha256(b"").hexdigest(),
+        "tensorrt_version": "10.9.0.34",
+    }
+    engine_path.with_suffix(".plan.json").write_text(json.dumps(metadata))
+
+    assert (
+        _validate_engine_metadata(
+            engine_path,
+            expected,
+            compute_capability=[8, 6],
+            tensorrt_version="10.9.0.34",
+        )
+        == metadata
+    )
+
+    for key, wrong_value in (
+        ("checkpoint_sha256", "different-checkpoint"),
+        ("model_type", "different-model"),
+        ("frontend", {**expected["frontend"], "sample_rate": 16000}),
+        ("compute_capability", [9, 0]),
+        ("engine_sha256", "different-engine"),
+        ("tensorrt_version", "10.10.0"),
+    ):
+        bad_metadata = {**metadata, key: wrong_value}
+        engine_path.with_suffix(".plan.json").write_text(json.dumps(bad_metadata))
+        with pytest.raises(RuntimeError, match="engine contract mismatch"):
+            _validate_engine_metadata(
+                engine_path,
+                expected,
+                compute_capability=[8, 6],
+                tensorrt_version="10.9.0.34",
+            )
+
+
+def test_engine_metadata_sidecar_is_required(tmp_path: Path) -> None:
+    engine_path = tmp_path / "cnn14.plan"
+    engine_path.touch()
+
+    with pytest.raises(RuntimeError, match="Missing engine provenance sidecar"):
+        _validate_engine_metadata(
+            engine_path,
+            {},
+            compute_capability=[8, 6],
+            tensorrt_version="10.9.0.34",
+        )

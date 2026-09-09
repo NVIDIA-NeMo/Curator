@@ -241,7 +241,15 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12")
+          GPU_EXTRAS=(
+            "cuda12"
+            "deduplication_cuda12"
+            "audio_cuda12"
+            "audio_sed_tensorrt"
+            "image_cuda12"
+            "inference_server"
+            "text_cuda12"
+          )
           RESULTS=""
           FAILED=0
 
