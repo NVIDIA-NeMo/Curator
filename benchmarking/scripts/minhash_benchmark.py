@@ -79,6 +79,7 @@ def _build_pipeline(  # noqa: PLR0913
     num_hashes: int,
     seed: int,
     use_64bit_hash: bool,
+    normalize_text: bool,
     read_kwargs: dict[str, Any],
     write_kwargs: dict[str, Any],
     pool: bool,
@@ -115,6 +116,7 @@ def _build_pipeline(  # noqa: PLR0913
         num_hashes=num_hashes,
         seed=seed,
         use_64bit_hash=use_64bit_hash,
+        normalize_text=normalize_text,
         read_format=minhash_read_format,
         read_kwargs=read_kwargs,
         write_kwargs=write_kwargs,
@@ -149,6 +151,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
     num_hashes: int = 260,
     seed: int = 42,
     use_64bit_hash: bool = False,
+    normalize_text: bool = False,
     read_kwargs: dict[str, Any] | None = None,
     write_kwargs: dict[str, Any] | None = None,
     pool: bool = True,
@@ -202,6 +205,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
         num_hashes=num_hashes,
         seed=seed,
         use_64bit_hash=use_64bit_hash,
+        normalize_text=normalize_text,
         read_kwargs=read_kwargs,
         write_kwargs=write_kwargs,
         pool=pool,
@@ -299,6 +303,12 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Use 64-bit hashes instead of 32-bit hashes",
+    )
+    parser.add_argument(
+        "--normalize-text",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Normalize text before computing MinHash signatures",
     )
     parser.add_argument(
         "--read-kwargs",

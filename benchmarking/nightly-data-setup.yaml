@@ -1,21 +1,46 @@
-# Data setup entries for benchmark inputs that are prepared once and reused by
-# nightly benchmark entries.
-#
-# Pass this file to benchmarking/tools/run.sh with:
-#   --config benchmarking/nightly-data-setup.yaml
+# One-time benchmark data staging.
 
 data_setups:
-  - name: fleurs_hy_am
+  - name: librispeech_all_750h
     enabled: true
-    script: prepare_fleurs_data.py
+    script: prepare_librispeech_data.py
     args: >-
-      --output-path {datasets_path}/fleurs
-      --cache-dir {datasets_path}/_hf_cache/fleurs
+      --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/librispeech
+      --hf-repo-id openslr/librispeech_asr
+      --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1
+      --hf-config all
+      --hf-split train.clean.100+train.clean.360+train.other.500
+      --target-audio-hours 750.0
 
   - name: audio_tagging_ami_sdm
     enabled: true
     script: prepare_audio_tagging_data.py
     args: >-
-      --output-path {datasets_path}/audio_tagging_ami_sdm
+      --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m
       --cache-dir {datasets_path}/_hf_cache/audio_tagging
-      --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+      --hf-repo-id diarizers-community/ami
+      --hf-revision 8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0
+      --min-audio-hours 30
+      --max-meeting-duration-minutes 60
+      --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
+      --model-hf-repo-id pyannote-community/speaker-diarization-community-1
+      --model-hf-revision 8a527374977391da736e0daaef26855d949d9685
+
+  - name: alm_ami_sdm
+    enabled: true
+    script: prepare_alm_data.py
+    args: >-
+      --output-path {datasets_path}/alm_ami_sdm_8cdaae2
+      --cache-dir {datasets_path}/_hf_cache/alm_ami
+      --hf-repo-id diarizers-community/ami
+      --hf-config sdm
+      --hf-revision 8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0
+
+  - name: audio_sortformer_librispeech_450h
+    enabled: true
+    script: prepare_audio_sortformer_data.py
+    args: >-
+      --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/audio_sortformer
+      --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo

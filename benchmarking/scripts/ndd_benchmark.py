@@ -29,6 +29,11 @@ Key args:
                            (ray-serve/dynamo only), used as ``model_identifier`` so vLLM
                            loads weights from disk; ``--model-id`` is still used as the
                            served model name in /v1/models. Ignored for ``nvidia-nim``.
+  --tiktoken-cache-dir     Optional absolute path to a pre-populated tiktoken/harmony vocab
+                           cache dir (ray-serve/dynamo only). Avoids downloading gpt-oss's
+                           harmony encoding from Azure blob storage at startup.
+  --health-check-timeout-s Seconds to wait for the model server to become ready
+                           (ray-serve/dynamo only). Defaults to 300s if unset.
 """
 
 import argparse
@@ -58,6 +63,8 @@ def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
     engine_kwargs: dict[str, Any] | None = None,
     autoscaling_config: dict[str, Any] | None = None,
     model_path: str | None = None,
+    tiktoken_cache_dir: str | None = None,
+    health_check_timeout_s: int | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the Nemotron-CC SDG benchmark and collect metrics."""
@@ -95,7 +102,11 @@ def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
             model_path=model_path,
             num_replicas=num_replicas,
             engine_kwargs=engine_kwargs,
+            model_runtime_env=(
+                {"env_vars": {"TIKTOKEN_RS_CACHE_DIR": tiktoken_cache_dir}} if tiktoken_cache_dir else None
+            ),
             ray_serve_deployment_config=ray_serve_deployment_config,
+            health_check_timeout_s=health_check_timeout_s or 300,
         )
         serve_startup_s = time.perf_counter() - serve_start
         logger.info(f"InferenceServer ready at {inference_server.endpoint} (startup: {serve_startup_s:.1f}s)")
@@ -239,6 +250,24 @@ def main() -> int:
         default=None,
         help='JSON string of Ray Serve autoscaling config (e.g. \'{"min_replicas": 1, "max_replicas": 8}\')',
     )
+    parser.add_argument(
+        "--tiktoken-cache-dir",
+        default=None,
+        help=(
+            "Optional absolute path to a pre-populated tiktoken/harmony vocab cache dir "
+            "(ray-serve/dynamo only). Set to avoid downloading gpt-oss's harmony encoding "
+            "from Azure blob storage at replica/worker startup; see openai/harmony#101."
+        ),
+    )
+    parser.add_argument(
+        "--health-check-timeout-s",
+        type=int,
+        default=None,
+        help=(
+            "Seconds to wait for the model server to become ready (ray-serve/dynamo only). "
+            "Defaults to DEFAULT_SERVE_HEALTH_TIMEOUT_S (300s) if unset."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -266,6 +295,8 @@ def main() -> int:
                 engine_kwargs=engine_kwargs,
                 autoscaling_config=autoscaling_config,
                 model_path=args.model_path,
+                tiktoken_cache_dir=args.tiktoken_cache_dir,
+                health_check_timeout_s=args.health_check_timeout_s,
             )
         )
         success_code = 0 if result_dict["metrics"]["is_success"] else 1

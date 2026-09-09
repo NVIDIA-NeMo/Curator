@@ -112,6 +112,19 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
     ]
 
 
+@pytest.fixture
+def exact_normalization_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
+    df = pd.DataFrame(
+        {
+            "id": [1, 2, 3, 4],
+            "text": ["  HELLO\tWORLD  ", "hello world", "Goodbye\nWORLD", "goodbye world"],
+        }
+    )
+    input_file = tmp_path / "normalization_data.parquet"
+    df.to_parquet(input_file)
+    return [FileGroupTask(dataset_name="normalization_dataset", data=[str(input_file)], _metadata={})]
+
+
 @pytest.mark.gpu
 @pytest.mark.usefixtures("ray_client_with_id_generator")
 class TestExactDuplicates:
@@ -170,6 +183,35 @@ class TestExactDuplicates:
 
         removal_ids_df = cudf.read_parquet(tmpdir / stage.name)
         assert len(removal_ids_df) == 0
+
+    @pytest.mark.parametrize(("normalize_text", "expected_duplicates"), [(False, 0), (True, 2)])
+    def test_optional_text_normalization_before_hashing(
+        self,
+        exact_normalization_data_parquet: list[FileGroupTask],
+        tmpdir: Path,
+        normalize_text: bool,
+        expected_duplicates: int,
+    ) -> None:
+        stage = ExactDuplicateIdentification(
+            text_field="text",
+            output_path=str(tmpdir),
+            input_filetype="parquet",
+            assign_id=False,
+            id_field="id",
+            normalize_text=normalize_text,
+            total_nparts=1,
+            rmm_pool_size=None,
+            spill_memory_limit="auto",
+            enable_statistics=False,
+        )
+        pipeline = Pipeline(name="test_normalized_exact_dedup", stages=[stage])
+        pipeline.run(RayActorPoolExecutor(), initial_tasks=exact_normalization_data_parquet)
+
+        removal_ids = set(cudf.read_parquet(tmpdir / stage.name).id.to_arrow().to_pylist())
+        assert len(removal_ids) == expected_duplicates
+        if normalize_text:
+            assert len(removal_ids & {1, 2}) == 1
+            assert len(removal_ids & {3, 4}) == 1
 
     def test_bad_inputs(self, tmpdir: Path) -> None:
         with pytest.raises(ValueError, match="id_field must be None if assign_id is True"):

@@ -15,13 +15,15 @@
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from itertools import chain
+from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
 import cupy as cp
-import numpy as np
+import rmm.mr
 import torch
 from loguru import logger
+from rmm.allocators.torch import rmm_torch_allocator
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
@@ -31,44 +33,161 @@ from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy
-from .utils import break_parquet_partition_into_groups, get_array_from_df
+from .utils import (
+    break_parquet_partition_into_groups,
+    get_array_from_df,
+    read_parquet_file_info,
+)
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import WorkerMetadata
+
+PairwiseComputeDtype = Literal["auto", "float16", "float32"]
+
+
+def _decode_embedding_array(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
+    """Decode the embedding storage representation independently of compute precision."""
+    embeddings = get_array_from_df(df, embedding_col)
+    if embeddings.dtype == cp.uint16:
+        return embeddings.view(cp.float16)
+    if embeddings.dtype == cp.float32:
+        return embeddings
+    if embeddings.dtype == cp.float64:
+        # Python-float list columns historically arrive as float64. Pairwise
+        # normalizes them to the previously used float32 precision.
+        return embeddings.astype(cp.float32)
+    msg = f"Expected uint16 FP16 bits or float32 embedding storage, got {embeddings.dtype}"
+    raise TypeError(msg)
+
+
+def validate_pairwise_batch_size(batch_size: object) -> None:
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+        msg = f"pairwise_batch_size must be a positive integer, got {batch_size!r}"
+        raise ValueError(msg)
+
+
+def _resolve_compute_dtype(cluster_reps: "torch.Tensor", compute_dtype: PairwiseComputeDtype) -> "torch.dtype":
+    if cluster_reps.dtype not in {torch.float16, torch.float32}:
+        msg = f"Pairwise requires float16 or float32 embeddings, got {cluster_reps.dtype}"
+        raise TypeError(msg)
+    if cluster_reps.dtype == torch.float16 and compute_dtype == "float32":
+        msg = "float16 embeddings must use compute_dtype='auto' or 'float16'"
+        raise ValueError(msg)
+    if compute_dtype == "float16":
+        return torch.float16
+    if compute_dtype == "float32":
+        return torch.float32
+    return cluster_reps.dtype
 
 
 def pairwise_cosine_similarity_batched(
     cluster_reps: "torch.Tensor",
     batch_size: int = 1024,
-) -> tuple["cp.ndarray", "cp.ndarray"] | tuple[np.ndarray, np.ndarray]:
+) -> tuple["cp.ndarray", "cp.ndarray"]:
+    """Return each ranked row's most similar earlier row and its similarity.
+
+    ``cluster_reps`` must be a prepared CUDA tensor in the desired compute dtype.
+
+    The input order is a preservation preference: row ``A`` is preferred over
+    ``B``, ``B`` over ``C``, and so on. For example, consider these normalized
+    four-dimensional embeddings::
+
+        X = A [1.00, 0.00, 0.00, 0.00]
+            B [0.96, 0.28, 0.00, 0.00]
+            C [0.00, 1.00, 0.00, 0.00]
+            D [0.00, 0.00, 1.00, 0.00]
+            E [0.00, 0.96, 0.00, 0.28]
+
+    Because the rows have unit length, ``S = X @ X.T`` is their full cosine-
+    similarity matrix::
+
+        query \\ candidate    A       B       C       D       E
+        A                  1.0000  0.9600  0.0000  0.0000  0.0000
+        B                  0.9600  1.0000  0.2800  0.0000  0.2688
+        C                  0.0000  0.2800  1.0000  0.0000  0.9600
+        D                  0.0000  0.0000  0.0000  1.0000  0.0000
+        E                  0.0000  0.2688  0.9600  0.0000  1.0000
+
+    We use only the strict lower triangle of this matrix::
+
+        query \\ candidate    A       B       C       D       E
+        A                     -       x       x       x       x
+        B                  0.9600     -       x       x       x
+        C                  0.0000  0.2800     -       x       x
+        D                  0.0000  0.0000  0.0000     -       x
+        E                  0.0000  0.2688  0.9600  0.0000     -
+
+    Here ``x`` is a later-ranked candidate and ``-`` is self-similarity; neither
+    is eligible. Query row ``i`` may select candidate row ``j`` only when ``j < i``.
+    Each query selects the maximum eligible similarity, giving ``B -> A (0.96)``,
+    ``C -> B (0.28)``, ``D -> A (0.00)``, and ``E -> C (0.96)``. ``D`` demonstrates
+    deterministic ties: ``torch.max`` chooses the earliest-ranked candidate ``A``.
+    The first row has no eligible candidate, so it maps to itself with score zero.
+
+    The downstream ``IdentifyDuplicatesStage`` removes the query row's ``id`` when
+    its score is at least ``1 - eps``; ``max_id`` is the earlier row it matched, not
+    the row to remove. With ``eps=0.1`` in the example, ``B`` and ``E`` are removed
+    because their scores are at least ``0.9``, while ``A``, ``C``, and ``D`` remain.
+    This is a fixed ranked comparison rather than greedy survivor tracking: an
+    earlier candidate remains eligible here even if that candidate's own score later
+    causes it to be removed.
+
+    Materializing all of ``S`` requires ``O(N^2)`` memory. This implementation
+    computes query columns in batches of width ``B`` and retains only an ``N x B``
+    workspace, without changing which neighbor the full masked matrix would select.
+    Multiplication and returned scores use the prepared CUDA tensor's dtype.
     """
-    Computes pairwise cosine similarity between cluster items,
-    then replace to diagonal with zeros to ignore self similarity.
-    This function is useful for large clusters where the pairwise similarity matrix
-    does not fit into memory.
-    We use a batched approach to compute the pairwise similarity matrix in batches.
-    Memory requirements are O(N*B) where N is the number of items in the cluster and B is the batch size
-    instead of O(N^2) for the full matrix.
+    validate_pairwise_batch_size(batch_size)
+    if not cluster_reps.is_cuda:
+        msg = "pairwise_cosine_similarity_batched requires a CUDA tensor"
+        raise ValueError(msg)
 
-    TODO: In future we can estimate memory requirement and calculate batch size dynamically.
-    """
-    device = "cuda"
-
-    cluster_reps = cluster_reps.to(device)
-    max_similarity = torch.zeros(cluster_reps.shape[0], dtype=torch.float32, device=device)
-    max_indices = torch.zeros(cluster_reps.shape[0], dtype=torch.int64, device=device)
-    for start_idx in range(0, cluster_reps.shape[0], batch_size):
-        end_idx = min(start_idx + batch_size, cluster_reps.shape[0])
-        batch = cluster_reps[start_idx:end_idx]
-        pairwise_sim_matrix = torch.mm(cluster_reps, batch.T)
-        triu_sim_matrix = torch.triu(pairwise_sim_matrix, diagonal=1 - start_idx)
-        del batch, pairwise_sim_matrix
-        max_values_and_indices = torch.max(triu_sim_matrix, dim=0)
-        max_similarity[start_idx:end_idx] = max_values_and_indices[0]
-        max_indices[start_idx:end_idx] = max_values_and_indices[1]
-
-    if device == "cuda":
+    num_rows = len(cluster_reps)
+    max_similarity = torch.zeros(num_rows, dtype=cluster_reps.dtype, device=cluster_reps.device)
+    max_indices = torch.zeros(num_rows, dtype=torch.int64, device=cluster_reps.device)
+    if not num_rows:
         return cp.asarray(max_similarity), cp.asarray(max_indices)
-    else:
-        # convert to numpy arrays
-        return max_similarity.numpy(), max_indices.numpy()
+
+    batch_size = min(batch_size, num_rows)
+    pairwise_sim_workspace = torch.empty(
+        (num_rows, batch_size),
+        dtype=cluster_reps.dtype,
+        device=cluster_reps.device,
+    )
+    invalid_batch_triangle = torch.ones(
+        (batch_size, batch_size),
+        dtype=torch.bool,
+        device=cluster_reps.device,
+    ).tril_()
+
+    for start_idx in range(0, num_rows, batch_size):
+        end_idx = min(start_idx + batch_size, num_rows)
+        batch_width = end_idx - start_idx
+
+        # In the conceptual query-by-candidate matrix above, only the strict lower
+        # triangle is valid. torch.mm below stores its transpose (candidate rows by
+        # query columns), so only the candidate prefix through this query block can
+        # contain valid entries.
+        candidate_reps = cluster_reps[:end_idx]
+        pairwise_sim_matrix = pairwise_sim_workspace[:end_idx, :batch_width]
+        torch.mm(candidate_reps, cluster_reps[start_idx:end_idx].T, out=pairwise_sim_matrix)
+
+        # Candidate rows from earlier blocks remain valid. Within the current block,
+        # candidate row >= query column represents self or a later-ranked candidate;
+        # that is the diagonal/lower triangle in this transposed workspace.
+        pairwise_sim_matrix[start_idx:end_idx].masked_fill_(
+            invalid_batch_triangle[:batch_width, :batch_width],
+            -torch.inf,
+        )
+
+        max_values, batch_max_indices = torch.max(pairwise_sim_matrix, dim=0)
+        if start_idx == 0:
+            max_values[0] = 0.0
+            batch_max_indices[0] = 0
+        max_similarity[start_idx:end_idx] = max_values
+        max_indices[start_idx:end_idx] = batch_max_indices
+
+    return cp.asarray(max_similarity), cp.asarray(max_indices)
 
 
 class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationIO):
@@ -82,9 +201,9 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         ranking_strategy: RankingStrategy,
         pairwise_batch_size: int = 1024,
         verbose: bool = False,
-        embedding_dim: int | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
+        compute_dtype: PairwiseComputeDtype = "float32",
     ):
         """Initialize the pairwise cosine similarity stage.
 
@@ -93,17 +212,21 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             embedding_field: The column name of the embedding column.
             output_path: The path to the output directory.
             ranking_strategy: Strategy for ranking/sorting clusters before similarity computation.
-            pairwise_batch_size: Batch size for pairwise similarity computation.
+            pairwise_batch_size: Positive batch size for the bounded similarity workspace.
             verbose: Whether to print verbose output.
-            embedding_dim: Embedding dimension for memory estimation.
+            compute_dtype: Multiplication dtype. ``"auto"`` retains the decoded embedding precision.
             read_kwargs: Kwargs for reading parquet files.
             write_kwargs: Kwargs for writing parquet files.
         """
         self.id_field = id_field
         self.embedding_field = embedding_field
         self.output_path = output_path
+        validate_pairwise_batch_size(pairwise_batch_size)
         self.pairwise_batch_size = pairwise_batch_size
-        self.embedding_dim = embedding_dim
+        if compute_dtype not in {"auto", "float16", "float32"}:
+            msg = f"Unsupported compute_dtype: {compute_dtype}"
+            raise ValueError(msg)
+        self.compute_dtype = compute_dtype
         self.ranking_strategy = ranking_strategy
         self.verbose = verbose
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
@@ -115,8 +238,19 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.name = "PairwiseCosineSimilarityStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
 
-    def process(self, task: FileGroupTask) -> FileGroupTask:
+    def setup(self, _: "WorkerMetadata | None" = None) -> None:
+        """Make cuDF, CuPy, and Torch share a growing RMM pool."""
+        self._rmm_memory_resource = rmm.mr.PoolMemoryResource(
+            rmm.mr.CudaMemoryResource(),
+            initial_pool_size="1GB",
+        )
+        rmm.mr.set_current_device_resource(self._rmm_memory_resource)
+        torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
+
+    def process(self, task: FileGroupTask) -> FileGroupTask:  # noqa: PLR0915
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
+        # TODO(NMCUR-457): Remove IdentifyDuplicatesStage's temporary Pairwise
+        # metric propagation once core preserves every input across N-to-1 fan-in.
         if task._metadata.get("filetype") != "parquet":
             msg = f"PairwiseCosineSimilarityStage only supports parquet files, got {task._metadata.get('filetype')}"
             raise ValueError(msg)
@@ -127,35 +261,33 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             msg = "centroid_id not found in task metadata"
             raise ValueError(msg)
 
-        t1 = time.perf_counter()
+        process_started = time.perf_counter()
 
-        # Read all file groups and concatenate
-        dfs = []
-        num_rows = 0
-
-        # Break input files into groups to avoid 2bn row limit
-        file_groups = break_parquet_partition_into_groups(
-            task.data, embedding_dim=self.embedding_dim, storage_options=self.input_storage_options
-        )
-
-        # Determine which columns to read based on ranking strategy
+        footer_start = time.perf_counter()
         additional_cols = self.ranking_strategy.metadata_cols if self.ranking_strategy.strategy == "sort" else []
-
-        # We do the list(dict.fromkeys(...)) to remove duplicates from the list of columns to read, in case additional_cols contains self.id_field
         metadata_cols = list(dict.fromkeys([self.id_field, *additional_cols]))
-        for file_group in file_groups:
-            # Read required columns including metadata columns for ranking
-            df = self.read_parquet(
-                file_group,
-                columns=[*metadata_cols, self.embedding_field],
+        columns = [*metadata_cols, self.embedding_field]
+        file_info = read_parquet_file_info(
+            task.data,
+            retained_columns=metadata_cols,
+            embedding_column=self.embedding_field,
+            storage_options=self.input_storage_options,
+        )
+        footer_time = time.perf_counter() - footer_start
+
+        read_start = time.perf_counter()
+        frames = [
+            self.read_parquet(
+                group,
+                columns=columns,
                 assign_id=False,
                 storage_options=self.input_storage_options,
                 **self.read_kwargs,
             )
-            dfs.append(df)
-            num_rows += len(df)
-
-        if not dfs:
+            for group in break_parquet_partition_into_groups(file_info)
+        ]
+        read_time = time.perf_counter() - read_start
+        if not frames or not any(len(frame) for frame in frames):
             logger.warning(f"No data found for cluster {cluster_id}")
             return FileGroupTask(
                 dataset_name=task.dataset_name,
@@ -164,19 +296,31 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[],
             )
 
-        num_rows = sum(len(df) for df in dfs)
-
-        # Handle single item clusters
+        metadata_cluster_df = cudf.concat([frame[metadata_cols] for frame in frames], ignore_index=True).reset_index(
+            drop=True
+        )
+        num_rows = len(metadata_cluster_df)
         if num_rows == 1:
             result_df = cudf.DataFrame(
                 {
-                    "id": dfs[0][self.id_field],
-                    "max_id": dfs[0][self.id_field],
+                    "id": metadata_cluster_df[self.id_field],
+                    "max_id": metadata_cluster_df[self.id_field],
                     "cosine_sim_score": cudf.Series([0], dtype="float32"),
                 }
             )
+            write_start = time.perf_counter()
             self.write_parquet(
                 result_df, output_path, storage_options=self.output_storage_options, index=False, **self.write_kwargs
+            )
+            self._log_metrics(
+                {
+                    "pairwise_footer_scan_time": footer_time,
+                    "pairwise_read_time": read_time,
+                    "pairwise_rank_time": 0.0,
+                    "pairwise_conversion_time": 0.0,
+                    "pairwise_compute_time": 0.0,
+                    "pairwise_write_time": time.perf_counter() - write_start,
+                }
             )
             return FileGroupTask(
                 dataset_name=task.dataset_name,
@@ -188,32 +332,54 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[os.path.join(self.output_path, f"cluster_{cluster_id}.parquet")],
             )
 
-        # Cannot concatenate dataframes with embeddings due to cudf 2bn row limit
-        # Instead, concatenate metadata columns and handle embeddings separately
-        metadata_dfs, embedding_arrays = [], []
-        for df in dfs:
-            metadata_dfs.append(df[metadata_cols])
-            embedding_arrays.append(get_array_from_df(df, self.embedding_field))
-
-        metadata_cluster_df = cudf.concat(metadata_dfs, ignore_index=True).reset_index(drop=True)
-
-        # Add original index to track reordering
+        rank_start = time.perf_counter()
         metadata_cluster_df["_original_idx"] = metadata_cluster_df.index
-
         ranked_metadata_df = self.ranking_strategy.rank_cluster(metadata_cluster_df)
-        # Get reorder indices from the ranked dataframe (TODO: we get it to CPU, but maybe we can do it on GPU todo)
-        reorder_indices = ranked_metadata_df["_original_idx"].to_arrow().to_pylist()
-        # Remove the helper column
+        reorder_indices = ranked_metadata_df["_original_idx"].values
         ranked_metadata_df = ranked_metadata_df.drop(columns=["_original_idx"])
+        destination_indices = cp.empty(num_rows, dtype=cp.int64)
+        destination_indices[reorder_indices] = cp.arange(num_rows, dtype=cp.int64)
 
-        # Convert numpy arrays to torch tensors before concatenating
-        concatenated_embeddings = torch.cat([torch.as_tensor(arr, device="cuda") for arr in embedding_arrays], dim=0)
-        cluster_embeddings = concatenated_embeddings[reorder_indices]
+        first_embeddings = _decode_embedding_array(frames[0], self.embedding_field)
+        ranked_embeddings = cp.empty((num_rows, first_embeddings.shape[1]), dtype=first_embeddings.dtype)
+        source_offset = 0
+        embedding_arrays = (_decode_embedding_array(frame, self.embedding_field) for frame in frames[1:])
+        for embeddings in chain([first_embeddings], embedding_arrays):
+            if embeddings.shape[1:] != ranked_embeddings.shape[1:] or embeddings.dtype != ranked_embeddings.dtype:
+                msg = "All Pairwise embedding files must have the same width and storage dtype"
+                raise TypeError(msg)
+            source_stop = source_offset + len(embeddings)
+            ranked_embeddings[destination_indices[source_offset:source_stop]] = embeddings
+            source_offset = source_stop
+        if source_offset != num_rows:
+            msg = f"Pairwise metadata contained {num_rows} rows but embedding reads returned {source_offset}"
+            raise RuntimeError(msg)
+        del embeddings, first_embeddings, embedding_arrays, frames
+        cluster_embeddings = torch.as_tensor(ranked_embeddings, device="cuda")
+        # Finish queued reordering before closing the rank timing interval.
+        torch.cuda.synchronize()
+        rank_time = time.perf_counter() - rank_start
 
         ids = ranked_metadata_df[self.id_field]
 
-        # Compute pairwise similarities
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(cluster_embeddings, self.pairwise_batch_size)
+        conversion_start = time.perf_counter()
+        resolved_compute_dtype = _resolve_compute_dtype(cluster_embeddings, self.compute_dtype)
+        storage_was_converted = cluster_embeddings.dtype != resolved_compute_dtype
+        cluster_embeddings = cluster_embeddings.to(dtype=resolved_compute_dtype)
+        torch.cuda.synchronize()
+        if storage_was_converted:
+            ranked_embeddings = None
+        conversion_time = time.perf_counter() - conversion_start
+
+        # Compute pairwise similarities after any requested precision conversion.
+        compute_start = time.perf_counter()
+        resolved_batch_size = min(self.pairwise_batch_size, num_rows)
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(cluster_embeddings, resolved_batch_size)
+        # Finish the matrix multiplications before recording compute time and
+        # returning their now-unused Torch workspace to the allocator.
+        torch.cuda.synchronize()
+        del cluster_embeddings, ranked_embeddings
+        compute_time = time.perf_counter() - compute_start
 
         # Convert indices back to IDs
         max_indices_id = ids.iloc[max_indices].reset_index(drop=True)
@@ -223,11 +389,13 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             {
                 "id": ids,
                 "max_id": max_indices_id,
-                "cosine_sim_score": max_similarity,
+                # cuDF has no numeric FP16 column, so retain FP16 through the
+                # reduction and promote only when materializing the output.
+                "cosine_sim_score": max_similarity.astype(cp.float32, copy=False),
             }
         )
-
         # Write results
+        write_start = time.perf_counter()
         self.write_parquet(
             points_to_remove_df,
             output_path,
@@ -235,11 +403,22 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             index=False,
             **self.write_kwargs,
         )
+        write_time = time.perf_counter() - write_start
+        self._log_metrics(
+            {
+                "pairwise_footer_scan_time": footer_time,
+                "pairwise_read_time": read_time,
+                "pairwise_rank_time": rank_time,
+                "pairwise_conversion_time": conversion_time,
+                "pairwise_compute_time": compute_time,
+                "pairwise_write_time": write_time,
+            }
+        )
 
-        t2 = time.perf_counter()
         if self.verbose:
             logger.debug(
-                f"Pairwise computation for cluster {cluster_id} with {num_rows} rows done in {(t2 - t1):.2f} seconds"
+                f"Pairwise computation for cluster {cluster_id} with {num_rows} rows done in "
+                f"{time.perf_counter() - process_started:.2f} seconds"
             )
 
         return FileGroupTask(
@@ -263,7 +442,6 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     ranking_strategy: RankingStrategy | None = None
 
     # Optional parameters
-    embedding_dim: int | None = None
     pairwise_batch_size: int = 1024
     verbose: bool = False
     read_kwargs: dict[str, Any] | None = None
@@ -272,6 +450,7 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     which_to_keep: Literal["hard", "easy", "random"] = "hard"
     sim_metric: Literal["cosine", "l2"] = "cosine"
     random_seed: int = 42
+    compute_dtype: PairwiseComputeDtype = "float32"
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
@@ -315,7 +494,7 @@ class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
                 pairwise_batch_size=self.pairwise_batch_size,
                 verbose=self.verbose,
                 ranking_strategy=self.ranking_strategy,
-                embedding_dim=self.embedding_dim,
+                compute_dtype=self.compute_dtype,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
             ),
