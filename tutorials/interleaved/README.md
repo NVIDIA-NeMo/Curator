@@ -7,6 +7,7 @@ Hands-on tutorials for curating **interleaved multimodal data** — documents th
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[Getting Started](getting-started/)** | Load, explore, filter, and save interleaved data from MINT-1T PDF shards | `interleaved_data_quickstart.ipynb`, `interleaved_pipeline.py` |
+| **[Markdown conversion](markdown_to_interleaved.py)** | Convert a PIN-14M markdown row from `DocumentBatch` to `InterleavedBatch` | `markdown_to_interleaved.py` |
 | **[PDF Extraction Pipeline (Nemotron-Parse)](nemotron_parse_pdf/)** | Convert PDFs into structured interleaved Parquet using Nemotron-Parse v1.2 | `main.py` |
 
 ## Quick Start

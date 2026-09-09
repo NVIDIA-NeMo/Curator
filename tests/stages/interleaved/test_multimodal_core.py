@@ -27,16 +27,63 @@ from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
     InterleavedAspectRatioFilterStage,
+    MarkdownToInterleavedStage,
 )
 from nemo_curator.stages.interleaved.utils.materialization import (
     _classify_rows,
     _read_direct_file,
     materialize_task_binary_content,
 )
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.tasks import DocumentBatch, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 from .conftest import build_multi_frame_tiff, make_image_row, make_image_task, write_tar
+
+
+def test_markdown_to_interleaved() -> None:
+    task = DocumentBatch(
+        dataset_name="PIN-14M",
+        data=pd.DataFrame(
+            [
+                {
+                    "id": 94,
+                    "meta": {"language": "en"},
+                    "md": """## Heading
+
+`![not an image](ignored-inline.png)`
+
+```markdown
+![not an image](ignored-fence.png)
+```
+
+<img alt="quoted > value" src='content_image/a&amp;b.jpg'>
+
+Body ![chart](content_image/chart_(1).png "Chart") after.
+
+![logo][logo]
+
+[logo]: content_image/logo.svg
+""",
+                }
+            ]
+        ),
+        _metadata={"source_files": ["pin.parquet"]},
+    )
+
+    output = MarkdownToInterleavedStage().process(task)
+    df = output.to_pandas()
+
+    assert df["modality"].tolist() == ["metadata", "text", "image", "text", "image", "text", "image"]
+    assert df["position"].tolist() == [-1, 0, 1, 2, 3, 4, 5]
+    image_paths = [
+        InterleavedBatch.parse_source_ref(ref)["path"] for ref in df.loc[df["modality"] == "image", "source_ref"]
+    ]
+    assert image_paths == ["content_image/a&b.jpg", "content_image/chart_(1).png", "content_image/logo.svg"]
+    text = "\n".join(df.loc[df["modality"] == "text", "text_content"])
+    assert "![not an image](ignored-inline.png)" in text
+    assert "![not an image](ignored-fence.png)" in text
+    assert df.loc[0, "sample_id"] == "94"
+    assert output._metadata == task._metadata
 
 
 def test_with_parsed_source_ref_columns(single_row_task: InterleavedBatch) -> None:

@@ -15,15 +15,22 @@
 from __future__ import annotations
 
 import io
+import mimetypes
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 import pandas as pd
+import pyarrow as pa
+from markdown_it import MarkdownIt
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.stages.interleaved.utils.schema import align_interleaved_table
+from nemo_curator.tasks import DocumentBatch, InterleavedBatch
+from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -32,6 +39,111 @@ try:
     from PIL import Image
 except ImportError:
     Image = None
+
+
+_MARKDOWN = MarkdownIt("commonmark", {"html": True})
+_BLOCK_TAGS = {"blockquote", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ol", "p", "pre", "table", "ul"}
+
+
+class _HTMLContentParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[tuple[str, str]] = []
+
+    def _append(self, modality: str, content: str) -> None:
+        if modality == "text" and self.parts and self.parts[-1][0] == "text":
+            self.parts[-1] = ("text", self.parts[-1][1] + content)
+        else:
+            self.parts.append((modality, content))
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "img" and (source := dict(attrs).get("src")):
+            self._append("image", source)
+        elif tag == "br":
+            self._append("text", "\n")
+
+    handle_startendtag = handle_starttag
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _BLOCK_TAGS:
+            self._append("text", "\n\n")
+
+    def handle_data(self, data: str) -> None:
+        self._append("text", data)
+
+
+@dataclass
+class MarkdownToInterleavedStage(ProcessingStage[DocumentBatch, InterleavedBatch]):
+    """Convert markdown documents into text and lazily referenced image rows."""
+
+    markdown_field: str = "md"
+    sample_id_field: str = "id"
+    name: str = "markdown_to_interleaved"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.sample_id_field, self.markdown_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["sample_id", "position", "modality"]
+
+    @staticmethod
+    def _content(markdown: str) -> Iterator[tuple[str, str]]:
+        parser = _HTMLContentParser()
+        parser.feed(_MARKDOWN.render(markdown))
+        for modality, content in parser.parts:
+            if content := content.strip():
+                yield modality, content
+
+    def process(self, task: DocumentBatch) -> InterleavedBatch:
+        rows: list[dict[str, object]] = []
+        empty_row = dict.fromkeys(INTERLEAVED_SCHEMA.names)
+        excluded = RESERVED_COLUMNS | {self.sample_id_field, self.markdown_field}
+
+        for document in task.to_pyarrow().to_pylist():
+            sample_id = document.get(self.sample_id_field)
+            markdown = document.get(self.markdown_field)
+            if sample_id is None:
+                msg = f"{self.sample_id_field!r} cannot be null"
+                raise ValueError(msg)
+            if not isinstance(markdown, str):
+                msg = f"{self.markdown_field!r} must contain strings, got {type(markdown).__name__}"
+                raise TypeError(msg)
+
+            sample_id = str(sample_id)
+            passthrough = {key: value for key, value in document.items() if key not in excluded}
+            rows.append(
+                {
+                    **empty_row,
+                    "sample_id": sample_id,
+                    "position": -1,
+                    "modality": "metadata",
+                    "content_type": "application/json",
+                    **passthrough,
+                }
+            )
+            for position, (modality, content) in enumerate(self._content(markdown)):
+                row = {**empty_row, "sample_id": sample_id, "position": position, "modality": modality}
+                if modality == "text":
+                    row.update(content_type="text/plain", text_content=content)
+                else:
+                    content_type = mimetypes.guess_type(urlsplit(content).path)[0]
+                    row.update(
+                        content_type=content_type or "application/octet-stream",
+                        source_ref=InterleavedBatch.build_source_ref(path=content, member=None),
+                    )
+                rows.append(row)
+
+        table = (
+            align_interleaved_table(pa.Table.from_pylist(rows))
+            if rows
+            else pa.Table.from_pylist([], INTERLEAVED_SCHEMA)
+        )
+        return InterleavedBatch(
+            dataset_name=task.dataset_name,
+            data=table,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
 
 
 @dataclass
