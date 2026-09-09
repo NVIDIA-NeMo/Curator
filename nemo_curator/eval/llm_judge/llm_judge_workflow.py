@@ -111,7 +111,7 @@ def _validate_filter_references(config: dict[str, object], stages: list[dict[str
             raise ValueError(msg)
 
 
-def _keep_judge_score(  # noqa: PLR0911
+def _keep_judge_score(  # noqa: C901, PLR0911
     judge_result: object,
     *,
     score_name: str,
@@ -140,7 +140,7 @@ def _keep_judge_score(  # noqa: PLR0911
         if operator == "in":
             return actual in expected
         if operator == "not_in":
-            return actual not in expected  # noqa: TRY300
+            return actual not in expected
         msg = f"Unsupported filter operator {operator!r}."
         raise ValueError(msg)
     except TypeError:

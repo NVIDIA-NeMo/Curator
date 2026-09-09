@@ -88,12 +88,12 @@ class JusTextTrafilaturaExtractor(DocumentExtractor):
             pass
 
         if stop_words is not None:
-            try:
+            try:  # noqa: SIM105
                 justext_text = _extract_text(self.justext, html, stop_words, language)
             except Exception:  # noqa: BLE001, S110
                 # Keep the raw HTML row even when one extractor fails.
                 pass
-            try:
+            try:  # noqa: SIM105
                 trafilatura_text = _extract_text(self.trafilatura, html, stop_words, language)
             except Exception:  # noqa: BLE001, S110
                 # Keep the raw HTML row even when one extractor fails.
