@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
@@ -81,10 +82,26 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
         msg = "AudioToDocumentStage only supports process_batch"
         raise NotImplementedError(msg)
 
+    def _removed_keys(self) -> set[str]:
+        removed = set(_NON_SERIALIZABLE_KEYS)
+        if self.serialize_segments:
+            removed.discard(self.segments_key)
+        removed.update(self.drop_keys)
+        return removed
+
+    def _projected_keys(self) -> list[str]:
+        if self.keep_keys is None:
+            return []
+        removed = self._removed_keys()
+        return [key for key in dict.fromkeys(self.keep_keys) if key not in removed]
+
     def describe(self) -> StageContract:
+        projected_keys = self._projected_keys()
         return StageContract(
-            reads=IOSpec(data_keys=[]),
-            writes=IOSpec(data_keys=[]),
+            reads=IOSpec(data_keys=projected_keys),
+            writes=IOSpec(data_keys=projected_keys),
+            preserves_upstream_keys=self.keep_keys is None,
+            removes_keys=sorted(self._removed_keys()),
             cardinality="N:1",
             # Strips tensors/audio blobs while building the DataFrame, so its
             # output is serialization-safe — the sanctioned sink to place before
@@ -94,26 +111,70 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
             description="Aggregate AudioTasks into a DocumentBatch, stripping tensors/audio blobs (JSON/disk-safe).",
         )
 
-    def _sanitize_nested(self, value: object) -> object:
-        """Strip tensors/audio blobs from nested structures before DataFrame conversion."""
+    def _sanitize_nested(  # noqa: C901, PLR0911, PLR0912
+        self,
+        value: object,
+        *,
+        path: str,
+        active: set[int],
+    ) -> object:
+        """Return a JSON-safe value, dropping only the value that cannot be represented."""
         if _is_tensor(value):
+            logger.warning(f"[AudioToDocumentStage] Dropping {path}: torch.Tensor is not JSON serializable")
             return _DROP_VALUE
+
         if isinstance(value, dict):
-            cleaned = {}
-            for k, v in value.items():
-                if k in _NON_SERIALIZABLE_KEYS:
-                    continue
-                nested = self._sanitize_nested(v)
-                if nested is not _DROP_VALUE:
-                    cleaned[k] = nested
-            return cleaned
-        if isinstance(value, list):
-            cleaned_list = []
-            for item in value:
-                nested = self._sanitize_nested(item)
-                if nested is not _DROP_VALUE:
-                    cleaned_list.append(nested)
-            return cleaned_list
+            identity = id(value)
+            if identity in active:
+                logger.warning(f"[AudioToDocumentStage] Dropping {path}: recursive mapping is not JSON serializable")
+                return _DROP_VALUE
+            active.add(identity)
+            try:
+                cleaned: dict[object, object] = {}
+                for key, item in value.items():
+                    try:
+                        json.dumps({key: None})
+                    except (TypeError, ValueError, OverflowError):
+                        logger.warning(
+                            f"[AudioToDocumentStage] Dropping {path}[{key!r}]: mapping key is not JSON serializable"
+                        )
+                        continue
+                    nested = self._sanitize_nested(item, path=f"{path}[{key!r}]", active=active)
+                    if nested is not _DROP_VALUE:
+                        cleaned[key] = nested
+                return cleaned
+            finally:
+                active.remove(identity)
+
+        if isinstance(value, (list, tuple)):
+            identity = id(value)
+            if identity in active:
+                logger.warning(f"[AudioToDocumentStage] Dropping {path}: recursive sequence is not JSON serializable")
+                return _DROP_VALUE
+            active.add(identity)
+            try:
+                cleaned_list = []
+                for index, item in enumerate(value):
+                    nested = self._sanitize_nested(item, path=f"{path}[{index}]", active=active)
+                    if nested is not _DROP_VALUE:
+                        cleaned_list.append(nested)
+                return cleaned_list
+            finally:
+                active.remove(identity)
+
+        if type(value).__module__.startswith("numpy") and callable(item := getattr(value, "item", None)):
+            try:
+                return self._sanitize_nested(item(), path=path, active=active)
+            except ValueError:
+                pass
+
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError, OverflowError):
+            logger.warning(
+                f"[AudioToDocumentStage] Dropping {path}: {type(value).__name__} is not JSON serializable"
+            )
+            return _DROP_VALUE
         return value
 
     def _sanitize(self, data: dict) -> dict:
@@ -125,21 +186,26 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
                 continue
             if k in _NON_SERIALIZABLE_KEYS or k == self.segments_key:
                 if k == self.segments_key and self.serialize_segments:
-                    cleaned[k] = self._sanitize_nested(v)
+                    nested = self._sanitize_nested(v, path=k, active=set())
+                    if nested is not _DROP_VALUE:
+                        cleaned[k] = nested
                 continue
-            if _is_tensor(v):
-                logger.warning(
-                    f"[AudioToDocumentStage] Dropping non-serializable "
-                    f"key {k!r} (torch.Tensor) before DataFrame conversion"
-                )
-                continue
-            cleaned[k] = v
+            nested = self._sanitize_nested(v, path=k, active=set())
+            if nested is not _DROP_VALUE:
+                cleaned[k] = nested
         return cleaned
 
     def process_batch(self, tasks: list[AudioTask]) -> list[DocumentBatch]:
         if len(tasks) == 0:
             return []
         df = pd.DataFrame([self._sanitize(t.data) for t in tasks])
+        if len(df) and not len(df.columns):
+            msg = (
+                f"AudioToDocumentStage: the configured projection kept no columns, so "
+                f"{len(df)} row(s) would be written as nothing "
+                f"(keep_keys={self.keep_keys!r}, drop_keys={self.drop_keys!r})."
+            )
+            raise ValueError(msg)
         perf = []
         for t in tasks:
             perf.extend(t._stage_perf)
@@ -157,11 +223,15 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
     """Append every row in a DocumentBatch to one JSONL manifest.
 
     This is the task-type-compatible terminal sink for
-    :class:`AudioToDocumentStage`. The output file is truncated once in
-    ``setup()`` (called on the driver), while ``setup_on_node()`` only
-    creates its parent directory. Within one run, successive batches append
-    to the same file. The input ``DocumentBatch`` is returned unchanged so
-    its dataset name, metadata, and performance records are preserved.
+    :class:`AudioToDocumentStage`. The output file is truncated in ``setup()``
+    and successive batches append within one worker. The input ``DocumentBatch``
+    is returned unchanged so its dataset name, metadata, and performance records
+    are preserved.
+
+    ``num_workers() == 1`` is a correctness requirement: appends are not locked,
+    so overriding it can interleave rows. This stage creates one fixed manifest,
+    unlike the existing text ``JsonlWriter``, which writes per-batch shards and
+    returns a ``FileGroupTask``.
 
     Supports local and cloud paths via fsspec.
 
