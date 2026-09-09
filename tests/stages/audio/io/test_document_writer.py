@@ -20,11 +20,12 @@ import json
 
 import pandas as pd
 import pytest
+import torch
 from fsspec.core import url_to_fs
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 
-from nemo_curator.stages.audio.io.convert import DocumentBatchJsonlWriterStage
-from nemo_curator.tasks import DocumentBatch
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage, DocumentBatchJsonlWriterStage
+from nemo_curator.tasks import AudioTask, DocumentBatch
 
 
 def _batch(rows: list[dict], *, dataset_name: str = "audio") -> DocumentBatch:
@@ -102,3 +103,36 @@ def test_contract_is_document_batch_only_and_declares_disk_lifecycle(tmp_path) -
 def test_rejects_an_empty_output_path() -> None:
     with pytest.raises(ValueError, match="output_path is required"):
         DocumentBatchJsonlWriterStage(output_path="")
+
+
+def _written(path, batch: DocumentBatch) -> list[dict]:  # noqa: ANN001
+    writer = DocumentBatchJsonlWriterStage(output_path=str(path))
+    writer.setup()
+    writer.process(batch)
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_nested_tensor_is_removed_before_the_real_writer(tmp_path) -> None:  # noqa: ANN001
+    batch = AudioToDocumentStage().process_batch(
+        [
+            AudioTask(
+                dataset_name="d",
+                data={"audio_filepath": "/a.wav", "custom": {"embedding": torch.zeros(3)}},
+            )
+        ]
+    )[0]
+
+    assert _written(tmp_path / "nested.jsonl", batch) == [{"audio_filepath": "/a.wav", "custom": {}}]
+
+
+def test_tensor_valued_segments_are_dropped_not_written_as_empty_metadata(tmp_path) -> None:  # noqa: ANN001
+    batch = AudioToDocumentStage(serialize_segments=True).process_batch(
+        [
+            AudioTask(
+                dataset_name="d",
+                data={"audio_filepath": "/a.wav", "segments": torch.zeros(3)},
+            )
+        ]
+    )[0]
+
+    assert _written(tmp_path / "segments.jsonl", batch) == [{"audio_filepath": "/a.wav"}]

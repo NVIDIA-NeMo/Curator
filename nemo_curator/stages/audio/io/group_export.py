@@ -22,6 +22,7 @@ turns into hand-written Python, which is exactly the thing the agent must never 
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
@@ -46,6 +47,16 @@ def _safe_name(value: Any) -> str:  # noqa: ANN401
     """A filename-safe group name (``speaker 1/A`` -> ``speaker_1_A``)."""
     name = _UNSAFE.sub("_", str(value)).strip("_")
     return name or "unknown"
+
+
+def _group_file_stem(value: Any, *, reserved: set[str] | None = None) -> str:  # noqa: ANN401
+    """Return a stable filename stem without merging distinct sanitized values."""
+    raw = str(value)
+    safe = _safe_name(value)
+    if raw == safe and safe not in (reserved or set()):
+        return safe
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"{safe}~{digest}"
 
 
 def _jsonable(value: Any) -> bool:  # noqa: ANN401
@@ -135,6 +146,8 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         # replaces its own output instead of appending to the previous run's -- and a group
         # that no longer occurs keeps its old file rather than being silently half-erased.
         self._written = set()
+        self._csv_fields = {}
+        self._csv_dropped = set()
         self._timeline = []
         self._pending = 0
         logger.info(f"[{self.name}] exporting groups of {self.group_by!r} to {self.output_dir}")
@@ -175,8 +188,10 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         # ``row.get(...) or ...`` filed every ``speaker_id == 0`` row under
         # ``missing_group``, mixing a real group in with the rows that genuinely had none.
         raw = row.get(self.group_by)
-        group = _safe_name(self.missing_group if raw is None or raw == "" else raw)
-        self._append(group, row)
+        group_value = self.missing_group if raw is None or raw == "" else raw
+        group = _safe_name(group_value)
+        reserved = {"timeline"} if self.format == "txt" and self.write_timeline else set()
+        self._append(_group_file_stem(group_value, reserved=reserved), row)
         if self.write_timeline:
             self._record_timeline(group, row)
         return task
