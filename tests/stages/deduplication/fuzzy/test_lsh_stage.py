@@ -17,6 +17,7 @@
 import os
 from contextlib import suppress
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -28,6 +29,8 @@ with suppress(ImportError):
 with suppress(ImportError):
     from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.fuzzy.banding import minhash_to_band_columns
+    from nemo_curator.stages.deduplication.fuzzy.lsh.lsh import LSHActor
     from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
@@ -69,10 +72,12 @@ class TestLSHStage:
         )
 
     @pytest.mark.parametrize(
-        ("bands_per_iteration", "total_nparts"),
+        ("bands_per_iteration", "total_nparts", "minhash_layout"),
         [
-            (2, 4),
-            (3, None),
+            (2, 4, "raw"),
+            (3, None, "raw"),
+            (1, 4, "banded"),
+            (2, None, "banded"),
         ],
     )
     def test_lsh(
@@ -81,7 +86,22 @@ class TestLSHStage:
         tmp_path: Path,
         bands_per_iteration: int,
         total_nparts: int | None,
+        minhash_layout: str,
     ) -> None:
+        if minhash_layout == "banded":
+            raw_df = cudf.read_parquet(minhash_data.data)
+            band_df = raw_df[[CURATOR_DEDUP_ID_STR]].copy()
+            computed_bands = minhash_to_band_columns(
+                raw_df["_minhash_signature"],
+                num_bands=3,
+                minhashes_per_band=2,
+            )
+            for column in computed_bands.columns:
+                band_df[column] = computed_bands[column]
+            banded_file = os.path.join(tmp_path, "banded_minhash_data.parquet")
+            band_df.to_parquet(banded_file)
+            minhash_data.data = [banded_file]
+
         # Create LSHStage
         lsh_stage = LSHStage(
             output_path=str(tmp_path / "lsh_output"),
@@ -362,6 +382,41 @@ class TestLSHStage:
         expected_pairs = {(1, 2), (1, 3)}
         assert found_pairs == expected_pairs, f"Expected pairs {expected_pairs} not found in {found_pairs}"
 
+    def test_banded_read_projects_only_the_active_columns(
+        self,
+        minhash_data: FileGroupTask,
+        tmp_path: Path,
+    ) -> None:
+        raw_df = cudf.read_parquet(minhash_data.data)
+        band_df = raw_df[[CURATOR_DEDUP_ID_STR]].copy()
+        computed_bands = minhash_to_band_columns(
+            raw_df["_minhash_signature"],
+            num_bands=3,
+            minhashes_per_band=2,
+        )
+        for column in computed_bands.columns:
+            band_df[column] = computed_bands[column]
+        band_df["_unused"] = "not needed"
+        banded_file = os.path.join(tmp_path, "projected_banded_minhashes.parquet")
+        band_df.to_parquet(banded_file)
+
+        actor = object.__new__(LSHActor)
+        actor.num_bands = 3
+        actor.id_field = CURATOR_DEDUP_ID_STR
+        actor.minhash_field = "_minhash_signature"
+        actor.input_format = "banded"
+        actor.band_field_prefix = "_minhash_band_"
+        actor.read_kwargs = {}
+
+        with patch.object(cudf, "read_parquet", wraps=cudf.read_parquet) as read_parquet:
+            result = actor.read_minhash([banded_file], band_range=(1, 2))
+
+        read_parquet.assert_called_once_with(
+            [banded_file],
+            columns=[CURATOR_DEDUP_ID_STR, "_minhash_band_1"],
+        )
+        assert list(result.columns) == [CURATOR_DEDUP_ID_STR, "_minhash_band_1"]
+
     def test_actor_not_initialized(
         self,
         minhash_data: FileGroupTask,
@@ -426,4 +481,10 @@ class TestLSHStage:
                 num_bands=5,
                 minhashes_per_band=2,
                 bands_per_iteration=-1,  # Invalid: negative
+            )
+        with pytest.raises(ValueError, match="input_format must be"):
+            LSHStage(
+                num_bands=5,
+                minhashes_per_band=2,
+                input_format="invalid",
             )

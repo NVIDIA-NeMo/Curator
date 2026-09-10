@@ -512,6 +512,55 @@ class TestMinHashStage:
             }
         )
 
+    @pytest.mark.usefixtures("shared_ray_client")
+    def test_banded_output(self, batch_dataframe: pd.DataFrame, tmp_path: Path) -> None:
+        task = DocumentBatch(dataset_name="banded", data=batch_dataframe, _metadata={})
+        stage = MinHashStage(
+            output_path=str(tmp_path / "banded"),
+            text_field="text",
+            char_ngrams=3,
+            num_hashes=6,
+            output_format="banded",
+            num_bands=3,
+            pool=False,
+        )
+
+        stage.setup()
+        output_task = stage.process(task)
+        stage.teardown()
+
+        result_df = cudf.read_parquet(output_task.data[0])
+        band_columns = [f"_minhash_band_{band_number}" for band_number in range(3)]
+        assert list(result_df.columns) == [CURATOR_DEDUP_ID_STR, *band_columns]
+        assert output_task._metadata["minhash_output_format"] == "banded"
+        assert output_task._metadata["num_bands"] == 3
+        assert output_task._metadata["minhashes_per_band"] == 2
+        assert output_task._metadata["band_columns"] == band_columns
+        assert stage._custom_metrics["minhash_banding_time"] > 0
+        for column in band_columns:
+            assert result_df[column].str.startswith(column.replace("_minhash_band_", "b") + "_").all()
+            assert result_df[column].iloc[3] == result_df[column].iloc[4]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "error"),
+        [
+            ({"output_format": "invalid"}, "output_format must be"),
+            ({"output_format": "banded"}, "num_bands must be"),
+            (
+                {"output_format": "banded", "num_bands": 4, "num_hashes": 6},
+                "must be evenly divisible",
+            ),
+        ],
+    )
+    def test_banded_output_validation(
+        self,
+        tmp_path: Path,
+        kwargs: dict[str, object],
+        error: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=error):
+            MinHashStage(output_path=str(tmp_path / "invalid_bands"), pool=False, **kwargs)
+
     def test_inputs_declares_type_specific_requirements(self, tmp_path: Path) -> None:
         """MinHash declares separate input specs for file and in-memory paths."""
         stage = MinHashStage(output_path=str(tmp_path / "inputs"), text_field="text", pool=False)
