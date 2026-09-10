@@ -303,7 +303,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             fit = []
             estimated_bytes = 0
             for info in shuffled:
-                file_bytes = info.embedding_elements * cp.dtype(cp.float32).itemsize
+                fit_embedding_bytes = info.embedding_elements * cp.dtype(cp.float32).itemsize
+                file_bytes = max(fit_embedding_bytes, info.embedding_bytes)
                 file_bytes += info.metadata_bytes
                 if estimated_bytes + file_bytes > budget:
                     continue

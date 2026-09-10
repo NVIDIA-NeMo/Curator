@@ -37,6 +37,7 @@ class ParquetFileInfo:
     num_rows: int
     metadata_bytes: int
     embedding_elements: int = 0
+    embedding_bytes: int = 0
 
 
 def get_array_from_df(df: "cudf.DataFrame", embedding_col: str) -> "cp.ndarray":
@@ -54,6 +55,19 @@ def _parquet_leaf_count(data_type: pa.DataType) -> int:
 def _top_level_column_names(metadata: pq.FileMetaData) -> list[str]:
     """Map each physical Parquet column to its top-level Arrow field."""
     return [field.name for field in metadata.schema.to_arrow_schema() for _ in range(_parquet_leaf_count(field.type))]
+
+
+def _embedding_itemsize(schema: pa.Schema, embedding_column: str | None) -> int:
+    if embedding_column is None or embedding_column not in schema.names:
+        return 0
+    data_type = schema.field(embedding_column).type
+    while pa.types.is_list(data_type) or pa.types.is_large_list(data_type) or pa.types.is_fixed_size_list(data_type):
+        data_type = data_type.value_type
+    try:
+        return max(1, (data_type.bit_width + 7) // 8)
+    except ValueError as error:
+        msg = f"Embedding column {embedding_column!r} must contain fixed-width values, got {data_type}"
+        raise TypeError(msg) from error
 
 
 def read_parquet_file_info(  # noqa: C901
@@ -77,6 +91,7 @@ def read_parquet_file_info(  # noqa: C901
                 for path, parquet_file in zip(batch, parquet_files, strict=True):
                     metadata = pq.read_metadata(parquet_file)
                     top_level_columns = _top_level_column_names(metadata)
+                    embedding_itemsize = _embedding_itemsize(metadata.schema.to_arrow_schema(), embedding_column)
                     metadata_bytes = 0
                     embedding_elements = 0
                     for row_group_index in range(metadata.num_row_groups):
@@ -93,12 +108,14 @@ def read_parquet_file_info(  # noqa: C901
                             metadata.num_rows,
                             metadata_bytes,
                             embedding_elements=embedding_elements,
+                            embedding_bytes=embedding_elements * embedding_itemsize,
                         )
                     )
             return result
 
         import pylibcudf as plc
 
+        embedding_itemsize = _embedding_itemsize(pq.read_schema(files[0]), embedding_column)
         result = []
         for start in range(0, len(files), _FOOTER_BATCH_SIZE):
             batch = files[start : start + _FOOTER_BATCH_SIZE]
@@ -116,7 +133,15 @@ def read_parquet_file_info(  # noqa: C901
                     for column_chunk in row_group.columns
                     if column_chunk.meta_data.path_in_schema[0] == embedding_column
                 )
-                result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, embedding_elements))
+                result.append(
+                    ParquetFileInfo(
+                        path,
+                        footer.num_rows,
+                        metadata_bytes,
+                        embedding_elements=embedding_elements,
+                        embedding_bytes=embedding_elements * embedding_itemsize,
+                    )
+                )
         return result  # noqa: TRY300
     except Exception as error:
         # TODO: Retry failed footer batches file-by-file so the error can expose the individual filename(s).
