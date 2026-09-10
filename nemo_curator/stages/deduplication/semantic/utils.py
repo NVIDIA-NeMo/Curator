@@ -151,13 +151,15 @@ def read_parquet_file_info(  # noqa: C901
 
 def break_parquet_partition_into_groups(
     file_info: list[ParquetFileInfo],
+    max_embedding_bytes: int | None = None,
 ) -> list[list[str]]:
-    """Group complete files below cuDF's nested-column element limit."""
+    """Group complete files below cuDF's nested-column element and optional byte limits."""
     if not file_info:
         return []
     subgroups: list[list[str]] = []
     subgroup: list[str] = []
     subgroup_elements = 0
+    subgroup_bytes = 0
     for info in file_info:
         path = info.path
         elements = info.embedding_elements
@@ -166,14 +168,19 @@ def break_parquet_partition_into_groups(
             # requires switching this path to cuDF's ChunkedParquetReader instead of grouping files.
             msg = f"Parquet file {path!r} has {elements} embedding elements, exceeding cuDF's column-size limit"
             raise ValueError(msg)
-        if subgroup and subgroup_elements + elements >= CUDF_COLUMN_SIZE_LIMIT:
+        exceeds_byte_limit = (
+            max_embedding_bytes is not None and subgroup_bytes + info.embedding_bytes > max_embedding_bytes
+        )
+        if subgroup and (subgroup_elements + elements >= CUDF_COLUMN_SIZE_LIMIT or exceeds_byte_limit):
             subgroups.append(subgroup)
             subgroup = []
             subgroup_elements = 0
+            subgroup_bytes = 0
         subgroup.append(path)
         subgroup_elements += elements
+        subgroup_bytes += info.embedding_bytes
     if subgroup:
         subgroups.append(subgroup)
     if len(subgroups) > 1:
-        logger.debug(f"Broke {len(file_info)} files into {len(subgroups)} exact element-bounded subgroups")
+        logger.debug(f"Broke {len(file_info)} files into {len(subgroups)} bounded subgroups")
     return subgroups

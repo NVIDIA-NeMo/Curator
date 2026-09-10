@@ -50,6 +50,7 @@ from loguru import logger
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.6
+_FIT_READ_GROUP_SIZE_BYTES = 1 << 30
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
 
@@ -186,7 +187,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
             raise ValueError(msg)
 
-        fit_frames = iter(self._iter_parquet_frames(fit_info, columns))
+        fit_frames = iter(self._iter_parquet_frames(fit_info, columns, max_embedding_bytes=_FIT_READ_GROUP_SIZE_BYTES))
         read_start = time.perf_counter()
         first_fit_frame = next(fit_frames)
         embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
@@ -326,8 +327,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
         return fit, prediction_only
 
-    def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
-        for group in break_parquet_partition_into_groups(file_info):
+    def _iter_parquet_frames(
+        self,
+        file_info: list[ParquetFileInfo],
+        columns: list[str],
+        max_embedding_bytes: int | None = None,
+    ) -> Iterator["cudf.DataFrame"]:
+        for group in break_parquet_partition_into_groups(file_info, max_embedding_bytes=max_embedding_bytes):
             yield self._read_group(group, columns)
 
     def _write_output_frame(
