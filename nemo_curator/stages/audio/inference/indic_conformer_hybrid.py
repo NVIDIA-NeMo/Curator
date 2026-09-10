@@ -58,7 +58,6 @@ class InferenceIndicConformerHybridStage(ASRStage):
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
-    inference_batch_size: int | None = None
 
     audio_filepath_key: str = field(default="", init=False, repr=False)
     target_sample_rate: int = field(default=16_000, init=False, repr=False)
@@ -95,14 +94,8 @@ class InferenceIndicConformerHybridStage(ASRStage):
         if self.rnnt_precision not in {"fp32", "fp16", "bf16"}:
             msg = f"Unsupported IndicConformer RNNT precision: {self.rnnt_precision!r}"
             raise ValueError(msg)
-        inference_batch_size = self.batch_size if self.inference_batch_size is None else self.inference_batch_size
-        if inference_batch_size <= 0:
-            msg = "inference_batch_size must be at least 1"
-            raise ValueError(msg)
-        self.inference_batch_size = int(inference_batch_size)
         self.adapter_kwargs = {
             "decode_mode": self.decode_mode,
-            "inference_batch_size": self.inference_batch_size,
             "rnnt_precision": self.rnnt_precision,
             "empty_audio_marks_skip": False,
         }

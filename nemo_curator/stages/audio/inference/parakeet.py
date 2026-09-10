@@ -64,7 +64,6 @@ class InferenceParakeetStage(ASRStage):
     model_id: str = "nvidia/parakeet-tdt-0.6b-v3"
     name: str = "Parakeet_inference"
     supported_langs: frozenset[str] | set[str] | None = None
-    inference_batch_size: int = 16
     # Kept as a named compatibility option for integration-pipeline configs;
     # this adapter-backed port deliberately supports Curator's NeMo runtime.
     backend: Literal["nemo"] = "nemo"
@@ -109,13 +108,9 @@ class InferenceParakeetStage(ASRStage):
         if self.chunking_mode not in {"engine", "none"}:
             msg = f"Unsupported Parakeet chunking mode: {self.chunking_mode!r}"
             raise ValueError(msg)
-        if self.inference_batch_size <= 0:
-            msg = "inference_batch_size must be at least 1"
-            raise ValueError(msg)
         accepted_languages = self.supported_langs or PARAKEET_TDT_0_6B_V3_LANGS
         self.supported_language_codes = sorted(accepted_languages)
         self.adapter_kwargs = {
-            "inference_batch_size": int(self.inference_batch_size),
             "empty_audio_marks_skip": False,
             "use_cuda_graph_decoder": False,
         }

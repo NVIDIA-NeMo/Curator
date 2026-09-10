@@ -180,25 +180,6 @@ def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     assert len(kwargs["audio"]) == 2
 
 
-def test_transcribe_batch_honors_inference_batch_size_and_preserves_order() -> None:
-    model = _mock_model([SimpleNamespace(text="alpha"), SimpleNamespace(text="beta"), SimpleNamespace(text="gamma")])
-    adapter = NeMoASRAdapter(inference_batch_size=2)
-    adapter._model = model
-
-    results = adapter.transcribe_batch([_item(), _item(), _item()])
-
-    assert [result.text for result in results] == ["alpha", "beta", "gamma"]
-    assert model.transcribe.call_count == 1
-    assert model.transcribe.call_args.kwargs["batch_size"] == 2
-    assert len(model.transcribe.call_args.kwargs["audio"]) == 3
-
-
-@pytest.mark.parametrize("value", [0, -1, 1.5, True])
-def test_inference_batch_size_must_be_a_positive_integer(value: object) -> None:
-    with pytest.raises(ValueError, match="positive integer"):
-        NeMoASRAdapter(inference_batch_size=value)  # type: ignore[arg-type]
-
-
 def test_empty_audio_can_remain_a_blank_non_skip_for_compatibility_stage() -> None:
     adapter = NeMoASRAdapter(empty_audio_marks_skip=False)
     adapter._model = _mock_model([])

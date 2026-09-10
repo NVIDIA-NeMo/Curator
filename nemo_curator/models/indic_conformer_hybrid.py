@@ -353,7 +353,6 @@ class IndicConformerHybridASR:
         decode_mode: Literal["ctc", "rnnt"] = "rnnt",
         *,
         max_symbols_per_step: int = 10,
-        inference_batch_size: int = 128,
         rnnt_precision: Literal["fp32", "fp16", "bf16"] = "fp32",
         empty_audio_marks_skip: bool = True,
     ):
@@ -372,14 +371,10 @@ class IndicConformerHybridASR:
         if max_symbols_per_step < 1:
             msg = "max_symbols_per_step must be at least 1"
             raise ValueError(msg)
-        if inference_batch_size < 1:
-            msg = "inference_batch_size must be at least 1"
-            raise ValueError(msg)
         self.model_id = model_id
         self.revision = revision
         self.decode_mode = decode_mode
         self.max_symbols_per_step = max_symbols_per_step
-        self.inference_batch_size = int(inference_batch_size)
         self.rnnt_precision = rnnt_precision
         self.empty_audio_marks_skip = empty_audio_marks_skip
         self._model: Any = None
@@ -394,24 +389,14 @@ class IndicConformerHybridASR:
         return os.environ.get("HF_HUB_OFFLINE", "0").strip().lower() not in {"0", "", "false", "no"}
 
     @classmethod
-    def download_to_cache(cls, model_id: str) -> str:
-        """Populate the shared Hugging Face cache once during node setup."""
-        if model_id.endswith(".nemo") or os.path.exists(model_id):
-            return model_id
-        if cls._offline():
-            return cls._resolve_nemo_path(model_id)
-        from huggingface_hub import HfApi, hf_hub_download
-
-        files = [f for f in HfApi().list_repo_files(model_id) if f.endswith(".nemo")]
-        if not files:
-            msg = f"No .nemo file found in HuggingFace repo '{model_id}'"
-            raise RuntimeError(msg)
-        return hf_hub_download(model_id, files[0])
-
-    @classmethod
     def _resolve_nemo_path(cls, model_id: str) -> str:
-        """Resolve a local checkpoint or a cache-first Hugging Face repo ID."""
-        if model_id.endswith(".nemo") or os.path.exists(model_id):
+        """Resolve a local checkpoint or an already-cached Hugging Face repo ID."""
+        if model_id.endswith(".nemo"):
+            if not Path(model_id).is_file():
+                msg = f"Local NeMo checkpoint not found: {model_id}"
+                raise FileNotFoundError(msg)
+            return model_id
+        if os.path.exists(model_id):
             return model_id
 
         from huggingface_hub import snapshot_download
@@ -427,11 +412,32 @@ class IndicConformerHybridASR:
         if cls._offline():
             msg = f"No cached .nemo file found for HuggingFace repo '{model_id}' while HF_HUB_OFFLINE is set"
             raise FileNotFoundError(msg)
-        return cls.download_to_cache(model_id)
+        msg = (
+            f"No cached .nemo file found for HuggingFace repo '{model_id}'; "
+            "run download_weights_on_node() during node setup before loading the worker model"
+        )
+        raise FileNotFoundError(msg)
 
     def download_weights_on_node(self) -> None:
         """Resolve the configured checkpoint into the node-local cache without loading it."""
-        self.download_to_cache(self.model_id)
+        if self.model_id.endswith(".nemo"):
+            if not Path(self.model_id).is_file():
+                msg = f"Local NeMo checkpoint not found: {self.model_id}"
+                raise FileNotFoundError(msg)
+            return
+        if os.path.exists(self.model_id):
+            return
+        if self._offline():
+            self._resolve_nemo_path(self.model_id)
+            return
+
+        from huggingface_hub import HfApi, hf_hub_download
+
+        files = [f for f in HfApi().list_repo_files(self.model_id) if f.endswith(".nemo")]
+        if not files:
+            msg = f"No .nemo file found in HuggingFace repo '{self.model_id}'"
+            raise RuntimeError(msg)
+        hf_hub_download(self.model_id, files[0])
 
     def load_model(self, *, num_gpus: int) -> None:
         if self._model is not None:
@@ -592,21 +598,16 @@ class IndicConformerHybridASR:
             prepared_languages = [prepared_languages[index] for index in duration_order]
             original_indices = [original_indices[index] for index in duration_order]
 
-            for start in range(0, len(prepared), self.inference_batch_size):
-                end = start + self.inference_batch_size
-                chunk = prepared[start:end]
-                chunk_lengths = lengths[start:end]
-                chunk_languages = prepared_languages[start:end]
-                chunk_indices = original_indices[start:end]
-                padded = torch.nn.utils.rnn.pad_sequence(chunk, batch_first=True)
-                length_tensor = torch.tensor(chunk_lengths, dtype=torch.long, device=self._device)
+            if prepared:
+                padded = torch.nn.utils.rnn.pad_sequence(prepared, batch_first=True)
+                length_tensor = torch.tensor(lengths, dtype=torch.long, device=self._device)
                 encoded, encoded_len = self._model(input_signal=padded, input_signal_length=length_tensor)
                 if mode == "ctc":
-                    batch_texts = self._decode_ctc_batch(encoded, encoded_len, chunk_languages)
+                    batch_texts = self._decode_ctc_batch(encoded, encoded_len, prepared_languages)
                 else:
                     encoded = encoded.to(dtype=self._rnnt_dtype())
-                    batch_texts = self._decode_rnnt_batch(encoded, encoded_len, chunk_languages)
-                for original_index, text in zip(chunk_indices, batch_texts, strict=True):
+                    batch_texts = self._decode_rnnt_batch(encoded, encoded_len, prepared_languages)
+                for original_index, text in zip(original_indices, batch_texts, strict=True):
                     texts[original_index] = text
         return texts, langs_out
 
@@ -653,11 +654,6 @@ class IndicConformerHybridASR:
         offset = self._model.tokenizer.token_id_offset[lang]
         agg_ids = [int(i) + offset for i in local_ids]
         return self._model.tokenizer.ids_to_text(agg_ids).strip()
-
-    def _decode_ctc(self, encoded: Any, encoded_len: Any, lang: str) -> str:
-        log_probs = self._model.ctc_decoder(encoder_output=encoded, language_ids=[lang])  # [1, T, per_lang+1]
-        elen = int(encoded_len[0].item())
-        return self._decode_ctc_row(log_probs[0], elen, lang)
 
     def _decode_ctc_batch(self, encoded: Any, encoded_len: Any, lang_codes: list[str]) -> list[str]:
         log_probs = self._model.ctc_decoder(encoder_output=encoded, language_ids=lang_codes)
@@ -727,39 +723,3 @@ class IndicConformerHybridASR:
                     token_ids = token_ids.tolist()
                 texts[index] = self._ids_to_text(token_ids, language)
         return texts
-
-    def _decode_rnnt(self, encoded: Any, enc_len: int, lang: str) -> str:
-        # Compact greedy transducer decode mirroring the fork's single-sample path:
-        # per-language joint head, blank index = V/num_langs, local-id feedback.
-        import torch
-
-        joint = self._model.joint
-        decoder = self._model.decoder
-        blank = self._per_lang_classes
-        x = encoded.transpose(1, 2)  # [B, T, D_enc]
-        f_enc = joint.enc(x)  # project encoder once: [B, T, H]
-
-        last_token: int | None = None
-        state: Any = None
-        hyp: list[int] = []
-        for t in range(enc_len):
-            f = f_enc[:, t : t + 1, :]  # [B, 1, H]
-            not_blank = True
-            symbols = 0
-            while not_blank and symbols < self.max_symbols_per_step:
-                if last_token is None and state is None:
-                    g, new_state = decoder.predict(None, state=None, add_sos=False, batch_size=1)
-                else:
-                    label = torch.full([1, 1], fill_value=last_token, dtype=torch.long, device=self._device)
-                    g, new_state = decoder.predict(label, state=state, add_sos=False, batch_size=1)
-                g = joint.pred(g)  # [1, 1, H]
-                logp = joint.joint_after_projection(f, g, language_ids=[lang])[0, 0, 0, :]
-                k = int(logp.argmax(dim=-1).item())
-                if k == blank:
-                    not_blank = False
-                else:
-                    hyp.append(k)
-                    last_token = k
-                    state = new_state
-                symbols += 1
-        return self._ids_to_text(hyp, lang)

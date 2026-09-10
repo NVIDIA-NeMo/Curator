@@ -43,14 +43,13 @@ def _task(language: str | None = "hi") -> AudioTask:
 def test_stage_exposes_integration_pipeline_contract() -> None:
     stage = InferenceIndicConformerHybridStage(
         model_id="ai4bharat/test-checkpoint",
-        batch_size=8,
         num_workers_override=3,
     )
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == ([], ["asr_prediction", "asr_language"])
     assert stage.name == "IndicConformerHybrid_inference"
-    assert stage.inference_batch_size == 8
+    assert stage.batch_size == 128
     assert stage.num_workers() == 3
     assert set(stage.supported_language_codes) == set(INDIC_CONFORMER_HYBRID_LANGS)
 
@@ -60,7 +59,7 @@ def test_stage_builds_adapter_with_all_model_options() -> None:
         model_id="ai4bharat/test-checkpoint",
         decode_mode="ctc",
         rnnt_precision="bf16",
-        inference_batch_size=5,
+        batch_size=5,
     )
 
     adapter = stage._create_adapter()
@@ -69,8 +68,8 @@ def test_stage_builds_adapter_with_all_model_options() -> None:
     assert adapter.model_id == "ai4bharat/test-checkpoint"
     assert adapter.decode_mode == "ctc"
     assert adapter.rnnt_precision == "bf16"
-    assert adapter.inference_batch_size == 5
     assert adapter.empty_audio_marks_skip is False
+    assert stage.batch_size == 5
 
 
 def test_supported_batch_preserves_order_and_writes_language() -> None:
@@ -114,7 +113,6 @@ def test_unsupported_language_is_not_marked_for_global_skip() -> None:
     [
         ({"backend": "tensorrt"}, "backend='nemo' only"),
         ({"tensorrt_engine_dir": "/engine"}, "only valid with backend='tensorrt'"),
-        ({"inference_batch_size": 0}, "at least 1"),
     ],
 )
 def test_stage_rejects_unsupported_runtime_configuration(kwargs: dict[str, object], message: str) -> None:

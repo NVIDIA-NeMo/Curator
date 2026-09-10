@@ -58,9 +58,8 @@ def _item(
 
 
 class _RecordingRuntime:
-    def __init__(self, *, max_batch_size: int = 2, languages: tuple[str, ...] = ("hi", "ta")) -> None:
+    def __init__(self, *, languages: tuple[str, ...] = ("hi", "ta")) -> None:
         language_set = set(languages)
-        self.max_batch_size = max_batch_size
         self.tokenizer = SimpleNamespace(
             langs=list(languages),
             supports_prompt_language=lambda language: language in language_set,
@@ -186,8 +185,8 @@ def test_language_normalization_and_prompt_contract() -> None:
     }
 
 
-def test_transcribe_batch_preserves_order_and_chunks_to_engine_limit() -> None:
-    runtime = _RecordingRuntime(max_batch_size=2)
+def test_transcribe_batch_preserves_order_in_one_engine_call() -> None:
+    runtime = _RecordingRuntime()
     adapter = IndicCanaryTRTLLMASR("/models/indic-canary", num_beams=3, max_new_tokens=77)
     adapter._model = runtime
 
@@ -210,11 +209,21 @@ def test_transcribe_batch_preserves_order_and_chunks_to_engine_limit() -> None:
         "truncated": True,
         "audio_duration_sec": pytest.approx(40.0 + 1 / _SAMPLE_RATE),
     }
-    assert len(runtime.calls) == 2
-    assert runtime.calls[0]["durations"] == [400, 2 * _SAMPLE_RATE]
-    assert runtime.calls[1]["durations"] == [40 * _SAMPLE_RATE]
-    assert all(call["num_beams"] == 3 for call in runtime.calls)
-    assert all(call["max_new_tokens"] == 77 for call in runtime.calls)
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0]["durations"] == [400, 2 * _SAMPLE_RATE, 40 * _SAMPLE_RATE]
+    assert runtime.calls[0]["num_beams"] == 3
+    assert runtime.calls[0]["max_new_tokens"] == 77
+
+
+def test_transcribe_batch_does_not_call_engine_when_all_languages_are_unsupported() -> None:
+    runtime = _RecordingRuntime()
+    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter._model = runtime
+
+    results = adapter.transcribe_batch([_item("zz"), _item("xx")])
+
+    assert [result.unsupported_language for result in results] == ["zz", "xx"]
+    assert runtime.calls == []
 
 
 def test_transcribe_batch_requires_loaded_runtime() -> None:
