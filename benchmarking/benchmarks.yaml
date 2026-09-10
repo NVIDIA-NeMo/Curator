@@ -636,6 +636,8 @@ entries:
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
+          - kmeans_fit_write_peak_temporary_bytes
+          - kmeans_fit_write_peak_memory_amplification
           - pairwise_read_time_s
           - pairwise_conversion_time_s
           - pairwise_compute_time_s
@@ -690,6 +692,8 @@ entries:
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
+          - kmeans_fit_write_peak_temporary_bytes
+          - kmeans_fit_write_peak_memory_amplification
           - pairwise_read_time_s
           - pairwise_conversion_time_s
           - pairwise_compute_time_s
