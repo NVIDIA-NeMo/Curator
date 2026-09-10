@@ -155,6 +155,21 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
     return meets_requirements
 
 
+def build_subprocess_environment(
+    entry: Entry,
+    session_entry_path: Path,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+) -> dict[str, str]:
+    """Return the full environment for an entry subprocess."""
+    entry_environment = {}
+    for name, value in entry.environment.items():
+        resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
+        resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
+        entry_environment[name] = resolved_value
+    return {**os.environ, **entry_environment}
+
+
 def run_data_setup_entry(
     setup_entry: Entry,
     path_resolver: PathResolver,
@@ -184,6 +199,7 @@ def run_data_setup_entry(
             command=cmd,
             timeout=setup_entry.timeout_s,
             stdouterr_path=stdouterr_path,
+            env=build_subprocess_environment(setup_entry, setup_path, path_resolver, dataset_resolver),
             run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
@@ -319,6 +335,7 @@ def run_entry(  # noqa: PLR0913
                 command=cmd,
                 timeout=entry.timeout_s,
                 stdouterr_path=stdouterr_path,
+                env=build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver),
                 run_id=run_id,
                 fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
             )

@@ -88,6 +88,57 @@ def test_session_accepts_run_metadata() -> None:
     assert session.run_reason == "release candidate check"
 
 
+def test_session_merges_environment_defaults_per_variable() -> None:
+    session = Session.from_dict(
+        _config(
+            [
+                {"name": "entry_a", "script": "benchmark.py"},
+                {
+                    "name": "entry_b",
+                    "script": "benchmark.py",
+                    "environment": {"ENTRY_ONLY": "yes", "SHARED": "entry"},
+                },
+            ],
+            environment={"GLOBAL_ONLY": "yes", "SHARED": "session"},
+        )
+    )
+
+    assert session.entries[0].environment == {"GLOBAL_ONLY": "yes", "SHARED": "session"}
+    assert session.entries[1].environment == {
+        "GLOBAL_ONLY": "yes",
+        "ENTRY_ONLY": "yes",
+        "SHARED": "entry",
+    }
+
+
+def test_session_rejects_invalid_environment_value_type() -> None:
+    with pytest.raises(TypeError, match="environment variable value"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {"MY_VAR": 1}}],
+            )
+        )
+
+
+def test_session_rejects_invalid_environment_block_type() -> None:
+    with pytest.raises(TypeError, match="Invalid environment for session"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                environment=["MY_VAR=value"],
+            )
+        )
+
+
+def test_session_rejects_invalid_environment_variable_name() -> None:
+    with pytest.raises(ValueError, match="environment variable name"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {"": "value"}}],
+            )
+        )
+
+
 def test_session_rejects_viewer_url_and_viewer_url_template() -> None:
     with pytest.raises(ValueError, match="viewer_url and viewer_url_template are mutually exclusive"):
         Session.from_dict(

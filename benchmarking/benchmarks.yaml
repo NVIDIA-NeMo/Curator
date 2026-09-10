@@ -312,6 +312,9 @@ entries:
   - name: exact_dedup_identification
     enabled: true
     script: exact_dedup_identification_benchmark.py
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:rpv2-2023-14-en,parquet}
@@ -334,6 +337,9 @@ entries:
   - name: fuzzy_dedup_identification
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}

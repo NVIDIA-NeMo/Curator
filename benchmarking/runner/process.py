@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import shlex
 import subprocess
 import sys
@@ -23,7 +25,7 @@ import traceback
 import unicodedata
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from loguru import logger
 from rich.live import Live
@@ -33,6 +35,30 @@ from rich.text import Text
 # Create a translation table that maps all control characters to None for deletion in order to safely print subprocess output to the scrolling live window.
 # This includes characters in the Unicode category 'Cc' (Control).
 _control_chars = {c: None for c in range(sys.maxunicode) if unicodedata.category(chr(c)) == "Cc"}
+
+_SENSITIVE_ENV_NAME_PATTERN = re.compile(
+    r"(^|[_-])(TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|PRIVATE_KEY|ACCESS_KEY|API_KEY)([_-]|$)"
+)
+
+
+def _get_subprocess_env(env: dict[str, str] | None) -> dict[str, str]:
+    """Return the exact environment mapping passed to subprocess.Popen."""
+    if env is None:
+        return dict(os.environ)
+    return dict(env)
+
+
+def _redact_environment_value(name: str, value: str) -> str:
+    if _SENSITIVE_ENV_NAME_PATTERN.search(name.upper()):
+        return "<redacted>"
+    return value
+
+
+def _write_subprocess_environment(outfile: TextIO, env: dict[str, str]) -> None:
+    outfile.write("--- Subprocess environment ---\n")
+    outfile.writelines(f"{name}={_redact_environment_value(name, env[name])}\n" for name in sorted(env))
+    outfile.write("--- End subprocess environment ---\n")
+    outfile.flush()
 
 
 def run_command_with_timeout(  # noqa: PLR0913
@@ -107,9 +133,11 @@ def display_simple_subprocess(
     timed_out = False
     msg = ""
     run_id_msg = f" for run ID: {run_id}" if run_id else ""
+    subprocess_env = _get_subprocess_env(env)
 
     with open(stdouterr_path, "a") as outfile:
         start_time = time.time()
+        _write_subprocess_environment(outfile, subprocess_env)
         logger.info(
             f"\tRunning command (output to stdout/err): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
         )
@@ -118,7 +146,7 @@ def display_simple_subprocess(
                 cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env=env,
+                env=subprocess_env,
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
@@ -213,6 +241,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     timed_out = False
     msg = ""
     run_id_msg = f" for run ID: {run_id}" if run_id else ""
+    subprocess_env = _get_subprocess_env(env)
 
     with (
         Live(auto_refresh=False, vertical_overflow="visible") as live,
@@ -220,6 +249,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     ):
         start_time = time.time()
         final_panel = None
+        _write_subprocess_environment(outfile, subprocess_env)
         logger.info(
             f"\tRunning command in subprocess (output to scrolling window): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
         )
@@ -228,7 +258,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
                 cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env=env,
+                env=subprocess_env,
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
