@@ -331,7 +331,7 @@ entries:
       - metric: num_duplicates
         exact_value: 64292856
 
-  - name: fuzzy_dedup_identification
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_20
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
@@ -342,6 +342,90 @@ entries:
       --input-filetype=jsonl
       --bands-per-iteration=20
       --minhash-output-format=banded
+      --text-field=text
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 59226133
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_20
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=jsonl
+      --bands-per-iteration=20
+      --minhash-output-format=raw
+      --text-field=text
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 59226133
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_4
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=jsonl
+      --bands-per-iteration=4
+      --minhash-output-format=banded
+      --text-field=text
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 59226133
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_4
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=jsonl
+      --bands-per-iteration=4
+      --minhash-output-format=raw
       --text-field=text
       --input-blocksize=1.5GiB
     timeout_s: 1200
