@@ -146,3 +146,20 @@ class TestBreakParquetPartitionIntoGroups:
         groups = break_parquet_partition_into_groups(file_info)
 
         assert groups == [files[:2], files[2:]]
+
+    def test_optional_embedding_byte_limit(self) -> None:
+        from nemo_curator.stages.deduplication.semantic.utils import (
+            ParquetFileInfo,
+            break_parquet_partition_into_groups,
+        )
+
+        file_info = [
+            ParquetFileInfo("large.parquet", 1, 0, embedding_bytes=700),
+            ParquetFileInfo("small-1.parquet", 1, 0, embedding_bytes=400),
+            ParquetFileInfo("small-2.parquet", 1, 0, embedding_bytes=300),
+        ]
+
+        assert break_parquet_partition_into_groups(file_info, max_embedding_bytes=1_000) == [
+            ["large.parquet"],
+            ["small-1.parquet", "small-2.parquet"],
+        ]
