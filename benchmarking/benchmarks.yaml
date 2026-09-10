@@ -1122,7 +1122,7 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --input-manifest={dataset:librispeech_all_750h,jsonl}
       --executor=xenna
-      --max-samples=14279
+      --max-samples=27000
       --sample-rate=16000
       --enable-vad
       --enable-sigmos
@@ -1141,7 +1141,7 @@ entries:
           - U07EVDG9FBK  # Shubham Bhawsar
     requirements:
       - metric: num_input_rows
-        exact_value: 14279
+        exact_value: 27000
       - metric: num_output_segments
         min_value: 1
 
@@ -1155,7 +1155,7 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --input-manifest={dataset:librispeech_all_750h,jsonl}
       --executor=ray_data
-      --max-samples=14279
+      --max-samples=27000
       --sample-rate=16000
       --enable-vad
       --enable-sigmos
@@ -1174,7 +1174,7 @@ entries:
           - U07EVDG9FBK  # Shubham Bhawsar
     requirements:
       - metric: num_input_rows
-        exact_value: 14279
+        exact_value: 27000
       - metric: num_output_segments
         min_value: 1
 
