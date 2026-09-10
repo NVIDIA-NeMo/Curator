@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
 import numpy as np
+import rmm.statistics
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -30,6 +31,7 @@ from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
 from .utils import (
+    CUDF_COLUMN_SIZE_LIMIT,
     ParquetFileInfo,
     break_parquet_partition_into_groups,
     get_array_from_df,
@@ -50,7 +52,6 @@ from loguru import logger
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
-_FIT_READ_MEMORY_FRACTION = 0.8
 _FIT_WRITE_MEMORY_FRACTION = 0.8
 _PARQUET_WRITE_MEMORY_AMPLIFICATION = 6
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
@@ -189,13 +190,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
             raise ValueError(msg)
 
-        fit_frames = iter(
-            self._iter_parquet_frames(
-                fit_info,
-                columns,
-                max_embedding_bytes=self._max_fit_read_group_bytes(fit_info),
-            )
-        )
+        fit_frames = iter(self._iter_parquet_frames(fit_info, columns))
         read_start = time.perf_counter()
         first_fit_frame = next(fit_frames)
         embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
@@ -239,6 +234,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         write_time = 0.0
         predicted_rows = 0
         output_index = 0
+        fit_write_peak_temporary_bytes = 0
+        fit_write_peak_memory_amplification = 0.0
         for metadata, start, stop in sampled_chunks:
             rows_per_write = self._max_fit_write_rows(fit_embeddings.shape[1])
             for chunk_start in range(start, stop, rows_per_write):
@@ -246,13 +243,24 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 metadata_start = chunk_start - start
                 metadata_stop = chunk_stop - start
                 write_start = time.perf_counter()
-                self._write_output_frame(
-                    f"{tasks[0].task_id}_{output_index}.parquet",
-                    metadata.iloc[metadata_start:metadata_stop],
-                    fit_embeddings[chunk_start:chunk_stop],
-                    fit_labels[chunk_start:chunk_stop],
-                    centroids,
-                )
+                with rmm.statistics.statistics():
+                    self._write_output_frame(
+                        f"{tasks[0].task_id}_{output_index}.parquet",
+                        metadata.iloc[metadata_start:metadata_stop],
+                        fit_embeddings[chunk_start:chunk_stop],
+                        fit_labels[chunk_start:chunk_stop],
+                        centroids,
+                    )
+                    write_stats = rmm.statistics.get_statistics()
+                if write_stats is not None:
+                    fit_write_peak_temporary_bytes = max(fit_write_peak_temporary_bytes, write_stats.peak_bytes)
+                    embedding_bytes = (
+                        (chunk_stop - chunk_start) * fit_embeddings.shape[1] * cp.dtype(cp.float32).itemsize
+                    )
+                    fit_write_peak_memory_amplification = max(
+                        fit_write_peak_memory_amplification,
+                        write_stats.peak_bytes / embedding_bytes,
+                    )
                 write_time += time.perf_counter() - write_start
                 predicted_rows += chunk_stop - chunk_start
                 output_index += 1
@@ -290,6 +298,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 "kmeans_read_time": read_time,
                 "kmeans_predict_time": predict_time,
                 "kmeans_write_time": write_time,
+                "kmeans_fit_write_peak_temporary_bytes": fit_write_peak_temporary_bytes,
+                "kmeans_fit_write_peak_memory_amplification": fit_write_peak_memory_amplification,
                 "num_rows": total_rows,
             }
         )
@@ -313,7 +323,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             fit = shuffled[:count]
         else:
             free_memory = cp.cuda.runtime.memGetInfo()[0]
-            budget = int(free_memory * _AUTO_FIT_MEMORY_FRACTION)
+            source_itemsize = max(
+                info.embedding_bytes // info.embedding_elements for info in file_info if info.embedding_elements
+            )
+            read_reserve = CUDF_COLUMN_SIZE_LIMIT * source_itemsize
+            budget = int((free_memory - read_reserve) * _AUTO_FIT_MEMORY_FRACTION)
+            if budget <= 0:
+                msg = f"A {read_reserve}-byte Parquet read reserve leaves no GPU memory for KMeans fitting"
+                raise MemoryError(msg)
             fit = []
             estimated_bytes = 0
             for info in shuffled:
@@ -339,24 +356,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
         return fit, prediction_only
 
-    def _iter_parquet_frames(
-        self,
-        file_info: list[ParquetFileInfo],
-        columns: list[str],
-        max_embedding_bytes: int | None = None,
-    ) -> Iterator["cudf.DataFrame"]:
-        for group in break_parquet_partition_into_groups(file_info, max_embedding_bytes=max_embedding_bytes):
+    def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
+        for group in break_parquet_partition_into_groups(file_info):
             yield self._read_group(group, columns)
-
-    def _max_fit_read_group_bytes(self, fit_info: list[ParquetFileInfo]) -> int:
-        fit_bytes = sum(
-            info.embedding_elements * cp.dtype(cp.float32).itemsize + info.metadata_bytes for info in fit_info
-        )
-        available_after_fit = cp.cuda.runtime.memGetInfo()[0] - fit_bytes
-        if available_after_fit <= 0:
-            msg = "KMeans fit allocation leaves no GPU memory for reading Parquet data"
-            raise MemoryError(msg)
-        return int(available_after_fit * _FIT_READ_MEMORY_FRACTION)
 
     def _max_fit_write_rows(self, embedding_width: int) -> int:
         """Bound partitioned writes using their observed temporary-memory amplification."""
