@@ -153,8 +153,8 @@ Compare semantic deduplication with other methods:
 | `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of generated Parquet embedding files used to fit K-means. `None` automatically selects complete embedding files within the live GPU-memory budget. |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
-| `kmeans_embedding_output_dtype` | str | `"float32"` | Precision used to store KMeans embeddings for Pairwise (`"float16"` or `"float32"`) |
-| `pairwise_compute_dtype` | str | `"float32"` | Pairwise multiplication precision: `"auto"`, `"float16"`, or `"float32"` |
+| `kmeans_embedding_output_dtype` | str | `"float16"` | Precision used to store KMeans embeddings for Pairwise (`"float16"` or `"float32"`) |
+| `pairwise_compute_dtype` | str | `"float16"` | Pairwise multiplication precision: `"auto"`, `"float16"`, or `"float32"` |
 | `pairwise_batch_size` | int | `1024` | Positive batch size for the bounded similarity workspace |
 | `distance_metric` | str | `"cosine"` | Distance metric for similarity ("cosine" or "l2") |
 | `perform_removal` | bool | `True` | Whether to perform duplicate removal |
@@ -195,11 +195,13 @@ Because they have unit length, `X @ X.T` is their cosine-similarity matrix:
 
 Only candidates to the left of the query's diagonal are eligible. Pairwise therefore selects `B -> A (0.96)`, `C -> B (0.28)`, `D -> A (0.00)`, and `E -> C (0.96)`. With `eps=0.1`, the duplicate threshold is `1 - eps = 0.9`, so the next stage removes query rows `B` and `E` while preserving `A`, `C`, and `D`. An earlier-ranked candidate remains eligible even if that candidate is itself later marked for removal.
 
-KMeans fit, prediction, and distance calculations remain FP32. By default, KMeans retains FP32 embeddings in its output. Set `kmeans_embedding_output_dtype="float16"` to cast normalized embeddings to FP16 and store their bit patterns in uint16 list leaves because cuDF does not support numeric FP16 columns. The uint16 representation does not guarantee half-sized Parquet files because Parquet stores uint16 values using an INT32 physical type.
+KMeans fit, prediction, and distance calculations remain FP32. By default, KMeans casts normalized embeddings to FP16 and stores their bit patterns in uint16 list leaves because cuDF does not support numeric FP16 columns. Set `kmeans_embedding_output_dtype="float32"` to retain FP32 embeddings. The uint16 representation does not guarantee half-sized Parquet files because Parquet stores uint16 values using an INT32 physical type.
 
 Pairwise infers storage precision from the embedding list leaves: uint16 leaves are decoded as FP16 bit patterns, FP32 leaves keep their precision, and legacy FP64 leaves are normalized to FP32. With `pairwise_compute_dtype="auto"`, FP16 embeddings use FP16 multiplication and FP32 embeddings use FP32. FP32 embeddings can instead use `"float16"` multiplication; upcasting stored FP16 embeddings is rejected because it cannot restore the discarded precision.
 
 FP16 scores remain FP16 through multiplication and reduction, then are promoted to FP32 because cuDF does not support an FP16 numeric output column. Pairwise records cumulative footer scan, read, rank, precision conversion, compute, and write time.
+
+Use FP32 storage and compute when exact or near-exact similarity thresholds make FP16 rounding material, or when the selected nearest-neighbor ID is part of the required output contract.
 
 ### Control K-means fitting memory
 

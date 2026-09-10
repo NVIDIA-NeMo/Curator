@@ -47,8 +47,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     which_to_keep: str = "hard",
     pairwise_batch_size: int = 1024,
     fit_data_fraction: float | None = None,
-    pairwise_compute_dtype: str = "float32",
-    kmeans_embedding_output_dtype: str = "float32",
+    pairwise_compute_dtype: str = "float16",
+    kmeans_embedding_output_dtype: str = "float16",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the semantic duplicate identification benchmark and collect comprehensive metrics.
@@ -243,13 +243,13 @@ def main() -> int:
     parser.add_argument(
         "--kmeans-embedding-output-dtype",
         choices=["float16", "float32"],
-        default="float32",
+        default="float16",
         help="Precision used to store KMeans embedding output",
     )
     parser.add_argument(
         "--pairwise-compute-dtype",
         choices=["auto", "float16", "float32"],
-        default="float32",
+        default="float16",
         help="Multiplication precision used by Pairwise",
     )
     parser.add_argument(
