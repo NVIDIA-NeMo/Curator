@@ -575,12 +575,13 @@ class TestKMeansReadFitWriteStage:
         assert {info.path for info in fit} == {info.path for info in file_info}
         assert prediction_only == []
 
-    def test_auto_fit_budget_includes_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        """Auto-fit budgets retained metadata as well as the preallocated embedding buffer."""
+    def test_auto_fit_budget_includes_source_dtype_and_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        """Auto-fit budgets the larger of the source read and float32 fit representations."""
         stage = make_stage(fit_data_fraction=None)
         file_info = [
             ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
-            ParquetFileInfo("fits.parquet", 10, 0, embedding_elements=20),
+            ParquetFileInfo("float64.parquet", 10, 0, embedding_elements=20, embedding_bytes=160),
+            ParquetFileInfo("float32.parquet", 10, 0, embedding_elements=20, embedding_bytes=80),
         ]
 
         with (
@@ -589,8 +590,8 @@ class TestKMeansReadFitWriteStage:
         ):
             fit, prediction_only = stage._sample_fit_files(file_info)
 
-        assert [info.path for info in fit] == ["fits.parquet"]
-        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
+        assert [info.path for info in fit] == ["float32.parquet"]
+        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet", "float64.parquet"]
         assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
 
     @pytest.mark.parametrize(
