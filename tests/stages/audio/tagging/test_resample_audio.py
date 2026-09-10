@@ -15,6 +15,7 @@
 import hashlib
 import os
 import shutil
+import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -25,9 +26,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 
 import nemo_curator.stages.audio.tagging.resample_audio as resample_audio_module
-from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._residency import resolve_audio
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
@@ -381,3 +382,32 @@ class TestSkippingExistingOutput:
         for _ in range(2):
             mem_stage.process(AudioTask(dataset_name="t", data={"audio_filepath": str(source), "audio_item_id": "m"}))
         assert calls["n"] == 2, "an in-memory run has no durable output to skip"
+
+    def test_process_removes_partial_output_after_ffmpeg_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+        audio_filepath: Path,
+    ) -> None:
+        temporary_paths: list[Path] = []
+
+        def fail_after_partial_write(cmd: list[str], *, check: bool, capture_output: bool, text: bool) -> None:
+            assert check is True
+            assert capture_output is True
+            assert text is True
+            temporary_path = Path(cmd[-1])
+            temporary_path.write_bytes(b"partial")
+            temporary_paths.append(temporary_path)
+            raise subprocess.CalledProcessError(1, cmd)
+
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", fail_after_partial_write)
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+        task = audio_task(audio_filepath=str(audio_filepath), audio_item_id="id_1")
+
+        with pytest.raises(RuntimeError, match="Error converting"):
+            stage.process(task)
+
+        assert len(temporary_paths) == 1
+        assert not temporary_paths[0].exists()
+        assert not (tmp_path / "id_1.wav").exists()

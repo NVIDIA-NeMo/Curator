@@ -36,8 +36,15 @@ from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 
 # Stage imports
 from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
-from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
-from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage
+from nemo_curator.stages.deduplication.semantic.kmeans import (
+    KMeansEmbeddingOutputDtype,
+    KMeansStage,
+    validate_embedding_output_dtype,
+)
+from nemo_curator.stages.deduplication.semantic.pairwise import (
+    PairwiseComputeDtype,
+    PairwiseStage,
+)
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
@@ -72,7 +79,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Core data configuration
         id_field: str = "id",
         embedding_field: str = "embeddings",
-        embedding_dim: int | None = None,
         metadata_fields: list[str] | None = None,
         input_filetype: Literal["parquet", "jsonl"] = "parquet",
         input_file_extensions: list[str] | None = None,
@@ -100,6 +106,9 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         clear_output: bool = True,
         # Execution parameters
         verbose: bool = True,
+        # Pairwise precision (appended for positional compatibility)
+        pairwise_compute_dtype: PairwiseComputeDtype = "float32",
+        kmeans_embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32",
     ):
         """
         Initialize the semantic deduplication workflow.
@@ -114,7 +123,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             # Core data configuration
             id_field: Name of the ID field in the data
             embedding_field: Name of the embedding field in the data
-            embedding_dim: Embedding dimension (for memory estimation)
             metadata_fields: List of metadata field names to preserve in output
             input_filetype: Type of input files ("parquet" or "jsonl")
             input_file_extensions: List of file extensions to process
@@ -128,13 +136,16 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             oversampling_factor: K-means++ oversampling factor
             max_samples_per_batch: Max samples per batch for K-means
             distance_metric: Distance metric for similarity ("cosine" or "l2")
-            fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model.
-                If None, fit on the full dataset.
+            fit_data_fraction: Fraction of whole files (in (0, 1]) used to fit the KMeans model.
+                When None, Parquet selects as many complete files as fit the live GPU-memory budget,
+                while JSONL fits all input files in one pass.
+            kmeans_embedding_output_dtype: Precision used to store embeddings for Pairwise.
 
             # Pairwise similarity parameters
             which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
             ranking_strategy: Custom ranking strategy (overrides which_to_keep)
-            pairwise_batch_size: Batch size for pairwise similarity computation
+            pairwise_compute_dtype: Multiplication precision for Pairwise, or ``"auto"`` to retain decoded precision.
+            pairwise_batch_size: Positive batch size for the bounded Pairwise workspace.
 
             # Duplicate identification parameters (optional)
             eps: Epsilon value for duplicate identification
@@ -161,7 +172,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         # Data configuration
         self.id_field = id_field
         self.embedding_field = embedding_field
-        self.embedding_dim = embedding_dim
         self.metadata_fields = metadata_fields
         self.input_filetype = input_filetype
         self.input_file_extensions = input_file_extensions
@@ -175,11 +185,17 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
         self.fit_data_fraction = fit_data_fraction
+        validate_embedding_output_dtype(kmeans_embedding_output_dtype)
+        self.kmeans_embedding_output_dtype = kmeans_embedding_output_dtype
 
         # Pairwise similarity parameters
         self.distance_metric = distance_metric
         self.which_to_keep = which_to_keep
         self.ranking_strategy = ranking_strategy
+        if kmeans_embedding_output_dtype == "float16" and pairwise_compute_dtype == "float32":
+            msg = "FP16 KMeans output cannot be restored for FP32 Pairwise compute"
+            raise ValueError(msg)
+        self.pairwise_compute_dtype = pairwise_compute_dtype
         self.pairwise_batch_size = pairwise_batch_size
 
         # Duplicate identification parameters
@@ -211,8 +227,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             )
 
         # Validate fit_data_fraction
-        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
-            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
+        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction <= 1.0:
+            msg = (
+                f"fit_data_fraction must be in (0, 1], got {self.fit_data_fraction}; "
+                "pass None to auto-size Parquet fitting or fit all JSONL input"
+            )
             raise ValueError(msg)
 
         # Validate distance_metric
@@ -263,7 +282,6 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             input_path=self.input_path,
             output_path=self.kmeans_output_path,
             metadata_fields=self.metadata_fields,
-            embedding_dim=self.embedding_dim,
             input_filetype=self.input_filetype,
             input_file_extensions=self.input_file_extensions,
             verbose=self.verbose,
@@ -275,6 +293,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             oversampling_factor=self.oversampling_factor,
             max_samples_per_batch=self.max_samples_per_batch,
             fit_data_fraction=self.fit_data_fraction,
+            embedding_output_dtype=self.kmeans_embedding_output_dtype,
             cache_path=None,  # do not save KMeans centroids (user should run KMeansStage directly instead)
             read_kwargs=self.read_kwargs,
             write_kwargs=self.cache_kwargs,
@@ -299,7 +318,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             input_path=self.kmeans_output_path,
             output_path=self.pairwise_output_path,
             ranking_strategy=self.ranking_strategy,
-            embedding_dim=self.embedding_dim,
+            compute_dtype=self.pairwise_compute_dtype,
             pairwise_batch_size=self.pairwise_batch_size,
             verbose=self.verbose,
             which_to_keep=self.which_to_keep,
@@ -345,6 +364,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         logger.info(f"Distance metric: {self.distance_metric}")
         logger.info(f"Which to keep: {self.which_to_keep}")
         logger.info(f"Ranking strategy: {self.ranking_strategy}")
+        logger.info(f"KMeans embedding output dtype: {self.kmeans_embedding_output_dtype}")
+        logger.info(f"Pairwise compute dtype: {self.pairwise_compute_dtype}")
         logger.info(f"Pairwise batch size: {self.pairwise_batch_size}")
         logger.info(f"Random state: {self.random_state}")
         logger.info("=" * 60)

@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -311,13 +312,14 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # run picked a new output name, but the name is stable now, so a run killed mid-write
             # leaves a stump the NEXT run finds -- and a truncated WAV keeps a valid header, so
             # the skip above waves it through and a fragment's duration lands in the manifest.
-            # Convert to a sibling temp name and rename, which is atomic on POSIX.
+            # Convert to a sibling temp name and rename, which is atomic on POSIX. Upstream
+            # landed the same fix independently; this keeps its naming so the two do not drift.
             staging_dir = os.path.dirname(output_audio_path)
             if staging_dir:
                 # setup_on_node makes this, but process() must not depend on having been through it.
                 os.makedirs(staging_dir, exist_ok=True)
-            staged_fd, staged = tempfile.mkstemp(prefix=".", suffix=f".{self.target_format}", dir=staging_dir or None)
-            os.close(staged_fd)
+            output_stem, output_extension = os.path.splitext(output_audio_path)
+            temporary_audio_path = f"{output_stem}.{uuid.uuid4().hex}.tmp{output_extension}"
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -331,17 +333,17 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 str(self.target_nchannels),
                 "-acodec",
                 "pcm_s16le",
-                staged,
+                temporary_audio_path,
             ]
 
             try:
                 subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
-                os.replace(staged, output_audio_path)
+                os.replace(temporary_audio_path, output_audio_path)
             except subprocess.CalledProcessError as e:
                 msg = f"Error converting {input_audio_path}: {e}"
                 raise RuntimeError(msg) from e
             finally:
-                cleanup_temp_files([staged])
+                cleanup_temp_files([temporary_audio_path])
 
         # Update metadata — preserve original URL for cloud paths.
         if original_audio_filepath is not None:
