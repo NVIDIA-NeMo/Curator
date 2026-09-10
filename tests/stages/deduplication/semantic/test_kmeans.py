@@ -586,14 +586,14 @@ class TestKMeansReadFitWriteStage:
         ]
 
         with (
-            patch("cupy.cuda.runtime.memGetInfo", return_value=(400, 1_000)),
+            patch("cupy.cuda.runtime.memGetInfo", return_value=(330, 1_000)),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.CUDF_COLUMN_SIZE_LIMIT", 10),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
             fit, prediction_only = stage._sample_fit_files(file_info)
 
-        assert [info.path for info in fit] == ["float32.parquet", "float64.parquet"]
-        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
+        assert [info.path for info in fit] == ["float32.parquet"]
+        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet", "float64.parquet"]
         assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
 
     def test_fit_write_rows_use_live_free_memory(self, make_stage: "KMeansReadFitWriteStage") -> None:

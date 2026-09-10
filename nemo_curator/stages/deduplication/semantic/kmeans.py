@@ -53,6 +53,7 @@ L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
 _FIT_WRITE_MEMORY_FRACTION = 0.8
+_PARQUET_READ_MEMORY_AMPLIFICATION = 2
 _PARQUET_WRITE_MEMORY_AMPLIFICATION = 6
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
@@ -326,7 +327,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             source_itemsize = max(
                 info.embedding_bytes // info.embedding_elements for info in file_info if info.embedding_elements
             )
-            read_reserve = CUDF_COLUMN_SIZE_LIMIT * source_itemsize
+            read_reserve = CUDF_COLUMN_SIZE_LIMIT * source_itemsize * _PARQUET_READ_MEMORY_AMPLIFICATION
             budget = int((free_memory - read_reserve) * _AUTO_FIT_MEMORY_FRACTION)
             if budget <= 0:
                 msg = f"A {read_reserve}-byte Parquet read reserve leaves no GPU memory for KMeans fitting"
