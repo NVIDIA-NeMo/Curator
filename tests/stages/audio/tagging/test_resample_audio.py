@@ -27,10 +27,10 @@ import pytest
 import soundfile as sf
 import torch
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
-
-import nemo_curator.stages.audio.tagging.resample_audio as resample_audio_module
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._residency import resolve_audio
+
+import nemo_curator.stages.audio.tagging.resample_audio as resample_audio_module
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.tasks import AudioTask
 
