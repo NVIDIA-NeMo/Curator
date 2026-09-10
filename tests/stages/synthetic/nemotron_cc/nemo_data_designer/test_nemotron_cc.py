@@ -57,7 +57,7 @@ ALL_STAGES = [
 
 
 def _model_configs() -> list:
-    return [dd.ModelConfig(alias="test_model", model="test/model")]
+    return [dd.ModelConfig(alias="test_model", model="test/model", provider="openai")]
 
 
 def _make_stage(stage_cls: type, **kwargs: object) -> object:
