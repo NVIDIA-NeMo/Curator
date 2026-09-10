@@ -173,6 +173,7 @@ class TestKMeansStage:
         stages = stage.decompose()
 
         assert stages[0].file_extensions == expected_extensions
+        assert stages[0].include_file_size is True
 
     def test_input_file_extensions_override_default(self, tmp_path: Path) -> None:
         stage = KMeansStage(
