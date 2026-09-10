@@ -49,7 +49,7 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     for entry_name in ("audio_readspeech_xenna", "audio_readspeech_raydata"):
         args = entries[entry_name]["args"]
         assert "--input-manifest={dataset:librispeech_all_750h,jsonl}" in args
-        assert "--max-samples=14279" in args
+        assert "--max-samples=27000" in args
         assert "--sample-rate=16000" in args
         assert "--band-value=narrow_band" in args
         assert "--raw-data-dir" not in args
