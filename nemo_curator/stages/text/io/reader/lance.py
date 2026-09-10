@@ -142,6 +142,10 @@ class LanceReaderStage(BaseReader):
         output_fields = list(columns or [])
         if self.include_lance_metadata:
             output_fields.extend([LANCE_ROWID_COLUMN, LANCE_ROWADDR_COLUMN, LANCE_FRAGID_COLUMN])
+        if self._generate_ids or self._assign_ids:
+            from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+            output_fields.append(CURATOR_DEDUP_ID_STR)
         return ["data"], output_fields
 
     def _scanner_kwargs(self, read_kwargs: dict[str, Any], fields: list[str] | None) -> dict[str, Any]:

@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 
 from fsspec.core import url_to_fs
@@ -117,6 +118,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         fs, output_path = url_to_fs(output_audio_path)
         skipped_conversion = fs.exists(output_path)
         if not skipped_conversion:
+            output_stem, output_extension = os.path.splitext(output_audio_path)
+            temporary_audio_path = f"{output_stem}.{uuid.uuid4().hex}.tmp{output_extension}"
             cmd = [
                 "ffmpeg",
                 "-v",
@@ -129,14 +132,18 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
                 str(self.target_nchannels),
                 "-acodec",
                 "pcm_s16le",
-                output_audio_path,
+                temporary_audio_path,
             ]
 
             try:
                 subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
+                os.replace(temporary_audio_path, output_audio_path)
             except subprocess.CalledProcessError as e:
                 msg = f"Error converting {input_audio_path}: {e}"
                 raise RuntimeError(msg) from e
+            finally:
+                if os.path.exists(temporary_audio_path):
+                    os.remove(temporary_audio_path)
 
         # Update metadata — preserve original URL for cloud paths
         data_entry[self.audio_filepath_key] = original_audio_filepath

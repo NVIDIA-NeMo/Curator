@@ -96,7 +96,6 @@ python 2_cluster.py \
     --text-field text \
     --id-field _curator_climb_id \
     --embedding-field embeddings \
-    --embedding-dim 3072 \
     --centroids-path /data/climb/centroids
 ```
 
@@ -113,8 +112,8 @@ python 2_cluster.py \
 **Key configuration**
 
 - `--n-clusters 1000` is the full recipe default. Use fewer clusters for a small smoke-test corpus.
-- Stella produces 1024-dimensional embeddings by default, but the recipe deliberately passes the 3× estimate `--embedding-dim 3072`. K-means uses this value only to estimate safe Parquet subgroup sizes around cuDF limits; it does not reshape or validate the embeddings. A larger estimate creates smaller groups and can reduce memory pressure. Lower it toward the actual width only when the available GPU memory can safely hold larger groups.
-- `--fit-data-fraction` fits centroids on a sample while assigning all documents. Use this when the embedding data cannot fit into GPU memory.
+- `--fit-data-fraction` samples that fraction of whole embedding files while assigning all documents.
+  When omitted, Parquet fitting is sized from free GPU memory, while JSONL fits all input files.
 - Tune `--max-samples-per-batch`, `--max-iter`, and `--tol` for memory, runtime, and convergence.
 - `--init`, `--n-init`, and `--random-state` control initialization and repeatability.
 

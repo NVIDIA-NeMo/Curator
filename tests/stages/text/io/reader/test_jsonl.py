@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 
+import fsspec
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.deduplication.id_generator import (
@@ -53,6 +56,7 @@ class TestJsonlReaderWithoutIdGenerator:
         for task in file_group_tasks:
             stage = JsonlReaderStage()
             result = stage.process(task)
+            assert isinstance(result.data, pa.Table)
             df = result.to_pandas()
             assert CURATOR_DEDUP_ID_STR not in df.columns
             assert len(df) == 2  # Each file has 2 rows
@@ -66,6 +70,158 @@ class TestJsonlReaderWithoutIdGenerator:
             assert list(df.columns) == ["text"]
             assert len(df) == 2
 
+    def test_default_reader_returns_pyarrow_table(self, sample_jsonl_files: list[str]) -> None:
+        """The default reader should keep parsed data in Arrow until pandas is requested."""
+        task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})
+
+        result = JsonlReaderStage(fields=["text"]).process(task)
+
+        assert isinstance(result.data, pa.Table)
+        assert result.data.schema.field("text").type == pa.string()
+        assert result.data["text"].to_pylist() == [
+            "Doc 0-1",
+            "Doc 0-2",
+            "Doc 1-1",
+            "Doc 1-2",
+            "Doc 2-1",
+            "Doc 2-2",
+        ]
+
+    @pytest.mark.parametrize("engine", [None, "pyarrow_direct", "pandas", "ujson", "pyarrow"])
+    def test_stage_rejects_lines_false_at_initialization(self, engine: str | None) -> None:
+        """JsonlReaderStage should reject non-JSONL input for every engine."""
+        read_kwargs = {"lines": False}
+        if engine is not None:
+            read_kwargs["engine"] = engine
+
+        with pytest.raises(RuntimeError, match="JsonlReader only supports lines=True"):
+            JsonlReaderStage(read_kwargs=read_kwargs)
+
+    def test_composite_reader_rejects_lines_false_at_initialization(self, tmp_path: Path) -> None:
+        """JsonlReader should reject non-JSONL input before decomposition."""
+        with pytest.raises(RuntimeError, match="JsonlReader only supports lines=True"):
+            JsonlReader(file_paths=str(tmp_path), read_kwargs={"engine": "pandas", "lines": False})
+
+    def test_pandas_pyarrow_engine_returns_dataframe(self, sample_jsonl_files: list[str]) -> None:
+        """The pandas PyArrow engine should remain available through read_kwargs."""
+        task = FileGroupTask(dataset_name="ds", data=sample_jsonl_files, _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "pyarrow"}).process(task)
+
+        assert isinstance(result.data, pd.DataFrame)
+        assert result.data["text"].tolist() == [
+            "Doc 0-1",
+            "Doc 0-2",
+            "Doc 1-1",
+            "Doc 1-2",
+            "Doc 2-1",
+            "Doc 2-2",
+        ]
+
+    def test_default_reader_does_not_change_engine_for_mixed_column_types(self, tmp_path: Path) -> None:
+        """Distributed reader tasks should fail consistently instead of changing representation."""
+        file_path = tmp_path / "mixed.jsonl"
+        file_path.write_text('{"value":1}\n{"value":"one"}\n', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        with pytest.raises(pa.ArrowInvalid, match="changed from"):
+            JsonlReaderStage().process(task)
+
+    def test_pandas_reader_keeps_mixed_column_as_object(self, tmp_path: Path) -> None:
+        """Callers can select pandas when mixed JSON types require object storage."""
+        file_path = tmp_path / "mixed.jsonl"
+        file_path.write_text('{"value":1}\n{"value":"one"}\n', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "pandas"}).process(task)
+
+        assert isinstance(result.data, pd.DataFrame)
+        assert result.data["value"].dtype == object
+        assert result.data["value"].tolist() == [1, "one"]
+
+    def test_pandas_and_pyarrow_direct_document_inference_difference(self, tmp_path: Path) -> None:
+        """Document when callers need pandas inference instead of the faster direct parser."""
+        file_path = tmp_path / "timestamp.jsonl"
+        expected = pd.Timestamp("2026-08-20T12:34:56Z")
+        pd.DataFrame({"created_at": [expected], "text": ["hello"]}).to_json(
+            file_path,
+            orient="records",
+            lines=True,
+            date_format="iso",
+        )
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        pandas_result = JsonlReaderStage(read_kwargs={"engine": "pandas", "convert_dates": ["created_at"]}).process(
+            task
+        )
+        arrow_result = JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct"}).process(task)
+
+        # Prefer the default/pyarrow_direct path for throughput. Select pandas explicitly
+        # when pandas-specific inference, such as timezone-aware dates, is required.
+        assert isinstance(pandas_result.data["created_at"].dtype, pd.DatetimeTZDtype)
+        assert pandas_result.data["created_at"].tolist() == [expected]
+        assert isinstance(arrow_result.data, pa.Table)
+        assert arrow_result.data.schema.field("created_at").type == pa.string()
+        arrow_as_pandas = arrow_result.to_pandas()
+        assert arrow_as_pandas["created_at"].dtype.storage == "pyarrow"
+        assert pd.Timestamp(arrow_as_pandas["created_at"].iloc[0]) == expected
+
+    def test_pyarrow_direct_does_not_fall_back(self, tmp_path: Path) -> None:
+        """The explicit direct engine should expose unsupported Arrow input instead of silently changing engines."""
+        file_path = tmp_path / "mixed.jsonl"
+        file_path.write_text('{"value":1}\n{"value":"one"}\n', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        with pytest.raises(pa.ArrowInvalid, match="changed from"):
+            JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct"}).process(task)
+
+    def test_pyarrow_direct_grows_block_for_large_record(self, tmp_path: Path) -> None:
+        """A record larger than the initial parse block should be retried with a larger block."""
+        text = "x" * (1024 * 1024 + 64 * 1024)
+        file_path = tmp_path / "large.jsonl"
+        file_path.write_text(json.dumps({"text": text}) + "\n", encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+        stage = JsonlReaderStage(
+            read_kwargs={
+                "engine": "pyarrow_direct",
+                "pyarrow_block_size": 1024 * 1024,
+                "pyarrow_max_block_size": 2 * 1024 * 1024,
+            }
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result.data, pa.Table)
+        assert result.data["text"].to_pylist() == [text]
+
+    def test_pyarrow_direct_stops_growing_block_at_maximum(self, tmp_path: Path) -> None:
+        """A record larger than the maximum block should raise instead of retrying indefinitely."""
+        file_path = tmp_path / "too_large.jsonl"
+        file_path.write_text(json.dumps({"text": "x" * (5 * 1024)}) + "\n", encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+        stage = JsonlReaderStage(
+            read_kwargs={
+                "engine": "pyarrow_direct",
+                "pyarrow_block_size": 1024,
+                "pyarrow_max_block_size": 2 * 1024,
+            }
+        )
+
+        with pytest.raises(pa.ArrowInvalid, match="straddling object"):
+            stage.process(task)
+
+    def test_pyarrow_direct_reads_fsspec_url(self) -> None:
+        """The direct engine should retain JsonlReader's remote-filesystem behavior."""
+        file_path = "memory://jsonl-reader/direct.jsonl"
+        with fsspec.open(file_path, mode="wt", encoding="utf-8") as stream:
+            stream.write('{"text":"first"}\n{"text":"second"}\n')
+        task = FileGroupTask(dataset_name="ds", data=[file_path], _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": "pyarrow_direct"}).process(task)
+
+        assert isinstance(result.data, pa.Table)
+        assert result.data["text"].to_pylist() == ["first", "second"]
+
     def test_storage_options_via_read_kwargs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Reader should use storage options from reader.read_kwargs."""
         # Create a file
@@ -74,7 +230,7 @@ class TestJsonlReaderWithoutIdGenerator:
 
         # Reader uses read_kwargs storage options
         task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
-        stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
+        stage = JsonlReaderStage(read_kwargs={"engine": "pandas", "storage_options": {"auto_mkdir": True}})
 
         seen: dict[str, object] = {}
 
@@ -115,7 +271,7 @@ class TestJsonlReaderWithoutIdGenerator:
 
         monkeypatch.setattr(pd, "read_json", fake_read_json)
         task = FileGroupTask(dataset_name="ds", data=[str(f)], _metadata={})
-        stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
+        stage = JsonlReaderStage(read_kwargs={"engine": "pandas", "storage_options": {"auto_mkdir": True}})
         out = stage.process(task)
         assert seen["storage_options"] == {"auto_mkdir": True}
         df = out.to_pandas()
@@ -126,14 +282,26 @@ class TestJsonlReaderWithIdGenerator:
     """Test JSONL reader with ID generation."""
 
     @pytest.mark.usefixtures("ray_client_with_id_generator")
-    def test_sequential_id_generation_and_assignment(self, file_group_tasks: list[FileGroupTask]) -> None:
+    @pytest.mark.parametrize(
+        ("engine", "backing_type"),
+        [("pyarrow_direct", pa.Table), ("pandas", pd.DataFrame)],
+    )
+    def test_sequential_id_generation_and_assignment(
+        self,
+        file_group_tasks: list[FileGroupTask],
+        engine: str,
+        backing_type: type[pa.Table] | type[pd.DataFrame],
+    ) -> None:
         """Test sequential ID generation across multiple batches."""
-        generation_stage = JsonlReaderStage(_generate_ids=True)
+        generation_stage = JsonlReaderStage(read_kwargs={"engine": engine}, _generate_ids=True)
         generation_stage.setup()
 
         all_ids = []
         for task in file_group_tasks:
             result = generation_stage.process(task)
+            assert isinstance(result.data, backing_type)
+            if isinstance(result.data, pa.Table):
+                assert result.data.schema.field(CURATOR_DEDUP_ID_STR).type == pa.int64()
             ids = result.to_pandas()[CURATOR_DEDUP_ID_STR].tolist()
             all_ids.extend(ids)
 
@@ -144,6 +312,7 @@ class TestJsonlReaderWithIdGenerator:
         repeated_ids = []
         for task in file_group_tasks:
             result = generation_stage.process(task)
+            assert isinstance(result.data, backing_type)
             ids = result.to_pandas()[CURATOR_DEDUP_ID_STR].tolist()
             repeated_ids.extend(ids)
 
@@ -152,18 +321,35 @@ class TestJsonlReaderWithIdGenerator:
 
         """ If we now create a new stage with _assign_ids=True, the IDs should be the same as the previous batch."""
         all_ids = []
-        assign_stage = JsonlReaderStage(_assign_ids=True)
+        assign_stage = JsonlReaderStage(read_kwargs={"engine": engine}, _assign_ids=True)
         assign_stage.setup()
         for i, task in enumerate(file_group_tasks):
             result = assign_stage.process(task)
-            df = result.to_pandas()
+            assert isinstance(result.data, backing_type)
             expected_ids = [i * 2, i * 2 + 1]  # Task 0: [0,1], Task 1: [2,3], Task 2: [4,5]
-            assert (
-                df[CURATOR_DEDUP_ID_STR].tolist() == expected_ids
-            )  # These ids should be the same as the previous batch
-            all_ids.extend(df[CURATOR_DEDUP_ID_STR].tolist())
+            ids = result.to_pandas()[CURATOR_DEDUP_ID_STR].tolist()
+            assert ids == expected_ids  # These ids should be the same as the previous batch
+            all_ids.extend(ids)
 
         assert all_ids == list(range(6))
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    @pytest.mark.parametrize("id_mode", ["generate", "assign"])
+    def test_id_operations_preserve_existing_arrow_column(self, tmp_path: Path, id_mode: str) -> None:
+        """Reader-side ID operations should leave an existing Arrow ID column unchanged."""
+        file_path = tmp_path / "with_ids.jsonl"
+        pd.DataFrame({"text": ["first", "second"], CURATOR_DEDUP_ID_STR: [101, 202]}).to_json(
+            file_path,
+            orient="records",
+            lines=True,
+        )
+        stage = JsonlReaderStage(_generate_ids=id_mode == "generate", _assign_ids=id_mode == "assign")
+        stage.setup()
+
+        result = stage.process(FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={}))
+
+        assert isinstance(result.data, pa.Table)
+        assert result.data[CURATOR_DEDUP_ID_STR].to_pylist() == [101, 202]
 
     def test_generate_ids_no_actor_error(self) -> None:
         """Test error when actor doesn't exist and ID generation is requested."""

@@ -137,6 +137,7 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
             in which case the filter_fn will be the keep_document method of the DocumentFilter.
         filter_field (str | list[str]): The field (or list of fields) to be passed into the filter function.
         invert (bool | list[bool]): Whether to invert the filter condition.
+        verbose (bool): Log input and retained row counts for each non-empty batch.
 
     """
 
@@ -144,6 +145,7 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
     filter_field: str | list[str]
     invert: bool | list[bool] = False
     name: str = "filter_fn"
+    verbose: bool = False
 
     def __post_init__(self):
         self.name, self.filter_fn, self.filter_field, self.invert, _ = _validate_and_normalize_filters(
@@ -199,9 +201,13 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
             logger.info(f"Empty dataset for batch {batch.task_id}")
             return batch
 
+        input_count = len(df)
         for filter_fn_i, filter_field_i, invert_i in zip(self.filter_fn, self.filter_field, self.invert, strict=True):
             bool_mask = self.compute_filter_mask(df, filter_fn_i, filter_field_i, invert_i)
             df = df[bool_mask]
+
+        if self.verbose:
+            logger.info("{} batch {} retained {}/{} rows", self.name, batch.task_id, len(df), input_count)
 
         if len(df) == 0:
             logger.info(f"All documents filtered out for batch {batch.task_id}")
@@ -235,6 +241,7 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         text_field (str | list[str]): The field (or list of fields) the documents will be read from.
         score_field (str | list[str] | None): The field (or list of fields) to which the scores will be written. If None, scores will be immediately discarded after use.
         invert (bool | list[bool]): If True, will keep all documents that are normally discarded.
+        verbose (bool): Log input and retained row counts for each non-empty batch.
 
     """
 
@@ -243,6 +250,7 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     score_field: str | list[str] | None = None
     invert: bool | list[bool] = False
     name: str = "score_filter"
+    verbose: bool = False
 
     def __post_init__(self):
         self.name, self.filter_obj, self.text_field, self.invert, self.score_field = _validate_and_normalize_filters(
@@ -326,11 +334,15 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             logger.info(f"Empty dataset for batch {batch.task_id}")
             return batch
 
+        input_count = len(df)
         for filter_obj_i, text_field_i, score_field_i, invert_i in zip(
             self.filter_obj, self.text_field, self.score_field, self.invert, strict=True
         ):
             bool_mask = self.compute_filter_mask(df, filter_obj_i, text_field_i, score_field_i, invert_i)
             df = df[bool_mask]
+
+        if self.verbose:
+            logger.info("{} batch {} retained {}/{} rows", self.name, batch.task_id, len(df), input_count)
 
         if len(df) == 0:
             logger.info(f"All documents filtered out for batch {batch.task_id}")

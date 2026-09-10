@@ -249,11 +249,13 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             raise ValueError(msg)
 
         tensor = torch.as_tensor(waveform, dtype=torch.float32)
-        if tensor.ndim == _CHANNEL_FIRST_DIMENSIONS:
-            tensor = tensor.mean(dim=0)
-        elif tensor.ndim != _MONO_DIMENSIONS:
+        if tensor.ndim not in {_MONO_DIMENSIONS, _CHANNEL_FIRST_DIMENSIONS}:
             msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
             raise ValueError(msg)
+        if tensor.numel() == 0:
+            return np.empty(0, dtype=np.float32)
+        if tensor.ndim == _CHANNEL_FIRST_DIMENSIONS:
+            tensor = tensor.mean(dim=0)
         if source_sample_rate != self.target_sample_rate:
             tensor = torchaudio.functional.resample(
                 tensor,
