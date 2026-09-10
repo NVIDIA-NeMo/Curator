@@ -205,7 +205,12 @@ ADDITIVE_STAGE_NAMES = (
 # ResampleAudioStage and SplitLongAudioStage expose the invariant disk/output-path
 # gates that configured contracts already report. Constructor defaults and the other
 # 43 stage entries remain unchanged.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "1ecfb9add5f7956e45fef6e94b832fccb7cc933dedd013b0f1babb9058baf619"
+# Regenerated for the ALM safety corrections. Exactly five entries moved:
+# ALMDataOverlapStage gained configurable output-key defaults; the two ALM sinks
+# gained configurable input-key defaults; and static discovery for extraction,
+# manifest writing, metrics, and repetition filtering now reports their conservative
+# lifecycle, persistence, independence, and network gates.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "f68282c3f5b155d4de0266e10fed4fd2045eb9ec8e286e29709722353ef58388"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
