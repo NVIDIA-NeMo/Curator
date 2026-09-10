@@ -51,7 +51,8 @@ DEFAULT_IMAGE = os.environ.get(
     "CURATOR_BENCHMARK_IMAGE",
     os.environ.get("CURATOR_BENCHMARKING_IMAGE", "nemo_curator:latest"),
 )
-DEFAULT_SUITE_CONTAINER_DIR = Path("/opt/curator-benchmark-suite")
+DEFAULT_SOURCE_CONTAINER_DIR = Path("/opt/curator-benchmark-source")
+DEFAULT_SUITE_CONTAINER_DIR = DEFAULT_SOURCE_CONTAINER_DIR / "benchmarking"
 DEFAULT_BENCHMARK_CONFIG_ENV = "CURATOR_BENCHMARK_CONFIG"
 
 
@@ -389,7 +390,12 @@ def _docker_run_base_args(
         cmd.extend(["--gpus", gpus])
     cmd.extend(["--memory", target.memory or str(default_container_memory_bytes())])
     cmd.extend(["--shm-size", target.shm_size or str(default_shm_size_bytes())])
-    cmd.extend(["--volume", f"{suite_dir}:{target.benchmark_suite_container_dir}"])
+    cmd.extend(
+        [
+            "--volume",
+            f"{_host_source_dir_for_mount(target)}:{_source_container_dir_for_mount(target)}",
+        ]
+    )
     if target.use_host_curator:
         cmd.extend(["--volume", f"{suite_dir.parent}:{CONTAINER_CURATOR_DIR}"])
     elif target.use_host_curator_benchmarking:
@@ -564,6 +570,14 @@ def _setup_entry_names_from_args(args: list[str]) -> list[str] | None:
 
 def _host_suite_dir_for_setup(target: DockerTarget) -> Path:
     return resolve_benchmark_suite_dir(target.benchmark_suite_dir)
+
+
+def _host_source_dir_for_mount(target: DockerTarget) -> Path:
+    return resolve_benchmark_suite_dir(target.benchmark_suite_dir).parent
+
+
+def _source_container_dir_for_mount(target: DockerTarget) -> Path:
+    return target.benchmark_suite_container_dir.parent
 
 
 def _option_value(args: list[str], option_name: str) -> str | None:

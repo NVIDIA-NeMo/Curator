@@ -283,6 +283,10 @@ curator-benchmark start \
 The command starts a named detached container, runs benchmark-package setup when
 requested, and prints follow-up commands for `curator-benchmark run
 --container`, `curator-benchmark shell --container`, and `docker rm --force`.
+Image-based targets mount the full Curator checkout at
+`/opt/curator-benchmark-source` so package builds can access peer source
+directories such as `tutorials/`; the benchmark suite package itself is under
+`/opt/curator-benchmark-source/benchmarking`.
 
 For active benchmark development inside a reusable container, use an editable
 install from the mounted benchmark suite so source edits are picked up by later
@@ -290,7 +294,7 @@ commands:
 
 ```bash
 curator-benchmark shell --container curator-bench-dev \
-  -- uv pip install -e /opt/curator-benchmark-suite[all]
+  -- uv pip install -e /opt/curator-benchmark-source/benchmarking[all]
 ```
 
 If `--image` is provided without a value, the default image comes from
@@ -312,8 +316,8 @@ The tool exports these variables in Docker targets:
 
 | Variable | Value |
 | --- | --- |
-| `CURATOR_BENCHMARK_SUITE_DIR` | Directory containing the benchmark suite, usually `/opt/curator-benchmark-suite`. |
-| `CURATOR_BENCHMARK_CONFIG` | Default benchmark config, usually `/opt/curator-benchmark-suite/benchmarks.yaml`. |
+| `CURATOR_BENCHMARK_SUITE_DIR` | Directory containing the benchmark suite package, usually `/opt/curator-benchmark-source/benchmarking`. |
+| `CURATOR_BENCHMARK_CONFIG` | Default benchmark config, usually `/opt/curator-benchmark-source/benchmarking/benchmarks.yaml`. |
 
 Open a shell in an existing container:
 
@@ -452,7 +456,7 @@ Then run inside that container:
 curator-benchmark run \
   --container curator-benchmark-dev \
   --setup-benchmark-env no \
-  --config /opt/curator-benchmark-suite/benchmarks.yaml
+  --config /opt/curator-benchmark-source/benchmarking/benchmarks.yaml
 ```
 
 For containers started outside of `curator-benchmark start`, the caller is
@@ -1059,7 +1063,7 @@ curator-benchmark check --config ./benchmarking/benchmarks.yaml
 curator-benchmark check \
   --container curator-benchmark-dev \
   --setup-benchmark-env no \
-  --config /opt/curator-benchmark-suite/benchmarks.yaml
+  --config /opt/curator-benchmark-source/benchmarking/benchmarks.yaml
 ```
 
 The check command should be advisory by default: it should explain missing or

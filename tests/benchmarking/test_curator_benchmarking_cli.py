@@ -259,7 +259,7 @@ def test_containerize_command_args_rewrites_suite_config_for_image(tmp_path: Pat
 
     args = _containerize_command_args(target, ["run", "--config", str(config_path)])
 
-    assert args == ["run", "--config", "/opt/curator-benchmark-suite/benchmarks.yaml"]
+    assert args == ["run", "--config", "/opt/curator-benchmark-source/benchmarking/benchmarks.yaml"]
 
 
 def test_containerize_command_args_keeps_container_only_config_path() -> None:
@@ -267,10 +267,10 @@ def test_containerize_command_args_keeps_container_only_config_path() -> None:
 
     args = _containerize_command_args(
         target,
-        ["run", "--config", "/opt/curator-benchmark-suite/benchmarks.yaml"],
+        ["run", "--config", "/opt/curator-benchmark-source/benchmarking/benchmarks.yaml"],
     )
 
-    assert args == ["run", "--config", "/opt/curator-benchmark-suite/benchmarks.yaml"]
+    assert args == ["run", "--config", "/opt/curator-benchmark-source/benchmarking/benchmarks.yaml"]
 
 
 def test_containerize_command_args_does_not_require_suite_dir_for_container(
@@ -324,8 +324,8 @@ def test_docker_env_args_sets_container_path_mode() -> None:
     env_args = _docker_env_args(DockerTarget(), image_digest="sha256:test")
 
     assert f"{CURATOR_BENCHMARK_PATH_MODE_ENV}=container" in env_args
-    assert f"{BENCHMARK_SUITE_DIR_ENV}=/opt/curator-benchmark-suite" in env_args
-    assert f"{DEFAULT_BENCHMARK_CONFIG_ENV}=/opt/curator-benchmark-suite/benchmarks.yaml" in env_args
+    assert f"{BENCHMARK_SUITE_DIR_ENV}=/opt/curator-benchmark-source/benchmarking" in env_args
+    assert f"{DEFAULT_BENCHMARK_CONFIG_ENV}=/opt/curator-benchmark-source/benchmarking/benchmarks.yaml" in env_args
 
 
 def test_setup_command_installs_dependency_group_extra_from_config(tmp_path: Path) -> None:
@@ -344,13 +344,13 @@ entries: []
     command = _setup_command(DockerTarget(), command_args=["run", "--config", str(config_path)])
 
     assert "uv --no-config pip install" in command
-    assert "/opt/curator-benchmark-suite[sinks]" in command
+    assert "/opt/curator-benchmark-source/benchmarking[sinks]" in command
 
 
 def test_setup_command_all_installs_all_extra() -> None:
     command = _setup_command(DockerTarget(), command_args=["setup"], force=True)
 
-    assert "/opt/curator-benchmark-suite[all]" in command
+    assert "/opt/curator-benchmark-source/benchmarking[all]" in command
 
 
 def test_forced_setup_command_all_installs_all_system_dependency_scripts() -> None:
@@ -746,12 +746,12 @@ entries: []
     command = calls[0]
     assert command[:3] == ["docker", "run", "--rm"]
     assert "--workdir" not in command
-    assert f"{Path.cwd() / 'benchmarking'}:/opt/curator-benchmark-suite" in command
+    assert f"{Path.cwd()}:/opt/curator-benchmark-source" in command
     assert f"{tmp_path}:{Path(f'/MOUNT/{tmp_path}')}" in command
     assert f"{config_path}:{Path(f'/MOUNT/{config_path}')}" in command
     assert command[-5:-2] == ["--entrypoint", "bash", "curator:test"]
     assert "Curator benchmark shell" in command[-1]
-    assert "/opt/curator-benchmark-suite/benchmarks.yaml" in command[-1]
+    assert "/opt/curator-benchmark-source/benchmarking/benchmarks.yaml" in command[-1]
     assert str(Path(f"/MOUNT/{config_path}")) in command[-1]
 
 
