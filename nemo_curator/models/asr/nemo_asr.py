@@ -85,7 +85,6 @@ class NeMoASRAdapter:
 
     model_id: str = _DEFAULT_FASTCONFORMER_CTC_MODEL
     num_workers: int = 0
-    inference_batch_size: int | None = None
     empty_audio_marks_skip: bool = True
     verbose: bool = False
     enable_local_attention: bool = False
@@ -99,14 +98,6 @@ class NeMoASRAdapter:
         if self.num_workers < 0:
             msg = "NeMoASRAdapter.num_workers must be non-negative"
             raise ValueError(msg)
-        if self.inference_batch_size is not None:
-            if isinstance(self.inference_batch_size, bool) or not isinstance(self.inference_batch_size, Integral):
-                msg = "NeMoASRAdapter.inference_batch_size must be a positive integer or None"
-                raise ValueError(msg)
-            if self.inference_batch_size <= 0:
-                msg = "NeMoASRAdapter.inference_batch_size must be a positive integer or None"
-                raise ValueError(msg)
-            self.inference_batch_size = int(self.inference_batch_size)
         try:
             context_size = tuple(self.local_attention_context_size)
         except TypeError as exc:
@@ -208,11 +199,10 @@ class NeMoASRAdapter:
             torch.cuda.empty_cache()
 
     def _transcribe_waveforms(self, waveforms: list[np.ndarray]) -> list[str]:
-        """Run one NeMo call with an independently bounded loader batch size."""
-        inference_batch_size = min(self.inference_batch_size or len(waveforms), len(waveforms))
+        """Run one NeMo call for the batch already bounded by ``ASRStage``."""
         outputs = self._model.transcribe(
             audio=waveforms,
-            batch_size=inference_batch_size,
+            batch_size=len(waveforms),
             return_hypotheses=False,
             num_workers=self.num_workers,
             verbose=self.verbose,

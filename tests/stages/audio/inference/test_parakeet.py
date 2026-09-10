@@ -46,24 +46,25 @@ def test_stage_exposes_parakeet_v3_defaults() -> None:
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == ([], ["asr_prediction", "asr_language"])
     assert stage.model_id == "nvidia/parakeet-tdt-0.6b-v3"
+    assert stage.batch_size == 128
     assert set(stage.supported_language_codes) == set(PARAKEET_TDT_0_6B_V3_LANGS)
     assert stage.num_workers() == 2
 
 
-def test_stage_builds_nemo_adapter_with_inference_batch_size() -> None:
+def test_stage_builds_nemo_adapter_with_model_options() -> None:
     stage = InferenceParakeetStage(
         model_id="/models/indic-parakeet.nemo",
         supported_langs={"hi", "ta"},
-        inference_batch_size=7,
+        batch_size=7,
     )
 
     adapter = stage._create_adapter()
 
     assert isinstance(adapter, NeMoASRAdapter)
     assert adapter.model_id == "/models/indic-parakeet.nemo"
-    assert adapter.inference_batch_size == 7
     assert adapter.empty_audio_marks_skip is False
     assert adapter.use_cuda_graph_decoder is False
+    assert stage.batch_size == 7
     assert stage.supported_language_codes == ["hi", "ta"]
 
 
@@ -91,7 +92,6 @@ def test_language_filter_only_sends_supported_rows_to_adapter() -> None:
         ({"backend": "tensorrt"}, "backend='nemo' only"),
         ({"tensorrt_engine_dir": "/engine"}, "only valid with backend='tensorrt'"),
         ({"chunking_mode": "invalid"}, "Unsupported Parakeet chunking mode"),
-        ({"inference_batch_size": 0}, "at least 1"),
     ],
 )
 def test_stage_rejects_unsupported_runtime_configuration(kwargs: dict[str, object], message: str) -> None:

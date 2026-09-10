@@ -201,35 +201,31 @@ class IndicCanaryTRTLLMASR:
             truncated.append(waveform.size > self.max_samples)
             audio_durations.append(float(waveform.size) / _TARGET_SAMPLE_RATE)
 
-        max_batch_size = max(1, int(self._model.max_batch_size))
-        for start in range(0, len(prepared), max_batch_size):
-            end = start + max_batch_size
-            chunk = prepared[start:end]
-            chunk_durations = durations[start:end]
-            chunk_languages = normalized_languages[start:end]
-            pad_length = max([self.min_samples, *[int(waveform.shape[0]) for waveform in chunk]])
-            padded = [pad_or_trim(waveform, pad_length) for waveform in chunk]
-            predictions = self._model.process_batch(
-                padded,
-                [min(duration, pad_length) for duration in chunk_durations],
-                [self._prompt_config(language) for language in chunk_languages],
-                num_beams=self.num_beams,
-                max_new_tokens=self.max_new_tokens,
+        if not prepared:
+            return results
+
+        pad_length = max([self.min_samples, *[int(waveform.shape[0]) for waveform in prepared]])
+        padded = [pad_or_trim(waveform, pad_length) for waveform in prepared]
+        predictions = self._model.process_batch(
+            padded,
+            [min(duration, pad_length) for duration in durations],
+            [self._prompt_config(language) for language in normalized_languages],
+            num_beams=self.num_beams,
+            max_new_tokens=self.max_new_tokens,
+        )
+        if len(predictions) != len(prepared):
+            msg = f"Indic Canary returned {len(predictions)} transcriptions for {len(prepared)} inputs"
+            raise RuntimeError(msg)
+        for valid_position, prediction in enumerate(predictions):
+            item_index = valid_indices[valid_position]
+            results[item_index] = ASRResult(
+                text=str(prediction),
+                extras={
+                    "language_code": normalized_languages[valid_position],
+                    "truncated": truncated[valid_position],
+                    "audio_duration_sec": audio_durations[valid_position],
+                },
             )
-            if len(predictions) != len(chunk):
-                msg = f"Indic Canary returned {len(predictions)} transcriptions for {len(chunk)} inputs"
-                raise RuntimeError(msg)
-            for offset, prediction in enumerate(predictions):
-                valid_position = start + offset
-                item_index = valid_indices[valid_position]
-                results[item_index] = ASRResult(
-                    text=str(prediction),
-                    extras={
-                        "language_code": normalized_languages[valid_position],
-                        "truncated": truncated[valid_position],
-                        "audio_duration_sec": audio_durations[valid_position],
-                    },
-                )
 
         return results
 
