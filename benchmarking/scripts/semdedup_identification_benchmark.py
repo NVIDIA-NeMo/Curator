@@ -243,13 +243,13 @@ def main() -> int:
     parser.add_argument(
         "--kmeans-embedding-output-dtype",
         choices=["float16", "float32"],
-        default="float32",
+        default="float16",
         help="Precision used to store KMeans embedding output",
     )
     parser.add_argument(
         "--pairwise-compute-dtype",
         choices=["auto", "float16", "float32"],
-        default="float32",
+        default="float16",
         help="Multiplication precision used by Pairwise",
     )
     parser.add_argument(
