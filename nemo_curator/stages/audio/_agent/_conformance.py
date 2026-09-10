@@ -417,7 +417,10 @@ def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: on
             assert key in out_data, f"{name}: declared write {key!r} missing from task.data"
         for key in c.removes_keys:
             assert key not in out_data, f"{name}: declared removes_keys {key!r} but it is still present in task.data"
-        declared = set(c.writes.data_keys) | set(ignore_new_keys) | input_keys
+        conditional_keys = {
+            key for conditional in c.conditional_writes for key in conditional.writes.data_keys
+        }
+        declared = set(c.writes.data_keys) | conditional_keys | set(ignore_new_keys) | input_keys
         undeclared = set(out_data) - declared
         assert not undeclared, f"{name}: undeclared new top-level keys {sorted(undeclared)} (add to writes.data_keys)"
         # segment-level writes

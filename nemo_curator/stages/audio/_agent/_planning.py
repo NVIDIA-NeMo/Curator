@@ -57,7 +57,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
 from nemo_curator.stages.audio._agent._composite import expand_composites
-from nemo_curator.stages.audio._agent._conformance import produced_roles, reads_satisfied_by_role
 from nemo_curator.stages.audio._agent._roles import role_for_value
 
 if TYPE_CHECKING:
@@ -158,8 +157,46 @@ def _requirement_str(contract: StageContract, available: set[str]) -> str:
 
 
 def _write_key_values(contract: StageContract) -> set[str]:
-    """The literal key VALUES a stage writes (top-level + segment-level)."""
-    return {*contract.writes.data_keys, *contract.writes.segment_data_keys}
+    """The literal top-level key VALUES a stage writes."""
+    return set(contract.writes.data_keys)
+
+
+def _segment_write_key_values(contract: StageContract) -> set[str]:
+    """The literal key VALUES a stage writes inside nested-list items."""
+    return set(contract.writes.segment_data_keys)
+
+
+def _roles_for_keys(contract: StageContract, keys: set[str] | list[str]) -> set[str]:
+    """Known semantic roles for key values in one task-data scope."""
+    return {contract.key_roles.get(key, "unknown") for key in keys} - {"unknown"}
+
+
+def _spec_satisfied_by_role(
+    spec: Any,  # noqa: ANN401 - IOSpec, kept loose to avoid a runtime-only import
+    contract: StageContract,
+    available_roles: set[str],
+    available_segment_roles: set[str],
+) -> bool:
+    """Whether one I/O alternative is role-satisfied in each declared scope."""
+    top = {contract.key_roles.get(key, "unknown") for key in spec.data_keys}
+    nested = {contract.key_roles.get(key, "unknown") for key in spec.segment_data_keys}
+    return top.issubset(available_roles | {"unknown"}) and nested.issubset(
+        available_segment_roles | {"unknown"}
+    )
+
+
+def _reads_satisfied_by_role(
+    contract: StageContract,
+    available_roles: set[str],
+    available_segment_roles: set[str],
+) -> bool:
+    """Role-level read check that keeps task and nested-item fields separate."""
+    if not _spec_satisfied_by_role(contract.reads, contract, available_roles, available_segment_roles):
+        return False
+    return not contract.reads_one_of or any(
+        _spec_satisfied_by_role(option, contract, available_roles, available_segment_roles)
+        for option in contract.reads_one_of
+    )
 
 
 def _key_family(key: str) -> str:
@@ -295,13 +332,34 @@ def _ambiguity_issues(
     return out
 
 
-def _missing_read_keys(contract: StageContract, available_keys: set[str]) -> set[str]:
+def _missing_read_keys(
+    contract: StageContract,
+    available_keys: set[str],
+    available_segment_keys: set[str],
+) -> set[str]:
     """Read key VALUES this stage wants that nothing upstream produced or seeded."""
-    reads = {*contract.reads.data_keys, *contract.reads.segment_data_keys}
-    return {k for k in reads if k not in available_keys}
+    return {
+        *{key for key in contract.reads.data_keys if key not in available_keys},
+        *{key for key in contract.reads.segment_data_keys if key not in available_segment_keys},
+    }
 
 
-def _reads_satisfied_by_key(contract: StageContract, available_keys: set[str]) -> bool:
+def _spec_satisfied_by_key(
+    spec: Any,  # noqa: ANN401 - IOSpec, kept loose to avoid a runtime-only import
+    available_keys: set[str],
+    available_segment_keys: set[str],
+) -> bool:
+    """Whether one I/O alternative's literal keys exist in their declared scopes."""
+    return not (set(spec.data_keys) - available_keys) and not (
+        set(spec.segment_data_keys) - available_segment_keys
+    )
+
+
+def _reads_satisfied_by_key(
+    contract: StageContract,
+    available_keys: set[str],
+    available_segment_keys: set[str],
+) -> bool:
     """Whether every read is met by the LITERAL key it names.
 
     A stage reads ``task.data[self.segments_key]`` at runtime -- a key string, never a role. So
@@ -316,11 +374,12 @@ def _reads_satisfied_by_key(contract: StageContract, available_keys: set[str]) -
     names differ but mean the same thing (a producer writing ``resampled_audio_filepath``
     satisfying a consumer reading ``audio_filepath``). A read is satisfied by either route.
     """
-    if {*contract.reads.data_keys, *contract.reads.segment_data_keys} - available_keys:
+    if not _spec_satisfied_by_key(contract.reads, available_keys, available_segment_keys):
         return False
-    if not contract.reads_one_of:
-        return True
-    return any(not ({*spec.data_keys, *spec.segment_data_keys} - available_keys) for spec in contract.reads_one_of)
+    return not contract.reads_one_of or any(
+        _spec_satisfied_by_key(option, available_keys, available_segment_keys)
+        for option in contract.reads_one_of
+    )
 
 
 def _forwarding_param(inner: Any, composite: Any, missing: set[str]) -> str | None:  # noqa: ANN401
@@ -379,7 +438,11 @@ def _describes_itself(stage: Any) -> bool:  # noqa: ANN401 - any child stage
     return True
 
 
-def _dangling_read_keys(contract: StageContract, available_keys: set[str]) -> set[str]:
+def _dangling_read_keys(
+    contract: StageContract,
+    available_keys: set[str],
+    available_segment_keys: set[str],
+) -> set[str]:
     """Read key VALUES whose role is known but whose exact value was not
     produced upstream nor seeded — the renamed-producer dangle the role check misses.
 
@@ -391,16 +454,18 @@ def _dangling_read_keys(contract: StageContract, available_keys: set[str]) -> se
     (``unknown``/internal bookkeeping keys are excluded — a separate
     value-identity check for those is tracked in the backlog).
     """
-    reads = [*contract.reads.data_keys, *contract.reads.segment_data_keys]
+    reads = [(key, available_keys) for key in contract.reads.data_keys]
+    reads += [(key, available_segment_keys) for key in contract.reads.segment_data_keys]
     if len(contract.reads_one_of) == 1:
         only = contract.reads_one_of[0]
-        reads += [*only.data_keys, *only.segment_data_keys]
+        reads += [(key, available_keys) for key in only.data_keys]
+        reads += [(key, available_segment_keys) for key in only.segment_data_keys]
     dangling: set[str] = set()
-    for k in reads:
+    for k, scope_keys in reads:
         role = contract.key_roles.get(k, "unknown")
         if role == "unknown":
             continue
-        if k not in available_keys:
+        if k not in scope_keys:
             dangling.add(k)
     return dangling
 
@@ -409,11 +474,14 @@ def _dangling_read_keys(contract: StageContract, available_keys: set[str]) -> se
 class _Walk:
     """What the pipeline carries from one stage to the next while being validated."""
 
-    available: set[str]  # roles produced so far
-    available_keys: set[str]  # literal key VALUES produced so far
+    available: set[str]  # top-level roles produced so far
+    available_keys: set[str]  # literal top-level key VALUES produced so far
+    segment_available: set[str] = field(default_factory=set)  # nested-item roles produced so far
+    segment_available_keys: set[str] = field(default_factory=set)  # literal nested-item key VALUES
     tensor_keys: set[str] = field(default_factory=set)
     removed_roles: set[str] = field(default_factory=set)
     key_producer: dict[str, str] = field(default_factory=dict)
+    segment_key_producer: dict[str, str] = field(default_factory=dict)
     past_composite: bool = False  # an UNEXPANDABLE composite hid its writes; reads past it can't be judged
     task_type: str | None = None  # task type the previous stage produces; None == not known
 
@@ -428,11 +496,13 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
     for now -- the expansion is new, and it earns the right to block only once it has been shown
     not to false-positive on pipelines known to work.
     """
-    if reads_satisfied_by_role(contract, walk.available) or _reads_satisfied_by_key(contract, walk.available_keys):
+    role_satisfied = _reads_satisfied_by_role(contract, walk.available, walk.segment_available)
+    key_satisfied = _reads_satisfied_by_key(contract, walk.available_keys, walk.segment_available_keys)
+    if role_satisfied or key_satisfied:
         if walk.past_composite:
             return []
         out: list[PipelineIssue] = []
-        dangling = _dangling_read_keys(contract, walk.available_keys)
+        dangling = _dangling_read_keys(contract, walk.available_keys, walk.segment_available_keys)
         if dangling:
             out.append(
                 PipelineIssue(
@@ -440,17 +510,25 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
                     site.name,
                     "warning",
                     "dangling_key",
-                    f"reads key(s) {sorted(dangling)} satisfied by role but not produced "
-                    f"upstream under that key value nor seeded (renamed producer key?); "
-                    f"available keys: {sorted(walk.available_keys)}",
+                    f"reads key(s) {sorted(dangling)} satisfied by role but not produced upstream "
+                    f"under that key value in the required task/nested scope nor seeded "
+                    f"(renamed producer key?); available keys: "
+                    f"{sorted(walk.available_keys | walk.segment_available_keys)}",
                 )
             )
-        out.extend(_ambiguity_issues(site, contract, walk.available_keys, walk.key_producer))
+        out.extend(
+            _ambiguity_issues(
+                site,
+                contract,
+                walk.available_keys | walk.segment_available_keys,
+                walk.key_producer | walk.segment_key_producer,
+            )
+        )
         return out
 
     if site.composite is not None:
         composite_name = type(site.composite).__name__
-        missing = _missing_read_keys(contract, walk.available_keys)
+        missing = _missing_read_keys(contract, walk.available_keys, walk.segment_available_keys)
         param = _forwarding_param(site.stage, site.composite, missing)
         remedy = (
             f"set {param} on {composite_name} (it forwards the value to this inner stage)"
@@ -466,7 +544,8 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
                 f"this stage runs inside {composite_name} and requires "
                 f"{_requirement_str(contract, walk.available)}"
                 + (f" (key(s) {sorted(missing)})" if missing else "")
-                + f", not produced upstream; {remedy}. Available keys: {sorted(walk.available_keys)}",
+                + f", not produced upstream; {remedy}. Available keys: "
+                + f"{sorted(walk.available_keys | walk.segment_available_keys)}",
             )
         ]
 
@@ -483,7 +562,11 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
             )
         ]
 
-    needed = _required_roles(contract) | {r for o in contract.reads_one_of for r in _roles_of(o, contract)}
+    needed = _roles_for_keys(contract, contract.reads.data_keys) | {
+        role
+        for option in contract.reads_one_of
+        for role in _roles_for_keys(contract, option.data_keys)
+    }
     removed_hit = (needed & walk.removed_roles) - walk.available
     if removed_hit:
         return [
@@ -588,8 +671,10 @@ def _task_type_issue(walk: _Walk, site: _Site, contract: StageContract) -> list[
 
 def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
     """Fold one stage's writes, removals and tensor residency into the running state."""
-    produced = produced_roles(contract)
+    produced = _roles_for_keys(contract, contract.writes.data_keys)
+    segment_produced = _roles_for_keys(contract, contract.writes.segment_data_keys)
     written = _write_key_values(contract)
+    segment_written = _segment_write_key_values(contract)
     if not contract.preserves_upstream_keys:
         # A stage that rebuilds the task rather than adding to it: whatever it does not write
         # is not downstream. Folding its writes into the inherited state would keep every
@@ -599,11 +684,17 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         # its own authority rather than on the vanished producer's.
         dropped_keys = walk.available_keys - written
         dropped_roles = walk.available - produced
+        dropped_segment_keys = walk.segment_available_keys - segment_written
+        dropped_segment_roles = walk.segment_available - segment_produced
         walk.available_keys -= dropped_keys
         walk.available -= dropped_roles
+        walk.segment_available_keys -= dropped_segment_keys
+        walk.segment_available -= dropped_segment_roles
         walk.removed_roles |= dropped_roles
         for key in dropped_keys:
             walk.key_producer.pop(key, None)
+        for key in dropped_segment_keys:
+            walk.segment_key_producer.pop(key, None)
         # Tensor residency deliberately survives this. The flag is coarser than it looks:
         # ALMDataBuilderStage sets it because SOME branch rebuilds task.data, while still
         # carrying the waveform on the ordinary path. Clearing residency here would retract
@@ -613,9 +704,12 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         # or ``sanitizes_output``, both handled below.
     walk.available |= produced
     walk.removed_roles -= produced  # a re-produced role is no longer "removed"
+    walk.segment_available |= segment_produced
     # Most recent writer wins -- that is who a downstream reader would actually get.
     walk.key_producer.update(dict.fromkeys(written, name))
     walk.available_keys |= written
+    walk.segment_key_producer.update(dict.fromkeys(segment_written, name))
+    walk.segment_available_keys |= segment_written
     for rk in contract.removes_keys:
         walk.available_keys.discard(rk)
         # Dropping the carrier ends the tensor residency as surely as sanitizing does.
@@ -634,7 +728,11 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         # returned "unknown", so residency tracked ``_UNNAMED_TENSOR`` instead of the real
         # carrier -- and a downstream stage dropping that carrier still looked resident,
         # raising a spurious ``tensor_into_sink`` on a recipe that had cleaned up correctly.
-        carriers = {k for k in written if contract.key_roles.get(k, role_for_value(k)) == _TENSOR_ROLE}
+        carriers = {
+            key
+            for key in written | segment_written
+            if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE
+        }
         walk.tensor_keys |= carriers or {_UNNAMED_TENSOR}
     if contract.gates.sanitizes_output:
         walk.tensor_keys.clear()
@@ -828,7 +926,11 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
             # two stages stale.
             walk.task_type = contract.produces_task_type
 
-    return PipelineReport(issues=issues, produced_roles=walk.available, produced_keys=walk.available_keys)
+    return PipelineReport(
+        issues=issues,
+        produced_roles=walk.available | walk.segment_available,
+        produced_keys=walk.available_keys | walk.segment_available_keys,
+    )
 
 
 def _roles_of(spec: Any, contract: StageContract) -> set[str]:  # noqa: ANN401

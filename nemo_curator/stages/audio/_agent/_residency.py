@@ -315,7 +315,7 @@ def write_audio_stable(
     return path
 
 
-def resolve_audio_path(  # noqa: PLR0913 (complexity accepted: keyword-only residency/key knobs mirror the stage fields)
+def resolve_audio_path(  # noqa: C901, PLR0913 (keyword-only residency/key knobs mirror stage fields)
     item: dict[str, Any],
     *,
     residency: InputResidency = "auto",
@@ -327,14 +327,35 @@ def resolve_audio_path(  # noqa: PLR0913 (complexity accepted: keyword-only resi
 ) -> str | None:
     """Return an audio path, writing a temp WAV when only a waveform exists.
 
+    ``auto`` prefers a complete resident waveform/sample-rate pair and falls
+    back to the configured path. ``file`` always uses the configured path.
+
     When a temp WAV is materialized from an in-memory waveform and
     ``register_temp`` is provided, the temp path is appended to that list so the
     caller can delete it after use (see :func:`cleanup_temp_files`). Without
     ``register_temp`` the caller is responsible for cleanup itself.
     """
+    if residency != "file":
+        waveform = item.get(waveform_key)
+        sample_rate = item.get(sample_rate_key)
+        if waveform is not None and sample_rate is not None:
+            fd, tmp = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
+            os.close(fd)
+            try:
+                sf.write(tmp, _as_soundfile_array(waveform), int(sample_rate))
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.remove(tmp)
+                raise
+            if register_temp is not None:
+                register_temp.append(tmp)
+            return tmp
+        if residency == "waveform":
+            return None
+
     path = item.get(audio_filepath_key)
     local_path: str | None = None
-    if residency != "waveform" and path:
+    if path:
         local_path = os.path.expanduser(str(path))
         if os.path.exists(local_path):
             return local_path
@@ -357,17 +378,7 @@ def resolve_audio_path(  # noqa: PLR0913 (complexity accepted: keyword-only resi
         # failure; keep that contract instead of gating on os.path.exists.
         return local_path
 
-    waveform = item.get(waveform_key)
-    sample_rate = item.get(sample_rate_key)
-    if waveform is None or sample_rate is None:
-        return local_path
-
-    fd, tmp = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
-    os.close(fd)
-    sf.write(tmp, _as_soundfile_array(waveform), int(sample_rate))
-    if register_temp is not None:
-        register_temp.append(tmp)
-    return tmp
+    return local_path
 
 
 def cleanup_temp_files(paths: list[str] | None) -> None:
