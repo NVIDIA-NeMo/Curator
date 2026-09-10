@@ -579,6 +579,174 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
     assert executor.config == {}
 
 
+def test_faster_whisper_tutorial_yaml_matches_reference_contract():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "faster_whisper"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+                "model_revision=abc123",
+                "default_language=en",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, resample_stage, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+        "faster_whisper_workspace",
+        "audio_resampled",
+    )
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+
+    assert stage.__class__.__name__ == "ASRStage"
+    assert stage.name == "FasterWhisper_inference"
+    assert stage.adapter_target == "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
+    assert stage.model_id == "large-v3"
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.inputs()[1] == ["resampled_audio_filepath"]
+    assert stage.target_sample_rate == 16000
+    assert stage.default_language == "en"
+    expected_language_codes = [
+        "en",
+        "zh",
+        "de",
+        "es",
+        "ru",
+        "ko",
+        "fr",
+        "ja",
+        "pt",
+        "tr",
+        "pl",
+        "ca",
+        "nl",
+        "ar",
+        "sv",
+        "it",
+        "id",
+        "hi",
+        "fi",
+        "vi",
+        "he",
+        "uk",
+        "el",
+        "ms",
+        "cs",
+        "ro",
+        "da",
+        "hu",
+        "ta",
+        "no",
+        "th",
+        "ur",
+        "hr",
+        "bg",
+        "lt",
+        "la",
+        "mi",
+        "ml",
+        "cy",
+        "sk",
+        "te",
+        "fa",
+        "lv",
+        "bn",
+        "sr",
+        "az",
+        "sl",
+        "kn",
+        "et",
+        "mk",
+        "br",
+        "eu",
+        "is",
+        "hy",
+        "ne",
+        "mn",
+        "bs",
+        "kk",
+        "sq",
+        "sw",
+        "gl",
+        "mr",
+        "pa",
+        "si",
+        "km",
+        "sn",
+        "yo",
+        "so",
+        "af",
+        "oc",
+        "ka",
+        "be",
+        "tg",
+        "sd",
+        "gu",
+        "am",
+        "yi",
+        "lo",
+        "uz",
+        "fo",
+        "ht",
+        "ps",
+        "tk",
+        "nn",
+        "mt",
+        "sa",
+        "lb",
+        "my",
+        "bo",
+        "tl",
+        "mg",
+        "as",
+        "tt",
+        "haw",
+        "ln",
+        "ha",
+        "ba",
+        "jw",
+        "su",
+        "yue",
+        "fil",
+        "in",
+        "iw",
+        "ji",
+        "jv",
+        "nb",
+    ]
+    assert stage.supported_language_codes == expected_language_codes
+    assert len(stage.supported_language_codes) == 106
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.extras_key == "asr_extras"
+    assert stage.outputs() == (
+        [],
+        ["custom_prediction", "_skipme", "additional_notes", "asr_extras"],
+    )
+    assert stage.batch_size == 128
+    assert stage.resources.gpus == 1
+    assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
+        "compute_type": "float16",
+        "cpu_compute_type": "int8",
+        "beam_size": 5,
+        "vad_filter": True,
+        "without_timestamps": True,
+    }
+
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert writer.output_path == "./faster_whisper_output.jsonl"
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+
 def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):

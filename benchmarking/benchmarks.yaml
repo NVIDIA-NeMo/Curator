@@ -616,12 +616,17 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
+      --kmeans-embedding-output-dtype=float32
+      --pairwise-compute-dtype=float32
       --dataset-size-ratio=0.20
       --fit-data-fraction=1.0
     timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
+          - workflow_total_time
+          - kmeans_time
+          - pairwise_time
           - num_documents_processed
           - num_duplicates
           - kmeans_footer_scan_time_s
@@ -632,6 +637,9 @@ entries:
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
+          - pairwise_read_time_s
+          - pairwise_conversion_time_s
+          - pairwise_compute_time_s
           # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
@@ -663,11 +671,16 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
+      --kmeans-embedding-output-dtype=float32
+      --pairwise-compute-dtype=float32
       --fit-data-fraction=0.20
     timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
+          - workflow_total_time
+          - kmeans_time
+          - pairwise_time
           - num_documents_processed
           - num_duplicates
           - kmeans_footer_scan_time_s
@@ -678,6 +691,9 @@ entries:
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
+          - pairwise_read_time_s
+          - pairwise_conversion_time_s
+          - pairwise_compute_time_s
           # Percent of KMeans/workflow wall time.
           - kmeans_read_percent_time
           - kmeans_write_percent_time
@@ -1651,17 +1667,6 @@ entries:
       --max-pages=10
       --max-num-seqs=64
     timeout_s: 1200
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - num_pdfs_processed
-          - num_pages_processed
-          - num_output_tokens
-          - num_output_tasks
-          - throughput_pages_per_sec
-          - throughput_output_tokens_per_sec
-        ping_on_failure:
-          - U082G3E46R0  # Abhinav Garg
     requirements:
       # Exact counts: the dataset is fixed and every file in it renders, so a
       # correct run reproduces these precisely. Verified identical across three
@@ -1713,17 +1718,6 @@ entries:
       --max-pages=10
       --max-num-seqs=64
     timeout_s: 1200
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - num_pdfs_processed
-          - num_pages_processed
-          - num_output_tokens
-          - num_output_tasks
-          - throughput_pages_per_sec
-          - throughput_output_tokens_per_sec
-        ping_on_failure:
-          - U082G3E46R0  # Abhinav Garg
     requirements:
       # Exact counts: the dataset is fixed and every file in it renders, so a
       # correct run reproduces these precisely. Verified identical across three
@@ -1758,6 +1752,71 @@ entries:
         min_value: 4630000
         max_value: 5115000
 
+  - name: nemotron_parse_pdf_inference_server_ray_serve
+    enabled: true
+    script: nemotron_parse_pdf_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={dataset:nemotron_parse_pdf,manifest}
+      --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={dataset:nemotron_parse_pdf_model,files}
+      --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
+      --backend=vllm
+      --inference-server-type=ray-serve
+      --inference-server-client-workers-per-replica=4
+      --inference-batch-size=32
+      --enforce-eager
+      --pdfs-per-task=20
+      --max-pdfs=1278
+      --max-pages=10
+    timeout_s: 1800
+    requirements:
+      - metric: num_pdfs_processed
+        exact_value: 1278
+      - metric: num_pages_processed
+        exact_value: 5794
+      - metric: throughput_pages_per_sec
+        min_value: 7.0
+      - metric: throughput_output_tokens_per_sec
+        min_value: 6000
+      - metric: num_output_tokens
+        min_value: 4630000
+        max_value: 5115000
+
+  - name: nemotron_parse_pdf_inference_server_dynamo
+    enabled: true
+    script: nemotron_parse_pdf_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={dataset:nemotron_parse_pdf,manifest}
+      --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={dataset:nemotron_parse_pdf_model,files}
+      --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
+      --backend=vllm
+      --inference-server-type=dynamo
+      --inference-server-client-workers-per-replica=4
+      --inference-batch-size=32
+      --enforce-eager
+      --pdfs-per-task=20
+      --max-pdfs=1278
+      --max-pages=10
+    timeout_s: 1800
+    requirements:
+      - metric: num_pdfs_processed
+        exact_value: 1278
+      - metric: num_pages_processed
+        exact_value: 5794
+      - metric: throughput_pages_per_sec
+        min_value: 7.0
+      - metric: throughput_output_tokens_per_sec
+        min_value: 6000
+      - metric: num_output_tokens
+        min_value: 4630000
+        max_value: 5115000
   # CPU-only; the 8-GPU runtime target does not apply.
   - name: alm_pipeline_xenna
     enabled: true
