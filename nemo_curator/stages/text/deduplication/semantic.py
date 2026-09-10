@@ -121,8 +121,8 @@ class TextSemanticDeduplicationWorkflow:
     verbose: bool = True
     clear_output: bool = True
     # Pairwise precision (appended for positional compatibility)
-    pairwise_compute_dtype: PairwiseComputeDtype = "float32"
-    kmeans_embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32"
+    pairwise_compute_dtype: PairwiseComputeDtype = "float16"
+    kmeans_embedding_output_dtype: KMeansEmbeddingOutputDtype = "float16"
     """
     Initialize the text semantic deduplication workflow.
 
