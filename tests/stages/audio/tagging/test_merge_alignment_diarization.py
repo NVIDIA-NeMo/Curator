@@ -15,9 +15,9 @@
 from collections.abc import Callable
 
 import pytest
-
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )

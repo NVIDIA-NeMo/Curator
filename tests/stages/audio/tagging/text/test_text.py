@@ -16,9 +16,9 @@ from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
-
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
 from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
 from nemo_curator.tasks import AudioTask
 

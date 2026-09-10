@@ -20,10 +20,10 @@ import numpy as np
 import pytest
 import soundfile as sf
 from fsspec.core import url_to_fs
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )
