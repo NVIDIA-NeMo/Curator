@@ -28,13 +28,13 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _MAX_FILTERED_TEXT_EXAMPLES,
     _PLAN_DATA_KEY,
@@ -530,6 +530,12 @@ class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioT
     name: str = "SnippetRepetitionFilter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            requires_internet_first_run=True,
+            per_row_independent=True,
+        )
+    )
 
     def __post_init__(self) -> None:
         if self.ngram_n < 1:
@@ -553,6 +559,7 @@ class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioT
             metadata_writes=[_PRETRAIN_META_KEY],
             gates=Gates(
                 requires_internet_first_run=not os.path.isdir(self.tokenizer_path),
+                runtime_secrets=["HF_TOKEN"] if self.hf_token else [],
                 # Not cross-corpus dedup, which the name invites: ``_snippet_is_repetitive``
                 # counts n-grams within the join of ONE snippet's own segment texts, catching an
                 # ASR run that degenerated into repeating a phrase. Nothing is compared between

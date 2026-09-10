@@ -170,12 +170,16 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.windows_key, self.stats_key, self.truncation_events_key]
+        data_keys = [self.windows_key, self.stats_key, self.truncation_events_key]
+        if self.audio_filepath_key not in self._drop_fields_top_level_set:
+            data_keys.append(self.audio_filepath_key)
+        return [], data_keys
 
     def describe(self) -> StageContract:
+        _, output_keys = self.outputs()
         return StageContract(
             reads=IOSpec(data_keys=[self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]),
-            writes=IOSpec(data_keys=[self.windows_key, self.stats_key, self.truncation_events_key]),
+            writes=IOSpec(data_keys=output_keys),
             # process() rebuilds task.data selectively (words/segments stripped;
             # the min_sample_rate branch keeps only a four-key subset).
             preserves_upstream_keys=False,
@@ -227,12 +231,14 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if entry_data.get(self.audio_sample_rate_key, 0) < self.min_sample_rate:
             stat.lost_sr = len(segments)
             stat.dur_lost_sr = total_dur
-            return {
-                self.audio_filepath_key: audio_file,
+            result = {
                 self.windows_key: [],
                 self.stats_key: stat.to_dict(),
                 self.truncation_events_key: total_truncation_events,
             }
+            if self.audio_filepath_key not in self._drop_fields_top_level_set:
+                result[self.audio_filepath_key] = audio_file
+            return result
 
         valid_windows: list[dict[str, Any]] = []
 

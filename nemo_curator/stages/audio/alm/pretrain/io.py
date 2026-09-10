@@ -100,6 +100,19 @@ def _check_duplicate_audio_basename(
     seen_basenames[basename] = row_id
 
 
+def _validate_manifest_row_shape(stage_name: str, lineno: int, entry: Any) -> dict[str, Any] | None:  # noqa: ANN401
+    if not isinstance(entry, dict):
+        logger.warning(f"[{stage_name}] line {lineno}: JSON row is not an object; skipping")
+        return None
+    if "segments" not in entry:
+        logger.warning(f"[{stage_name}] line {lineno}: missing 'segments' list; skipping")
+        return None
+    if not isinstance(entry["segments"], list):
+        logger.warning(f"[{stage_name}] line {lineno}: 'segments' is not a list; skipping")
+        return None
+    return entry
+
+
 @dataclass
 class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
@@ -199,6 +212,13 @@ class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask
                     logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
                     continue
 
+                entry = _validate_manifest_row_shape(self.name, lineno, entry)
+                if entry is None:
+                    continue
+
+                # Validate the row shape before reserving its id. A malformed
+                # first occurrence must not suppress a later valid row with
+                # the same id as a duplicate.
                 row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids)
                 if row_id is None:
                     continue
@@ -247,17 +267,19 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
     """
 
     output_path: str
-
     name: str = "SnippetManifestWriter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    # Appended after the legacy constructor fields to preserve positional calls.
+    snippet_id_key: str = "snippet_id"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_id_key"})
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(
             writes_to_disk=True,
             output_path_params=["output_path"],
             lifecycle_side_effects=True,
             requires_serializable_input=True,
-            per_row_independent=True,
+            per_row_independent=False,
         )
     )
 
@@ -265,19 +287,20 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         self._shard_path: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.snippet_id_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def describe(self) -> StageContract:
         return StageContract(
+            reads=IOSpec(data_keys=[self.snippet_id_key]),
             gates=Gates(
                 writes_to_disk=True,
                 output_path_params=["output_path"],
                 lifecycle_side_effects=True,
                 requires_serializable_input=True,
-                per_row_independent=True,
+                per_row_independent=False,
             )
         )
 
@@ -300,7 +323,7 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         logger.info(f"[{self.name}] writing manifest shard to {self._shard_path}")
 
     def process(self, task: AudioTask) -> AudioTask:
-        if not _is_origin_stub(task) and self._shard_path is not None:
+        if not _is_origin_stub(task, self.snippet_id_key) and self._shard_path is not None:
             with open(self._shard_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return task
@@ -344,23 +367,37 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
     """
 
     output_path: str
-
     name: str = "PretrainMetricsAggregator"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    # Appended after the legacy constructor fields to preserve positional calls.
+    id_key: str = "id"
+    snippet_id_key: str = "snippet_id"
+    segments_key: str = "segments"
+    duration_key: str = "duration"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key", "snippet_id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            per_row_independent=False,
+        )
+    )
 
     def __post_init__(self) -> None:
         self._shard_path: str | None = None
         self._seen_ids: set[str] = set()
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def describe(self) -> StageContract:
         return StageContract(
+            reads=IOSpec(data_keys=[self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]),
             metadata_reads=[_PRETRAIN_META_KEY],
             gates=Gates(
                 writes_to_disk=True,
@@ -391,11 +428,11 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
     def process(self, task: AudioTask) -> AudioTask:
         if self._shard_path is None:
             return task
-        original_id = str(task.data.get("id") or "")
+        original_id = str(task.data.get(self.id_key) or "")
         if not original_id:
             return task
         meta = task._metadata.get(_PRETRAIN_META_KEY, {})
-        is_stub = _is_origin_stub(task)
+        is_stub = _is_origin_stub(task, self.snippet_id_key)
         record: dict[str, Any] = {
             "id": original_id,
             "in_segments": int(meta.get("original_seg_count", 0)),
@@ -409,8 +446,8 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
                 "repetition": int(meta.get("dropped_repetition", 0)),
             },
             "is_stub": is_stub,
-            "out_segments": 0 if is_stub else len(task.data.get("segments") or []),
-            "out_duration_sec": 0.0 if is_stub else float(task.data.get("duration", 0.0)),
+            "out_segments": 0 if is_stub else len(task.data.get(self.segments_key) or []),
+            "out_duration_sec": 0.0 if is_stub else float(task.data.get(self.duration_key, 0.0)),
         }
         if original_id not in self._seen_ids:
             self._seen_ids.add(original_id)
