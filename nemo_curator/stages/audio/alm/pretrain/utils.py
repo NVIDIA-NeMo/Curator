@@ -160,10 +160,10 @@ def _resolve_audio_path(audio_dir: str, value: str, mode: str = AUDIO_PATH_RESOL
     raise ValueError(msg)
 
 
-def _is_origin_stub(task: AudioTask) -> bool:
+def _is_origin_stub(task: AudioTask, snippet_id_key: str = "snippet_id") -> bool:
     """A stub task from the extractor that carries per-original metrics for an
     input that produced zero snippets.  Has no snippet_id."""
-    return task.data.get("snippet_id") is None
+    return task.data.get(snippet_id_key) is None
 
 
 _SNIPPET_ID_RESERVED_CHARS = (".", "/", "\\")

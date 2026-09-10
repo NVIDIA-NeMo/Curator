@@ -24,7 +24,7 @@ Produces identical output to SDP implementation.
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
@@ -164,6 +164,28 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     target_duration: float = 120.0
     windows_key: str = "windows"
     filtered_windows_key: str = "filtered_windows"
+    stats_key: str = "stats"
+    total_dur_window_key: str = "total_dur_window"
+    total_dur_list_window_key: str = "total_dur_list_window"
+    total_dur_list_window_timestamps_key: str = "total_dur_list_window_timestamps"
+    filtered_key: str = "filtered"
+    filtered_dur_key: str = "filtered_dur"
+    filtered_dur_list_key: str = "filtered_dur_list"
+    manifest_filepath_key: str = "manifest_filepath"
+    swift_filepath_key: str = "swift_filepath"
+
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "total_dur_window_key",
+            "total_dur_list_window_key",
+            "total_dur_list_window_timestamps_key",
+            "filtered_key",
+            "filtered_dur_key",
+            "filtered_dur_list_key",
+            "manifest_filepath_key",
+            "swift_filepath_key",
+        }
+    )
 
     def __post_init__(self) -> None:
         """Validate parameters."""
@@ -178,12 +200,23 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.windows_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filtered_windows_key]
+        return [], [
+            self.total_dur_window_key,
+            self.total_dur_list_window_key,
+            self.total_dur_list_window_timestamps_key,
+            self.filtered_key,
+            self.filtered_windows_key,
+            self.filtered_dur_key,
+            self.filtered_dur_list_key,
+            self.manifest_filepath_key,
+            self.swift_filepath_key,
+        ]
 
     def describe(self) -> StageContract:
+        _, output_keys = self.outputs()
         return StageContract(
             reads=IOSpec(data_keys=[self.windows_key]),
-            writes=IOSpec(data_keys=[self.filtered_windows_key]),
+            writes=IOSpec(data_keys=output_keys),
             # Overlap is measured between windows of the same row.
             gates=Gates(per_row_independent=True),
         )
@@ -197,7 +230,7 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         filter_time = time.perf_counter() - t0
 
         output_windows = len(task.data.get(self.filtered_windows_key, []))
-        filtered_dur = task.data.get("filtered_dur", 0.0)
+        filtered_dur = task.data.get(self.filtered_dur_key, 0.0)
         self._log_metrics(
             {
                 "filter_time": filter_time,
@@ -217,14 +250,14 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not windows:
             result = entry.copy()
             result.setdefault(self.filtered_windows_key, [])
-            result.setdefault("filtered_dur", 0.0)
-            result.setdefault("filtered_dur_list", [])
-            result.setdefault("total_dur_window", 0.0)
-            result.setdefault("total_dur_list_window", [])
-            result.setdefault("total_dur_list_window_timestamps", [])
-            result.setdefault("filtered", [])
-            result.setdefault("manifest_filepath", None)
-            result.setdefault("swift_filepath", None)
+            result.setdefault(self.filtered_dur_key, 0.0)
+            result.setdefault(self.filtered_dur_list_key, [])
+            result.setdefault(self.total_dur_window_key, 0.0)
+            result.setdefault(self.total_dur_list_window_key, [])
+            result.setdefault(self.total_dur_list_window_timestamps_key, [])
+            result.setdefault(self.filtered_key, [])
+            result.setdefault(self.manifest_filepath_key, None)
+            result.setdefault(self.swift_filepath_key, None)
             return result
 
         total_dur_window = _calculate_total_dur(windows)
@@ -239,18 +272,18 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         filtered_dur = _process_filtered_dur(filtered_timestamps)
         filtered_dur_list = _process_filtered_dur_list(filtered_timestamps)
 
-        stats = entry.get("stats", {})
+        stats = entry.get(self.stats_key)
         manifest_filepath = _get_filepath_from_stats(stats, "manifest_path")
         swift_filepath = _get_filepath_from_stats(stats, "swift_path")
 
         result = entry.copy()
-        result["total_dur_window"] = total_dur_window
-        result["total_dur_list_window"] = total_dur_list_window
-        result["total_dur_list_window_timestamps"] = total_dur_list_window_timestamps
-        result["filtered"] = filtered_timestamps
+        result[self.total_dur_window_key] = total_dur_window
+        result[self.total_dur_list_window_key] = total_dur_list_window
+        result[self.total_dur_list_window_timestamps_key] = total_dur_list_window_timestamps
+        result[self.filtered_key] = filtered_timestamps
         result[self.filtered_windows_key] = filtered_windows
-        result["filtered_dur"] = filtered_dur
-        result["filtered_dur_list"] = filtered_dur_list
-        result["manifest_filepath"] = manifest_filepath
-        result["swift_filepath"] = swift_filepath
+        result[self.filtered_dur_key] = filtered_dur
+        result[self.filtered_dur_list_key] = filtered_dur_list
+        result[self.manifest_filepath_key] = manifest_filepath
+        result[self.swift_filepath_key] = swift_filepath
         return result
