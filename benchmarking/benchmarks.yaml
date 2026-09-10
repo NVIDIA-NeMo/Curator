@@ -341,6 +341,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --input-filetype=jsonl
       --bands-per-iteration=20
+      --minhash-output-format=banded
       --text-field=text
       --input-blocksize=1.5GiB
     timeout_s: 1200
