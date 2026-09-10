@@ -14,15 +14,16 @@
 
 """Audio ReadSpeech benchmarking script.
 
-This script benchmarks the DNS Challenge Read Speech audio curation pipeline,
-which processes WAV files through quality filtering (VAD, band filter, UTMOS,
-SIGMOS, speaker separation) and outputs a filtered JSONL manifest.
+This script benchmarks a ReadSpeech audio curation pipeline, which processes
+manifest or DNS Challenge WAV input through quality filtering (VAD, band
+filter, UTMOS, SIGMOS, speaker separation) and outputs a filtered manifest.
 
 Can be invoked standalone or through the benchmarking framework.
 """
 
 import argparse
 import inspect
+import json
 import time
 import traceback
 from pathlib import Path
@@ -33,6 +34,7 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterStage
+from nemo_curator.stages.audio.common import ManifestReader
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -47,9 +49,80 @@ def _count_jsonl_lines(results_dir: Path) -> int:
     return total
 
 
-def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
+def _parse_manifest_row(line: str, input_manifest: Path, line_number: int, seen_audio_paths: set[str]) -> dict:
+    """Parse and normalize one input-manifest row."""
+    try:
+        row = json.loads(line)
+        audio_filepath = row["audio_filepath"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        msg = f"Invalid input manifest row {input_manifest}:{line_number}"
+        raise RuntimeError(msg) from e
+    if not isinstance(audio_filepath, str) or not audio_filepath:
+        msg = f"Invalid audio_filepath in {input_manifest}:{line_number}"
+        raise RuntimeError(msg)
+
+    audio_path = Path(audio_filepath)
+    if not audio_path.is_absolute():
+        audio_path = (input_manifest.parent / audio_path).resolve()
+        row["audio_filepath"] = str(audio_path)
+    normalized_audio_path = str(audio_path)
+    if normalized_audio_path in seen_audio_paths:
+        msg = f"Duplicate input audio_filepath: {normalized_audio_path}"
+        raise RuntimeError(msg)
+    seen_audio_paths.add(normalized_audio_path)
+    return row
+
+
+def _create_partial_manifest(input_manifest: Path, output_manifest: Path, max_samples: int) -> int:
+    """Write a deterministic prefix of an existing audio manifest."""
+    if output_manifest.exists():
+        msg = f"Partial input manifest already exists: {output_manifest}"
+        raise ValueError(msg)
+
+    output_manifest.parent.mkdir(parents=True, exist_ok=True)
+    temporary_manifest = output_manifest.with_suffix(".jsonl.tmp")
+    selected = 0
+    seen_audio_paths: set[str] = set()
+
+    try:
+        with (
+            input_manifest.open(encoding="utf-8") as input_file,
+            temporary_manifest.open("w", encoding="utf-8") as output_file,
+        ):
+            for line_number, line in enumerate(input_file, start=1):
+                if not line.strip():
+                    continue
+                row = _parse_manifest_row(line, input_manifest, line_number, seen_audio_paths)
+                output_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+                selected += 1
+                if max_samples > 0 and selected >= max_samples:
+                    break
+    except Exception:
+        temporary_manifest.unlink(missing_ok=True)
+        raise
+
+    if selected == 0:
+        temporary_manifest.unlink(missing_ok=True)
+        msg = f"Input manifest contains no rows: {input_manifest}"
+        raise RuntimeError(msg)
+    if max_samples > 0 and selected != max_samples:
+        temporary_manifest.unlink(missing_ok=True)
+        msg = f"Input manifest has only {selected} rows; requested {max_samples}"
+        raise RuntimeError(msg)
+    temporary_manifest.replace(output_manifest)
+    return selected
+
+
+def _require_output_segments(num_output_segments: int) -> None:
+    if num_output_segments == 0:
+        msg = "ReadSpeech pipeline produced no output segments"
+        raise RuntimeError(msg)
+
+
+def run_readspeech_benchmark(  # noqa: C901, PLR0913, PLR0915
     benchmark_results_path: str,
     scratch_output_path: str,
+    input_manifest: str | None = None,
     raw_data_dir: str | None = None,
     executor: str = "xenna",
     max_samples: int = 5000,
@@ -102,27 +175,42 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
         enabled_filters.append("SpeakerSep")
     logger.info(f"Enabled filters: {enabled_filters or ['none']}")
 
-    if raw_data_dir:
+    if input_manifest and raw_data_dir:
+        msg = "Use either input_manifest or raw_data_dir, not both."
+        raise ValueError(msg)
+
+    num_input_rows = None
+    if input_manifest:
+        partial_manifest = scratch_output_path / "readspeech_input.jsonl"
+        num_input_rows = _create_partial_manifest(Path(input_manifest), partial_manifest, max_samples)
+        input_stage = ManifestReader(manifest_path=str(partial_manifest))
+        logger.info(f"Using {num_input_rows} rows from manifest: {input_manifest}")
+    elif raw_data_dir:
         data_dir = Path(raw_data_dir)
         logger.info(f"Using pre-downloaded data at: {data_dir}")
-    else:
-        data_dir = scratch_output_path / "read_speech"
-        logger.info(f"Data directory (auto-download to scratch): {data_dir}")
-
-    executor_obj = setup_executor(executor)
-    pipeline = Pipeline(
-        name="readspeech_benchmark",
-        description="DNS Challenge Read Speech audio curation benchmark",
-    )
-
-    pipeline.add_stage(
-        CreateInitialManifestReadSpeechStage(
+        input_stage = CreateInitialManifestReadSpeechStage(
             raw_data_dir=data_dir,
             max_samples=max_samples,
             auto_download=auto_download,
             batch_size=batch_size,
         )
+    else:
+        data_dir = scratch_output_path / "read_speech"
+        logger.info(f"Data directory (auto-download to scratch): {data_dir}")
+        input_stage = CreateInitialManifestReadSpeechStage(
+            raw_data_dir=data_dir,
+            max_samples=max_samples,
+            auto_download=auto_download,
+            batch_size=batch_size,
+        )
+
+    executor_obj = setup_executor(executor)
+    pipeline = Pipeline(
+        name="readspeech_benchmark",
+        description="ReadSpeech audio curation benchmark",
     )
+
+    pipeline.add_stage(input_stage)
 
     pipeline.add_stage(AudioDataFilterStage(config={
         "mono_conversion": {
@@ -179,6 +267,7 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
         run_time_s = time.perf_counter() - run_start
 
         num_output_segments = _count_jsonl_lines(results_dir)
+        _require_output_segments(num_output_segments)
 
         logger.success(f"Benchmark completed in {run_time_s:.2f}s")
         logger.success(f"Output segments: {num_output_segments}")
@@ -199,6 +288,7 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
     return {
         "params": {
             "executor": executor,
+            "input_manifest": input_manifest,
             "raw_data_dir": str(raw_data_dir) if raw_data_dir else None,
             "max_samples": max_samples,
             "sample_rate": sample_rate,
@@ -213,6 +303,7 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
             "is_success": success,
             "time_taken_s": run_time_s,
             "num_output_segments": num_output_segments,
+            "num_input_rows": num_input_rows,
             "max_samples_input": max_samples,
             "throughput_segments_per_sec": throughput,
         },
@@ -222,7 +313,7 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="DNS Challenge Read Speech audio curation benchmark",
+        description="ReadSpeech audio curation benchmark",
     )
     parser.add_argument("--benchmark-results-path", required=True,
                         help="Path to benchmark results directory")
@@ -230,6 +321,8 @@ def main() -> int:
                         help="Path to scratch output directory (dataset download + temp files)")
     parser.add_argument("--raw-data-dir", default=None,
                         help="Path to pre-downloaded ReadSpeech WAV files (skips download to scratch)")
+    parser.add_argument("--input-manifest", default=None,
+                        help="Existing JSONL audio manifest; max-samples selects a deterministic prefix")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"],
                         help="Executor to use (default: xenna)")
     parser.add_argument("--max-samples", type=int, default=5000,

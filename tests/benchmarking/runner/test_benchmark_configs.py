@@ -46,6 +46,15 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     replica_8_arg = '--autoscaling-config=\'{"min_replicas": 8, "max_replicas": 8}\''
     assert replica_8_arg in entries["ndd_dynamo"]["args"]
 
+    for entry_name in ("audio_readspeech_xenna", "audio_readspeech_raydata"):
+        args = entries[entry_name]["args"]
+        assert "--input-manifest={dataset:librispeech_all_750h,jsonl}" in args
+        assert "--max-samples=14279" in args
+        assert "--sample-rate=16000" in args
+        assert "--band-value=narrow_band" in args
+        assert "--raw-data-dir" not in args
+        assert "--no-auto-download" not in args
+
 
 def test_4xgb200_64cpu_override_updates_resources_and_caps_timeouts() -> None:
     config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-64CPU.yaml"])

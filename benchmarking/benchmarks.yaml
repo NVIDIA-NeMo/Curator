@@ -1112,59 +1112,68 @@ entries:
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only (3h30m). Full dataset with all filters runs ~3.24h on 4×A100.
-    # Performance regressions should be tracked via a `requirements` check on
-    # `time_taken_s` once a stable baseline is established (follow-up).
+    # Hang guard only; EOS calibration determines the final deterministic prefix size.
     timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:read_speech,wav}
-      --no-auto-download
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
       --executor=xenna
-      --max-samples=-1
-      --sample-rate=48000
+      --max-samples=14279
+      --sample-rate=16000
       --enable-vad
       --enable-sigmos
       --enable-utmos
       --enable-band-filter
+      --band-value=narrow_band
       --enable-speaker-separation
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_segments_per_sec
+          - num_input_rows
           - num_output_segments
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: num_input_rows
+        exact_value: 14279
+      - metric: num_output_segments
+        min_value: 1
 
   - name: audio_readspeech_raydata
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only (3h30m). Mirrors xenna config so the two executors are
-    # directly comparable on the same workload (full dataset, all filters).
+    # Same deterministic input and filter configuration as Xenna.
     timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:read_speech,wav}
-      --no-auto-download
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
       --executor=ray_data
-      --max-samples=-1
-      --sample-rate=48000
+      --max-samples=14279
+      --sample-rate=16000
       --enable-vad
       --enable-sigmos
       --enable-utmos
       --enable-band-filter
+      --band-value=narrow_band
       --enable-speaker-separation
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_segments_per_sec
+          - num_input_rows
           - num_output_segments
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: num_input_rows
+        exact_value: 14279
+      - metric: num_output_segments
+        min_value: 1
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
