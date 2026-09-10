@@ -26,14 +26,15 @@ VENDORED_TUTORIAL_FILES = (
         Path("curator_benchmarking/_tutorials/video/getting-started/video_split_clip_example.py"),
     ),
     (
-        Path("../tutorials/interleaved/nemotron_parse_pdf/main.py"),
-        Path("curator_benchmarking/_tutorials/interleaved/nemotron_parse_pdf/main.py"),
+        Path("../tutorials/interleaved/nemotron_parse_pdf/pipeline_utils.py"),
+        Path("curator_benchmarking/_tutorials/interleaved/nemotron_parse_pdf/pipeline_utils.py"),
     ),
     (
         Path("../tutorials/math/datasets.json"),
         Path("curator_benchmarking/_tutorials/math/datasets.json"),
     ),
 )
+_TUTORIAL_PACKAGE_DIR = Path("curator_benchmarking/_tutorials")
 
 
 class BuildPy(build_py):
@@ -46,6 +47,12 @@ class BuildPy(build_py):
     def _copy_vendored_tutorial_files(self) -> None:
         package_root = Path(__file__).resolve().parent
         build_root = Path(self.build_lib)
+        destination_root = build_root / _TUTORIAL_PACKAGE_DIR
+        if destination_root.exists():
+            shutil.rmtree(destination_root)
+        destination_root.mkdir(parents=True)
+        shutil.copy2(package_root / _TUTORIAL_PACKAGE_DIR / "__init__.py", destination_root / "__init__.py")
+
         for source_relative_path, package_relative_path in VENDORED_TUTORIAL_FILES:
             source_path = package_root / source_relative_path
             if not source_path.exists():

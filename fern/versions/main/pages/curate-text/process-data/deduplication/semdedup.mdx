@@ -58,7 +58,7 @@ workflow = TextSemanticDeduplicationWorkflow(
     output_path="./results",
     cache_path="./sem_cache",
     n_clusters=100,
-    kmeans_fit_data_fraction=0.1,  # Fit centroids on about 10% of input files
+    kmeans_fit_data_fraction=0.1,  # Fit centroids on about 10% of generated embedding files
     eps=0.07,  # Similarity threshold
     id_field="doc_id",
     perform_removal=True,  # Complete deduplication
@@ -141,7 +141,7 @@ Compare semantic deduplication with other methods:
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `input_path` | str \| list[str] | Required | Input file, directory, glob, or list of paths. A single directory is scanned recursively; listed directories are scanned only at their top level. |
-| `input_filetype` | str | `"parquet"` | Reader format. Supported values are `"parquet"` and `"jsonl"`. |
+| `input_filetype` | str | `"parquet"` | Original text reader and removal format. Supported values are `"parquet"` and `"jsonl"`; generated embeddings are always Parquet. |
 | `input_file_extensions` | list[str] \| None | `None` | Extensions to discover. `None` or `[]` uses `[".parquet"]` for Parquet and `[".jsonl", ".json"]` for JSONL. A non-empty list replaces those defaults. |
 | `model_identifier` | str | `"google/embeddinggemma-300m"` | Pre-trained model for embedding generation (vLLM backend) |
 | `embedding_pretokenize` | bool | `False` | Whether to pre-tokenize input before passing to vLLM |
@@ -150,34 +150,82 @@ Compare semantic deduplication with other methods:
 | `model_cache_dir` | str | `None` | Directory to cache model weights |
 | `n_clusters` | int | `100` | Number of clusters for k-means clustering |
 | `kmeans_max_iter` | int | `300` | Maximum iterations for clustering |
-| `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of files used to fit K-means in `TextSemanticDeduplicationWorkflow`; enables the memory-efficient two-pass path |
+| `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of generated Parquet embedding files used to fit K-means. `None` automatically selects complete embedding files within the live GPU-memory budget. |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
-| `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
+| `kmeans_embedding_output_dtype` | str | `"float32"` | Precision used to store KMeans embeddings for Pairwise (`"float16"` or `"float32"`) |
+| `pairwise_compute_dtype` | str | `"float32"` | Pairwise multiplication precision: `"auto"`, `"float16"`, or `"float32"` |
+| `pairwise_batch_size` | int | `1024` | Positive batch size for the bounded similarity workspace |
 | `distance_metric` | str | `"cosine"` | Distance metric for similarity ("cosine" or "l2") |
 | `perform_removal` | bool | `True` | Whether to perform duplicate removal |
 | `text_field` | str | `"text"` | Name of the text field in input data |
 | `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
 
-| `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
-
 The same discovery rules apply to `TextSemanticDeduplicationWorkflow`, the pre-computed-embedding `SemanticDeduplicationWorkflow`, and `TextDuplicatesRemovalWorkflow`. The extension filter does not infer the reader format: keep `input_filetype="parquet"` when reading a custom Parquet suffix such as `.pq`. See [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery) for examples and recursion details.
 
-The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` use the parameter name `fit_data_fraction` for the same behavior.
+`TextSemanticDeduplicationWorkflow` always writes Parquet embeddings before clustering, regardless of
+the original `input_filetype`. The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` accept
+precomputed Parquet or JSONL embeddings and use the parameter name `fit_data_fraction`.
 
-### Reduce K-means fitting memory
+### Control Pairwise memory and precision
 
-By default, `fit_data_fraction=None` uses the original single-pass path: each K-means actor loads all of its assigned groups, fits centroids on every row, predicts cluster assignments, and writes the results. This produces the highest-fidelity fit but requires the actor's full assigned embedding data to fit in GPU memory.
+Pairwise comparison keeps a reusable `N x B` similarity workspace, where `N` is the cluster size and `B` is `pairwise_batch_size`. The default is `1024`; a smaller positive value lowers peak memory at the cost of more matrix multiplications. A larger value also computes more self/later-row products before masking them, so the largest batch that fits is not necessarily the fastest. Only earlier-ranked rows are valid neighbors, and equal similarity scores deterministically choose the earliest-ranked row.
 
-Set a fraction strictly between `0` and `1` to enable a two-pass path:
+#### How Pairwise chooses duplicates
 
-1. **Fit pass:** Each actor samples `round(fit_data_fraction * number_of_actor_files)` files, with a minimum of one file. It reads only the embedding column from those files and cooperatively fits the centroids.
-2. **Predict and write pass:** Each actor reads every original file group, one group at a time, assigns every row to a centroid, computes centroid distances, writes the partitioned result, and releases the group before reading the next one.
+Input order is the preservation preference: `A` is preferred over `B`, `B` over `C`, and so on. Consider these normalized embeddings:
+
+```text
+A [1.00, 0.00, 0.00, 0.00]
+B [0.96, 0.28, 0.00, 0.00]
+C [0.00, 1.00, 0.00, 0.00]
+D [0.00, 0.00, 1.00, 0.00]
+E [0.00, 0.96, 0.00, 0.28]
+```
+
+Because they have unit length, `X @ X.T` is their cosine-similarity matrix:
+
+| Query \ candidate | A | B | C | D | E |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 1.0000 | 0.9600 | 0.0000 | 0.0000 | 0.0000 |
+| B | 0.9600 | 1.0000 | 0.2800 | 0.0000 | 0.2688 |
+| C | 0.0000 | 0.2800 | 1.0000 | 0.0000 | 0.9600 |
+| D | 0.0000 | 0.0000 | 0.0000 | 1.0000 | 0.0000 |
+| E | 0.0000 | 0.2688 | 0.9600 | 0.0000 | 1.0000 |
+
+Only candidates to the left of the query's diagonal are eligible. Pairwise therefore selects `B -> A (0.96)`, `C -> B (0.28)`, `D -> A (0.00)`, and `E -> C (0.96)`. With `eps=0.1`, the duplicate threshold is `1 - eps = 0.9`, so the next stage removes query rows `B` and `E` while preserving `A`, `C`, and `D`. An earlier-ranked candidate remains eligible even if that candidate is itself later marked for removal.
+
+KMeans fit, prediction, and distance calculations remain FP32. By default, KMeans retains FP32 embeddings in its output. Set `kmeans_embedding_output_dtype="float16"` to cast normalized embeddings to FP16 and store their bit patterns in uint16 list leaves because cuDF does not support numeric FP16 columns. The uint16 representation does not guarantee half-sized Parquet files because Parquet stores uint16 values using an INT32 physical type.
+
+Pairwise infers storage precision from the embedding list leaves: uint16 leaves are decoded as FP16 bit patterns, FP32 leaves keep their precision, and legacy FP64 leaves are normalized to FP32. With `pairwise_compute_dtype="auto"`, FP16 embeddings use FP16 multiplication and FP32 embeddings use FP32. FP32 embeddings can instead use `"float16"` multiplication; upcasting stored FP16 embeddings is rejected because it cannot restore the discarded precision.
+
+FP16 scores remain FP16 through multiplication and reduction, then are promoted to FP32 because cuDF does not support an FP16 numeric output column. Pairwise records cumulative footer scan, read, rank, precision conversion, compute, and write time.
+
+### Control K-means fitting memory
+
+For the lower-level workflow and stage, the behavior of `fit_data_fraction=None` depends on the
+embedding input format:
+
+- **Parquet:** Selects as many complete files as fit 60% of the actor's currently free GPU memory. The estimate includes both the contiguous float32 fit array and the retained metadata needed to predict and write sampled rows without reading those files again.
+- **JSONL:** Fits all input files in one pass because row and embedding counts are not available without reading the data.
+
+Parquet is recommended for large semantic-deduplication workloads. Its footer metadata enables exact memory sizing and reads bounded below cuDF's column-size limit. Parquet also retains sampled rows for prediction, whereas an explicit JSONL fit fraction uses one pass to fit sampled files and a second pass over all files to predict every row.
+
+Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
+`round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
+but their I/O differs:
+
+- **Parquet:** Exact footer counts group reads below cuDF's column-size limit and size the fit array.
+  The sampled rows remain in memory for prediction, so only the files excluded from fitting are read
+  after the fit.
+- **JSONL:** The first pass reads the sampled files and fits K-means. The second pass reads all files,
+  including the sampled files, to predict and write every row.
 
 Because sampling is file-based rather than row-based, the realized row fraction can differ from the configured value when file sizes vary. Every actor contributes at least one file, so very small fractions can also sample more data than expected on highly parallel runs. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
 
 <Note>
-The two-pass path lowers peak GPU memory from roughly all actor rows to the larger of the sampled fit data or one prediction group. The tradeoff is additional I/O: sampled files are read once for embeddings during fitting and again with their full requested columns during prediction. All input rows still receive cluster assignments; the fraction affects only centroid fitting.
+All input rows receive cluster assignments; the fraction affects only centroid fitting. For Parquet input,
+both fitting and prediction use exact footer element counts to keep each read below cuDF's column-size limit.
 </Note>
 
 <Tabs>

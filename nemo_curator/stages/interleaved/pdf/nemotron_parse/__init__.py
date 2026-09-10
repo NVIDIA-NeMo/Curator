@@ -13,15 +13,21 @@
 # limitations under the License.
 
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.composite import NemotronParsePDFReader
-from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+    NemotronParseHTTPClientStage,
+    NemotronParseInferenceStage,
+)
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.server import create_nemotron_parse_inference_server
 
 __all__ = [
+    "NemotronParseHTTPClientStage",
     "NemotronParseInferenceStage",
     "NemotronParsePDFReader",
     "NemotronParsePostprocessStage",
     "PDFPartitioningStage",
     "PDFPreprocessStage",
+    "create_nemotron_parse_inference_server",
 ]
