@@ -17,9 +17,9 @@
 import copy
 
 import pytest
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.tasks import AudioTask
 

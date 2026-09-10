@@ -43,10 +43,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
-from tokenizers import Tokenizer, models, pre_tokenizers
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from tokenizers import Tokenizer, models, pre_tokenizers
+
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,

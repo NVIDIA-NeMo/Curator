@@ -17,10 +17,10 @@
 import copy
 
 import pytest
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 from nemo_curator.tasks import AudioTask
