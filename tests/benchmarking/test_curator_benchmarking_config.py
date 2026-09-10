@@ -42,6 +42,7 @@ from curator_benchmarking.dependencies import (
 from curator_benchmarking.paths import (
     benchmark_package_dir,
     resolve_benchmark_suite_dir,
+    resolve_tutorial_file,
     volume_mount_pairs_from_configs,
 )
 from curator_benchmarking.system_tools import (
@@ -229,6 +230,42 @@ def test_resolve_benchmark_suite_dir_accepts_checkout_root_and_package_dir(tmp_p
     assert resolve_benchmark_suite_dir(checkout_dir) == package_dir
     assert resolve_benchmark_suite_dir(package_dir) == package_dir
     assert benchmark_package_dir(checkout_dir) == package_dir
+
+
+def test_resolve_tutorial_file_falls_back_to_source_checkout(tmp_path: Path) -> None:
+    checkout_dir = tmp_path / "Curator"
+    package_dir = checkout_dir / "benchmarking"
+    tutorial_file = checkout_dir / "tutorials" / "video" / "getting-started" / "video_split_clip_example.py"
+    (package_dir / "curator_benchmarking").mkdir(parents=True)
+    (package_dir / "pyproject.toml").write_text("")
+    tutorial_file.parent.mkdir(parents=True)
+    tutorial_file.write_text("# tutorial helper\n")
+
+    assert resolve_tutorial_file("video/getting-started/video_split_clip_example.py", suite_dir=package_dir) == (
+        tutorial_file
+    )
+    assert (
+        resolve_tutorial_file(
+            "tutorials/video/getting-started/video_split_clip_example.py",
+            suite_dir=checkout_dir,
+        )
+        == tutorial_file
+    )
+
+
+def test_resolve_tutorial_file_rejects_paths_outside_tutorials() -> None:
+    with pytest.raises(ValueError, match="relative to tutorials"):
+        resolve_tutorial_file("../README.md")
+
+
+def test_resolve_tutorial_file_reports_missing_source_checkout_file(tmp_path: Path) -> None:
+    checkout_dir = tmp_path / "Curator"
+    package_dir = checkout_dir / "benchmarking"
+    (package_dir / "curator_benchmarking").mkdir(parents=True)
+    (package_dir / "pyproject.toml").write_text("")
+
+    with pytest.raises(FileNotFoundError, match="Tutorial-backed benchmarks"):
+        resolve_tutorial_file("video/getting-started/video_split_clip_example.py", suite_dir=package_dir)
 
 
 def test_dependency_helpers_use_explicit_yaml_dependency_groups() -> None:

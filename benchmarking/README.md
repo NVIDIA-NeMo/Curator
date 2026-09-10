@@ -95,6 +95,13 @@ of live source-checkout edits:
 uv pip install ./benchmarking[all]
 ```
 
+Some benchmark scripts intentionally reuse tutorial pipeline builders. Until
+that shared code is moved into importable library modules, package builds copy
+the small set of required tutorial files from the peer `tutorials/` directory
+into the benchmark package. This means non-editable installs must be built from
+a full Curator checkout, not from a standalone `benchmarking/` directory. Editable
+installs read those files directly from the source checkout.
+
 ---
 
 ## Bare-Metal Quick Start

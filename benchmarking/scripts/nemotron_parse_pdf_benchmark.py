@@ -27,11 +27,12 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from curator_benchmarking.paths import resolve_tutorial_file
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-REPO_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "tutorials" / "interleaved" / "nemotron_parse_pdf"))
+_TUTORIAL_FILE = resolve_tutorial_file("interleaved/nemotron_parse_pdf/main.py")
+sys.path.insert(0, str(_TUTORIAL_FILE.parent))
 
 from main import (  # noqa: E402
     create_nemotron_parse_pdf_argparser,

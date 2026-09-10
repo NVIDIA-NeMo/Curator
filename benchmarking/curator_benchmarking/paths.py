@@ -15,12 +15,14 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from pathlib import Path
 
 from runner.path_resolver import PathResolver
 from runner.utils import assert_valid_config_dict, merge_config_files, resolve_env_vars
 
 BENCHMARK_SUITE_DIR_ENV = "CURATOR_BENCHMARK_SUITE_DIR"
+_VENDORED_TUTORIALS_DIR = Path(__file__).resolve().parent / "_tutorials"
 
 
 def resolve_benchmark_suite_dir(path: str | Path | None = None) -> Path:
@@ -64,6 +66,30 @@ def benchmark_package_dir(suite_dir: str | Path | None = None) -> Path:
     return resolve_benchmark_suite_dir(suite_dir)
 
 
+def resolve_tutorial_file(relative_path: str | Path, *, suite_dir: str | Path | None = None) -> Path:
+    """Return a tutorial file needed by a tutorial-backed benchmark.
+
+    Non-editable package builds copy a small set of required tutorial files into
+    ``curator_benchmarking/_tutorials``. Editable installs use the source
+    checkout, so this also falls back to the peer ``tutorials/`` directory.
+    """
+    path = _normalize_tutorial_relative_path(relative_path)
+    candidates = [_VENDORED_TUTORIALS_DIR / path]
+    with suppress(ValueError):
+        candidates.append(resolve_benchmark_suite_dir(suite_dir).parent / "tutorials" / path)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    msg = (
+        f"Could not find tutorial file '{path}'. Tutorial-backed benchmarks require "
+        "a package build from a full Curator checkout or an editable install from "
+        "a checkout with a peer tutorials/ directory."
+    )
+    raise FileNotFoundError(msg)
+
+
 def _benchmark_suite_dir_from_candidate(candidate: str | Path) -> Path | None:
     expanded = Path(candidate).expanduser().resolve()
     if (expanded / "pyproject.toml").exists() and (expanded / "curator_benchmarking").is_dir():
@@ -72,6 +98,16 @@ def _benchmark_suite_dir_from_candidate(candidate: str | Path) -> Path | None:
     if (benchmark_dir / "pyproject.toml").exists() and (benchmark_dir / "curator_benchmarking").is_dir():
         return benchmark_dir
     return None
+
+
+def _normalize_tutorial_relative_path(relative_path: str | Path) -> Path:
+    path = Path(relative_path)
+    if path.is_absolute() or ".." in path.parts:
+        msg = f"Tutorial file path must be relative to tutorials/: {relative_path}"
+        raise ValueError(msg)
+    if path.parts[:1] == ("tutorials",):
+        return Path(*path.parts[1:])
+    return path
 
 
 def volume_mount_pairs_from_config(
