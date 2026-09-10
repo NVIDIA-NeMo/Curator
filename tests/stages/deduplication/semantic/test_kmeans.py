@@ -575,8 +575,9 @@ class TestKMeansReadFitWriteStage:
         assert {info.path for info in fit} == {info.path for info in file_info}
         assert prediction_only == []
 
-    def test_auto_fit_budget_includes_source_dtype_and_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        """Auto-fit budgets the larger of the source read and float32 fit representations."""
+    def test_auto_fit_budget_uses_persistent_fp32_size_and_metadata(
+        self, make_stage: "KMeansReadFitWriteStage"
+    ) -> None:
         stage = make_stage(fit_data_fraction=None)
         file_info = [
             ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
@@ -585,14 +586,27 @@ class TestKMeansReadFitWriteStage:
         ]
 
         with (
-            patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)),
+            patch("cupy.cuda.runtime.memGetInfo", return_value=(400, 1_000)),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
             fit, prediction_only = stage._sample_fit_files(file_info)
 
-        assert [info.path for info in fit] == ["float32.parquet"]
-        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet", "float64.parquet"]
+        assert [info.path for info in fit] == ["float32.parquet", "float64.parquet"]
+        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
         assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
+
+    def test_fit_read_group_uses_memory_remaining_after_fit(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=None)
+        fit_info = [ParquetFileInfo("fit.parquet", 10, 100, embedding_elements=100)]
+
+        with patch("cupy.cuda.runtime.memGetInfo", return_value=(1_000, 2_000)):
+            assert stage._max_fit_read_group_bytes(fit_info) == 400
+
+    def test_fit_write_rows_use_live_free_memory(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=None)
+
+        with patch("cupy.cuda.runtime.memGetInfo", return_value=(1_200, 2_000)):
+            assert stage._max_fit_write_rows(10) == 4
 
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),
