@@ -24,8 +24,6 @@ metrics collection.
 import argparse
 import contextlib
 import json
-import os
-import subprocess
 import sys
 import time
 import traceback
@@ -47,24 +45,6 @@ from pipeline_utils import (
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
 from nemo_curator.tasks.utils import TaskPerfUtils
-
-
-def _prepare_huggingface_cache(model_path: str, cache_dir: str, modules_cache_dir: Path) -> dict[str, Any]:
-    """Populate remote model code before concurrent inference workers start."""
-    os.environ["HF_HOME"] = cache_dir
-    os.environ["HF_MODULES_CACHE"] = str(modules_cache_dir)
-    subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            "-c",
-            "import sys; from transformers import AutoConfig; "
-            "AutoConfig.from_pretrained(sys.argv[1], trust_remote_code=True)",
-            model_path,
-        ],
-        check=True,
-        env=os.environ,
-    )
-    return {"env_vars": {"HF_HOME": os.environ["HF_HOME"], "HF_MODULES_CACHE": os.environ["HF_MODULES_CACHE"]}}
 
 
 def _safe_div(numerator: float, denominator: float) -> float:
@@ -182,15 +162,10 @@ def _compute_pdf_parse_metrics(
 
 def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     """Run the Nemotron-Parse PDF benchmark and collect metrics."""
+    executor = setup_executor(args.executor)
+
     output_dir = Path(args.output_dir).absolute()
     output_dir.mkdir(parents=True, exist_ok=True)
-    server_runtime_env = None
-    if args.hf_cache_dir:
-        server_runtime_env = _prepare_huggingface_cache(
-            args.model_path, args.hf_cache_dir, output_dir.parent / "hf_modules"
-        )
-
-    executor = setup_executor(args.executor)
 
     inference_server = None
     inference_server_startup_s = 0.0
@@ -236,7 +211,6 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 model_name=model_name,
                 num_replicas=num_replicas,
                 engine_kwargs=server_engine_kwargs,
-                runtime_env=server_runtime_env,
                 request_timeout_s=args.inference_server_request_timeout_s,
                 health_check_timeout_s=args.inference_server_health_timeout_s,
             )
@@ -422,10 +396,6 @@ def main() -> int:
         type=int,
         default=3,
         help="Retries after a failed page inference request",
-    )
-    parser.add_argument(
-        "--hf-cache-dir",
-        help="Shared Hugging Face cache for model dependencies such as C-RADIO",
     )
     args = parser.parse_args()
 
