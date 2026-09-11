@@ -95,11 +95,13 @@ source .venv/bin/activate
 
 ### Prerequisites
 
-- **System packages**: `ffmpeg` must be installed for audio resampling and format conversion:
+- **System packages**: an organization-approved `ffmpeg` executable must be
+  available on `PATH` on every executor node. Use an administrator-managed
+  package, a trusted user-local environment manager, or a reviewed standalone
+  build, then verify what workers will resolve:
   ```bash
-  # Ubuntu / Debian
-  sudo apt-get install -y ffmpeg
-
+  command -v ffmpeg
+  ffmpeg -version
   ```
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
 - **HuggingFace Token**: Required for PyAnnote diarization model access. See [HuggingFace Access](#huggingface-access) for setup instructions.
@@ -116,14 +118,14 @@ A small toy dataset is bundled in `tests/fixtures/audio/tagging/` so you can run
 python tutorials/audio/tagging/main.py \
   --config-path . \
   --config-name tts_pipeline \
-  input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
+  input_manifest="${PWD}/tests/fixtures/audio/tagging/sample_input.jsonl" \
   final_manifest=/tmp/tts_output.jsonl \
   hf_token=<your_hf_token>
 ```
 
 ### ASR Pipeline
 
-The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. The per-segment `wer` field can be used to filter for reliable transcripts — for example, keeping only segments where `wer <= 10%`.
+The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. `ComputeWERStage` writes each segment's fractional WER to `metrics.wer.wer`; for example, `metrics.wer.wer <= 0.1` represents WER at or below 10%.
 
 ```bash
 python tutorials/audio/tagging/main.py \
@@ -138,7 +140,7 @@ python tutorials/audio/tagging/main.py \
 
 For ASR training data, combine these optional blocks to maximise transcript quality:
 
-1. **Filter by WER**: After the second-pass ASR and `ComputeWERStage`, filter segments with `wer <= 10%` to keep only samples where the two ASR passes agree closely. This is a strong signal that the transcript is correct.
+1. **Filter by WER**: After the second-pass ASR and `ComputeWERStage`, filter segments with `metrics.wer.wer <= 0.1` to keep only samples where the two ASR passes agree closely. This is a strong signal that the transcript is correct.
 2. **Apply ITN**: Insert `InverseTextNormalizationStage` to convert spoken-form text (e.g. "twenty three") to written form (e.g. "23") for training data that requires normalised text.
 
 These blocks compose naturally — ITN and WER filtering each address a different axis of data quality and can both be enabled in a single pipeline run.
@@ -214,7 +216,7 @@ The output manifest is a JSONL file where each line contains the fully processed
 | `segments[].stoi_squim`   | Core                    | STOI quality score (via TorchSQUIM)                                  |
 | `segments[].si_sdr`       | Core                    | SI-SDR quality score (via TorchSQUIM)                                |
 | `segments[].text_2`       | Optional (2nd-pass ASR) | Second-pass ASR transcript (e.g. CTC Conformer)                     |
-| `segments[].wer`          | Optional (ComputeWER)   | Word error rate between first and second ASR transcripts             |
+| `segments[].metrics.wer.wer` | Optional (ComputeWER) | Fractional word error rate between first and second ASR transcripts |
 
 ## Configuration
 
@@ -224,7 +226,7 @@ All parameters are defined in the YAML config files. Override from the command l
 python tutorials/audio/tagging/main.py \
   --config-path . \
   --config-name tts_pipeline \
-  input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
+  input_manifest="${PWD}/tests/fixtures/audio/tagging/sample_input.jsonl" \
   final_manifest=/tmp/output.jsonl \
   hf_token=<your_hf_token> \
   language_short=de \

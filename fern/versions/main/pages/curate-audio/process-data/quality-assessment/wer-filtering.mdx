@@ -52,13 +52,13 @@ Follow these steps to calculate WER values and apply threshold-based filtering t
 Use `GetPairwiseWerStage` to compute WER between ground truth transcriptions and ASR model predictions:
 
 ```python
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 
 # Calculate WER for audio samples
 wer_stage = GetPairwiseWerStage(
     text_key="text",           # Ground truth transcription
     pred_text_key="pred_text", # ASR model prediction
-    wer_key="wer"             # Output field for WER value
+    wer_key="wer_pct",         # Output field for WER percentage
 )
 
 # Add to pipeline
@@ -68,8 +68,8 @@ pipeline.add_stage(wer_stage)
 **Parameters:**
 
 - `text_key`: Field name containing ground truth transcriptions in your manifest
-- `pred_text_key`: Field name containing ASR predictions (from `InferenceAsrNemoStage` or similar)
-- `wer_key`: Field name to store calculated WER values (default: `"wer"`)
+- `pred_text_key`: Field name containing ASR predictions (from `ASRStage` or similar)
+- `wer_key`: Field name to store calculated WER percentages (default: `"wer_pct"`)
 
 **Prerequisites:** Your audio manifest must contain both ground truth transcriptions and ASR predictions before calculating WER.
 
@@ -82,7 +82,7 @@ from nemo_curator.stages.audio.common import PreserveByValueStage
 
 # Keep samples with WER ≤ 30% (good quality)
 wer_filter = PreserveByValueStage(
-    input_value_key="wer",
+    input_value_key="wer_pct",
     target_value=30.0,
     operator="le"  # less than or equal
 )
@@ -116,7 +116,7 @@ Rather than using fixed thresholds, you can analyze your dataset's WER distribut
 ```python
 # Apply calculated statistical threshold
 statistical_filter = PreserveByValueStage(
-    input_value_key="wer",
+    input_value_key="wer_pct",
     target_value=calculated_threshold,  # From your statistical analysis
     operator="le"
 )
@@ -140,12 +140,12 @@ Conversational speech typically has higher WER due to informal language, disflue
 # More lenient thresholds for conversational speech
 conversational_wer_config = {
     "excellent_threshold": 15.0,  # compared to 10.0 for read speech
-    "good_threshold": 35.0,       # compared to 25.0 for read speech  
+    "good_threshold": 35.0,       # compared to 25.0 for read speech
     "acceptable_threshold": 60.0   # compared to 50.0 for read speech
 }
 
 conversational_filter = PreserveByValueStage(
-    input_value_key="wer",
+    input_value_key="wer_pct",
     target_value=conversational_wer_config["good_threshold"],
     operator="le"
 )
@@ -168,7 +168,7 @@ broadcast_wer_config = {
 }
 
 broadcast_filter = PreserveByValueStage(
-    input_value_key="wer", 
+    input_value_key="wer_pct",
     target_value=broadcast_wer_config["good_threshold"],
     operator="le"
 )
@@ -186,8 +186,8 @@ Here's a complete pipeline demonstrating WER calculation and filtering:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -198,14 +198,16 @@ pipeline = Pipeline(name="wer_filtering")
 
 # 1. Load audio data with ground truth transcriptions
 pipeline.add_stage(CreateInitialManifestFleursStage(
-    lang="en_us", 
-    split="validation", 
+    lang="en_us",
+    split="dev",
     raw_data_dir="./audio_data"
 ).with_(batch_size=8))
 
 # 2. Run ASR inference to generate predictions
-pipeline.add_stage(InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
+pipeline.add_stage(ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    audio_filepath_key="audio_filepath",
     pred_text_key="pred_text"
 ).with_(resources=Resources(gpus=1.0)))
 
@@ -213,12 +215,12 @@ pipeline.add_stage(InferenceAsrNemoStage(
 pipeline.add_stage(GetPairwiseWerStage(
     text_key="text",
     pred_text_key="pred_text",
-    wer_key="wer"
+    wer_key="wer_pct",
 ))
 
 # 4. Filter by WER threshold (keep WER ≤ 30%)
 pipeline.add_stage(PreserveByValueStage(
-    input_value_key="wer",
+    input_value_key="wer_pct",
     target_value=30.0,
     operator="le"
 ))
