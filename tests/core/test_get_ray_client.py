@@ -14,6 +14,7 @@
 
 # ruff: noqa: ARG001
 
+import glob
 import os
 import tempfile
 import time
@@ -144,3 +145,57 @@ def test_get_ray_client_single_start_with_stdouterr_capture(clean_env: pytest.fi
     finally:
         if client:
             client.stop()
+
+
+def test_ray_client_stop_removes_only_its_own_session_dir(clean_env: pytest.fixture):
+    kept = None
+    client = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="ray_test_session_") as ray_tmp:
+
+            def sessions() -> list[str]:
+                return sorted(glob.glob(os.path.join(ray_tmp, "session_2*")))
+
+            # By default the session dir is kept, as before.
+            kept = RayClient(ray_temp_dir=ray_tmp)
+            kept.start()
+            _assert_ray_cluster_started(kept)
+            kept.stop()
+            older = sessions()
+            assert len(older) == 1
+
+            client = RayClient(ray_temp_dir=ray_tmp, cleanup_ray_session_dir=True)
+            latest = os.path.join(ray_tmp, "session_latest")
+            # Stand-in for the session dir of another cluster sharing the temp dir.
+            concurrent = os.path.join(ray_tmp, "session_2099-01-01_00-00-00_000000_1")
+            for _ in range(2):  # the same client is started and stopped twice
+                client.start()
+                _assert_ray_cluster_started(client)
+                own = glob.glob(os.path.join(ray_tmp, f"session_*_{client.ray_process.pid}"))
+                assert len(own) == 1
+                assert os.path.realpath(latest) == os.path.realpath(own[0])
+                os.makedirs(concurrent, exist_ok=True)
+                client.stop()
+                client.stop()  # a second stop() is a no-op
+                assert sessions() == sorted([*older, concurrent])
+                assert not os.path.lexists(latest)
+            time.sleep(15)  # no leftover Ray process recreates the dir
+            assert sessions() == sorted([*older, concurrent])
+    finally:
+        for c in (kept, client):
+            if c:
+                c.stop()
+
+
+def test_ray_client_stop_keeps_sessions_of_external_cluster(
+    clean_env: pytest.fixture, monkeypatch: pytest.MonkeyPatch
+):
+    with tempfile.TemporaryDirectory(prefix="ray_test_external_") as ray_tmp:
+        external = os.path.join(ray_tmp, "session_x_1")
+        os.makedirs(external)
+        monkeypatch.setenv("RAY_ADDRESS", "127.0.0.1:6379")
+        client = RayClient(ray_temp_dir=ray_tmp, cleanup_ray_session_dir=True)
+        client.start()
+        assert client.ray_process is None
+        client.stop()
+        assert os.path.isdir(external)
