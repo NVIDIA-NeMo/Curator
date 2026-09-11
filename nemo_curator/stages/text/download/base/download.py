@@ -106,7 +106,9 @@ class DocumentDownloader(ABC):
             if success:
                 os.rename(temp_file, output_file)
         else:
-            # No remote .tmp: S3/GCS never expose a partial final object; aborted multipart parts are out of scope.
+            # No remote .tmp: a failed upload never leaves a partial final object, so there is nothing to
+            # clean up (S3 https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html,
+            # GCS https://cloud.google.com/storage/docs/consistency). Aborted multipart parts are out of scope.
             with tempfile.TemporaryDirectory() as staging_dir:
                 staged_file = os.path.join(staging_dir, output_name)
                 success, error_message = self._download_to_path(url, staged_file)
