@@ -31,6 +31,38 @@ _curator_repo_path = Path(__file__).parent.parent.parent
 _entry_script_base_path = _curator_repo_path / "benchmarking/scripts"
 
 
+def normalize_environment(environment: dict[str, Any] | None, context: str) -> dict[str, str]:
+    """Validate an environment config block and return values suitable for subprocess."""
+    if environment is None:
+        return {}
+    if not isinstance(environment, dict):
+        msg = f"Invalid environment for {context}: expected dict, got {type(environment).__name__}"
+        raise TypeError(msg)
+
+    normalized = {}
+    for key, value in environment.items():
+        if not isinstance(key, str) or not key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; must be a non-empty string."
+            raise ValueError(msg)
+        if "=" in key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; cannot contain '='."
+            raise ValueError(msg)
+        if "\0" in key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; cannot contain NUL."
+            raise ValueError(msg)
+        if not isinstance(value, str):
+            msg = (
+                f"Invalid environment variable value for {context}.{key}: "
+                f"{value!r}; must be a string. Quote YAML values that should be strings."
+            )
+            raise TypeError(msg)
+        if "\0" in value:
+            msg = f"Invalid environment variable value for {context}.{key}: cannot contain NUL."
+            raise ValueError(msg)
+        normalized[key] = value
+    return normalized
+
+
 @dataclass
 class Entry:
     name: str
@@ -49,9 +81,14 @@ class Entry:
     delete_scratch: bool | None = None
     # If set, overrides the session-level gpu_mem_use_warning_threshold for this entry
     gpu_mem_use_warning_threshold: float | None = None
+    # Environment variables to add to this benchmark subprocess. Session-level
+    # values are applied before entry-level values, so entries override by name.
+    environment: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
+        self.environment = normalize_environment(self.environment, f"entry '{self.name}'")
+
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)

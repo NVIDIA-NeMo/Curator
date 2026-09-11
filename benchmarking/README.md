@@ -246,6 +246,12 @@ ray:
   num_gpus: 8
   enable_object_spilling: false
 
+# Optional: Global environment variables inherited by benchmark subprocesses.
+# Per-entry environment sections add variables and override matching names.
+environment:
+  NCCL_DEBUG: WARN
+  HF_HOME: "{model_weights_path}/hf_cache"
+
 # Optional: Define datasets for template substitution
 datasets:
   - name: common_crawl
@@ -276,6 +282,12 @@ entries:
       num_gpus: 1
       enable_object_spilling: false
 
+    # Optional: Add or override environment variables for this entry subprocess.
+    # This entry inherits NCCL_DEBUG from the top-level environment and overrides HF_HOME.
+    environment:
+      HF_HOME: "{session_entry_dir}/scratch/hf_cache"
+      UCX_TLS: all
+
     # Optional: Requirements for the benchmark to pass
     requirements:
       - metric: throughput_docs_per_sec
@@ -284,6 +296,16 @@ entries:
     # Optional: Override global delete_scratch setting
     delete_scratch: false
 ```
+
+Environment variables configured in YAML are merged into the current process
+environment before each benchmark subprocess starts. Top-level `environment`
+values apply to every entry. Entry-level `environment` values are merged on top
+of the top-level values and override individual variables with the same name.
+The full list of subprocess environment variable names is written to the
+entry's `logs/stdouterr.log` before the command output starts. Values inherited
+from the parent process are redacted by default. Values configured in YAML are
+shown only when their variable names do not look secret-bearing; tokens,
+passwords, credentials, keys, webhooks, and similar values are redacted.
 
 ### Passing Configuration Files
 
