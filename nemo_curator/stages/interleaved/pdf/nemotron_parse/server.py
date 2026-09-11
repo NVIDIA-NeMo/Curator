@@ -25,7 +25,10 @@ from nemo_curator.core.serve import (
     InferenceServer,
     RayServeModelConfig,
 )
-from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT_MODEL_PATH
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+    DEFAULT_MODEL_PATH,
+    set_nemotron_parse_attention_backend,
+)
 
 NemotronParseServerBackend = Literal["ray-serve", "dynamo"]
 
@@ -61,6 +64,8 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
         raise ValueError(msg)
 
     resolved_engine_kwargs = {**_DEFAULT_ENGINE_KWARGS, **(engine_kwargs or {})}
+    if backend == "ray-serve":
+        set_nemotron_parse_attention_backend(resolved_engine_kwargs)
     model_kwargs = {
         "model_identifier": model_path,
         "model_name": model_name,

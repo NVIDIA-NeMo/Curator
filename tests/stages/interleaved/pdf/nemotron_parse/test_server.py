@@ -36,6 +36,7 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert model.num_replicas == 2
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
     assert model.engine_kwargs["enforce_eager"] is True
+    assert "attention_backend" not in model.engine_kwargs
     assert model.dynamo_kwargs == {"enable_multimodal": True}
     assert model.runtime_env == {"uv": {"packages": ["albumentations==2.0.8"]}}
     assert isinstance(server.backend, DynamoServerConfig)
@@ -44,13 +45,55 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert server.backend.subprocess_env == {"DYN_TCP_REQUEST_TIMEOUT": "123"}
 
 
-def test_ray_serve_server_has_pdf_defaults() -> None:
+def test_ray_serve_server_has_pdf_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: "0.22.0",
+    )
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
+        lambda: True,
+    )
     server = create_nemotron_parse_inference_server(backend="ray-serve", num_replicas=3)
 
     model = server.models[0]
     assert isinstance(model, RayServeModelConfig)
     assert model.deployment_config == {"num_replicas": 3}
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
+    assert model.engine_kwargs["attention_backend"] == "TRITON_ATTN"
+
+
+@pytest.mark.parametrize(
+    ("vllm_version", "is_blackwell", "engine_kwargs", "expected_backend"),
+    [
+        ("0.22.0", True, {}, "TRITON_ATTN"),
+        ("0.22.0", True, {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
+        ("0.22.0", False, {}, None),
+        ("0.23.0", True, {}, None),
+    ],
+)
+def test_ray_serve_attention_backend_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_version: str,
+    is_blackwell: bool,
+    engine_kwargs: dict,
+    expected_backend: str | None,
+) -> None:
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: vllm_version,
+    )
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
+        lambda: is_blackwell,
+    )
+
+    model = create_nemotron_parse_inference_server(
+        backend="ray-serve",
+        engine_kwargs=engine_kwargs,
+    ).models[0]
+
+    assert model.engine_kwargs.get("attention_backend") == expected_backend
 
 
 @pytest.mark.parametrize("num_replicas", [0, -1])

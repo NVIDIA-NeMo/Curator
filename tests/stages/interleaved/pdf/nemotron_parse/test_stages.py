@@ -452,6 +452,7 @@ class TestNemotronParseInferenceStageMetrics:
         assert "vllm_inference_time" in stage._custom_metrics
 
     def test_setup_vllm_engine_kwargs_override_stage_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.metadata
         import sys
         import types
 
@@ -466,6 +467,15 @@ class TestNemotronParseInferenceStageMetrics:
 
         fake_vllm.SamplingParams = FakeSamplingParams
         monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+        package_version = importlib.metadata.version
+        monkeypatch.setattr(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+            lambda package: "0.22.0" if package == "vllm" else package_version(package),
+        )
+        monkeypatch.setattr(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
+            lambda: True,
+        )
 
         captured_kwargs: dict = {}
 
@@ -496,6 +506,7 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["max_num_seqs"] == 8
         assert captured_kwargs["enforce_eager"] is True
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
+        assert captured_kwargs["attention_backend"] == "TRITON_ATTN"
         assert stage._proc_size == (100, 100)
 
     def test_in_process_and_http_client_sampling_parameters_match(self) -> None:
