@@ -39,6 +39,7 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
 
     assert config["ray"] == {"num_cpus": 128, "num_gpus": 8, "enable_object_spilling": False}
     assert config["environment"] == {"NEMO_CURATOR_RAY_DATA_DIAGNOSTICS": "1"}
+    assert next(sink for sink in config["sinks"] if sink["name"] == "slack")["enabled"] is False
     assert config["object_store_size"] == 536870912000
     assert config["max_timeout_s"] == 14340
     assert "audio_tagging_tts_xenna_repeat" not in entries
