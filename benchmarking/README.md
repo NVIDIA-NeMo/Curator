@@ -123,8 +123,8 @@ important for release-candidate and historical-image runs.
 `benchmarking/gb200-eai-10k.yaml` varies client concurrency while keeping four
 one-GPU Dynamo replicas, engine defaults, 10 PDFs/task, 300 DPI, 645 pages/PDF,
 and 9000 output tokens fixed. Each full entry requires one exclusive GB200
-node with 4 GPUs, 144 CPUs, 920 GiB, and a four-hour allocation. The entry
-timeout is 12,600 seconds, leaving 30 minutes for environment setup and cleanup.
+node with 4 GPUs, 144 CPUs, 920 GiB, and a 150-minute allocation. The entry
+timeout is 8,400 seconds, leaving 10 minutes for environment setup and cleanup.
 
 Ten PDFs/task creates 1,000 tasks for the full input, allowing finer scheduling
 around long PDFs. The client count caps concurrent tasks; it does not pin clients

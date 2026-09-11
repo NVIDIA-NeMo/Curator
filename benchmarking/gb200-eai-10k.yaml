@@ -79,7 +79,7 @@ entries:
 
   - name: eai_10k_8clients_48sem
     script: nemotron_parse_pdf_benchmark.py
-    timeout_s: 12600
+    timeout_s: 8400
     requirements:
       is_success: {exact_value: true}
       num_pdfs_processed: {exact_value: 10000}
@@ -107,7 +107,7 @@ entries:
 
   - name: eai_10k_12clients_48sem
     script: nemotron_parse_pdf_benchmark.py
-    timeout_s: 12600
+    timeout_s: 8400
     requirements:
       is_success: {exact_value: true}
       num_pdfs_processed: {exact_value: 10000}
@@ -135,7 +135,7 @@ entries:
 
   - name: eai_10k_8clients_64sem
     script: nemotron_parse_pdf_benchmark.py
-    timeout_s: 12600
+    timeout_s: 8400
     requirements:
       is_success: {exact_value: true}
       num_pdfs_processed: {exact_value: 10000}
@@ -163,7 +163,7 @@ entries:
 
   - name: eai_10k_12clients_64sem
     script: nemotron_parse_pdf_benchmark.py
-    timeout_s: 12600
+    timeout_s: 8400
     requirements:
       is_success: {exact_value: true}
       num_pdfs_processed: {exact_value: 10000}
