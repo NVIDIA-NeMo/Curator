@@ -15,6 +15,7 @@
 """WER / CER computation stage."""
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +27,19 @@ from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
+_WER_METRIC_KEYS = (
+    "wer",
+    "cer",
+    "start_cer",
+    "end_cer",
+    "wer_pnc",
+    "cer_pnc",
+    "char_rate",
+    "word_rate",
+)
+_WER_SKIP_REASONS = ("missing_configured_text_key", "empty_reference")
+_WER_ERROR_SKIP_REASON_PREFIX = "wer_error: "
+
 
 @dataclass
 class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
@@ -35,12 +49,14 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     Operates on segments within each entry (audio_segment["hypothesis_text_key"] vs audio_segment["reference_text_key"]).
     If "segments" is not in the data entry, the stage will compute WER, CER, edge CER, and optionally PNC WER/CER for the entire entry.
-
+    Entries or segments missing configured text keys are annotated with a metric skip reason. Missing keys are summarized
+    in one warning per configured-key signature on each worker so other segments can continue processing without flooding
+    the worker logs.
 
     Args:
         language: Language of the text. Defaults to "en".
         hypothesis_text_key: Key to the hypothesis text. Defaults to "text".
-        reference_text_key: Key to the reference text. Defaults to "text".
+        reference_text_key: Key to the reference text. Defaults to "text_ref".
         num_words_threshold: Number of words to use for normalization. Defaults to 200.
         num_words_look_back: Number of words to look back for normalization. Defaults to 5.
         compute_pnc_wer: Whether to compute PNC WER/CER. Defaults to False.
@@ -68,6 +84,11 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
+    _warned_missing_key_signatures: set[tuple[tuple[str, str], ...]] = field(
+        default_factory=set,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.num_words_look_back >= self.num_words_threshold:
@@ -83,21 +104,9 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["metrics"]
 
-    def validate_input(self, task: AudioTask) -> bool:
-        """OR-shaped validation: segments OR top-level text keys must be present."""
-        data = task.data
-        if hasattr(data, self.segments_key):
-            return True
-        if hasattr(data, self.hypothesis_text_key) and hasattr(data, self.reference_text_key):
-            return True
-        logger.error(
-            f"Task {task.task_id} missing required attributes: "
-            f"need '{self.segments_key}' OR both '{self.hypothesis_text_key}' and '{self.reference_text_key}'"
-        )
-        return False
-
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
+        self._warned_missing_key_signatures.clear()
         if self._normalizer is None:
             self._normalizer = Normalizer(input_case="cased", lang=self.language.lower())
 
@@ -184,16 +193,69 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         num_words = len(text.split())
         return round(num_words / duration, 2) if duration > 0 else 0.0
 
+    def _missing_text_keys(self, audio_segment: dict[str, Any]) -> list[tuple[str, str]]:
+        """Return the configured text fields that are absent from an entry or segment."""
+        configured_keys = (
+            ("hypothesis_text_key", self.hypothesis_text_key),
+            ("reference_text_key", self.reference_text_key),
+        )
+        return [(field_name, key) for field_name, key in configured_keys if key not in audio_segment]
+
+    def _reset_wer_metrics(self, audio_segment: dict[str, Any]) -> dict[str, Any]:
+        """Remove results and skip state owned by this stage before recomputing."""
+        metrics = audio_segment.setdefault("metrics", {})
+        for metric_key in _WER_METRIC_KEYS:
+            metrics.pop(metric_key, None)
+        skip_reason = metrics.get("metric_skip_reason")
+        if skip_reason in _WER_SKIP_REASONS or (
+            isinstance(skip_reason, str) and skip_reason.startswith(_WER_ERROR_SKIP_REASON_PREFIX)
+        ):
+            metrics.pop("metric_skip_reason")
+        return metrics
+
+    def _mark_missing_text_keys(self, audio_segment: dict[str, Any]) -> None:
+        """Clear stale WER results and annotate an item whose configured text keys are absent."""
+        metrics = self._reset_wer_metrics(audio_segment)
+        metrics["metric_skip_reason"] = "missing_configured_text_key"
+
+    def _warn_missing_text_keys(
+        self,
+        missing_key_counts: Counter[tuple[str, str]],
+        *,
+        skipped_items: int,
+        item_name: str,
+        task_id: str = "",
+    ) -> None:
+        """Emit one worker-local warning for each missing configured-key signature."""
+        signature = tuple(sorted(missing_key_counts))
+        if signature in self._warned_missing_key_signatures:
+            return
+        self._warned_missing_key_signatures.add(signature)
+
+        item_label = item_name if skipped_items == 1 else f"{item_name}s"
+        task_context = f" in task '{task_id}'" if task_id else ""
+        details = "; ".join(
+            f"{field_name}={key!r} missing from {count} {item_name if count == 1 else f'{item_name}s'}"
+            for (field_name, key), count in missing_key_counts.items()
+        )
+        logger.warning(
+            f"[{self.name}] skipped WER computation for {skipped_items} {item_label}{task_context}: "
+            f"configured text key(s) missing ({details}). Further warnings for this configured-key signature "
+            "are suppressed on this worker."
+        )
+
     def get_wer(self, audio_segment: dict[str, Any]) -> None:
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
         start = audio_segment.get("start", 0)
         end = audio_segment.get("end", audio_segment.get("duration", 0))
         duration = end - start
 
-        if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
+        metrics = self._reset_wer_metrics(audio_segment)
+        missing_text_keys = self._missing_text_keys(audio_segment)
+        if missing_text_keys:
+            metrics["metric_skip_reason"] = "missing_configured_text_key"
+            self._warn_missing_text_keys(Counter(missing_text_keys), skipped_items=1, item_name="audio segment")
             return
-
-        metrics = audio_segment.get("metrics", {})
 
         hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(audio_segment[self.hypothesis_text_key])
         reference_pnc, reference_clean = self.normalize_and_clean_text(audio_segment[self.reference_text_key])
@@ -305,14 +367,40 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
         data_entry = task.data
         if self.segments_key in data_entry:
+            missing_key_counts: Counter[tuple[str, str]] = Counter()
+            skipped_segments = 0
             for audio_segment in data_entry[self.segments_key]:
+                missing_text_keys = self._missing_text_keys(audio_segment)
+                if missing_text_keys:
+                    self._mark_missing_text_keys(audio_segment)
+                    missing_key_counts.update(missing_text_keys)
+                    skipped_segments += 1
+                    continue
                 try:
                     self.get_wer(audio_segment)
                 except (KeyError, ValueError) as ex:
                     logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
-                    audio_segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
+                    metrics = self._reset_wer_metrics(audio_segment)
+                    metrics["metric_skip_reason"] = f"{_WER_ERROR_SKIP_REASON_PREFIX}{ex}"
+            if skipped_segments:
+                self._warn_missing_text_keys(
+                    missing_key_counts,
+                    skipped_items=skipped_segments,
+                    item_name="segment",
+                    task_id=task.task_id,
+                )
         else:
-            self.get_wer(data_entry)
+            missing_text_keys = self._missing_text_keys(data_entry)
+            if missing_text_keys:
+                self._mark_missing_text_keys(data_entry)
+                self._warn_missing_text_keys(
+                    Counter(missing_text_keys),
+                    skipped_items=1,
+                    item_name="entry",
+                    task_id=task.task_id,
+                )
+            else:
+                self.get_wer(data_entry)
         return task
 
 
