@@ -219,6 +219,8 @@ NeMo Curator provides several installation extras to install only the components
 | **inference_server** | `uv pip install nemo-curator[inference_server]` | Ray Serve + vLLM for serving LLMs alongside curation pipelines |
 | **sdg_cpu** | `uv pip install nemo-curator[sdg_cpu]` | CPU-only synthetic data generation with Data Designer |
 | **sdg_cuda12** | `uv pip install nemo-curator[sdg_cuda12]` | GPU-accelerated synthetic data generation with local inference server support |
+| **s3** | `uv pip install nemo-curator[s3]` | `s3fs` backend for reading and writing `s3://` paths |
+| **gcs** | `uv pip install nemo-curator[gcs]` | `gcsfs` backend for reading and writing `gs://` paths |
 
 For pip installations of `inference_server` or an extra that includes it, add
 the public PyTorch and vLLM CUDA 12.9 wheel indexes:

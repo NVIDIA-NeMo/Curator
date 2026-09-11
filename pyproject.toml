@@ -58,7 +58,7 @@ dependencies = [
     "comment_parser",
     "cosmos-xenna==0.2.0",
     "datasets>=4.0.0",
-    "fsspec",
+    "fsspec>=2025.3.0",
     "hydra-core",
     "jieba==0.42.1",
     "lmdb>=1.4",
@@ -78,6 +78,16 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
+
+# Cloud storage backends for fsspec (s3:// and gs:// paths)
+s3 = [
+    "s3fs>=2025.3.0",
+]
+
+gcs = [
+    "gcsfs>=2025.3.0",
+]
+
 # Opt-in cv2 features; kept off `[all]` — wheel vendors CVE-flagged ffmpeg.
 cv2 = [
     "opencv-python-headless",
@@ -273,7 +283,7 @@ interleaved_cpu = [
     "open_clip_torch",
     "Pillow",
     "pypdfium2",
-    "s3fs>=2024.12.0",
+    "s3fs>=2025.3.0",
     "timm",
 ]
 
@@ -297,11 +307,13 @@ sdg_cuda12 = [
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
+    "nemo_curator[gcs]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
     "nemo_curator[lance]",
     "nemo_curator[math_cuda12]",
+    "nemo_curator[s3]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[translation_all]",
@@ -325,7 +337,7 @@ test = [
     "pytest-loguru",
     "pyyaml",
     "rich",
-    "s3fs>=2024.12.0", # added for testing cloud fs
+    "s3fs>=2025.3.0", # added for testing cloud fs
     "slack_sdk",
 ]
 
