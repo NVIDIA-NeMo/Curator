@@ -31,6 +31,7 @@ class TestPromptFormatterVariantMapping:
         expected_variants = {
             "qwen2.5",
             "qwen3",
+            "qwen3.5",
             "nemotron",
             "nemotron-bf16",
             "nemotron-fp8",
@@ -43,6 +44,7 @@ class TestPromptFormatterVariantMapping:
         """Test that Qwen variants have correct HuggingFace IDs."""
         assert VARIANT_MAPPING["qwen2.5"] == "Qwen/Qwen2.5-VL-7B-Instruct"
         assert VARIANT_MAPPING["qwen3"] == "Qwen/Qwen3-VL-8B-Instruct"
+        assert VARIANT_MAPPING["qwen3.5"] == "Qwen/Qwen3.5-9B"
 
     def test_variant_mapping_nemotron_hf_ids(self) -> None:
         """Test that Nemotron variants have correct HuggingFace IDs."""
@@ -194,6 +196,63 @@ class TestPromptFormatterQwen:
         special_prompt = "Test with 特殊字符 and émojis 🎉"
         result = self.formatter._create_qwen_message(special_prompt)
         assert result[0]["content"][1]["text"] == special_prompt
+
+
+class TestPromptFormatterQwen35:
+    """Test cases for PromptFormatter with the Qwen3.5 variant."""
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_initialization_uses_qwen3_5_hf_id(self, mock_processor_class: Mock) -> None:
+        """Test that qwen3.5 loads the processor for its own checkpoint."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+
+        formatter = PromptFormatter(prompt_variant="qwen3.5")
+
+        assert formatter.prompt_variant == "qwen3.5"
+        mock_processor_class.from_pretrained.assert_called_once_with("Qwen/Qwen3.5-9B", trust_remote_code=True)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_routes_to_qwen_path(self, mock_processor_class: Mock) -> None:
+        """Test that qwen3.5 is dispatched to the Qwen formatter, not the Nemotron one."""
+        mock_processor_instance = Mock()
+        mock_processor_class.from_pretrained.return_value = mock_processor_instance
+        mock_processor_instance.apply_chat_template.return_value = "formatted_prompt"
+
+        formatter = PromptFormatter(prompt_variant="qwen3.5")
+        video_tensor = torch.randint(0, 255, (1, 3, 224, 224), dtype=torch.uint8)
+
+        result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
+
+        assert result["prompt"] == "formatted_prompt"
+        # The Qwen message shape uses a structured content list; Nemotron uses a "<video>\n" prefix.
+        expected_message = [{"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt"}]}]
+        assert mock_processor_instance.apply_chat_template.call_args[0][0] == expected_message
+        video_data = result["multi_modal_data"]["video"]
+        assert video_data[1]["total_num_frames"] == 1
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_disables_thinking(self, mock_processor_class: Mock) -> None:
+        """Test that qwen3.5 disables thinking so reasoning traces stay out of captions."""
+        mock_processor_instance = Mock()
+        mock_processor_class.from_pretrained.return_value = mock_processor_instance
+        mock_processor_instance.apply_chat_template.return_value = "formatted_prompt"
+
+        formatter = PromptFormatter(prompt_variant="qwen3.5")
+        formatter.generate_inputs(prompt="Test prompt", video_inputs=None)
+
+        assert mock_processor_instance.apply_chat_template.call_args[1]["enable_thinking"] is False
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_keeps_thinking_kwarg_off_other_qwen(self, mock_processor_class: Mock) -> None:
+        """Test that older Qwen variants are not passed enable_thinking."""
+        mock_processor_instance = Mock()
+        mock_processor_class.from_pretrained.return_value = mock_processor_instance
+        mock_processor_instance.apply_chat_template.return_value = "formatted_prompt"
+
+        formatter = PromptFormatter(prompt_variant="qwen3")
+        formatter.generate_inputs(prompt="Test prompt", video_inputs=None)
+
+        assert "enable_thinking" not in mock_processor_instance.apply_chat_template.call_args[1]
 
 
 class TestPromptFormatterNemotron:

@@ -65,6 +65,10 @@ class TestQwenVL:
         assert "qwen3" in _QWEN_VARIANTS_INFO
         assert _QWEN_VARIANTS_INFO["qwen2.5"] == _QWEN2_5_VL_MODEL_ID
         assert _QWEN_VARIANTS_INFO["qwen3"] == "Qwen/Qwen3-VL-8B-Instruct"
+        assert "qwen3.5" in _QWEN_VARIANTS_INFO
+        assert _QWEN_VARIANTS_INFO["qwen3.5"] == "Qwen/Qwen3.5-9B"
+        assert set(_QWEN_REVISION_INFO) == set(_QWEN_VARIANTS_INFO)
+        assert set(_QWEN_VL_PIXEL_PARAMS) == set(_QWEN_VARIANTS_INFO)
 
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""
@@ -418,6 +422,24 @@ class TestQwenVL:
         assert mm_kwargs["image_factor"] == 32
         assert mm_kwargs["video_total_pixels"] == 24576 * 32 * 32
         assert mm_kwargs["video_total_pixels"] != _QWEN_VL_PIXEL_PARAMS["qwen2.5"]["video_total_pixels"]
+
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
+    def test_setup_qwen3_5_pixel_params(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+        """Test that qwen3.5 setup uses the 32-factor pixel params (patch_size 16 * merge_size 2)."""
+        qwen_vl = QwenVL(model_dir=self.model_dir, model_variant="qwen3.5", caption_batch_size=1)
+        qwen_vl.setup()
+
+        mm_kwargs = mock_llm.call_args[1]["mm_processor_kwargs"]
+        assert mm_kwargs["image_factor"] == 32
+        assert mm_kwargs["video_total_pixels"] == 24576 * 32 * 32
+        assert mm_kwargs["video_total_pixels"] != _QWEN_VL_PIXEL_PARAMS["qwen2.5"]["video_total_pixels"]
+
+    def test_qwen3_5_weight_file_path(self) -> None:
+        """Test that the qwen3.5 weight file resolves under its HF model ID."""
+        qwen_vl = QwenVL(model_dir=self.model_dir, model_variant="qwen3.5", caption_batch_size=1)
+        assert qwen_vl.weight_file == str(pathlib.Path(self.model_dir) / "Qwen/Qwen3.5-9B")
+        assert qwen_vl.model_id_names == ["Qwen/Qwen3.5-9B"]
 
     def test_max_output_tokens_parameter(self) -> None:
         """Test that max_output_tokens parameter is properly handled."""

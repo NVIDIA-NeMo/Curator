@@ -470,3 +470,24 @@ class TestCaptionPreparationStageNemotron:
         stage.setup()
 
         mock_prompt_formatter.assert_called_once_with("nemotron-nvfp4")
+
+
+class TestCaptionPreparationStageQwen35:
+    """Test cases for CaptionPreparationStage with the qwen3.5 variant."""
+
+    def test_init_qwen3_5_variant(self):
+        """Test initialization with qwen3.5 variant."""
+        stage = CaptionPreparationStage(model_variant="qwen3.5")
+        assert stage.model_variant == "qwen3.5"
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_qwen3_5_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with qwen3.5 variant uses PromptFormatter."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="qwen3.5")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("qwen3.5")
+        assert stage.prompt_formatter == mock_formatter
