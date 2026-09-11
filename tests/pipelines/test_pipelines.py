@@ -145,6 +145,59 @@ def test_describe_skips_empty_dict_input_specs() -> None:
     assert "Error getting stage info" not in description
 
 
+class _DictOutputStage(_NoopStage):
+    name = "dict-output"
+
+    def outputs(self) -> dict[type[Task], tuple[list[str], list[str]]]:
+        return {_SimpleTask: (["data"], ["values"]), EmptyTask: ([], [])}
+
+
+class _TupleOutputStage(_NoopStage):
+    name = "tuple-output"
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return (["data"], ["values"])
+
+
+class _EmptyDictOutputStage(_NoopStage):
+    name = "empty-dict-output"
+
+    def outputs(self) -> dict[type[Task], tuple[list[str], list[str]]]:
+        return {_SimpleTask: ([], [])}
+
+
+@pytest.mark.parametrize(
+    ("stage", "present", "absent"),
+    [
+        (
+            _DictOutputStage(),
+            ["  Outputs:", "    _SimpleTask:", "      Output attributes: data", "      Output columns: values"],
+            ["    EmptyTask:", "    Output attributes: data"],
+        ),
+        (
+            _TupleOutputStage(),
+            ["  Outputs:", "    Output attributes: data", "    Output columns: values"],
+            ["    _SimpleTask:"],
+        ),
+        (
+            _EmptyDictOutputStage(),
+            [],
+            ["  Outputs:", "    _SimpleTask:"],
+        ),
+    ],
+    ids=["dict", "tuple", "empty-dict"],
+)
+def test_describe_renders_output_specs(stage: ProcessingStage, present: list[str], absent: list[str]) -> None:
+    lines = Pipeline(name="test", stages=[stage]).describe().splitlines()
+
+    assert not any("Error getting stage info" in line for line in lines)
+    assert "  Resources: 1.0 CPUs" in lines
+    for line in present:
+        assert line in lines
+    for line in absent:
+        assert line not in lines
+
+
 class TestPipelineBuild:
     """Source/sink role assignment performed by ``Pipeline.build``."""
 

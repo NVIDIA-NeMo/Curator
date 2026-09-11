@@ -18,36 +18,38 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs, StageOutputSpecs
 from nemo_curator.tasks import EmptyTask, Task
 
 
-def _append_input_requirements(lines: list[str], input_specs: StageInputSpecs) -> None:
-    if isinstance(input_specs, tuple):
-        required_attrs, required_cols = input_specs
-        if required_attrs or required_cols:
-            lines.append("  Inputs:")
-            if required_attrs:
-                lines.append(f"    Required attributes: {', '.join(required_attrs)}")
-            if required_cols:
-                lines.append(f"    Required columns: {', '.join(required_cols)}")
+def _append_specs(
+    lines: list[str],
+    specs: StageInputSpecs | StageOutputSpecs,
+    section: str,
+    attrs_label: str,
+    cols_label: str,
+) -> None:
+    if isinstance(specs, tuple):
+        attrs, cols = specs
+        if attrs or cols:
+            lines.append(f"  {section}:")
+            if attrs:
+                lines.append(f"    {attrs_label}: {', '.join(attrs)}")
+            if cols:
+                lines.append(f"    {cols_label}: {', '.join(cols)}")
         return
 
-    visible_specs = [
-        (task_type, required_attrs, required_cols)
-        for task_type, (required_attrs, required_cols) in input_specs.items()
-        if required_attrs or required_cols
-    ]
+    visible_specs = [(task_type, attrs, cols) for task_type, (attrs, cols) in specs.items() if attrs or cols]
     if not visible_specs:
         return
 
-    lines.append("  Inputs:")
-    for task_type, required_attrs, required_cols in visible_specs:
+    lines.append(f"  {section}:")
+    for task_type, attrs, cols in visible_specs:
         lines.append(f"    {task_type.__name__}:")
-        if required_attrs:
-            lines.append(f"      Required attributes: {', '.join(required_attrs)}")
-        if required_cols:
-            lines.append(f"      Required columns: {', '.join(required_cols)}")
+        if attrs:
+            lines.append(f"      {attrs_label}: {', '.join(attrs)}")
+        if cols:
+            lines.append(f"      {cols_label}: {', '.join(cols)}")
 
 
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
@@ -221,7 +223,7 @@ class Pipeline:
 
             try:
                 input_specs = stage.inputs()
-                output_attrs, output_cols = stage.outputs()
+                output_specs = stage.outputs()
 
                 lines.append(f"  Resources: {stage.resources.cpus} CPUs")
                 if stage.resources.requires_gpu:
@@ -229,16 +231,8 @@ class Pipeline:
 
                 lines.append(f"  Batch size: {stage.batch_size}")
 
-                # Input requirements
-                _append_input_requirements(lines, input_specs)
-
-                # Output specification
-                if output_attrs or output_cols:
-                    lines.append("  Outputs:")
-                    if output_attrs:
-                        lines.append(f"    Output attributes: {', '.join(output_attrs)}")
-                    if output_cols:
-                        lines.append(f"    Output columns: {', '.join(output_cols)}")
+                _append_specs(lines, input_specs, "Inputs", "Required attributes", "Required columns")
+                _append_specs(lines, output_specs, "Outputs", "Output attributes", "Output columns")
 
             except Exception as e:  # noqa: BLE001
                 lines.append(f"  Error getting stage info: {e}")

@@ -48,6 +48,8 @@ X = TypeVar("X", bound=Task)  # Input task type
 Y = TypeVar("Y", bound=Task)  # Output task type
 StageInputSpec = tuple[list[str], list[str]]
 StageInputSpecs = StageInputSpec | dict[type[Task], StageInputSpec]
+StageOutputSpec = tuple[list[str], list[str]]
+StageOutputSpecs = StageOutputSpec | dict[type[Task], StageOutputSpec]
 _INPUT_SPEC_LENGTH = 2
 
 _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
@@ -397,11 +399,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """
         return [], []
 
-    def outputs(self) -> tuple[list[str], list[str]]:
+    def outputs(self) -> StageOutputSpecs:
         """Define stage output specification.
 
-        Returns (tuple[list[str], list[str]]):
-            Tuple of (output_attributes, output_columns) where:
+        Returns:
+            Either a single tuple of (output_attributes, output_columns), or a
+            mapping from input task type to that tuple. In each tuple:
             - output_top_level_attributes: List of task attributes this stage adds/modifies
             - output_data_attributes: List of attributes within the data that this stage adds/modifies
         """
@@ -585,7 +588,7 @@ class CompositeStage(ProcessingStage[X, Y], ABC):
         """Get the inputs for this stage."""
         return self.decompose()[0].inputs()
 
-    def outputs(self) -> tuple[list[str], list[str]]:
+    def outputs(self) -> StageOutputSpecs:
         """Get the outputs for this stage."""
         return self.decompose()[-1].outputs()
 
