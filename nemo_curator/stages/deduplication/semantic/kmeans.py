@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
 import numpy as np
-import rmm.statistics
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -181,19 +180,17 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         footer_time = time.perf_counter() - footer_start
         self._log_metric("kmeans_footer_scan_time", footer_time)
 
-        fit_info, _ = self._sample_fit_files(file_info)
+        fit_info = self._sample_fit_files(file_info)
         total_rows = sum(info.num_rows for info in file_info)
         fit_rows = sum(info.num_rows for info in fit_info)
         if fit_rows < self.n_clusters:
             msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
             raise ValueError(msg)
 
-        fit_frames = iter(
-            self._iter_parquet_frames(
-                fit_info,
-                [self.embedding_field],
-                max_embedding_bytes=self._max_fit_read_group_bytes(fit_info),
-            )
+        fit_frames = self._iter_parquet_frames(
+            fit_info,
+            [self.embedding_field],
+            max_embedding_bytes=self._max_fit_read_group_bytes(fit_info),
         )
         read_start = time.perf_counter()
         first_fit_frame = next(fit_frames)
@@ -215,7 +212,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         if offset != fit_rows:
             msg = f"Parquet footers reported {fit_rows} fit rows but the reader returned {offset}"
             raise RuntimeError(msg)
-        del embeddings, fit_frames
+        del embeddings
 
         fit_start = time.perf_counter()
         self.kmeans.fit(fit_embeddings, sample_weight=None)
@@ -239,8 +236,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         predict_time = 0.0
         write_time = 0.0
         predicted_rows = 0
-        fit_write_peak_temporary_bytes = 0
-        fit_write_peak_memory_amplification = 0.0
         read_start = time.perf_counter()
         for output_index, df in enumerate(self._iter_parquet_frames(file_info, columns)):
             read_time += time.perf_counter() - read_start
@@ -251,18 +246,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             predict_time += time.perf_counter() - predict_start
             del df[self.embedding_field]
             write_start = time.perf_counter()
-            with rmm.statistics.statistics():
-                self._write_output_frame(
-                    f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
-                )
-                write_stats = rmm.statistics.get_statistics()
-            if write_stats is not None:
-                fit_write_peak_temporary_bytes = max(fit_write_peak_temporary_bytes, write_stats.peak_bytes)
-                embedding_bytes = len(df) * embeddings.shape[1] * cp.dtype(cp.float32).itemsize
-                fit_write_peak_memory_amplification = max(
-                    fit_write_peak_memory_amplification,
-                    write_stats.peak_bytes / embedding_bytes,
-                )
+            self._write_output_frame(f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids)
             write_time += time.perf_counter() - write_start
             predicted_rows += len(df)
             del df, embeddings, labels
@@ -277,8 +261,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 "kmeans_read_time": read_time,
                 "kmeans_predict_time": predict_time,
                 "kmeans_write_time": write_time,
-                "kmeans_fit_write_peak_temporary_bytes": fit_write_peak_temporary_bytes,
-                "kmeans_fit_write_peak_memory_amplification": fit_write_peak_memory_amplification,
                 "num_rows": total_rows,
             }
         )
@@ -292,9 +274,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             )
         ]
 
-    def _sample_fit_files(
-        self, file_info: list[ParquetFileInfo]
-    ) -> tuple[list[ParquetFileInfo], list[ParquetFileInfo]]:
+    def _sample_fit_files(self, file_info: list[ParquetFileInfo]) -> list[ParquetFileInfo]:
         rng = random.Random(self.random_state)  # noqa: S311
         shuffled = rng.sample(file_info, k=len(file_info))
         if self.fit_data_fraction is not None:
@@ -318,9 +298,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             if not fit:
                 msg = f"No complete Parquet file fits the automatic KMeans budget of {budget} bytes"
                 raise MemoryError(msg)
-        fit_paths = {info.path for info in fit}
-        prediction_only = [info for info in file_info if info.path not in fit_paths]
-        if self.fit_data_fraction is None and prediction_only:
+        if self.fit_data_fraction is None and len(fit) < len(file_info):
             fit_rows = sum(info.num_rows for info in fit)
             total_rows = sum(info.num_rows for info in file_info)
             logger.warning(
@@ -329,7 +307,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             )
         else:
             logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
-        return fit, prediction_only
+        return fit
 
     def _iter_parquet_frames(
         self,

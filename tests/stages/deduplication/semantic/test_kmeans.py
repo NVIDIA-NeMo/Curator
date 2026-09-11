@@ -559,21 +559,19 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=0.5)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", i + 1, 10) for i in range(5)]
 
-        fit, prediction_only = stage._sample_fit_files(file_info)
+        fit = stage._sample_fit_files(file_info)
 
         assert len(fit) == 2
-        assert {info.path for info in fit}.isdisjoint(info.path for info in prediction_only)
-        assert {info.path for info in [*fit, *prediction_only]} == {info.path for info in file_info}
+        assert {info.path for info in fit}.issubset(info.path for info in file_info)
 
     def test_full_fit_samples_every_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """A fraction of one is the explicit full-fit path used by the scale benchmark."""
         stage = make_stage(fit_data_fraction=1.0)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", 1, 0) for i in range(5)]
 
-        fit, prediction_only = stage._sample_fit_files(file_info)
+        fit = stage._sample_fit_files(file_info)
 
         assert {info.path for info in fit} == {info.path for info in file_info}
-        assert prediction_only == []
 
     def test_auto_fit_budget_uses_only_persistent_fp32_embeddings(self, make_stage: "KMeansReadFitWriteStage") -> None:
         stage = make_stage(fit_data_fraction=None)
@@ -587,10 +585,9 @@ class TestKMeansReadFitWriteStage:
             patch("cupy.cuda.runtime.memGetInfo", return_value=(1_300, 2_000)),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
-            fit, prediction_only = stage._sample_fit_files(file_info)
+            fit = stage._sample_fit_files(file_info)
 
         assert [info.path for info in fit] == ["float32.parquet", "metadata-heavy.parquet", "float64.parquet"]
-        assert prediction_only == []
         mock_logger.warning.assert_not_called()
 
     def test_fit_read_group_uses_memory_remaining_after_fit(self, make_stage: "KMeansReadFitWriteStage") -> None:
