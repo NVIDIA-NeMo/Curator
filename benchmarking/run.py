@@ -43,6 +43,7 @@ sys.path.insert(0, _this_script_dir)
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.env_capture import dump_env
+from runner.environment import merge_subprocess_environment
 from runner.gpu_stats_recorder import GPUStatsRecorder
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
@@ -164,7 +165,7 @@ def build_subprocess_environment(
         resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
         resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
         entry_environment[name] = resolved_value
-    return {**os.environ, **entry_environment}, set(entry_environment)
+    return merge_subprocess_environment(entry_environment), set(entry_environment)
 
 
 def run_data_setup_entry(

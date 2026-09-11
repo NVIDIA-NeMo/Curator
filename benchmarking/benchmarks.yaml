@@ -167,6 +167,9 @@ sinks:
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
   - name: slack
+    # Disabled by default so local/open-source runs do not require Slack
+    # credentials or post notifications. Managed orchestration can re-enable
+    # this sink with an override config while reusing the settings below.
     enabled: false
     live_updates: true
     thread_replies_for_failures_or_warnings_only: true
@@ -195,13 +198,6 @@ ray:
   num_cpus: 128
   num_gpus: 8
   enable_object_spilling: false
-
-# Global environment variables inherited by all benchmark subprocesses.
-# Keep Ray Data scheduler diagnostics enabled for benchmark runs so entry logs
-# include scheduler events that help explain stalls, resource bottlenecks, and
-# autoscaling behavior during post-run analysis.
-environment:
-  NEMO_CURATOR_RAY_DATA_DIAGNOSTICS: "1"
 
 entries:
   - name: domain_classification_raydata
