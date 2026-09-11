@@ -154,6 +154,7 @@ export PATH=/opt/uv-bin:$PATH
 export UV_CACHE_DIR=/cache/uv HF_MODULES_CACHE=/cache/huggingface/modules
 export HF_HOME=/lustre/fsw/portfolios/nemotron/users/praateekm/tools_cache/hf_cache
 export HF_HUB_OFFLINE=1 PYTHONPATH=/opt/Curator TMPDIR=/tmp RAY_TMPDIR=/tmp
+export NEMO_CURATOR_SLURM_ARRAY_ENABLED=0
 UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --inexact --extra cv2
 source /opt/venv/bin/activate
 python benchmarking/run.py --config benchmarking/gb200-eai-10k.yaml \
@@ -180,6 +181,9 @@ using one shared session name and a different `--entries-exact` per node:
 | `eai_10k_12clients_64sem` | 12 | 64 | 3072 |
 
 These are concurrency ceilings, not measured vLLM batch sizes. Keep each
+configuration on the full corpus: `NEMO_CURATOR_SLURM_ARRAY_ENABLED=0` disables
+Curator's automatic source sharding when Slurm arrays select configurations.
+Keep each
 entry directory unique; do not overwrite a prior run. Per-entry `results.json`
 records its environment because shared session metadata describes the most
 recent invocation. Full runs must complete 10,000 PDFs / 145,327 pages. Rank
