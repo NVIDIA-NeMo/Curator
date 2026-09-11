@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
+from fsspec.core import split_protocol, url_to_fs
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
@@ -59,6 +60,19 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         super().__init__()
         self.name = "DuplicatesRemovalStage"
         self.read_kwargs = self.read_kwargs.copy() if self.read_kwargs else {}
+        self._read_path = self.ids_to_remove_path
+        protocol, _ = split_protocol(self._read_path)
+        if protocol not in (None, "file"):
+            filesystem = self.read_kwargs.get("filesystem")
+            if filesystem is None:
+                filesystem, self._read_path = url_to_fs(self._read_path, **self.read_kwargs.pop("storage_options", {}))
+                self.read_kwargs["filesystem"] = filesystem
+            else:
+                self.read_kwargs.pop("storage_options", None)
+                strip_protocol = getattr(filesystem, "_strip_protocol", None)
+                self._read_path = (
+                    strip_protocol(self._read_path) if strip_protocol else split_protocol(self._read_path)[1]
+                )
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         """
@@ -75,7 +89,7 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # Filter the parquet files for IDs to remove within this range
         read_dupes_t0 = time.perf_counter()
         removal_df = pd.read_parquet(
-            self.ids_to_remove_path,
+            self._read_path,
             filters=[(self.duplicate_id_field, ">=", min_id), (self.duplicate_id_field, "<=", max_id)],
             columns=[self.duplicate_id_field],
             **self.read_kwargs,
