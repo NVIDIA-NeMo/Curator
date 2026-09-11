@@ -86,7 +86,9 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
     fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
     # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
-    (uv pip uninstall opencv-python-headless || true)
+    (uv pip uninstall opencv-python-headless || true) && \
+    # Ray clones /opt/venv for uv runtime environments and invokes `python -m uv` inside the clone.
+    uv pip install "uv==${UV_VERSION}"
 
 # Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
 # GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime
