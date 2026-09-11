@@ -196,6 +196,13 @@ ray:
   num_gpus: 8
   enable_object_spilling: false
 
+# Global environment variables inherited by all benchmark subprocesses.
+# Keep Ray Data scheduler diagnostics enabled for benchmark runs so entry logs
+# include scheduler events that help explain stalls, resource bottlenecks, and
+# autoscaling behavior during post-run analysis.
+environment:
+  NEMO_CURATOR_RAY_DATA_DIAGNOSTICS: "1"
+
 entries:
   - name: domain_classification_raydata
     enabled: true
