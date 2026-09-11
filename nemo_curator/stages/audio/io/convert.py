@@ -12,11 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar
+
 import pandas as pd
+from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 _NON_SERIALIZABLE_KEYS = frozenset(
     {
@@ -27,6 +38,7 @@ _NON_SERIALIZABLE_KEYS = frozenset(
         "segments",
     }
 )
+_DROP_VALUE = object()
 
 
 def _is_tensor(v: object) -> bool:
@@ -34,7 +46,7 @@ def _is_tensor(v: object) -> bool:
     return type(v).__name__ == "Tensor" and type(v).__module__.startswith("torch")
 
 
-class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
+class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]):
     """Convert AudioTask entries into DocumentBatch DataFrames.
 
     Overrides ``process_batch`` to aggregate an entire batch of
@@ -49,32 +61,151 @@ class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
     """
 
     name = "AudioToDocumentStage"
+    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     batch_size: int = 64
+
+    def __init__(
+        self,
+        batch_size: int = 64,
+        keep_keys: list[str] | None = None,
+        drop_keys: tuple[str, ...] = (),
+        serialize_segments: bool = False,
+        segments_key: str = "segments",
+    ) -> None:
+        self.batch_size = batch_size
+        self.keep_keys = keep_keys
+        self.drop_keys = drop_keys
+        self.serialize_segments = serialize_segments
+        self.segments_key = segments_key
 
     def process(self, task: AudioTask) -> DocumentBatch:
         msg = "AudioToDocumentStage only supports process_batch"
         raise NotImplementedError(msg)
 
-    @staticmethod
-    def _sanitize(data: dict) -> dict:
+    def _removed_keys(self) -> set[str]:
+        removed = set(_NON_SERIALIZABLE_KEYS)
+        if self.serialize_segments:
+            removed.discard(self.segments_key)
+        removed.update(self.drop_keys)
+        return removed
+
+    def _projected_keys(self) -> list[str]:
+        if self.keep_keys is None:
+            return []
+        removed = self._removed_keys()
+        return [key for key in dict.fromkeys(self.keep_keys) if key not in removed]
+
+    def describe(self) -> StageContract:
+        projected_keys = self._projected_keys()
+        return StageContract(
+            reads=IOSpec(data_keys=projected_keys),
+            writes=IOSpec(data_keys=projected_keys),
+            preserves_upstream_keys=self.keep_keys is None,
+            removes_keys=sorted(self._removed_keys()),
+            cardinality="N:1",
+            # Strips tensors/audio blobs while building the DataFrame, so its
+            # output is serialization-safe — the sanctioned sink to place before
+            # a JSON writer when a resident tensor may be present.
+            # Packs rows into one batch for downstream throughput; the values are untouched.
+            gates=Gates(sanitizes_output=True, per_row_independent=True),
+            description="Aggregate AudioTasks into a DocumentBatch, stripping tensors/audio blobs (JSON/disk-safe).",
+        )
+
+    def _sanitize_nested(  # noqa: C901, PLR0911, PLR0912
+        self,
+        value: object,
+        *,
+        path: str,
+        active: set[int],
+    ) -> object:
+        """Return a JSON-safe value, dropping only the value that cannot be represented."""
+        if _is_tensor(value):
+            logger.warning(f"[AudioToDocumentStage] Dropping {path}: torch.Tensor is not JSON serializable")
+            return _DROP_VALUE
+
+        if isinstance(value, dict):
+            identity = id(value)
+            if identity in active:
+                logger.warning(f"[AudioToDocumentStage] Dropping {path}: recursive mapping is not JSON serializable")
+                return _DROP_VALUE
+            active.add(identity)
+            try:
+                cleaned: dict[object, object] = {}
+                for key, item in value.items():
+                    try:
+                        json.dumps({key: None})
+                    except (TypeError, ValueError, OverflowError):
+                        logger.warning(
+                            f"[AudioToDocumentStage] Dropping {path}[{key!r}]: mapping key is not JSON serializable"
+                        )
+                        continue
+                    nested = self._sanitize_nested(item, path=f"{path}[{key!r}]", active=active)
+                    if nested is not _DROP_VALUE:
+                        cleaned[key] = nested
+                return cleaned
+            finally:
+                active.remove(identity)
+
+        if isinstance(value, (list, tuple)):
+            identity = id(value)
+            if identity in active:
+                logger.warning(f"[AudioToDocumentStage] Dropping {path}: recursive sequence is not JSON serializable")
+                return _DROP_VALUE
+            active.add(identity)
+            try:
+                cleaned_list = []
+                for index, item in enumerate(value):
+                    nested = self._sanitize_nested(item, path=f"{path}[{index}]", active=active)
+                    if nested is not _DROP_VALUE:
+                        cleaned_list.append(nested)
+                return cleaned_list
+            finally:
+                active.remove(identity)
+
+        if type(value).__module__.startswith("numpy") and callable(item := getattr(value, "item", None)):
+            try:
+                return self._sanitize_nested(item(), path=path, active=active)
+            except ValueError:
+                pass
+
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError, OverflowError):
+            logger.warning(
+                f"[AudioToDocumentStage] Dropping {path}: {type(value).__name__} is not JSON serializable"
+            )
+            return _DROP_VALUE
+        return value
+
+    def _sanitize(self, data: dict) -> dict:
         """Remove non-serializable keys and any remaining tensor values."""
         cleaned = {}
+        keys = self.keep_keys if self.keep_keys is not None else data.keys()
         for k, v in data.items():
-            if k in _NON_SERIALIZABLE_KEYS:
+            if k not in keys or k in self.drop_keys:
                 continue
-            if _is_tensor(v):
-                logger.warning(
-                    f"[AudioToDocumentStage] Dropping non-serializable "
-                    f"key {k!r} (torch.Tensor) before DataFrame conversion"
-                )
+            if k in _NON_SERIALIZABLE_KEYS or k == self.segments_key:
+                if k == self.segments_key and self.serialize_segments:
+                    nested = self._sanitize_nested(v, path=k, active=set())
+                    if nested is not _DROP_VALUE:
+                        cleaned[k] = nested
                 continue
-            cleaned[k] = v
+            nested = self._sanitize_nested(v, path=k, active=set())
+            if nested is not _DROP_VALUE:
+                cleaned[k] = nested
         return cleaned
 
     def process_batch(self, tasks: list[AudioTask]) -> list[DocumentBatch]:
         if len(tasks) == 0:
             return []
         df = pd.DataFrame([self._sanitize(t.data) for t in tasks])
+        if len(df) and not len(df.columns):
+            msg = (
+                f"AudioToDocumentStage: the configured projection kept no columns, so "
+                f"{len(df)} row(s) would be written as nothing "
+                f"(keep_keys={self.keep_keys!r}, drop_keys={self.drop_keys!r})."
+            )
+            raise ValueError(msg)
         perf = []
         for t in tasks:
             perf.extend(t._stage_perf)
@@ -85,3 +216,99 @@ class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
                 _stage_perf=perf,
             )
         ]
+
+
+@dataclass
+class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Append every row in a DocumentBatch to one JSONL manifest.
+
+    This is the task-type-compatible terminal sink for
+    :class:`AudioToDocumentStage`. The output file is truncated in ``setup()``
+    and successive batches append within one worker. The input ``DocumentBatch``
+    is returned unchanged so its dataset name, metadata, and performance records
+    are preserved.
+
+    ``num_workers() == 1`` is a correctness requirement: appends are not locked,
+    so overriding it can interleave rows. This stage creates one fixed manifest,
+    unlike the existing text ``JsonlWriter``, which writes per-batch shards and
+    returns a ``FileGroupTask``.
+
+    Supports local and cloud paths via fsspec.
+
+    Args:
+        output_path: Destination JSONL path (local or cloud).
+    """
+
+    output_path: str
+    name: str = "document_batch_jsonl_writer"
+    # A retried source can encounter a partially appended shared file. Until this
+    # sink writes source-attributable atomic shards, checkpointed execution must
+    # fail before setup rather than silently duplicate or truncate rows.
+    is_resumable = False
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            requires_serializable_input=True,
+            per_row_independent=True,
+        ),
+        description="Write each DocumentBatch row to one JSONL manifest",
+    )
+
+    def __post_init__(self) -> None:
+        if not self.output_path:
+            msg = "output_path is required for DocumentBatchJsonlWriterStage"
+            raise ValueError(msg)
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Truncate the output once on the driver before processing starts."""
+        self._fs, self._path = url_to_fs(self.output_path)
+        parent_dir = "/".join(self._path.split("/")[:-1])
+        if parent_dir:
+            self._fs.makedirs(parent_dir, exist_ok=True)
+        with self._fs.open(self._path, "w", encoding="utf-8"):
+            pass
+        logger.info(f"DocumentBatchJsonlWriterStage: writing to {self.output_path}")
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        """Ensure the parent exists on each node without truncating."""
+        self._fs, self._path = url_to_fs(self.output_path)
+        parent_dir = "/".join(self._path.split("/")[:-1])
+        if parent_dir:
+            self._fs.makedirs(parent_dir, exist_ok=True)
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        dataframe = task.to_pandas()
+        if not dataframe.empty:
+            with self._fs.open(self._path, "a", encoding="utf-8") as stream:
+                dataframe.to_json(
+                    stream,
+                    orient="records",
+                    lines=True,
+                    force_ascii=False,
+                )
+        return task
+
+    def num_workers(self) -> int | None:
+        return 1
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                requires_serializable_input=True,
+                # Appends each batch's rows as they arrive; a row's line is its own contents.
+                # Which lines the manifest ends up holding is a fact about the run, and a delta
+                # merge rewrites exactly that. Also stated in AGENT_STATIC above -- describe()
+                # was the view a delta reads, and it was the one left silent.
+                per_row_independent=True,
+            ),
+        )
