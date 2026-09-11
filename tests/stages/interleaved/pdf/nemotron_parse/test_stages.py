@@ -452,6 +452,7 @@ class TestNemotronParseInferenceStageMetrics:
         assert "vllm_inference_time" in stage._custom_metrics
 
     def test_setup_vllm_engine_kwargs_override_stage_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.metadata
         import sys
         import types
 
@@ -466,6 +467,11 @@ class TestNemotronParseInferenceStageMetrics:
 
         fake_vllm.SamplingParams = FakeSamplingParams
         monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+        package_version = importlib.metadata.version
+        monkeypatch.setattr(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+            lambda package: "0.22.0" if package == "vllm" else package_version(package),
+        )
 
         captured_kwargs: dict = {}
 
