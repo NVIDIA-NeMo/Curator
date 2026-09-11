@@ -593,6 +593,13 @@ class TestKMeansReadFitWriteStage:
         assert prediction_only == []
         mock_logger.warning.assert_not_called()
 
+    def test_fit_read_group_uses_memory_remaining_after_fit(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(fit_data_fraction=None)
+        fit_info = [ParquetFileInfo("fit.parquet", 10, 100, embedding_elements=100, embedding_bytes=800)]
+
+        with patch("cupy.cuda.runtime.memGetInfo", return_value=(4_000, 5_000)):
+            assert stage._max_fit_read_group_bytes(fit_info) == 960
+
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),
         [
