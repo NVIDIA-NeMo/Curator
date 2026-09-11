@@ -1112,7 +1112,7 @@ entries:
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only; EOS calibration determines the final deterministic prefix size.
+    # The 27,000-row prefix measured 10m54s native on an EOS 8xH100 node.
     timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
