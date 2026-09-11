@@ -50,6 +50,7 @@ from loguru import logger
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
+_FIT_READ_MEMORY_FRACTION = 0.8
 _PARQUET_READ_MEMORY_AMPLIFICATION = 3
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
@@ -187,7 +188,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
             raise ValueError(msg)
 
-        fit_frames = iter(self._iter_parquet_frames(fit_info, [self.embedding_field]))
+        fit_frames = iter(
+            self._iter_parquet_frames(
+                fit_info,
+                [self.embedding_field],
+                max_embedding_bytes=self._max_fit_read_group_bytes(fit_info),
+            )
+        )
         read_start = time.perf_counter()
         first_fit_frame = next(fit_frames)
         embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
@@ -328,9 +335,21 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self,
         file_info: list[ParquetFileInfo],
         columns: list[str],
+        max_embedding_bytes: int | None = None,
     ) -> Iterator["cudf.DataFrame"]:
-        for group in break_parquet_partition_into_groups(file_info):
+        for group in break_parquet_partition_into_groups(file_info, max_embedding_bytes=max_embedding_bytes):
             yield self._read_group(group, columns)
+
+    def _max_fit_read_group_bytes(self, fit_info: list[ParquetFileInfo]) -> int:
+        """Use the largest Parquet read that fits beside the resident FP32 fit data."""
+        fit_bytes = sum(info.embedding_elements * cp.dtype(cp.float32).itemsize for info in fit_info)
+        available_after_fit = cp.cuda.runtime.memGetInfo()[0] - fit_bytes
+        if available_after_fit <= 0:
+            msg = "KMeans fit allocation leaves no GPU memory for reading Parquet data"
+            raise MemoryError(msg)
+        largest_file_bytes = max(info.embedding_bytes for info in fit_info)
+        memory_bound_bytes = int(available_after_fit * _FIT_READ_MEMORY_FRACTION) // _PARQUET_READ_MEMORY_AMPLIFICATION
+        return max(largest_file_bytes, memory_bound_bytes)
 
     def _write_output_frame(
         self,
