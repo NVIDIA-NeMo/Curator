@@ -1,0 +1,119 @@
+# Granary v2 ASR post-processing regex rules.
+#
+# Covered languages (48):
+#   Latin:      en, de, es, fr, it, pt, pl, cs, nl, ro, hu, fi, lt, da, sv,
+#               lv, hr, et, sk, sl, mt, id, tl/fil, tr, vi
+#   Greek:      el
+#   Cyrillic:   ru, uk, bg
+#   Devanagari: hi, mr
+#   Bengali:    bn, as
+#   Gurmukhi:   pa
+#   Gujarati:   gu
+#   Odia:       or
+#   Tamil:      ta
+#   Telugu:     te
+#   Kannada:    kn
+#   Malayalam:  ml
+#   Thai:       th
+#   Arabic:     ar, ur, fa
+#   Hebrew:     he
+#   CJK:        zh, ja (Hanzi/Kanji + Hiragana + Katakana)
+#   Hangul:     ko
+#
+# To add a new script:
+#   1. Look up its Unicode block at https://unicode.org/charts
+#   2. Append \uXXXX-\uYYYY to the [^...] character class in the whitelist rule
+#   3. Optionally add script-specific punctuation -> ASCII rules above the whitelist
+
+# Smart quotes & dashes
+- {"pattern": "’", "repl": "'"}
+- {"pattern": "‘", "repl": "'"}
+- {"pattern": "—", "repl": "-"}
+- {"pattern": "–", "repl": "-"}
+- {"pattern": "-", "repl": "-"}
+- {"pattern": "_", "repl": " "}
+- {"pattern": "——", "repl": "-"}
+- {"pattern": "Ё", "repl": "Е"}
+- {"pattern": "ё", "repl": "е"}
+
+# Double smart quotes (as, or, fil)
+- {"pattern": "“", "repl": ""}     # left double smart quote “
+- {"pattern": "”", "repl": ""}     # right double smart quote ”
+
+# Guillemets (fa)
+- {"pattern": "«", "repl": ""}     # left guillemet «
+- {"pattern": "»", "repl": ""}     # right guillemet »
+
+# Invisible / formatting characters (strip)
+- {"pattern": "‎", "repl": ""}     # LTR mark (fa)
+- {"pattern": "‏", "repl": ""}     # RTL mark
+- {"pattern": "­", "repl": ""}     # soft hyphen (fil)
+- {"pattern": "﻿", "repl": ""}     # BOM / zero-width no-break space
+
+# Devanagari / Odia punctuation (hi, mr, or)
+# Odia uses the same danda (U+0964) and double danda (U+0965)
+- {"pattern": "\u0964", "repl": "."}    # danda ।
+- {"pattern": "\u0965", "repl": "."}    # double danda ॥
+
+# Arabic / Urdu punctuation (ar, ur, fa)
+- {"pattern": "\u06D4", "repl": "."}    # Arabic full stop ۔
+- {"pattern": "\u060C", "repl": ","}    # Arabic comma ،
+- {"pattern": "\u061B", "repl": ","}    # Arabic semicolon ؛
+- {"pattern": "\u061F", "repl": "?"}    # Arabic question mark ؟
+- {"pattern": "\u0640", "repl": ""}     # Arabic tatweel ـ (decorative; remove)
+
+# CJK punctuation (zh, ja, ko)
+- {"pattern": "\u3002", "repl": "."}    # ideographic full stop 。
+- {"pattern": "\u3001", "repl": ","}    # ideographic comma 、
+- {"pattern": "\uFF0C", "repl": ","}    # fullwidth comma ，
+- {"pattern": "\uFF01", "repl": "!"}    # fullwidth exclamation ！
+- {"pattern": "\uFF1F", "repl": "?"}    # fullwidth question ？
+- {"pattern": "\uFF1A", "repl": ":"}    # fullwidth colon ：
+- {"pattern": "\uFF1B", "repl": ","}    # fullwidth semicolon ；
+
+# Music & misc symbols
+- {"pattern": "♫", "repl": " "}
+- {"pattern": "♪", "repl": " "}
+- {"pattern": "♬", "repl": " "}
+- {"pattern": "♩", "repl": " "}
+- {"pattern": "♭", "repl": " "}
+- {"pattern": '\|', "repl": " "}
+- {"pattern": ";", "repl": ","}
+
+# Bracketed content removal
+- {"pattern": '\[[^\]]*\]', "repl": ""} # delete content inside []
+- {"pattern": ' ?\([^\)]+\)', "repl": ""} # delete content inside ()
+- {"pattern": ' ?{[^}]+}', "repl": ""} # delete content inside {}
+
+# Character whitelist: anything NOT in this class becomes a space.
+# Scripts appended after the base Latin/Greek/Cyrillic set, in Unicode-block order:
+#   Hebrew              \u0590-\u05FF
+#   Arabic              \u0600-\u06FF
+#   Arabic Supplement   \u0750-\u077F
+#   Devanagari          \u0900-\u097F
+#   Bengali             \u0980-\u09FF
+#   Gurmukhi            \u0A00-\u0A7F
+#   Gujarati            \u0A80-\u0AFF
+#   Odia                \u0B00-\u0B7F
+#   Tamil               \u0B80-\u0BFF
+#   Telugu              \u0C00-\u0C7F
+#   Kannada             \u0C80-\u0CFF
+#   Malayalam           \u0D00-\u0D7F
+#   Thai                \u0E00-\u0E7F
+#   Turkish (Latin-A)   \u011E\u011F \u0130\u0131 \u015E\u015F   (\u011E\u011F \u0130\u0131 \u015E\u015F)
+#   Vietnamese (Latin-B)\u01A0-\u01B0                            (\u01A0\u01A1 \u01AF\u01B0)
+#   Vietnamese (Lat-Add)\u1EA0-\u1EFF                            (tone-marked vowels)
+#   ZWNJ / ZWJ          \u200C \u200D   (Indic conjuncts + Arabic ligatures)
+#   Hiragana            \u3040-\u309F
+#   Katakana            \u30A0-\u30FF
+#   CJK Unified         \u4E00-\u9FFF
+#   Hangul Syllables    \uAC00-\uD7AF
+- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u011E\u011F\u0130\u0131\u015E\u015F\u01A0-\u01B0\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0E00-\u0E7F\u1EA0-\u1EFF\u200C\u200D\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
+
+# Trailing cleanup
+- {"pattern": '\s+\.', "repl": "."}
+- {"pattern": '\?+', "repl": "?"}
+- {"pattern": '\.+', "repl": "."}
+- {"pattern": ',+', "repl": ","}
+- {"pattern": '!+', "repl": "!"}
+- {"pattern": '\s+', "repl": " "}
