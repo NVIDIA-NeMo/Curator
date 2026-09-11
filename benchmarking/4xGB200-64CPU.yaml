@@ -43,9 +43,15 @@ entries:
 
   - name: exact_dedup_identification
     timeout_s: 2400
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
 
   - name: fuzzy_dedup_identification
     timeout_s: 2400
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
 
   - name: minhash_file_group_task_ray_actors
     timeout_s: 1024
