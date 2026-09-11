@@ -1082,33 +1082,6 @@ entries:
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # Same real input as Xenna.
-  - name: audio_librispeech_raydata
-    enabled: true
-    script: audio_librispeech_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:librispeech_all_750h,jsonl}
-      --model-name=nvidia/parakeet-tdt-0.6b-v2
-      --wer-threshold=1000
-      --executor=ray_data
-    timeout_s: 13740
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_tasks_per_sec
-          - num_tasks_processed
-        ping_on_failure:
-          - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: num_tasks_processed
-        min_value: 1
-      - metric: total_audio_duration_hours
-        min_value: 750.0
-        max_value: 750.02
-      - metric: wer_output_coverage_ratio
-        exact_value: 1.0
-
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
