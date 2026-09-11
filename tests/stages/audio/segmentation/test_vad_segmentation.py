@@ -216,3 +216,39 @@ class TestVADSegmentationStage:
         assert restored.min_duration_sec == 2.0
         assert restored.threshold == 0.6
         assert restored._vad_model is None
+
+
+class TestNestedAndFanoutAgree:
+    """The two packagings of a VAD result must describe the same speech.
+
+    Deliberately outside ``TestVADSegmentationStage``, which is marked ``gpu``: this drives no
+    model -- both timestamps and the loader are patched -- so gating it behind a GPU would mean
+    the CPU suite never checks that the two modes agree. Lifted from
+    tests/stages/audio/test_agent_simulation_pipelines.py, its only previous home.
+    """
+
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
+    def test_nested_and_fanout_produce_the_same_boundaries(
+        self, mock_load_vad: MagicMock, mock_get_ts: MagicMock
+    ) -> None:
+        sr = 16000
+        mock_load_vad.return_value = MagicMock()
+        mock_get_ts.return_value = [{"start": 0, "end": int(sr * 0.4)}, {"start": int(sr * 0.4), "end": int(sr * 0.9)}]
+        waveform = torch.randn(1, sr)
+
+        def _task() -> AudioTask:
+            return AudioTask(dataset_name="t", data={"waveform": waveform.clone(), "sample_rate": sr})
+
+        nested = VADSegmentationStage(nested=True, input_residency="waveform")
+        nested.setup()
+        nested_segments = nested.process(_task()).data["segments"]
+
+        fanout = VADSegmentationStage(nested=False, input_residency="waveform")
+        fanout.setup()
+        children = fanout.process(_task())
+
+        assert len(nested_segments) == len(children) == 2, "both modes must find the same speech"
+        nested_bounds = [(seg["start_ms"], seg["end_ms"]) for seg in nested_segments]
+        fanout_bounds = [(child.data["start_ms"], child.data["end_ms"]) for child in children]
+        assert nested_bounds == fanout_bounds == [(0, 400), (400, 900)], "only the packaging may differ"
