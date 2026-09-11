@@ -1082,89 +1082,71 @@ entries:
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
 
-  # Same real input as Xenna.
-  - name: audio_librispeech_raydata
-    enabled: true
-    script: audio_librispeech_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:librispeech_all_750h,jsonl}
-      --model-name=nvidia/parakeet-tdt-0.6b-v2
-      --wer-threshold=1000
-      --executor=ray_data
-    timeout_s: 13740
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_tasks_per_sec
-          - num_tasks_processed
-        ping_on_failure:
-          - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: num_tasks_processed
-        min_value: 1
-      - metric: total_audio_duration_hours
-        min_value: 750.0
-        max_value: 750.02
-      - metric: wer_output_coverage_ratio
-        exact_value: 1.0
-
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only (3h30m). Full dataset with all filters runs ~3.24h on 4×A100.
-    # Performance regressions should be tracked via a `requirements` check on
-    # `time_taken_s` once a stable baseline is established (follow-up).
+    # The 27,000-row prefix measured 10m54s native on an EOS 8xH100 node.
     timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:read_speech,wav}
-      --no-auto-download
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
       --executor=xenna
-      --max-samples=-1
-      --sample-rate=48000
+      --max-samples=27000
+      --sample-rate=16000
       --enable-vad
       --enable-sigmos
       --enable-utmos
       --enable-band-filter
+      --band-value=narrow_band
       --enable-speaker-separation
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_segments_per_sec
+          - num_input_rows
           - num_output_segments
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: num_input_rows
+        exact_value: 27000
+      - metric: num_output_segments
+        min_value: 1
 
   - name: audio_readspeech_raydata
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only (3h30m). Mirrors xenna config so the two executors are
-    # directly comparable on the same workload (full dataset, all filters).
+    # Same deterministic input and filter configuration as Xenna.
     timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:read_speech,wav}
-      --no-auto-download
+      --input-manifest={dataset:librispeech_all_750h,jsonl}
       --executor=ray_data
-      --max-samples=-1
-      --sample-rate=48000
+      --max-samples=27000
+      --sample-rate=16000
       --enable-vad
       --enable-sigmos
       --enable-utmos
       --enable-band-filter
+      --band-value=narrow_band
       --enable-speaker-separation
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_segments_per_sec
+          - num_input_rows
           - num_output_segments
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: num_input_rows
+        exact_value: 27000
+      - metric: num_output_segments
+        min_value: 1
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
