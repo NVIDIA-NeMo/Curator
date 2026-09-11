@@ -1761,6 +1761,7 @@ entries:
       --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
       --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
+      --hf-cache-dir={model_weights_path}/huggingface
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=ray-serve
@@ -1794,6 +1795,7 @@ entries:
       --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
       --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
+      --hf-cache-dir={model_weights_path}/huggingface
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
       --inference-server-type=dynamo

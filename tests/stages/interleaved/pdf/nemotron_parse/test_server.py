@@ -26,6 +26,7 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
         model_name="nemotron-parse",
         num_replicas=2,
         engine_kwargs={"enforce_eager": True},
+        runtime_env={"env_vars": {"HF_HOME": "/models/huggingface"}},
         request_timeout_s=123,
     )
 
@@ -37,7 +38,10 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
     assert model.engine_kwargs["enforce_eager"] is True
     assert model.dynamo_kwargs == {"enable_multimodal": True}
-    assert model.runtime_env == {"uv": {"packages": ["albumentations==2.0.8"]}}
+    assert model.runtime_env == {
+        "uv": {"packages": ["albumentations==2.0.8"]},
+        "env_vars": {"HF_HOME": "/models/huggingface"},
+    }
     assert isinstance(server.backend, DynamoServerConfig)
     assert server.backend.request_plane == "tcp"
     assert server.backend.router.router_kwargs == {"trust_remote_code": True}

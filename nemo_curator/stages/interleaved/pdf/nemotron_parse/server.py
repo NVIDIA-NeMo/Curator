@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from nemo_curator.core.serve import (
+    BaseModelConfig,
     DynamoRouterConfig,
     DynamoServerConfig,
     DynamoVLLMModelConfig,
@@ -45,6 +46,7 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
     backend: NemotronParseServerBackend = "dynamo",
     num_replicas: int = 1,
     engine_kwargs: dict[str, Any] | None = None,
+    runtime_env: dict[str, Any] | None = None,
     request_timeout_s: float = 300.0,
     health_check_timeout_s: int = 900,
 ) -> InferenceServer:
@@ -61,11 +63,15 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
         raise ValueError(msg)
 
     resolved_engine_kwargs = {**_DEFAULT_ENGINE_KWARGS, **(engine_kwargs or {})}
+    resolved_runtime_env = BaseModelConfig.merge_runtime_envs(
+        {"uv": {"packages": ["albumentations==2.0.8"]}}, runtime_env
+    )
+
     model_kwargs = {
         "model_identifier": model_path,
         "model_name": model_name,
         "engine_kwargs": resolved_engine_kwargs,
-        "runtime_env": {"uv": {"packages": ["albumentations==2.0.8"]}},
+        "runtime_env": resolved_runtime_env,
     }
 
     if backend == "dynamo":
