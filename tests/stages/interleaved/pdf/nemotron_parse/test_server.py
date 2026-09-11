@@ -53,6 +53,21 @@ def test_ray_serve_server_has_pdf_defaults() -> None:
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
 
 
+@pytest.mark.parametrize("backend", ["dynamo", "ray-serve"])
+def test_preinstalled_runtime_skips_default_package_install(backend: str) -> None:
+    runtime_env = {"py_executable": "/opt/dynamo-pdf/bin/python", "env_vars": {"VLLM_USE_FLASHINFER_SAMPLER": "0"}}
+    server = create_nemotron_parse_inference_server(backend=backend, runtime_env=runtime_env)
+    assert server.models[0].runtime_env == runtime_env
+
+
+def test_runtime_env_preserves_pdf_dependencies() -> None:
+    server = create_nemotron_parse_inference_server(runtime_env={"env_vars": {"CUDA_CACHE_PATH": "/cache/cuda"}})
+    assert server.models[0].runtime_env == {
+        "uv": {"packages": ["albumentations==2.0.8"]},
+        "env_vars": {"CUDA_CACHE_PATH": "/cache/cuda"},
+    }
+
+
 @pytest.mark.parametrize("num_replicas", [0, -1])
 def test_rejects_non_positive_replica_count(num_replicas: int) -> None:
     with pytest.raises(ValueError, match="num_replicas must be at least 1"):

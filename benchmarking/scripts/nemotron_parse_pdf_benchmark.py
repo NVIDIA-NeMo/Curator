@@ -211,6 +211,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 model_name=model_name,
                 num_replicas=num_replicas,
                 engine_kwargs=server_engine_kwargs,
+                runtime_env=parse_json_object(args.model_runtime_env, argument="--model-runtime-env"),
                 request_timeout_s=args.inference_server_request_timeout_s,
                 health_check_timeout_s=args.inference_server_health_timeout_s,
             )
@@ -316,6 +317,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "max_tokens": args.max_tokens,
             "enforce_eager": args.enforce_eager,
             "server_engine_kwargs": server_engine_kwargs,
+            "model_runtime_env": parse_json_object(args.model_runtime_env, argument="--model-runtime-env"),
         },
         "metrics": {
             "is_success": success,
@@ -378,6 +380,11 @@ def main() -> int:
         "--engine-kwargs",
         default=None,
         help="JSON object of additional vLLM engine arguments for the inference server",
+    )
+    parser.add_argument(
+        "--model-runtime-env",
+        default=None,
+        help="JSON Ray runtime environment for server actors (e.g. py_executable and env_vars)",
     )
     parser.add_argument(
         "--inference-server-health-timeout-s",
