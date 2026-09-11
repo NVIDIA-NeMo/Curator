@@ -24,6 +24,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -32,7 +33,7 @@ from .utils import add_non_speaker_segments
 
 
 @dataclass
-class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
+class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that prepares segments for TTS or ASR by merging and splitting based on
     duration, punctuation, and bandwidth.
@@ -65,11 +66,28 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
     terminal_punct_marks: str = ".!?。？？！。"  # noqa: RUF001
     full_utterance_ratio: float = 1.0
     punctuation_split_only: bool = False
+    segments_key: str = "segments"
+    duration_key: str = "duration"
+    metrics_key: str = "metrics"
 
     name: str = "PrepareModuleSegments"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments", "duration"]
+        return [], [self.segments_key, self.duration_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.segments_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.segments_key, self.duration_key]),
+            writes=IOSpec(data_keys=[self.segments_key]),
+            # The ``asr`` module draws its per-segment length limit from ``self._rng``, which
+            # ``process`` reseeds from a hash of the row's own id before touching it. So the draws
+            # a row gets depend on that row alone, unlike PyAnnoteDiarizationStage's unseeded
+            # generator, whose sequence position is decided by how many rows preceded it.
+            gates=Gates(per_row_independent=True),
+        )
 
     def __post_init__(self):
         if self.module not in ("tts", "asr"):
@@ -94,8 +112,8 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
                 - sisdr_squim: The SI-SDR score of the word if available
                 - bandwidth: The bandwidth of the word if available
         """
-        segments = metadata["segments"]
-        audio_duration = metadata.get("duration", 0.0)
+        segments = metadata[self.segments_key]
+        audio_duration = metadata.get(self.duration_key, 0.0)
 
         if "overlap_segments" not in metadata:
             add_non_speaker_segments(segments, audio_duration)
@@ -111,8 +129,8 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
                 for word in segment[self.words_key]:
                     new_word = dict(word)
                     new_word["speaker"] = segment["speaker"]
-                    if "metrics" in segment:
-                        m = segment["metrics"]
+                    if self.metrics_key in segment:
+                        m = segment[self.metrics_key]
                         new_word["stoi_squim"] = m.get("stoi_squim") if isinstance(m, dict) else None
                         new_word["sisdr_squim"] = m.get("sisdr_squim") if isinstance(m, dict) else None
                         new_word["pesq_squim"] = m.get("pesq_squim") if isinstance(m, dict) else None
@@ -345,7 +363,7 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
                     {"word": w.get("word", ""), "start": w.get("start", 0.0), "end": w.get("end", 0.0)}
                     for w in new_segment["words"]
                 ],
-                "metrics": {
+                self.metrics_key: {
                     "pesq_squim": [w.get("pesq_squim") for w in new_segment["words"]],
                     "stoi_squim": [w.get("stoi_squim") for w in new_segment["words"]],
                     "sisdr_squim": [w.get("sisdr_squim") for w in new_segment["words"]],
@@ -354,7 +372,7 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
             }
             segments.append(seg)
 
-        metadata["segments"] = segments
+        metadata[self.segments_key] = segments
 
     def prepare_asr_segments(self, words: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
         """Prepare ASR segments (multi-speaker per segment allowed)."""
@@ -412,7 +430,7 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
         seed = int(hashlib.md5(entry_id.encode()).hexdigest()[:8], 16)  # noqa: S324
         self._rng.seed(seed)
         try:
-            if "segments" not in data_entry:
+            if self.segments_key not in data_entry:
                 logger.info(f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}")
                 return task
 
