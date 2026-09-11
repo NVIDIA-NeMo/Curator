@@ -357,7 +357,7 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
 
   - name: fuzzy_dedup_identification_raw_bands_per_iteration_20
     enabled: true
@@ -385,7 +385,7 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
 
   - name: fuzzy_dedup_identification_banded_bands_per_iteration_5
     enabled: true
@@ -413,7 +413,7 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
 
   - name: fuzzy_dedup_identification_raw_bands_per_iteration_5
     enabled: true
@@ -441,7 +441,7 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
 
   - name: fuzzy_dedup_identification_banded_bands_per_iteration_1
     enabled: true
@@ -469,7 +469,7 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
 
   - name: fuzzy_dedup_identification_raw_bands_per_iteration_1
     enabled: true
@@ -497,7 +497,7 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
 
   - name: minhash_file_group_task_ray_actors
     enabled: true
