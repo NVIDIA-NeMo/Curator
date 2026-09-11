@@ -561,6 +561,8 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             "name": entry.name,
             "run_id": run_id,
             "success": run_success,
+            # Parallel invocations can share a session but run on different nodes.
+            "environment": env_dict,
         }
         # Derive the stdouterr log path and add it as a loguru sink so all log
         # output for this entry (including pre-subprocess errors) is captured.
