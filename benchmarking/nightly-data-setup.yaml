@@ -1,9 +1,15 @@
-# One-time benchmark data staging.
+# One-time benchmark data staging for inputs that are prepared once and reused
+# by benchmark entries.
+#
+# Pass this file with the main benchmark config:
+#   --config benchmarking/nightly-data-setup.yaml
 
 data_setups:
   - name: librispeech_all_750h
     enabled: true
     script: prepare_librispeech_data.py
+    dependencies:
+      - audio
     args: >-
       --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb
       --cache-dir {datasets_path}/_hf_cache/librispeech
@@ -16,6 +22,8 @@ data_setups:
   - name: audio_tagging_ami_sdm
     enabled: true
     script: prepare_audio_tagging_data.py
+    dependencies:
+      - audio
     args: >-
       --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m
       --cache-dir {datasets_path}/_hf_cache/audio_tagging
@@ -30,6 +38,8 @@ data_setups:
   - name: alm_ami_sdm
     enabled: true
     script: prepare_alm_data.py
+    dependencies:
+      - audio
     args: >-
       --output-path {datasets_path}/alm_ami_sdm_8cdaae2
       --cache-dir {datasets_path}/_hf_cache/alm_ami
@@ -40,6 +50,8 @@ data_setups:
   - name: audio_sortformer_librispeech_450h
     enabled: true
     script: prepare_audio_sortformer_data.py
+    dependencies:
+      - audio
     args: >-
       --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
       --cache-dir {datasets_path}/_hf_cache/audio_sortformer

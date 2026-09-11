@@ -1,0 +1,101 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemo-curator-benchmarking"
+version = "0.1.0"
+description = "Benchmark runner, configs, and scripts for NeMo Curator"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "GitPython",
+    "gpustat",
+    "loguru",
+    "nvidia-ml-py",
+    "packaging",
+    "pytest",
+    "pyyaml",
+    "rich",
+]
+
+[project.scripts]
+curator-benchmark = "curator_benchmarking.cli:main"
+
+[project.optional-dependencies]
+audio = [
+    "pyloudnorm",
+    "wget",
+]
+nemotron_parse = [
+    "albumentations",
+    "opencv-python-headless",
+]
+sinks = [
+    "mlflow",
+    "oauth2client",
+    "pydrive2",
+    "slack-sdk",
+]
+visual = [
+    "opencv-python-headless",
+]
+video = [
+    "opencv-python-headless",
+]
+all = [
+    "albumentations",
+    "mlflow",
+    "oauth2client",
+    "opencv-python-headless",
+    "pyloudnorm",
+    "pydrive2",
+    "slack-sdk",
+    "wget",
+]
+
+[tool.setuptools.packages.find]
+include = [
+    "curator_benchmarking",
+    "curator_benchmarking.*",
+    "data_prep",
+    "runner",
+    "runner.*",
+    "scripts",
+]
+
+[tool.setuptools.data-files]
+"share/nemo-curator-benchmarking" = [
+    "benchmarks.yaml",
+    "4xGB200-64CPU.yaml",
+    "nightly-data-setup.yaml",
+]
+"share/nemo-curator-benchmarking/system_deps" = [
+    "system_deps/README.md",
+]
+"share/nemo-curator-benchmarking/system_deps/audio" = [
+    "system_deps/audio/check.sh",
+    "system_deps/audio/install.sh",
+]
+"share/nemo-curator-benchmarking/system_deps/math" = [
+    "system_deps/math/check.sh",
+    "system_deps/math/install.sh",
+]
+"share/nemo-curator-benchmarking/system_deps/video" = [
+    "system_deps/video/check.sh",
+    "system_deps/video/install.sh",
+]
