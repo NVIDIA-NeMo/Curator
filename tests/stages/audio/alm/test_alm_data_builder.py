@@ -14,9 +14,15 @@
 
 """Tests for ALMDataBuilderStage using sample data fixtures."""
 
+import copy
+
 import pytest
+from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
+from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -146,6 +152,86 @@ class TestALMDataBuilder:
             result = stage.process(AudioTask(data=entry))
             assert isinstance(result, AudioTask)
             assert "windows" in result.data
+
+    def test_audio_filepath_contract_follows_explicit_top_level_drop(self, sample_entry: dict) -> None:
+        default = ALMDataBuilderStage()
+        custom = ALMDataBuilderStage(audio_filepath_key="source_path")
+        dropped = ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath")
+
+        assert "audio_filepath" in default.outputs()[1]
+        assert "audio_filepath" in build_contract(default).writes.data_keys
+        assert "source_path" in custom.outputs()[1]
+        assert "source_path" in build_contract(custom).writes.data_keys
+        assert "audio_filepath" not in dropped.outputs()[1]
+        assert "audio_filepath" not in build_contract(dropped).writes.data_keys
+
+        normal = dropped.process(AudioTask(data=copy.deepcopy(sample_entry)))
+        assert "audio_filepath" not in normal.data
+
+        low_rate_entry = copy.deepcopy(sample_entry)
+        low_rate_entry["audio_sample_rate"] = 8000
+        low_rate = dropped.process(AudioTask(data=low_rate_entry))
+        assert "audio_filepath" not in low_rate.data
+
+    def test_agent_ready_default_custom_and_explicit_drop(self, sample_entry: dict) -> None:
+        def default_fixture() -> AudioTask:
+            return AudioTask(data=copy.deepcopy(sample_entry))
+
+        assert_agent_ready(
+            ALMDataBuilderStage(),
+            default_fixture,
+            expected_cardinality="1:1",
+            available_keys={"audio_filepath", "segments", "audio_sample_rate"},
+        )
+
+        custom_data = copy.deepcopy(sample_entry)
+        custom_data["source_path"] = custom_data.pop("audio_filepath")
+
+        def custom_fixture() -> AudioTask:
+            return AudioTask(data=copy.deepcopy(custom_data))
+
+        assert_agent_ready(
+            ALMDataBuilderStage(audio_filepath_key="source_path"),
+            custom_fixture,
+            expected_cardinality="1:1",
+            available_keys={"source_path", "segments", "audio_sample_rate"},
+        )
+        assert_agent_ready(
+            ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath"),
+            default_fixture,
+            expected_cardinality="1:1",
+            available_keys={"audio_filepath", "segments", "audio_sample_rate"},
+        )
+
+    def test_file_consumer_planning_tracks_default_custom_and_dropped_path(self) -> None:
+        seed = {
+            "initial_roles": {"audio_filepath", "segments", "sample_rate"},
+            "initial_keys": {"audio_filepath", "segments", "audio_sample_rate"},
+        }
+        default = validate_pipeline([ALMDataBuilderStage(), MonoConversionStage()], **seed)
+        assert default.ok
+        assert default.keys_ok
+
+        custom = validate_pipeline(
+            [
+                ALMDataBuilderStage(audio_filepath_key="source_path"),
+                MonoConversionStage(audio_filepath_key="source_path"),
+            ],
+            initial_roles={"audio_filepath", "segments", "sample_rate"},
+            initial_keys={"source_path", "segments", "audio_sample_rate"},
+        )
+        assert custom.ok
+        assert custom.keys_ok
+
+        dropped = validate_pipeline(
+            [
+                ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath"),
+                MonoConversionStage(),
+            ],
+            **seed,
+        )
+        assert not dropped.ok
+        assert any(issue.code == "key_removed_upstream" for issue in dropped.issues)
 
 
 class TestALMDataBuilderIntegration:
