@@ -496,6 +496,7 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["max_num_seqs"] == 8
         assert captured_kwargs["enforce_eager"] is True
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
+        assert captured_kwargs["attention_backend"] == "TRITON_ATTN"
         assert stage._proc_size == (100, 100)
 
     def test_in_process_and_http_client_sampling_parameters_match(self) -> None:

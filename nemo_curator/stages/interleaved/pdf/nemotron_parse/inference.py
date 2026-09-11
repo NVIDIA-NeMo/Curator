@@ -174,6 +174,9 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         engine_kwargs = {
             "max_num_seqs": self.max_num_seqs,
             "enforce_eager": self.enforce_eager,
+            # vLLM 0.22 FlashInfer uses the wrong head count for models with
+            # different attention layouts (vllm-project/vllm#42650).
+            "attention_backend": "TRITON_ATTN",
             **(self.engine_kwargs or {}),
         }
         self._llm = create_vllm_llm(resolved_path, **engine_kwargs)

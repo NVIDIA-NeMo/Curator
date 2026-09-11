@@ -61,6 +61,8 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
         raise ValueError(msg)
 
     resolved_engine_kwargs = {**_DEFAULT_ENGINE_KWARGS, **(engine_kwargs or {})}
+    if backend == "ray-serve":
+        resolved_engine_kwargs = {"attention_backend": "TRITON_ATTN", **resolved_engine_kwargs}
     model_kwargs = {
         "model_identifier": model_path,
         "model_name": model_name,

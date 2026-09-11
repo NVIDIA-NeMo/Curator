@@ -36,6 +36,7 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert model.num_replicas == 2
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
     assert model.engine_kwargs["enforce_eager"] is True
+    assert "attention_backend" not in model.engine_kwargs
     assert model.dynamo_kwargs == {"enable_multimodal": True}
     assert model.runtime_env == {"uv": {"packages": ["albumentations==2.0.8"]}}
     assert isinstance(server.backend, DynamoServerConfig)
@@ -51,6 +52,7 @@ def test_ray_serve_server_has_pdf_defaults() -> None:
     assert isinstance(model, RayServeModelConfig)
     assert model.deployment_config == {"num_replicas": 3}
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
+    assert model.engine_kwargs["attention_backend"] == "TRITON_ATTN"
 
 
 @pytest.mark.parametrize("num_replicas", [0, -1])
