@@ -121,10 +121,16 @@ important for release-candidate and historical-image runs.
 ## GB200 EAI 10k PDF Sweep
 
 `benchmarking/gb200-eai-10k.yaml` varies client concurrency while keeping four
-one-GPU Dynamo replicas, engine defaults, 25 PDFs/task, 300 DPI, 645 pages/PDF,
+one-GPU Dynamo replicas, engine defaults, 10 PDFs/task, 300 DPI, 645 pages/PDF,
 and 9000 output tokens fixed. Each full entry requires one exclusive GB200
 node with 4 GPUs, 144 CPUs, 920 GiB, and a four-hour allocation. The entry
 timeout is 12,600 seconds, leaving 30 minutes for environment setup and cleanup.
+
+Ten PDFs/task creates 1,000 tasks for the full input, allowing finer scheduling
+around long PDFs. The client count caps concurrent tasks; it does not pin clients
+to GPUs or guarantee an equal task count per worker. Each client's semaphore
+limits concurrent page requests from its current task, not the server's batch size.
+The smoke and pilot entries retain 25 PDFs/task from their initial validation.
 
 Use the ARM64 image
 `gitlab-master.nvidia.com:5005/praateekm/dummy-containers/nemo-curator-nightly-with-dynamo-pdf-parse-venv:20260910`

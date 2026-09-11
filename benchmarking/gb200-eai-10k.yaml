@@ -98,7 +98,7 @@ entries:
       --inference-server-client-workers-per-replica=8
       --inference-server-request-timeout-s=1800
       --inference-batch-size=48
-      --pdfs-per-task=25
+      --pdfs-per-task=10
       --max-pdfs=10000
       --max-pages=645
       --max-tokens=9000
@@ -126,7 +126,7 @@ entries:
       --inference-server-client-workers-per-replica=12
       --inference-server-request-timeout-s=1800
       --inference-batch-size=48
-      --pdfs-per-task=25
+      --pdfs-per-task=10
       --max-pdfs=10000
       --max-pages=645
       --max-tokens=9000
@@ -154,7 +154,7 @@ entries:
       --inference-server-client-workers-per-replica=8
       --inference-server-request-timeout-s=1800
       --inference-batch-size=64
-      --pdfs-per-task=25
+      --pdfs-per-task=10
       --max-pdfs=10000
       --max-pages=645
       --max-tokens=9000
@@ -182,7 +182,7 @@ entries:
       --inference-server-client-workers-per-replica=12
       --inference-server-request-timeout-s=1800
       --inference-batch-size=64
-      --pdfs-per-task=25
+      --pdfs-per-task=10
       --max-pdfs=10000
       --max-pages=645
       --max-tokens=9000
