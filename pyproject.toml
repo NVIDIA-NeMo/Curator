@@ -141,6 +141,13 @@ audio_cuda12 = [
     "torchlibrosa>=0.1.0",
 ]
 
+# TensorRT acceleration for the CNN14 SED core. Engines are target-specific
+# and must be built on the same GPU architecture and TensorRT version used at runtime.
+audio_sed_tensorrt = [
+    "nemo_curator[audio_cuda12]",
+    "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+]
+
 image_cpu = [
     "Pillow",
     "torchvision"
@@ -296,7 +303,7 @@ sdg_cuda12 = [
 
 # All dependencies
 all = [
-    "nemo_curator[audio_cuda12]",
+    "nemo_curator[audio_sed_tensorrt]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
