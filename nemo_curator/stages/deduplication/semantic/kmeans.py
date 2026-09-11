@@ -14,7 +14,6 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from itertools import chain
 from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
@@ -52,9 +51,7 @@ L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
 _FIT_READ_MEMORY_FRACTION = 0.8
-_FIT_WRITE_MEMORY_FRACTION = 0.8
 _PARQUET_READ_MEMORY_AMPLIFICATION = 3
-_PARQUET_WRITE_MEMORY_AMPLIFICATION = 6
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
 
@@ -184,7 +181,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         footer_time = time.perf_counter() - footer_start
         self._log_metric("kmeans_footer_scan_time", footer_time)
 
-        fit_info, prediction_only_info = self._sample_fit_files(file_info)
+        fit_info, _ = self._sample_fit_files(file_info)
         total_rows = sum(info.num_rows for info in file_info)
         fit_rows = sum(info.num_rows for info in fit_info)
         if fit_rows < self.n_clusters:
@@ -194,7 +191,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         fit_frames = iter(
             self._iter_parquet_frames(
                 fit_info,
-                columns,
+                [self.embedding_field],
                 max_embedding_bytes=self._max_fit_read_group_bytes(fit_info),
             )
         )
@@ -202,25 +199,26 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         first_fit_frame = next(fit_frames)
         embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
         fit_embeddings = cp.empty((fit_rows, embedding_width), dtype=cp.float32)
-        sampled_chunks: list[tuple[cudf.DataFrame, int, int]] = []
-        offset = 0
-        for df in chain([first_fit_frame], fit_frames):
+        offset = len(first_fit_frame)
+        embeddings = fit_embeddings[:offset]
+        embeddings[...] = get_array_from_df(first_fit_frame, self.embedding_field)
+        self._normalize_embeddings_in_place(embeddings)
+        del first_fit_frame
+        for df in fit_frames:
             stop = offset + len(df)
             embeddings = fit_embeddings[offset:stop]
             embeddings[...] = get_array_from_df(df, self.embedding_field)
             self._normalize_embeddings_in_place(embeddings)
-            del df[self.embedding_field]
-            sampled_chunks.append((df, offset, stop))
             offset = stop
+            del df
         read_time = time.perf_counter() - read_start
         if offset != fit_rows:
             msg = f"Parquet footers reported {fit_rows} fit rows but the reader returned {offset}"
             raise RuntimeError(msg)
-        del df, embeddings, first_fit_frame, fit_frames
+        del embeddings, fit_frames
 
         fit_start = time.perf_counter()
         self.kmeans.fit(fit_embeddings, sample_weight=None)
-        fit_labels = cp.asarray(self.kmeans.labels_).astype(cp.int32, copy=False)
         fit_time = time.perf_counter() - fit_start
         self._log_metrics(
             {
@@ -234,68 +232,42 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         )
         centroids = cp.ascontiguousarray(cp.asarray(self.kmeans.cluster_centers_).copy())
         self._save_centroids(centroids)
+        del fit_embeddings
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
         predict_time = 0.0
         write_time = 0.0
         predicted_rows = 0
-        output_index = 0
         fit_write_peak_temporary_bytes = 0
         fit_write_peak_memory_amplification = 0.0
-        for metadata, start, stop in sampled_chunks:
-            rows_per_write = self._max_fit_write_rows(fit_embeddings.shape[1])
-            for chunk_start in range(start, stop, rows_per_write):
-                chunk_stop = min(chunk_start + rows_per_write, stop)
-                metadata_start = chunk_start - start
-                metadata_stop = chunk_stop - start
-                write_start = time.perf_counter()
-                with rmm.statistics.statistics():
-                    self._write_output_frame(
-                        f"{tasks[0].task_id}_{output_index}.parquet",
-                        metadata.iloc[metadata_start:metadata_stop],
-                        fit_embeddings[chunk_start:chunk_stop],
-                        fit_labels[chunk_start:chunk_stop],
-                        centroids,
-                    )
-                    write_stats = rmm.statistics.get_statistics()
-                if write_stats is not None:
-                    fit_write_peak_temporary_bytes = max(fit_write_peak_temporary_bytes, write_stats.peak_bytes)
-                    embedding_bytes = (
-                        (chunk_stop - chunk_start) * fit_embeddings.shape[1] * cp.dtype(cp.float32).itemsize
-                    )
-                    fit_write_peak_memory_amplification = max(
-                        fit_write_peak_memory_amplification,
-                        write_stats.peak_bytes / embedding_bytes,
-                    )
-                write_time += time.perf_counter() - write_start
-                predicted_rows += chunk_stop - chunk_start
-                output_index += 1
-
-        sampled_chunks.clear()
-        del fit_embeddings, fit_labels
-        gc.collect()
-        cp.get_default_memory_pool().free_all_blocks()
-
-        if prediction_only_info:
-            read_start = time.perf_counter()
-            for df in self._iter_parquet_frames(prediction_only_info, columns):
-                read_time += time.perf_counter() - read_start
-                embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
-                self._normalize_embeddings_in_place(embeddings)
-                predict_start = time.perf_counter()
-                labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
-                predict_time += time.perf_counter() - predict_start
-                del df[self.embedding_field]
-                write_start = time.perf_counter()
+        read_start = time.perf_counter()
+        for output_index, df in enumerate(self._iter_parquet_frames(file_info, columns)):
+            read_time += time.perf_counter() - read_start
+            embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+            self._normalize_embeddings_in_place(embeddings)
+            predict_start = time.perf_counter()
+            labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
+            predict_time += time.perf_counter() - predict_start
+            del df[self.embedding_field]
+            write_start = time.perf_counter()
+            with rmm.statistics.statistics():
                 self._write_output_frame(
                     f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
                 )
-                write_time += time.perf_counter() - write_start
-                predicted_rows += len(df)
-                output_index += 1
-                read_start = time.perf_counter()
-            read_time += time.perf_counter() - read_start
+                write_stats = rmm.statistics.get_statistics()
+            if write_stats is not None:
+                fit_write_peak_temporary_bytes = max(fit_write_peak_temporary_bytes, write_stats.peak_bytes)
+                embedding_bytes = len(df) * embeddings.shape[1] * cp.dtype(cp.float32).itemsize
+                fit_write_peak_memory_amplification = max(
+                    fit_write_peak_memory_amplification,
+                    write_stats.peak_bytes / embedding_bytes,
+                )
+            write_time += time.perf_counter() - write_start
+            predicted_rows += len(df)
+            del df, embeddings, labels
+            read_start = time.perf_counter()
+        read_time += time.perf_counter() - read_start
 
         if predicted_rows != total_rows:
             msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
@@ -339,11 +311,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             estimated_bytes = 0
             for info in shuffled:
                 fit_embedding_bytes = info.embedding_elements * cp.dtype(cp.float32).itemsize
-                file_bytes = fit_embedding_bytes + info.metadata_bytes
-                if estimated_bytes + file_bytes > budget:
+                if estimated_bytes + fit_embedding_bytes > budget:
                     continue
                 fit.append(info)
-                estimated_bytes += file_bytes
+                estimated_bytes += fit_embedding_bytes
             if not fit:
                 msg = f"No complete Parquet file fits the automatic KMeans budget of {budget} bytes"
                 raise MemoryError(msg)
@@ -371,9 +342,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
     def _max_fit_read_group_bytes(self, fit_info: list[ParquetFileInfo]) -> int:
         """Use the largest Parquet read that fits beside the resident FP32 fit data."""
-        fit_bytes = sum(
-            info.embedding_elements * cp.dtype(cp.float32).itemsize + info.metadata_bytes for info in fit_info
-        )
+        fit_bytes = sum(info.embedding_elements * cp.dtype(cp.float32).itemsize for info in fit_info)
         available_after_fit = cp.cuda.runtime.memGetInfo()[0] - fit_bytes
         if available_after_fit <= 0:
             msg = "KMeans fit allocation leaves no GPU memory for reading Parquet data"
@@ -381,19 +350,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         largest_file_bytes = max(info.embedding_bytes for info in fit_info)
         memory_bound_bytes = int(available_after_fit * _FIT_READ_MEMORY_FRACTION) // _PARQUET_READ_MEMORY_AMPLIFICATION
         return max(largest_file_bytes, memory_bound_bytes)
-
-    def _max_fit_write_rows(self, embedding_width: int) -> int:
-        """Bound partitioned writes using their observed temporary-memory amplification."""
-        free_memory = cp.cuda.runtime.memGetInfo()[0]
-        output_itemsize = max(
-            cp.dtype(cp.float32).itemsize,
-            cp.dtype(self.embedding_output_dtype).itemsize,
-        )
-        return max(
-            1,
-            int(free_memory * _FIT_WRITE_MEMORY_FRACTION)
-            // (_PARQUET_WRITE_MEMORY_AMPLIFICATION * embedding_width * output_itemsize),
-        )
 
     def _write_output_frame(
         self,

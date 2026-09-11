@@ -378,7 +378,7 @@ class TestKMeansStageIntegration:
         assert np.load(npy).shape == (N_CLUSTERS, EMBEDDING_DIM)
 
         df = cudf.read_parquet(output_dir).sort_values("id", ignore_index=True)
-        # A partial fit predicts the unread files; a full fit reuses labels already produced by fit.
+        # Both paths reread and predict every input row after releasing the fit matrix.
         assert len(df) == len(true_labels)
         ari = adjusted_rand_score(df["centroid"].to_numpy(), true_labels)
         assert ari > 0.95, f"ARI too low at fit_data_fraction={fit_data_fraction}: {ari:.3f}"
@@ -575,9 +575,7 @@ class TestKMeansReadFitWriteStage:
         assert {info.path for info in fit} == {info.path for info in file_info}
         assert prediction_only == []
 
-    def test_auto_fit_budget_uses_persistent_fp32_size_and_metadata(
-        self, make_stage: "KMeansReadFitWriteStage"
-    ) -> None:
+    def test_auto_fit_budget_uses_only_persistent_fp32_embeddings(self, make_stage: "KMeansReadFitWriteStage") -> None:
         stage = make_stage(fit_data_fraction=None)
         file_info = [
             ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
@@ -591,22 +589,16 @@ class TestKMeansReadFitWriteStage:
         ):
             fit, prediction_only = stage._sample_fit_files(file_info)
 
-        assert [info.path for info in fit] == ["float32.parquet", "float64.parquet"]
-        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
-        assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
+        assert [info.path for info in fit] == ["float32.parquet", "metadata-heavy.parquet", "float64.parquet"]
+        assert prediction_only == []
+        mock_logger.warning.assert_not_called()
 
     def test_fit_read_group_uses_memory_remaining_after_fit(self, make_stage: "KMeansReadFitWriteStage") -> None:
         stage = make_stage(fit_data_fraction=None)
         fit_info = [ParquetFileInfo("fit.parquet", 10, 100, embedding_elements=100, embedding_bytes=800)]
 
         with patch("cupy.cuda.runtime.memGetInfo", return_value=(4_000, 5_000)):
-            assert stage._max_fit_read_group_bytes(fit_info) == 933
-
-    def test_fit_write_rows_use_live_free_memory(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage(fit_data_fraction=None)
-
-        with patch("cupy.cuda.runtime.memGetInfo", return_value=(1_200, 2_000)):
-            assert stage._max_fit_write_rows(10) == 4
+            assert stage._max_fit_read_group_bytes(fit_info) == 960
 
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),
