@@ -213,8 +213,8 @@ embedding input format:
   after its embeddings are copied into that array.
 - **JSONL:** Fits all input files in one pass because row and embedding counts are not available without reading the data.
 
-Parquet is recommended for large semantic-deduplication workloads. Its footer metadata enables
-dtype-aware memory sizing and reads bounded below cuDF's column-size limit. After fitting, Parquet
+Parquet is recommended for large semantic-deduplication workloads. Its footer metadata sizes the
+fit array, while cuDF's chunked reader bounds fit-pass memory and output column sizes. After fitting, Parquet
 rereads all files in bounded frames to predict and write every row. This keeps prediction and output
 memory independent of the fit sample size. An explicit JSONL fit fraction uses the same two-pass I/O
 pattern.
@@ -223,9 +223,9 @@ Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Bot
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
 but their I/O differs:
 
-- **Parquet:** Exact footer counts group reads below cuDF's column-size limit and size one contiguous
-  float32 fit array. The sampled frames are released during the first pass; the second pass rereads all
-  files to predict and write every row.
+- **Parquet:** Exact footer counts size one contiguous float32 fit array. cuDF reads the sampled files
+  in chunks that share the remaining GPU memory between output and decompression. The sampled frames
+  are released during the first pass; the second pass rereads all files to predict and write every row.
 - **JSONL:** The first pass reads the sampled files and fits K-means. The second pass reads all files,
   including the sampled files, to predict and write every row.
 
