@@ -75,6 +75,45 @@ def test_download_weights_uses_adapter_model_id() -> None:
     )
 
 
+def test_local_nemo_checkpoint_is_validated_without_download(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "parakeet.nemo"
+    checkpoint.touch()
+    nemo_module = MagicMock()
+    adapter = NeMoASRAdapter(model_id=str(checkpoint))
+
+    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_module):
+        adapter.download_weights_on_node()
+
+    nemo_module.models.ASRModel.from_pretrained.assert_not_called()
+
+
+def test_missing_local_nemo_checkpoint_fails_before_model_import(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "missing.nemo"
+    adapter = NeMoASRAdapter(model_id=str(checkpoint))
+
+    with pytest.raises(FileNotFoundError, match="Local NeMo checkpoint not found"):
+        adapter.download_weights_on_node()
+
+
+def test_load_local_nemo_checkpoint_uses_restore_from(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "parakeet.nemo"
+    checkpoint.touch()
+    nemo_module = MagicMock()
+    restored = MagicMock()
+    nemo_module.models.ASRModel.restore_from.return_value = restored
+    adapter = NeMoASRAdapter(model_id=str(checkpoint), strict=False)
+
+    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_module):
+        model = adapter._load_checkpoint(torch.device("cpu"))
+
+    assert model is restored
+    nemo_module.models.ASRModel.restore_from.assert_called_once_with(
+        restore_path=str(checkpoint),
+        map_location=torch.device("cpu"),
+        strict=False,
+    )
+
+
 def test_load_model_uses_stage_owned_gpu_count_and_is_idempotent() -> None:
     adapter = NeMoASRAdapter()
     model = _mock_model([])
@@ -122,6 +161,8 @@ def test_load_model_configures_rnnt_cuda_graph_decoder_when_requested(enabled: b
     decoding_cfg = model.change_decoding_strategy.call_args.kwargs["decoding_cfg"]
     assert decoding_cfg.strategy == "greedy_batch"
     assert decoding_cfg.greedy.use_cuda_graph_decoder is enabled
+    assert decoding_cfg.greedy.allow_cuda_graphs is enabled
+    model.eval.assert_called_once_with()
 
 
 def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
@@ -137,6 +178,17 @@ def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     assert kwargs["batch_size"] == 2
     assert kwargs["num_workers"] == 2
     assert len(kwargs["audio"]) == 2
+
+
+def test_empty_audio_can_remain_a_blank_non_skip_for_compatibility_stage() -> None:
+    adapter = NeMoASRAdapter(empty_audio_marks_skip=False)
+    adapter._model = _mock_model([])
+
+    result = adapter.transcribe_batch([_item(samples=0)])[0]
+
+    assert result.text == ""
+    assert result.skipped is False
+    assert result.skip_reason is None
 
 
 def test_transcribe_batch_preserves_empty_positions() -> None:
