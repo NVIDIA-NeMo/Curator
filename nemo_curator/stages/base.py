@@ -140,6 +140,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
+    # Framework-owned execution identity populated by ``Pipeline``.
+    _curator_stage_id: str = ""
 
     # Source / sink role flags. User-overridable on the stage class or
     # instance. If neither is set explicitly on any stage in the pipeline,
@@ -565,6 +567,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         metrics: dict[str, float] = dict(self._custom_metrics)
         del self._custom_metrics
         return metrics
+
+    def requests_performance_records(self) -> bool:
+        """Return whether this stage requires a complete run-scoped record set."""
+        return False
 
 
 class CompositeStage(ProcessingStage[X, Y], ABC):

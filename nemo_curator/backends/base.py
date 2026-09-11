@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from nemo_curator.utils.resumability_client import (
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 def _is_sentinel(task: Task) -> bool:
@@ -66,13 +68,67 @@ class WorkerMetadata:
 class BaseExecutor(ABC):
     """Executor for a pipeline."""
 
+    _supports_stage_perf_collection = False
+
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
+        self._external_perf_records: PerformanceRecordStore | None = None
+        self._stage_perf_collection_requested = False
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
+
+    def _set_stage_perf_collection_requested(self, requested: bool) -> None:
+        """Set the private collection request resolved once by ``Pipeline``."""
+        if requested and not self._supports_stage_perf_collection:
+            msg = f"{type(self).__name__} does not support run-scoped stage performance collection"
+            raise NotImplementedError(msg)
+        self._stage_perf_collection_requested = requested
+
+    def _start_stage_perf_collector(self, stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
+        """Start the run-scoped collector when performance collection is enabled."""
+        if not self._stage_perf_collection_requested:
+            return None
+        from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
+
+        try:
+            return start_stage_perf_collector(stages)
+        except Exception as exc:
+            msg = f"Required stage performance collector failed to start: {exc}"
+            raise RuntimeError(msg) from exc
+
+    def _stop_stage_perf_collector(
+        self,
+        collector: Any | None,  # noqa: ANN401
+        stages: list["ProcessingStage"],
+        *,
+        keep_records: bool,
+    ) -> None:
+        try:
+            from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
+
+            record_store = stop_stage_perf_collector(collector, stages)
+        except Exception as exc:
+            if keep_records:
+                msg = f"Required stage performance collector failed to stop: {exc}"
+                raise RuntimeError(msg) from exc
+            logger.debug("Stage performance collector stop failed: {}", exc)
+            record_store = None
+        if keep_records:
+            self._external_perf_records = record_store
+        else:
+            if record_store is not None:
+                record_store.cleanup()
+            self._external_perf_records = None
+
+    def consume_external_perf_records(self) -> "PerformanceRecordStore":
+        """Return and clear the authoritative invocation records for this run."""
+        from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+
+        records, self._external_perf_records = self._external_perf_records, None
+        return records if records is not None else PerformanceRecordStore()
 
 
 class BaseStageAdapter:
@@ -81,7 +137,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
         """Process a batch of tasks.
 
         Args:
@@ -94,14 +150,18 @@ class BaseStageAdapter:
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
-        # Calculate input data size for timer
-        input_size = sum(task.num_items for task in tasks)
+        capture_metrics = getattr(self.stage, "_curator_stage_perf_collector_actor", None) is not None
+        num_input_items = sum(task.num_items for task in tasks)
         # Initialize performance timer for this batch
-        self._timer.reinit(input_size)
+        self._timer.reinit(num_input_items)
 
-        with self._timer.time_process(input_size):
+        window_start_s = time.time() if capture_metrics else 0.0
+        process_start_s = time.perf_counter() if capture_metrics else 0.0
+        with self._timer.time_process(num_input_items):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
+        process_elapsed_s = max(time.perf_counter() - process_start_s, 0.0) if capture_metrics else 0.0
+        window_end_s = max(time.time(), window_start_s) if capture_metrics else 0.0
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -116,9 +176,7 @@ class BaseStageAdapter:
         is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
         if failed_tasks and is_source_stage:
-            msg = (
-                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
-            )
+            msg = f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
@@ -150,8 +208,35 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        for task in results:
-            task.add_stage_perf(stage_perf_stats)
+        # Without a run-scoped collector, preserve the legacy task-attached path.
+        # With collection enabled, the collector is authoritative: copying the
+        # same invocation onto every fan-out output would multiply memory and
+        # serialization cost and invite consumers to over-count one call.
+        if not capture_metrics:
+            for task in results:
+                task.add_stage_perf(stage_perf_stats)
+        if capture_metrics:
+            from nemo_curator.utils.stage_perf_collector import record_stage_perf
+
+            # Publish once per process_batch invocation, outside the output
+            # loop. Publishing per output would over-estimate time, items, and
+            # custom metrics whenever one input fans out.
+            performance_record = {
+                "stage_name": stage_perf_stats.stage_name,
+                "stage_id": str(getattr(self.stage, "_curator_stage_id", "") or ""),
+                "invocation_id": uuid.uuid4().hex,
+                "process_time": process_elapsed_s,
+                "actor_idle_time": stage_perf_stats.actor_idle_time,
+                "num_items_processed": stage_perf_stats.num_items_processed,
+                "custom_metrics": dict(stage_perf_stats.custom_metrics),
+                "window_start_s": window_start_s,
+                "window_end_s": window_end_s,
+            }
+            record_stage_perf(self.stage, performance_record)
+            # The acknowledgement is telemetry work, not actor idle time.
+            # Start the next idle window only after the required publication
+            # has completed, without changing the legacy disabled path.
+            self._timer._last_active_time = time.time()
 
         return results
 

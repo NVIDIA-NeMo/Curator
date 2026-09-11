@@ -18,6 +18,7 @@ hydra:
 
 manifest_path: ???
 output_path: ./qwen_omni_output.jsonl
+performance_report_path: null
 workspace_dir: /tmp/qwen_omni_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
@@ -83,3 +84,4 @@ stages:
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${output_path}
+    performance_report_path: ${performance_report_path}
