@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import pytest
 import torch
 
@@ -108,3 +110,41 @@ class TestSegmentConcatenationStage:
         stage = SegmentConcatenationStage()
         result = stage.process(task)
         assert result == []
+
+    # --- output residency (write-to-disk extension) ---
+
+    def test_default_output_is_in_memory_only(self) -> None:
+        """Regression: default config keeps the in-memory waveform and writes no path."""
+        result = SegmentConcatenationStage().process(_make_nested_task([_make_segment_dict(duration_ms=1000)]))
+        assert "waveform" in result.data
+        assert "audio_filepath" not in result.data
+
+    def test_write_to_disk_persists_and_sets_path(self, tmp_path) -> None:  # noqa: ANN001
+        out_dir = tmp_path / "concat"
+        stage = SegmentConcatenationStage(write_to_disk=True, output_dir=str(out_dir))
+        segments = [
+            _make_segment_dict(duration_ms=1000, segment_num=0),
+            _make_segment_dict(duration_ms=1000, segment_num=1),
+        ]
+        result = stage.process(_make_nested_task(segments))
+        assert isinstance(result, AudioTask)
+        # default keep_waveform_in_task=True -> both the waveform AND a written path
+        assert "waveform" in result.data
+        assert "audio_filepath" in result.data
+        assert os.path.exists(result.data["audio_filepath"])
+
+    def test_write_to_disk_only_drops_waveform(self, tmp_path) -> None:  # noqa: ANN001
+        stage = SegmentConcatenationStage(
+            write_to_disk=True, output_dir=str(tmp_path / "c"), keep_waveform_in_task=False
+        )
+        result = stage.process(_make_nested_task([_make_segment_dict(duration_ms=1000)]))
+        assert "waveform" not in result.data
+        assert os.path.exists(result.data["audio_filepath"])
+
+    def test_requires_output_dir_when_write_to_disk(self) -> None:
+        with pytest.raises(ValueError, match="output_dir"):
+            SegmentConcatenationStage(write_to_disk=True)
+
+    def test_requires_at_least_one_output_sink(self) -> None:
+        with pytest.raises(ValueError, match="keep_waveform_in_task or write_to_disk"):
+            SegmentConcatenationStage(keep_waveform_in_task=False)
