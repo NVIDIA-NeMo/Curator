@@ -331,17 +331,18 @@ entries:
       - metric: num_duplicates
         exact_value: 64292856
 
-  - name: fuzzy_dedup_identification
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_20
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:commoncrawl,jsonl}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
       --cache-path={session_entry_dir}/scratch/cache
       --output-path={session_entry_dir}/scratch/output
-      --input-filetype=jsonl
+      --input-filetype=parquet
       --bands-per-iteration=20
-      --text-field=text
+      --minhash-output-format=banded
+      --text-field=raw_content
       --input-blocksize=1.5GiB
     timeout_s: 1200
     sink_data:
@@ -356,7 +357,147 @@ entries:
 
     requirements:
       - metric: num_duplicates
-        exact_value: 59226133
+        exact_value: 204527662
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_20
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --bands-per-iteration=20
+      --minhash-output-format=raw
+      --text-field=raw_content
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 204527662
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_5
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --bands-per-iteration=5
+      --minhash-output-format=banded
+      --text-field=raw_content
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 204527662
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_5
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --bands-per-iteration=5
+      --minhash-output-format=raw
+      --text-field=raw_content
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 204527662
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_1
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --bands-per-iteration=1
+      --minhash-output-format=banded
+      --text-field=raw_content
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 204527662
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_1
+    enabled: true
+    script: fuzzy_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --bands-per-iteration=1
+      --minhash-output-format=raw
+      --text-field=raw_content
+      --input-blocksize=1.5GiB
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_duplicates
+          - minhash_percent_time
+          - lsh_percent_time
+          - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+
+    requirements:
+      - metric: num_duplicates
+        exact_value: 204527662
 
   - name: minhash_file_group_task_ray_actors
     enabled: true

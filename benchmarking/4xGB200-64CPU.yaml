@@ -44,8 +44,23 @@ entries:
   - name: exact_dedup_identification
     timeout_s: 2400
 
-  - name: fuzzy_dedup_identification
-    timeout_s: 2400
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_20
+    timeout_s: 2700
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_20
+    timeout_s: 2700
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_5
+    timeout_s: 2700
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_5
+    timeout_s: 2700
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_1
+    timeout_s: 2700
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_1
+    timeout_s: 7200
 
   - name: minhash_file_group_task_ray_actors
     timeout_s: 1024

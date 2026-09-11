@@ -304,7 +304,35 @@ class TestFuzzyDuplicates:
         assert lsh_stage.use_async_memory is False
         assert lsh_stage.actor_kwargs["rmm_async"] is False
 
+    @pytest.mark.parametrize("minhash_output_format", ["raw", "banded"])
+    def test_minhash_output_format_is_forwarded(
+        self,
+        tmp_path: Path,
+        minhash_output_format: str,
+    ) -> None:
+        workflow = FuzzyDeduplicationWorkflow(
+            input_path="/dummy",
+            cache_path=str(tmp_path / minhash_output_format / "cache"),
+            output_path=str(tmp_path / minhash_output_format / "output"),
+            minhash_output_format=minhash_output_format,
+        )
+
+        minhash_stage = workflow._create_minhash_pipeline(generate_input_filegroups=False).stages[0]
+        lsh_stage = workflow._create_lsh_pipeline().stages[1]
+
+        assert minhash_stage.output_format == minhash_output_format
+        assert minhash_stage.num_bands == workflow.num_bands
+        assert lsh_stage.input_format == minhash_output_format
+        assert lsh_stage.actor_kwargs["input_format"] == minhash_output_format
+
     def test_bad_inputs(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="minhash_output_format must be"):
+            FuzzyDeduplicationWorkflow(
+                input_path="/dummy",
+                cache_path=str(tmp_path),
+                output_path=str(tmp_path),
+                minhash_output_format="invalid",
+            )
         with pytest.raises(ValueError, match="bands_per_iteration must be between"):
             # bands_per_iteration must be between 1 and num_bands
             FuzzyDeduplicationWorkflow(
