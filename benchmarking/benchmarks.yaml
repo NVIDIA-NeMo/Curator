@@ -175,7 +175,7 @@ sinks:
     thread_replies_for_failures_or_warnings_only: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
-    ping_users_on_failure: true
+    ping_users_on_failure: false
 #  - name: gdrive
 #    enabled: false
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
