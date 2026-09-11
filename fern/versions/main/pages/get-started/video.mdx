@@ -60,6 +60,16 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
   - GPU encoder: `h264_nvenc` (recommended for performance; requires an NVENC-equipped GPU — note that A100 and H100 do **not** include NVENC)
   - CPU encoder: `libvpx-vp9` (for non-NVENC GPUs; produces VP9 in `.mp4`)
 
+Some video operations, including target-resolution frame resizing and motion
+filtering, use OpenCV. The base installation does not include it; add
+`uv pip install "nemo-curator[cv2]"` before using those operations. Motion-vector
+decoding also requires the `video_cpu` or `video_cuda12` extra, which provides
+PyAV and its FFmpeg libraries. Stages that invoke the `ffmpeg` executable still
+require the FFmpeg setup above; installing `cv2` does not install that
+executable or its codecs. If you use a container image, verify the active image
+with `python -c "import cv2; print(cv2.__version__)"` and install the extra in
+the container when needed.
+
 <Tip>
 If `uv` is not installed, refer to the [Installation Guide](/get-started/installation) for setup instructions, or install it quickly with:
 

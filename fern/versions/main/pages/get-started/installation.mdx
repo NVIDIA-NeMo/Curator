@@ -216,6 +216,7 @@ NeMo Curator provides several installation extras to install only the components
 | **image_cuda12** | `uv pip install nemo-curator[image_cuda12]` | GPU-accelerated image processing with NVIDIA DALI |
 | **video_cpu** | `uv pip install nemo-curator[video_cpu]` | CPU-only video processing |
 | **video_cuda12** | `uv pip install --no-build-isolation nemo-curator[video_cuda12]` | GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`. |
+| **cv2** | `uv pip install nemo-curator[cv2]` | Optional OpenCV-based image and video operations |
 | **inference_server** | `uv pip install nemo-curator[inference_server]` | Ray Serve + vLLM for serving LLMs alongside curation pipelines |
 | **sdg_cpu** | `uv pip install nemo-curator[sdg_cpu]` | CPU-only synthetic data generation with Data Designer |
 | **sdg_cuda12** | `uv pip install nemo-curator[sdg_cuda12]` | GPU-accelerated synthetic data generation with local inference server support |
@@ -232,6 +233,46 @@ python -m pip install \
 
 All remaining dependencies, including Dynamo, NIXL, and RAPIDS packages, are
 resolved from public PyPI.
+
+### Optional OpenCV Support
+
+The base NeMo Curator installation does not install OpenCV. The `cv2` extra
+installs `opencv-python-headless` for features that decode or transform images
+with OpenCV. Install it in the same environment as Curator when you use one of
+these features:
+
+- interleaved image decoding, `InterleavedBlurFilterStage`, or
+  `InterleavedQRCodeFilterStage`;
+- Nemotron-Parse PDF postprocessing; or
+- video target-resolution frame resizing or motion-vector filtering.
+
+For a PyPI installation, run:
+
+```bash
+uv pip install "nemo-curator[cv2]"
+```
+
+For a source checkout, run:
+
+```bash
+uv sync --extra cv2
+```
+
+The `cv2` extra is intentionally separate from the `all` extra. This keeps
+OpenCV's bundled media dependencies out of installations that do not use
+OpenCV-gated features. The extra does not install or configure the `ffmpeg`
+command-line tool. Video and audio workflows that call FFmpeg still require
+the FFmpeg setup described above.
+
+Most OpenCV-gated features raise an `ImportError` that identifies the missing
+`opencv-python-headless` dependency and suggests installing
+`nemo_curator[cv2]`. Nemotron-Parse PDF processing instead logs a warning and
+skips the affected PDF when OpenCV is unavailable. To verify the active
+environment, run:
+
+```bash
+python -c "import cv2; print(cv2.__version__)"
+```
 
 For `text_cuda12`, download Curator's override file and use uv's pip-compatible
 installer with the CUDA 12.9 wheel source:

@@ -31,6 +31,7 @@ Choose your PDF source and confirm the prerequisites:
 - **Inference server**: Recommended for production. It lets the serving layer batch page requests across pipeline tasks while rendering and postprocessing scale independently. Internal PDF-pipeline comparisons found this to be the better default; benchmark your corpus before further tuning.
 - **In-process inference**: Retained for local validation and debugging. Use vLLM when possible, or set `backend="hf"` when vLLM is unavailable.
 - **`pypdfium2`**: Required Python dependency for PDF rendering. Installed automatically with the `interleaved_cpu` or `interleaved_cuda12` extras (e.g., `uv sync --extra interleaved_cuda12`).
+- **OpenCV**: Required for PDF rendering plus the postprocessing color conversion and resizing paths. Install the optional extra with `uv pip install "nemo-curator[cv2]"` (or add `--extra cv2` to a source checkout).
 - **Manifest**: A JSONL file listing the PDFs to process. Each line should specify the PDF location relative to the source directory you choose.
 
 ### Choosing a PDF Source

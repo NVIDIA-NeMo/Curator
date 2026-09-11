@@ -33,6 +33,14 @@ Blur → QR-code → Image-to-Text Ratio → CLIP Score
 
 The CLIP filter dominates cost. Putting it last means it only runs against samples that survived all other checks.
 
+<Note>
+The blur and QR-code filters, as well as the image-byte decoder used by
+interleaved image processing, require the optional `cv2` extra. Install it
+with `uv pip install "nemo-curator[cv2]"`. If it is missing, Curator raises an
+`ImportError` with the same installation hint. Interleaved readers and writers
+that only move bytes between WebDataset and Parquet do not require OpenCV.
+</Note>
+
 ## `InterleavedBlurFilterStage`
 
 Computes the [Laplacian variance](https://docs.opencv.org/4.x/d2/d2c/tutorial_py_canny.html) of each image (via OpenCV) and drops images below `score_threshold`. Lower variance means a flatter, blurrier image.
