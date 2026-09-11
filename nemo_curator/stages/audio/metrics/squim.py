@@ -26,13 +26,16 @@ from loguru import logger
 from torchaudio.pipelines import SQUIM_OBJECTIVE
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._residency import InputResidency, residency_read_specs
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
+class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that calculates Squim quality metrics for audio files.
 
@@ -45,6 +48,10 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         batch_size: Number of audio tasks to be processed at once. Defaults to 32.
         compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 32.
         segments_key: Key for the segments in the manifest. Defaults to "segments".
+        waveform_key: Key for an in-memory waveform tensor. Defaults to "waveform".
+        sample_rate_key: Key for the in-memory waveform sample rate. Defaults to "sample_rate".
+        input_residency: Which input to use — "file" (audio_filepath only; default, unchanged),
+            "waveform" (in-memory only), or "auto" (waveform first, file fallback).
 
     Returns:
         The same data as in the input data, but with Squim quality metrics added to each segment.
@@ -55,9 +62,14 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 32
     compute_batch_size: int = 32
     segments_key: str = "segments"
+    metrics_key: str = "metrics"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    input_residency: InputResidency = "file"
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
+    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     model: Any = field(default=None, repr=False)
@@ -66,18 +78,70 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.metrics_key]
+
+    def describe(self) -> StageContract:
+        # An audio source (file or in-memory waveform, per input_residency) is required;
+        # segments only refine WHERE metrics are attached (optional, read at runtime).
+        return StageContract(
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
+            writes=IOSpec(data_keys=[self.metrics_key], segment_data_keys=[self.metrics_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.metrics_key]),
+                    condition=(
+                        f"'{self.segments_key}' is absent, top-level audio resolves to a waveform, "
+                        "and whole-batch model inference completes"
+                    ),
+                    value_origin="augments_upstream_same_key",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.metrics_key]),
+                    condition=(
+                        f"'{self.segments_key}' is present; an individual segment is not marked no-speaker, "
+                        "has non-blank text and a positive requested frame span, its waveform is collected, "
+                        "and whole-batch model inference completes"
+                    ),
+                    value_origin="augments_upstream_same_key",
+                ),
+            ],
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                # ``_compute_metrics_batched`` zero-pads each batch to its longest member and
+                # calls the model with no lengths, so padding reads as silence and a clip's
+                # scores depend on which clips sorted beside it. Pass lengths and this becomes True.
+                per_row_independent=False,
+            ),
+        )
 
     def validate_input(self, task: AudioTask) -> bool:
-        """OR-shaped validation: segments OR top-level audio_filepath keys must be present."""
+        """An audio source is required; segments are optional refinement.
+
+        When ``input_residency`` allows it, an in-memory ``waveform_key``+``sample_rate_key``
+        satisfies the requirement; otherwise ``audio_filepath_key`` must be present (the
+        default, unchanged behavior).
+        """
         data = task.data
-        if hasattr(data, self.segments_key):
-            return True
-        if hasattr(data, self.audio_filepath_key):
+        has_waveform = data.get(self.waveform_key) is not None and data.get(self.sample_rate_key) is not None
+        has_file = self.audio_filepath_key in data
+        if self.input_residency == "waveform":
+            ok = has_waveform
+        elif self.input_residency == "file":
+            ok = has_file
+        else:  # auto
+            ok = has_waveform or has_file
+        if ok:
             return True
         logger.error(
-            f"Task {task.task_id} missing required attributes: "
-            f"need '{self.segments_key}' OR '{self.audio_filepath_key}'"
+            f"Task {task.task_id} missing required audio input for input_residency={self.input_residency!r}: "
+            f"need '{self.audio_filepath_key}' or '{self.waveform_key}'+'{self.sample_rate_key}' "
+            f"(segments alone are not sufficient — SQUIM loads audio)"
         )
         return False
 
@@ -126,11 +190,27 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
                 )
         return results
 
-    def _collect_waveforms_for_entry(self, task_idx: int, data_entry: dict) -> list[tuple[int, int, torch.Tensor]]:
-        """Extract valid segment waveforms from a single audio entry.
+    def _resolve_entry_audio(self, data_entry: dict) -> tuple[Any, int]:
+        """Return ``(mono_1d_audio_ndarray, sample_rate)`` from a waveform or the file.
 
-        Returns a list of (task_idx, segment_idx, waveform) tuples.
+        When ``input_residency`` allows it and an in-memory ``waveform_key``+
+        ``sample_rate_key`` is present, that waveform is used directly; otherwise the
+        audio file is read at its native sample rate (the default, unchanged behavior).
+        Per-segment slicing downstream is identical for either source.
         """
+        if self.input_residency != "file":
+            waveform = data_entry.get(self.waveform_key)
+            sr = data_entry.get(self.sample_rate_key)
+            if waveform is not None and sr is not None:
+                audio = ensure_mono(ensure_waveform_2d(waveform)).squeeze(0)
+                return audio.detach().cpu().numpy(), int(sr)
+            if self.input_residency == "waveform":
+                msg = (
+                    f"[{self.name}] Missing '{self.waveform_key}'+'{self.sample_rate_key}' for entry: "
+                    f"{data_entry.get('audio_item_id', 'unknown')} (input_residency='waveform')"
+                )
+                raise ValueError(msg)
+
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
             msg = (
@@ -138,19 +218,30 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
             raise ValueError(msg)
-
         try:
             info = sf.info(audio_path)
             sr = info.samplerate
         except Exception as ex:
             msg = f"[{self.name}] Failed to read audio info: {audio_path}"
             raise RuntimeError(msg) from ex
-
         try:
             audio, _ = librosa.load(path=audio_path, sr=sr)
         except Exception as ex:
             msg = f"[{self.name}] Failed to load audio: {audio_path}"
             raise RuntimeError(msg) from ex
+        return audio, sr
+
+    def _collect_waveforms_for_entry(self, task_idx: int, data_entry: dict) -> list[tuple[int, int, torch.Tensor]]:
+        """Extract valid segment waveforms from a single audio entry.
+
+        Returns a list of (task_idx, segment_idx, waveform) tuples.
+        """
+        audio, sr = self._resolve_entry_audio(data_entry)
+        # Names the entry in the zero-length-segment warning below. Not the path directly:
+        # ``_resolve_entry_audio`` also serves resident waveforms, which have no file, and the
+        # binding it once shared with this method moved inside it when it was extracted --
+        # leaving the warning referring to an ``audio_path`` that no longer existed here.
+        source = data_entry.get(self.audio_filepath_key) or data_entry.get("audio_item_id", "unknown")
 
         collected: list[tuple[int, int, torch.Tensor]] = []
         if self.segments_key in data_entry:
@@ -165,7 +256,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
                 end_frame = math.floor(end * sr)
 
                 if end_frame - start_frame <= 0:
-                    logger.warning(f"[{self.name}] Zero-length segment at {start}-{end}s in {audio_path}, skipping")
+                    logger.warning(f"[{self.name}] Zero-length segment at {start}-{end}s in {source}, skipping")
                     continue
 
                 y = torch.from_numpy(audio[start_frame:end_frame])
@@ -184,11 +275,11 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         self, audio_segment: dict[str, Any], pesq_val: float, stoi_val: float, sisdr_val: float
     ) -> None:
         """Update the metrics for an audio segment."""
-        if "metrics" not in audio_segment:
-            audio_segment["metrics"] = {}
-        audio_segment["metrics"]["pesq_squim"] = pesq_val
-        audio_segment["metrics"]["stoi_squim"] = stoi_val
-        audio_segment["metrics"]["sisdr_squim"] = sisdr_val
+        if self.metrics_key not in audio_segment:
+            audio_segment[self.metrics_key] = {}
+        audio_segment[self.metrics_key]["pesq_squim"] = pesq_val
+        audio_segment[self.metrics_key]["stoi_squim"] = stoi_val
+        audio_segment[self.metrics_key]["sisdr_squim"] = sisdr_val
 
     def process(self, task: AudioTask) -> AudioTask:
         """Delegate single-task processing to process_batch."""
