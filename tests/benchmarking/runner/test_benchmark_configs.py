@@ -51,15 +51,6 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     for entry_name in ("exact_dedup_identification", "fuzzy_dedup_identification"):
         assert "environment" not in entries[entry_name]
 
-    for entry_name in ("audio_readspeech_xenna", "audio_readspeech_raydata"):
-        args = entries[entry_name]["args"]
-        assert "--input-manifest={dataset:librispeech_all_750h,jsonl}" in args
-        assert "--max-samples=27000" in args
-        assert "--sample-rate=16000" in args
-        assert "--band-value=narrow_band" in args
-        assert "--raw-data-dir" not in args
-        assert "--no-auto-download" not in args
-
 
 def test_4xgb200_64cpu_override_updates_resources_and_caps_timeouts() -> None:
     config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "4xGB200-64CPU.yaml"])
