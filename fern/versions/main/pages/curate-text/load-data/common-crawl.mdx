@@ -186,7 +186,7 @@ pipeline.add_stage(writer)
 | `record_limit` | int \| None | Maximum number of records to extract per WARC file | None |
 | `add_filename_column` | bool \| str | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") | True |
 | `extractor_max_calls_per_worker` | int \| None | Restart Ray Data worker processes after this many tasks to mitigate memory fragmentation. Auto-set to `2` for `JusTextExtractor`. | Auto (`2` for jusText, `None` otherwise) |
-| `storage_options` | dict \| None | fsspec options for a remote `download_dir`, also used to read the WARCs back. Install the protocol's backend (`s3fs` for S3, `gcsfs` for GCS). | None |
+| `storage_options` | dict \| None | fsspec options for a remote `download_dir`, also used to read the WARCs back. Install the protocol's backend (`s3fs` for S3, `gcsfs` for GCS); refer to the fsspec [list of known implementations](https://filesystem-spec.readthedocs.io/en/latest/api.html#other-known-implementations). | None |
 
 ## Output Format
 
