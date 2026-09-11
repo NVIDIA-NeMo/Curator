@@ -71,7 +71,6 @@ def test_parquet_file_info_preserves_order(tmp_path: Path) -> None:
     assert [info.path for info in file_info] == files
     assert [info.num_rows for info in file_info] == [7, 7, 7]
     assert [info.embedding_elements for info in file_info] == [14, 14, 14]
-    assert all(info.embedding_bytes == info.embedding_elements * 8 for info in file_info)
 
 
 @pytest.mark.gpu
@@ -106,7 +105,6 @@ def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() 
     assert info.num_rows == 2
     assert info.metadata_bytes > 0
     assert info.embedding_elements == 4
-    assert info.embedding_bytes == info.embedding_elements * 4
 
 
 @pytest.mark.gpu
@@ -146,20 +144,3 @@ class TestBreakParquetPartitionIntoGroups:
         groups = break_parquet_partition_into_groups(file_info)
 
         assert groups == [files[:2], files[2:]]
-
-    def test_optional_embedding_byte_limit(self) -> None:
-        from nemo_curator.stages.deduplication.semantic.utils import (
-            ParquetFileInfo,
-            break_parquet_partition_into_groups,
-        )
-
-        file_info = [
-            ParquetFileInfo("large.parquet", 1, 0, embedding_bytes=700),
-            ParquetFileInfo("small-1.parquet", 1, 0, embedding_bytes=400),
-            ParquetFileInfo("small-2.parquet", 1, 0, embedding_bytes=300),
-        ]
-
-        assert break_parquet_partition_into_groups(file_info, max_embedding_bytes=1_000) == [
-            ["large.parquet"],
-            ["small-1.parquet", "small-2.parquet"],
-        ]

@@ -12,12 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+import os
+import random
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
+import cudf
 import cupy as cp
 import numpy as np
+import pylibcudf as plc
+from cudf.utils import ioutils
+from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -35,22 +43,10 @@ from .utils import (
     read_parquet_file_info,
 )
 
-if TYPE_CHECKING:
-    import cudf
-
-import gc
-import os
-import random
-import time
-
-from loguru import logger
-
 # Column names
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
-_FIT_READ_MEMORY_FRACTION = 0.8
-_PARQUET_READ_MEMORY_AMPLIFICATION = 3
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
 
@@ -187,20 +183,15 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
             raise ValueError(msg)
 
-        fit_frames = self._iter_parquet_frames(
-            fit_info,
-            [self.embedding_field],
-            max_embedding_bytes=self._max_fit_read_group_bytes(fit_info),
-        )
-        read_start = time.perf_counter()
-        first_fit_frame = next(fit_frames)
-        embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
+        fit_elements = sum(info.embedding_elements for info in fit_info)
+        embedding_width, remainder = divmod(fit_elements, fit_rows)
+        if remainder:
+            msg = f"KMeans fit sample has {fit_elements} embedding values across {fit_rows} rows"
+            raise ValueError(msg)
         fit_embeddings = cp.empty((fit_rows, embedding_width), dtype=cp.float32)
-        offset = len(first_fit_frame)
-        embeddings = fit_embeddings[:offset]
-        embeddings[...] = get_array_from_df(first_fit_frame, self.embedding_field)
-        self._normalize_embeddings_in_place(embeddings)
-        del first_fit_frame
+        fit_frames = self._iter_chunked_fit_frames(fit_info, cp.cuda.runtime.memGetInfo()[0])
+        read_start = time.perf_counter()
+        offset = 0
         for df in fit_frames:
             stop = offset + len(df)
             embeddings = fit_embeddings[offset:stop]
@@ -282,11 +273,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             fit = shuffled[:count]
         else:
             free_memory = cp.cuda.runtime.memGetInfo()[0]
-            read_reserve = max(info.embedding_bytes for info in file_info) * _PARQUET_READ_MEMORY_AMPLIFICATION
-            budget = int((free_memory - read_reserve) * _AUTO_FIT_MEMORY_FRACTION)
-            if budget <= 0:
-                msg = f"A {read_reserve}-byte Parquet read reserve leaves no GPU memory for KMeans fitting"
-                raise MemoryError(msg)
+            budget = int(free_memory * _AUTO_FIT_MEMORY_FRACTION)
             fit = []
             estimated_bytes = 0
             for info in shuffled:
@@ -313,21 +300,30 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self,
         file_info: list[ParquetFileInfo],
         columns: list[str],
-        max_embedding_bytes: int | None = None,
     ) -> Iterator["cudf.DataFrame"]:
-        for group in break_parquet_partition_into_groups(file_info, max_embedding_bytes=max_embedding_bytes):
+        for group in break_parquet_partition_into_groups(file_info):
             yield self._read_group(group, columns)
 
-    def _max_fit_read_group_bytes(self, fit_info: list[ParquetFileInfo]) -> int:
-        """Use the largest Parquet read that fits beside the resident FP32 fit data."""
-        fit_bytes = sum(info.embedding_elements * cp.dtype(cp.float32).itemsize for info in fit_info)
-        available_after_fit = cp.cuda.runtime.memGetInfo()[0] - fit_bytes
-        if available_after_fit <= 0:
-            msg = "KMeans fit allocation leaves no GPU memory for reading Parquet data"
-            raise MemoryError(msg)
-        largest_file_bytes = max(info.embedding_bytes for info in fit_info)
-        memory_bound_bytes = int(available_after_fit * _FIT_READ_MEMORY_FRACTION) // _PARQUET_READ_MEMORY_AMPLIFICATION
-        return max(largest_file_bytes, memory_bound_bytes)
+    def _iter_chunked_fit_frames(
+        self, fit_info: list[ParquetFileInfo], free_memory: int
+    ) -> Iterator["cudf.DataFrame"]:
+        read_limit = free_memory // 2
+        sources = ioutils.get_reader_filepath_or_buffer(
+            [info.path for info in fit_info], storage_options=self.input_storage_options
+        )
+        options = (
+            plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo(sources))
+            .allow_mismatched_pq_schemas(True)
+            .build()
+        )
+        options.set_column_names([self.embedding_field])
+        reader = plc.io.parquet.ChunkedParquetReader(
+            options,
+            chunk_read_limit=free_memory - read_limit,
+            pass_read_limit=read_limit,
+        )
+        while reader.has_next():
+            yield cudf.DataFrame.from_pylibcudf(reader.read_chunk())
 
     def _write_output_frame(
         self,

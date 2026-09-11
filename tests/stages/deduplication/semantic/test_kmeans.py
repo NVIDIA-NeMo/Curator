@@ -345,8 +345,8 @@ class TestKMeansStageIntegration:
             f"Expected exactly {N_CLUSTERS} centroid partitions, got {len(centroid_dirs)}"
         )
 
-    @pytest.mark.parametrize("fit_data_fraction", [0.5, 1.0])
-    def test_parquet_fit_fraction_predicts_all_rows(self, tmp_path: Path, fit_data_fraction: float) -> None:
+    @pytest.mark.parametrize("fit_data_fraction", [None, 0.5, 1.0])
+    def test_parquet_fit_fraction_predicts_all_rows(self, tmp_path: Path, fit_data_fraction: float | None) -> None:
         """Partial and full Parquet fits label every row and cluster well end-to-end."""
         input_dir, true_labels = create_clustered_dataset(tmp_path)
         output_dir = tmp_path / "output"
@@ -577,8 +577,8 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=None)
         file_info = [
             ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
-            ParquetFileInfo("float64.parquet", 10, 0, embedding_elements=20, embedding_bytes=160),
-            ParquetFileInfo("float32.parquet", 10, 0, embedding_elements=20, embedding_bytes=80),
+            ParquetFileInfo("float64.parquet", 10, 0, embedding_elements=20),
+            ParquetFileInfo("float32.parquet", 10, 0, embedding_elements=20),
         ]
 
         with (
@@ -589,13 +589,6 @@ class TestKMeansReadFitWriteStage:
 
         assert [info.path for info in fit] == ["float32.parquet", "metadata-heavy.parquet", "float64.parquet"]
         mock_logger.warning.assert_not_called()
-
-    def test_fit_read_group_uses_memory_remaining_after_fit(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage(fit_data_fraction=None)
-        fit_info = [ParquetFileInfo("fit.parquet", 10, 100, embedding_elements=100, embedding_bytes=800)]
-
-        with patch("cupy.cuda.runtime.memGetInfo", return_value=(4_000, 5_000)):
-            assert stage._max_fit_read_group_bytes(fit_info) == 960
 
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),
