@@ -130,11 +130,21 @@ def test_session_rejects_invalid_environment_block_type() -> None:
         )
 
 
-def test_session_rejects_invalid_environment_variable_name() -> None:
+@pytest.mark.parametrize("bad_name", ["", "BAD=NAME", "BAD\0NAME"])
+def test_session_rejects_invalid_environment_variable_name(bad_name: str) -> None:
     with pytest.raises(ValueError, match="environment variable name"):
         Session.from_dict(
             _config(
-                [{"name": "entry_a", "script": "benchmark.py", "environment": {"": "value"}}],
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {bad_name: "value"}}],
+            )
+        )
+
+
+def test_session_rejects_environment_value_with_nul() -> None:
+    with pytest.raises(ValueError, match="environment variable value"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {"MY_VAR": "bad\0value"}}],
             )
         )
 

@@ -301,9 +301,11 @@ Environment variables configured in YAML are merged into the current process
 environment before each benchmark subprocess starts. Top-level `environment`
 values apply to every entry. Entry-level `environment` values are merged on top
 of the top-level values and override individual variables with the same name.
-The full subprocess environment is written to the entry's `logs/stdouterr.log`
-before the command output starts; obvious secret-bearing variable names such as
-tokens, passwords, credentials, and API keys are redacted in that debug dump.
+The full list of subprocess environment variable names is written to the
+entry's `logs/stdouterr.log` before the command output starts. Values inherited
+from the parent process are redacted by default. Values configured in YAML are
+shown only when their variable names do not look secret-bearing; tokens,
+passwords, credentials, keys, webhooks, and similar values are redacted.
 
 ### Passing Configuration Files
 

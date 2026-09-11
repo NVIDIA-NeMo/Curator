@@ -160,14 +160,14 @@ def build_subprocess_environment(
     session_entry_path: Path,
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
-) -> dict[str, str]:
-    """Return the full environment for an entry subprocess."""
+) -> tuple[dict[str, str], set[str]]:
+    """Return the full subprocess environment and the configured names safe to consider for value logging."""
     entry_environment = {}
     for name, value in entry.environment.items():
         resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
         resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
         entry_environment[name] = resolved_value
-    return {**os.environ, **entry_environment}
+    return {**os.environ, **entry_environment}, set(entry_environment)
 
 
 def run_data_setup_entry(
@@ -195,11 +195,15 @@ def run_data_setup_entry(
         "logs_dir": logs_path,
     }
     try:
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            setup_entry, setup_path, path_resolver, dataset_resolver
+        )
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=setup_entry.timeout_s,
             stdouterr_path=stdouterr_path,
-            env=build_subprocess_environment(setup_entry, setup_path, path_resolver, dataset_resolver),
+            env=subprocess_env,
+            env_value_allowlist=configured_env_names,
             run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
@@ -330,12 +334,16 @@ def run_entry(  # noqa: PLR0913
             else nullcontext()
         )
         started_exec = time.time()
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            entry, session_entry_path, path_resolver, dataset_resolver
+        )
         with gpu_stats_recorder_ctx:
             run_data = run_command_with_timeout(
                 command=cmd,
                 timeout=entry.timeout_s,
                 stdouterr_path=stdouterr_path,
-                env=build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver),
+                env=subprocess_env,
+                env_value_allowlist=configured_env_names,
                 run_id=run_id,
                 fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
             )

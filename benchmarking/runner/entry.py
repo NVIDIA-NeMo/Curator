@@ -44,12 +44,21 @@ def normalize_environment(environment: dict[str, Any] | None, context: str) -> d
         if not isinstance(key, str) or not key:
             msg = f"Invalid environment variable name for {context}: {key!r}; must be a non-empty string."
             raise ValueError(msg)
+        if "=" in key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; cannot contain '='."
+            raise ValueError(msg)
+        if "\0" in key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; cannot contain NUL."
+            raise ValueError(msg)
         if not isinstance(value, str):
             msg = (
                 f"Invalid environment variable value for {context}.{key}: "
                 f"{value!r}; must be a string. Quote YAML values that should be strings."
             )
             raise TypeError(msg)
+        if "\0" in value:
+            msg = f"Invalid environment variable value for {context}.{key}: cannot contain NUL."
+            raise ValueError(msg)
         normalized[key] = value
     return normalized
 
