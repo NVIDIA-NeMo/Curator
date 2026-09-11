@@ -72,7 +72,7 @@ reaches Ray itself (not just the worker subprocess) it can make Ray import
 something unexpected and stall startup — scope it to
 `runtime_env`/`subprocess_env` instead.
 
-### Preinstalled interpreter for PDF serving
+### Preinstalled interpreter
 
 Set `runtime_env["py_executable"]` to use an existing environment. Both
 `dynamo_runtime_env()` and `merge_model_runtime_envs()` then skip the default
@@ -82,39 +82,6 @@ and model dependencies. The PDF server factory also skips its automatic
 albumentations install in this mode. Do not combine `py_executable` with an
 automatically installed `uv` environment. Shared frontend model environments
 still merge, so use a compatible interpreter/dependency set for all models.
-
-```python
-runtime_env = {
-    "py_executable": "/opt/dynamo-pdf/bin/python",
-    "env_vars": {
-        "VLLM_USE_FLASHINFER_SAMPLER": "0",
-        "CUDA_CACHE_PATH": "/cache/cuda",
-        "VLLM_CACHE_ROOT": "/cache/vllm",
-        "TRITON_CACHE_DIR": "/cache/triton",
-    },
-}
-```
-
-Mount `/cache` on persistent storage and keep the environment/version stable
-when reusing caches. FlashInfer's workspace remains run-scoped under the
-Dynamo runtime directory; it is not controlled by `VLLM_CACHE_ROOT`.
-
-The **driver/preprocessing environment also needs OpenCV** (`cv2` extra),
-which is intentionally not included in Curator's `all` extra. A healthy
-Dynamo server does not validate PDF rendering: missing OpenCV produces
-render warnings and zero output pages. Benchmark tooling additionally needs
-GitPython, PyYAML, rich, pytest, and NVML bindings. Do not assume a standalone
-serving venv contains these. In the PDF benchmark image, augment the idle base
-driver environment on the worker with:
-
-```bash
-UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --inexact --extra cv2
-source /opt/venv/bin/activate
-```
-
-`--inexact` retains benchmark/optional packages already installed in the
-image. Keep `/opt/dynamo-pdf` unchanged. The benchmark accepts the model
-runtime JSON through `--model-runtime-env`; see `benchmarking/gb200-eai-10k.yaml`.
 
 ### Package-managed runtime example
 

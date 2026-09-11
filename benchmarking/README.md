@@ -6,6 +6,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 - [Quick Start](#quick-start)
 - [Nightly Benchmark Ownership](#nightly-benchmark-ownership)
+- [GB200 EAI 10k PDF Sweep](#gb200-eai-10k-pdf-sweep)
 - [Concepts](#concepts)
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
@@ -116,6 +117,76 @@ Curator source ref or prebuilt Curator image being benchmarked, which is
 important for release-candidate and historical-image runs.
 
 ---
+
+## GB200 EAI 10k PDF Sweep
+
+`benchmarking/gb200-eai-10k.yaml` varies client concurrency while keeping four
+one-GPU Dynamo replicas, engine defaults, 25 PDFs/task, 300 DPI, 645 pages/PDF,
+and 9000 output tokens fixed. Each full entry requires one exclusive GB200
+node with 4 GPUs, 144 CPUs, 920 GiB, and a four-hour allocation. The entry
+timeout is 12,600 seconds, leaving 30 minutes for environment setup and cleanup.
+
+Use the ARM64 image
+`gitlab-master.nvidia.com:5005/praateekm/dummy-containers/nemo-curator-nightly-with-dynamo-pdf-parse-venv:20260910`
+or its imported SQSH. Required container mounts:
+
+| Host source | Container destination | Mode |
+|---|---|---|
+| Worktree | `/opt/Curator` | read-write |
+| Absolute common Git directory (for a worktree checkout) | Same absolute path | read-write |
+| Dataset `eai_10kpdfs` containing `manifest.jsonl` and `pdfs/` | YAML `eai_pdf_data.container_path` | read-only |
+| Hugging Face cache | Same path used by `HF_HOME`; must contain the YAML model snapshot | read-only |
+| Results directory | YAML `results_path.container_path` | read-write |
+| Persistent Lustre cache directory | `/cache` | read-write |
+| Task runtime directory on Lustre | `/tmp` (short Ray/socket paths) | read-write |
+| ARM64 uv installation, if absent from image PATH | `/opt/uv-bin` | read-only |
+
+Inside the container on a worker, from `/opt/Curator`:
+
+```bash
+export PATH=/opt/uv-bin:$PATH
+export UV_CACHE_DIR=/cache/uv HF_MODULES_CACHE=/cache/huggingface/modules
+export HF_HOME=/lustre/fsw/portfolios/nemotron/users/praateekm/tools_cache/hf_cache
+export HF_HUB_OFFLINE=1 PYTHONPATH=/opt/Curator TMPDIR=/tmp RAY_TMPDIR=/tmp
+UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --inexact --extra cv2
+source /opt/venv/bin/activate
+python benchmarking/run.py --config benchmarking/gb200-eai-10k.yaml \
+  --session-name YOUR_NEW_SESSION --entries-exact smoke_1pdf_attempt2
+```
+
+The driver needs OpenCV (`cv2` is opt-in even with `all`), plus GitPython,
+PyYAML, rich, pytest, and NVML bindings already provided by the benchmark image.
+`--inexact` retains existing image packages. Keep `/opt/dynamo-pdf` unchanged:
+the YAML selects its interpreter for serving actors and the frontend, sets
+`VLLM_USE_FLASHINFER_SAMPLER=0`, and stores CUDA/vLLM/Triton caches in
+`/cache/{cuda,vllm,triton}`. The serving venv alone lacks driver tooling such
+as GitPython. Driver and actor Ray versions must match.
+
+After smoke validation, run `pilot_100pdf_8clients_48sem` with the same command
+and session. Then run the four full entries on separate nodes in parallel,
+using one shared session name and a different `--entries-exact` per node:
+
+| Entry | Clients/replica | Semaphore/client | Maximum in-flight requests |
+|---|---:|---:|---:|
+| `eai_10k_8clients_48sem` | 8 | 48 | 1536 |
+| `eai_10k_12clients_48sem` | 12 | 48 | 2304 |
+| `eai_10k_8clients_64sem` | 8 | 64 | 2048 |
+| `eai_10k_12clients_64sem` | 12 | 64 | 3072 |
+
+These are concurrency ceilings, not measured vLLM batch sizes. Keep each
+entry directory unique; do not overwrite a prior run. Per-entry `results.json`
+records its environment because shared session metadata describes the most
+recent invocation. Full runs must complete 10,000 PDFs / 145,327 pages. Rank
+using `throughput_pages_per_sec`, output token throughput, and quality counters
+in `tasks.pkl`. Small pilots cannot establish saturation or rank configurations:
+their task count is below configured parallelism, which also inflates the
+`inference_stage_pages_per_sec_per_gpu` estimate.
+
+Check `ENTRY/gpustats.csv` alongside
+`ENTRY/ray_cluster/session_latest/nemo_curator_dynamo_*/Dynamo_Frontend.log`
+for latency/errors and `Dynamo_DP*.log` for running/waiting requests, KV cache,
+and generation throughput. Separate startup and drain from steady-state GPU
+utilization. Repeat promising configurations before claiming an optimum.
 
 ## Concepts
 
