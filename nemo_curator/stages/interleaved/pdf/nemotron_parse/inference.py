@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import importlib.metadata
 import io
 import time
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ from typing import Any
 import pyarrow as pa
 import torch
 from loguru import logger
+from packaging.version import Version
 from PIL import Image
 
 from nemo_curator.models.client.llm_client import GenerationConfig
@@ -61,6 +63,16 @@ def _nemotron_parse_server_generation_config(max_tokens: int) -> GenerationConfi
     config_params = {key: value for key, value in sampling_params.items() if key in _OPENAI_GENERATION_CONFIG_FIELDS}
     extra_body = {key: value for key, value in sampling_params.items() if key not in config_params}
     return GenerationConfig(**config_params, extra_kwargs={"extra_body": extra_body})
+
+
+def set_nemotron_parse_attention_backend(engine_kwargs: dict[str, Any]) -> None:
+    """Work around vLLM <0.23's FlashInfer head-count bug (vllm-project/vllm#42650)."""
+    try:
+        vllm_version = importlib.metadata.version("vllm")
+    except importlib.metadata.PackageNotFoundError:
+        return
+    if Version(vllm_version) < Version("0.23"):
+        engine_kwargs.setdefault("attention_backend", "TRITON_ATTN")
 
 
 def build_task_prompt(*, text_in_pic: bool = False) -> str:
@@ -174,11 +186,9 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         engine_kwargs = {
             "max_num_seqs": self.max_num_seqs,
             "enforce_eager": self.enforce_eager,
-            # vLLM 0.22 FlashInfer uses the wrong head count for models with
-            # different attention layouts (vllm-project/vllm#42650).
-            "attention_backend": "TRITON_ATTN",
             **(self.engine_kwargs or {}),
         }
+        set_nemotron_parse_attention_backend(engine_kwargs)
         self._llm = create_vllm_llm(resolved_path, **engine_kwargs)
         self._sampling_params = SamplingParams(**_nemotron_parse_sampling_params(self.max_tokens))
         from transformers import AutoProcessor

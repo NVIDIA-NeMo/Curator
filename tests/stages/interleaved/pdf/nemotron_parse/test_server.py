@@ -45,7 +45,11 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert server.backend.subprocess_env == {"DYN_TCP_REQUEST_TIMEOUT": "123"}
 
 
-def test_ray_serve_server_has_pdf_defaults() -> None:
+def test_ray_serve_server_has_pdf_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: "0.22.0",
+    )
     server = create_nemotron_parse_inference_server(backend="ray-serve", num_replicas=3)
 
     model = server.models[0]
@@ -53,6 +57,32 @@ def test_ray_serve_server_has_pdf_defaults() -> None:
     assert model.deployment_config == {"num_replicas": 3}
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
     assert model.engine_kwargs["attention_backend"] == "TRITON_ATTN"
+
+
+@pytest.mark.parametrize(
+    ("vllm_version", "engine_kwargs", "expected_backend"),
+    [
+        ("0.22.0", {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
+        ("0.23.0", {}, None),
+    ],
+)
+def test_ray_serve_attention_backend_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_version: str,
+    engine_kwargs: dict,
+    expected_backend: str | None,
+) -> None:
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: vllm_version,
+    )
+
+    model = create_nemotron_parse_inference_server(
+        backend="ray-serve",
+        engine_kwargs=engine_kwargs,
+    ).models[0]
+
+    assert model.engine_kwargs.get("attention_backend") == expected_backend
 
 
 @pytest.mark.parametrize("num_replicas", [0, -1])
