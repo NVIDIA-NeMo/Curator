@@ -1,0 +1,19 @@
+{"pattern": "₹", "repl": " रुपये "}
+{"pattern": "०", "repl": " "}
+{"pattern": "ऎ", "repl": "ऐ"}
+{"pattern": "ॊ", "repl": "ो"}
+{"pattern": "य़", "repl": "य"}
+{"pattern": "य़", "repl": "य"}
+{"pattern": "ऱ", "repl": "र"}
+{"pattern": "ऱ", "repl": "र"}
+{"pattern": "ॆ", "repl": "े"}
+{"pattern": "\u0007|\u200d|\u200c|\u200b|\u200f", "repl": ""}
+{"pattern": "ळ", "repl": "ल"}
+{"pattern": "वंâ", "repl": "क"}
+{"pattern": "र्वâ", "repl": "र्क"}
+{"pattern": "<hi-IN>", "repl": ""}
+{"pattern": "\u201a", "repl": ","}
+{"pattern": "_", "repl": " "}
+{"pattern": "-", "repl": " "}
+{"pattern": "\u2014", "repl": " "}
+{"pattern": "\u2013", "repl": " "}
