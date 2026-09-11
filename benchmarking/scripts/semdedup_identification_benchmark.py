@@ -198,12 +198,6 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "kmeans_actual_fit_percent": kmeans_actual_fit_percent,
             "kmeans_fit_data_fraction": kmeans_fit_data_fraction,
             "kmeans_fit_file_fraction": kmeans_fit_file_fraction,
-            "kmeans_fit_write_peak_temporary_bytes": task_metrics.get(
-                "kmeans_KMeansStage_custom.kmeans_fit_write_peak_temporary_bytes_max"
-            ),
-            "kmeans_fit_write_peak_memory_amplification": task_metrics.get(
-                "kmeans_KMeansStage_custom.kmeans_fit_write_peak_memory_amplification_max"
-            ),
             **pairwise_metrics,
             # within kmeans time
             "kmeans_read_percent_time": kmeans_read_percent_time,
