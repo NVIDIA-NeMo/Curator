@@ -120,3 +120,13 @@ class TestArxivDownloader:
             monkeypatch.setattr(subprocess, "run", fake_run_success)
             result = downloader.download(tar_filename)
             assert result == file_path
+
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_remote_download_dir_rejected(
+        self, mock_s5cmd_check: mock.Mock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ValueError, match="ArxivDownloader needs a local download_dir"):
+            ArxivDownloader("memory://x")
+        assert not (tmp_path / "memory:").exists()

@@ -175,7 +175,7 @@ pipeline.add_stage(writer)
 | --- | --- | --- | --- |
 | `start_snapshot` | str | First snapshot to include (format: "YYYY-WW" for main, "YYYY-MM" for news). Not every year and week has a snapshot; refer to the official list at [https://data.commoncrawl.org/](https://data.commoncrawl.org/). | Required |
 | `end_snapshot` | str | Last snapshot to include (same format as `start_snapshot`). Ensure your range includes at least one valid snapshot. | Required |
-| `download_dir` | str | Directory to store downloaded WARC files | Required |
+| `download_dir` | str | Local directory or fsspec URL (for example `s3://bucket/cc`) to store downloaded WARC files. Remote WARCs are staged in the local temporary directory before upload, so `TMPDIR` needs room for one WARC per download worker. | Required |
 | `crawl_type` | Literal["main", "news"] | Whether to use CC-MAIN or CC-NEWS dataset | "main" |
 | `html_extraction` | HTMLExtractorAlgorithm \| str \| None | Text extraction algorithm to use. Defaults to `JusTextExtractor()` if not specified. | JusTextExtractor() if not specified |
 | `html_extraction_kwargs` | dict \| None | Additional arguments for the HTML extractor. Ignored when `html_extraction` is a concrete extractor object (for example, `JusTextExtractor()`); pass kwargs to the extractor constructor instead. When `html_extraction` is a string ("justext", "resiliparse", or "trafilatura"), kwargs are forwarded. | None |
@@ -186,6 +186,7 @@ pipeline.add_stage(writer)
 | `record_limit` | int \| None | Maximum number of records to extract per WARC file | None |
 | `add_filename_column` | bool \| str | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") | True |
 | `extractor_max_calls_per_worker` | int \| None | Restart Ray Data worker processes after this many tasks to mitigate memory fragmentation. Auto-set to `2` for `JusTextExtractor`. | Auto (`2` for jusText, `None` otherwise) |
+| `storage_options` | dict \| None | fsspec options for a remote `download_dir`, also used to read the WARCs back. Install the protocol's backend (`s3fs` for S3, `gcsfs` for GCS). | None |
 
 ## Output Format
 
