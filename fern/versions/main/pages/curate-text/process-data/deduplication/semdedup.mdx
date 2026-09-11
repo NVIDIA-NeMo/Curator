@@ -208,18 +208,24 @@ Use FP32 storage and compute when exact or near-exact similarity thresholds make
 For the lower-level workflow and stage, the behavior of `fit_data_fraction=None` depends on the
 embedding input format:
 
-- **Parquet:** Selects as many complete files as fit 60% of the actor's currently free GPU memory. The estimate includes both the contiguous float32 fit array and the retained metadata needed to predict and write sampled rows without reading those files again.
+- **Parquet:** Selects as many complete files as fit the actor's live GPU-memory budget. Only one
+  contiguous float32 embedding array remains resident during fitting; each input frame is released
+  after its embeddings are copied into that array.
 - **JSONL:** Fits all input files in one pass because row and embedding counts are not available without reading the data.
 
-Parquet is recommended for large semantic-deduplication workloads. Its footer metadata enables exact memory sizing and reads bounded below cuDF's column-size limit. Parquet also retains sampled rows for prediction, whereas an explicit JSONL fit fraction uses one pass to fit sampled files and a second pass over all files to predict every row.
+Parquet is recommended for large semantic-deduplication workloads. Its footer metadata sizes the
+fit array, while cuDF's chunked reader bounds fit-pass memory and output column sizes. After fitting, Parquet
+rereads all files in bounded frames to predict and write every row. This keeps prediction and output
+memory independent of the fit sample size. An explicit JSONL fit fraction uses the same two-pass I/O
+pattern.
 
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
 but their I/O differs:
 
-- **Parquet:** Exact footer counts group reads below cuDF's column-size limit and size the fit array.
-  The sampled rows remain in memory for prediction, so only the files excluded from fitting are read
-  after the fit.
+- **Parquet:** Exact footer counts size one contiguous float32 fit array. cuDF reads the sampled files
+  in chunks that share the remaining GPU memory between output and decompression. The sampled frames
+  are released during the first pass; the second pass rereads all files to predict and write every row.
 - **JSONL:** The first pass reads the sampled files and fits K-means. The second pass reads all files,
   including the sampled files, to predict and write every row.
 

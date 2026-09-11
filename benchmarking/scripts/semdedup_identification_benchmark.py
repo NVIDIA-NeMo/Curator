@@ -260,10 +260,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--fit-data-fraction",
-        type=float,
+        type=lambda value: None if value == "auto" else float(value),
         default=None,
         help=(
-            "Fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all JSONL input"
+            "'auto' or fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all "
+            "JSONL input"
         ),
     )
 
