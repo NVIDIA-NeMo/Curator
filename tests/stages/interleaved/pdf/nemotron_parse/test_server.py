@@ -50,6 +50,10 @@ def test_ray_serve_server_has_pdf_defaults(monkeypatch: pytest.MonkeyPatch) -> N
         "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
         lambda _package: "0.22.0",
     )
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
+        lambda: True,
+    )
     server = create_nemotron_parse_inference_server(backend="ray-serve", num_replicas=3)
 
     model = server.models[0]
@@ -60,21 +64,28 @@ def test_ray_serve_server_has_pdf_defaults(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.parametrize(
-    ("vllm_version", "engine_kwargs", "expected_backend"),
+    ("vllm_version", "is_blackwell", "engine_kwargs", "expected_backend"),
     [
-        ("0.22.0", {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
-        ("0.23.0", {}, None),
+        ("0.22.0", True, {}, "TRITON_ATTN"),
+        ("0.22.0", True, {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
+        ("0.22.0", False, {}, None),
+        ("0.23.0", True, {}, None),
     ],
 )
 def test_ray_serve_attention_backend_compatibility(
     monkeypatch: pytest.MonkeyPatch,
     vllm_version: str,
+    is_blackwell: bool,
     engine_kwargs: dict,
     expected_backend: str | None,
 ) -> None:
     monkeypatch.setattr(
         "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
         lambda _package: vllm_version,
+    )
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
+        lambda: is_blackwell,
     )
 
     model = create_nemotron_parse_inference_server(

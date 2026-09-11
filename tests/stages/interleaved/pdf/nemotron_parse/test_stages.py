@@ -472,6 +472,10 @@ class TestNemotronParseInferenceStageMetrics:
             "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
             lambda package: "0.22.0" if package == "vllm" else package_version(package),
         )
+        monkeypatch.setattr(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
+            lambda: True,
+        )
 
         captured_kwargs: dict = {}
 
