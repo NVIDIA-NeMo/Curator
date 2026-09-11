@@ -24,7 +24,10 @@ import json
 from pathlib import Path
 
 import pytest
+from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alm.pretrain import (
     PretrainMetricsAggregatorStage,
     ReadLongFormManifestStage,
@@ -186,6 +189,58 @@ class TestReadLongFormManifestStage:
         with pytest.raises(ValueError, match="unknown audio_path_resolution"):
             stage.process(EmptyTask(dataset_name="empty", data=None))
 
+    def test_skips_malformed_segment_rows_before_reserving_ids(self, tmp_path: Path) -> None:
+        p = tmp_path / "mixed.jsonl"
+        rows = [
+            {"id": "A", "audio_filepath": "./a.wav", "segments": []},
+            {"id": "B", "audio_filepath": "./b.wav"},
+            {"id": "C", "audio_filepath": "./c.wav", "segments": {"start": 0}},
+            ["not", "an", "object"],
+            {"id": "D", "audio_filepath": "./bad.wav", "segments": "bad"},
+            {"id": "D", "audio_filepath": "./good.wav", "segments": []},
+        ]
+        with p.open("w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+
+        messages: list[str] = []
+        sink_id = logger.add(lambda message: messages.append(str(message)), format="{message}")
+        try:
+            out = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data").process(
+                EmptyTask(dataset_name="empty", data=None)
+            )
+        finally:
+            logger.remove(sink_id)
+
+        assert [task.data["id"] for task in out] == ["A", "D"]
+        assert out[1].data["audio_filepath"] == "/data/good.wav"
+        joined = "".join(messages)
+        assert "line 2: missing 'segments' list" in joined
+        assert "line 3: 'segments' is not a list" in joined
+        assert "line 4: JSON row is not an object" in joined
+        assert "line 5: 'segments' is not a list" in joined
+
+    def test_agent_ready_manifest_reader_mixed_rows(self, tmp_path: Path) -> None:
+        p = tmp_path / "agent-ready.jsonl"
+        p.write_text(
+            "\n".join(
+                [
+                    json.dumps({"id": "A", "audio_filepath": "./a.wav", "segments": []}),
+                    json.dumps({"id": "B", "audio_filepath": "./b.wav"}),
+                    json.dumps({"id": "C", "audio_filepath": "./c.wav", "segments": [_ts(0, 1)]}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
+        assert_agent_ready(
+            stage,
+            lambda: EmptyTask(dataset_name="empty", data=None),
+            expected_cardinality="1:N fan-out",
+            available_keys=set(),
+        )
+
 
 # ----------------------------------------------------------------------
 # SnippetManifestWriterStage
@@ -193,6 +248,13 @@ class TestReadLongFormManifestStage:
 
 
 class TestSnippetManifestWriterStage:
+    def test_new_key_parameter_preserves_legacy_positional_arguments(self, tmp_path: Path) -> None:
+        stage = SnippetManifestWriterStage(str(tmp_path / "out.jsonl"), "legacy-name", 7)
+
+        assert stage.name == "legacy-name"
+        assert stage.batch_size == 7
+        assert stage.snippet_id_key == "snippet_id"
+
     def test_writes_non_stub_to_shard(self, tmp_path: Path) -> None:
         out_path = str(tmp_path / "out.jsonl")
         stage = SnippetManifestWriterStage(output_path=out_path)
@@ -220,6 +282,39 @@ class TestSnippetManifestWriterStage:
         assert shard is not None
         assert not Path(shard).exists()
 
+    def test_custom_snippet_key_controls_stub_discrimination(self, tmp_path: Path) -> None:
+        stage = SnippetManifestWriterStage(
+            output_path=str(tmp_path / "out.jsonl"),
+            snippet_id_key="clip_id",
+        )
+        stage.setup()
+        stage.process(_make_audio_task({"id": "X", "clip_id": None}))
+        shard = stage._shard_path
+        assert shard is not None
+        assert not Path(shard).exists()
+
+        stage.process(_make_audio_task({"id": "X", "clip_id": "X-0-1"}))
+        row = json.loads(Path(shard).read_text(encoding="utf-8"))
+        assert row["clip_id"] == "X-0-1"
+
+    def test_contract_validation_and_agent_ready(self, tmp_path: Path) -> None:
+        stage = SnippetManifestWriterStage(
+            output_path=str(tmp_path / "out.jsonl"),
+            snippet_id_key="clip_id",
+        )
+        assert stage.validate_input(_make_audio_task({})) is False
+        assert stage.validate_input(_make_audio_task({"clip_id": "X-0-1"})) is True
+        contract = assert_agent_ready(
+            stage,
+            lambda: _make_audio_task({"id": "X", "clip_id": "X-0-1", "duration": 1.0}),
+            expected_cardinality="1:1",
+            available_keys={"clip_id"},
+            setup=True,
+        )
+        assert contract.reads.data_keys == ["clip_id"]
+        assert contract.gates.per_row_independent is False
+        assert static_contract(SnippetManifestWriterStage).gates.per_row_independent is False
+
 
 # ----------------------------------------------------------------------
 # PretrainMetricsAggregatorStage
@@ -227,6 +322,16 @@ class TestSnippetManifestWriterStage:
 
 
 class TestPretrainMetricsAggregatorStage:
+    def test_new_key_parameters_preserve_legacy_positional_arguments(self, tmp_path: Path) -> None:
+        stage = PretrainMetricsAggregatorStage(str(tmp_path / "metrics.json"), "legacy-name", 7)
+
+        assert stage.name == "legacy-name"
+        assert stage.batch_size == 7
+        assert stage.id_key == "id"
+        assert stage.snippet_id_key == "snippet_id"
+        assert stage.segments_key == "segments"
+        assert stage.duration_key == "duration"
+
     def test_writes_one_jsonl_record_per_task(self, tmp_path: Path) -> None:
         out_path = str(tmp_path / "metrics.json")
         stage = PretrainMetricsAggregatorStage(output_path=out_path)
@@ -280,3 +385,69 @@ class TestPretrainMetricsAggregatorStage:
         assert records[0]["filtered_texts"] == ["repeat one", "repeat two"]
         assert "filtered_texts" not in records[1]
         assert records[2]["filtered_texts"] == []
+
+    def test_custom_input_keys_keep_canonical_metrics_schema(self, tmp_path: Path) -> None:
+        stage = PretrainMetricsAggregatorStage(
+            output_path=str(tmp_path / "metrics.json"),
+            id_key="source_id",
+            snippet_id_key="clip_id",
+            segments_key="turns",
+            duration_key="clip_duration",
+        )
+        stage.setup()
+        task = _make_audio_task(
+            {
+                "source_id": "A",
+                "clip_id": "A-0-5",
+                "turns": [_ts(0, 5)],
+                "clip_duration": 5.0,
+            }
+        )
+        task._metadata[_PRETRAIN_META_KEY] = {}
+        stage.process(task)
+
+        shard = stage._shard_path
+        assert shard is not None
+        record = json.loads(Path(shard).read_text(encoding="utf-8"))
+        assert record["id"] == "A"
+        assert record["is_stub"] is False
+        assert record["out_segments"] == 1
+        assert record["out_duration_sec"] == pytest.approx(5.0)
+        assert "source_id" not in record
+        assert "clip_id" not in record
+
+    def test_contract_validation_agent_ready_and_static_hints(self, tmp_path: Path) -> None:
+        stage = PretrainMetricsAggregatorStage(
+            output_path=str(tmp_path / "metrics.json"),
+            id_key="source_id",
+            snippet_id_key="clip_id",
+            segments_key="turns",
+            duration_key="clip_duration",
+        )
+        assert stage.validate_input(_make_audio_task({})) is False
+        valid_data = {
+            "source_id": "A",
+            "clip_id": "A-0-5",
+            "turns": [_ts(0, 5)],
+            "clip_duration": 5.0,
+        }
+        assert stage.validate_input(_make_audio_task(valid_data)) is True
+
+        def fixture() -> AudioTask:
+            task = _make_audio_task(dict(valid_data))
+            task._metadata[_PRETRAIN_META_KEY] = {}
+            return task
+
+        contract = assert_agent_ready(
+            stage,
+            fixture,
+            expected_cardinality="1:1",
+            available_keys=set(valid_data),
+            setup=True,
+        )
+        assert contract.reads.data_keys == ["source_id", "clip_id", "turns", "clip_duration"]
+        assert contract.metadata_reads == [_PRETRAIN_META_KEY]
+
+        static = static_contract(PretrainMetricsAggregatorStage)
+        configured = build_contract(stage)
+        assert static.gates == configured.gates

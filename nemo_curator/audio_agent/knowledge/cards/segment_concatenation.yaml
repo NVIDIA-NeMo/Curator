@@ -1,0 +1,53 @@
+stage_id: SegmentConcatenationStage
+category: segment
+summary: "Concatenate nested VAD segments into a single combined waveform (in-memory by default; optionally also written to disk)."
+tags: []
+model_id: null
+domain: {language: any, style: speech}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; waveform concatenation"
+use_cases:
+  good_for: ["rejoining speech-only segments after nested VAD (silence removed)", "one clean waveform per file for downstream scoring/export", "persisting the combined waveform to disk (write_to_disk + output_dir) so file-based stages can consume it"]
+  avoid_for: ["fan-out (non-nested) VAD output", "when per-segment granularity should be kept"]
+composition:
+  typical_upstream: [VADSegmentationStage]   # nested=True
+  typical_downstream: [UTMOSFilterStage, SIGMOSFilterStage, AudioToDocumentStage]
+params_of_note:
+  silence_duration_sec: "silence gap inserted between segments (default 0.5)"
+  segments_key: "key holding the nested segments (default segments)"
+  keep_waveform_in_task: "keep the combined waveform in the task (default True, today's behavior). Set False for on-disk-only output (requires write_to_disk)."
+  write_to_disk: "also write the combined waveform to output_dir and set audio_filepath_key to it (default False). Enables file-based downstream stages."
+  output_dir: "directory for the combined WAV (REQUIRED when write_to_disk=True)."
+  audio_filepath_key: "key set to the written combined-audio path when write_to_disk=True (default audio_filepath)."
+  num_segments_key: "count of nested segments combined into the one output; see semantic_facts before filtering it."
+semantic_facts:
+  num_segments:
+    meaning: "How many nested speech segments were concatenated into this one combined waveform."
+    unit: "segments (integer)"
+    provenance: "Length of the sorted task.data['segments'] list joined in this run (concatenation.py process)."
+    scope: "the single combined output for one original file; an aggregate over the segments that were merged, NOT a per-segment value"
+    propagation: "Written once on the single emitted AudioTask (N:1 join); there is no per-segment copy after this stage."
+    counterexamples:
+      - "num_segments counts the inputs that were merged (a VAD/data property of the source), not anything downstream; filtering num_segments==1 keeps files whose VAD produced exactly one speech segment -- it is not 'single speaker' or 'one utterance kept'."
+  total_duration_sec:
+    meaning: "Duration of the recombined speech-only waveform (segments joined with silence gaps)."
+    unit: "seconds (float)"
+    provenance: "Sum of the concatenated segment durations plus inserted silence_duration_sec gaps."
+    scope: "the combined output waveform, NOT the original recording (inter/intra-speech silence was removed)."
+    propagation: "Written once on the single combined AudioTask."
+    counterexamples:
+      - "This is shorter than the original file's length because silence was dropped; do not treat it as the source recording's duration."
+param_dependencies:
+  segments_key: "requires nested segments from VADSegmentationStage(nested=True)"
+  write_to_disk: "requires output_dir; sets audio_filepath to the combined WAV."
+  keep_waveform_in_task: "at least one of keep_waveform_in_task or write_to_disk must be True."
+notes:
+  - "Expects one task per file carrying a task.data['segments'] list; sorts by segment_num and emits a single AudioTask with the combined waveform."
+  - "By default emits the combined `waveform` (in-memory). With write_to_disk=True it also writes the WAV to output_dir and sets `audio_filepath`; keep_waveform_in_task=False makes it disk-only."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-30"}

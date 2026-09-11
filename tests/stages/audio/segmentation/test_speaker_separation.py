@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import pickle
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 from pydub import AudioSegment
 
@@ -23,6 +27,7 @@ from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_se
     SpeakerResult,
     SpeakerSeparator,
 )
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -86,6 +91,54 @@ class TestSpeakerSeparationStage:
         assert item["duration"] == 5.0
         assert "waveform" in item
         assert "sample_rate" in item
+
+    # --- output residency (write-to-disk extension) ---
+
+    def test_default_output_is_in_memory_only(self) -> None:
+        """Regression: default config emits a tensor and sets no disk gate/path."""
+        contract = SpeakerSeparationStage().describe()
+        assert contract.writes.produces == ["tensor"]
+        assert contract.gates.writes_to_disk is False
+        assert "audio_filepath" not in contract.writes.data_keys
+
+    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
+    def test_write_to_disk_persists_and_sets_path(self, mock_init: MagicMock, tmp_path) -> None:  # noqa: ANN001
+        stage = SpeakerSeparationStage(min_duration=0.5, write_to_disk=True, separated_audio_dir=str(tmp_path / "sep"))
+        separator = MagicMock()
+        separator.get_speaker_audio_data.return_value = {
+            "spk_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
+        }
+        stage._separator = separator
+        item = stage.process(_make_task())[0].data
+        # default keep_waveform_in_task=True -> waveform AND a written per-speaker file
+        assert "waveform" in item
+        assert "audio_filepath" in item
+        assert os.path.exists(item["audio_filepath"])
+
+    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
+    def test_write_to_disk_only_drops_waveform(self, mock_init: MagicMock, tmp_path) -> None:  # noqa: ANN001
+        stage = SpeakerSeparationStage(
+            min_duration=0.5,
+            write_to_disk=True,
+            separated_audio_dir=str(tmp_path / "sep"),
+            keep_waveform_in_task=False,
+        )
+        separator = MagicMock()
+        separator.get_speaker_audio_data.return_value = {
+            "spk_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
+        }
+        stage._separator = separator
+        item = stage.process(_make_task())[0].data
+        assert "waveform" not in item
+        assert os.path.exists(item["audio_filepath"])
+
+    def test_requires_dir_when_write_to_disk(self) -> None:
+        with pytest.raises(ValueError, match="separated_audio_dir"):
+            SpeakerSeparationStage(write_to_disk=True)
+
+    def test_requires_at_least_one_output_sink(self) -> None:
+        with pytest.raises(ValueError, match="keep_waveform_in_task or write_to_disk"):
+            SpeakerSeparationStage(keep_waveform_in_task=False)
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
     def test_min_duration_filters_short_speakers(self, mock_init: MagicMock) -> None:
@@ -318,3 +371,57 @@ class TestExcludeOverlappingSegments:
         sep = _make_separator()
         result = sep.exclude_overlapping_segments({}, buffer_time=0.0)
         assert result == {}
+
+
+class _TinyAudioSegment:
+    """A pydub-shaped stub: just enough for the separator to hand back audio."""
+
+    sample_width = 2
+    channels = 1
+    frame_rate = 16000
+
+    def get_array_of_samples(self) -> list[int]:
+        return [0, 500, -500, 0] * 100
+
+
+# Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: it drives only
+# SpeakerSeparationStage, and was the sole coverage of fan-out metadata isolation.
+def test_agent_fanout_children_have_isolated_metadata() -> None:
+    """Fan-out children must own independent _metadata / _stage_perf copies.
+
+    Pins the de-aliasing fix behaviorally: mutating one child must not leak into a
+    sibling or the parent (the shared-reference bug class).
+    """
+
+    def fake_speaker_audio_data(*_args: Any, **_kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
+        return {
+            "spk0": SimpleNamespace(audio=_TinyAudioSegment(), duration=0.25, diar_segments=[(0.0, 0.25)]),
+            "spk1": SimpleNamespace(audio=_TinyAudioSegment(), duration=0.30, diar_segments=[(0.25, 0.55)]),
+        }
+
+    stage = SpeakerSeparationStage(
+        input_residency="waveform",
+        waveform_key="agent_waveform",
+        sample_rate_key="agent_sr",
+        min_duration=0.1,
+        resources=Resources(gpus=0.0),
+    )
+    stage._separator = SimpleNamespace(get_speaker_audio_data=fake_speaker_audio_data)
+
+    parent = AudioTask(
+        dataset_name="t",
+        data={"agent_waveform": torch.randn(1, 9600), "agent_sr": 16000},
+        _metadata={"trace": "kept"},
+        _stage_perf=["fanout-input"],
+    )
+    children = stage.process(parent)
+    assert len(children) == 2
+
+    children[0]._metadata["mutated"] = True
+    children[0]._stage_perf.append("child0-only")
+
+    assert "mutated" not in children[1]._metadata
+    assert "mutated" not in parent._metadata
+    assert "child0-only" not in children[1]._stage_perf
+    assert "child0-only" not in parent._stage_perf
+    assert children[1]._metadata["trace"] == "kept"

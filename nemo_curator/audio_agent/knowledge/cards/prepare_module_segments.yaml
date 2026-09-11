@@ -1,0 +1,27 @@
+stage_id: PrepareModuleSegmentsStage
+category: export
+summary: "Shape segments for TTS or ASR: merge same-speaker, then split on duration/pause/punctuation/bandwidth."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; segment merge/split logic"
+use_cases:
+  good_for: ["turning diarized/aligned segments into training-ready units (TTS single-speaker, ASR multi-speaker)"]
+  avoid_for: ["audio with no upstream segments/alignment"]
+composition:
+  typical_upstream: [MergeAlignmentDiarizationStage, InferenceSortformerStage]
+  typical_downstream: [SegmentExtractionStage, AudioToDocumentStage]
+params_of_note:
+  module: "'tts' (single-speaker segments) or 'asr' (multi-speaker ok)"
+  min_duration: "minimum segment duration (s)"
+  max_duration: "maximum segment duration (s)"
+  max_pause: "pause length that forces a split (s)"
+  punctuation_split_only: "split only on terminal punctuation"
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

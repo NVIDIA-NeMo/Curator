@@ -1,0 +1,104 @@
+stage_id: PyAnnoteDiarizationStage
+category: diarize
+summary: "Speaker diarization + overlap detection with pyannote 3.1 (no fixed speaker cap; needs an HF token). Passthrough writes segments, overlap_segments, and a num_speakers count. Annotates only -- does NOT separate audio."
+tags: [needs_gpu, needs_internet_first_run, needs_hf_token, writes_disk]
+model_id: "pyannote/speaker-diarization-3.1"
+model_version: "pyannote/speaker-diarization-3.1"   # stage default model_name
+# The internal long-turn VAD re-segments with randomized chunk sizes and the stage exposes no
+# seed (see notes), so the same audio can yield different segment boundaries. Reuse of a stored
+# result is therefore offered with that stated, not taken silently.
+deterministic: false
+domain: {language: any, style: conversational}   # pyannote is largely language-agnostic
+constraints:
+  input_duration_sweetspot_sec: {min: 0.5, max: 40.0}   # min_length / max_length defaults
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.2   # measured on RTX 4090 (~0.16 GB reserved, diarize forward on a 6 s clip)
+  gpu_optional: true
+  bound: gpu
+  throughput_hint: "GPU recommended; batched segmentation + speaker embeddings"
+use_cases:
+  good_for:
+    - "diarization WITH overlapping-speech detection (emits overlap_segments)"
+    - "more than 4 speakers / no fixed speaker cap"
+    - "non-English audio (largely language-agnostic)"
+    - "ASR/TTS tagging pipelines that already skip or special-case speaker=='no-speaker' (e.g. PrepareModuleSegmentsStage, TorchSquimQualityMetricsStage)"
+  avoid_for:
+    - "environments without an accepted pyannote license / HF token"
+    - "when a local no-token diarizer is required (use InferenceSortformerStage, <=4 speakers)"
+    - "direct consumption by stages that treat EVERY entry in segments as a real speaker turn -- the list also
+       holds silence/gap placeholders labeled speaker='no-speaker' (see semantic_facts.segments). Normalize those
+       rows first; this describes the emitted format, not a permanent incompatibility with downstream workflows."
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, PrepareModuleSegmentsStage]
+params_of_note:
+  hf_token: "HuggingFace token; REQUIRED (pyannote 3.1 is gated)"
+  model_name: "the pyannote pipeline id (default pyannote/speaker-diarization-3.1)"
+  min_length: "minimum segment length in s (default 0.5)"
+  max_length: "maximum segment length in s (default 40); long turns are re-segmented via an internal VAD; also used as the chunk size when filling silence gaps with no-speaker rows"
+  segmentation_batch_size: "batch size for the segmentation model (default 128; VRAM/latency knob)"
+  embedding_batch_size: "batch size for speaker embeddings (default 128)"
+  write_rttm: "also write RTTM files beside the audio (default True)"
+  fanout: "False (default) = passthrough with segments; True = one task per segment (including no-speaker placeholders unless filtered upstream of fan-out)"
+semantic_facts:
+  segments:
+    meaning: "Time-ordered coverage of the recording as a MIXED list: (1) speech turns from pyannote clustering and (2) silence/gap placeholders inserted afterward with speaker='no-speaker' (add_non_speaker_segments). Not speech-only."
+    unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds). Speech labels look like '<id>_SPEAKER_00'; silence rows use the literal string 'no-speaker'."
+    provenance: "Speech turns from pyannote 3.1 diarization (+ internal VAD re-segmentation of long turns). Gaps from 0→first turn, between turns, and last turn→duration are filled as no-speaker; when max_length is set those gaps are chunked to that length. Boundaries can vary run-to-run (randomized VAD chunking, no seed exposed)."
+    scope: "the whole recording (passthrough); fanout=True emits one task per list entry, including no-speaker rows"
+    propagation: "Written under segments alongside overlap_segments. MergeAlignmentDiarizationStage merges text/words INTO these same segment dicts and does NOT strip no-speaker rows -- silence placeholders survive who-said-what. Downstream that assumes 'every segment is a speaker turn' will see them."
+    counterexamples:
+      - "This stage ANNOTATES (labels who-spoke-when + overlaps + silence gaps); it does NOT separate/split audio into per-speaker tracks. Use SpeakerSeparationStage for that."
+      - "Do NOT read segments as 'speech turns only' (that is closer to InferenceSortformerStage.diar_segments). Filtering or windowing that requires every segment.speaker to be a real speaker will hit no-speaker rows interleaved with speech."
+      - "OverlapFilterStage drops empty text/words segments, but after ASR merge many no-speaker rows can still carry text/words and survive -- emptiness is not a reliable no-speaker filter."
+  overlap_segments:
+    meaning: "Speaker turns that overlap other speech (detected via pyannote's overlap track), kept in a SEPARATE list from segments."
+    unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds); same speaker-label vocabulary as speech rows in segments (no no-speaker fillers here)"
+    provenance: "pyannote overlap detection on the diarization result."
+    scope: "the whole recording (passthrough)"
+    propagation: "Written under overlap_segments; not merged into segments. MergeAlignmentDiarizationStage / TimestampMapperStage should consider both lists when present."
+    counterexamples:
+      - "overlap_segments is NOT a substitute for segments, and counting only one list under-counts speech activity when overlaps exist."
+  num_speakers:
+    meaning: "Total distinct speakers detected in the recording (passthrough mode only)."
+    unit: "int (distinct speaker labels across segments AND overlap_segments, excluding the 'no-speaker' silence placeholder)"
+    provenance: "Derived from the diarization result after clustering -- written under num_speakers so a downstream PreserveByValueStage can filter single-speaker clips without a separation stage. This is the OBSERVED count, not an input constraint."
+    scope: "the whole recording; written only in passthrough mode (fanout=True emits per-segment children and does not attach this count)"
+    propagation: "Written under num_speakers alongside segments/overlap_segments; no fixed speaker cap (unlike Sortformer)."
+    counterexamples:
+      - "num_speakers is the DETECTED count, not a min_speakers/max_speakers knob -- the stage still cannot be told how many speakers to find."
+      - "A non-zero num_speakers does NOT imply segments is free of no-speaker rows -- silence placeholders are excluded from the count but still present in the list."
+  speaker:
+    meaning: "Either (a) a RELATIVE per-recording cluster label for a speech turn, typically '<audio_item_id or path stem>_SPEAKER_NN', or (b) the literal silence marker 'no-speaker'. Not a global/person identity; no fixed speaker cap."
+    unit: "string label"
+    provenance: "Speech labels from pyannote speaker-embedding clustering for this clip (prefixed with audio_item_id / speaker_id / filepath stem when available). Silence labels from add_non_speaker_segments gap-fill."
+    scope: "per recording; speech labels are not comparable across files; 'no-speaker' is a shared vocabulary sentinel, not a person"
+    propagation: "Attached per turn (or per fan-out child). Survives MergeAlignmentDiarizationStage on the same segment objects."
+    counterexamples:
+      - "'Single-speaker' is a whole-clip property (exactly one distinct REAL label, ignoring no-speaker), not something a per-segment speaker field filters."
+      - "Treating 'no-speaker' as a fifth/sixth talker (e.g. in speaker-count gates that do not exclude it) inflates speaker cardinality with silence."
+comparison:
+  language_support: "language-agnostic. (external: pyannote model card)"
+  accuracy_hint: "detects overlapping speech; no fixed speaker cap. DER approx AMI 12-14%, VoxConverse 9-11%, DIHARD III 17-19% (external, 'Full' setup)"
+  config_complexity: "medium-high (needs token + license; onset/offset/batch knobs)"
+  choose_when: "you need overlap detection, >4 speakers, or non-English, and can supply an HF token. If a downstream consumer needs a speech-turn-only list, normalize out speaker=='no-speaker' first; alternatively choose InferenceSortformerStage for raw <=4-speaker English audio. Do not diarize again when an existing manifest already has suitable speaker turns."
+  known_limitations: "requires an HF token and accepting TWO gated licenses; exposes the DETECTED num_speakers count (passthrough) but has NO min_speakers/max_speakers knob; segments always include no-speaker silence placeholders after gap-fill (not optional today)"
+conflicts_with: [InferenceSortformerStage]   # alternative diarizer
+notes:
+  - "Emits BOTH `segments` and `overlap_segments`; downstream (MergeAlignmentDiarizationStage / TimestampMapperStage) should handle the overlap list too."
+  - "After speech turns are collected, `add_non_speaker_segments` fills timeline gaps with speaker='no-speaker' (chunked by max_length when set). This is intentional for tagging-style pipelines; it is not optional via a constructor flag."
+  - "Stages that already special-case no-speaker include PrepareModuleSegmentsStage (skips those turns when shaping TTS/ASR segments) and TorchSquimQualityMetricsStage (skips no-speaker / empty-text segments when scoring)."
+  - "Gated: you must accept BOTH pyannote/segmentation-3.0 AND pyannote/speaker-diarization-3.1 license terms on HuggingFace (missing the segmentation acceptance -> 401)."
+  - "Internally loads a WhisperX/pyannote VAD (vad_onset=0.5, vad_offset=0.363) to re-segment long turns with randomized chunk sizes (non-deterministic unless seeded)."
+  - "RTTM files are written beside the audio file (path not configurable) when write_rttm=True."
+  - "Sample rate: pyannote ingests 16 kHz mono and auto-downmixes + auto-resamples on load, so any input rate is accepted (no supported_sample_rates constraint). Default audio_filepath_key is resampled_audio_filepath (pairs with ResampleAudioStage)."
+  - "(external) pyannote 3.1 is pure PyTorch (3.1 removed onnxruntime)."
+caveats:
+  - "Requires a HuggingFace token and acceptance of the pyannote model license (two gated models)."
+  - "Writes RTTM files to disk when write_rttm=True."
+  - "Silence placeholders share the segments list with speech turns; consumers must filter or skip speaker=='no-speaker' if they only want talkers."
+versions:   # verified in the Curator env (has onnxruntime) -- load + run + segments/overlap_segments structure (tested 2026-07-23, RTX 4090)
+  "pyannote/speaker-diarization-3.1": "WHEN: overlap detection, >4 speakers, or non-English (with an HF token). Pure PyTorch (no onnxruntime needed); no fixed speaker cap. Stage default and the only pyannote version verified here."
+verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
+provenance: {model_card_url: "https://huggingface.co/pyannote/speaker-diarization-3.1", card_version: 5, last_validated: "2026-08-10"}

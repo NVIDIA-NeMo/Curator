@@ -345,3 +345,122 @@ def test_dataset_metadata_not_in_default_output() -> None:
     assert "text" not in result.data
     assert "book_id" not in result.data
     assert "reader_id" not in result.data
+
+
+class TestAcceptsEitherSegmentShape:
+    """Diarizers emit ``{start, end, speaker}`` dicts; VAD emits ``[start, end]`` pairs.
+
+    Reading only pairs raised ``KeyError: 0`` on real diarizer output, so a
+    diarize -> map pipeline died on the shape its own upstream stage is documented to
+    produce (``InferenceSortformerStage.diarize`` is typed ``list[list[dict[str, Any]]]``).
+    """
+
+    DICTS: ClassVar[list[dict]] = [
+        {"start": 0.0, "end": 1.5, "speaker": "speaker_0"},
+        {"start": 1.5, "end": 3.0, "speaker": "speaker_1"},
+    ]
+    PAIRS: ClassVar[list[list[float]]] = [[0.0, 1.5], [1.5, 3.0]]
+
+    def _run(self, segments: list) -> dict:
+        stage = TimestampMapperStage()
+        stage.setup()
+        out = stage.process(_make_task({"audio_filepath": "clip.wav", "diar_segments": segments}))
+        rows = out if isinstance(out, list) else [out]
+        assert len(rows) == 1
+        return rows[0].data
+
+    def test_dict_segments_from_a_diarizer_do_not_crash(self) -> None:
+        data = self._run(self.DICTS)
+        assert data["original_start_ms"] == 0
+        assert data["original_end_ms"] == 3000
+        assert data["speaking_duration"] == 3.0
+
+    def test_pair_segments_still_work_unchanged(self) -> None:
+        data = self._run(self.PAIRS)
+        assert data["original_start_ms"] == 0
+        assert data["original_end_ms"] == 3000
+        assert data["diar_segments"] == [[0.0, 1.5], [1.5, 3.0]]
+
+    def test_speaker_labels_survive_the_round_trip(self) -> None:
+        # Rewriting a diarizer's segments as bare pairs would discard the speaker -- the one
+        # thing a diarization pipeline is run to learn.
+        data = self._run(self.DICTS)
+        assert [s["speaker"] for s in data["diar_segments"]] == ["speaker_0", "speaker_1"]
+
+    def test_overlapping_speech_spans_to_the_latest_end(self) -> None:
+        # Diarized speech overlaps, so the segment that STARTS last need not FINISH last.
+        data = self._run(
+            [
+                {"start": 0.0, "end": 9.0, "speaker": "a"},
+                {"start": 1.0, "end": 2.0, "speaker": "b"},
+            ]
+        )
+        assert data["original_end_ms"] == 9000
+
+    def test_one_malformed_segment_is_skipped_not_fatal(self) -> None:
+        data = self._run([{"start": 0.0, "end": 1.5, "speaker": "a"}, {"no": "bounds"}, "garbage"])
+        assert data["original_end_ms"] == 1500
+
+    def test_the_contract_admits_that_it_sanitizes(self) -> None:
+        # It builds output from an allowlist and hard-blocks _NEVER_PASS_KEYS, so no waveform
+        # can leave it. Declaring otherwise made the validator report tensor_into_sink against
+        # a JSON sink placed after this stage -- refusing a pipeline that was already safe.
+        assert TimestampMapperStage().describe().gates.sanitizes_output is True
+
+    def test_no_waveform_key_can_escape(self) -> None:
+        stage = TimestampMapperStage()
+        stage.setup()
+        data = {"audio_filepath": "clip.wav", "diar_segments": self.PAIRS}
+        for k in _NEVER_PASS_KEYS:
+            data[k] = torch.zeros(4) if k != "segments" else [[0.0, 1.0]]
+        out = stage.process(_make_task(data))
+        rows = out if isinstance(out, list) else [out]
+        assert not (set(rows[0].data) & set(_NEVER_PASS_KEYS) - {"segments"})
+
+
+# Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: it drives only
+# TimestampMapperStage, so it belongs with the rest of that stage's regressions.
+def test_timestamp_mapper_multispeaker_maps_distinct_windows() -> None:
+    """Regression: SpeakerSep->VAD per-speaker segments map to DISTINCT original windows.
+
+    After SpeakerSeparation the separator emits full-length stems (each speaker's
+    audio overlaid on a silent track at its concat-time position), so VAD_Speaker's
+    start_ms/end_ms are concat-time and must be mapped directly through the
+    concat->original mappings. A removed guard used to discard start_ms/end_ms
+    whenever diar_segments were also present and span the diar UNION instead.
+
+    The fixture is DISCRIMINATING: each speaker's VAD start_ms/end_ms is a strict
+    sub-interval of its diar segment, so the two branches produce different output.
+    Direct mapping (the fix) yields the narrow refined window; the removed
+    diar-union guard would yield the wider whole-segment window. Asserting the
+    narrow windows therefore fails on the guarded code and pins the fix.
+    """
+    # Two concat segments; original coords differ from concat so translation is visible.
+    mappings = [
+        {"original_file": "/audio.wav", "original_start_ms": 0, "concat_start_ms": 0, "concat_end_ms": 400},
+        {"original_file": "/audio.wav", "original_start_ms": 1000, "concat_start_ms": 400, "concat_end_ms": 800},
+    ]
+    mapper = TimestampMapperStage(passthrough_keys=["speaker_id"])
+    spans = {}
+    for speaker_id, (start_ms, end_ms), diar in [
+        # VAD window (100,300) sits inside diar seg [0.0,0.4]=concat[0,400] -> fix maps to original (100,300)
+        ("speaker_0", (100, 300), [[0.0, 0.4]]),
+        # VAD window (500,700) sits inside diar seg [0.4,0.8]=concat[400,800] -> fix maps to original (1100,1300)
+        ("speaker_1", (500, 700), [[0.4, 0.8]]),
+    ]:
+        task = AudioTask(
+            dataset_name="multispeaker",
+            data={
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "diar_segments": diar,  # present alongside start/end — must NOT trigger union collapse
+                "speaker_id": speaker_id,
+                "original_file": "/audio.wav",
+            },
+            _metadata={"segment_mappings": mappings},
+        )
+        out = mapper.process(task)
+        assert isinstance(out, AudioTask)  # not dropped
+        spans[speaker_id] = (out.data["original_start_ms"], out.data["original_end_ms"])
+    # narrow refined windows; the removed guard would give (0,400) and (1000,1400)
+    assert spans == {"speaker_0": (100, 300), "speaker_1": (1100, 1300)}

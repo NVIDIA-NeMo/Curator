@@ -1,0 +1,25 @@
+stage_id: PretrainMetricsAggregatorStage
+category: alm
+summary: "Aggregate per-replica ALM pretrain metrics: append one JSONL record per task to a shard."
+tags: [sink, writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "append-per-task JSONL shard write"
+use_cases:
+  good_for: ["collecting drop/keep metrics across the ALM pretrain pipeline"]
+  avoid_for: ["general curation (not an audio sink)"]
+composition:
+  typical_upstream: [SnippetExtractionStage, SnippetManifestWriterStage]
+  typical_downstream: []
+params_of_note:
+  output_path: "path for the per-replica metrics shard"
+notes:
+  - "Per-task append (not teardown flush) is required under Xenna, which kills stage actors. finalize_audio_pretrain_outputs reads all shards after pipeline.run() and aggregates the summary JSON."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

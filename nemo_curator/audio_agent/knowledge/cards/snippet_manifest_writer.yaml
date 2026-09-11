@@ -1,0 +1,25 @@
+stage_id: SnippetManifestWriterStage
+category: export
+summary: "Append each (non-stub) ALM snippet's data as a JSONL line (snippet manifest sink)."
+tags: [sink, writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "append-per-snippet JSONL write (single replica)"
+use_cases:
+  good_for: ["writing the ALM pretrain snippet manifest"]
+  avoid_for: ["general manifests (use ManifestWriterStage)"]
+composition:
+  typical_upstream: [SnippetExtractionStage]
+  typical_downstream: []
+params_of_note:
+  output_path: "path to the snippet JSONL manifest"
+notes:
+  - "Single-replica writer; truncates once on driver setup. Origin-stub tasks (no snippet_id) pass through unchanged so the metrics aggregator still sees them."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

@@ -1,0 +1,59 @@
+stage_id: GetPairwiseWerStage
+category: quality
+summary: "Compute pairwise WER (%) between reference text and ASR pred_text."
+tags: [produces_score]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; trivial"
+use_cases:
+  good_for: ["a quick single WER% per row for accuracy filtering"]
+  avoid_for: ["data with no reference transcripts", "when you need CER/edge/PNC (use ComputeWERStage)"]
+composition:
+  typical_upstream: [ASRStage]
+  typical_downstream: [PreserveByValueStage, AudioToDocumentStage]
+params_of_note:
+  text_key: "reference transcript key (default text)"
+  pred_text_key: "ASR prediction key (default pred_text)"
+  wer_key: "output key for the WER percentage (default wer_pct)"
+metrics:
+  wer_pct:                                      # the wer_key this stage writes (a percentage)
+    scale: {min: 0.0, max: 100.0, direction: lower_better}
+    # no threshold_param: this stage annotates; filter downstream with PreserveByValueStage
+    anchors:                                    # best_guess
+      "0-10": transcription_grade               # <= 10% WER
+      "10-25": usable                           # <= 25% WER
+    valid_range: [0.0, 100.0]
+decision:
+  separable_from_producer: true
+  score_key_param: wer_key
+  score_key_default: wer_pct
+  value_type: number
+  scope: task
+  selector:
+    stage_id: PreserveByValueStage
+    key_param: input_value_key
+    value_param: target_value
+    operator_param: operator
+    allowed_operators: [lt, le, eq, ne, ge, gt]
+  missing_score_policy: selector_error
+  monotonic_direction: lower_better
+  atomic: true
+param_dependencies:
+  pred_text_key: "requires an upstream ASR prediction (e.g. ASRStage)"
+  text_key: "requires reference transcripts in the source manifest"
+comparison:
+  accuracy_hint: "single WER% (no CER/edge/PNC, no normalization)"
+  latency_hint: "cheapest WER option"
+  config_complexity: "low"
+  known_limitations: "no text normalization; requires references"
+conflicts_with: [ComputeWERStage]   # overlapping WER computation
+notes:
+  - "WER is a percentage (5.0 == 5%)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess, metrics: best_guess, decision: mechanical}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-18"}

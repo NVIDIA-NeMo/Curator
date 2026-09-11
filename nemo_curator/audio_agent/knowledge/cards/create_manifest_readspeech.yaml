@@ -1,0 +1,60 @@
+stage_id: CreateInitialManifestReadSpeechStage
+category: ingest
+summary: "Source for the DNS Challenge 5 Read Speech corpus SPECIFICALLY: downloads/extracts that archive, then emits one AudioTask per WAV. NOT a generic folder reader -- for an arbitrary folder of audio files the source is CreateInitialManifestAudioFolderStage."
+tags: [needs_internet_first_run, writes_disk]
+model_id: null
+domain: {language: en, style: read}   # DNS Challenge 5 Read Speech (Track 1 Headset)
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "download + extract (network- and disk-bound on first run)"
+use_cases:
+  good_for: ["bootstrapping a manifest from the DNS-Challenge read-speech corpus (48 kHz)"]
+  avoid_for:
+    - "a corpus handed over as an ordinary folder of audio files, including a folder of mixed or unrelated audio: use CreateInitialManifestAudioFolderStage, the generic folder source. Read-speech-sounding intent ('clean speech', 'read audio', 48 kHz WAV) is not evidence the data IS this dataset -- only provenance is. This stage does not detect the mismatch and does not refuse it (see caveats)."
+    - "any corpus other than DNS Challenge 5 Read Speech -- use that dataset's own CreateInitialManifest*Stage, or the generic folder source"
+    - "data that already has a JSONL manifest -- use ManifestReader"
+composition:
+  typical_upstream: []
+  typical_downstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage]
+conflicts_with: [CreateInitialManifestAudioFolderStage, CreateInitialManifestFleursStage, ManifestReader]
+comparison:
+  CreateInitialManifestAudioFolderStage: "the generic, dataset-agnostic folder source, and the right default whenever the corpus is simply a folder of audio rather than this specific dataset. Concretely it differs in what it reads and what it writes: it takes an `extensions` list matched case-insensitively (.wav/.flac/.mp3/.ogg/.opus/.m4a by default) where this stage walks for `.wav` case-sensitively only; it defaults to ALL files (`max_samples=-1`) where this stage defaults to 5000; it never downloads or writes audio; it adds a path-derived `audio_item_id`; and it writes no transcript and no rate, where this stage writes a constant `text` and `sample_rate` (see semantic_facts). Pick this stage only when the data's PROVENANCE is DNS Challenge 5 Read Speech."
+  CreateInitialManifestFleursStage: "the same kind of corpus-specific source for FLEURS, and the useful contrast on failure behaviour: it requires `lang`/`split` and RAISES FileNotFoundError when the expected transcript/audio layout is absent, so a mismatch there is loud. This stage's mismatch is silent."
+  ManifestReader: "reads an existing JSONL manifest instead of discovering files, so it is the source when the corpus already has one -- no scan, no download, and it carries whatever keys the manifest already holds."
+params_of_note:
+  raw_data_dir: "directory the archive is downloaded into and extracted under; also the directory scanned for already-extracted WAVs"
+  max_samples: "cap the number of emitted samples (default 5000, NOT all): truncates the sorted recursive listing"
+  auto_download: "download+extract automatically (default True). It is skipped when a recursive walk of raw_data_dir finds any *.wav, so a directory of unrelated WAVs is accepted as an already-extracted copy of the dataset."
+param_dependencies:
+  auto_download: "with the default True and no *.wav anywhere under raw_data_dir, this stage FETCHES the ~4.88 GB DNS archive into raw_data_dir. Pointing it at a folder of non-WAV audio (mp3/flac/...) therefore starts a large download into the user's own directory rather than reading what is there."
+semantic_facts:
+  sample_rate:
+    meaning: "A constant stamped on every emitted row, asserting the DNS corpus's native rate."
+    unit: "Hz (int)"
+    provenance: "Not measured. The literal 48000 is written for every file; no header is read and no decode happens."
+    scope: "one row per file, but the value describes the dataset this stage is for, not the file in hand"
+    propagation: "Copied onto every row unchanged."
+    counterexamples:
+      - "It is not the file's actual rate: a 16 kHz file scanned by this stage is emitted as sample_rate=48000."
+      - "It is not evidence the corpus is 48 kHz, so it cannot stand in for a rate probe when deciding whether a resample is needed."
+  text:
+    meaning: "Transcript slot, always written as the empty string."
+    unit: "str (always empty)"
+    provenance: "Not read from anywhere -- this dataset ships no transcripts, so the key is written empty to establish the column."
+    scope: "one row per file"
+    propagation: "Copied onto every row unchanged."
+    counterexamples:
+      - "A present `text` key does not mean transcripts exist; ASR/WER downstream of this source needs a transcribe stage first, and a WER comparison against these empty strings is meaningless rather than perfect."
+caveats:
+  - "Downloads a single ~4.88 GB archive on first run (14,279 WAV files @ 48 kHz, ~19.3 h)."
+  - "SILENT ON A MISMATCHED CORPUS. Pointed at a folder that is not this dataset it neither raises nor warns: it walks for `.wav` case-sensitively (so .WAV/.flac/.mp3/.ogg/.opus/.m4a are dropped with no message), emits the survivors labelled dataset_name='DNS-ReadSpeech' with a constant sample_rate/empty text, leaves book_id/reader_id blank because the filenames carry no book/chp/reader tokens, and truncates at max_samples. The result is a partial manifest that reads as success. When no .wav is found at all it logs an error and returns an EMPTY task list rather than raising, which surfaces later as an unexplained empty result."
+notes:
+  - "Source: Microsoft DNS-Challenge (https://github.com/microsoft/DNS-Challenge). Emits EmptyTask -> AudioTask."
+  - "Choosing a source is not a free choice: it seeds the content-addressed reuse chain, so the same corpus ingested through a different source stage produces a different step-key chain and reuses nothing from the earlier run. Decide the source from the corpus's provenance, and decide it the same way every session."
+  - "Filename parsing looks for `book`/`chp`/`reader` tokens in an underscore-split basename of at least 6 parts; anything else yields empty book_id/reader_id. It emits no audio_item_id."
+verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, resource: best_guess, domain: best_guess, use_cases: best_guess}
+provenance: {model_card_url: "https://github.com/microsoft/DNS-Challenge", card_version: 2, last_validated: "2026-08-17"}

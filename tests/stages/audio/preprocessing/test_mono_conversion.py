@@ -107,3 +107,60 @@ class TestMonoConversionStage:
             result = stage.process(task)
 
         assert result == []
+
+
+class TestMonoOutputGatingAndResidency:
+    """Which destination keys appear, and which input ``auto`` residency picks.
+
+    Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: it drives only this
+    stage, so it belongs beside the rest of MonoConversionStage's behaviour rather than in an
+    agent-simulation file, where it was the sole coverage of these two knobs.
+    """
+
+    def test_auto_residency_uses_the_tensor_and_never_reads_disk(self, tmp_path: Path) -> None:
+        """A resident waveform wins under ``auto``, even pointing at a path that cannot be read."""
+        stage = MonoConversionStage(
+            audio_filepath_key="agent_audio_path",
+            waveform_key="agent_waveform",
+            sample_rate_key="agent_sr",
+            output_audio_filepath_key="agent_mono_path",
+            output_sample_rate=16000,
+            input_residency="auto",
+            keep_waveform_in_task=True,
+            write_to_disk=False,
+        )
+        task = AudioTask(
+            dataset_name="agent",
+            data={
+                "agent_audio_path": str(tmp_path / "does_not_exist.wav"),
+                "agent_waveform": torch.stack([torch.linspace(-0.25, 0.25, 8000)] * 2),
+                "agent_sr": 16000,
+            },
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert result.data["agent_waveform"].shape[0] == 1, "the stereo tensor was mixed down in memory"
+        assert "agent_mono_path" not in result.data, "disk-path key must be absent when write_to_disk=False"
+
+    def test_disk_only_output_omits_the_waveform_key(self, tmp_path: Path) -> None:
+        """``keep_waveform_in_task=False`` must drop the tensor rather than leave it stale."""
+        stage = MonoConversionStage(
+            audio_filepath_key="agent_audio_path",
+            waveform_key="agent_waveform",
+            sample_rate_key="agent_sr",
+            output_audio_filepath_key="agent_mono_path",
+            output_sample_rate=16000,
+            input_residency="file",
+            keep_waveform_in_task=False,
+            write_to_disk=True,
+            output_dir=str(tmp_path / "mono_out"),
+        )
+        task = AudioTask(dataset_name="agent", data={"agent_audio_path": str(tmp_path / "src.wav")})
+
+        with patch(MOCK_TARGET, return_value=(torch.randn(1, 16000), 16000)), patch(MOCK_EXISTS, return_value=True):
+            result = stage.process(task)
+
+        assert "agent_mono_path" in result.data, "disk-path key must be present when write_to_disk=True"
+        assert "agent_waveform" not in result.data, "tensor must be omitted when keep_waveform_in_task=False"

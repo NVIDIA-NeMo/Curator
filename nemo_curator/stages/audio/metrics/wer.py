@@ -23,12 +23,13 @@ from nemo.collections.asr.metrics.wer import word_error_rate_detail
 from nemo_text_processing.text_normalization import Normalizer
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
+class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that computes Word Error Rate (WER), CER, edge CER, and optionally PNC WER/CER.
     This stage cleans the text and normalizes it using NeMo text processing (numbers to words, etc).
@@ -40,7 +41,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         language: Language of the text. Defaults to "en".
         hypothesis_text_key: Key to the hypothesis text. Defaults to "text".
-        reference_text_key: Key to the reference text. Defaults to "text".
+        reference_text_key: Key to the reference text. Defaults to "text_ref".
         num_words_threshold: Number of words to use for normalization. Defaults to 200.
         num_words_look_back: Number of words to look back for normalization. Defaults to 5.
         compute_pnc_wer: Whether to compute PNC WER/CER. Defaults to False.
@@ -62,6 +63,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
     edge_length: int = 12
 
     segments_key: str = "segments"
+    metrics_key: str = "metrics"
 
     # Stage metadata
     name: str = "ComputeWER"
@@ -81,7 +83,48 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["metrics"]
+        return [], [self.metrics_key]
+
+    def describe(self) -> StageContract:
+        # Mirrors validate_input's OR shape: per-segment WER over ``segments``,
+        # OR top-level WER over hypothesis+reference keys on the row.
+        return StageContract(
+            reads_one_of=[
+                IOSpec(data_keys=[self.segments_key]),
+                IOSpec(data_keys=[self.hypothesis_text_key, self.reference_text_key]),
+            ],
+            writes=IOSpec(data_keys=[self.metrics_key], segment_data_keys=[self.metrics_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.metrics_key]),
+                    condition=(
+                        f"'{self.segments_key}' is absent and the top-level "
+                        f"'{self.hypothesis_text_key}' and '{self.reference_text_key}' values are valid text; "
+                        "normalization completes and either empty-reference diagnostics or WER metrics are assigned"
+                    ),
+                    value_origin="augments_upstream_same_key",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.metrics_key]),
+                    condition=(
+                        f"'{self.segments_key}' is present and an individual segment has valid text in "
+                        f"'{self.hypothesis_text_key}' and '{self.reference_text_key}'; normalization completes "
+                        "and either empty-reference diagnostics or WER metrics are assigned"
+                    ),
+                    value_origin="augments_upstream_same_key",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.metrics_key]),
+                    condition=(
+                        f"'{self.segments_key}' is present, segment computation raises a caught KeyError "
+                        f"or ValueError, and '{self.metrics_key}.metric_skip_reason' is assigned"
+                    ),
+                    value_origin="augments_upstream_same_key",
+                ),
+            ],
+            # Each metric compares one hypothesis against its own reference, a segment at a time.
+            gates=Gates(per_row_independent=True),
+        )
 
     def validate_input(self, task: AudioTask) -> bool:
         """OR-shaped validation: segments OR top-level text keys must be present."""
@@ -193,7 +236,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
             return
 
-        metrics = audio_segment.get("metrics", {})
+        metrics = audio_segment.get(self.metrics_key, {})
 
         hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(audio_segment[self.hypothesis_text_key])
         reference_pnc, reference_clean = self.normalize_and_clean_text(audio_segment[self.reference_text_key])
@@ -202,7 +245,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
             metrics["wer"] = None
             metrics["cer"] = None
             metrics["metric_skip_reason"] = "empty_reference"
-            audio_segment["metrics"] = metrics
+            audio_segment[self.metrics_key] = metrics
             return
 
         metrics["char_rate"] = self.get_char_rate(audio_segment[self.hypothesis_text_key], duration)
@@ -299,7 +342,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
                 "sub_rate": round(sub_rate_pnc, 4),
             }
 
-        audio_segment["metrics"] = metrics
+        audio_segment[self.metrics_key] = metrics
 
     def process(self, task: AudioTask) -> AudioTask:
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
@@ -310,14 +353,14 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
                     self.get_wer(audio_segment)
                 except (KeyError, ValueError) as ex:
                     logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
-                    audio_segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
+                    audio_segment.setdefault(self.metrics_key, {})["metric_skip_reason"] = str(ex)
         else:
             self.get_wer(data_entry)
         return task
 
 
 @dataclass
-class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
+class GetPairwiseWerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Compute pairwise word-error-rate (WER) as a percentage for each pair of text and pred_text.
 
     WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``
@@ -339,6 +382,22 @@ class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key, self.wer_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.text_key, self.pred_text_key]),
+            writes=IOSpec(data_keys=[self.wer_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.wer_key]),
+                    condition=(
+                        f"both '{self.text_key}' and '{self.pred_text_key}' resolve to valid non-null text "
+                        "and pairwise WER computation completes"
+                    ),
+                )
+            ],
+            gates=Gates(per_row_independent=True),
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         """Compute WER percentage between hypothesis and reference text."""

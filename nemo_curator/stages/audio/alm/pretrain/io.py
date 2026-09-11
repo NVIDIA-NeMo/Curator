@@ -29,10 +29,12 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -98,8 +100,21 @@ def _check_duplicate_audio_basename(
     seen_basenames[basename] = row_id
 
 
+def _validate_manifest_row_shape(stage_name: str, lineno: int, entry: Any) -> dict[str, Any] | None:  # noqa: ANN401
+    if not isinstance(entry, dict):
+        logger.warning(f"[{stage_name}] line {lineno}: JSON row is not an object; skipping")
+        return None
+    if "segments" not in entry:
+        logger.warning(f"[{stage_name}] line {lineno}: missing 'segments' list; skipping")
+        return None
+    if not isinstance(entry["segments"], list):
+        logger.warning(f"[{stage_name}] line {lineno}: 'segments' is not a list; skipping")
+        return None
+    return entry
+
+
 @dataclass
-class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
+class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
 
     Each line in ``input_manifest`` is parsed as JSON and re-emitted as
@@ -154,6 +169,16 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "id", "segments"]
 
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=[self.audio_filepath_key, "id", "segments"]),
+            cardinality="1:N fan-out",
+            gates=Gates(per_row_independent=True),
+        )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+
     def num_workers(self) -> int | None:
         return 1
 
@@ -187,6 +212,13 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
                     logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
                     continue
 
+                entry = _validate_manifest_row_shape(self.name, lineno, entry)
+                if entry is None:
+                    continue
+
+                # Validate the row shape before reserving its id. A malformed
+                # first occurrence must not suppress a later valid row with
+                # the same id as a duplicate.
                 row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids)
                 if row_id is None:
                     continue
@@ -225,7 +257,7 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
 
 @dataclass
-class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Append each (non-stub) snippet's ``data`` as a JSONL line.
 
     Single-replica writer; the file is truncated once on driver setup
@@ -235,19 +267,42 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     output_path: str
-
     name: str = "SnippetManifestWriter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    # Appended after the legacy constructor fields to preserve positional calls.
+    snippet_id_key: str = "snippet_id"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            requires_serializable_input=True,
+            per_row_independent=False,
+        )
+    )
 
     def __post_init__(self) -> None:
         self._shard_path: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.snippet_id_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.snippet_id_key]),
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                requires_serializable_input=True,
+                per_row_independent=False,
+            )
+        )
 
     def setup_on_node(
         self,
@@ -268,7 +323,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"[{self.name}] writing manifest shard to {self._shard_path}")
 
     def process(self, task: AudioTask) -> AudioTask:
-        if not _is_origin_stub(task) and self._shard_path is not None:
+        if not _is_origin_stub(task, self.snippet_id_key) and self._shard_path is not None:
             with open(self._shard_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return task
@@ -280,7 +335,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
+class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Per-replica metrics aggregator.
 
     Each ``process()`` call appends one JSONL record to a per-replica
@@ -312,20 +367,47 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     output_path: str
-
     name: str = "PretrainMetricsAggregator"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    # Appended after the legacy constructor fields to preserve positional calls.
+    id_key: str = "id"
+    snippet_id_key: str = "snippet_id"
+    segments_key: str = "segments"
+    duration_key: str = "duration"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key", "snippet_id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            per_row_independent=False,
+        )
+    )
 
     def __post_init__(self) -> None:
         self._shard_path: str | None = None
         self._seen_ids: set[str] = set()
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]),
+            metadata_reads=[_PRETRAIN_META_KEY],
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                # The summary it writes is a total over every row of the corpus, so a run over
+                # part of the corpus produces a different (and smaller) truth.
+                per_row_independent=False,
+            ),
+        )
 
     def setup_on_node(
         self,
@@ -346,11 +428,11 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         if self._shard_path is None:
             return task
-        original_id = str(task.data.get("id") or "")
+        original_id = str(task.data.get(self.id_key) or "")
         if not original_id:
             return task
         meta = task._metadata.get(_PRETRAIN_META_KEY, {})
-        is_stub = _is_origin_stub(task)
+        is_stub = _is_origin_stub(task, self.snippet_id_key)
         record: dict[str, Any] = {
             "id": original_id,
             "in_segments": int(meta.get("original_seg_count", 0)),
@@ -364,8 +446,8 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
                 "repetition": int(meta.get("dropped_repetition", 0)),
             },
             "is_stub": is_stub,
-            "out_segments": 0 if is_stub else len(task.data.get("segments") or []),
-            "out_duration_sec": 0.0 if is_stub else float(task.data.get("duration", 0.0)),
+            "out_segments": 0 if is_stub else len(task.data.get(self.segments_key) or []),
+            "out_duration_sec": 0.0 if is_stub else float(task.data.get(self.duration_key, 0.0)),
         }
         if original_id not in self._seen_ids:
             self._seen_ids.add(original_id)

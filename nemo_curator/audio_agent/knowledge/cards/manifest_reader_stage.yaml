@@ -1,0 +1,24 @@
+stage_id: ManifestReaderStage
+category: ingest
+summary: "Inner reader: turn a FileGroupTask into one AudioTask per JSONL line (streaming)."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "line-by-line streaming via fsspec (~1x file size in memory)"
+use_cases:
+  good_for: ["the read half of the ManifestReader composite"]
+  avoid_for: ["direct use in a recipe -- prefer ManifestReader, which also partitions the input"]
+composition:
+  typical_upstream: [ManifestReader]   # via the composite's FilePartitioningStage
+  typical_downstream: [MonoConversionStage, ResampleAudioStage]
+conflicts_with: [ManifestReader]   # the composite that wraps this; use one, not both
+notes:
+  - "Consumes a FileGroupTask (not EmptyTask); it is the low-level component of ManifestReader. Use ManifestReader unless you are building a custom partitioning front-end."
+verified: {tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-26"}

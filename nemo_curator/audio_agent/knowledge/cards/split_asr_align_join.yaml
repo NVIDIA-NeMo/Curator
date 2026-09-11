@@ -1,0 +1,46 @@
+stage_id: SplitASRAlignJoinStage
+category: segment
+summary: "Composite: split long audio -> NeMo ASR align -> join transcripts/alignments back to originals (emits top-level text + alignment)."
+tags: [needs_gpu, needs_internet_first_run, writes_disk]
+model_id: "nvidia/parakeet-tdt_ctc-1.1b (default; any NeMo ASR checkpoint)"
+model_version: "nvidia/parakeet-tdt_ctc-1.1b"   # stage default model_name
+domain: {language: "checkpoint-dependent (default = English)", style: read+conversational}
+constraints:
+  supported_sample_rates: [16000]   # inner aligner needs 16 kHz mono (no internal resample)
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 8.6   # measured on RTX 4090 (parakeet-tdt_ctc-1.1b, CTC decode, batch 4); dominated by the inner ASR aligner
+  gpu_optional: false
+  bound: gpu
+  throughput_hint: "GPU ASR inference dominates; the split + join are CPU"
+use_cases:
+  good_for: ["end-to-end transcribe + word-align very long recordings in one stage (emits a top-level `alignment`)"]
+  avoid_for:
+    - "short clips (they pass through unsplit; use ASRStage with NeMoASRAdapter / NeMoASRAlignerStage directly)"
+    - "input without a `segments` list -- its internal SplitLongAudioStage needs it (produce it with VADSegmentationStage upstream)"
+composition:
+  typical_upstream: [VADSegmentationStage, ResampleAudioStage, ManifestReader]
+  typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage]
+params_of_note:
+  suggested_max_len: "target chunk length for the internal split (s, default 3600 -> only hour-plus files split; tune down to ~600-1200 for memory-bound ASR)"
+  model_name: "the NeMo ASR checkpoint id (default nvidia/parakeet-tdt_ctc-1.1b)"
+  decoder_type: "'rnnt' (default; the TDT head) or 'ctc'. CTC avoids CUDA graphs, so it is the safer fallback if RNNT decode crashes with a CUDA-graph error."
+  max_len: "max aligned segment length (s) for the inner aligner"
+  transcribe_batch_size: "files per GPU inference batch (default 32)"
+  output_dir: "where the internal split writes its chunk WAVs. Default None puts them beside the source audio. Setting it collects them in one folder -- tidier, but it also turns OFF this stage's per-row independence, because a shared flat namespace cannot separate two rows naming the same path with different segments. That forfeits incremental reuse: a later one-file addition recomputes the whole pipeline instead of merging one row. Real trade, not a default to change blindly."
+param_dependencies:
+  suggested_max_len: "the internal SplitLongAudioStage needs a `segments` list per entry (produce it with VADSegmentationStage upstream). Full who-said-what flow: VADSegmentationStage -> SplitASRAlignJoinStage (emits top-level `alignment`) with a diarizer for `diar_segments` -> MergeAlignmentDiarizationStage."
+comparison:
+  language_support: "checkpoint-dependent. Default nvidia/parakeet-tdt_ctc-1.1b is English-only. (external)"
+  accuracy_hint: "word alignments from the inner NeMo aligner"
+  config_complexity: "medium"
+  choose_when: "you have long recordings and want transcript + word alignment in one runnable stage. For short clips call NeMoASRAlignerStage / ASRStage with NeMoASRAdapter directly."
+  known_limitations: "GPU required; needs 16 kHz mono; the inner split writes chunk WAVs to disk beside the source (or into output_dir, which costs per-row independence -- see params_of_note)"
+notes:
+  - "Composite of SplitLongAudioStage + NeMoASRAlignerStage + JoinSplitAudioMetadataStage (always run together); the inner split writes chunk WAV files to disk."
+  - "Requires upstream `segments` (e.g. VADSegmentationStage) and `duration`; emits a top-level `alignment` that MergeAlignmentDiarizationStage consumes."
+  - "decoder_type default 'rnnt' = the hybrid checkpoint's TDT head; use 'ctc' for CTC-style timestamps / LM biasing."
+  - "If the inner aligner crashes with a CUDA-graph / NVRTC error (e.g. CUDA error 222), the usual cause is a GPU-driver vs CUDA-toolkit mismatch, not this stage -- run the `doctor` verb for the diagnosis and fix steps. Stage-level quick unblock: decoder_type='ctc' (this hybrid tdt_ctc checkpoint has a CTC head; no CUDA graphs, no model change)."
+  - "(external) nvidia/parakeet-tdt_ctc-1.1b: English, hybrid FastConformer TDT-CTC, 16 kHz mono, punctuation + capitalization, up to ~11 h per pass, CC-BY-4.0."
+verified: {params: mechanical, tags: best_guess, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt_ctc-1.1b", card_version: 4, last_validated: "2026-07-27"}

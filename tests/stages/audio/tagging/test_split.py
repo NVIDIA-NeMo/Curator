@@ -12,17 +12,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
+from fsspec.core import url_to_fs
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
+    MergeAlignmentDiarizationStage,
+)
 from nemo_curator.stages.audio.tagging.split import (
     JoinSplitAudioMetadataStage,
+    SplitASRAlignJoinStage,
     SplitLongAudioStage,
 )
 from nemo_curator.tasks import AudioTask
+
+
+def _patch_audio_io(monkeypatch: pytest.MonkeyPatch, saved_paths: list[str]) -> None:
+    def fake_load(_path: str) -> tuple[np.ndarray, int]:
+        return np.linspace(-0.5, 0.5, 80, dtype=np.float32)[None, :], 10
+
+    def fake_save(path: str, waveform: np.ndarray, sample_rate: int) -> None:
+        saved_paths.append(path)
+        sf.write(path, waveform.T, sample_rate)
+
+    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.load", fake_load)
+    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.save", fake_save)
+
+
+def test_additive_fields_preserve_legacy_positional_arguments() -> None:
+    splitter = SplitLongAudioStage(120.0, 2.0, "custom-split")
+    joiner = JoinSplitAudioMetadataStage("transcript", "custom-join")
+    composite = SplitASRAlignJoinStage(120.0, 2.0, "legacy/model")
+
+    assert splitter.name == "custom-split"
+    assert splitter.duration_key == "duration"
+    assert splitter.output_dir is None
+    assert joiner.text_key == "transcript"
+    assert joiner.name == "custom-join"
+    assert joiner.split_filepaths_key == "split_filepaths"
+    assert composite.model_name == "legacy/model"
+    assert composite.output_dir is None
 
 
 class TestSplitLongAudioStageGetSplitPoints:
@@ -105,22 +142,325 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         assert result.data["split_offsets"] == [0.0, 1.0, 2.0]
         assert all(sf.info(path).frames == sample_rate for path in result.data["split_filepaths"])
 
+    def test_default_output_paths_remain_source_adjacent(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        """The default keeps the exact sibling path format used before output_dir existed."""
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        source_path = tmp_path / "recording.flac"
+        stage = SplitLongAudioStage(suggested_max_len=5.0, min_len=0.5)
+        task = audio_task(
+            duration=8.0,
+            audio_item_id="sample",
+            resampled_audio_filepath=str(source_path),
+            segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+        )
+
+        result = stage.process(task)
+
+        expected_paths = [
+            str(tmp_path / "recording.1_of_2.wav"),
+            str(tmp_path / "recording.2_of_2.wav"),
+        ]
+        assert saved_paths == expected_paths
+        assert result.data["split_filepaths"] == expected_paths
+        assert [entry["resampled_audio_filepath"] for entry in result.data["split_metadata"]] == expected_paths
+
+    def test_output_dir_redirects_written_and_returned_split_paths(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        """An explicit output_dir contains every written and returned chunk."""
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        source_dir = tmp_path / "input"
+        source_dir.mkdir()
+        source_path = source_dir / "recording.flac"
+        output_dir = tmp_path / "smoke-chunks"
+        stage = SplitLongAudioStage(
+            suggested_max_len=5.0,
+            min_len=0.5,
+            output_dir=str(output_dir),
+        )
+        task = audio_task(
+            duration=8.0,
+            audio_item_id="sample",
+            resampled_audio_filepath=str(source_path),
+            segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+        )
+
+        result = stage.process(task)
+
+        stem = stage._shared_output_stem("recording", str(source_path), [4.0], 10, 80)
+        expected_paths = [
+            str(output_dir / f"{stem}.1_of_2.wav"),
+            str(output_dir / f"{stem}.2_of_2.wav"),
+        ]
+        assert output_dir.is_dir()
+        assert saved_paths == expected_paths
+        assert result.data["split_filepaths"] == expected_paths
+        assert [entry["resampled_audio_filepath"] for entry in result.data["split_metadata"]] == expected_paths
+        assert not list(source_dir.glob("recording.*_of_2.wav"))
+
+    def test_two_recordings_sharing_a_basename_do_not_overwrite_each_other(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        output_dir = tmp_path / "chunks"
+
+        for speaker in ("spk1", "spk2"):
+            source_dir = tmp_path / speaker
+            source_dir.mkdir()
+            stage = SplitLongAudioStage(suggested_max_len=5.0, min_len=0.5, output_dir=str(output_dir))
+            stage.process(
+                audio_task(
+                    duration=8.0,
+                    audio_item_id="utt1",
+                    resampled_audio_filepath=str(source_dir / "utt1.wav"),
+                    segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+                )
+            )
+
+        assert len(saved_paths) == len(set(saved_paths)), f"one speaker overwrote the other: {saved_paths}"
+
+    def test_same_source_with_different_split_plans_gets_distinct_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+        source_path = tmp_path / "same.wav"
+        output_dir = tmp_path / "chunks"
+        plans = [
+            [{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+            [{"start": 0.0, "end": 3.0}, {"start": 3.0, "end": 8.0}],
+        ]
+        emitted: list[list[str]] = []
+
+        for segments in plans:
+            result = SplitLongAudioStage(
+                suggested_max_len=5.0,
+                min_len=0.5,
+                output_dir=str(output_dir),
+            ).process(
+                audio_task(
+                    duration=8.0,
+                    audio_item_id="same",
+                    resampled_audio_filepath=str(source_path),
+                    segments=segments,
+                )
+            )
+            emitted.append(result.data["split_filepaths"])
+
+        assert set(emitted[0]).isdisjoint(emitted[1])
+        assert len(saved_paths) == len(set(saved_paths)) == 4
+        assert sorted(sf.info(path).frames for path in saved_paths) == [30, 40, 40, 50]
+
+    def test_known_short_source_hash_collision_gets_distinct_shared_paths(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        first = "/dataset/spk25433/utt.wav"
+        second = "/dataset/spk158142/utt.wav"
+        assert hashlib.sha256(first.encode()).hexdigest()[:8] == hashlib.sha256(second.encode()).hexdigest()[:8]
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
+
+        for source in (first, second):
+            SplitLongAudioStage(
+                suggested_max_len=5.0,
+                min_len=0.5,
+                output_dir=str(tmp_path / "chunks"),
+            ).process(
+                audio_task(
+                    duration=8.0,
+                    audio_item_id="utt",
+                    resampled_audio_filepath=source,
+                    segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+                )
+            )
+
+        assert len(saved_paths) == len(set(saved_paths)) == 4
+
+    def test_remote_output_paths_are_written_through_fsspec(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        local_writes: list[str] = []
+        _patch_audio_io(monkeypatch, local_writes)
+        output_dir = f"memory://split-{tmp_path.name}"
+        result = SplitLongAudioStage(
+            suggested_max_len=5.0,
+            min_len=0.5,
+            output_dir=output_dir,
+        ).process(
+            audio_task(
+                duration=8.0,
+                audio_item_id="remote",
+                resampled_audio_filepath=str(tmp_path / "source.wav"),
+                segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+            )
+        )
+
+        assert all(path.startswith(f"{output_dir}/") for path in result.data["split_filepaths"])
+        for advertised in result.data["split_filepaths"]:
+            fs, path = url_to_fs(advertised)
+            assert fs.exists(path)
+        assert local_writes
+        assert all(not Path(path).exists() for path in local_writes)
+
+    def test_remote_output_cleans_local_temp_when_save_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        local_writes: list[str] = []
+        _patch_audio_io(monkeypatch, local_writes)
+
+        def fail_save(path: str, waveform: np.ndarray, sample_rate: int) -> None:
+            local_writes.append(path)
+            sf.write(path, waveform.T, sample_rate)
+            message = "local encoding failed"
+            raise OSError(message)
+
+        monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.save", fail_save)
+        stage = SplitLongAudioStage(
+            suggested_max_len=5.0,
+            min_len=0.5,
+            output_dir=f"memory://split-failure-{tmp_path.name}",
+        )
+
+        with pytest.raises(OSError, match="local encoding failed"):
+            stage.process(
+                audio_task(
+                    duration=8.0,
+                    audio_item_id="remote",
+                    resampled_audio_filepath=str(tmp_path / "source.wav"),
+                    segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+                )
+            )
+
+        assert len(local_writes) == 1
+        assert not Path(local_writes[0]).exists()
+
+    def test_static_contract_exposes_conservative_split_gates(self, tmp_path: Path) -> None:
+        static = static_contract(SplitLongAudioStage)
+        configured_default = build_contract(SplitLongAudioStage())
+        configured_shared = build_contract(SplitLongAudioStage(output_dir=str(tmp_path)))
+
+        assert static.gates.writes_to_disk is True
+        assert static.gates.output_path_params == ["output_dir"]
+        assert static.gates.per_row_independent is False
+        assert configured_default.gates.per_row_independent is True
+        assert configured_shared.gates.per_row_independent is False
+
+
+def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
+    """Composite construction forwards both redirected and legacy defaults."""
+    output_dir = str(tmp_path / "smoke-chunks")
+    redirected_splitter = SplitASRAlignJoinStage(output_dir=output_dir).decompose()[0]
+    default_splitter = SplitASRAlignJoinStage().decompose()[0]
+
+    assert isinstance(redirected_splitter, SplitLongAudioStage)
+    assert redirected_splitter.output_dir == output_dir
+    assert isinstance(default_splitter, SplitLongAudioStage)
+    assert default_splitter.output_dir is None
+
 
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 
+    def test_contract_guarantees_outputs_and_removes_temporary_keys(self) -> None:
+        stage = JoinSplitAudioMetadataStage(
+            text_key="transcript",
+            alignment_key="word_alignment",
+            split_filepaths_key="chunk_paths",
+            split_metadata_key="chunks",
+        )
+
+        contract = build_contract(stage)
+
+        assert contract.writes.data_keys == ["transcript", "word_alignment"]
+        assert contract.removes_keys == ["chunk_paths", "chunks"]
+
     def test_no_split_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
-        """Entry with split_filepaths=None (no split occurred) returns entry without key."""
+        """No-split preserves existing outputs while dropping both temporary keys."""
         stage = JoinSplitAudioMetadataStage()
+        original_alignment = [{"word": "hello", "start": 0.0, "end": 0.5}]
         task = audio_task(
             audio_item_id="x",
             split_filepaths=None,
+            split_metadata=[{"text": "must not replace the top-level value"}],
+            split_offsets=[1.25],
+            split_timestamps=[2.5],
             text="hello",
+            alignment=original_alignment,
         )
-        result = stage.process(task)
-        out = result.data
+
+        assert_agent_ready(
+            stage,
+            lambda: task,
+            available_keys={
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+            },
+        )
+
+        out = task.data
         assert "split_filepaths" not in out
+        assert "split_metadata" not in out
         assert out["text"] == "hello"
+        assert out["alignment"] is original_alignment
+        assert out["split_offsets"] == [1.25]
+        assert out["split_timestamps"] == [2.5]
+
+    def test_empty_split_supplies_safe_defaults(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Empty split metadata supplies outputs without removing unrelated split timing."""
+        stage = JoinSplitAudioMetadataStage()
+        task = audio_task(
+            audio_item_id="empty",
+            split_filepaths=[],
+            split_metadata=[],
+            split_offsets=[],
+            split_timestamps=[],
+        )
+
+        assert_agent_ready(
+            stage,
+            lambda: task,
+            available_keys={
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+            },
+        )
+
+        assert task.data["text"] == ""
+        assert task.data["alignment"] == []
+        assert "split_filepaths" not in task.data
+        assert "split_metadata" not in task.data
+        assert task.data["split_offsets"] == []
+        assert task.data["split_timestamps"] == []
 
     def test_join_split_metadata_concatenates_text_and_alignments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Meta-entry with split_metadata joins text and adjusts alignment timestamps."""
@@ -145,9 +485,21 @@ class TestJoinSplitAudioMetadataStage:
                 },
             ],
             split_offsets=[0.0, 5.0],
+            split_timestamps=[5.0],
         )
-        result = stage.process(task)
-        out = result.data
+
+        assert_agent_ready(
+            stage,
+            lambda: task,
+            available_keys={
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+            },
+        )
+
+        out = task.data
         assert out["text"] == "first part second part"
         assert "split_filepaths" not in out
         assert "split_metadata" not in out
@@ -159,3 +511,46 @@ class TestJoinSplitAudioMetadataStage:
         assert align[2]["word"] == "second"
         assert align[2]["start"] == 5.0
         assert align[2]["end"] == 5.5
+
+    @pytest.mark.parametrize(
+        ("removed_key", "consumer"),
+        [
+            (
+                "split_filepaths",
+                MergeAlignmentDiarizationStage(alignment_key="split_filepaths"),
+            ),
+            (
+                "split_metadata",
+                MergeAlignmentDiarizationStage(segments_key="split_metadata"),
+            ),
+        ],
+    )
+    def test_planner_does_not_carry_removed_temporary_key(
+        self,
+        removed_key: str,
+        consumer: MergeAlignmentDiarizationStage,
+    ) -> None:
+        report = validate_pipeline(
+            [JoinSplitAudioMetadataStage(), consumer],
+            initial_roles={"alignment", "segments", "text"},
+            initial_keys={
+                "alignment",
+                "segments",
+                "split_filepaths",
+                "split_metadata",
+                "split_offsets",
+                "split_timestamps",
+                "text",
+            },
+            initial_task_type="AudioTask",
+        )
+
+        assert report.ok
+        assert not report.keys_ok
+        assert removed_key not in report.produced_keys
+        assert any(
+            issue.stage_index == 1
+            and issue.code == "dangling_key"
+            and removed_key in issue.message
+            for issue in report.issues
+        )

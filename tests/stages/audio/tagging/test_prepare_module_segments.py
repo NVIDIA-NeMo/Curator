@@ -190,7 +190,7 @@ def test_prepare_module_segments_stage_sdp_style_input(
         max_pause=2,
         text_key="text",
         words_key="words",
-        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001
+        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001 - fullwidth CJK punctuation is the test input
         full_utterance_ratio=1.0,
         punctuation_split_only=False,
     )

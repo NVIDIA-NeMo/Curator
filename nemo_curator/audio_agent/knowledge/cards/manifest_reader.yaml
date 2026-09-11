@@ -1,0 +1,29 @@
+stage_id: ManifestReader
+category: ingest
+summary: "Read JSONL manifest(s) and emit one AudioTask per line (composite: partition + read)."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "streaming line-by-line read (~1x file size in memory)"
+use_cases:
+  good_for: ["starting a pipeline from an existing JSONL manifest (local or cloud S3/GCS)"]
+  avoid_for: ["bootstrapping from a raw dataset with no manifest (use a CreateInitialManifest* stage)"]
+composition:
+  typical_upstream: []
+  typical_downstream: [MonoConversionStage, ResampleAudioStage, GetAudioDurationStage]
+params_of_note:
+  manifest_path: "path or list of paths to JSONL manifests (local or cloud)"
+  files_per_partition: "number of manifest files per partition (default 1)"
+  blocksize: "target partition size (alternative to files_per_partition)"
+  storage_options: "fsspec storage options for cloud paths"
+conflicts_with: [ManifestReaderStage]   # the inner component; use one, not both
+notes:
+  - "Composite of FilePartitioningStage + ManifestReaderStage; this is the stage to use directly (ManifestReaderStage is its inner read half)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-26"}

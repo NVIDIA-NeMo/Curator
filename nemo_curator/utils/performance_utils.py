@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import contextlib
 import statistics
+import sys
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import attrs
 from loguru import logger
@@ -26,6 +27,57 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from nemo_curator.stages.base import ProcessingStage
+
+
+def begin_resource_probe(stage: Any) -> bool:  # noqa: ANN401
+    """Reset CUDA peak accounting for a GPU-reserving stage when available.
+
+    Returns whether a matching VRAM reading can be collected after processing.
+    Every failure is observational only; resource telemetry must never change
+    whether a stage can execute.
+    """
+    try:
+        resources = getattr(stage, "resources", None)
+        if float(getattr(resources, "gpus", 0.0) or 0.0) <= 0:
+            return False
+        import torch
+
+        if not torch.cuda.is_available():
+            return False
+        torch.cuda.reset_peak_memory_stats()
+        return True  # noqa: TRY300 - trivial guard, no else needed
+    except Exception:  # noqa: BLE001 - metrics are best-effort
+        return False
+
+
+def resource_probe_metrics(
+    *,
+    gpu_probe_started: bool,
+    process_time: float,
+    num_items: int,
+) -> dict[str, float]:
+    """Best-effort worker RSS, CUDA peak allocation, and throughput metrics."""
+    metrics: dict[str, float] = {}
+    try:
+        import resource
+
+        peak_rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        # Linux reports KiB; macOS reports bytes.
+        peak_rss_bytes = peak_rss if sys.platform == "darwin" else peak_rss * 1024
+        if peak_rss_bytes >= 0:
+            metrics["peak_host_mem_gb"] = peak_rss_bytes / (1024**3)
+    except Exception:  # noqa: BLE001, S110 - unsupported platform/worker
+        pass
+    if gpu_probe_started:
+        try:
+            import torch
+
+            metrics["peak_vram_gb"] = float(torch.cuda.max_memory_allocated()) / (1024**3)
+        except Exception:  # noqa: BLE001, S110 - telemetry cannot fail execution
+            pass
+    if process_time > 0 and num_items >= 0:
+        metrics["throughput"] = float(num_items) / process_time
+    return metrics
 
 
 @attrs.define
