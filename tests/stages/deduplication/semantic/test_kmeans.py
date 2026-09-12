@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import re
-from contextlib import suppress
+from contextlib import closing, suppress
 from pathlib import Path
 from typing import Literal
 from unittest.mock import Mock, patch
@@ -36,7 +36,11 @@ from sklearn.metrics import adjusted_rand_score
 with suppress(ImportError):
     from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
-    from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
+    from nemo_curator.stages.deduplication.semantic.kmeans import (
+        KMeansReadFitWriteStage,
+        KMeansStage,
+        _KMeansPartitionedWriter,
+    )
     from nemo_curator.stages.deduplication.semantic.utils import ParquetFileInfo, get_array_from_df
     from nemo_curator.tasks import FileGroupTask
 
@@ -345,8 +349,8 @@ class TestKMeansStageIntegration:
             f"Expected exactly {N_CLUSTERS} centroid partitions, got {len(centroid_dirs)}"
         )
 
-    @pytest.mark.parametrize("fit_data_fraction", [0.5, 1.0])
-    def test_parquet_fit_fraction_predicts_all_rows(self, tmp_path: Path, fit_data_fraction: float) -> None:
+    @pytest.mark.parametrize("fit_data_fraction", [None, 0.5, 1.0])
+    def test_parquet_fit_fraction_predicts_all_rows(self, tmp_path: Path, fit_data_fraction: float | None) -> None:
         """Partial and full Parquet fits label every row and cluster well end-to-end."""
         input_dir, true_labels = create_clustered_dataset(tmp_path)
         output_dir = tmp_path / "output"
@@ -378,7 +382,7 @@ class TestKMeansStageIntegration:
         assert np.load(npy).shape == (N_CLUSTERS, EMBEDDING_DIM)
 
         df = cudf.read_parquet(output_dir).sort_values("id", ignore_index=True)
-        # A partial fit predicts the unread files; a full fit reuses labels already produced by fit.
+        # Both paths reread and predict every input row after releasing the fit matrix.
         assert len(df) == len(true_labels)
         ari = adjusted_rand_score(df["centroid"].to_numpy(), true_labels)
         assert ari > 0.95, f"ARI too low at fit_data_fraction={fit_data_fraction}: {ari:.3f}"
@@ -516,13 +520,14 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(embedding_output_dtype=embedding_output_dtype)
         embeddings = cp.asarray([[1.0, 0.0], [0.6, 0.8]], dtype=cp.float32)
 
-        stage._write_output_frame(
-            "output.parquet",
+        frame = stage._prepare_output_frame(
             cudf.DataFrame({"id": [1, 2]}),
             embeddings,
             cp.asarray([0, 1], dtype=cp.int32),
             stage.kmeans.cluster_centers_,
         )
+        with closing(_KMeansPartitionedWriter(stage, embeddings.shape[1])) as writer:
+            writer.write("output.parquet", frame)
 
         output = cudf.read_parquet(stage.output_path)
         stored_embeddings = get_array_from_df(output, "embeddings")
@@ -531,6 +536,139 @@ class TestKMeansReadFitWriteStage:
         decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
         cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
         cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
+
+    @pytest.mark.parametrize("remote", [False, True])
+    def test_partitioned_writer_preserves_storage_options(
+        self, make_stage: "KMeansReadFitWriteStage", remote: bool
+    ) -> None:
+        stage = make_stage(write_kwargs={"storage_options": {"skip_instance_cache": True}, "row_group_size_rows": 1})
+        if remote:
+            stage.output_path = f"memory://{Path(stage.output_path).name}"
+        with closing(_KMeansPartitionedWriter(stage, 2)) as writer:
+            for index in range(2):
+                frame = stage._prepare_output_frame(
+                    cudf.DataFrame({"id": [index * 2, index * 2 + 1], "source": ["a string", "another string"]}),
+                    cp.eye(2, dtype=cp.float32),
+                    cp.asarray([0, 1], dtype=cp.int32),
+                    stage.kmeans.cluster_centers_,
+                )
+                writer.write(f"{index}.parquet", frame)
+        output = cudf.read_parquet(stage.output_path, storage_options=stage.output_storage_options).sort_values("id")
+        assert output.id.to_arrow().to_pylist() == [0, 1, 2, 3]
+        assert output.source.to_arrow().to_pylist() == ["a string", "another string"] * 2
+
+    @pytest.mark.parametrize("file_uri", [False, True])
+    def test_partitioned_writer_reuses_sinks_when_centroids_appear_late(
+        self, make_stage: "KMeansReadFitWriteStage", file_uri: bool
+    ) -> None:
+        stage = make_stage(n_clusters=3)
+        output_path = Path(stage.output_path)
+        if file_uri:
+            stage.output_path = output_path.as_uri()
+        with (
+            closing(_KMeansPartitionedWriter(stage, 2)) as writer,
+            patch.object(writer.fs, "makedirs", wraps=writer.fs.makedirs) as makedirs,
+        ):
+            for index, centroid in enumerate([0, 1, 0]):
+                frame = stage._prepare_output_frame(
+                    cudf.DataFrame({"id": [index], "source": [f"row-{index}"]}),
+                    cp.asarray([[1.0, 0.0]], dtype=cp.float32),
+                    cp.asarray([centroid], dtype=cp.int32),
+                    stage.kmeans.cluster_centers_,
+                )
+                writer.write(f"{index}.parquet", frame)
+            assert makedirs.call_count == 2
+        files = sorted(output_path.rglob("*.parquet"))
+        assert len(files) == 2
+        assert {path.parent.name for path in files} == {"centroid=0", "centroid=1"}
+        output = cudf.read_parquet(stage.output_path).sort_values("id")
+        assert output.id.to_arrow().to_pylist() == [0, 1, 2]
+        assert output.centroid.astype("int32").to_arrow().to_pylist() == [0, 1, 0]
+        assert output.source.to_arrow().to_pylist() == ["row-0", "row-1", "row-2"]
+
+    @pytest.mark.parametrize("embedding_output_dtype", ["float16", "float32"])
+    def test_concurrent_prediction_preserves_partitioned_rows(
+        self, tmp_path: Path, embedding_output_dtype: str
+    ) -> None:
+        import threading
+
+        import rmm
+
+        from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
+        from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+
+        input_path = tmp_path / "input"
+        input_path.mkdir()
+        paths = []
+        expected = cp.random.RandomState(42).normal(size=(8192, 64)).astype(cp.float32)
+        for i in range(8):
+            frame = cudf.DataFrame({"id": cp.arange(i * 1024, (i + 1) * 1024), "source": [f"file-{i}"] * 1024})
+            frame["embeddings"] = create_list_series_from_1d_or_2d_ar(expected[i * 1024 : (i + 1) * 1024], frame.index)
+            path = str(input_path / f"{i}.parquet")
+            frame.to_parquet(path, index=False)
+            paths.append(path)
+        stage = KMeansReadFitWriteStage(
+            id_field="id",
+            embedding_field="embeddings",
+            output_path=str(tmp_path / "output"),
+            filetype="parquet",
+            n_clusters=2,
+            metadata_fields=["source"],
+            embedding_output_dtype=embedding_output_dtype,
+            predict_write_workers=2,
+            max_samples_per_batch=32,
+        )
+        centroids = cp.eye(2, 64, dtype=cp.float32)
+        info = read_parquet_file_info(paths, retained_columns=["id", "source"], embedding_column="embeddings")
+        from nemo_curator.stages.deduplication.semantic.kmeans_utils import plan_kmeans_prediction
+
+        threads = set()
+        read = stage._read_group
+
+        def read_group(*args) -> "cudf.DataFrame":
+            threads.add(threading.get_ident())
+            return read(*args)
+
+        upstream = rmm.mr.get_current_device_resource()
+        with (
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.plan_kmeans_prediction",
+                side_effect=lambda info, **options: plan_kmeans_prediction(
+                    info, **(options | {"memory_budget": 16 * 2**20})
+                ),
+            ),
+            patch.object(stage, "_read_group", side_effect=read_group),
+            patch("nemo_curator.stages.deduplication.semantic.kmeans.CUDF_COLUMN_SIZE_LIMIT", 2000 * 64 + 1),
+        ):
+            rows, phase_times = stage._predict_write_parquet(info, ["id", "embeddings", "source"], "test", centroids)
+        metrics = stage._consume_custom_metrics()
+        assert metrics["kmeans_second_pass_time"] > 0
+        assert all(0 <= elapsed <= metrics["kmeans_second_pass_time"] for elapsed in phase_times.values())
+        assert rmm.mr.get_current_device_resource() is upstream
+        assert len(threads) == 2
+        assert rows == len(expected)
+        output = cudf.read_parquet(stage.output_path).sort_values("id").reset_index(drop=True)
+        cp.testing.assert_array_equal(output.id.values, cp.arange(len(expected)))
+        assert output.source.to_arrow().to_pylist() == [f"file-{i}" for i in range(8) for _ in range(1024)]
+        expected /= cp.linalg.norm(expected, axis=1, keepdims=True)
+        labels = cp.argmax(expected[:, :2], axis=1).astype(cp.int32)
+        cp.testing.assert_array_equal(output.centroid.astype("int32").values, labels)
+        stored = get_array_from_df(output, "embeddings")
+        if embedding_output_dtype == "float16":
+            stored = stored.view(cp.float16)
+        cp.testing.assert_allclose(stored, expected, atol=3e-4)
+        cp.testing.assert_allclose(
+            output.l2_dist_to_cent.values, cp.linalg.norm(expected - centroids[labels], axis=1), rtol=1e-6
+        )
+        assert all(path.parent.name.startswith("centroid=") for path in Path(stage.output_path).rglob("*.parquet"))
+        import pyarrow.parquet as pq
+
+        assert max(pq.read_metadata(path).num_rows for path in Path(stage.output_path).rglob("*.parquet")) <= 2000
+
+        stage.write_kwargs = {"compression": "invalid"}
+        with pytest.raises(ValueError, match="compression"):
+            stage._predict_write_parquet(info, ["id", "embeddings", "source"], "failure", centroids)
+        assert rmm.mr.get_current_device_resource() is upstream
 
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:
@@ -559,39 +697,36 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=0.5)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", i + 1, 10) for i in range(5)]
 
-        fit, prediction_only = stage._sample_fit_files(file_info)
+        fit = stage._sample_fit_files(file_info)
 
         assert len(fit) == 2
-        assert {info.path for info in fit}.isdisjoint(info.path for info in prediction_only)
-        assert {info.path for info in [*fit, *prediction_only]} == {info.path for info in file_info}
+        assert {info.path for info in fit}.issubset(info.path for info in file_info)
 
     def test_full_fit_samples_every_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """A fraction of one is the explicit full-fit path used by the scale benchmark."""
         stage = make_stage(fit_data_fraction=1.0)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", 1, 0) for i in range(5)]
 
-        fit, prediction_only = stage._sample_fit_files(file_info)
+        fit = stage._sample_fit_files(file_info)
 
         assert {info.path for info in fit} == {info.path for info in file_info}
-        assert prediction_only == []
 
-    def test_auto_fit_budget_includes_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        """Auto-fit budgets retained metadata as well as the preallocated embedding buffer."""
+    def test_auto_fit_budget_uses_only_persistent_fp32_embeddings(self, make_stage: "KMeansReadFitWriteStage") -> None:
         stage = make_stage(fit_data_fraction=None)
         file_info = [
             ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
-            ParquetFileInfo("fits.parquet", 10, 0, embedding_elements=20),
+            ParquetFileInfo("float64.parquet", 10, 0, embedding_elements=20),
+            ParquetFileInfo("float32.parquet", 10, 0, embedding_elements=20),
         ]
 
         with (
-            patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)),
+            patch("cupy.cuda.runtime.memGetInfo", return_value=(1_300, 2_000)),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
-            fit, prediction_only = stage._sample_fit_files(file_info)
+            fit = stage._sample_fit_files(file_info)
 
-        assert [info.path for info in fit] == ["fits.parquet"]
-        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
-        assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
+        assert [info.path for info in fit] == ["float32.parquet", "metadata-heavy.parquet", "float64.parquet"]
+        mock_logger.warning.assert_not_called()
 
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),

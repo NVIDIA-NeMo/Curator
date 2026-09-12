@@ -140,15 +140,15 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     num_duplicates = workflow_run_result.metadata.get("num_duplicates")
 
     # Calculate percentage times
-    kmeans_read_percent_time = None
-    kmeans_write_percent_time = None
-    kmeans_fit_predict_percent_time = None
+    kmeans_read_percent_time = kmeans_write_percent_time = kmeans_fit_predict_percent_time = None
     kmeans_percent_time = None
     pairwise_percent_time = None
     kmeans_footer_scan_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_footer_scan_time_mean", 0)
     kmeans_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_read_time_mean", 0)
     kmeans_write_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_write_time_mean", 0)
     kmeans_fit_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_time_mean", 0)
+    kmeans_fit_read_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_read_time_mean")
+    kmeans_second_pass_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_second_pass_time_mean")
     kmeans_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_predict_time_mean", 0)
     kmeans_fit_predict_time = task_metrics.get(
         "kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean",
@@ -168,7 +168,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         # while this is just sum of mean time taken across actors across the three steps
         _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time
 
-        if _kmeans_time_taken > 0:
+        # Two-pass read/predict/write activity overlaps; it is not an exclusive phase breakdown.
+        if kmeans_second_pass_time is None and _kmeans_time_taken > 0:
             kmeans_read_percent_time = round((kmeans_read_time / _kmeans_time_taken) * 100, 2)
             kmeans_write_percent_time = round((kmeans_write_time / _kmeans_time_taken) * 100, 2)
             kmeans_fit_predict_percent_time = round((kmeans_fit_predict_time / _kmeans_time_taken) * 100, 2)
@@ -190,6 +191,8 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
             "kmeans_footer_scan_time_s": kmeans_footer_scan_time,
             "kmeans_read_time_s": kmeans_read_time,
             "kmeans_fit_time_s": kmeans_fit_time,
+            "kmeans_fit_read_time_s": kmeans_fit_read_time,
+            "kmeans_second_pass_time_s": kmeans_second_pass_time,
             "kmeans_predict_time_s": kmeans_predict_time,
             "kmeans_write_time_s": kmeans_write_time,
             "kmeans_fit_rows": kmeans_fit_rows,
@@ -260,10 +263,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--fit-data-fraction",
-        type=float,
+        type=lambda value: None if value == "auto" else float(value),
         default=None,
         help=(
-            "Fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all JSONL input"
+            "'auto' or fraction of whole files used to fit KMeans; by default, auto-size Parquet fitting or fit all "
+            "JSONL input"
         ),
     )
 
