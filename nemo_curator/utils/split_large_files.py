@@ -50,6 +50,18 @@ def _join_out_path(output_path: str, filename: str, storage_options: dict[str, A
 
 
 def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
+    if table.num_rows <= 1:
+        # A single row cannot be split any further, so return it as its own
+        # chunk even if it is larger than the target size. Without this base
+        # case, bisecting a one-row table produces the same one-row table
+        # forever and the recursion never terminates (RecursionError).
+        if table.num_rows == 1 and table.nbytes > target_size:
+            logger.warning(
+                "Single row ({} bytes) exceeds target ({} bytes); writing it as its own shard",
+                table.nbytes,
+                target_size,
+            )
+        return [table]
     # Split table into two chunks
     tables = [table.slice(0, table.num_rows // 2), table.slice(table.num_rows // 2, table.num_rows)]
     results = []
