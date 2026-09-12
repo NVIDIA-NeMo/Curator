@@ -108,9 +108,12 @@ after some files are already downloaded, rerun the same pipeline with the same
 skips any completed, non-empty WARC files that already exist in `download_dir`
 and downloads only the missing files.
 
-The downloader writes each in-progress file to a temporary `.tmp` path, then
-moves it into place after a successful download. This means a cancelled or
-failed download does not look like a completed WARC file on the next run.
+For a local `download_dir`, the downloader writes each in-progress file to a
+temporary `.tmp` path, then moves it into place after a successful download.
+For a remote `download_dir`, it stages the file in the local temporary
+directory and uploads it only after the download succeeds. Either way, a
+cancelled or failed download does not look like a completed WARC file on the
+next run.
 
 ```python
 from nemo_curator.core.client import RayClient
