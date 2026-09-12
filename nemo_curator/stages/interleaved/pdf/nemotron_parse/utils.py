@@ -378,6 +378,7 @@ def build_interleaved_rows(  # noqa: PLR0913
             "source_ref": None,
             "url": url,
             "page_number": None,
+            "source_bbox": None,
             "pdf_name": pdf_name,
             "element_class": None,
         }
@@ -398,7 +399,6 @@ def build_interleaved_rows(  # noqa: PLR0913
         for elem in ordered:
             cls = elem["class"]
             bbox = elem.get("bbox")
-            source_ref = json.dumps({"page": page_num, "bbox": bbox})
 
             if cls == "Picture":
                 modality, content_type = "image", "image/png"
@@ -421,9 +421,10 @@ def build_interleaved_rows(  # noqa: PLR0913
                     "content_type": content_type,
                     "text_content": text,
                     "binary_content": binary,
-                    "source_ref": source_ref,
+                    "source_ref": None,
                     "url": url,
                     "page_number": page_num,
+                    "source_bbox": bbox,
                     "pdf_name": pdf_name,
                     "element_class": cls,
                 }

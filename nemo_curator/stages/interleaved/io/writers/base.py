@@ -17,20 +17,23 @@ from __future__ import annotations
 import uuid
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
-from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema, resolve_schema
+from nemo_curator.stages.interleaved.utils.schema import align_interleaved_table, resolve_schema
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
 from nemo_curator.utils.hash_utils import get_deterministic_hash
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass
@@ -39,7 +42,7 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
 
     Handles filesystem setup, deterministic file naming, optional binary
     materialization, schema alignment, and process() orchestration.
-    Subclasses implement ``_write_dataframe`` for format-specific output.
+    Subclasses implement ``_write_table`` for format-specific output.
 
     If *schema* is set, every output table is aligned to it (missing columns
     become typed nulls, extra columns are dropped, types are reconciled).
@@ -111,33 +114,44 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
             logger.info("materialize: dropped {} samples with errors", len(bad_samples))
         return out
 
-    def _align_output(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _align_output(self, df: pd.DataFrame) -> pa.Table:
         """Reconcile or align *df* to the declared schema."""
         table = pa.Table.from_pandas(df, preserve_index=False)
-        if self.schema is not None:
-            table = align_table(table, self.schema)
-        else:
-            table = table.cast(reconcile_schema(table.schema))
-        return table.to_pandas(types_mapper=pd.ArrowDtype)
+        return align_interleaved_table(table, self.schema)
 
-    def _write_dataframe(self, df: pd.DataFrame, file_path: str, write_kwargs: dict[str, Any]) -> None:
-        """Format-specific DataFrame writer. Subclasses must implement this.
+    def _prepare_table(self, task: InterleavedBatch) -> pa.Table:
+        table = task.data
+        error_index = table.schema.get_field_index("materialize_error") if isinstance(table, pa.Table) else -1
+        if (
+            isinstance(table, pa.Table)
+            and not self.materialize_on_write
+            and (error_index < 0 or table.column(error_index).null_count == table.num_rows)
+        ):
+            table = align_interleaved_table(table, self.schema)
+            image_rows = pc.sum(pc.equal(table.column("modality"), "image")).as_py() or 0
+            self._log_metrics({"rows_out": float(table.num_rows), "image_rows": float(image_rows)})
+            if error_index >= 0:
+                self._log_metric("materialize_errors", 0.0)
+            return table
+
+        with self._time_metric("materialize_dataframe_total_s"):
+            return self._align_output(self._materialize_dataframe(task))
+
+    def _write_table(self, table: pa.Table, file_path: str, write_kwargs: dict[str, Any]) -> None:
+        """Format-specific Arrow table writer. Subclasses must implement this.
 
         Subclasses that override ``write_data()`` or ``process()`` directly
         (e.g. writers that do not follow the one-file-per-task pattern) may
         override this method as a no-op instead.
         """
         msg = (
-            f"{type(self).__name__} must override `_write_dataframe()`, or override "
+            f"{type(self).__name__} must override `_write_table()`, or override "
             "`write_data()` / `process()` so that output data is actually written."
         )
         raise NotImplementedError(msg)
 
     def write_data(self, task: InterleavedBatch, file_path: str) -> None:
-        with self._time_metric("materialize_dataframe_total_s"):
-            df = self._materialize_dataframe(task)
-        df = self._align_output(df)
-        self._write_dataframe(df, file_path, self._effective_write_kwargs)
+        self._write_table(self._prepare_table(task), file_path, self._effective_write_kwargs)
 
     def process(self, task: InterleavedBatch) -> FileGroupTask:
         if source_files := task._metadata.get("source_files"):

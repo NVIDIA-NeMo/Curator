@@ -20,15 +20,22 @@ and schema alignment (null-fill + reorder).
 
 from __future__ import annotations
 
+import json
+
 import pyarrow as pa
 from loguru import logger
 
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
+from nemo_curator.utils.storage_utils import FILE_REFERENCE_TYPE
 
 _LARGE_COMPAT: dict[tuple[pa.DataType, pa.DataType], pa.DataType] = {
     (pa.large_string(), pa.string()): pa.large_string(),
     (pa.large_binary(), pa.binary()): pa.large_binary(),
 }
+
+
+def _parse_legacy_json(column: pa.ChunkedArray) -> list[dict[str, object]]:
+    return [json.loads(value) if value else {} for value in column.to_pylist()]
 
 
 def reconcile_schema(inferred: pa.Schema) -> pa.Schema:
@@ -117,6 +124,31 @@ def align_interleaved_table(table: pa.Table, schema: pa.Schema | None = None) ->
     types while passthrough columns are preserved. With an explicit schema, the
     table is padded, reordered, and cast exactly to that schema.
     """
+    source_ref_index = table.schema.get_field_index("source_ref")
+    source_ref = table.column(source_ref_index) if source_ref_index >= 0 else None
+    if source_ref is not None and source_ref.type in (pa.string(), pa.large_string()):
+        refs = _parse_legacy_json(source_ref)
+        for ref in refs:
+            if (path := ref.get("path")) is not None:
+                ref.update(
+                    uri=str(path),
+                    offset=int(ref["byte_offset"]) if ref.get("byte_offset") is not None else None,
+                    size=int(ref["byte_size"]) if ref.get("byte_size") is not None else None,
+                )
+        file_refs = (ref if ref.get("path") is not None else None for ref in refs)
+        table = table.set_column(source_ref_index, "source_ref", pa.array(file_refs, type=FILE_REFERENCE_TYPE))
+        for name, key, dtype in (
+            ("source_member", "member", pa.string()),
+            ("source_frame_index", "frame_index", pa.int32()),
+            ("page_number", "page", pa.int64()),
+            ("source_bbox", "bbox", pa.list_(pa.float64())),
+        ):
+            if name not in table.column_names:
+                table = table.append_column(name, pa.array((ref.get(key) for ref in refs), type=dtype))
+    elif source_ref is not None and pa.types.is_struct(source_ref.type) and source_ref.type != FILE_REFERENCE_TYPE:
+        file_refs = pa.array(source_ref.to_pylist(), type=FILE_REFERENCE_TYPE)
+        table = table.set_column(source_ref_index, "source_ref", file_refs)
     if schema is not None:
         return align_table(table, schema)
-    return table.cast(reconcile_schema(table.schema))
+    reconciled = reconcile_schema(table.schema)
+    return table if table.schema == reconciled else table.cast(reconciled)

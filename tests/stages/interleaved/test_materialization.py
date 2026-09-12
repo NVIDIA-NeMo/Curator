@@ -47,6 +47,7 @@ from .conftest import build_jpeg_in_tiff, build_multi_frame_tiff, make_image_row
     [
         pytest.param(None, None, id="none_value"),
         pytest.param(float("nan"), None, id="nan_value"),
+        pytest.param(pd.NA, None, id="pd_na_value"),
     ],
 )
 def test_get_frame_index_returns_none_for_missing_values(val: object, expected: None) -> None:
@@ -64,10 +65,10 @@ def test_get_frame_index_returns_none_for_missing_values(val: object, expected: 
 def test_classify_rows_missing_path_variants(path_val: object) -> None:
     df = pd.DataFrame(
         {
-            "_src_path": [path_val],
+            "_src_uri": [path_val],
             "_src_member": [None],
-            "_src_byte_offset": [None],
-            "_src_byte_size": [None],
+            "_src_offset": [None],
+            "_src_size": [None],
         }
     )
     result = _classify_rows(df, pd.Series([True]))
@@ -77,15 +78,25 @@ def test_classify_rows_missing_path_variants(path_val: object) -> None:
 def test_classify_rows_range_with_zero_size() -> None:
     df = pd.DataFrame(
         {
-            "_src_path": ["/shard.tar"],
+            "_src_uri": ["/shard.tar"],
             "_src_member": ["img.jpg"],
-            "_src_byte_offset": [100],
-            "_src_byte_size": [0],
+            "_src_offset": [100],
+            "_src_size": [0],
         }
     )
     result = _classify_rows(df, pd.Series([True]))
-    assert "/shard.tar" in result.tar_extract
-    assert not result.range_read
+    assert "/shard.tar" in result.range_read
+    assert not result.tar_extract
+
+
+def test_materialize_size_without_offset_reads_prefix(tmp_path: Path) -> None:
+    path = tmp_path / "image.bin"
+    path.write_bytes(b"abcTRAILING")
+    task = make_image_task([make_image_row(path=str(path), byte_size=3)])
+
+    result = materialize_task_binary_content(task).to_pandas()
+
+    assert result.loc[0, "binary_content"] == b"abc"
 
 
 # --- _extract_tiff_frame ---
@@ -194,7 +205,6 @@ def _make_range_setup(
     [
         pytest.param(RuntimeError("fail"), "range read error", id="exception_blob"),
         pytest.param(None, "empty range read", id="none_blob"),
-        pytest.param(b"", "empty range read", id="empty_blob"),
     ],
 )
 def test_scatter_range_blobs_error_cases(blob: object, expected_error_substr: str) -> None:
@@ -202,6 +212,13 @@ def test_scatter_range_blobs_error_cases(blob: object, expected_error_substr: st
     _scatter_range_blobs([blob], range_keys, unique_ranges, binary_values, error_values)
     assert error_values[0] is not None
     assert expected_error_substr in error_values[0]
+
+
+def test_scatter_range_blobs_accepts_empty_range() -> None:
+    range_keys, unique_ranges, binary_values, error_values = _make_range_setup("empty", 0, 0)
+    _scatter_range_blobs([b""], range_keys, unique_ranges, binary_values, error_values)
+    assert binary_values[0] == b""
+    assert error_values[0] is None
 
 
 def test_scatter_range_blobs_bytearray_conversion() -> None:
@@ -404,7 +421,7 @@ def test_materialize_with_only_missing_binary_false(tmp_path: Path) -> None:
             "content_type": "image/jpeg",
             "text_content": None,
             "binary_content": b"old-bytes",
-            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "source_ref": InterleavedBatch.build_source_ref(str(img_path)),
             "materialize_error": None,
         }
     ]
@@ -434,7 +451,7 @@ def test_materialize_preserves_passthrough_columns_with_src_prefix(tmp_path: Pat
             "content_type": "image/jpeg",
             "text_content": None,
             "binary_content": None,
-            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "source_ref": InterleavedBatch.build_source_ref(str(img_path)),
             "materialize_error": None,
             "_src_html": "keep-me",
             "_src_metadata": "also-keep-me",

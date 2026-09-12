@@ -29,12 +29,9 @@ Schema columns fall into two categories:
     ``content_type``    string         Content      MIME type (e.g. ``text/plain``, ``image/jpeg``)
     ``text_content``    string         Content      Text payload for text rows
     ``binary_content``  large_binary   Content      Image bytes (populated by materialization)
-    ``source_ref``      string         Internal     JSON locator ``{path, member,
-                                                   byte_offset, byte_size, frame_index}``.
-                                                   ``path`` alone = direct/remote read;
-                                                   + ``member`` = tar extract;
-                                                   + ``byte_offset/size`` = range read (fastest).
-                                                   ``path`` accepts local or remote (``s3://``) URIs.
+    ``source_ref``      FILE           Internal     Parquet FILE-compatible reference
+    ``source_member``   string         Internal     Archive member metadata adjacent to FILE
+    ``source_frame_index`` int32        Internal     Multi-frame index metadata adjacent to FILE
     ``materialize_error`` string       Internal     Error message if materialization failed
     ==================  =============  ===========  ===============================================
 
@@ -42,13 +39,14 @@ Schema columns fall into two categories:
 ``fields`` parameter on the reader. These flow through the pipeline untouched.
 """
 
-import json
 from dataclasses import dataclass, field
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 from loguru import logger
+
+from nemo_curator.utils.storage_utils import FILE_REFERENCE_TYPE
 
 from .tasks import Task
 
@@ -60,7 +58,9 @@ INTERLEAVED_SCHEMA = pa.schema(
         pa.field("content_type", pa.string(), nullable=True),
         pa.field("text_content", pa.string(), nullable=True),
         pa.field("binary_content", pa.large_binary(), nullable=True),
-        pa.field("source_ref", pa.string(), nullable=True),
+        pa.field("source_ref", FILE_REFERENCE_TYPE, nullable=True),
+        pa.field("source_member", pa.string(), nullable=True),
+        pa.field("source_frame_index", pa.int32(), nullable=True),
         pa.field("materialize_error", pa.string(), nullable=True),
     ]
 )
@@ -174,59 +174,36 @@ class InterleavedBatch(Task[pa.Table | pd.DataFrame]):
 
     @staticmethod
     def build_source_ref(
-        path: str | None,
-        member: str | None,
-        byte_offset: int | None = None,
-        byte_size: int | None = None,
-        frame_index: int | None = None,
-    ) -> str:
-        """Build a ``source_ref`` JSON locator string."""
-        ref: dict[str, object] = {
-            "path": path,
-            "member": member,
-            "byte_offset": byte_offset,
-            "byte_size": byte_size,
-        }
-        if frame_index is not None:
-            ref["frame_index"] = frame_index
-        return json.dumps(ref, ensure_ascii=True)
-
-    @staticmethod
-    def parse_source_ref(source_value: str | None) -> dict[str, str | int | None]:
-        """Parse a ``source_ref`` JSON string into a locator dict."""
-        if source_value is None or pd.isna(source_value) or source_value == "":
-            return {"path": None, "member": None, "byte_offset": None, "byte_size": None, "frame_index": None}
-        parsed = json.loads(source_value)
-        if not isinstance(parsed, dict):
-            msg = "source_ref must decode to a JSON object"
-            raise TypeError(msg)
-
-        path = parsed.get("path")
-        member = parsed.get("member")
-        byte_offset = parsed.get("byte_offset")
-        byte_size = parsed.get("byte_size")
-        frame_index = parsed.get("frame_index")
-
-        return {
-            "path": path if path is None else str(path),
-            "member": member if member is None else str(member),
-            "byte_offset": int(byte_offset) if byte_offset is not None else None,
-            "byte_size": int(byte_size) if byte_size is not None else None,
-            "frame_index": int(frame_index) if frame_index is not None else None,
-        }
+        uri: str | None,
+        offset: int | None = None,
+        size: int | None = None,
+    ) -> dict[str, object] | None:
+        """Build a Parquet FILE-compatible external reference."""
+        if (offset is not None and size is None) or any(value is not None and value < 0 for value in (offset, size)):
+            msg = "source_ref offset and size must be non-negative, with size set for offset"
+            raise ValueError(msg)
+        return (
+            {
+                "uri": uri,
+                "offset": offset,
+                "size": size,
+                "content_type": None,
+                "checksum": None,
+                "inline": None,
+            }
+            if uri
+            else None
+        )
 
     def with_parsed_source_ref_columns(self, prefix: str = "_src_") -> pd.DataFrame:
-        """Return a DataFrame copy with parsed ``source_ref`` columns added.
-
-        Columns: ``{prefix}path``, ``{prefix}member``, ``{prefix}byte_offset``,
-        ``{prefix}byte_size``, ``{prefix}frame_index``.
-        """
+        """Return a DataFrame with FILE locator and adjacent source columns expanded."""
         df = self.to_pandas().copy()
-        parsed = [self.parse_source_ref(value) for value in df["source_ref"].tolist()]
-        parsed_df = pd.DataFrame.from_records(
-            parsed,
-            columns=["path", "member", "byte_offset", "byte_size", "frame_index"],
+        parsed = pd.DataFrame.from_records(
+            (value if isinstance(value, dict) else {} for value in df["source_ref"]),
+            columns=["uri", "offset", "size"],
         )
-        for col in parsed_df.columns:
-            df[f"{prefix}{col}"] = parsed_df[col].to_numpy(copy=False)
+        for col in parsed:
+            df[f"{prefix}{col}"] = parsed[col].to_numpy(copy=False)
+        df[f"{prefix}member"] = df.get("source_member")
+        df[f"{prefix}frame_index"] = df.get("source_frame_index")
         return df

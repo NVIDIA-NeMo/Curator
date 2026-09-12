@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for BaseInterleavedWriter: on_materialize_error modes, _write_dataframe,
+"""Tests for BaseInterleavedWriter: on_materialize_error modes, _write_table,
 and _align_output schema alignment."""
 
 from dataclasses import dataclass
@@ -120,12 +120,12 @@ def test_all_null_materialize_error_returns_all_rows(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _write_dataframe: NotImplementedError on abstract base
+# _write_table: NotImplementedError on abstract base
 # ---------------------------------------------------------------------------
 
 
-def test_base_write_dataframe_raises_not_implemented(tmp_path: Path) -> None:
-    """BaseInterleavedWriter._write_dataframe() raises NotImplementedError."""
+def test_base_write_table_raises_not_implemented(tmp_path: Path) -> None:
+    """BaseInterleavedWriter._write_table() raises NotImplementedError."""
 
     @dataclass
     class _StubWriter(BaseInterleavedWriter):
@@ -133,8 +133,8 @@ def test_base_write_dataframe_raises_not_implemented(tmp_path: Path) -> None:
         name: str = "stub_writer"
 
     writer = _StubWriter(path=str(tmp_path / "out"), mode="overwrite")
-    with pytest.raises(NotImplementedError, match="_write_dataframe"):
-        writer._write_dataframe(pd.DataFrame(), "dummy.stub", {})
+    with pytest.raises(NotImplementedError, match="_write_table"):
+        writer._write_table(pa.table({}), "dummy.stub", {})
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +159,8 @@ def test_align_output_with_schema_drops_extra_columns(tmp_path: Path) -> None:
     )
     df = pd.DataFrame([{"sample_id": "s1", "position": 0, "modality": "text", "content_type": "text/plain"}])
     result = writer._align_output(df)
-    assert "content_type" not in result.columns
-    assert "sample_id" in result.columns
+    assert "content_type" not in result.column_names
+    assert "sample_id" in result.column_names
 
 
 def test_align_output_without_schema_preserves_extra_columns(tmp_path: Path) -> None:
@@ -173,8 +173,8 @@ def test_align_output_without_schema_preserves_extra_columns(tmp_path: Path) -> 
     )
     df = pd.DataFrame([{"sample_id": "s1", "position": 0, "modality": "text", "my_custom_column": "keep_me"}])
     result = writer._align_output(df)
-    assert "my_custom_column" in result.columns
-    assert result["my_custom_column"].iloc[0] == "keep_me"
+    assert "my_custom_column" in result.column_names
+    assert result["my_custom_column"][0].as_py() == "keep_me"
 
 
 # ---------------------------------------------------------------------------

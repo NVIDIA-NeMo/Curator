@@ -14,6 +14,19 @@
 
 import pathlib
 
+import pyarrow as pa
+
+FILE_REFERENCE_TYPE = pa.struct(
+    [
+        pa.field("uri", pa.string()),
+        pa.field("offset", pa.int64()),
+        pa.field("size", pa.int64()),
+        pa.field("content_type", pa.string()),
+        pa.field("checksum", pa.string()),
+        pa.field("inline", pa.binary()),
+    ]
+)
+
 
 def _get_local_path(localpath: pathlib.Path, *args: str) -> pathlib.Path:
     """Construct a full local path from a base path and additional components.
