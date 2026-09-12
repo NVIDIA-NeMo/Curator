@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import re
-from contextlib import suppress
+from contextlib import closing, suppress
 from pathlib import Path
 from typing import Literal
 from unittest.mock import Mock, patch
@@ -36,7 +36,11 @@ from sklearn.metrics import adjusted_rand_score
 with suppress(ImportError):
     from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
-    from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
+    from nemo_curator.stages.deduplication.semantic.kmeans import (
+        KMeansReadFitWriteStage,
+        KMeansStage,
+        _KMeansPartitionedWriter,
+    )
     from nemo_curator.stages.deduplication.semantic.utils import ParquetFileInfo, get_array_from_df
     from nemo_curator.tasks import FileGroupTask
 
@@ -516,13 +520,14 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(embedding_output_dtype=embedding_output_dtype)
         embeddings = cp.asarray([[1.0, 0.0], [0.6, 0.8]], dtype=cp.float32)
 
-        stage._write_output_frame(
-            "output.parquet",
+        frame = stage._prepare_output_frame(
             cudf.DataFrame({"id": [1, 2]}),
             embeddings,
             cp.asarray([0, 1], dtype=cp.int32),
             stage.kmeans.cluster_centers_,
         )
+        with closing(_KMeansPartitionedWriter(stage, embeddings.shape[1])) as writer:
+            writer.write("output.parquet", frame)
 
         output = cudf.read_parquet(stage.output_path)
         stored_embeddings = get_array_from_df(output, "embeddings")
@@ -531,6 +536,112 @@ class TestKMeansReadFitWriteStage:
         decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
         cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
         cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
+
+    def test_prediction_groups_respect_memory_and_element_limits(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        stage = make_stage(predict_write_workers=4, max_samples_per_batch=32)
+        info = [ParquetFileInfo(str(i), 1000, 1000, embedding_elements=400_000_000) for i in range(12)]
+        groups, workers = stage._plan_predict_write(info, 80_000_000_000)
+        assert workers == 4
+        assert [path for group in groups for path in group] == [item.path for item in info]
+        assert max(len(group) for group in groups) == 1
+        groups, workers = stage._plan_predict_write(info, 20_000_000_000)
+        assert workers == 1
+        assert len(groups) == 12
+
+    @pytest.mark.parametrize("remote", [False, True])
+    def test_partitioned_writer_preserves_storage_options(
+        self, make_stage: "KMeansReadFitWriteStage", remote: bool
+    ) -> None:
+        stage = make_stage(write_kwargs={"storage_options": {"skip_instance_cache": True}, "row_group_size_rows": 1})
+        if remote:
+            stage.output_path = f"memory://{Path(stage.output_path).name}"
+        with closing(_KMeansPartitionedWriter(stage, 2)) as writer:
+            for index in range(2):
+                frame = stage._prepare_output_frame(
+                    cudf.DataFrame({"id": [index * 2, index * 2 + 1], "source": ["a string", "another string"]}),
+                    cp.eye(2, dtype=cp.float32),
+                    cp.asarray([0, 1], dtype=cp.int32),
+                    stage.kmeans.cluster_centers_,
+                )
+                writer.write(f"{index}.parquet", frame)
+        output = cudf.read_parquet(stage.output_path, storage_options=stage.output_storage_options).sort_values("id")
+        assert output.id.to_arrow().to_pylist() == [0, 1, 2, 3]
+        assert output.source.to_arrow().to_pylist() == ["a string", "another string"] * 2
+
+    @pytest.mark.parametrize("embedding_output_dtype", ["float16", "float32"])
+    def test_concurrent_prediction_preserves_partitioned_rows(
+        self, tmp_path: Path, embedding_output_dtype: str
+    ) -> None:
+        import threading
+
+        import rmm
+
+        from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
+        from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+
+        input_path = tmp_path / "input"
+        input_path.mkdir()
+        paths = []
+        expected = cp.random.RandomState(42).normal(size=(8192, 64)).astype(cp.float32)
+        for i in range(8):
+            frame = cudf.DataFrame({"id": cp.arange(i * 1024, (i + 1) * 1024), "source": [f"file-{i}"] * 1024})
+            frame["embeddings"] = create_list_series_from_1d_or_2d_ar(expected[i * 1024 : (i + 1) * 1024], frame.index)
+            path = str(input_path / f"{i}.parquet")
+            frame.to_parquet(path, index=False)
+            paths.append(path)
+        stage = KMeansReadFitWriteStage(
+            id_field="id",
+            embedding_field="embeddings",
+            output_path=str(tmp_path / "output"),
+            filetype="parquet",
+            n_clusters=2,
+            metadata_fields=["source"],
+            embedding_output_dtype=embedding_output_dtype,
+            predict_write_workers=2,
+            max_samples_per_batch=32,
+        )
+        centroids = cp.eye(2, 64, dtype=cp.float32)
+        info = read_parquet_file_info(paths, retained_columns=["id", "source"], embedding_column="embeddings")
+        plan = stage._plan_predict_write
+        threads = set()
+        read = stage._read_group
+
+        def read_group(*args) -> "cudf.DataFrame":
+            threads.add(threading.get_ident())
+            return read(*args)
+
+        upstream = rmm.mr.get_current_device_resource()
+        with (
+            patch.object(stage, "_plan_predict_write", side_effect=lambda info, _: plan(info, 16 * 2**20)),
+            patch.object(stage, "_read_group", side_effect=read_group),
+            patch("nemo_curator.stages.deduplication.semantic.kmeans.CUDF_COLUMN_SIZE_LIMIT", 2000 * 64 + 1),
+        ):
+            rows, _ = stage._predict_write_parquet(info, ["id", "embeddings", "source"], "test", centroids)
+        assert rmm.mr.get_current_device_resource() is upstream
+        assert len(threads) == 2
+        assert rows == len(expected)
+        output = cudf.read_parquet(stage.output_path).sort_values("id").reset_index(drop=True)
+        cp.testing.assert_array_equal(output.id.values, cp.arange(len(expected)))
+        assert output.source.to_arrow().to_pylist() == [f"file-{i}" for i in range(8) for _ in range(1024)]
+        expected /= cp.linalg.norm(expected, axis=1, keepdims=True)
+        labels = cp.argmax(expected[:, :2], axis=1).astype(cp.int32)
+        cp.testing.assert_array_equal(output.centroid.astype("int32").values, labels)
+        stored = get_array_from_df(output, "embeddings")
+        if embedding_output_dtype == "float16":
+            stored = stored.view(cp.float16)
+        cp.testing.assert_allclose(stored, expected, atol=3e-4)
+        cp.testing.assert_allclose(
+            output.l2_dist_to_cent.values, cp.linalg.norm(expected - centroids[labels], axis=1), rtol=1e-6
+        )
+        assert all(path.parent.name.startswith("centroid=") for path in Path(stage.output_path).rglob("*.parquet"))
+        import pyarrow.parquet as pq
+
+        assert max(pq.read_metadata(path).num_rows for path in Path(stage.output_path).rglob("*.parquet")) <= 2000
+
+        stage.write_kwargs = {"compression": "invalid"}
+        with pytest.raises(ValueError, match="compression"):
+            stage._predict_write_parquet(info, ["id", "embeddings", "source"], "failure", centroids)
+        assert rmm.mr.get_current_device_resource() is upstream
 
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:

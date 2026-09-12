@@ -219,6 +219,14 @@ rereads all files in bounded frames to predict and write every row. This keeps p
 memory independent of the fit sample size. An explicit JSONL fit fraction uses the same two-pass I/O
 pattern.
 
+The Parquet prediction pass uses up to four threads per GPU, with read groups sized from the
+available memory, embedding-element counts, and retained-column sizes. `KMeansStage.predict_write_workers`
+sets the maximum; use `1` for serial prediction and writing. Each thread has its own predictor and
+centroid-partitioned writer. Local output reuses files across frames and rotates them before a
+partition's embedding column reaches cuDF's element limit. Storage options and additional Parquet
+write options continue through the general writer path. Ray workers enable `CUDF_PER_THREAD_STREAM=1`
+before importing cuDF; set this environment variable yourself when calling the processing stage directly.
+
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
 but their I/O differs:

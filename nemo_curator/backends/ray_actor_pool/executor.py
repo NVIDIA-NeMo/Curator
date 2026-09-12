@@ -66,6 +66,8 @@ def _get_actor_options(stage: "ProcessingStage") -> dict:
     }
     if get_stage_num_workers_per_node(stage) is not None:
         options["scheduling_strategy"] = "SPREAD"
+    if stage.runtime_env:
+        options["runtime_env"] = stage.runtime_env
     return options
 
 
@@ -219,8 +221,6 @@ class RayActorPoolExecutor(BaseExecutor):
         """Create an ActorPool for a specific stage."""
         actors = []
         actor_options = _get_actor_options(stage)
-        if stage.runtime_env:
-            actor_options["runtime_env"] = stage.runtime_env
         for i in range(num_actors):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolStageAdapter)
