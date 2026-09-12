@@ -222,10 +222,14 @@ pattern.
 The Parquet prediction pass uses up to four threads per GPU, with read groups sized from the
 available memory, embedding-element counts, and retained-column sizes. `KMeansStage.predict_write_workers`
 sets the maximum; use `1` for serial prediction and writing. Each thread has its own predictor and
-centroid-partitioned writer. Local output reuses files across frames and rotates them before a
-partition's embedding column reaches cuDF's element limit. Storage options and additional Parquet
+centroid-partitioned writer. Local output reuses files across frames, creates each centroid directory
+only when first needed by a writer, and rotates files before a partition's embedding column reaches
+cuDF's element limit. Storage options and additional Parquet
 write options continue through the general writer path. Ray workers enable `CUDF_PER_THREAD_STREAM=1`
-before importing cuDF; set this environment variable yourself when calling the processing stage directly.
+before importing cuDF and size the shared KvikIO I/O pool to four threads per prediction worker
+(`KVIKIO_NTHREADS=16` with the default four workers). An explicit `KVIKIO_NTHREADS` environment value
+takes precedence. Set these environment variables before importing cuDF when calling the processing
+stage directly. Curator's `KVIKIO_AUTO_DIRECT_IO_WRITE` default is unchanged.
 
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,

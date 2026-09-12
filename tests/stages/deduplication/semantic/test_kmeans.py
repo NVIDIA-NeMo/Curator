@@ -568,6 +568,35 @@ class TestKMeansReadFitWriteStage:
         assert output.id.to_arrow().to_pylist() == [0, 1, 2, 3]
         assert output.source.to_arrow().to_pylist() == ["a string", "another string"] * 2
 
+    @pytest.mark.parametrize("file_uri", [False, True])
+    def test_partitioned_writer_reuses_sinks_when_centroids_appear_late(
+        self, make_stage: "KMeansReadFitWriteStage", file_uri: bool
+    ) -> None:
+        stage = make_stage(n_clusters=3)
+        output_path = Path(stage.output_path)
+        if file_uri:
+            stage.output_path = output_path.as_uri()
+        with (
+            closing(_KMeansPartitionedWriter(stage, 2)) as writer,
+            patch.object(writer.fs, "makedirs", wraps=writer.fs.makedirs) as makedirs,
+        ):
+            for index, centroid in enumerate([0, 1, 0]):
+                frame = stage._prepare_output_frame(
+                    cudf.DataFrame({"id": [index], "source": [f"row-{index}"]}),
+                    cp.asarray([[1.0, 0.0]], dtype=cp.float32),
+                    cp.asarray([centroid], dtype=cp.int32),
+                    stage.kmeans.cluster_centers_,
+                )
+                writer.write(f"{index}.parquet", frame)
+            assert makedirs.call_count == 2
+        files = sorted(output_path.rglob("*.parquet"))
+        assert len(files) == 2
+        assert {path.parent.name for path in files} == {"centroid=0", "centroid=1"}
+        output = cudf.read_parquet(stage.output_path).sort_values("id")
+        assert output.id.to_arrow().to_pylist() == [0, 1, 2]
+        assert output.centroid.astype("int32").to_arrow().to_pylist() == [0, 1, 0]
+        assert output.source.to_arrow().to_pylist() == ["row-0", "row-1", "row-2"]
+
     @pytest.mark.parametrize("embedding_output_dtype", ["float16", "float32"])
     def test_concurrent_prediction_preserves_partitioned_rows(
         self, tmp_path: Path, embedding_output_dtype: str

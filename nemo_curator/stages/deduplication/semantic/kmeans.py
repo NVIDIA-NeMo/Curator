@@ -28,6 +28,7 @@ import numpy as np
 import pylibcudf as plc
 import rmm
 from cudf.utils import ioutils
+from fsspec.core import url_to_fs
 from fsspec.utils import get_protocol
 from loguru import logger
 from rmm.allocators.cupy import rmm_cupy_allocator
@@ -78,7 +79,9 @@ class _KMeansPartitionedWriter:
             and not stage.output_storage_options
             and set(stage.write_kwargs) <= {"compression", "statistics"}
         )
-        self.writer = None
+        self.writers = []
+        if self.reuse_writer:
+            self.fs, self.output_path = url_to_fs(stage.output_path)
         self.partition_rows = np.zeros(stage.n_clusters, dtype=np.int64)
         self.max_partition_rows = (CUDF_COLUMN_SIZE_LIMIT - 1) // embedding_width
 
@@ -98,25 +101,34 @@ class _KMeansPartitionedWriter:
             return
 
         counts = cp.bincount(frame["centroid"].values, minlength=self.stage.n_clusters).get()
+        # Roll by exact rows; cuDF <26.10 overestimates list slices with max_file_size.
         if (self.partition_rows + counts).max() > self.max_partition_rows:
             self.close()
-        if self.writer is None:
-            # Reuse files and pandas metadata across frames. Roll by exact partition rows:
-            # cuDF <26.10 max_file_size overestimates list slices (NVIDIA/cudf#23378).
-            self.writer = cudf.io.parquet.ParquetDatasetWriter(
-                self.stage.output_path,
-                partition_cols=["centroid"],
-                index=False,
-                file_name_prefix=filename,
-                **self.stage.write_kwargs,
-            )
-        self.writer.write_table(frame)
+        # Fixed centroid IDs let us reuse sinks without ParquetDatasetWriter's
+        # directory checks on every batch. Open only partitions that contain rows.
+        new_partitions = np.flatnonzero((counts > 0) & (self.partition_rows == 0))
+        if len(new_partitions):
+            paths = []
+            for centroid in new_partitions:
+                directory = os.path.join(self.output_path, f"centroid={centroid}")
+                self.fs.makedirs(directory, exist_ok=True)
+                paths.append(os.path.join(directory, filename))
+            writer = cudf.io.parquet.ParquetWriter(paths, index=False, **self.stage.write_kwargs)
+            self.writers.append((writer, new_partitions))
+
+        grouped = frame.sort_values("centroid").drop(columns="centroid")
+        offsets = np.cumsum(counts) - counts
+        for writer, partitions in self.writers:
+            if counts[partitions].any():
+                writer.write_table(
+                    grouped, list(zip(offsets[partitions].tolist(), counts[partitions].tolist(), strict=True))
+                )
         self.partition_rows += counts
 
     def close(self) -> None:
-        if self.writer is not None:
-            self.writer.close()
-            self.writer = None
+        for writer, _ in self.writers:
+            writer.close()
+        self.writers.clear()
         self.partition_rows.fill(0)
 
 
@@ -214,6 +226,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self.name = "KMeansStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
         self.runtime_env = {"env_vars": {"CUDF_PER_THREAD_STREAM": "1"}}
+        if filetype == "parquet":
+            # All readers and writers in an actor share cuDF's KvikIO pool.
+            self.runtime_env["env_vars"]["KVIKIO_NTHREADS"] = os.environ.get(
+                "KVIKIO_NTHREADS", str(4 * predict_write_workers)
+            )
 
     def process(self, task: FileGroupTask) -> EmptyTask:
         msg = "KMeansReadFitWriteStage does not support single-task processing"
