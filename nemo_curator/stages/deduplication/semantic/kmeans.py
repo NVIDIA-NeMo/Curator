@@ -26,12 +26,10 @@ import cudf
 import cupy as cp
 import numpy as np
 import pylibcudf as plc
-import rmm
 from cudf.utils import ioutils
 from fsspec.core import url_to_fs
 from fsspec.utils import get_protocol
 from loguru import logger
-from rmm.allocators.cupy import rmm_cupy_allocator
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -42,10 +40,14 @@ from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
+from .kmeans_utils import (
+    kmeans_prediction_memory_pool,
+    kmeans_prediction_worker_context,
+    plan_kmeans_prediction,
+)
 from .utils import (
     CUDF_COLUMN_SIZE_LIMIT,
     ParquetFileInfo,
-    break_parquet_partition_into_groups,
     get_array_from_df,
     read_parquet_file_info,
 )
@@ -54,12 +56,6 @@ from .utils import (
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
-# cuDF 26.08's dictionary maps, nested levels, and encoded/compressed buffers can use
-# over 25 bytes per embedding element. Allow additional space for FP32 prediction.
-_PREDICT_BYTES_PER_EMBEDDING_ELEMENT = 40
-# This scales the retained columns' uncompressed Parquet bytes, including strings;
-# it is a temporary-allocation allowance, not a metadata element width.
-_PREDICT_METADATA_MEMORY_FACTOR = 4
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
 
@@ -338,51 +334,24 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             )
         ]
 
-    def _plan_predict_write(self, file_info: list[ParquetFileInfo], budget: int) -> tuple[list[list[str]], int]:
-        scratch = self.max_samples_per_batch * self.n_clusters * 4
-        costs = {
-            info.path: info.embedding_elements * _PREDICT_BYTES_PER_EMBEDDING_ELEMENT
-            + info.metadata_bytes * _PREDICT_METADATA_MEMORY_FACTOR
-            for info in file_info
-        }
-        group_budget = max(budget // self.predict_write_workers - scratch, *costs.values())
-        groups = []
-        largest = 0
-        for bounded_group in break_parquet_partition_into_groups(file_info):
-            group = []
-            size = 0
-            for path in bounded_group:
-                if group and size + costs[path] > group_budget:
-                    groups.append(group)
-                    largest = max(largest, size)
-                    group, size = [], 0
-                group.append(path)
-                size += costs[path]
-            groups.append(group)
-            largest = max(largest, size)
-        workers = max(1, min(self.predict_write_workers, len(groups), budget // max(1, largest + scratch)))
-        return groups, workers
-
     def _predict_write_parquet(
         self, file_info: list[ParquetFileInfo], columns: list[str], task_id: str, centroids: "cp.ndarray"
     ) -> tuple[int, dict[str, float]]:
         budget = int(cp.cuda.runtime.memGetInfo()[0] * 0.9)
-        groups, workers = self._plan_predict_write(file_info, budget)
+        groups, workers = plan_kmeans_prediction(
+            file_info,
+            memory_budget=budget,
+            max_workers=self.predict_write_workers,
+            n_clusters=self.n_clusters,
+            max_samples_per_batch=self.max_samples_per_batch,
+        )
         logger.info(f"KMeans prediction: {len(groups)} groups, {workers} threads, {budget / 2**30:.1f} GiB budget")
         self._log_metric("kmeans_predict_write_workers", workers)
         device = cp.cuda.Device().id
         cp.cuda.runtime.deviceSynchronize()
-        upstream = rmm.mr.get_current_device_resource()
-        # Install the pool only after fitting, so its reserved memory cannot affect auto-fit sizing.
-        pool = rmm.mr.PoolMemoryResource(
-            upstream,
-            initial_pool_size=min(2**30, budget // 256 * 256),
-            maximum_pool_size=budget // 256 * 256,
-        )
-        rmm.mr.set_current_device_resource(pool)
-        started = time.perf_counter()
         indexed_groups = list(enumerate(groups))
-        try:
+        with kmeans_prediction_memory_pool(budget):
+            started = time.perf_counter()
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="kmeans-predict-write") as executor:
                 futures = [
                     executor.submit(
@@ -396,9 +365,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                     for worker in range(workers)
                 ]
                 results = [future.result() for future in futures]
-        finally:
-            rmm.mr.set_current_device_resource(upstream)
-        second_pass_time = time.perf_counter() - started
+            second_pass_time = time.perf_counter() - started
         self._log_metric("kmeans_predict_write_time", second_pass_time)
         self._log_metric("kmeans_second_pass_time", second_pass_time)
 
@@ -425,9 +392,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         timings = {phase: [] for phase in ("read", "predict", "write")}
         rows = 0
         with (
-            cp.cuda.Device(device),
-            cp.cuda.Stream.ptds,
-            cp.cuda.using_allocator(rmm_cupy_allocator),
+            kmeans_prediction_worker_context(device),
             closing(_KMeansPartitionedWriter(self, centroids.shape[1])) as writer,
         ):
             predictor = KMeans(n_clusters=self.n_clusters, max_samples_per_batch=self.max_samples_per_batch)
