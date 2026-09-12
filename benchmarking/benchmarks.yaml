@@ -629,20 +629,16 @@ entries:
           - num_documents_processed
           - num_duplicates
           - kmeans_footer_scan_time_s
-          - kmeans_read_time_s
+          - kmeans_fit_read_time_s
           - kmeans_fit_time_s
-          - kmeans_predict_time_s
-          - kmeans_write_time_s
+          - kmeans_second_pass_time_s
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
           - pairwise_read_time_s
           - pairwise_conversion_time_s
           - pairwise_compute_time_s
-          # Percent of KMeans/workflow wall time.
-          - kmeans_read_percent_time
-          - kmeans_write_percent_time
-          - kmeans_fit_predict_percent_time
+          # Percent of workflow wall time.
           - pairwise_percent_time
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan
@@ -683,20 +679,16 @@ entries:
           - num_documents_processed
           - num_duplicates
           - kmeans_footer_scan_time_s
-          - kmeans_read_time_s
+          - kmeans_fit_read_time_s
           - kmeans_fit_time_s
-          - kmeans_predict_time_s
-          - kmeans_write_time_s
+          - kmeans_second_pass_time_s
           - kmeans_actual_fit_percent
           - kmeans_fit_data_fraction
           - kmeans_fit_file_fraction
           - pairwise_read_time_s
           - pairwise_conversion_time_s
           - pairwise_compute_time_s
-          # Percent of KMeans/workflow wall time.
-          - kmeans_read_percent_time
-          - kmeans_write_percent_time
-          - kmeans_fit_predict_percent_time
+          # Percent of workflow wall time.
           - pairwise_percent_time
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan

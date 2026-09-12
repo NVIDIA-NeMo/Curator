@@ -326,6 +326,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         fit_time = time.perf_counter() - fit_start
         self._log_metrics(
             {
+                "kmeans_fit_read_time": read_time,
                 "kmeans_fit_time": fit_time,
                 "kmeans_fit_rows": fit_rows,
                 "kmeans_fit_files": len(fit_info),
@@ -402,7 +403,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 results = [future.result() for future in futures]
         finally:
             rmm.mr.set_current_device_resource(upstream)
-        self._log_metric("kmeans_predict_write_time", time.perf_counter() - started)
+        second_pass_time = time.perf_counter() - started
+        self._log_metric("kmeans_predict_write_time", second_pass_time)
+        self._log_metric("kmeans_second_pass_time", second_pass_time)
 
         # Measure the union of each phase's intervals: overlapping threads are not additive wall time.
         phase_times = {}
@@ -599,6 +602,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self._log_metrics(
             {
                 "kmeans_read_time": pass1_read_time + pass2_read_time,
+                "kmeans_fit_read_time": pass1_read_time,
                 "num_rows": total_rows,
             }
         )
@@ -694,6 +698,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         )
 
         t_end = time.perf_counter()
+        self._log_metric("kmeans_second_pass_time", t_end - t_start)
         self._log_metric("kmeans_predict_write_time", (t_end - t_start) - pass2_read_time)
         logger.info(
             f"Pass 2 total time: {(t_end - t_start):.2f} seconds "

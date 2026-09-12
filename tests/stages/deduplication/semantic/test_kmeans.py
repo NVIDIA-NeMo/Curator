@@ -645,7 +645,10 @@ class TestKMeansReadFitWriteStage:
             patch.object(stage, "_read_group", side_effect=read_group),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.CUDF_COLUMN_SIZE_LIMIT", 2000 * 64 + 1),
         ):
-            rows, _ = stage._predict_write_parquet(info, ["id", "embeddings", "source"], "test", centroids)
+            rows, phase_times = stage._predict_write_parquet(info, ["id", "embeddings", "source"], "test", centroids)
+        metrics = stage._consume_custom_metrics()
+        assert metrics["kmeans_second_pass_time"] > 0
+        assert all(0 <= elapsed <= metrics["kmeans_second_pass_time"] for elapsed in phase_times.values())
         assert rmm.mr.get_current_device_resource() is upstream
         assert len(threads) == 2
         assert rows == len(expected)
