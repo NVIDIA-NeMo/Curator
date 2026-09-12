@@ -231,6 +231,13 @@ before importing cuDF and size the shared KvikIO I/O pool to four threads per pr
 takes precedence. Set these environment variables before importing cuDF when calling the processing
 stage directly. Curator's `KVIKIO_AUTO_DIRECT_IO_WRITE` default is unchanged.
 
+For two-pass benchmarks, compare `kmeans_fit_read_time_s`, `kmeans_fit_time_s`, and
+`kmeans_second_pass_time_s`. The second-pass metric measures elapsed time from reading the first
+prediction group through closing the final output file, including reads, prediction, and writes.
+These are mean per-actor wall times; `kmeans_time` measures the full stage, including actor setup
+and the slowest actor. The legacy read/predict/write activity timings remain available for diagnosis,
+but overlap during concurrent execution and must not be summed as exclusive phase times.
+
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
 but their I/O differs:
