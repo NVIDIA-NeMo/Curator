@@ -537,17 +537,6 @@ class TestKMeansReadFitWriteStage:
         cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
         cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
 
-    def test_prediction_groups_respect_memory_and_element_limits(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        stage = make_stage(predict_write_workers=4, max_samples_per_batch=32)
-        info = [ParquetFileInfo(str(i), 1000, 1000, embedding_elements=400_000_000) for i in range(12)]
-        groups, workers = stage._plan_predict_write(info, 80_000_000_000)
-        assert workers == 4
-        assert [path for group in groups for path in group] == [item.path for item in info]
-        assert max(len(group) for group in groups) == 1
-        groups, workers = stage._plan_predict_write(info, 20_000_000_000)
-        assert workers == 1
-        assert len(groups) == 12
-
     @pytest.mark.parametrize("remote", [False, True])
     def test_partitioned_writer_preserves_storage_options(
         self, make_stage: "KMeansReadFitWriteStage", remote: bool
@@ -631,7 +620,8 @@ class TestKMeansReadFitWriteStage:
         )
         centroids = cp.eye(2, 64, dtype=cp.float32)
         info = read_parquet_file_info(paths, retained_columns=["id", "source"], embedding_column="embeddings")
-        plan = stage._plan_predict_write
+        from nemo_curator.stages.deduplication.semantic.kmeans_utils import plan_kmeans_prediction
+
         threads = set()
         read = stage._read_group
 
@@ -641,7 +631,12 @@ class TestKMeansReadFitWriteStage:
 
         upstream = rmm.mr.get_current_device_resource()
         with (
-            patch.object(stage, "_plan_predict_write", side_effect=lambda info, _: plan(info, 16 * 2**20)),
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.plan_kmeans_prediction",
+                side_effect=lambda info, **options: plan_kmeans_prediction(
+                    info, **(options | {"memory_budget": 16 * 2**20})
+                ),
+            ),
             patch.object(stage, "_read_group", side_effect=read_group),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.CUDF_COLUMN_SIZE_LIMIT", 2000 * 64 + 1),
         ):
