@@ -16,6 +16,14 @@ configuration.
 | `infra.py` | Actor naming, endpoint URLs, CLI-flag translation |
 | `constants.py` | Default ports, namespace, event/request plane names |
 
+## Routing
+
+`DynamoRouterConfig(mode="least-loaded")` selects Dynamo's outstanding-request
+load balancing without enabling KV routing or disaggregated serving. The mode
+uses the hyphenated `least-loaded` spelling accepted by Dynamo 1.3.1.
+Curator's existing `round_robin` spelling is translated to `round-robin`
+for the frontend CLI. Leave `kv_events=False` for non-KV modes.
+
 ## Base venv vs. actor venv
 
 Curator's `pyproject.toml` pins `vllm[flashinfer,runai,otel]==0.22.0+cu129`

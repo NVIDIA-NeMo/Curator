@@ -1,4 +1,4 @@
-# GB200 Nemotron-Parse: fixed 10k input, varying only client concurrency.
+# GB200 Nemotron-Parse: fixed 10k input, varying client concurrency and routing.
 # Run each entry on its own four-GPU node using the same --session-name.
 paths:
   - name: eai_pdf_data
@@ -186,5 +186,121 @@ entries:
       --max-pdfs=10000
       --max-pages=645
       --max-tokens=9000
+      --engine-kwargs='{"attention_config":{}}'
+      --model-runtime-env='{"py_executable":"/opt/dynamo-pdf/bin/python","env_vars":{"VLLM_USE_FLASHINFER_SAMPLER":"0","CUDA_CACHE_PATH":"/cache/cuda","VLLM_CACHE_ROOT":"/cache/vllm","TRITON_CACHE_DIR":"/cache/triton"}}'
+
+  - name: smoke_1pdf_least_loaded
+    script: nemotron_parse_pdf_benchmark.py
+    timeout_s: 1200
+    requirements:
+      is_success: {exact_value: true}
+      num_pdfs_processed: {exact_value: 1}
+      num_pages_processed: {min_value: 1}
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={eai_pdf_data}/manifest.jsonl
+      --pdf-dir={eai_pdf_data}/pdfs
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={model_weights_path}/models--nvidia--NVIDIA-Nemotron-Parse-v1.2/snapshots/2bd0189bffd6cdded6280d9f22a4077b25a504e3
+      --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
+      --backend=vllm
+      --inference-server-type=dynamo
+      --num-replicas=1
+      --inference-server-client-workers-per-replica=1
+      --inference-server-request-timeout-s=1800
+      --inference-batch-size=1
+      --pdfs-per-task=10
+      --max-pdfs=1
+      --max-pages=645
+      --max-tokens=9000
+      --dynamo-router-mode=least-loaded
+      --engine-kwargs='{"attention_config":{}}'
+      --model-runtime-env='{"py_executable":"/opt/dynamo-pdf/bin/python","env_vars":{"VLLM_USE_FLASHINFER_SAMPLER":"0","CUDA_CACHE_PATH":"/cache/cuda","VLLM_CACHE_ROOT":"/cache/vllm","TRITON_CACHE_DIR":"/cache/triton"}}'
+
+  - name: eai_10k_8clients_48sem_least_loaded
+    script: nemotron_parse_pdf_benchmark.py
+    timeout_s: 10800
+    requirements:
+      is_success: {exact_value: true}
+      num_pdfs_processed: {exact_value: 10000}
+      num_pages_processed: {exact_value: 145327}
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={eai_pdf_data}/manifest.jsonl
+      --pdf-dir={eai_pdf_data}/pdfs
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={model_weights_path}/models--nvidia--NVIDIA-Nemotron-Parse-v1.2/snapshots/2bd0189bffd6cdded6280d9f22a4077b25a504e3
+      --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
+      --backend=vllm
+      --inference-server-type=dynamo
+      --num-replicas=4
+      --inference-server-client-workers-per-replica=8
+      --inference-server-request-timeout-s=1800
+      --inference-batch-size=48
+      --pdfs-per-task=10
+      --max-pdfs=10000
+      --max-pages=645
+      --max-tokens=9000
+      --dynamo-router-mode=least-loaded
+      --engine-kwargs='{"attention_config":{}}'
+      --model-runtime-env='{"py_executable":"/opt/dynamo-pdf/bin/python","env_vars":{"VLLM_USE_FLASHINFER_SAMPLER":"0","CUDA_CACHE_PATH":"/cache/cuda","VLLM_CACHE_ROOT":"/cache/vllm","TRITON_CACHE_DIR":"/cache/triton"}}'
+
+  - name: eai_10k_8clients_96sem_round_robin
+    script: nemotron_parse_pdf_benchmark.py
+    timeout_s: 10800
+    requirements:
+      is_success: {exact_value: true}
+      num_pdfs_processed: {exact_value: 10000}
+      num_pages_processed: {exact_value: 145327}
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={eai_pdf_data}/manifest.jsonl
+      --pdf-dir={eai_pdf_data}/pdfs
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={model_weights_path}/models--nvidia--NVIDIA-Nemotron-Parse-v1.2/snapshots/2bd0189bffd6cdded6280d9f22a4077b25a504e3
+      --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
+      --backend=vllm
+      --inference-server-type=dynamo
+      --num-replicas=4
+      --inference-server-client-workers-per-replica=8
+      --inference-server-request-timeout-s=1800
+      --inference-batch-size=96
+      --pdfs-per-task=10
+      --max-pdfs=10000
+      --max-pages=645
+      --max-tokens=9000
+      --dynamo-router-mode=round_robin
+      --engine-kwargs='{"attention_config":{}}'
+      --model-runtime-env='{"py_executable":"/opt/dynamo-pdf/bin/python","env_vars":{"VLLM_USE_FLASHINFER_SAMPLER":"0","CUDA_CACHE_PATH":"/cache/cuda","VLLM_CACHE_ROOT":"/cache/vllm","TRITON_CACHE_DIR":"/cache/triton"}}'
+
+  - name: eai_10k_8clients_96sem_least_loaded
+    script: nemotron_parse_pdf_benchmark.py
+    timeout_s: 10800
+    requirements:
+      is_success: {exact_value: true}
+      num_pdfs_processed: {exact_value: 10000}
+      num_pages_processed: {exact_value: 145327}
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={eai_pdf_data}/manifest.jsonl
+      --pdf-dir={eai_pdf_data}/pdfs
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={model_weights_path}/models--nvidia--NVIDIA-Nemotron-Parse-v1.2/snapshots/2bd0189bffd6cdded6280d9f22a4077b25a504e3
+      --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
+      --backend=vllm
+      --inference-server-type=dynamo
+      --num-replicas=4
+      --inference-server-client-workers-per-replica=8
+      --inference-server-request-timeout-s=1800
+      --inference-batch-size=96
+      --pdfs-per-task=10
+      --max-pdfs=10000
+      --max-pages=645
+      --max-tokens=9000
+      --dynamo-router-mode=least-loaded
       --engine-kwargs='{"attention_config":{}}'
       --model-runtime-env='{"py_executable":"/opt/dynamo-pdf/bin/python","env_vars":{"VLLM_USE_FLASHINFER_SAMPLER":"0","CUDA_CACHE_PATH":"/cache/cuda","VLLM_CACHE_ROOT":"/cache/vllm","TRITON_CACHE_DIR":"/cache/triton"}}'

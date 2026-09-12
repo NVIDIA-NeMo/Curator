@@ -186,6 +186,9 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     output_tasks: list = []
 
     try:
+        if args.dynamo_router_mode is not None and server_type != "dynamo":
+            msg = "--dynamo-router-mode requires --inference-server-type=dynamo"
+            raise ValueError(msg)  # noqa: TRY301
         if server_type is not None:
             if args.backend != "vllm":
                 msg = f"--inference-server-type requires --backend=vllm, got {args.backend!r}."
@@ -212,6 +215,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 num_replicas=num_replicas,
                 engine_kwargs=server_engine_kwargs,
                 runtime_env=parse_json_object(args.model_runtime_env, argument="--model-runtime-env"),
+                dynamo_router_mode=args.dynamo_router_mode,
                 request_timeout_s=args.inference_server_request_timeout_s,
                 health_check_timeout_s=args.inference_server_health_timeout_s,
             )
@@ -318,6 +322,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "enforce_eager": args.enforce_eager,
             "server_engine_kwargs": server_engine_kwargs,
             "model_runtime_env": parse_json_object(args.model_runtime_env, argument="--model-runtime-env"),
+            "dynamo_router_mode": args.dynamo_router_mode,
         },
         "metrics": {
             "is_success": success,
@@ -385,6 +390,12 @@ def main() -> int:
         "--model-runtime-env",
         default=None,
         help="JSON Ray runtime environment for server actors (e.g. py_executable and env_vars)",
+    )
+    parser.add_argument(
+        "--dynamo-router-mode",
+        choices=["round_robin", "least-loaded"],
+        default=None,
+        help="Dynamo frontend routing policy; omitted uses the frontend default",
     )
     parser.add_argument(
         "--inference-server-health-timeout-s",

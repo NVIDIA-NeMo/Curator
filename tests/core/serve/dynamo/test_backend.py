@@ -498,14 +498,16 @@ class TestDynamoBackendLaunchFrontend:
         assert "--router-kv-events" in python_args
         assert "--no-router-kv-events" not in python_args
 
-    def test_round_robin_mode_omits_kv_events_flag(self, captured_spawn: list[dict[str, Any]]) -> None:
-        backend_cfg = DynamoServerConfig(router=DynamoRouterConfig(mode="round_robin"))
+    @pytest.mark.parametrize("mode", ["round_robin", "least-loaded"])
+    def test_non_kv_mode_omits_kv_events_flag(self, captured_spawn: list[dict[str, Any]], mode: str) -> None:
+        backend_cfg = DynamoServerConfig(router=DynamoRouterConfig(mode=mode))
         backend = self._make_backend(backend_cfg)
 
         backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
 
         python_args = captured_spawn[0]["python_args"]
         assert "--router-mode" in python_args
+        assert python_args[python_args.index("--router-mode") + 1] == mode.replace("_", "-")
         assert "--router-kv-events" not in python_args
         assert "--no-router-kv-events" not in python_args
 

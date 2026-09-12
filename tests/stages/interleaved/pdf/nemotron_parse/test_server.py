@@ -26,6 +26,7 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
         model_name="nemotron-parse",
         num_replicas=2,
         engine_kwargs={"enforce_eager": True},
+        dynamo_router_mode="least-loaded",
         request_timeout_s=123,
     )
 
@@ -40,6 +41,7 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert model.runtime_env == {"uv": {"packages": ["albumentations==2.0.8"]}}
     assert isinstance(server.backend, DynamoServerConfig)
     assert server.backend.request_plane == "tcp"
+    assert server.backend.router.mode == "least-loaded"
     assert server.backend.router.router_kwargs == {"trust_remote_code": True}
     assert server.backend.subprocess_env == {"DYN_TCP_REQUEST_TIMEOUT": "123"}
 
@@ -51,6 +53,11 @@ def test_ray_serve_server_has_pdf_defaults() -> None:
     assert isinstance(model, RayServeModelConfig)
     assert model.deployment_config == {"num_replicas": 3}
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
+
+
+def test_rejects_dynamo_routing_for_ray_serve() -> None:
+    with pytest.raises(ValueError, match="dynamo_router_mode requires backend='dynamo'"):
+        create_nemotron_parse_inference_server(backend="ray-serve", dynamo_router_mode="least-loaded")
 
 
 @pytest.mark.parametrize("backend", ["dynamo", "ray-serve"])
