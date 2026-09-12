@@ -63,6 +63,11 @@ class TestRayActorPoolExecutor:
             **({"scheduling_strategy": expected_strategy} if expected_strategy else {}),
         }
 
+    def test_actor_options_include_runtime_env(self) -> None:
+        stage = _stage_with_worker_sizing(num_workers=None, num_workers_per_node=None, cpus=1.0, batch_size=1)
+        stage.runtime_env = {"env_vars": {"CUDF_PER_THREAD_STREAM": "1"}}
+        assert _get_actor_options(stage)["runtime_env"] == stage.runtime_env
+
     @pytest.mark.parametrize(
         ("available_cpus", "expected_actors", "expected_warning"),
         [
@@ -266,6 +271,7 @@ def _stage_with_worker_sizing(
     stage.name = "stage"
     stage.resources = Resources(cpus=cpus, gpus=0.0)
     stage.batch_size = batch_size
+    stage.runtime_env = None
     stage.num_workers.return_value = num_workers
     stage.num_workers_per_node.return_value = num_workers_per_node
     return stage

@@ -217,10 +217,18 @@ Parquet is recommended for large semantic-deduplication workloads. Its footer me
 fit array, while cuDF's chunked reader bounds fit-pass memory and output column sizes. After fitting, Parquet
 rereads all files in bounded frames to predict and write every row, including when
 `fit_data_fraction=1.0` or automatic sizing selects every file. The fit array is released before
-prediction and writing, so it does not compete with their temporary allocations. Prediction groups
-respect cuDF's embedding child-column limit, but this is not a GPU-memory limit: a large group or
-metadata-heavy input can still exhaust memory during reading, prediction, or writing.
+prediction and writing, so it does not compete with their temporary allocations. Prediction memory
+sizing is an estimate: a single oversized file or underestimated metadata can still exhaust memory
+during reading, prediction, or writing.
 An explicit JSONL fit fraction also rereads the input, but loads all files together for prediction.
+
+The Parquet prediction pass uses up to four threads per GPU, with read groups sized from the
+available memory, embedding-element counts, and retained-column sizes. `KMeansStage.predict_write_workers`
+sets the maximum; use `1` for serial prediction and writing. Each thread has its own predictor and
+centroid-partitioned writer. Local output reuses files across frames and rotates them before a
+partition's embedding column reaches cuDF's element limit. Storage options and additional Parquet
+write options continue through the general writer path. Ray workers enable `CUDF_PER_THREAD_STREAM=1`
+before importing cuDF; set this environment variable yourself when calling the processing stage directly.
 
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
