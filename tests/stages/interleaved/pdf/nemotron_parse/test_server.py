@@ -45,14 +45,20 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert server.backend.subprocess_env == {"DYN_TCP_REQUEST_TIMEOUT": "123"}
 
 
-def test_ray_serve_server_has_pdf_defaults() -> None:
+def test_ray_serve_server_uses_driver_attention_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.get_device_capability", lambda: (10, 0))
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: "0.22.0",
+    )
     server = create_nemotron_parse_inference_server(backend="ray-serve", num_replicas=3)
 
     model = server.models[0]
     assert isinstance(model, RayServeModelConfig)
     assert model.deployment_config == {"num_replicas": 3}
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
-    assert "attention_backend" not in model.engine_kwargs
+    assert model.engine_kwargs["attention_backend"] == "TRITON_ATTN"
 
 
 @pytest.mark.parametrize("num_replicas", [0, -1])
