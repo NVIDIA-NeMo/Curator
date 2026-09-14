@@ -24,7 +24,6 @@ class RayServeModelConfig(BaseModelConfig):
 
     deployment_config: dict[str, Any] = field(default_factory=dict)
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
-    server_cls: str | type | None = None
 
 
 @dataclass

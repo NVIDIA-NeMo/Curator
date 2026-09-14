@@ -17,9 +17,7 @@ import pytest
 from nemo_curator.core.serve import RayServeModelConfig
 from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
 
-ray_serve_llm = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed")
-LLMConfig = ray_serve_llm.LLMConfig
-LLMServer = ray_serve_llm.LLMServer
+LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
 
 
 class TestRayServeBackend:
@@ -29,7 +27,6 @@ class TestRayServeBackend:
             model_name="gemma-27b",
             deployment_config={"autoscaling_config": {"min_replicas": 1}},
             engine_kwargs={"tensor_parallel_size": 4},
-            server_cls="ray.serve.llm.LLMServer",
             runtime_env={
                 "pip": ["my-package"],
                 "env_vars": {"MY_VAR": "1", "VLLM_LOGGING_LEVEL": "DEBUG"},
@@ -44,7 +41,6 @@ class TestRayServeBackend:
         assert result.model_loading_config.model_source == "google/gemma-3-27b-it"
         assert result.deployment_config == {"autoscaling_config": {"min_replicas": 1}}
         assert result.engine_kwargs == {"tensor_parallel_size": 4}
-        assert result.server_cls is LLMServer
         assert result.runtime_env["pip"] == ["my-package"]
         assert result.runtime_env["env_vars"]["MY_VAR"] == "1"
         assert result.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "WARNING"

@@ -53,9 +53,6 @@ def test_ray_serve_server_has_pdf_defaults() -> None:
     assert model.deployment_config == {"num_replicas": 3}
     assert model.engine_kwargs["limit_mm_per_prompt"] == {"image": 1}
     assert "attention_backend" not in model.engine_kwargs
-    assert model.server_cls == (
-        "nemo_curator.stages.interleaved.pdf.nemotron_parse.ray_serve.NemotronParseRayServeServer"
-    )
 
 
 @pytest.mark.parametrize("num_replicas", [0, -1])

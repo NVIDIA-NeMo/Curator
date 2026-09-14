@@ -87,10 +87,12 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
             health_check_timeout_s=health_check_timeout_s,
         )
     if backend == "ray-serve":
+        # Ray Serve builds this config on the driver, which may not see the GPU
+        # assigned later. On Ampere or Blackwell with vLLM <0.23, callers must
+        # pass attention_backend="TRITON_ATTN" explicitly.
         model = RayServeModelConfig(
             **model_kwargs,
             deployment_config={"num_replicas": num_replicas},
-            server_cls=("nemo_curator.stages.interleaved.pdf.nemotron_parse.ray_serve.NemotronParseRayServeServer"),
         )
         return InferenceServer(models=[model], health_check_timeout_s=health_check_timeout_s)
 

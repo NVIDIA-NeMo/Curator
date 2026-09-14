@@ -77,10 +77,12 @@ uv run python tutorials/interleaved/nemotron_parse_pdf/inprocess.py \
 Use `inprocess.py` for local validation and debugging when you do not want a
 separate serving topology.
 
-The in-process and Ray Serve paths use Triton attention automatically on Ampere
-GPUs, following the model's A100/A10 guidance. On Blackwell, they also use
-Triton with vLLM versions before 0.23 to avoid the affected FlashInfer/TRTLLM
-implementation. Explicit vLLM `attention_backend` settings are preserved.
+The in-process path uses Triton attention automatically on Ampere GPUs,
+following the model's A100/A10 guidance. On Blackwell, it also uses Triton with
+vLLM versions before 0.23 to avoid the affected FlashInfer/TRTLLM
+implementation. Ray Serve cannot reliably detect the replica GPU while
+building its configuration; pass `attention_backend="TRITON_ATTN"` in
+`engine_kwargs` for those affected GPUs. Explicit settings are preserved.
 
 The entry point uses `create_nemotron_parse_inference_server`, which keeps the
 Nemotron-Parse vLLM, Dynamo, and runtime-environment settings shared with the
