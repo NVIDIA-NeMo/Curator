@@ -228,10 +228,6 @@ GPU memory and input file sizes; an individual file may need to be split into sm
 JSONL with an explicit fit fraction also rereads the full input for prediction, but does not gain
 Parquet's bounded prediction reads.
 
-When comparing benchmark runs, use the full KMeans elapsed time or `kmeans_second_pass_time_s`
-for reading, predicting, and writing after fitting. Individual read, prediction, and write activity
-can overlap, so adding those timings overstates elapsed time.
-
 <Tabs>
 <Tab title="Text workflow">
 
