@@ -24,6 +24,11 @@ import rmm
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
+from nemo_curator.stages.deduplication.fuzzy.banding import (
+    CURATOR_MINHASH_BAND_FIELD_PREFIX,
+    get_band_columns,
+    minhash_to_band_columns,
+)
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
@@ -217,6 +222,14 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
     normalize_text : bool, default=False
         Whether to normalize text before computing minhashes
         Current normalization is limited to lowercase and trim whitespace
+    output_format : Literal["raw", "banded"], default="raw"
+        Whether to write the raw list-valued MinHash signature or one top-level
+        column containing the final bucket hash for each LSH band.
+    num_bands : int | None, default=None
+        Number of LSH bands to generate when ``output_format="banded"``. The
+        number of hashes must be evenly divisible by this value.
+    band_field_prefix : str, default="_minhash_band_"
+        Prefix used for banded output columns.
     read_format : Literal["jsonl", "parquet"] | None, default=None
         Format of input files. Only applies to FileGroupTask inputs; ignored for DocumentBatch
         inputs (which are already in memory). May be None when only DocumentBatch inputs are used.
@@ -251,6 +264,9 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
         pool: bool = True,
+        output_format: Literal["raw", "banded"] = "raw",
+        num_bands: int | None = None,
+        band_field_prefix: str = CURATOR_MINHASH_BAND_FIELD_PREFIX,
     ):
         # Set ProcessingStage attributes
         self.name = self.__class__.__name__
@@ -260,6 +276,20 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         self.minhash_field = minhash_field
         self.char_ngrams = char_ngrams
         self.num_hashes = num_hashes
+        if output_format not in ("raw", "banded"):
+            msg = f"output_format must be 'raw' or 'banded', got {output_format!r}"
+            raise ValueError(msg)
+        if output_format == "banded":
+            if num_bands is None or num_bands < 1:
+                msg = "num_bands must be at least 1 when output_format='banded'"
+                raise ValueError(msg)
+            if num_hashes % num_bands != 0:
+                msg = f"num_hashes ({num_hashes}) must be evenly divisible by num_bands ({num_bands})"
+                raise ValueError(msg)
+        self.output_format = output_format
+        self.num_bands = num_bands
+        self.minhashes_per_band = num_hashes // num_bands if output_format == "banded" else None
+        self.band_field_prefix = band_field_prefix
         self.seed = seed
         self.use_64bit_hash = use_64bit_hash
         self.normalize_text = normalize_text
@@ -353,8 +383,23 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
                 text_for_minhash = normalize_text(text_for_minhash)
 
         with self._time_metric("minhash_compute_time"):
-            result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(text_for_minhash)
+            minhashes = self.minhash_processor.compute_minhashes(text_for_minhash)
 
+        if self.output_format == "raw":
+            result_df[self.minhash_field] = minhashes
+        else:
+            with self._time_metric("minhash_banding_time"):
+                band_df = minhash_to_band_columns(
+                    minhashes,
+                    num_bands=self.num_bands,
+                    minhashes_per_band=self.minhashes_per_band,
+                    band_field_prefix=self.band_field_prefix,
+                )
+                for column in band_df.columns:
+                    result_df[column] = band_df[column]
+
+            del band_df
+        del minhashes
         # Write output file
         with self._time_metric("minhash_write_time"):
             self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
@@ -367,7 +412,20 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
                 **task._metadata,
                 "minhash_field": self.minhash_field,
                 "num_hashes": self.num_hashes,
+                "minhash_output_format": self.output_format,
                 "storage_options": self.write_kwargs.get("storage_options"),
+                **(
+                    {
+                        "num_bands": self.num_bands,
+                        "minhashes_per_band": self.minhashes_per_band,
+                        "band_columns": get_band_columns(
+                            (0, self.num_bands),
+                            band_field_prefix=self.band_field_prefix,
+                        ),
+                    }
+                    if self.output_format == "banded"
+                    else {}
+                ),
             },
             _stage_perf=task._stage_perf,
         )
