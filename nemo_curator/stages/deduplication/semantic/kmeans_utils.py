@@ -41,8 +41,10 @@ def plan_kmeans_prediction(
 ) -> tuple[list[list[str]], int]:
     """Group complete files and choose how many groups can run concurrently.
 
-    Each worker needs a read/write group plus an FP32 sample-by-centroid distance
-    workspace. First divide memory among the requested workers, then reduce the
+    Allow each worker a read/write group plus an FP32 sample-by-centroid distance
+    workspace for cuVS's unfused prediction path. Its fused L2 path uses per-row
+    scratch instead, so this allowance is not an exact allocation measurement.
+    First divide memory among the requested workers, then reduce the
     worker count if a complete file exceeds that share. Groups also stay below
     cuDF's embedding child-column limit, independently of the memory estimate.
 
@@ -55,7 +57,7 @@ def plan_kmeans_prediction(
         + info.metadata_bytes * _PREDICT_METADATA_MEMORY_FACTOR
         for info in file_info
     }
-    # Allow for an FP32 sample-by-centroid distance workspace in each prediction worker.
+    # Allow for cuVS's unfused FP32 distance matrix; the fused path avoids this matrix.
     prediction_scratch_bytes = max_samples_per_batch * n_clusters * cp.dtype(cp.float32).itemsize
     group_memory_limit = memory_budget // max_workers - prediction_scratch_bytes
     # A complete input file is the smallest read unit, even when it exceeds a worker's share.
