@@ -261,14 +261,28 @@ Check at least these conditions on a manually reviewed sample:
 
 ## 5. Analyze judge decisions
 
-Load every JSONL part and summarize the categorical decision:
+Load every non-empty JSONL part and summarize the categorical decision:
 
 ```python
 from pathlib import Path
 
 import pandas as pd
 
-parts = [pd.read_json(path, lines=True) for path in Path("data/qwen_judgements").glob("*.jsonl")]
+def contains_record(path: Path) -> bool:
+    with path.open(encoding="utf-8") as file:
+        return any(line.strip() for line in file)
+
+
+output_files = sorted(Path("data/qwen_judgements").glob("*.jsonl"))
+nonempty_files = [path for path in output_files if contains_record(path)]
+
+num_empty_files = len(output_files) - len(nonempty_files)
+if num_empty_files:
+    print(f"Skipping {num_empty_files} empty JSONL part file(s).")
+if not nonempty_files:
+    raise SystemExit("The workflow produced no judged records to analyze.")
+
+parts = [pd.read_json(path, lines=True) for path in nonempty_files]
 results = pd.concat(parts, ignore_index=True)
 
 judge_column = "qwen3_8_27b_text_extraction_judgment"
@@ -278,6 +292,8 @@ results["best_extraction"] = results[judge_column].map(
 
 print(results["best_extraction"].value_counts(dropna=False))
 ```
+
+A writer can create an empty part when an upstream filter or structured-output rejection removes every row in a batch. The guard skips empty and whitespace-only files before calling `pd.read_json()` and stops with a clear message when the output directory contains no judged records.
 
 Map `candidate_a` back to `justext_text` and `candidate_b` back to `trafilatura_text` during analysis. Read the score reasoning for unexpected winners, low-fidelity results, and records with a high `semantic_disagreement` score.
 
