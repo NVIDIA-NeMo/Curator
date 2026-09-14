@@ -215,9 +215,12 @@ embedding input format:
 
 Parquet is recommended for large semantic-deduplication workloads. Its footer metadata sizes the
 fit array, while cuDF's chunked reader bounds fit-pass memory and output column sizes. After fitting, Parquet
-rereads all files in bounded frames to predict and write every row. This keeps prediction and output
-memory independent of the fit sample size. An explicit JSONL fit fraction uses the same two-pass I/O
-pattern.
+rereads all files in bounded frames to predict and write every row, including when
+`fit_data_fraction=1.0` or automatic sizing selects every file. The fit array is released before
+prediction and writing, so it does not compete with their temporary allocations. Prediction groups
+respect cuDF's embedding child-column limit, but this is not a GPU-memory limit: a large group or
+metadata-heavy input can still exhaust memory during reading, prediction, or writing.
+An explicit JSONL fit fraction also rereads the input, but loads all files together for prediction.
 
 Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
 `round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,

@@ -164,7 +164,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             return self._process_jsonl_two_pass(tasks, all_files)
         return self._process_jsonl_single_pass(tasks, all_files)
 
-    def _process_parquet(self, tasks: list[FileGroupTask], files: list[str]) -> list[EmptyTask]:  # noqa: PLR0915
+    def _process_parquet(self, tasks: list[FileGroupTask], files: list[str]) -> list[EmptyTask]:
+        """Fit embeddings, release fit memory, then reread all files to predict and write."""
         columns = list(dict.fromkeys([self.id_field, self.embedding_field, *self.metadata_fields]))
         footer_start = time.perf_counter()
         file_info = read_parquet_file_info(
@@ -176,8 +177,34 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         footer_time = time.perf_counter() - footer_start
         self._log_metric("kmeans_footer_scan_time", footer_time)
 
-        fit_info = self._sample_fit_files(file_info)
         total_rows = sum(info.num_rows for info in file_info)
+        centroids, fit_read_time = self._fit_parquet(file_info)
+        predicted_rows, phase_times = self._predict_write_parquet(file_info, columns, tasks[0].task_id, centroids)
+
+        if predicted_rows != total_rows:
+            msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
+            raise RuntimeError(msg)
+        self._log_metrics(
+            {
+                "kmeans_read_time": fit_read_time + phase_times["read"],
+                "kmeans_predict_time": phase_times["predict"],
+                "kmeans_write_time": phase_times["write"],
+                "num_rows": total_rows,
+            }
+        )
+        actor_index = getattr(self, "_actor_index", 0)
+        return [
+            EmptyTask(
+                dataset_name=f"kmeans_actor_{actor_index}",
+                _metadata=None,
+                _stage_perf=[],
+                data=None,
+            )
+        ]
+
+    def _fit_parquet(self, file_info: list[ParquetFileInfo]) -> tuple["cp.ndarray", float]:
+        """Fit selected embeddings and release the fit buffer before prediction, even for a full fit."""
+        fit_info = self._sample_fit_files(file_info)
         fit_rows = sum(info.num_rows for info in fit_info)
         if fit_rows < self.n_clusters:
             msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
@@ -214,7 +241,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 "kmeans_fit_rows": fit_rows,
                 "kmeans_fit_files": len(fit_info),
                 "kmeans_input_files": len(file_info),
-                "kmeans_fit_data_fraction": fit_rows / total_rows,
+                "kmeans_fit_data_fraction": fit_rows / sum(info.num_rows for info in file_info),
                 "kmeans_fit_file_fraction": len(fit_info) / len(file_info),
             }
         )
@@ -224,6 +251,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         gc.collect()
         cp.get_default_memory_pool().free_all_blocks()
 
+        return centroids, read_time
+
+    def _predict_write_parquet(
+        self, file_info: list[ParquetFileInfo], columns: list[str], task_id: str, centroids: "cp.ndarray"
+    ) -> tuple[int, dict[str, float]]:
+        """Reread every file in groups, predict labels, and write centroid partitions."""
+        read_time = 0.0
         predict_time = 0.0
         write_time = 0.0
         predicted_rows = 0
@@ -237,33 +271,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             predict_time += time.perf_counter() - predict_start
             del df[self.embedding_field]
             write_start = time.perf_counter()
-            self._write_output_frame(f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids)
+            self._write_output_frame(f"{task_id}_{output_index}.parquet", df, embeddings, labels, centroids)
             write_time += time.perf_counter() - write_start
             predicted_rows += len(df)
             del df, embeddings, labels
             read_start = time.perf_counter()
         read_time += time.perf_counter() - read_start
 
-        if predicted_rows != total_rows:
-            msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
-            raise RuntimeError(msg)
-        self._log_metrics(
-            {
-                "kmeans_read_time": read_time,
-                "kmeans_predict_time": predict_time,
-                "kmeans_write_time": write_time,
-                "num_rows": total_rows,
-            }
-        )
-        actor_index = getattr(self, "_actor_index", 0)
-        return [
-            EmptyTask(
-                dataset_name=f"kmeans_actor_{actor_index}",
-                _metadata=None,
-                _stage_perf=[],
-                data=None,
-            )
-        ]
+        return predicted_rows, {"read": read_time, "predict": predict_time, "write": write_time}
 
     def _sample_fit_files(self, file_info: list[ParquetFileInfo]) -> list[ParquetFileInfo]:
         rng = random.Random(self.random_state)  # noqa: S311
