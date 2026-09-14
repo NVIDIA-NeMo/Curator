@@ -110,6 +110,12 @@ for the underlying configuration objects. For executor options, refer to
 For local validation without an inference server, run `inprocess.py` with
 `--backend vllm` or `--backend hf`.
 
+The in-process and Ray Serve paths automatically select Triton attention on
+Ampere GPUs, following the Nemotron-Parse model's A100/A10 guidance. They also
+select Triton on Blackwell with vLLM versions before 0.23, avoiding the affected
+FlashInfer/TRTLLM path. An explicit `attention_backend` setting always takes
+precedence.
+
 For programmatic use, the helper returns an unstarted `InferenceServer`; use it
 as a context manager to start it, wait for health, and stop it:
 

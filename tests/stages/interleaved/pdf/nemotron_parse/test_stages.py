@@ -30,6 +30,7 @@ import pytest
 from PIL import Image
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import set_nemotron_parse_attention_backend
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
@@ -41,6 +42,36 @@ if TYPE_CHECKING:
 
 def _empty_task() -> EmptyTask:
     return EmptyTask(dataset_name="test", data=None)
+
+
+@pytest.mark.parametrize(
+    ("capability", "vllm_version", "engine_kwargs", "expected_backend"),
+    [
+        ((8, 0), "0.23.0", {}, "TRITON_ATTN"),
+        ((8, 6), "0.23.0", {}, "TRITON_ATTN"),
+        ((9, 0), "0.22.0", {}, None),
+        ((10, 0), "0.22.0", {}, "TRITON_ATTN"),
+        ((10, 0), "0.23.0", {}, None),
+        ((10, 0), "0.22.0", {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
+    ],
+)
+def test_nemotron_parse_attention_backend_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+    capability: tuple[int, int],
+    vllm_version: str,
+    engine_kwargs: dict,
+    expected_backend: str | None,
+) -> None:
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.get_device_capability", lambda: capability)
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: vllm_version,
+    )
+
+    set_nemotron_parse_attention_backend(engine_kwargs)
+
+    assert engine_kwargs.get("attention_backend") == expected_backend
 
 
 class TestPDFPartitioningStage:
@@ -472,10 +503,8 @@ class TestNemotronParseInferenceStageMetrics:
             "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
             lambda package: "0.22.0" if package == "vllm" else package_version(package),
         )
-        monkeypatch.setattr(
-            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference._is_blackwell_gpu",
-            lambda: True,
-        )
+        monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+        monkeypatch.setattr("torch.cuda.get_device_capability", lambda: (10, 0))
 
         captured_kwargs: dict = {}
 

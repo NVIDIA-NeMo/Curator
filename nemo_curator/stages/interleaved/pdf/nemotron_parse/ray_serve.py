@@ -12,23 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass, field
-from typing import Any, ClassVar
+"""Ray Serve worker customization for Nemotron-Parse."""
 
-from nemo_curator.core.serve.base import BaseModelConfig, BaseServerConfig
+from ray.serve.llm import LLMConfig, LLMServer
 
-
-@dataclass
-class RayServeModelConfig(BaseModelConfig):
-    """Ray Serve model config."""
-
-    deployment_config: dict[str, Any] = field(default_factory=dict)
-    engine_kwargs: dict[str, Any] = field(default_factory=dict)
-    server_cls: str | type | None = None
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import set_nemotron_parse_attention_backend
 
 
-@dataclass
-class RayServeServerConfig(BaseServerConfig):
-    """Server-level Ray Serve config."""
+class NemotronParseRayServeServer(LLMServer):
+    """Resolve the attention backend on the GPU assigned to this replica."""
 
-    model_configs: ClassVar[tuple[type[BaseModelConfig], ...]] = (RayServeModelConfig,)
+    async def __init__(self, llm_config: LLMConfig) -> None:
+        set_nemotron_parse_attention_backend(llm_config.engine_kwargs)
+        await super().__init__(llm_config)

@@ -127,6 +127,7 @@ class RayServeBackend(InferenceBackend):
             deployment_config=model.deployment_config,
             engine_kwargs=model.engine_kwargs,
             runtime_env=merged_env or None,
+            server_cls=model.server_cls,
         )
 
     @staticmethod
