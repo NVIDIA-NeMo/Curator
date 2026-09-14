@@ -25,10 +25,10 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import setup_executor, write_benchmark_results
+from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.modifiers import Modify
 from nemo_curator.stages.text.modifiers.string import (
@@ -41,11 +41,13 @@ from nemo_curator.stages.text.modifiers.string import (
 from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 
 
-def run_modify_benchmark(
+def run_modify_benchmark(  # noqa: PLR0913
     input_path: Path,
     output_path: Path,
     executor_name: str,
     benchmark_results_path: Path,
+    dataset_size_gb: float | None = None,
+    input_filetype: str = "jsonl",
 ) -> dict[str, Any]:
     """Run the Modify benchmark and collect comprehensive metrics."""
 
@@ -64,7 +66,15 @@ def run_modify_benchmark(
 
     pipeline = Pipeline(name="modifier_pipeline")
 
-    pipeline.add_stage(ParquetReader(input_path))
+    if dataset_size_gb is not None:
+        file_paths = load_dataset_files(input_path, dataset_size_gb, keep_extensions=input_filetype)
+        logger.info(f"Dataset size limit: {dataset_size_gb} GB ({len(file_paths)} files selected)")
+        reader = (
+            JsonlReader(file_paths=file_paths) if input_filetype == "jsonl" else ParquetReader(file_paths=file_paths)
+        )
+    else:
+        reader = JsonlReader(input_path) if input_filetype == "jsonl" else ParquetReader(input_path)
+    pipeline.add_stage(reader)
 
     # Add modify stages
     pipeline.add_stage(Modify(BoilerPlateStringModifier()))
@@ -127,6 +137,10 @@ def main() -> int:
     )
     # Executor
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
+    parser.add_argument(
+        "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
+    )
+    parser.add_argument("--input-filetype", default="jsonl", choices=["parquet", "jsonl"], help="Input file format")
 
     args = parser.parse_args()
 
@@ -146,6 +160,8 @@ def main() -> int:
             output_path=args.output_path,
             executor_name=args.executor,
             benchmark_results_path=args.benchmark_results_path,
+            dataset_size_gb=args.dataset_size_gb,
+            input_filetype=args.input_filetype,
         )
     finally:
         write_benchmark_results(results, args.benchmark_results_path)

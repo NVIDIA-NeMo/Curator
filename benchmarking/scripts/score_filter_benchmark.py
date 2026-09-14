@@ -28,7 +28,7 @@ import hydra
 from hydra import compose, initialize_config_dir
 from loguru import logger
 from omegaconf import DictConfig
-from utils import setup_executor, write_benchmark_results
+from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 
@@ -44,12 +44,13 @@ def load_hydra_yaml(config_path: Path, overrides: list[str] | None = None) -> Di
         return compose(config_name=config_path.stem, overrides=overrides)
 
 
-def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
+def create_pipeline_from_yaml(cfg: DictConfig, file_paths: list[str] | None = None) -> Pipeline:
     pipeline = Pipeline(name="score_filter_pipeline")
 
-    # Add stages to the pipeline
-    for p in cfg.stages:
+    for i, p in enumerate(cfg.stages):
         stage = hydra.utils.instantiate(p)
+        if i == 0 and file_paths is not None:
+            stage.file_paths = file_paths
         pipeline.add_stage(stage)
 
     return pipeline
@@ -62,6 +63,7 @@ def run_score_filter_benchmark(  # noqa: PLR0913
     benchmark_results_path: Path,
     yaml_config: Path,
     overrides: str | None = None,
+    dataset_size_gb: float | None = None,
 ) -> dict[str, Any]:
     """Run the ScoreFilter benchmark and collect comprehensive metrics."""
 
@@ -86,7 +88,15 @@ def run_score_filter_benchmark(  # noqa: PLR0913
         overrides_list.extend(overrides.split(","))
 
     cfg = load_hydra_yaml(yaml_config, overrides_list)
-    pipeline = create_pipeline_from_yaml(cfg)
+
+    file_paths = None
+    if dataset_size_gb is not None:
+        reader_target = cfg.stages[0].get("_target_", "")
+        ext = "jsonl" if "Jsonl" in reader_target else "parquet"
+        file_paths = load_dataset_files(input_path, dataset_size_gb, keep_extensions=ext)
+        logger.info(f"Dataset size limit: {dataset_size_gb} GB ({len(file_paths)} files selected)")
+
+    pipeline = create_pipeline_from_yaml(cfg, file_paths=file_paths)
 
     run_start_time = time.perf_counter()
 
@@ -150,6 +160,9 @@ def main() -> int:
     )
     # example: --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,stages.0.files_per_partition=10"  # noqa: ERA001
     parser.add_argument("--overrides", type=str, help="Overrides to pass to the YAML configuration")
+    parser.add_argument(
+        "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
+    )
 
     args = parser.parse_args()
 
@@ -171,6 +184,7 @@ def main() -> int:
             benchmark_results_path=args.benchmark_results_path,
             yaml_config=args.yaml_config,
             overrides=args.overrides,
+            dataset_size_gb=args.dataset_size_gb,
         )
     finally:
         write_benchmark_results(results, args.benchmark_results_path)

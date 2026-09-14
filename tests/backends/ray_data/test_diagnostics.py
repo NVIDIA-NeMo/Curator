@@ -89,9 +89,20 @@ def test_scheduler_diagnostics_are_written_to_ray_session_log(
     ray_data_log = session_dir / "logs" / "ray-data" / "ray-data.log"
 
     assert ray_data_log.exists()
-    log_contents = ray_data_log.read_text()
-    assert {
-        "ray_data_resource_budget_admission",
-        "ray_data_downstream_capacity_admission",
-        "ray_data_actor_autoscaling_decision",
-    } <= set(log_contents.split())
+    event_lines = {
+        event: next(line for line in ray_data_log.read_text().splitlines() if event in line)
+        for event in (
+            "ray_data_resource_budget_admission",
+            "ray_data_downstream_capacity_admission",
+            "ray_data_actor_autoscaling_decision",
+        )
+    }
+
+    for event in ("ray_data_resource_budget_admission", "ray_data_downstream_capacity_admission"):
+        assert "blocked_duration_ms=" in event_lines[event]
+        assert "object_store_internal_bytes=" in event_lines[event]
+        assert "object_store_output_bytes=" in event_lines[event]
+
+    actor_event = event_lines["ray_data_actor_autoscaling_decision"]
+    assert "object_store_internal_bytes=" in actor_event
+    assert "object_store_output_bytes=" in actor_event

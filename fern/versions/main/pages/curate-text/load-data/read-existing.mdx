@@ -119,6 +119,41 @@ Both `JsonlReader` and `ParquetReader` support these configuration options:
 | `fields` | list[str] \| None | Column names to read (column selection) | None (all columns) |
 | `read_kwargs` | dict[str, Any] \| None | Extra arguments for the underlying reader | None |
 
+### JSONL Engine Selection
+
+`JsonlReader` parses JSONL directly into a PyArrow table by default. Choose the engine through
+`read_kwargs` when your dataset requires different inference behavior.
+
+| `read_kwargs["engine"]` | Output backing type | Use when |
+| --- | --- | --- |
+| Omitted or `"pyarrow_direct"` | `pyarrow.Table` | Recommended for throughput and Arrow-native processing |
+| `"pandas"` | `pandas.DataFrame` | You need pandas-specific options or inference, such as `convert_dates` or mixed-type object columns |
+| Another pandas engine, such as `"ujson"` or `"pyarrow"` | `pandas.DataFrame` | You explicitly need an engine supported by `pandas.read_json` |
+
+The direct engine does not silently fall back to pandas. If PyArrow cannot infer a consistent
+schema—for example, when one JSON field contains both numbers and strings—select the pandas
+engine explicitly:
+
+```python
+reader = JsonlReader(
+    file_paths="/path/to/data",
+    read_kwargs={
+        "engine": "pandas",
+        "convert_dates": ["created_at"],
+    },
+)
+```
+
+The direct engine accepts these additional options:
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `pyarrow_block_size` | Initial number of bytes PyArrow processes per parser block | 8 MiB |
+| `pyarrow_max_block_size` | Maximum parser block used when retrying an unusually large JSON object | 256 MiB |
+
+The direct reader processes 8 MiB chunks and retries with larger chunks, up to 256 MiB, for rows
+containing large payloads such as base64-encoded images or PDFs.
+
 ### Parquet-Specific Features
 
 `ParquetReader` provides these optimizations:

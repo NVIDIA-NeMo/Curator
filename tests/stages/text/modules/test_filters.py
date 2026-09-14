@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -147,6 +147,17 @@ class TestFilterModule:
         )
 
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_verbose_logs_batch_counts(
+        self, letter_count_data: DocumentBatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("INFO"):
+            ScoreFilter(LetterCountFilter(), text_field="documents", verbose=True).process(letter_count_data)
+            Filter(lambda text: "Five" in text, filter_field="documents", verbose=True).process(letter_count_data)
+
+        assert "retained 2/4 rows" in caplog.text
+        assert "filter_fn batch" in caplog.text
+        assert "retained 1/4 rows" in caplog.text
 
     def test_score_document(self, letter_count_data: DocumentBatch) -> None:
         letter_filter = LetterCountFilter()
@@ -369,7 +380,7 @@ class TestFilterModule:
         filtered_data = filters.process(intermediate_data)
 
         # Empty DataFrame
-        expected_df = pd.DataFrame(columns=["documents"], index=pd.Index([], dtype=object))
+        expected_df = pd.DataFrame({"documents": pd.Series(dtype="str")})
 
         expected_data = DocumentBatch(
             data=expected_df,

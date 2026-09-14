@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "benchmarking"))
 
-from runner.sinks.slack_sink import SlackParentMessage
+from runner.sinks.slack_sink import SlackParentMessage, SlackSink
 
 
 def _section_texts(blocks: list[dict[str, Any]]) -> list[str]:
@@ -31,35 +34,22 @@ def _section_texts(blocks: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-def _table_rows(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    return next(block["rows"] for block in blocks if block.get("type") == "table")
-
-
-def _row_texts(row: list[dict[str, Any]]) -> list[str]:
-    return [cell["elements"][0]["elements"][0]["text"] for cell in row]
-
-
 def test_slack_parent_message_reports_entry_status_counts() -> None:
     message = SlackParentMessage(session_name="test-session", env_dict={})
-    time_taken_s = SlackParentMessage.format_time_taken_s({"metrics": {"time_taken_s": 12.345}})
     message.update_entry("waiting_entry", "⏳ waiting to start")
     message.update_entry("running_entry", "▶️ running")
-    message.update_entry("passed_entry", "✅ success", time_taken_s=time_taken_s)
+    message.update_entry("passed_entry", "✅ success")
     message.update_entry("failed_entry", "❌ FAILED")
 
     blocks = message.to_slack_blocks()
     section_texts = _section_texts(blocks)
-    table_rows = _table_rows(blocks)
 
-    assert section_texts[0] == (
+    assert section_texts[0] == "*Run status:* ▶️ running"
+    assert section_texts[1] == (
         "*Total entries:* 4  •  *passed ✅:* 1  •  *failed ❌:* 1  •  *running ▶️:* 1  •  *waiting ⏳:* 1"
     )
     assert all("Overall Status" not in text for text in section_texts)
-    assert all(len(row) == 3 for row in table_rows)
-    assert _row_texts(table_rows[0]) == ["waiting_entry", "⏳ waiting to start", " "]
-    assert _row_texts(table_rows[1]) == ["running_entry", "▶️ running", " "]
-    assert _row_texts(table_rows[2]) == ["passed_entry", "✅ success", "12.35s"]
-    assert _row_texts(table_rows[3]) == ["failed_entry", "❌ FAILED", " "]
+    assert all(block.get("type") != "table" for block in blocks)
 
 
 def test_slack_parent_message_labels_viewer_link_with_session_name() -> None:
@@ -71,19 +61,48 @@ def test_slack_parent_message_labels_viewer_link_with_session_name() -> None:
 
     section_texts = _section_texts(message.to_slack_blocks())
 
-    assert section_texts[1] == "*Results viewer:* <http://viewer.example.com/run?name=test-session|test-session>"
+    assert section_texts[0] == "*Run status:* ✅ complete"
+    assert section_texts[2] == "*Results viewer:* <http://viewer.example.com/run?name=test-session|test-session>"
 
 
 def test_slack_parent_message_fallback_reports_entry_status_counts() -> None:
     message = SlackParentMessage(session_name="test-session", env_dict={})
-    message.update_entry("passed_entry", "✅ success", time_taken_s="12.35s")
+    message.update_entry("passed_entry", "✅ success")
     message.update_entry("failed_entry", "❌ FAILED")
 
     fallback_text = message.to_fallback_text()
 
+    assert fallback_text.splitlines()[2] == "Run status: ❌ complete with failures"
     assert "Total entries: 2" in fallback_text
     assert "passed ✅: 1" in fallback_text
     assert "failed ❌: 1" in fallback_text
     assert "running ▶️: 0" in fallback_text
     assert "waiting ⏳: 0" in fallback_text
-    assert "passed_entry: ✅ success (12.35s)" in fallback_text
+    assert "Run status: ❌ complete with failures" in fallback_text
+    assert "Benchmark Entries:" not in fallback_text
+    assert "passed_entry" not in fallback_text
+
+
+def _slack_sink(monkeypatch: pytest.MonkeyPatch, **config_overrides: object) -> SlackSink:
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "test-token")
+    return SlackSink(
+        {
+            "channel_id": "C123",
+            "default_metrics": ["exec_time_s"],
+            **config_overrides,
+        }
+    )
+
+
+def test_slack_sink_posts_entry_replies_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    sink = _slack_sink(monkeypatch)
+
+    assert sink._should_post_benchmark_entry_message({"success": True}, []) is True
+
+
+def test_slack_sink_can_limit_entry_replies_to_failures_or_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
+    sink = _slack_sink(monkeypatch, thread_replies_for_failures_or_warnings_only=True)
+
+    assert sink._should_post_benchmark_entry_message({"success": True}, []) is False
+    assert sink._should_post_benchmark_entry_message({"success": True}, ["warning"])
+    assert sink._should_post_benchmark_entry_message({"success": False}, [])

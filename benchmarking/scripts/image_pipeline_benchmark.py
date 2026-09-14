@@ -33,6 +33,7 @@ from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStag
 from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from nemo_curator.stages.image.io.image_reader import ImageReaderStage
 from nemo_curator.stages.image.io.image_writer import ImageWriterStage
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 
 def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -47,6 +48,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
             file_paths=args.input_wds_dataset_dir,
             files_per_partition=args.tar_files_per_partition,
             file_extensions=[".tar"],
+            limit=args.input_partition_limit,
         )
     )
 
@@ -107,6 +109,7 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     logger.info(f"Output dataset directory: {output_dir}")
     logger.info(f"Model directory: {args.model_dir}")
     logger.info(f"Tar files per partition: {args.tar_files_per_partition}")
+    logger.info(f"Input partition limit: {args.input_partition_limit}")
     logger.info(f"Task batch size: {args.batch_size}")
     logger.info(f"Embedding batch size: {args.embedding_batch_size}")
     logger.info(f"Aesthetic threshold: {args.aesthetic_threshold}")
@@ -124,12 +127,20 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        # Calculate metrics from output tasks
-        # Count total images processed (sum of images in each ImageBatch)
-        num_images_processed = sum(len(task.data) for task in output_tasks if task.data is not None)
+        task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
+        num_images_written = sum(int(task._metadata.get("num_images", 0)) for task in output_tasks)
+        num_output_files = sum(len(task.data) for task in output_tasks if task.data is not None)
+        # ImageWriterStage returns FileGroupTasks, so len(task.data) counts output
+        # files rather than images. The embedding stage is the first stage whose
+        # item count represents every decoded input image, including images later
+        # removed by the aesthetic filter.
+        num_images_processed = int(
+            task_metrics.get("task_image_embedding_num_items_processed_sum", num_images_written)
+        )
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_images_processed} images")
+        logger.success(f"Wrote {num_images_written} images across {num_output_files} files")
         logger.success(f"Output tasks: {len(output_tasks)}")
         success = True
 
@@ -140,6 +151,9 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_images_processed = 0
+        num_images_written = 0
+        num_output_files = 0
+        task_metrics = {}
         success = False
 
     return {
@@ -150,6 +164,7 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "benchmark_results_path": str(args.benchmark_results_path),
             "model_dir": args.model_dir,
             "tar_files_per_partition": args.tar_files_per_partition,
+            "input_partition_limit": args.input_partition_limit,
             "batch_size": args.batch_size,
             "embedding_batch_size": args.embedding_batch_size,
             "embedding_gpus_per_worker": args.embedding_gpus_per_worker,
@@ -162,8 +177,11 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "is_success": success,
             "time_taken_s": run_time_taken,
             "num_images_processed": num_images_processed,
+            "num_images_written": num_images_written,
+            "num_output_files": num_output_files,
             "num_output_tasks": len(output_tasks),
             "throughput_images_per_sec": num_images_processed / run_time_taken if run_time_taken > 0 else 0,
+            **task_metrics,
         },
         "tasks": output_tasks,
     }
@@ -203,6 +221,12 @@ def main() -> int:
         type=int,
         default=1,
         help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage",
+    )
+    parser.add_argument(
+        "--input-partition-limit",
+        type=int,
+        default=None,
+        help="Maximum number of input file partitions to process (default: all)",
     )
     parser.add_argument(
         "--batch-size", type=int, default=100, help="Number of images per ImageBatch for the reader stage"

@@ -579,70 +579,172 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
     assert executor.config == {}
 
 
-def test_chatterbox_tts_tutorial_yaml_matches_reference_runner_config():
-    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "tts"
+def test_faster_whisper_tutorial_yaml_matches_reference_contract():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "faster_whisper"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
         cfg = compose(
             config_name="pipeline",
             overrides=[
-                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
-                "reference_voices_dataset=/data/reference_voices",
-                "output_dir=/data/tts_output",
-                "cfg_weight=0.3",
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+                "model_revision=abc123",
+                "default_language=en",
             ],
         )
 
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
-    reader, stage, writer = pipeline.stages
+    reader, resample_stage, stage, writer = pipeline.stages
     executor = create_executor_from_yaml(cfg)
 
     assert reader.__class__.__name__ == "ManifestReader"
-    assert reader.manifest_path == "tests/fixtures/audio/tts/sample_turns.jsonl"
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+        "faster_whisper_workspace",
+        "audio_resampled",
+    )
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
 
-    assert stage.__class__.__name__ == "ChatterboxTTSStage"
-    assert stage.output_audio_dir == "/data/tts_output/audio"
-    assert stage.reference_voices_dataset == "/data/reference_voices"
-    assert stage.language is None
-    assert stage.device == "cuda"
-    assert stage.cache_dir is None
-    assert stage.sample_rate == 24000
-    assert stage.cfg_weight == 0.3
-    assert stage.exaggeration == 0.5
-    assert stage.temperature == 0.8
-    # English model (language=None) default penalty, not the multilingual 2.0.
-    assert stage.repetition_penalty == 1.2
-    assert stage.min_p == 0.05
-    assert stage.top_p == 1.0
-    assert stage.normalize_audio is True
-    assert stage.normalize_level == -20.0
-    assert stage.max_reference_duration == 60.0
-    # Declared on the stage itself, not the tutorial: no runner-side .with_() hook needed.
-    assert stage.batch_size == 1
+    assert stage.__class__.__name__ == "ASRStage"
+    assert stage.name == "FasterWhisper_inference"
+    assert stage.adapter_target == "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
+    assert stage.model_id == "large-v3"
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.inputs()[1] == ["resampled_audio_filepath"]
+    assert stage.target_sample_rate == 16000
+    assert stage.default_language == "en"
+    expected_language_codes = [
+        "en",
+        "zh",
+        "de",
+        "es",
+        "ru",
+        "ko",
+        "fr",
+        "ja",
+        "pt",
+        "tr",
+        "pl",
+        "ca",
+        "nl",
+        "ar",
+        "sv",
+        "it",
+        "id",
+        "hi",
+        "fi",
+        "vi",
+        "he",
+        "uk",
+        "el",
+        "ms",
+        "cs",
+        "ro",
+        "da",
+        "hu",
+        "ta",
+        "no",
+        "th",
+        "ur",
+        "hr",
+        "bg",
+        "lt",
+        "la",
+        "mi",
+        "ml",
+        "cy",
+        "sk",
+        "te",
+        "fa",
+        "lv",
+        "bn",
+        "sr",
+        "az",
+        "sl",
+        "kn",
+        "et",
+        "mk",
+        "br",
+        "eu",
+        "is",
+        "hy",
+        "ne",
+        "mn",
+        "bs",
+        "kk",
+        "sq",
+        "sw",
+        "gl",
+        "mr",
+        "pa",
+        "si",
+        "km",
+        "sn",
+        "yo",
+        "so",
+        "af",
+        "oc",
+        "ka",
+        "be",
+        "tg",
+        "sd",
+        "gu",
+        "am",
+        "yi",
+        "lo",
+        "uz",
+        "fo",
+        "ht",
+        "ps",
+        "tk",
+        "nn",
+        "mt",
+        "sa",
+        "lb",
+        "my",
+        "bo",
+        "tl",
+        "mg",
+        "as",
+        "tt",
+        "haw",
+        "ln",
+        "ha",
+        "ba",
+        "jw",
+        "su",
+        "yue",
+        "fil",
+        "in",
+        "iw",
+        "ji",
+        "jv",
+        "nb",
+    ]
+    assert stage.supported_language_codes == expected_language_codes
+    assert len(stage.supported_language_codes) == 106
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.extras_key == "asr_extras"
+    assert stage.outputs() == (
+        [],
+        ["custom_prediction", "_skipme", "additional_notes", "asr_extras"],
+    )
+    assert stage.batch_size == 128
     assert stage.resources.gpus == 1
+    assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
+        "compute_type": "float16",
+        "cpu_compute_type": "int8",
+        "beam_size": 5,
+        "vad_filter": True,
+        "without_timestamps": True,
+    }
 
     assert writer.__class__.__name__ == "ManifestWriterStage"
-    assert writer.output_path == "/data/tts_output/result.jsonl"
-
-    # ray_data is the tutorial default; both Ray Data and Xenna honor the same
-    # isolated Chatterbox runtime_env (see README "Choosing a backend").
+    assert writer.output_path == "./faster_whisper_output.jsonl"
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
-
-    from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
-    from nemo_curator.backends.xenna.adapter import XennaStageAdapter
-
-    class _Dataset:
-        def map_batches(self, _fn: object, **kwargs: object) -> "_Dataset":
-            self.kwargs = kwargs
-            return self
-
-    dataset = _Dataset()
-    RayDataStageAdapter(stage).process_dataset(dataset)
-    assert dataset.kwargs["runtime_env"]["pip"] == stage.runtime_env["pip"]
-
-    xenna_env = XennaStageAdapter(stage).env_info
-    assert xenna_env is not None
-    assert xenna_env.to_ray_runtime_env().get("pip") == stage.runtime_env["pip"]
 
 
 def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
@@ -683,56 +785,6 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
         "enable_local_attention": False,
     }
     assert writer.__class__.__name__ == "ManifestWriterStage"
-    assert executor.__class__.__name__ == "RayDataExecutor"
-    assert executor.config == {}
-
-
-def test_mfa_alignment_tutorial_yaml_matches_reference_runner_config():
-    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "alignment"
-    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
-        cfg = compose(
-            config_name="pipeline",
-            overrides=[
-                "input_manifest=tests/fixtures/audio/alignment/sample_manifest.jsonl",
-                "output_dir=/data/aligned",
-                "num_jobs=4",
-            ],
-        )
-
-    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
-    reader, stage, writer = pipeline.stages
-    executor = create_executor_from_yaml(cfg)
-
-    assert reader.__class__.__name__ == "ManifestReader"
-    assert reader.manifest_path == "tests/fixtures/audio/alignment/sample_manifest.jsonl"
-
-    assert stage.__class__.__name__ == "MFAAlignmentStage"
-    assert stage.output_dir == "/data/aligned"
-    assert stage.mfa_command == "mfa"
-    assert stage.acoustic_model == "english_us_arpa"
-    assert stage.dictionary == "english_us_arpa"
-    assert stage.g2p_model == "english_us_arpa"
-    assert stage.audio_filepath_key == "audio_filepath"
-    assert stage.text_key == "text"
-    assert stage.speaker_key == "speaker"
-    assert stage.num_jobs == 4
-    assert stage.beam == 100
-    assert stage.retry_beam == 400
-    assert stage.align_timeout_seconds == 3600.0
-    assert stage.create_rttm is True
-    assert stage.create_ctm is True
-    # Declared on the stage itself, not the tutorial: no runner-side .with_() hook needed.
-    assert stage.batch_size == 256
-    # Resources.cpus tracks num_jobs (the override above) since the YAML does
-    # not set resources explicitly.
-    assert stage.resources.cpus == 4
-
-    assert writer.__class__.__name__ == "ManifestWriterStage"
-    assert writer.output_path == "/data/aligned/result.jsonl"
-
-    # ray_data is the tutorial default: MFAAlignmentStage forces a single actor
-    # cluster-wide (num_workers() -> 1) so MFA never runs concurrently against
-    # a shared model directory (see xenna_stage_spec() for the Xenna analog).
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
 

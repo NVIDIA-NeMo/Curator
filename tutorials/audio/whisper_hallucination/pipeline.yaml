@@ -1,0 +1,55 @@
+# Rule-based Whisper hallucination filtering for an existing ASR manifest.
+#
+# Each input JSONL row must contain pred_text, _skipme, and duration. Language
+# is optional and is used only to disable the relative long-word check for
+# agglutinative or compounding languages.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/whisper_hallucination \
+#     --config-name pipeline \
+#     manifest_path=tests/fixtures/audio/text_filtering/whisper_hallucination_input.jsonl \
+#     output_path=/tmp/whisper_hallucination_output.jsonl
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./whisper_hallucination_output.jsonl
+common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+
+unique_words_threshold: 0.4
+long_word_threshold: 25
+agglutinative_long_word_threshold: 35
+long_word_rel_threshold: 3.0
+max_char_rate: 40.0
+overwrite: false
+recovery_value: ""
+
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    common_hall_file: ${common_hall_file}
+    unique_words_threshold: ${unique_words_threshold}
+    long_word_threshold: ${long_word_threshold}
+    agglutinative_long_word_threshold: ${agglutinative_long_word_threshold}
+    long_word_rel_threshold: ${long_word_rel_threshold}
+    max_char_rate: ${max_char_rate}
+    overwrite: ${overwrite}
+    recovery_value: ${recovery_value}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}

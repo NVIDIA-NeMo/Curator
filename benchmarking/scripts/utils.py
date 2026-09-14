@@ -18,7 +18,7 @@ import pickle
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -30,9 +30,18 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, parse_bytes_string_to_int
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
+
+
+def parse_memory_size(value: str) -> int | Literal["auto"] | None:
+    """Parse a byte-size string while preserving benchmark memory sentinels."""
+    if value.lower() == "auto":
+        return "auto"
+    if value.lower() == "none":
+        return None
+    return parse_bytes_string_to_int(value)
 
 
 def setup_executor(
@@ -128,8 +137,12 @@ def _collect_file_size_metrics(output_path: Path, extensions: list[str]) -> tupl
     return file_paths, len(file_paths), total_size_bytes
 
 
-def _resolve_paths(path: Path, extension: str) -> tuple[list[str], int, int]:
-    """Return (file_paths, num_files, total_size_bytes) for a single file or a directory."""
+def _resolve_paths(path: Path | str | list[str], extension: str) -> tuple[list[str], int, int]:
+    """Return file paths and size metrics for a file, directory, or file list."""
+    if isinstance(path, list):
+        return path, len(path), sum(Path(file_path).stat().st_size for file_path in path)
+
+    path = Path(path)
     if path.is_file():
         return [str(path)], 1, path.stat().st_size
     return _collect_file_size_metrics(path, [extension])
@@ -142,9 +155,9 @@ def _accumulate_modality_counts(column: pa.ChunkedArray, into: dict[str, int]) -
         into[key] = into.get(key, 0) + int(row["counts"])
 
 
-def collect_interleaved_parquet_metrics(path: Path | str) -> dict[str, Any]:
+def collect_interleaved_parquet_metrics(path: Path | str | list[str]) -> dict[str, Any]:
     """Collect metrics for interleaved parquet files — neutral keys, caller adds input_/output_ prefix."""
-    parquet_files, num_files, total_size_bytes = _resolve_paths(Path(path), ".parquet")
+    parquet_files, num_files, total_size_bytes = _resolve_paths(path, ".parquet")
     num_rows = 0
     num_samples = 0
     modality_counts: dict[str, int] = {}
@@ -205,9 +218,9 @@ def _collect_wds_modality_counts(tar_paths: list[str]) -> tuple[int, dict[str, i
     return counts.get("metadata", 0), counts
 
 
-def collect_interleaved_wds_metrics(path: Path | str) -> dict[str, Any]:
+def collect_interleaved_wds_metrics(path: Path | str | list[str]) -> dict[str, Any]:
     """Collect metrics for interleaved WebDataset tar archives — neutral keys, caller adds input_/output_ prefix."""
-    tar_paths, num_files, total_size_bytes = _resolve_paths(Path(path), ".tar")
+    tar_paths, num_files, total_size_bytes = _resolve_paths(path, ".tar")
     num_samples, modality_counts = _collect_wds_modality_counts(tar_paths)
     total_rows = sum(modality_counts.values())
     return {

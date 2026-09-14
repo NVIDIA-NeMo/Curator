@@ -566,7 +566,7 @@ python tutorials/math/5_deduplication.py \
 | `--use_64_bit_hash` | False | Use 64-bit hash for fewer collisions on very large datasets. |
 | `--seed` | 42 | Seed for MinHash permutations (for reproducibility). |
 
-The similarity threshold is implicitly controlled by `num_bands` and `minhashes_per_band`. The approximate threshold is `(1/num_bands)^(1/minhashes_per_band)`. With the defaults (20 bands, 13 hashes/band), this is approximately 0.79. To detect more similar pairs (stricter dedup), increase `num_bands`; to be more lenient, decrease it.
+The similarity threshold is implicitly controlled by `num_bands` and `minhashes_per_band`. The approximate threshold is `(1/num_bands)^(1/minhashes_per_band)`. With the defaults (20 bands, 13 hashes/band), this is approximately 0.79. To detect only more-similar pairs (stricter dedup), decrease `num_bands` or increase `minhashes_per_band`; to detect lower-similarity pairs, increase `num_bands` or decrease `minhashes_per_band`.
 
 ## Available Prompts
 

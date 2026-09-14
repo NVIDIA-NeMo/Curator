@@ -87,6 +87,7 @@ Configure exact deduplication using these key parameters:
 | `perform_removal` | bool | False | Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`. |
 | `total_nparts` | int \| None | None | Total number of output partitions. If `None`, defaults to one-third of the number of input tasks. |
 | `rmm_pool_size` | int \| "auto" \| None | "auto" | RMM GPU memory pool size in bytes. `"auto"` uses 90% of free GPU memory; `None` uses 50% with dynamic expansion. |
+| `use_async_memory` | bool | True | Use CUDA asynchronous memory allocation for the shuffle. Set to `False` to use the legacy pool-wrapped CUDA memory resource. |
 | `spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory spill-to-host limit in bytes. `"auto"` sets the limit to 80% of the RMM pool size; `None` disables spilling. When `rmm_pool_size` is `None`, `"auto"` also resolves to no spilling. |
 
 For recursive discovery behavior, custom suffix examples, and supported formats, see [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery).
@@ -166,13 +167,17 @@ The workflow produces these output files:
 - Runs as a Ray-based workflow and writes duplicate IDs to the `ExactDuplicateIds/` directory
 - Stores only document IDs to remove in the output files, not full document content
 
+**Performance tuning**:
+
+- **Batch sizing**: Use smaller `input_blocksize` values (`256MiB` to `512MiB`) with a larger `identification_batchsize` to target 2-6 GB of overall batches as memory allows. For example, `input_blocksize="256MiB"` with `identification_batchsize=8` processes ~2 GB per insertion call. This improves both shuffle throughput and removal performance compared to the `2GiB` default.
+- **Shuffle partitions**: Setting `total_nparts` to smaller values (`256` or `512`) often leads to better shuffle performance compared to the defaults for really large runs.
+- **GPU memory**: For large cluster runs, tune `rmm_pool_size` and `spill_memory_limit` explicitly to match your hardware and dataset size.
+- **GPU writes**: NeMo Curator defaults `KVIKIO_AUTO_DIRECT_IO_WRITE=0` because KvikIO direct writes can reduce throughput on distributed filesystems such as Lustre. Setting it to `1` before importing NeMo Curator or starting the job may improve writes to a local SSD. Ensure every distributed worker inherits the same value, and benchmark both settings against the target filesystem. This affects GPU-backed cuDF writes from the exact deduplication workflow, not general CPU-based writes. See [Tune GPU Writes for the Target Filesystem](/reference/infra/gpu-processing#tune-gpu-writes-for-the-target-filesystem) for details.
+
 **Best practices**:
 
-- Use smaller `input_blocksize` values (`256MiB` to `512MiB`) with a larger `identification_batchsize` to target 2-6 GB of overall batches as memory allows. For example, `input_blocksize="256MiB"` with `identification_batchsize=8` processes ~2 GB per insertion call. This improves both shuffle throughput and removal performance compared to the `2GiB` default.
-- Clear output directory between runs
-- Use `assign_id=True` for consistent ID tracking
-- Setting `total_nparts` to smaller values (`256` or `512`) often leads to better shuffle performance compared to the defaults for really large runs
-- For large cluster runs, tune `rmm_pool_size` and `spill_memory_limit` explicitly to match your hardware and dataset size
+- Clear the output directory between runs.
+- Use `assign_id=True` for consistent ID tracking.
 </Accordion>
 
 For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the [Deduplication overview ](/curate-text/process-data/deduplication).
