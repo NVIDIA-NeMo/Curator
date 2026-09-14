@@ -27,6 +27,7 @@ Produces per-conversation output directories containing:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import random as _random
@@ -37,9 +38,10 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 from loguru import logger
+from scipy.signal import resample_poly
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, TaskGroup
 
 
 @dataclass
@@ -58,17 +60,14 @@ _MIN_RANDOMIZE_PAUSE = 0.5
 _PEAK_NORMALIZE_THRESHOLD = 0.99
 
 
-class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
+class MergeConversationSDPStage(ProcessingStage[TaskGroup, AudioTask]):
     """Merge conversation turns using SDP-style silence-stripping and manifest overlaps.
 
-    Each batch of ``AudioTask`` objects is expected to contain all turns of
-    **one** conversation (conversation-batched mode). The stage produces a
-    per-conversation folder under ``output_conversations_dir`` with
+    Executor use consumes one explicit :class:`TaskGroup` per complete
+    conversation. The stage produces a per-conversation folder under
+    ``output_conversations_dir`` with
     multi-channel audio, per-speaker RTTMs/CTMs, a segment list, and a
     mixed mono WAV.
-
-    This stage only supports :meth:`process_batch`; calling :meth:`process`
-    raises ``NotImplementedError``.
 
     Args:
         output_conversations_dir: Root directory for per-conversation output folders.
@@ -81,14 +80,18 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     name = "MergeConversationSDPStage"
+    # This stage consumes a complete conversation and emits one task. Its
+    # N-to-1 input cannot be attributed to an individual resumability source.
+    is_resumable = False
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         output_conversations_dir: str,
         max_pause_duration: float = 2.0,
         max_intra_turn_pause: float = 1.0,
         randomize_pauses: bool = False,
         seglst_offset: float = 0.1,
+        sample_rate: int = 24000,
     ):
         super().__init__()
         self.output_conversations_dir = Path(output_conversations_dir)
@@ -96,13 +99,23 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         self.max_intra_turn_pause = max_intra_turn_pause
         self.randomize_pauses = randomize_pauses
         self.seglst_offset = seglst_offset
+        if sample_rate <= 0:
+            msg = f"sample_rate must be positive, got {sample_rate}"
+            raise ValueError(msg)
+        self.sample_rate = sample_rate
         self._rng = _random.Random()  # noqa: S311
 
     def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         self.output_conversations_dir.mkdir(parents=True, exist_ok=True)
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath", "speaker", "conversation_id", "turn_index"]
+    def inputs(self) -> dict[type[TaskGroup | AudioTask], tuple[list[str], list[str]]]:
+        # The executor-facing contract is TaskGroup.  Retaining AudioTask's
+        # required fields documents and validates the explicit synchronous
+        # compatibility path in ``process_batch``.
+        return {
+            TaskGroup: ([], []),
+            AudioTask: ([], ["audio_filepath", "speaker", "conversation_id", "turn_index"]),
+        }
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
@@ -116,19 +129,37 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             "offset",
             "mfa_fallback",
             "speaker_references",
+            "speaker_artifacts",
         ]
 
-    def process(self, task: AudioTask) -> AudioTask:
-        msg = "MergeConversationSDPStage only supports process_batch"
-        raise NotImplementedError(msg)
+    def process(self, task: TaskGroup) -> AudioTask:
+        """Merge one explicit, complete conversation group.
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """Merge all turns of one conversation into per-speaker outputs.
+        ``TaskGroup`` is required for executor use because executor batch
+        boundaries are not semantic group boundaries.  The compatibility
+        ``process_batch`` path below only accepts raw turns for direct callers
+        that already hold one verified conversation.
+        """
+        if not isinstance(task, TaskGroup):
+            msg = "MergeConversationSDPStage requires TaskGroup input when run by an executor"
+            raise TypeError(msg)
+        result = self._merge_audio_tasks(list(task.data))
+        if result is None:
+            msg = f"Failed to merge conversation group {task.group_key!r}"
+            raise RuntimeError(msg)
+        result._metadata = dict(task._metadata)
+        result._stage_perf = list(task._stage_perf)
+        result._source_id = task._source_id
+        return result
+
+    def process_batch(self, tasks: list[TaskGroup] | list[AudioTask]) -> list[AudioTask]:
+        """Merge explicitly grouped tasks or one caller-verified raw conversation.
 
         Args:
-            tasks: List of AudioTask objects, each representing one
-                conversation turn. All tasks must share the same
-                ``conversation_id``.
+            Executor batches contain ``TaskGroup`` objects, each representing
+            one complete conversation. The raw ``AudioTask`` compatibility
+            path accepts exactly one caller-verified conversation and rejects
+            mixed IDs.
 
         Returns:
             A single-element list containing the first input AudioTask,
@@ -140,15 +171,33 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             return []
 
         tasks = list(tasks)
+        if all(isinstance(task, TaskGroup) for task in tasks):
+            return [self.process(task) for task in tasks]  # type: ignore[arg-type]
+        if any(isinstance(task, TaskGroup) for task in tasks):
+            msg = "Cannot mix TaskGroup and AudioTask inputs in one merge batch"
+            raise TypeError(msg)
+        return self._merge_raw_audio_tasks(tasks)  # type: ignore[arg-type]
+
+    def _merge_raw_audio_tasks(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Compatibility path for one verified raw conversation.
+
+        Pipeline execution must use :meth:`process` with ``TaskGroup``. This
+        path exists for callers that have already grouped a conversation and
+        need a direct synchronous merge.
+        """
+
         entries = [task.data for task in tasks]
         conversation_id = entries[0].get("conversation_id", "unknown")
 
+        self._validate_label("conversation_id", conversation_id)
         for entry in entries:
             if entry.get("conversation_id") != conversation_id:
-                logger.warning(
-                    f"Mixed conversation IDs in batch! Expected {conversation_id}, "
-                    f"got {entry.get('conversation_id')}"
+                msg = (
+                    f"MergeConversationSDPStage requires one complete conversation per batch; "
+                    f"expected {conversation_id!r}, got {entry.get('conversation_id')!r}"
                 )
+                raise ValueError(msg)
+            self._validate_label("speaker", entry.get("speaker"))
 
         sorted_turns = sorted(entries, key=lambda x: x.get("turn_index", 0))
 
@@ -162,6 +211,59 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
         logger.error(f"Failed to merge conversation {conversation_id}")
         return []
+
+    def _merge_audio_tasks(self, tasks: list[AudioTask]) -> AudioTask | None:
+        """Merge a group and return its surviving output task, if successful."""
+        results = self._merge_raw_audio_tasks(tasks)
+        return results[0] if results else None
+
+    @staticmethod
+    def _validate_label(label_type: str, value: object) -> str:
+        """Validate a manifest label before it can influence output handling."""
+        if not isinstance(value, str) or not value.strip() or value in {".", ".."} or "/" in value or "\\" in value:
+            msg = (
+                f"Invalid {label_type}: {value!r}. Labels must be non-empty strings "
+                "without path separators or traversal components."
+            )
+            raise ValueError(msg)
+        return value
+
+    @staticmethod
+    def _safe_asset_name(speaker: str, suffix: str) -> str:
+        """Map an untrusted speaker label to a deterministic filesystem name."""
+        digest = hashlib.sha256(speaker.encode("utf-8")).hexdigest()[:16]
+        return f"speaker_{digest}{suffix}"
+
+    @staticmethod
+    def _safe_conversation_token(conversation_id: str) -> str:
+        """Return an RTTM/CTM-safe token while retaining the original in metadata."""
+        digest = hashlib.sha256(conversation_id.encode("utf-8")).hexdigest()[:16]
+        return f"conversation_{digest}"
+
+    def _safe_conversation_dir(self, conversation_id: str) -> Path:
+        """Return an output directory guaranteed to be contained by the configured root."""
+        self._validate_label("conversation_id", conversation_id)
+        candidate = self.output_conversations_dir / self._safe_conversation_token(conversation_id)
+        return self._assert_output_path(candidate)
+
+    def _output_path(self, conv_dir: Path, filename: str) -> Path:
+        """Build an asset path and prove it remains in the conversation root."""
+        if Path(filename).name != filename:
+            msg = f"Unsafe generated filename: {filename!r}"
+            raise ValueError(msg)
+        path = self._assert_output_path(conv_dir / filename)
+        if path.parent != conv_dir.resolve():
+            msg = f"Output path escaped conversation directory: {path}"
+            raise ValueError(msg)
+        return path
+
+    def _assert_output_path(self, path: Path) -> Path:
+        root = self.output_conversations_dir.resolve()
+        resolved = path.resolve()
+        if root != resolved and root not in resolved.parents:
+            msg = f"Refusing to write outside output_conversations_dir: {resolved}"
+            raise ValueError(msg)
+        return resolved
 
     @staticmethod
     def _parse_rttm_timestamps(rttm_path: str) -> list[tuple[float, float]]:
@@ -292,11 +394,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
         for i, entry in enumerate(turns):
             rttm_file = entry.get("rttm_filepath", "")
-            overlap = (
-                actual_overlaps[i]
-                if i < len(actual_overlaps)
-                else entry.get("overlap", 0)
-            )
+            overlap = actual_overlaps[i] if i < len(actual_overlaps) else entry.get("overlap", 0)
 
             if i > 0:
                 if overlap < 0:
@@ -326,12 +424,14 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                     if 0 < pause_dur <= max_pause:
                         local_offset += pause_dur
 
-            timeline.append(_TurnTimeline(
-                time_offset=current_time_offset,
-                rttm_segments=segments,
-                adjusted_segments=adjusted_segs,
-                local_offset=local_offset,
-            ))
+            timeline.append(
+                _TurnTimeline(
+                    time_offset=current_time_offset,
+                    rttm_segments=segments,
+                    adjusted_segments=adjusted_segs,
+                    local_offset=local_offset,
+                )
+            )
 
             if segments:
                 offset_before = current_time_offset
@@ -367,7 +467,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         turns = valid_turns
 
         try:
-            conv_dir = self.output_conversations_dir / conversation_id
+            conv_dir = self._safe_conversation_dir(conversation_id)
             conv_dir.mkdir(parents=True, exist_ok=True)
 
             speakers: set[str] = set()
@@ -383,32 +483,31 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
             per_turn_merged_segments: list[list[tuple[float, float]]] = []
             try:
-                per_turn_merged_segments = self._merge_rttm_files(
-                    conv_dir, conversation_id, turns, timeline
-                )
+                per_turn_merged_segments = self._merge_rttm_files(conv_dir, conversation_id, turns, timeline)
                 logger.info(f"Merged RTTMs saved to {conv_dir}")
             except (OSError, RuntimeError):
                 logger.exception("Error merging RTTMs")
 
             try:
-                self._merge_ctm_files(
-                    conv_dir, conversation_id, turns, timeline
-                )
+                self._merge_ctm_files(conv_dir, conversation_id, turns, timeline)
                 logger.info(f"Merged CTMs saved to {conv_dir}")
             except (OSError, RuntimeError):
                 logger.exception("Error merging CTMs")
 
-            mixed_path = conv_dir / "mixed.wav"
+            mixed_path = self._output_path(conv_dir, "mixed.wav")
             merged_duration = 0.0
             with contextlib.suppress(OSError):
                 info = sf.info(str(mixed_path))
                 merged_duration = info.duration
 
-            seglst_path = conv_dir / "segments.seglst.json"
+            seglst_path = self._output_path(conv_dir, "segments.seglst.json")
             try:
                 self._generate_seglst(
-                    seglst_path, conversation_id, turns,
-                    per_turn_merged_segments, max_duration=merged_duration,
+                    seglst_path,
+                    conversation_id,
+                    turns,
+                    per_turn_merged_segments,
+                    max_duration=merged_duration,
                 )
                 logger.info(f"Seglst saved: {seglst_path}")
             except (OSError, RuntimeError):
@@ -424,18 +523,26 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                         "reference_audio": entry.get("reference_audio", ""),
                         "reference_voice": entry.get("reference_voice", ""),
                     }
+            speaker_artifacts = {
+                speaker: {
+                    "wav_filepath": str(self._output_path(conv_dir, self._safe_asset_name(speaker, ".wav"))),
+                    "rttm_filepath": str(self._output_path(conv_dir, self._safe_asset_name(speaker, ".rttm"))),
+                    "ctm_filepath": str(self._output_path(conv_dir, self._safe_asset_name(speaker, ".ctm"))),
+                }
+                for speaker in sorted(speakers)
+            }
 
             merged_entry: dict[str, Any] = {
                 "conversation_id": conversation_id,
                 "audio_filepath": str(mixed_path),
                 "rttm_filepath": (
-                    str(conv_dir / "all.rttm")
-                    if (conv_dir / "all.rttm").exists()
+                    str(self._output_path(conv_dir, "all.rttm"))
+                    if self._output_path(conv_dir, "all.rttm").exists()
                     else ""
                 ),
                 "ctm_filepath": (
-                    str(conv_dir / "all.ctm")
-                    if (conv_dir / "all.ctm").exists()
+                    str(self._output_path(conv_dir, "all.ctm"))
+                    if self._output_path(conv_dir, "all.ctm").exists()
                     else ""
                 ),
                 "seglst_filepath": str(seglst_path),
@@ -444,6 +551,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 "offset": 0,
                 "mfa_fallback": mfa_fallback,
                 "speaker_references": speaker_references,
+                "speaker_artifacts": speaker_artifacts,
             }
 
         except (OSError, RuntimeError):
@@ -476,7 +584,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         speaker_buffers: dict[str, np.ndarray] = {}
         current_position = 0
         total_length = 0
-        sample_rate: int | None = None
+        sample_rate = self.sample_rate
         actual_overlaps: list[float] = []
         sorted_speakers: list[str] = []
 
@@ -489,8 +597,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                     audio_data, sr = self.extract_speaking_segments(audio_file, rttm_file)
                     if audio_data is None:
                         logger.warning(
-                            f"Failed to extract speaking segments from {audio_file}, "
-                            "falling back to full audio"
+                            f"Failed to extract speaking segments from {audio_file}, falling back to full audio"
                         )
                         audio_data, sr = sf.read(audio_file)
                         if len(audio_data.shape) > 1:
@@ -500,10 +607,8 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                     if len(audio_data.shape) > 1:
                         audio_data = audio_data.mean(axis=1)
 
-                if sample_rate is None:
-                    sample_rate = sr
-                elif sr != sample_rate:
-                    logger.warning(f"Sample rate mismatch: {sr} vs {sample_rate}")
+                if sr != sample_rate:
+                    audio_data = resample_poly(audio_data, sample_rate, sr)
 
                 speaker = entry.get("speaker", f"speaker_{i}")
                 if speaker not in sorted_speakers:
@@ -517,9 +622,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 elif overlap < 0:
                     pause_duration = min(abs(overlap), self.max_pause_duration)
                     if self.randomize_pauses and pause_duration > _MIN_RANDOMIZE_PAUSE:
-                        pause_duration = self._rng.uniform(
-                            0.3, min(pause_duration, self.max_pause_duration)
-                        )
+                        pause_duration = self._rng.uniform(0.3, min(pause_duration, self.max_pause_duration))
                     pause_samples = int(pause_duration * sample_rate)
                     actual_overlaps.append(-pause_duration)
                     start_position = current_position + pause_samples
@@ -557,7 +660,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 actual_overlaps.append(entry.get("overlap", 0))
                 continue
 
-        if not speaker_buffers or sample_rate is None:
+        if not speaker_buffers:
             logger.error("No valid audio data to save")
             return actual_overlaps
 
@@ -571,20 +674,20 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
         sorted_speakers = [s for s in sorted_speakers if s in speaker_buffers]
         for spk in sorted_speakers:
-            sf.write(str(conv_dir / f"{spk}.wav"), speaker_buffers[spk], sample_rate)
+            sf.write(
+                str(self._output_path(conv_dir, self._safe_asset_name(spk, ".wav"))),
+                speaker_buffers[spk],
+                sample_rate,
+            )
 
-        multichannel = np.column_stack(
-            [speaker_buffers[spk] for spk in sorted_speakers]
-        )
-        sf.write(str(conv_dir / "multichannel.wav"), multichannel, sample_rate)
+        multichannel = np.column_stack([speaker_buffers[spk] for spk in sorted_speakers])
+        sf.write(str(self._output_path(conv_dir, "multichannel.wav")), multichannel, sample_rate)
 
-        mixed = np.sum(
-            [speaker_buffers[spk] for spk in sorted_speakers], axis=0
-        )
+        mixed = np.sum([speaker_buffers[spk] for spk in sorted_speakers], axis=0)
         peak = np.abs(mixed).max()
         if peak > _PEAK_NORMALIZE_THRESHOLD:
             mixed = mixed * (_PEAK_NORMALIZE_THRESHOLD / peak)
-        sf.write(str(conv_dir / "mixed.wav"), mixed, sample_rate)
+        sf.write(str(self._output_path(conv_dir, "mixed.wav")), mixed, sample_rate)
 
         logger.debug(
             f"Saved audio: {len(sorted_speakers)} speakers, "
@@ -608,6 +711,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         tuples representing the repositioned RTTM segments for seglst generation.
         """
         speaker_rttm_lines: dict[str, list[str]] = {}
+        conversation_token = self._safe_conversation_token(conversation_id)
         per_turn_merged_segments: list[list[tuple[float, float]]] = []
 
         for i, entry in enumerate(conversation_entries):
@@ -627,9 +731,9 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 adj_start, adj_end = tl.adjusted_segments[seg_idx]
 
                 speaker_rttm_lines[speaker].append(
-                    f"SPEAKER {conversation_id} 1 "
+                    f"SPEAKER {conversation_token} 1 "
                     f"{adj_start:.3f} {seg_dur:.3f} "
-                    f"<NA> <NA> {speaker} <NA> <NA>"
+                    f"<NA> <NA> {self._safe_asset_name(speaker, '')} <NA> <NA>"
                 )
                 turn_segments.append((adj_start, adj_end))
 
@@ -643,14 +747,16 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
         if speaker_rttm_lines:
             for spk, lines in speaker_rttm_lines.items():
-                with open(conv_dir / f"{spk}.rttm", "w", encoding="utf-8") as f:
+                with open(
+                    self._output_path(conv_dir, self._safe_asset_name(spk, ".rttm")), "w", encoding="utf-8"
+                ) as f:
                     f.writelines(rttm_line + "\n" for rttm_line in lines)
 
             all_lines: list[str] = []
             for lines in speaker_rttm_lines.values():
                 all_lines.extend(lines)
             all_lines.sort(key=lambda rttm_line: float(rttm_line.split()[3]))
-            with open(conv_dir / "all.rttm", "w", encoding="utf-8") as f:
+            with open(self._output_path(conv_dir, "all.rttm"), "w", encoding="utf-8") as f:
                 f.writelines(rttm_line + "\n" for rttm_line in all_lines)
 
         return per_turn_merged_segments
@@ -668,6 +774,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         requiring strict containment, so no words are silently dropped.
         """
         speaker_ctm_lines: dict[str, list[tuple[float, str]]] = {}
+        conversation_token = self._safe_conversation_token(conversation_id)
 
         for i, entry in enumerate(conversation_entries):
             ctm_file = entry.get("ctm_filepath", "")
@@ -690,22 +797,24 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 word_offset_in_seg = max(0.0, w_start - seg_start)
                 adjusted_word_start = adj_seg_start + word_offset_in_seg
 
-                speaker_ctm_lines[speaker].append((
-                    adjusted_word_start,
-                    f"{conversation_id} 1 {adjusted_word_start:.3f} {w_dur:.3f} {word}",
-                ))
+                speaker_ctm_lines[speaker].append(
+                    (
+                        adjusted_word_start,
+                        f"{conversation_token} 1 {adjusted_word_start:.3f} {w_dur:.3f} {word}",
+                    )
+                )
 
         if speaker_ctm_lines:
             for spk, ctm_entries in speaker_ctm_lines.items():
                 ctm_entries.sort(key=lambda x: x[0])
-                with open(conv_dir / f"{spk}.ctm", "w", encoding="utf-8") as f:
+                with open(self._output_path(conv_dir, self._safe_asset_name(spk, ".ctm")), "w", encoding="utf-8") as f:
                     f.writelines(ctm_line + "\n" for _, ctm_line in ctm_entries)
 
             all_entries: list[tuple[float, str]] = []
             for ctm_entries in speaker_ctm_lines.values():
                 all_entries.extend(ctm_entries)
             all_entries.sort(key=lambda x: x[0])
-            with open(conv_dir / "all.ctm", "w", encoding="utf-8") as f:
+            with open(self._output_path(conv_dir, "all.ctm"), "w", encoding="utf-8") as f:
                 f.writelines(ctm_line + "\n" for _, ctm_line in all_entries)
 
     def _generate_seglst(
@@ -728,11 +837,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         for i, entry in enumerate(turns):
             speaker = entry.get("speaker", f"speaker_{i}")
             utterance = entry.get("text", entry.get("utterance", ""))
-            turn_segs = (
-                per_turn_merged_segments[i]
-                if i < len(per_turn_merged_segments)
-                else []
-            )
+            turn_segs = per_turn_merged_segments[i] if i < len(per_turn_merged_segments) else []
 
             if turn_segs:
                 seg_start = max(0.0, turn_segs[0][0] - offset)
@@ -743,13 +848,15 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 seg_start = 0.0
                 seg_end = 0.0
 
-            seglst.append({
-                "session_id": conversation_id,
-                "speaker": speaker,
-                "start_time": round(seg_start, 3),
-                "end_time": round(seg_end, 3),
-                "words": utterance,
-            })
+            seglst.append(
+                {
+                    "session_id": conversation_id,
+                    "speaker": speaker,
+                    "start_time": round(seg_start, 3),
+                    "end_time": round(seg_end, 3),
+                    "words": utterance,
+                }
+            )
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(seglst, f, indent=2, ensure_ascii=False)

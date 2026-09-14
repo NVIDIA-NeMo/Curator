@@ -27,7 +27,7 @@ import soundfile as sf
 from nemo_curator.stages.audio.merging.merge_conversation import (
     MergeConversationSDPStage,
 )
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, TaskGroup
 
 SR = 16000
 
@@ -42,28 +42,21 @@ def _write_wav(path: Path, duration_sec: float = 1.0, sr: int = SR) -> str:
     return str(path)
 
 
-def _write_rttm(path: Path, file_id: str, speaker: str,
-                segments: list[tuple[float, float]]) -> str:
+def _write_rttm(path: Path, file_id: str, speaker: str, segments: list[tuple[float, float]]) -> str:
     """Write an RTTM file and return its path as a string."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         f.writelines(
-            f"SPEAKER {file_id} 1 {start:.3f} {dur:.3f} "
-            f"<NA> <NA> {speaker} <NA> <NA>\n"
-            for start, dur in segments
+            f"SPEAKER {file_id} 1 {start:.3f} {dur:.3f} <NA> <NA> {speaker} <NA> <NA>\n" for start, dur in segments
         )
     return str(path)
 
 
-def _write_ctm(path: Path, file_id: str,
-               words: list[tuple[float, float, str]]) -> str:
+def _write_ctm(path: Path, file_id: str, words: list[tuple[float, float, str]]) -> str:
     """Write a CTM file and return its path as a string."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        f.writelines(
-            f"{file_id} 1 {start:.3f} {dur:.3f} {word}\n"
-            for start, dur, word in words
-        )
+        f.writelines(f"{file_id} 1 {start:.3f} {dur:.3f} {word}\n" for start, dur, word in words)
     return str(path)
 
 
@@ -78,9 +71,9 @@ def _build_stage(tmp_path: Path, **overrides) -> MergeConversationSDPStage:
 
 
 class TestProcessInterface:
-    def test_process_raises(self, tmp_path: Path) -> None:
+    def test_process_requires_explicit_task_group(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
-        with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        with pytest.raises(TypeError, match="requires TaskGroup"):
             stage.process(_make_task({"audio_filepath": "/a.wav"}))
 
     def test_outputs_declares_all_written_keys(self, tmp_path: Path) -> None:
@@ -102,9 +95,17 @@ class TestProcessInterface:
 
     def test_inputs_declares_required_keys(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
-        _, input_keys = stage.inputs()
+        _, input_keys = stage.input_spec_for_task(_make_task({}))
         for key in ("audio_filepath", "speaker", "conversation_id", "turn_index"):
             assert key in input_keys
+
+        assert stage.input_spec_for_task(TaskGroup(dataset_name="test", group_key="conv", data=[_make_task({})])) == (
+            [],
+            [],
+        )
+
+    def test_stage_is_not_resumable(self, tmp_path: Path) -> None:
+        assert _build_stage(tmp_path).is_resumable is False
 
 
 class TestEmptyBatch:
@@ -129,16 +130,26 @@ class TestEmptyBatch:
 
         tasks = np.array(
             [
-                _make_task({
-                    "audio_filepath": wav1, "rttm_filepath": rttm1,
-                    "speaker": "Alice", "conversation_id": "conv_np",
-                    "turn_index": 0, "overlap": 0,
-                }),
-                _make_task({
-                    "audio_filepath": wav2, "rttm_filepath": rttm2,
-                    "speaker": "Bob", "conversation_id": "conv_np",
-                    "turn_index": 1, "overlap": 0,
-                }),
+                _make_task(
+                    {
+                        "audio_filepath": wav1,
+                        "rttm_filepath": rttm1,
+                        "speaker": "Alice",
+                        "conversation_id": "conv_np",
+                        "turn_index": 0,
+                        "overlap": 0,
+                    }
+                ),
+                _make_task(
+                    {
+                        "audio_filepath": wav2,
+                        "rttm_filepath": rttm2,
+                        "speaker": "Bob",
+                        "conversation_id": "conv_np",
+                        "turn_index": 1,
+                        "overlap": 0,
+                    }
+                ),
             ],
             dtype=object,
         )
@@ -151,7 +162,9 @@ class TestEmptyBatch:
 class TestParseRTTM:
     def test_valid_rttm(self, tmp_path: Path) -> None:
         rttm = _write_rttm(
-            tmp_path / "test.rttm", "file1", "spk",
+            tmp_path / "test.rttm",
+            "file1",
+            "spk",
             [(0.0, 0.5), (1.0, 0.3)],
         )
         result = MergeConversationSDPStage._parse_rttm_timestamps(rttm)
@@ -169,7 +182,8 @@ class TestParseRTTM:
 class TestParseCTM:
     def test_valid_ctm(self, tmp_path: Path) -> None:
         ctm = _write_ctm(
-            tmp_path / "test.ctm", "file1",
+            tmp_path / "test.ctm",
+            "file1",
             [(0.1, 0.2, "hello"), (0.5, 0.3, "world")],
         )
         result = MergeConversationSDPStage._parse_ctm_words(ctm)
@@ -198,7 +212,9 @@ class TestExtractSpeakingSegments:
         wav_path = tmp_path / "audio.wav"
         _write_wav(wav_path, duration_sec=3.0)
         rttm = _write_rttm(
-            tmp_path / "audio.rttm", "audio", "spk",
+            tmp_path / "audio.rttm",
+            "audio",
+            "spk",
             [(0.0, 0.5), (1.0, 0.5)],
         )
 
@@ -222,7 +238,10 @@ class TestComputeTimeline:
     def test_single_turn(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
         rttm = _write_rttm(
-            tmp_path / "t1.rttm", "t1", "spk", [(0.0, 1.0)],
+            tmp_path / "t1.rttm",
+            "t1",
+            "spk",
+            [(0.0, 1.0)],
         )
         turns = [{"rttm_filepath": rttm, "overlap": 0}]
         timeline = stage._compute_timeline(turns, [0.0])
@@ -253,24 +272,30 @@ class TestProcessBatch:
         rttm2 = _write_rttm(tmp_path / "t2.rttm", "t2", "Bob", [(0.0, 0.8)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1,
-                "rttm_filepath": rttm1,
-                "speaker": "Alice",
-                "conversation_id": "conv001",
-                "turn_index": 0,
-                "overlap": 0,
-                "utterance": "Hello Bob",
-            }, task_id="t1"),
-            _make_task({
-                "audio_filepath": wav2,
-                "rttm_filepath": rttm2,
-                "speaker": "Bob",
-                "conversation_id": "conv001",
-                "turn_index": 1,
-                "overlap": 0,
-                "utterance": "Hi Alice",
-            }, task_id="t2"),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "Alice",
+                    "conversation_id": "conv001",
+                    "turn_index": 0,
+                    "overlap": 0,
+                    "utterance": "Hello Bob",
+                },
+                task_id="t1",
+            ),
+            _make_task(
+                {
+                    "audio_filepath": wav2,
+                    "rttm_filepath": rttm2,
+                    "speaker": "Bob",
+                    "conversation_id": "conv001",
+                    "turn_index": 1,
+                    "overlap": 0,
+                    "utterance": "Hi Alice",
+                },
+                task_id="t2",
+            ),
         ]
 
         results = stage.process_batch(tasks)
@@ -285,9 +310,31 @@ class TestProcessBatch:
         assert "mixed.wav" in result.data["audio_filepath"]
 
         conv_dir = Path(result.data["audio_filepath"]).parent
-        assert (conv_dir / "Alice.wav").exists()
-        assert (conv_dir / "Bob.wav").exists()
+        assert Path(result.data["speaker_artifacts"]["Alice"]["wav_filepath"]).exists()
+        assert Path(result.data["speaker_artifacts"]["Bob"]["wav_filepath"]).exists()
         assert (conv_dir / "multichannel.wav").exists()
+
+    def test_explicit_task_group_runs_through_the_stage_process_contract(self, tmp_path: Path) -> None:
+        stage = _build_stage(tmp_path)
+        wav = _write_wav(tmp_path / "turn.wav", 1.0)
+        rttm = _write_rttm(tmp_path / "turn.rttm", "turn", "Alice", [(0.0, 1.0)])
+        turn = _make_task(
+            {
+                "audio_filepath": wav,
+                "rttm_filepath": rttm,
+                "speaker": "Alice",
+                "conversation_id": "grouped",
+                "turn_index": 0,
+                "overlap": 0,
+            }
+        )
+        group = TaskGroup(dataset_name="test", data=[turn], group_key="grouped")
+        group._metadata = {"source_files": ["topics.jsonl"]}
+
+        result = stage.process(group)
+
+        assert result.data["conversation_id"] == "grouped"
+        assert result._metadata == {"source_files": ["topics.jsonl"]}
 
     def test_missing_audio_skips_turn(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
@@ -296,36 +343,70 @@ class TestProcessBatch:
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "Alice", [(0.0, 1.0)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1,
-                "rttm_filepath": rttm1,
-                "speaker": "Alice",
-                "conversation_id": "conv002",
-                "turn_index": 0,
-                "overlap": 0,
-            }, task_id="t1"),
-            _make_task({
-                "audio_filepath": "/nonexistent.wav",
-                "speaker": "Bob",
-                "conversation_id": "conv002",
-                "turn_index": 1,
-                "overlap": 0,
-            }, task_id="t2"),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "Alice",
+                    "conversation_id": "conv002",
+                    "turn_index": 0,
+                    "overlap": 0,
+                },
+                task_id="t1",
+            ),
+            _make_task(
+                {
+                    "audio_filepath": "/nonexistent.wav",
+                    "speaker": "Bob",
+                    "conversation_id": "conv002",
+                    "turn_index": 1,
+                    "overlap": 0,
+                },
+                task_id="t2",
+            ),
         ]
 
         results = stage.process_batch(tasks)
         assert len(results) == 1
         assert results[0].data["num_speakers"] == 1
 
+    def test_mixed_conversations_are_rejected(self, tmp_path: Path) -> None:
+        stage = _build_stage(tmp_path)
+        wav = _write_wav(tmp_path / "turn.wav")
+        rttm = _write_rttm(tmp_path / "turn.rttm", "turn", "Alice", [(0.0, 1.0)])
+        first = _make_task(
+            {
+                "audio_filepath": wav,
+                "rttm_filepath": rttm,
+                "speaker": "Alice",
+                "conversation_id": "first",
+                "turn_index": 0,
+            }
+        )
+        second = _make_task(
+            {
+                "audio_filepath": wav,
+                "rttm_filepath": rttm,
+                "speaker": "Bob",
+                "conversation_id": "second",
+                "turn_index": 1,
+            }
+        )
+
+        with pytest.raises(ValueError, match="one complete conversation"):
+            stage.process_batch([first, second])
+
     def test_all_missing_audio_returns_empty(self, tmp_path: Path) -> None:
         stage = _build_stage(tmp_path)
         tasks = [
-            _make_task({
-                "audio_filepath": "/nonexistent.wav",
-                "speaker": "Alice",
-                "conversation_id": "conv003",
-                "turn_index": 0,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": "/nonexistent.wav",
+                    "speaker": "Alice",
+                    "conversation_id": "conv003",
+                    "turn_index": 0,
+                }
+            ),
         ]
         results = stage.process_batch(tasks)
         assert results == []
@@ -343,17 +424,29 @@ class TestProcessBatch:
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "Alice", [(0.0, 1.0)])
         rttm2 = _write_rttm(tmp_path / "t2.rttm", "t2", "Bob", [(0.0, 0.8)])
 
-        task1 = _make_task({
-            "audio_filepath": wav1, "rttm_filepath": rttm1,
-            "speaker": "Alice", "conversation_id": "conv_prov",
-            "turn_index": 0, "overlap": 0,
-        }, task_id="t1")
+        task1 = _make_task(
+            {
+                "audio_filepath": wav1,
+                "rttm_filepath": rttm1,
+                "speaker": "Alice",
+                "conversation_id": "conv_prov",
+                "turn_index": 0,
+                "overlap": 0,
+            },
+            task_id="t1",
+        )
         task1._metadata = {"source_files": ["orig.wav"]}
-        task2 = _make_task({
-            "audio_filepath": wav2, "rttm_filepath": rttm2,
-            "speaker": "Bob", "conversation_id": "conv_prov",
-            "turn_index": 1, "overlap": 0,
-        }, task_id="t2")
+        task2 = _make_task(
+            {
+                "audio_filepath": wav2,
+                "rttm_filepath": rttm2,
+                "speaker": "Bob",
+                "conversation_id": "conv_prov",
+                "turn_index": 1,
+                "overlap": 0,
+            },
+            task_id="t2",
+        )
 
         results = stage.process_batch([task1, task2])
 
@@ -362,9 +455,7 @@ class TestProcessBatch:
         assert results[0]._metadata == {"source_files": ["orig.wav"]}
         assert results[0].task_id == "t1"
 
-    def test_merge_failure_degrades_gracefully(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_merge_failure_degrades_gracefully(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An unexpected error inside the merge must not crash the batch."""
         stage = _build_stage(tmp_path)
 
@@ -377,11 +468,16 @@ class TestProcessBatch:
         wav1 = _write_wav(tmp_path / "t1.wav", 1.0)
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "Alice", [(0.0, 1.0)])
         tasks = [
-            _make_task({
-                "audio_filepath": wav1, "rttm_filepath": rttm1,
-                "speaker": "Alice", "conversation_id": "conv_fail",
-                "turn_index": 0, "overlap": 0,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "Alice",
+                    "conversation_id": "conv_fail",
+                    "turn_index": 0,
+                    "overlap": 0,
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
@@ -398,24 +494,34 @@ class TestRTTMOutput:
         rttm2 = _write_rttm(tmp_path / "t2.rttm", "t2", "B", [(0.0, 0.5)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1, "rttm_filepath": rttm1,
-                "speaker": "A", "conversation_id": "c1",
-                "turn_index": 0, "overlap": 0,
-            }),
-            _make_task({
-                "audio_filepath": wav2, "rttm_filepath": rttm2,
-                "speaker": "B", "conversation_id": "c1",
-                "turn_index": 1, "overlap": 0,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "A",
+                    "conversation_id": "c1",
+                    "turn_index": 0,
+                    "overlap": 0,
+                }
+            ),
+            _make_task(
+                {
+                    "audio_filepath": wav2,
+                    "rttm_filepath": rttm2,
+                    "speaker": "B",
+                    "conversation_id": "c1",
+                    "turn_index": 1,
+                    "overlap": 0,
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
         assert len(results) == 1
 
         conv_dir = Path(results[0].data["audio_filepath"]).parent
-        assert (conv_dir / "A.rttm").exists()
-        assert (conv_dir / "B.rttm").exists()
+        assert Path(results[0].data["speaker_artifacts"]["A"]["rttm_filepath"]).exists()
+        assert Path(results[0].data["speaker_artifacts"]["B"]["rttm_filepath"]).exists()
         assert (conv_dir / "all.rttm").exists()
 
         all_rttm = (conv_dir / "all.rttm").read_text()
@@ -429,25 +535,28 @@ class TestCTMOutput:
         wav1 = _write_wav(tmp_path / "t1.wav", 1.0)
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "A", [(0.0, 1.0)])
         ctm1 = _write_ctm(
-            tmp_path / "t1.ctm", "t1",
+            tmp_path / "t1.ctm",
+            "t1",
             [(0.1, 0.2, "hello"), (0.4, 0.3, "world")],
         )
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1,
-                "rttm_filepath": rttm1,
-                "ctm_filepath": ctm1,
-                "speaker": "A",
-                "conversation_id": "c2",
-                "turn_index": 0,
-                "overlap": 0,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "ctm_filepath": ctm1,
+                    "speaker": "A",
+                    "conversation_id": "c2",
+                    "turn_index": 0,
+                    "overlap": 0,
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
         conv_dir = Path(results[0].data["audio_filepath"]).parent
-        assert (conv_dir / "A.ctm").exists()
+        assert Path(results[0].data["speaker_artifacts"]["A"]["ctm_filepath"]).exists()
         assert (conv_dir / "all.ctm").exists()
 
         ctm_content = (conv_dir / "all.ctm").read_text()
@@ -463,15 +572,17 @@ class TestSeglst:
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "A", [(0.0, 1.0)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1,
-                "rttm_filepath": rttm1,
-                "speaker": "A",
-                "conversation_id": "c3",
-                "turn_index": 0,
-                "overlap": 0,
-                "utterance": "Hello world",
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "A",
+                    "conversation_id": "c3",
+                    "turn_index": 0,
+                    "overlap": 0,
+                    "utterance": "Hello world",
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
@@ -497,16 +608,26 @@ class TestOverlap:
         rttm2 = _write_rttm(tmp_path / "t2.rttm", "t2", "B", [(0.0, 1.0)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1, "rttm_filepath": rttm1,
-                "speaker": "A", "conversation_id": "c4",
-                "turn_index": 0, "overlap": 0,
-            }),
-            _make_task({
-                "audio_filepath": wav2, "rttm_filepath": rttm2,
-                "speaker": "B", "conversation_id": "c4",
-                "turn_index": 1, "overlap": -0.5,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "A",
+                    "conversation_id": "c4",
+                    "turn_index": 0,
+                    "overlap": 0,
+                }
+            ),
+            _make_task(
+                {
+                    "audio_filepath": wav2,
+                    "rttm_filepath": rttm2,
+                    "speaker": "B",
+                    "conversation_id": "c4",
+                    "turn_index": 1,
+                    "overlap": -0.5,
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
@@ -521,12 +642,17 @@ class TestMFAFallback:
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "A", [(0.0, 1.0)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1, "rttm_filepath": rttm1,
-                "speaker": "A", "conversation_id": "c5",
-                "turn_index": 0, "overlap": 0,
-                "mfa_skipped": True,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "A",
+                    "conversation_id": "c5",
+                    "turn_index": 0,
+                    "overlap": 0,
+                    "mfa_skipped": True,
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
@@ -539,12 +665,106 @@ class TestMFAFallback:
         rttm1 = _write_rttm(tmp_path / "t1.rttm", "t1", "A", [(0.0, 1.0)])
 
         tasks = [
-            _make_task({
-                "audio_filepath": wav1, "rttm_filepath": rttm1,
-                "speaker": "A", "conversation_id": "c6",
-                "turn_index": 0, "overlap": 0,
-            }),
+            _make_task(
+                {
+                    "audio_filepath": wav1,
+                    "rttm_filepath": rttm1,
+                    "speaker": "A",
+                    "conversation_id": "c6",
+                    "turn_index": 0,
+                    "overlap": 0,
+                }
+            ),
         ]
 
         results = stage.process_batch(tasks)
         assert results[0].data["mfa_fallback"] is False
+
+
+@pytest.mark.parametrize("rates", [(8000, 16000), (16000, 8000)])
+def test_mixed_input_sample_rates_are_resampled_before_timeline_calculation(
+    tmp_path: Path, rates: tuple[int, int]
+) -> None:
+    stage = _build_stage(tmp_path, sample_rate=16000)
+    wav_a = _write_wav(tmp_path / "first.wav", 1.0, rates[0])
+    wav_b = _write_wav(tmp_path / "second.wav", 1.0, rates[1])
+    rttm_a = _write_rttm(tmp_path / "first.rttm", "first", "Alice", [(0.0, 1.0)])
+    rttm_b = _write_rttm(tmp_path / "second.rttm", "second", "Bob", [(0.0, 1.0)])
+    tasks = [
+        _make_task(
+            {
+                "audio_filepath": wav_a,
+                "rttm_filepath": rttm_a,
+                "speaker": "Alice",
+                "conversation_id": "rate-order",
+                "turn_index": 0,
+                "overlap": 0,
+            }
+        ),
+        _make_task(
+            {
+                "audio_filepath": wav_b,
+                "rttm_filepath": rttm_b,
+                "speaker": "Bob",
+                "conversation_id": "rate-order",
+                "turn_index": 1,
+                "overlap": 0,
+            }
+        ),
+    ]
+
+    result = stage.process_batch(tasks)[0]
+    info = sf.info(result.data["audio_filepath"])
+    assert info.samplerate == 16000
+    assert info.duration == pytest.approx(2.0, abs=0.01)
+
+
+@pytest.mark.parametrize("unsafe", [str(Path("/") / "tmp" / "escaped"), "../escaped", "a/b", r"a\b", ".", ".."])
+@pytest.mark.parametrize("field", ["conversation_id", "speaker"])
+def test_path_like_manifest_labels_are_rejected_before_any_output_write(
+    tmp_path: Path, field: str, unsafe: str
+) -> None:
+    stage = _build_stage(tmp_path)
+    wav = _write_wav(tmp_path / "turn.wav")
+    rttm = _write_rttm(tmp_path / "turn.rttm", "turn", "Alice", [(0.0, 1.0)])
+    data = {
+        "audio_filepath": wav,
+        "rttm_filepath": rttm,
+        "speaker": "Alice",
+        "conversation_id": "safe-conversation",
+        "turn_index": 0,
+        "overlap": 0,
+    }
+    data[field] = unsafe
+
+    with pytest.raises(ValueError, match="Invalid"):
+        stage.process_batch([_make_task(data)])
+
+    root = tmp_path / "conversations"
+    assert not root.exists() or not any(root.iterdir())
+
+
+def test_safe_artifact_names_retain_original_speaker_labels(tmp_path: Path) -> None:
+    stage = _build_stage(tmp_path)
+    wav = _write_wav(tmp_path / "turn.wav")
+    rttm = _write_rttm(tmp_path / "turn.rttm", "turn", "Alice Smith", [(0.0, 1.0)])
+    result = stage.process_batch(
+        [
+            _make_task(
+                {
+                    "audio_filepath": wav,
+                    "rttm_filepath": rttm,
+                    "speaker": "Alice Smith",
+                    "conversation_id": "external conversation label",
+                    "turn_index": 0,
+                    "overlap": 0,
+                }
+            )
+        ]
+    )[0]
+
+    artifact = result.data["speaker_artifacts"]["Alice Smith"]
+    assert Path(artifact["wav_filepath"]).name.startswith("speaker_")
+    assert "Alice Smith" not in Path(artifact["wav_filepath"]).name
+    assert result.data["conversation_id"] == "external conversation label"
+    assert result.data["speaker_references"]["Alice Smith"] == {"reference_audio": "", "reference_voice": ""}

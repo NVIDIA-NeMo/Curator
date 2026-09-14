@@ -4,6 +4,11 @@ End-to-end pipeline for generating synthetic multi-speaker conversation audio
 using NeMo Curator. Chains LLM conversation generation, TTS synthesis, forced
 alignment, and SDP-style conversation merging.
 
+Generation and merge are separate executor-backed phases. After the first phase
+finishes, its turn tasks are deterministically grouped by `conversation_id` into
+framework `TaskGroup` objects; the non-resumable merge stage consumes one group
+at a time. It never assumes that an executor batch contains one conversation.
+
 ## Pipeline Overview
 
 ```
@@ -44,7 +49,9 @@ Merged Manifest JSONL
 
 - Python 3.10+
 - NeMo Curator with audio stages installed
-- Chatterbox TTS (`pip install chatterbox-tts`)
+- Chatterbox TTS is provisioned into the stage's isolated Ray runtime
+  environment; do not install its conflicting dependency set into Curator's
+  main environment
 - Montreal Forced Aligner (`conda install -c conda-forge montreal-forced-aligner`)
 - vLLM (`pip install vllm`)
 
@@ -72,7 +79,7 @@ From the Curator repo root:
 ```bash
 # 2-speaker dialogs
 python tutorials/audio/data-generation/main.py \
-    --config-path . \
+    --config-path tutorials/audio/data-generation \
     --config-name pipeline \
     input_manifest=tutorials/audio/data-generation/topics/topics_dialog.jsonl \
     output_dir=/data/conversations_2spk \
@@ -81,7 +88,7 @@ python tutorials/audio/data-generation/main.py \
 
 # 3-speaker conversations
 python tutorials/audio/data-generation/main.py \
-    --config-path . \
+    --config-path tutorials/audio/data-generation \
     --config-name pipeline \
     input_manifest=tutorials/audio/data-generation/topics/topics_group.jsonl \
     output_dir=/data/conversations_3spk \
@@ -90,7 +97,7 @@ python tutorials/audio/data-generation/main.py \
 
 # 4-speaker conversations
 python tutorials/audio/data-generation/main.py \
-    --config-path . \
+    --config-path tutorials/audio/data-generation \
     --config-name pipeline \
     input_manifest=tutorials/audio/data-generation/topics/topics_group.jsonl \
     output_dir=/data/conversations_4spk \
@@ -151,7 +158,7 @@ using Hydra syntax.
 ```bash
 # Use a larger LLM
 python tutorials/audio/data-generation/main.py \
-    --config-path . --config-name pipeline \
+    --config-path tutorials/audio/data-generation --config-name pipeline \
     input_manifest=topics/topics_dialog.jsonl \
     output_dir=/data/output \
     reference_voices_dataset=/data/voices \
@@ -160,25 +167,25 @@ python tutorials/audio/data-generation/main.py \
 
 # Vary TTS expressiveness per conversation
 python tutorials/audio/data-generation/main.py \
-    --config-path . --config-name pipeline \
+    --config-path tutorials/audio/data-generation --config-name pipeline \
     input_manifest=topics/topics_dialog.jsonl \
     output_dir=/data/output \
     reference_voices_dataset=/data/voices \
     prompt_file=prompts/dialog_prompt.yaml \
-    "stages.2.exaggeration=[0.25, 0.85]"
+    "tts_exaggeration=[0.25, 0.85]"
 
 # Use Ray Data backend
 python tutorials/audio/data-generation/main.py \
-    --config-path . --config-name pipeline \
+    --config-path tutorials/audio/data-generation --config-name pipeline \
     input_manifest=topics/topics_dialog.jsonl \
     output_dir=/data/output \
     reference_voices_dataset=/data/voices \
     prompt_file=prompts/dialog_prompt.yaml \
-    backend=ray_data
+    phase1.backend=ray_data phase2.backend=ray_data
 
 # Multilingual (French)
 python tutorials/audio/data-generation/main.py \
-    --config-path . --config-name pipeline \
+    --config-path tutorials/audio/data-generation --config-name pipeline \
     input_manifest=topics/topics_dialog.jsonl \
     output_dir=/data/output_fr \
     reference_voices_dataset=/data/voices \
@@ -194,23 +201,19 @@ python tutorials/audio/data-generation/main.py \
 ```
 output_dir/
 ├── audio/                          # Per-turn WAV files (from TTS)
-│   └── <conversation_id>/
-│       ├── turn_000_speaker_0.wav
-│       ├── turn_001_speaker_1.wav
-│       └── ...
+│   └── <deterministic-turn-hash>.wav
 ├── alignment/                      # Per-turn alignment (from MFA)
 │   ├── textgrids/
 │   ├── rttms/
 │   └── ctms/
 ├── conversations/                  # Merged conversations
-│   └── <conversation_id>/
-│       ├── speaker_0.wav           # Per-speaker audio
-│       ├── speaker_1.wav
+│   └── conversation_<hash>/         # Original ID is retained in the manifest
+│       ├── speaker_<hash>.wav       # Per-speaker audio; label-safe filename
 │       ├── multichannel.wav        # Multi-channel (one channel per speaker)
 │       ├── mixed.wav               # Mixed mono
-│       ├── speaker_0.rttm          # Per-speaker RTTM
-│       ├── combined.rttm           # Combined RTTM
-│       ├── combined.ctm            # Combined CTM
+│       ├── speaker_<hash>.rttm      # Per-speaker RTTM
+│       ├── all.rttm                 # Combined RTTM
+│       ├── all.ctm                  # Combined CTM
 │       └── segments.seglst.json    # Segment list
 └── merged_manifest.jsonl           # Final output manifest
 ```
@@ -229,7 +232,7 @@ output_dir/
 ```
 tutorials/audio/data-generation/
 ├── pipeline.yaml                   # Hydra pipeline configuration
-├── main.py                         # Two-phase pipeline runner
+├── main.py                         # Two executor-backed phases + keyed grouping
 ├── README.md                       # This file
 ├── prompts/
 │   ├── dialog_prompt.yaml          # 2-speaker conversation prompt

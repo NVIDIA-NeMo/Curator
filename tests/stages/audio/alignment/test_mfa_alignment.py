@@ -81,9 +81,7 @@ def _fake_tier(entries: list[SimpleNamespace]) -> SimpleNamespace:
     return SimpleNamespace(entries=entries)
 
 
-def _fake_textgrid(
-    entries: list[SimpleNamespace], tier_name: str = "words"
-) -> SimpleNamespace:
+def _fake_textgrid(entries: list[SimpleNamespace], tier_name: str = "words") -> SimpleNamespace:
     tier = _fake_tier(entries)
     return SimpleNamespace(
         tierNames=[tier_name],
@@ -118,10 +116,13 @@ def _setup_stage(
     return fake_tg_mod
 
 
-def _mock_mfa_writes_textgrid(wav: Path) -> Callable[..., subprocess.CompletedProcess]:
+def _mock_mfa_writes_textgrid(_wav: Path) -> Callable[..., subprocess.CompletedProcess]:
     def _run(cmd: list[str], *_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
+        align_idx = cmd.index("align")
+        corpus_dir = Path(cmd[align_idx + 1])
         tg_dir = _align_textgrid_output_dir(cmd)
-        (tg_dir / f"{wav.stem}.TextGrid").write_text("fake textgrid")
+        for corpus_wav in corpus_dir.glob("*.wav"):
+            (tg_dir / f"{corpus_wav.stem}.TextGrid").write_text("fake textgrid")
         return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
     return _run
@@ -149,9 +150,7 @@ class TestMFAAlignmentStage:
         assert "rttm_filepath" in data_no_ctm
         assert "ctm_filepath" not in data_no_ctm
 
-        _, data_tg_only = _make_stage(
-            tmp_path, create_rttm=False, create_ctm=False
-        ).outputs()
+        _, data_tg_only = _make_stage(tmp_path, create_rttm=False, create_ctm=False).outputs()
         assert data_tg_only == ["textgrid_filepath", "mfa_skipped", "duration"]
 
     def test_outputs_declares_custom_duration_key(self, tmp_path: Path) -> None:
@@ -190,6 +189,8 @@ class TestMFAAlignmentStage:
 
         assert isinstance(results, list)
         assert len(results) == len(tasks)
+        assert all(result.data["mfa_skipped"] is False for result in results)
+        assert results[0].data["textgrid_filepath"] == results[1].data["textgrid_filepath"]
 
     def test_process_batch_success(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
@@ -211,15 +212,36 @@ class TestMFAAlignmentStage:
         assert Path(results[0].data["rttm_filepath"]).exists()
         assert Path(results[0].data["ctm_filepath"]).exists()
 
+    def test_duplicate_basenames_get_stable_distinct_artifacts_across_batches(self, tmp_path: Path) -> None:
+        """Distinct source files named ``foo.wav`` must never overwrite outputs."""
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        wav_a = _make_wav(tmp_path / "a", name="foo.wav")
+        wav_b = _make_wav(tmp_path / "b", name="foo.wav")
+        stage = _make_stage(tmp_path)
+        _setup_stage(stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")]))
+
+        task_a = _make_task(wav_a, text="hello")
+        task_a.task_id = "source_a"
+        task_b = _make_task(wav_b, text="hello")
+        task_b.task_id = "source_b"
+        with _patch_mfa_subprocess(stage, side_effect=_mock_mfa_writes_textgrid(wav_a)):
+            result_a = stage.process_batch([task_a])[0]
+        with _patch_mfa_subprocess(stage, side_effect=_mock_mfa_writes_textgrid(wav_b)):
+            result_b = stage.process_batch([task_b])[0]
+
+        for key in ("textgrid_filepath", "rttm_filepath", "ctm_filepath"):
+            assert result_a.data[key] != result_b.data[key]
+            assert Path(result_a.data[key]).exists()
+            assert Path(result_b.data[key]).exists()
+
     def test_process_batch_mfa_failure_raises(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
         stage = _make_stage(tmp_path)
         _setup_stage(stage)
         task = _make_task(wav)
 
-        failed = subprocess.CompletedProcess(
-            ["mfa"], returncode=1, stdout="error out", stderr="error err"
-        )
+        failed = subprocess.CompletedProcess(["mfa"], returncode=1, stdout="error out", stderr="error err")
         with (
             _patch_mfa_subprocess(stage, return_value=failed),
             pytest.raises(RuntimeError, match="mfa align failed"),
@@ -250,9 +272,7 @@ class TestMFAAlignmentStage:
         """A single bad row is marked skipped without aborting the batch."""
         good_wav = _make_wav(tmp_path, name="good.wav")
         stage = _make_stage(tmp_path)
-        _setup_stage(
-            stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")])
-        )
+        _setup_stage(stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")]))
 
         bad = _make_task(tmp_path / "does_not_exist.wav", text="hello")
         good = _make_task(good_wav, text="hello")
@@ -268,9 +288,7 @@ class TestMFAAlignmentStage:
         assert results[1].data["mfa_skipped"] is False
         assert results[1].data["textgrid_filepath"] != ""
 
-    def test_process_batch_all_invalid_skips_without_running_mfa(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_batch_all_invalid_skips_without_running_mfa(self, tmp_path: Path) -> None:
         """When every task fails pre-flight, MFA is never invoked."""
         stage = _make_stage(tmp_path)
         _setup_stage(stage)
@@ -330,10 +348,12 @@ class TestMFAAlignmentStage:
     def test_process_batch_prefers_words_tier_over_phones(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
         stage = _make_stage(tmp_path)
-        textgrid = _fake_textgrid_multi({
-            "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
-            "words": [_fake_textgrid_entry(0.1, 0.5, "hello")],
-        })
+        textgrid = _fake_textgrid_multi(
+            {
+                "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
+                "words": [_fake_textgrid_entry(0.1, 0.5, "hello")],
+            }
+        )
         _setup_stage(stage, textgrid=textgrid)
         task = _make_task(wav, text="hello")
 
@@ -341,18 +361,18 @@ class TestMFAAlignmentStage:
             results = stage.process_batch([task])
 
         ctm_words = [
-            line.split()[-1]
-            for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n")
-            if line
+            line.split()[-1] for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n") if line
         ]
         assert ctm_words == ["hello"]
 
     def test_process_batch_raises_when_only_phone_tiers(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
         stage = _make_stage(tmp_path)
-        textgrid = _fake_textgrid_multi({
-            "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
-        })
+        textgrid = _fake_textgrid_multi(
+            {
+                "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
+            }
+        )
         _setup_stage(stage, textgrid=textgrid)
         task = _make_task(wav, text="hello")
 
@@ -379,9 +399,7 @@ class TestMFAAlignmentStage:
             results = stage.process_batch([task])
 
         ctm_words = [
-            line.split()[-1]
-            for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n")
-            if line
+            line.split()[-1] for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n") if line
         ]
         assert ctm_words == ["hello", "world"]
 
@@ -400,9 +418,7 @@ class TestMFAAlignmentStage:
             results = stage.process_batch([task])
 
         ctm_words = [
-            line.split()[-1]
-            for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n")
-            if line
+            line.split()[-1] for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n") if line
         ]
         assert "PAUSE" not in ctm_words
         assert "sp" in ctm_words

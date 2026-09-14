@@ -20,7 +20,7 @@ import json
 import os
 import sys
 import types
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -37,10 +37,8 @@ from nemo_curator.stages.audio.tts.chatterbox_tts import (
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 MODULE = "nemo_curator.stages.audio.tts.chatterbox_tts"
+
 
 # Chatterbox is intentionally excluded from Curator's shared extras/lockfile
 # (it hard-pins a conflicting transformers/torch) and is installed only into
@@ -354,6 +352,37 @@ class TestChatterboxTTSStage:
         assert "audio_filepath" in results[0].data
         assert "audio_filepath" not in results[1].data
         assert "audio_filepath" not in results[2].data
+
+    @pytest.mark.parametrize(
+        ("field", "unsafe_label"),
+        [
+            ("speaker", "<absolute>"),
+            ("speaker", "../escaped"),
+            ("speaker", "a/b"),
+            ("speaker", r"a\b"),
+            ("conversation_id", "<absolute>"),
+            ("conversation_id", "../escaped"),
+        ],
+    )
+    def test_process_batch_rejects_path_like_manifest_labels(
+        self,
+        output_dir: str,
+        ref_dataset: str,
+        tmp_path: Path,
+        field: str,
+        unsafe_label: str,
+    ) -> None:
+        """TTS must not create a cache artifact outside its configured root."""
+        if unsafe_label == "<absolute>":
+            unsafe_label = str(tmp_path / "escaped")
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            task = _make_task(**{field: unsafe_label})
+            result = stage.process_batch([task])[0]
+
+        assert "audio_filepath" not in result.data
+        assert not Path(unsafe_label).exists()
 
     def test_process_batch_text_field_fallback(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):

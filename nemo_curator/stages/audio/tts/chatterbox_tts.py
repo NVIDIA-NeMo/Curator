@@ -25,6 +25,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
@@ -824,9 +825,33 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         instead of colliding with a previous, differently-configured run.
         """
         conv_hash = hashlib.md5(manifest["conversation_id"].encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+        speaker_hash = hashlib.sha256(manifest["speaker"].encode("utf-8")).hexdigest()[:12]
         text_hash = hashlib.md5(manifest["text"].encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
         config_hash = cls._hash_manifest(manifest)[:16]
-        return f"{conv_hash}_{manifest['speaker']}_{text_hash}_{config_hash}.wav"
+        return f"{conv_hash}_speaker_{speaker_hash}_{text_hash}_{config_hash}.wav"
+
+    @staticmethod
+    def _validate_label(label_type: str, value: object) -> str:
+        """Reject manifest labels that could be interpreted as path components."""
+        if not isinstance(value, str) or not value.strip() or value in {".", ".."} or "/" in value or "\\" in value:
+            msg = (
+                f"Invalid {label_type}: {value!r}. Labels must be non-empty strings "
+                "without path separators or traversal components."
+            )
+            raise ValueError(msg)
+        return value
+
+    def _output_path(self, filename: str) -> str:
+        """Return a cache path proven to be directly below the configured root."""
+        if Path(filename).name != filename:
+            msg = f"Unsafe generated filename: {filename!r}"
+            raise ValueError(msg)
+        root = Path(self.output_audio_dir).resolve()
+        path = (root / filename).resolve()
+        if path.parent != root:
+            msg = f"Refusing to write outside output_audio_dir: {path}"
+            raise ValueError(msg)
+        return str(path)
 
     @staticmethod
     def _sidecar_path(audio_path: str) -> str:
@@ -908,7 +933,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         not easily vectorised), but batching allows the model to stay warm
         across turns and avoids repeated setup overhead.
         """
-        if not tasks:
+        if len(tasks) == 0:
             return []
 
         output_tasks: list[AudioTask] = []
@@ -926,6 +951,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             conversation_id = data.get("conversation_id", "unknown")
 
             try:
+                self._validate_label("speaker", speaker)
+                self._validate_label("conversation_id", conversation_id)
                 # Reference selection includes file I/O and RTTM preprocessing,
                 # so it belongs inside the per-task boundary as much as cache I/O.
                 reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
@@ -941,7 +968,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                     exaggeration=exaggeration,
                 )
                 filename = self._output_filename(manifest)
-                audio_path = os.path.join(self.output_audio_dir, filename)
+                audio_path = self._output_path(filename)
                 cached = self._read_cached_audio_if_valid(audio_path, manifest)
                 if cached is not None:
                     audio_data, audio_sr = cached
