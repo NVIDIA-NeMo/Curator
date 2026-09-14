@@ -55,6 +55,7 @@ def plan_kmeans_prediction(
         + info.metadata_bytes * _PREDICT_METADATA_MEMORY_FACTOR
         for info in file_info
     }
+    # Allow for an FP32 sample-by-centroid distance workspace in each prediction worker.
     prediction_scratch_bytes = max_samples_per_batch * n_clusters * cp.dtype(cp.float32).itemsize
     group_memory_limit = memory_budget // max_workers - prediction_scratch_bytes
     # A complete input file is the smallest read unit, even when it exceeds a worker's share.

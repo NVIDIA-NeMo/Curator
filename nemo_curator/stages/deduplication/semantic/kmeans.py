@@ -56,6 +56,8 @@ from .utils import (
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 _AUTO_FIT_MEMORY_FRACTION = 0.9
+# Leave headroom outside the prediction pool for CUDA/library allocations.
+_PREDICT_MEMORY_FRACTION = 0.9
 KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
 
 
@@ -342,7 +344,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
     def _predict_write_parquet(
         self, file_info: list[ParquetFileInfo], columns: list[str], task_id: str, centroids: "cp.ndarray"
     ) -> tuple[int, dict[str, float]]:
-        budget = int(cp.cuda.runtime.memGetInfo()[0] * 0.9)
+        budget = int(cp.cuda.runtime.memGetInfo()[0] * _PREDICT_MEMORY_FRACTION)
         groups, workers = plan_kmeans_prediction(
             file_info,
             memory_budget=budget,
@@ -353,6 +355,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         logger.info(f"KMeans prediction: {len(groups)} groups, {workers} threads, {budget / 2**30:.1f} GiB budget")
         self._log_metric("kmeans_predict_write_workers", workers)
         device = cp.cuda.Device().id
+        # Finish centroid preparation on existing streams before prediction workers read them.
         cp.cuda.runtime.deviceSynchronize()
         indexed_groups = list(enumerate(groups))
         with kmeans_prediction_memory_pool(budget):
