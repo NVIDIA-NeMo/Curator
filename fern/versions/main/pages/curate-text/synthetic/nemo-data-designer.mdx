@@ -78,6 +78,18 @@ The `DataDesignerStage` is the core integration point between NeMo Curator and N
 - `num_input_records` / `num_output_records`: Record counts before and after generation
 - `input_tokens_median_per_record` / `output_tokens_median_per_record`: Median token counts across all LLM columns
 
+### Distributed Execution and Empty Batches
+
+`DataDesignerStage` can be serialized and copied to Ray workers even though the live Data Designer client contains process-local runtime objects that are not serializable. The stage serializes its configuration builder and model providers, omits the live client, and recreates that client inside the destination worker. This happens automatically; application code should construct the stage normally and should not create or replace its internal Data Designer client.
+
+An upstream stage can legitimately produce an empty `DocumentBatch`. For example, a filter might remove every record in one input partition while other partitions still contain data. In that case, `DataDesignerStage`:
+
+1. Skips `DataDesigner.preview()`, so it makes no generation or judge requests for that batch.
+2. Returns an empty `DocumentBatch` while preserving its dataset name, metadata, and stage-performance history.
+3. Reports `0` for running time, input and output record counts, and median input and output tokens.
+
+This behavior makes it safe to place filtering stages before Data Designer or between multiple Data Designer stages without special-casing fully filtered partitions.
+
 ## Building a Configuration
 
 NDD configurations use a builder pattern. You add columns of three types:

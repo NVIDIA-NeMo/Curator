@@ -315,6 +315,10 @@ When tuning filter thresholds, analyze score distributions before applying filte
 
 Use `Score` first to understand your data distribution, then apply `ScoreFilter` with tuned thresholds.
 
+<Note>
+By default, `Filter` and `ScoreFilter` log when an input batch is already empty or when a stage removes every row, but they do not report partial retention. Set `verbose=True` to also log `<stage> batch <task_id> retained <kept>/<input> rows` for each non-empty batch. A stage containing multiple filters reports one count after the complete chain. These messages contain aggregate counts, not the identities or rejection reasons of individual records.
+</Note>
+
 <Tabs>
 <Tab title="Score Without Filtering">
 Use `Score` to add score columns to your data without removing any documents:
