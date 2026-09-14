@@ -21,7 +21,18 @@ from nemo_curator.stages.deduplication.semantic.utils import CUDF_COLUMN_SIZE_LI
 @pytest.mark.gpu
 @pytest.mark.parametrize(("memory_budget", "expected_workers"), [(80_000_000_000, 4), (20_000_000_000, 1)])
 def test_prediction_groups_respect_memory_and_element_limits(memory_budget: int, expected_workers: int) -> None:
-    info = [ParquetFileInfo(str(i), 1000, 1000, embedding_elements=400_000_000) for i in range(12)]
+    """Keep every file while reducing concurrency when four workers no longer fit.
+
+    Each file has 400M embedding values, estimated at roughly 16 GB during
+    prediction/writing. An 80 GB budget supports four workers; 20 GB supports one.
+    Neither budget can put two files in one worker's initial memory share.
+    """
+    info = [
+        ParquetFileInfo(
+            path=f"part-{i}.parquet", num_rows=400_000, metadata_bytes=1000, embedding_elements=400_000_000
+        )
+        for i in range(12)
+    ]
     groups, workers = plan_kmeans_prediction(
         info, memory_budget=memory_budget, max_workers=4, n_clusters=2, max_samples_per_batch=32
     )
@@ -32,10 +43,25 @@ def test_prediction_groups_respect_memory_and_element_limits(memory_budget: int,
 
 @pytest.mark.gpu
 def test_prediction_groups_respect_element_limit_with_spare_memory() -> None:
-    info = [ParquetFileInfo(str(i), 1000, 1000, embedding_elements=CUDF_COLUMN_SIZE_LIMIT // 3) for i in range(8)]
+    """Spare GPU memory must not allow a read above cuDF's element-count limit.
+
+    Each file has 600M embedding values: three fit below cuDF's 2B-element limit,
+    but four do not. Despite a generous memory budget, eight files form groups of 3, 3 and 2.
+    The planner can then use three workers, one for each group.
+    """
+    info = [
+        ParquetFileInfo(
+            path=f"part-{i}.parquet",
+            num_rows=600_000,
+            metadata_bytes=1000,
+            embedding_elements=600_000_000,
+        )
+        for i in range(8)
+    ]
     groups, workers = plan_kmeans_prediction(
         info, memory_budget=1_000_000_000_000, max_workers=4, n_clusters=2, max_samples_per_batch=32
     )
     assert [path for group in groups for path in group] == [item.path for item in info]
-    assert workers == len(groups) == 3
+    assert workers == 3
+    assert [len(group) for group in groups] == [3, 3, 2]
     assert all(len(group) * info[0].embedding_elements < CUDF_COLUMN_SIZE_LIMIT for group in groups)

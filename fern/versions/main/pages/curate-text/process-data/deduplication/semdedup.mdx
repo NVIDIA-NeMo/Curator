@@ -205,58 +205,32 @@ Use FP32 storage and compute when exact or near-exact similarity thresholds make
 
 ### Control K-means fitting memory
 
-For the lower-level workflow and stage, the behavior of `fit_data_fraction=None` depends on the
-embedding input format:
+`fit_data_fraction` controls how much input data is used to learn the centroids. All input rows
+still receive cluster assignments, regardless of the fit fraction.
 
-- **Parquet:** Selects as many complete files as fit the actor's live GPU-memory budget. Only one
-  contiguous float32 embedding array remains resident during fitting; each input frame is released
-  after its embeddings are copied into that array.
-- **JSONL:** Fits all input files in one pass because row and embedding counts are not available without reading the data.
+For the lower-level workflow and stage, `fit_data_fraction=None` automatically selects a fit sample
+based on available GPU memory for Parquet input. JSONL input fits all files by default. Set a fraction
+in `(0, 1]` to choose the sample size explicitly, or `1.0` to fit all files.
 
-Parquet is recommended for large semantic-deduplication workloads. Its footer metadata sizes the
-fit array, while cuDF's chunked reader bounds fit-pass memory and output column sizes. After fitting, Parquet
-rereads all files in bounded frames to predict and write every row, including when
-`fit_data_fraction=1.0` or automatic sizing selects every file. The fit array is released before
-prediction and writing, so it does not compete with their temporary allocations. Prediction memory
-sizing is an estimate: a single oversized file or underestimated metadata can still exhaust memory
-during reading, prediction, or writing.
-An explicit JSONL fit fraction also rereads the input, but loads all files together for prediction.
+Sampling selects complete files, so the actual fraction of rows can differ when file sizes vary.
+Each GPU actor samples at least one file. Choose enough representative data to fit `n_clusters`
+centroids, and use `random_state` or `kmeans_random_state` for repeatable selection.
 
-The Parquet prediction pass uses up to four threads per GPU, with read groups sized from the
-available memory, embedding-element counts, and retained-column sizes. `KMeansStage.predict_write_workers`
-sets the maximum; use `1` for serial prediction and writing. Each thread has its own predictor and
-centroid-partitioned writer. Local output reuses files across frames, creates each centroid directory
-only when first needed by a writer, and rotates files before a partition's embedding column reaches
-cuDF's element limit. Storage options and additional Parquet
-write options continue through the general writer path. Ray workers enable `CUDF_PER_THREAD_STREAM=1`
-before importing cuDF and size the shared KvikIO I/O pool to four threads per prediction worker
-(`KVIKIO_NTHREADS=16` with the default four workers). An explicit `KVIKIO_NTHREADS` environment value
-takes precedence. Set these environment variables before importing cuDF when calling the processing
-stage directly. Curator's `KVIKIO_AUTO_DIRECT_IO_WRITE` default is unchanged.
+Parquet is recommended for large datasets. It releases the fitting data before prediction and
+processes the full input in smaller groups. Prediction overlaps reads and writes to improve
+throughput while preserving the centroid-partitioned output used by pairwise deduplication.
+`KMeansStage.predict_write_workers` limits concurrency per GPU (default: `4`); set it to `1` to
+compare serial processing when investigating throughput or concurrency problems.
 
-For two-pass benchmarks, compare `kmeans_fit_read_time_s`, `kmeans_fit_time_s`, and
-`kmeans_second_pass_time_s`. The second-pass metric measures elapsed time from reading the first
-prediction group through closing the final output file, including reads, prediction, and writes.
-These are mean per-actor wall times; `kmeans_time` measures the full stage, including actor setup
-and the slowest actor. The legacy read/predict/write activity timings remain available for diagnosis,
-but overlap during concurrent execution and must not be summed as exclusive phase times.
+If fitting runs out of memory, reduce `fit_data_fraction`. If prediction runs out of memory,
+reducing the fit fraction will not help: prediction still processes every row. Check the available
+GPU memory and input file sizes; an individual file may need to be split into smaller files.
+JSONL with an explicit fit fraction also rereads the full input for prediction, but does not gain
+Parquet's bounded prediction reads.
 
-Set a fraction in `(0, 1]` to choose the number of sampled files explicitly. Both formats sample
-`round(fit_data_fraction * number_of_actor_files)` complete files per actor, with a minimum of one,
-but their I/O differs:
-
-- **Parquet:** Exact footer counts size one contiguous float32 fit array. cuDF reads the sampled files
-  in chunks that share the remaining GPU memory between output and decompression. The sampled frames
-  are released during the first pass; the second pass rereads all files to predict and write every row.
-- **JSONL:** The first pass reads the sampled files and fits K-means. The second pass reads all files,
-  including the sampled files, to predict and write every row.
-
-Because sampling is file-based rather than row-based, the realized row fraction can differ from the configured value when file sizes vary. Every actor contributes at least one file, so very small fractions can also sample more data than expected on highly parallel runs. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
-
-<Note>
-All input rows receive cluster assignments; the fraction affects only centroid fitting. For Parquet input,
-both fitting and prediction use exact footer element counts to keep each read below cuDF's column-size limit.
-</Note>
+When comparing benchmark runs, use the full KMeans elapsed time or `kmeans_second_pass_time_s`
+for reading, predicting, and writing after fitting. Individual read, prediction, and write activity
+can overlap, so adding those timings overstates elapsed time.
 
 <Tabs>
 <Tab title="Text workflow">

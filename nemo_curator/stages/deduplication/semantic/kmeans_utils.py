@@ -41,9 +41,6 @@ def plan_kmeans_prediction(
 ) -> tuple[list[list[str]], int]:
     """Group complete files and choose how many groups can run concurrently.
 
-    Allow each worker a read/write group plus an FP32 sample-by-centroid distance
-    workspace for cuVS's unfused prediction path. Its fused L2 path uses per-row
-    scratch instead, so this allowance is not an exact allocation measurement.
     First divide memory among the requested workers, then reduce the
     worker count if a complete file exceeds that share. Groups also stay below
     cuDF's embedding child-column limit, independently of the memory estimate.
@@ -57,7 +54,14 @@ def plan_kmeans_prediction(
         + info.metadata_bytes * _PREDICT_METADATA_MEMORY_FACTOR
         for info in file_info
     }
-    # Allow for cuVS's unfused FP32 distance matrix; the fused path avoids this matrix.
+    # Finding the nearest centroid can temporarily store one distance for every
+    # (sample, centroid) pair in a prediction batch. Each distance is FP32 (4 bytes),
+    # even when output embeddings are stored as FP16. For 32,768 samples and 1,000
+    # centroids this allows 125 MiB per worker, in addition to its read/write group.
+    # cuVS's "unfused" path stores this matrix, then finds each row's minimum.
+    # Its "fused" path combines those operations without storing the full matrix.
+    # Budget for the former so planning also works on GPUs that select that path;
+    # this is a temporary-memory allowance, not a measurement of all cuML allocations.
     prediction_scratch_bytes = max_samples_per_batch * n_clusters * cp.dtype(cp.float32).itemsize
     group_memory_limit = memory_budget // max_workers - prediction_scratch_bytes
     # A complete input file is the smallest read unit, even when it exceeds a worker's share.
@@ -88,10 +92,20 @@ def plan_kmeans_prediction(
 def kmeans_prediction_memory_pool(memory_budget: int) -> Iterator[None]:
     """Share a bounded RMM pool across prediction workers, restoring it on exit.
 
-    Call after releasing the fit array and before starting worker threads. The
-    current RMM resource is shared by threads on this device, so it must remain
-    installed until every worker has finished. Reusing allocations avoids repeated
-    CUDA allocation costs; setting it up after fit preserves automatic fit sizing.
+    Every group creates and releases GPU buffers while reading, predicting and
+    writing. A pool retains freed blocks for the next allocation, avoiding repeated
+    CUDA allocations/frees that can synchronize work and undermine concurrency.
+    All workers use the same pool: cuDF uses the current RMM resource, and the worker
+    context routes CuPy's embedding buffers through it too. Separate CuPy and cuDF
+    caches could otherwise each hold memory that the other library needs.
+
+    Create the pool after releasing the fit array so reserved prediction memory
+    does not reduce the space available to fit. It starts at up to 1 GiB and grows
+    only as needed, up to memory_budget; creating it does not allocate the full
+    budget immediately. The resource is shared by threads on this device, so keep
+    it installed until all workers finish, then restore the caller's resource even
+    if a worker fails. This cap covers allocations routed through this pool, not
+    every CUDA/library allocation in the process.
     """
     upstream = rmm.mr.get_current_device_resource()
     # RMM requires pool sizes to be multiples of 256 bytes.

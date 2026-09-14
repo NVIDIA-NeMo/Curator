@@ -66,6 +66,8 @@ def _get_actor_options(stage: "ProcessingStage") -> dict:
     }
     if get_stage_num_workers_per_node(stage) is not None:
         options["scheduling_strategy"] = "SPREAD"
+    # RAFT and shuffling actors also use this helper, bypassing ordinary actor creation.
+    # Set their environment before process startup, including import-time library settings.
     if stage.runtime_env:
         options["runtime_env"] = stage.runtime_env
     return options
