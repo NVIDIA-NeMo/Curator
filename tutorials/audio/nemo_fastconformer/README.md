@@ -73,10 +73,10 @@ uses those fields to retain and explain rows that could not be transcribed.
 | `model_id` | `nvidia/stt_en_fastconformer_ctc_large` | Any compatible pretrained NeMo ASR checkpoint |
 | `pred_text_key` | `pred_text` | Output transcript column |
 | `gpus_per_actor` | `1` | GPUs scheduled for each ASR worker; set `0` for CPU |
-| `stages.2.batch_size` | `16` | Backend candidate-row window and fallback adapter-call cap |
-| `stages.2.adapter_batch_size` | `null` | Optional final item-count cap for every adapter call |
-| `stages.2.batch_policy` | `null` | Optional local audio-duration policy applied inside each `process_batch` call |
-| `stages.2.max_inference_duration_s` | `2400` | Model-input ceiling; longer parent rows are segmented before batching and stitched afterward |
+| `stages.2.batch_size` | `16` | Backend candidate-row window supplied to one `process_batch` call |
+| `max_audio_sec_per_actor` | `240` | Maximum padded audio seconds in one NeMo adapter call |
+| `max_inference_duration_s` | `120` | Model-input ceiling; longer rows are always segmented and stitched afterward |
+| `local_bucketing` | `true` | Sort segments in the current process batch by duration before packing |
 | `stages.2.adapter_kwargs.num_workers` | `0` | NeMo transcription data-loader workers |
 | `stages.2.adapter_kwargs.enable_local_attention` | `false` | Convert a compatible FastConformer checkpoint to local attention |
 
@@ -87,24 +87,23 @@ stages.2.adapter_kwargs.enable_local_attention=true \
 'stages.2.adapter_kwargs.local_attention_context_size=[128,128]'
 ```
 
-To enable local duration bucketing, add a policy to the ASR stage:
+The supplied config enables local duration bucketing with three direct stage
+settings:
 
 ```yaml
 batch_size: 16
-batch_policy:
-  _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
-  buckets_sec: [0, 30, 60]
-  max_audio_sec_per_batch: 120
+max_audio_sec_per_actor: 240
+max_inference_duration_s: 120
+local_bucketing: true
 ```
 
-The policy only re-partitions rows already delivered to one
-`ASRStage.process_batch` call. It does not perform global scheduling or move
-rows between backend worker calls. Policy outputs are split only when needed
-by the stage's standard adapter-call cap; each final batch becomes one exact
-`NeMoASRAdapter.transcribe_batch` call and one NeMo `model.transcribe` call.
-Audio exceeding `max_inference_duration_s` is first split into bounded chunks;
-the policy packs those chunks, and the stage joins their transcripts back into
-the original parent-row order.
+`max_audio_sec_per_actor` bounds the padded work of each adapter call as
+`longest segment seconds × item count`. The stage always splits audio at
+`max_inference_duration_s` first. It then considers all resulting segments
+from the current `process_batch` together, packs duration-near segments when
+local bucketing is on, and restores segment and parent-row order afterward.
+Set `local_bucketing: false` to preserve input order while retaining the same
+capacity bound. No grouping crosses a backend `process_batch` boundary.
 
 See [Local Duration Bucketing for Audio GPU Inference](../../../nemo_curator/stages/audio/inference/README.md)
 for the full algorithm, tuning model, correctness invariants, and adoption
@@ -118,6 +117,9 @@ from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 asr = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_ctc_large",
+    max_audio_sec_per_actor=240,
+    max_inference_duration_s=120,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     batch_size=16,
 )
@@ -133,7 +135,7 @@ audio to the configured `target_sample_rate` before calling the adapter.
 | Symptom | Action |
 |---|---|
 | `ffmpeg` is not found | Install `ffmpeg` and ensure it is on `PATH` |
-| CUDA out of memory | Reduce `max_audio_sec_per_batch`, set `stages.2.adapter_batch_size`, or reduce `stages.2.batch_size` |
+| CUDA out of memory | Reduce `max_audio_sec_per_actor`; keep it at least as large as `max_inference_duration_s` |
 | Model import fails | Install `audio_cuda12` or `audio_cpu` for your platform |
 | First run appears idle | Wait for the NeMo checkpoint download and inspect the Ray logs |
 | Local-attention conversion fails | Disable it or use a FastConformer checkpoint exposing the required conversion APIs |

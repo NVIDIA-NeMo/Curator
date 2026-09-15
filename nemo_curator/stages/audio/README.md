@@ -138,7 +138,7 @@ The `batch_size` field on a GPU stage controls how many `AudioTask` tasks
 the backend groups into a single `process_batch()` call. The stage can then
 make one or more model calls from that finite candidate window. For example,
 `ASRStage` can segment long parents, locally regroup model items by duration,
-and apply a separate adapter-call item cap.
+and enforce a padded-audio budget for each adapter call.
 
 **Defining batch_size in the stage class:**
 
@@ -159,6 +159,9 @@ pipeline.add_stage(
     ASRStage(
         adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/parakeet-tdt-0.6b-v2",
+        max_audio_sec_per_actor=240,
+        max_inference_duration_s=120,
+        local_bucketing=True,
         audio_filepath_key="audio_filepath",
     )
     .with_(resources=Resources(gpus=1), batch_size=32)
@@ -176,6 +179,9 @@ stages:
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
     model_id: nvidia/parakeet-tdt-0.6b-v2
+    max_audio_sec_per_actor: 240
+    max_inference_duration_s: 120
+    local_bucketing: true
     audio_filepath_key: audio_filepath
     batch_size: 32
 ```
@@ -207,7 +213,7 @@ contract for other GPU stages.
 - **Too large** (e.g. `1024`) — can increase waveform preparation and host
   memory pressure before the stage makes any model calls.
 - **Sweet spot** — depends on the model, audio distribution, GPU memory, and
-  any stage-level model-call caps. Tune with representative inputs rather than
+  the stage-level audio budget. Tune with representative inputs rather than
   treating the backend window as the model batch size.
 
 ## What you must always declare
