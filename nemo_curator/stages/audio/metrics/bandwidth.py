@@ -100,6 +100,7 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 "waveform_key",
                 "sample_rate_key",
             ),
+            reserved_input_keys=("audio_item_id", "speaker", "text", "start", "end"),
         )
 
     def inputs(self) -> tuple[list[str], list[str]]:
