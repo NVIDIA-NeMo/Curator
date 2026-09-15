@@ -16,7 +16,7 @@ This guide helps you set up and get started with NeMo Curator's audio curation c
 
 To use NeMo Curator's audio curation modules, ensure you meet the following requirements:
 
-* Python 3.10, 3.11, or 3.12
+* Python 3.11, 3.12, or 3.13
   * packaging &gt;= 22.0
 * uv (for package management and installation)
 * **x86_64 Linux** (Ubuntu 22.04/20.04 recommended)
@@ -24,6 +24,7 @@ To use NeMo Curator's audio curation modules, ensure you meet the following requ
   * Volta™ or higher (compute capability 7.0+)
   * CUDA 12 (or above)
 * Audio processing libraries (automatically installed with audio extras)
+* An `ffmpeg` executable on `PATH` for stages that resample or convert audio
 
 <Warning>
 **Platform support:** Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda12` extras intentionally omit several dependencies on arm64/aarch64 (including NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack. Use an amd64 host or container for ASR, diarization, and tagging workflows.
@@ -57,6 +58,7 @@ uv pip install "nemo-curator[audio_cuda12]" --override override.txt
 
 <Note>
 The audio extras include NeMo Toolkit with ASR models. Additional audio processing libraries (soundfile, editdistance) are installed automatically as NeMo Toolkit dependencies.
+The extras do not install the `ffmpeg` command-line executable. For container and non-root installation options, see the [Installation Guide](/get-started/installation).
 </Note>
 
 </Tab>

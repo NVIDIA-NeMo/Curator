@@ -187,7 +187,7 @@ Run this command from the repository root so the fixture path matches what the i
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  manifest_path="${PWD}/tests/fixtures/audio/alm/sample_input.jsonl" \
   output_dir=./sample_output
 ```
 
