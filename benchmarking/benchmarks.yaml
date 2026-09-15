@@ -615,8 +615,8 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
-      --kmeans-embedding-output-dtype=float32
-      --pairwise-compute-dtype=float32
+      --kmeans-embedding-output-dtype=float16
+      --pairwise-compute-dtype=float16
       --dataset-size-ratio=0.20
       --fit-data-fraction=1.0
     timeout_s: 1200
@@ -670,8 +670,8 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
-      --kmeans-embedding-output-dtype=float32
-      --pairwise-compute-dtype=float32
+      --kmeans-embedding-output-dtype=float16
+      --pairwise-compute-dtype=float16
       --fit-data-fraction=0.20
     timeout_s: 1800
     sink_data:
