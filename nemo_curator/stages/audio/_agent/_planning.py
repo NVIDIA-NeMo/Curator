@@ -171,28 +171,55 @@ def _roles_for_keys(contract: StageContract, keys: set[str] | list[str]) -> set[
     return {contract.key_roles.get(key, "unknown") for key in keys} - {"unknown"}
 
 
-def _spec_satisfied_by_role(
+def _spec_satisfied_by_role(  # noqa: PLR0913 -- task and nested scopes each need roles plus literal keys
     spec: Any,  # noqa: ANN401 - IOSpec, kept loose to avoid a runtime-only import
     contract: StageContract,
     available_roles: set[str],
     available_segment_roles: set[str],
+    available_keys: set[str],
+    available_segment_keys: set[str],
 ) -> bool:
-    """Whether one I/O alternative is role-satisfied in each declared scope."""
-    top = {contract.key_roles.get(key, "unknown") for key in spec.data_keys}
-    nested = {contract.key_roles.get(key, "unknown") for key in spec.segment_data_keys}
-    return top.issubset(available_roles | {"unknown"}) and nested.issubset(available_segment_roles | {"unknown"})
+    """Whether known roles or exact unknown-role keys satisfy each scope."""
+
+    def scope_satisfied(keys: list[str], roles: set[str], literal_keys: set[str]) -> bool:
+        return all(
+            key in literal_keys if (role := contract.key_roles.get(key, "unknown")) == "unknown" else role in roles
+            for key in keys
+        )
+
+    return scope_satisfied(spec.data_keys, available_roles, available_keys) and scope_satisfied(
+        spec.segment_data_keys,
+        available_segment_roles,
+        available_segment_keys,
+    )
 
 
 def _reads_satisfied_by_role(
     contract: StageContract,
     available_roles: set[str],
     available_segment_roles: set[str],
+    available_keys: set[str],
+    available_segment_keys: set[str],
 ) -> bool:
-    """Role-level read check that keeps task and nested-item fields separate."""
-    if not _spec_satisfied_by_role(contract.reads, contract, available_roles, available_segment_roles):
+    """Role-level read check with literal fallback for unknown roles."""
+    if not _spec_satisfied_by_role(
+        contract.reads,
+        contract,
+        available_roles,
+        available_segment_roles,
+        available_keys,
+        available_segment_keys,
+    ):
         return False
     return not contract.reads_one_of or any(
-        _spec_satisfied_by_role(option, contract, available_roles, available_segment_roles)
+        _spec_satisfied_by_role(
+            option,
+            contract,
+            available_roles,
+            available_segment_roles,
+            available_keys,
+            available_segment_keys,
+        )
         for option in contract.reads_one_of
     )
 
@@ -491,7 +518,13 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
     for now -- the expansion is new, and it earns the right to block only once it has been shown
     not to false-positive on pipelines known to work.
     """
-    role_satisfied = _reads_satisfied_by_role(contract, walk.available, walk.segment_available)
+    role_satisfied = _reads_satisfied_by_role(
+        contract,
+        walk.available,
+        walk.segment_available,
+        walk.available_keys,
+        walk.segment_available_keys,
+    )
     key_satisfied = _reads_satisfied_by_key(contract, walk.available_keys, walk.segment_available_keys)
     if role_satisfied or key_satisfied:
         if walk.past_composite:
