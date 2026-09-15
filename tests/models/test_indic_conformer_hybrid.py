@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -25,6 +26,34 @@ from nemo_curator.models.indic_conformer_hybrid import IndicConformerHybridASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 _ADAPTER_TARGET = "nemo_curator.models.indic_conformer_hybrid.IndicConformerHybridASR"
+
+
+def _tensorrt_metadata() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "model_type": "indic_conformer_hybrid",
+        "precision": "fp16",
+        "engine_file": "encoder.plan",
+        "model_file": "model.nemo",
+        "sample_rate": 16_000,
+        "feature_count": 80,
+        "subsampling_factor": 4,
+        "encoder_dim": 512,
+        "input_names": ["audio_signal", "length"],
+        "output_names": ["outputs", "encoded_lengths"],
+        "profile": {
+            "min": {"batch": 1, "feature_frames": 8},
+            "opt": {"batch": 8, "feature_frames": 800},
+            "max": {"batch": 16, "feature_frames": 4001},
+        },
+    }
+
+
+def _tensorrt_bundle(tmp_path: Path) -> Path:
+    (tmp_path / "encoder.plan").touch()
+    (tmp_path / "model.nemo").touch()
+    (tmp_path / "metadata.json").write_text(json.dumps(_tensorrt_metadata()))
+    return tmp_path
 
 
 def test_adapter_conforms_to_shared_protocol() -> None:
@@ -115,6 +144,118 @@ def test_download_weights_on_node_resolves_existing_cache_when_offline() -> None
         adapter.download_weights_on_node()
 
     resolve.assert_called_once_with("ai4bharat/model")
+
+
+def test_download_weights_on_node_validates_tensorrt_bundle_without_huggingface(tmp_path: Path) -> None:
+    adapter = IndicConformerHybridASR(
+        "unused-when-engine-bundle-is-selected",
+        tensorrt_engine_dir=str(_tensorrt_bundle(tmp_path)),
+    )
+
+    with (
+        patch("huggingface_hub.HfApi") as api,
+        patch("huggingface_hub.hf_hub_download") as download,
+    ):
+        adapter.download_weights_on_node()
+
+    api.assert_not_called()
+    download.assert_not_called()
+
+
+def test_download_weights_on_node_rejects_incomplete_tensorrt_bundle(tmp_path: Path) -> None:
+    (tmp_path / "model.nemo").touch()
+    (tmp_path / "metadata.json").write_text(json.dumps(_tensorrt_metadata()))
+    adapter = IndicConformerHybridASR("unused", tensorrt_engine_dir=str(tmp_path))
+
+    with pytest.raises(FileNotFoundError, match="TensorRT encoder engine not found"):
+        adapter.download_weights_on_node()
+
+
+@pytest.mark.parametrize("num_gpus", [0, 2])
+def test_tensorrt_backend_requires_exactly_one_stage_owned_gpu(tmp_path: Path, num_gpus: int) -> None:
+    adapter = IndicConformerHybridASR("unused", tensorrt_engine_dir=str(_tensorrt_bundle(tmp_path)))
+
+    with (
+        patch("nemo_curator.models.indic_conformer_hybrid._apply_multisoftmax_patches"),
+        pytest.raises(ValueError, match="requires exactly one GPU"),
+    ):
+        adapter.load_model(num_gpus=num_gpus)
+
+
+def test_tensorrt_backend_replaces_only_matching_encoder_without_batch_configuration(tmp_path: Path) -> None:
+    adapter = IndicConformerHybridASR("unused", tensorrt_engine_dir=str(tmp_path))
+    adapter._trt_metadata = _tensorrt_metadata()
+    original_encoder = SimpleNamespace(_feat_in=80, subsampling_factor=4)
+    adapter._model = SimpleNamespace(
+        encoder=original_encoder,
+        cfg=SimpleNamespace(
+            encoder=SimpleNamespace(feat_in=80, d_model=512),
+            preprocessor=SimpleNamespace(sample_rate=16_000, window_stride=0.01),
+        ),
+    )
+    optimized_encoder = MagicMock()
+    optimized_encoder.max_input_shape.return_value = (16, 80, 4001)
+
+    with (
+        patch(
+            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoder",
+            return_value=optimized_encoder,
+        ) as encoder_type,
+        patch("torch.cuda.empty_cache"),
+    ):
+        adapter._enable_tensorrt_encoder(tmp_path / "encoder.plan")
+
+    encoder_type.assert_called_once_with(tmp_path / "encoder.plan", subsampling_factor=4)
+    assert adapter._model.encoder is optimized_encoder
+    assert adapter._trt_encoder is optimized_encoder
+    assert not hasattr(adapter, "inference_batch_size")
+
+
+def test_tensorrt_backend_rejects_profile_shorter_than_40_seconds(tmp_path: Path) -> None:
+    adapter = IndicConformerHybridASR("unused", tensorrt_engine_dir=str(tmp_path))
+    adapter._trt_metadata = _tensorrt_metadata()
+    adapter._model = SimpleNamespace(
+        encoder=SimpleNamespace(_feat_in=80, subsampling_factor=4),
+        cfg=SimpleNamespace(
+            encoder=SimpleNamespace(feat_in=80, d_model=512),
+            preprocessor=SimpleNamespace(sample_rate=16_000, window_stride=0.01),
+        ),
+    )
+    optimized_encoder = MagicMock()
+    optimized_encoder.max_input_shape.return_value = (16, 80, 4000)
+
+    with (
+        patch(
+            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoder",
+            return_value=optimized_encoder,
+        ),
+        patch("torch.cuda.empty_cache"),
+        pytest.raises(ValueError, match="--max-frames 4001"),
+    ):
+        adapter._enable_tensorrt_encoder(tmp_path / "encoder.plan")
+
+    optimized_encoder.close.assert_called_once_with()
+
+
+def test_tensorrt_load_failure_releases_partial_model_state(tmp_path: Path) -> None:
+    adapter = IndicConformerHybridASR("unused", tensorrt_engine_dir=str(_tensorrt_bundle(tmp_path)))
+    model = MagicMock()
+
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        patch("torch.cuda.empty_cache"),
+        patch("nemo_curator.models.indic_conformer_hybrid._apply_multisoftmax_patches"),
+        patch("nemo.collections.asr.models.ASRModel.restore_from", return_value=model),
+        patch.object(adapter, "_enable_tensorrt_encoder", side_effect=RuntimeError("engine load failed")),
+        pytest.raises(RuntimeError, match="engine load failed"),
+    ):
+        adapter.load_model(num_gpus=1)
+
+    assert adapter._model is None
+    assert adapter._device is None
+    assert adapter._trt_encoder is None
+    assert adapter._trt_metadata is None
+    assert adapter._chunk_duration_sec is None
 
 
 def test_local_token_ids_are_mapped_through_aggregate_tokenizer() -> None:
@@ -213,6 +354,53 @@ def test_generate_encodes_full_duration_ordered_batch_and_restores_input_order()
     assert languages == ["hi", "bn", "ta"]
     assert model.call_count == 1
     assert model.call_args.kwargs["input_signal"].shape[0] == 3
+
+
+def test_tensorrt_ctc_decode_receives_fp32_encoder_outputs() -> None:
+    adapter = IndicConformerHybridASR("checkpoint.nemo", decode_mode="ctc")
+    adapter._device = torch.device("cpu")
+    adapter._trt_encoder = MagicMock()
+    adapter._trt_encoder.max_input_shape.return_value = (1, 80, 4001)
+    model = MagicMock()
+    model.side_effect = lambda *, input_signal, input_signal_length: (
+        torch.zeros((input_signal.shape[0], 2, 3), dtype=torch.float16),
+        input_signal_length,
+    )
+    adapter._model = model
+
+    def _decode(encoded: torch.Tensor, _lengths: torch.Tensor, languages: list[str]) -> list[str]:
+        assert encoded.dtype == torch.float32
+        return languages
+
+    with patch.object(adapter, "_decode_ctc_batch", side_effect=_decode):
+        texts, _ = adapter.generate([np.zeros(160, dtype=np.float32)], [16_000], ["hi"])
+
+    assert texts == ["hi"]
+
+
+def test_tensorrt_chunks_are_grouped_by_intrinsic_engine_profile_before_preprocessing() -> None:
+    adapter = IndicConformerHybridASR("checkpoint.nemo", decode_mode="ctc")
+    adapter._device = torch.device("cpu")
+    adapter._trt_encoder = MagicMock()
+    adapter._trt_encoder.max_input_shape.return_value = (2, 80, 4001)
+    model = MagicMock()
+    model.side_effect = lambda *, input_signal, input_signal_length: (
+        torch.zeros((input_signal.shape[0], 2, 3), dtype=torch.float16),
+        input_signal_length,
+    )
+    adapter._model = model
+    languages = ["hi", "bn", "ta", "te", "gu"]
+
+    with patch.object(adapter, "_decode_ctc_batch", side_effect=lambda _encoded, _lengths, langs: langs):
+        texts, _ = adapter.generate(
+            [np.zeros(160 + index, dtype=np.float32) for index in range(5)],
+            [16_000] * 5,
+            languages,
+        )
+
+    assert texts == languages
+    assert model.call_count == 3
+    assert [call.kwargs["input_signal"].shape[0] for call in model.call_args_list] == [2, 2, 1]
 
 
 def test_generate_splits_long_audio_pads_tiny_tail_and_merges_in_time_order() -> None:

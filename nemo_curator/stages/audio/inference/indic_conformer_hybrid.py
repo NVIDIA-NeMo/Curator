@@ -35,17 +35,16 @@ class InferenceIndicConformerHybridStage(ASRStage):
 
     This is the current Curator adapter-backed equivalent of the stage used by
     ``examples/audio/qwen_omni_inprocess/run_pipeline.py`` on the integration
-    branch. The public model and task-routing options intentionally match that
-    stage while model lifecycle remains in ``IndicConformerHybridASR``.
+    branch. ``backend="tensorrt"`` replaces only the Conformer encoder with the
+    FP16 engine in a local bundle; preprocessing and CTC/RNNT decoding remain in
+    NeMo. Model lifecycle remains in ``IndicConformerHybridASR``.
     """
 
     adapter_target: str = field(default=_ADAPTER_TARGET, init=False, repr=False)
     model_id: str = "ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large"
     name: str = "IndicConformerHybrid_inference"
     decode_mode: Literal["ctc", "rnnt"] = "rnnt"
-    # Kept as a named compatibility option for integration-pipeline configs;
-    # this adapter-backed port deliberately supports Curator's NeMo runtime.
-    backend: Literal["nemo"] = "nemo"
+    backend: Literal["nemo", "tensorrt"] = "nemo"
     tensorrt_engine_dir: str | None = None
     rnnt_precision: Literal["fp32", "fp16", "bf16"] = "fp32"
     source_lang_key: str = "source_lang"
@@ -79,13 +78,13 @@ class InferenceIndicConformerHybridStage(ASRStage):
     adapter_kwargs: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.backend != "nemo":
-            msg = (
-                "InferenceIndicConformerHybridStage currently supports backend='nemo' only; "
-                "the TensorRT encoder runtime is not installed in Curator's standard audio environment"
-            )
+        if self.backend not in {"nemo", "tensorrt"}:
+            msg = f"Unsupported IndicConformer inference backend: {self.backend!r}"
             raise ValueError(msg)
-        if self.tensorrt_engine_dir is not None:
+        if self.backend == "tensorrt" and not self.tensorrt_engine_dir:
+            msg = "tensorrt_engine_dir is required when backend='tensorrt'"
+            raise ValueError(msg)
+        if self.backend == "nemo" and self.tensorrt_engine_dir is not None:
             msg = "tensorrt_engine_dir is only valid with backend='tensorrt'"
             raise ValueError(msg)
         if self.decode_mode not in {"ctc", "rnnt"}:
@@ -99,6 +98,8 @@ class InferenceIndicConformerHybridStage(ASRStage):
             "rnnt_precision": self.rnnt_precision,
             "empty_audio_marks_skip": False,
         }
+        if self.backend == "tensorrt":
+            self.adapter_kwargs["tensorrt_engine_dir"] = self.tensorrt_engine_dir
         super().__post_init__()
 
     def outputs(self) -> tuple[list[str], list[str]]:

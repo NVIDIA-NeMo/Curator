@@ -14,12 +14,16 @@
 
 """CPU-only contract tests for the Parakeet compatibility stage."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt import (
+    TensorRTParakeetRNNTAdapter,
+)
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.stages.audio.inference.parakeet import (
     PARAKEET_TDT_0_6B_V3_LANGS,
@@ -68,6 +72,32 @@ def test_stage_builds_nemo_adapter_with_model_options() -> None:
     assert stage.supported_language_codes == ["hi", "ta"]
 
 
+def test_stage_builds_tensorrt_adapter_without_an_adapter_batch_size() -> None:
+    stage = InferenceParakeetStage(
+        model_id="/models/indic-parakeet.nemo",
+        supported_langs={"hi", "ta"},
+        backend="tensorrt",
+        tensorrt_engine_dir="/engines/indic-rnnt",
+        chunking_mode="none",
+        batch_size=12,
+    )
+
+    adapter = stage._create_adapter()
+
+    assert isinstance(adapter, TensorRTParakeetRNNTAdapter)
+    assert adapter.configured_model_id == "/models/indic-parakeet.nemo"
+    assert adapter.model_id == str(Path("/engines/indic-rnnt/model.nemo"))
+    assert adapter.engine_dir == Path("/engines/indic-rnnt")
+    assert adapter.chunking_mode == "none"
+    assert adapter.empty_audio_marks_skip is False
+    assert "batch_size" not in stage.adapter_kwargs
+    assert "inference_batch_size" not in stage.adapter_kwargs
+    assert not hasattr(adapter, "batch_size")
+    assert not hasattr(adapter, "inference_batch_size")
+    assert stage.batch_size == 12
+    assert stage.supported_language_codes == ["hi", "ta"]
+
+
 def test_language_filter_only_sends_supported_rows_to_adapter() -> None:
     stage = InferenceParakeetStage(supported_langs={"en"}, keep_waveform=True)
     adapter = MagicMock()
@@ -89,7 +119,8 @@ def test_language_filter_only_sends_supported_rows_to_adapter() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"backend": "tensorrt"}, "backend='nemo' only"),
+        ({"backend": "tensorrt"}, "tensorrt_engine_dir is required"),
+        ({"backend": "invalid"}, "Unsupported Parakeet inference backend"),
         ({"tensorrt_engine_dir": "/engine"}, "only valid with backend='tensorrt'"),
         ({"chunking_mode": "invalid"}, "Unsupported Parakeet chunking mode"),
     ],
