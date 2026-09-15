@@ -20,11 +20,13 @@ set -xeuo pipefail
 # grpc-go + x/net CVEs; 3.5.x binaries stay wire-compatible with Dynamo.
 ETCD_VERSION=3.5.32
 NATS_VERSION=2.10.28
+INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 for i in "$@"; do
     case $i in
         --ETCD_VERSION=?*) ETCD_VERSION="${i#*=}";;
         --NATS_VERSION=?*) NATS_VERSION="${i#*=}";;
+        --INSTALL_DIR=?*) INSTALL_DIR="${i#*=}";;
         *) ;;
     esac
 done
@@ -36,12 +38,15 @@ case "$ARCH" in
     *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
 esac
 
+mkdir -p "$INSTALL_DIR"
+export PATH="$INSTALL_DIR:$PATH"
+
 echo "Installing etcd ${ETCD_VERSION} (${ETCD_ARCH})..."
 curl -fsSL -o /tmp/etcd.tar.gz \
     "https://github.com/etcd-io/etcd/releases/download/v${ETCD_VERSION}/etcd-v${ETCD_VERSION}-linux-${ETCD_ARCH}.tar.gz"
 tar xzf /tmp/etcd.tar.gz -C /tmp/
-install -m 0755 /tmp/etcd-v${ETCD_VERSION}-linux-${ETCD_ARCH}/etcd /usr/local/bin/
-install -m 0755 /tmp/etcd-v${ETCD_VERSION}-linux-${ETCD_ARCH}/etcdctl /usr/local/bin/
+install -m 0755 /tmp/etcd-v${ETCD_VERSION}-linux-${ETCD_ARCH}/etcd "$INSTALL_DIR/"
+install -m 0755 /tmp/etcd-v${ETCD_VERSION}-linux-${ETCD_ARCH}/etcdctl "$INSTALL_DIR/"
 rm -rf /tmp/etcd*
 
 etcd --version
@@ -50,7 +55,7 @@ echo "Installing nats-server ${NATS_VERSION} (${NATS_ARCH})..."
 curl -fsSL -o /tmp/nats.tar.gz \
     "https://github.com/nats-io/nats-server/releases/download/v${NATS_VERSION}/nats-server-v${NATS_VERSION}-linux-${NATS_ARCH}.tar.gz"
 tar xzf /tmp/nats.tar.gz -C /tmp/
-install -m 0755 /tmp/nats-server-v${NATS_VERSION}-linux-${NATS_ARCH}/nats-server /usr/local/bin/
+install -m 0755 /tmp/nats-server-v${NATS_VERSION}-linux-${NATS_ARCH}/nats-server "$INSTALL_DIR/"
 rm -rf /tmp/nats*
 
 nats-server --version
