@@ -45,6 +45,8 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
     backend: NemotronParseServerBackend = "dynamo",
     num_replicas: int = 1,
     engine_kwargs: dict[str, Any] | None = None,
+    runtime_env: dict[str, Any] | None = None,
+    dynamo_router_mode: Literal["round_robin", "least-loaded"] | None = None,
     request_timeout_s: float = 300.0,
     health_check_timeout_s: int = 900,
 ) -> InferenceServer:
@@ -52,6 +54,11 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
 
     The returned server is not started. Use it as a context manager or call
     :meth:`InferenceServer.start` and :meth:`InferenceServer.stop` explicitly.
+
+    ``runtime_env`` customizes the model actor. With ``py_executable``, the
+    supplied environment must already contain Dynamo/vLLM and the PDF model's
+    dependencies, including albumentations; no default packages are installed.
+    ``dynamo_router_mode`` selects frontend routing independently of the engine.
     """
     if num_replicas < 1:
         msg = f"num_replicas must be at least 1, got {num_replicas}"
@@ -59,13 +66,21 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
     if request_timeout_s < 1:
         msg = f"request_timeout_s must be at least 1, got {request_timeout_s}"
         raise ValueError(msg)
+    if dynamo_router_mode is not None and backend != "dynamo":
+        msg = "dynamo_router_mode requires backend='dynamo'"
+        raise ValueError(msg)
 
     resolved_engine_kwargs = {**_DEFAULT_ENGINE_KWARGS, **(engine_kwargs or {})}
     model_kwargs = {
         "model_identifier": model_path,
         "model_name": model_name,
         "engine_kwargs": resolved_engine_kwargs,
-        "runtime_env": {"uv": {"packages": ["albumentations==2.0.8"]}},
+        "runtime_env": DynamoVLLMModelConfig.merge_runtime_envs(
+            {}
+            if runtime_env and runtime_env.get("py_executable")
+            else {"uv": {"packages": ["albumentations==2.0.8"]}},
+            runtime_env,
+        ),
     }
 
     if backend == "dynamo":
@@ -76,7 +91,7 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
         )
         server_config = DynamoServerConfig(
             request_plane="tcp",
-            router=DynamoRouterConfig(router_kwargs={"trust_remote_code": True}),
+            router=DynamoRouterConfig(mode=dynamo_router_mode, router_kwargs={"trust_remote_code": True}),
             subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": str(int(request_timeout_s))},
         )
         return InferenceServer(
