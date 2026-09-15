@@ -20,9 +20,10 @@ from nemo_curator.stages.audio.model_input_segmentation import (
 )
 
 
-def test_resolve_max_model_input_duration_rejects_non_positive_values() -> None:
-    with pytest.raises(ValueError, match="max_inference_duration_s must be > 0"):
-        resolve_max_model_input_duration(max_duration_s=0, owner="test")
+@pytest.mark.parametrize("max_duration_s", [0, -1, float("nan"), float("inf")])
+def test_resolve_max_model_input_duration_rejects_invalid_values(max_duration_s: float) -> None:
+    with pytest.raises(ValueError, match="max_inference_duration_s must be finite and > 0"):
+        resolve_max_model_input_duration(max_duration_s=max_duration_s, owner="test")
 
 
 def test_plan_audio_segments_rejects_invalid_sample_rate() -> None:

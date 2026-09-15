@@ -113,6 +113,9 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
             ASRStage(
                 adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
                 model_id=model_name,
+                max_audio_sec_per_actor=240.0,
+                max_inference_duration_s=120.0,
+                local_bucketing=True,
                 audio_filepath_key="audio_filepath",
                 batch_size=16,
                 fail_on_audio_error=True,

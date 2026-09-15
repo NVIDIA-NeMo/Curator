@@ -20,6 +20,7 @@ separate packing step that consumes these bounded units.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -40,8 +41,8 @@ def resolve_max_model_input_duration(
     """Validate and normalize the model-input duration ceiling."""
 
     maximum = float(max_duration_s)
-    if maximum <= 0:
-        msg = f"{owner}.max_inference_duration_s must be > 0 s, got {max_duration_s}"
+    if not math.isfinite(maximum) or maximum <= 0:
+        msg = f"{owner}.max_inference_duration_s must be finite and > 0 s, got {max_duration_s}"
         raise ValueError(msg)
     return maximum
 

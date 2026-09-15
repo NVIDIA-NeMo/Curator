@@ -23,7 +23,6 @@ from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
@@ -466,6 +465,9 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         "ur",
     ]
     assert stage.batch_size == 32
+    assert stage.max_audio_sec_per_actor == 2400.0
+    assert stage.max_inference_duration_s == 2400.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 2
     assert dict(stage.adapter_kwargs) == {
         "revision": "abc123",
@@ -567,6 +569,9 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
         "ro",
     ]
     assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 240.0
+    assert stage.max_inference_duration_s == 120.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
         "revision": "abc123",
@@ -611,6 +616,9 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     assert stage.target_sample_rate == 16000
     assert stage.pred_text_key == "custom_prediction"
     assert stage.batch_size == 16
+    assert stage.max_audio_sec_per_actor == 240.0
+    assert stage.max_inference_duration_s == 120.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
         "num_workers": 0,
@@ -622,28 +630,24 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     assert executor.config == {}
 
 
-def test_nemo_fastconformer_tutorial_accepts_local_batch_policy_config() -> None:
+def test_nemo_fastconformer_tutorial_accepts_local_bucketing_config() -> None:
     config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
         cfg = compose(
             config_name="pipeline",
             overrides=[
                 "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
-                "+stages.2.adapter_batch_size=4",
-                "+stages.2.max_inference_duration_s=120.0",
-                "+stages.2.batch_policy._target_=nemo_curator.stages.audio.inference.batch_policy.BatchPolicy",
-                "+stages.2.batch_policy.buckets_sec=[0,30,60]",
-                "+stages.2.batch_policy.max_audio_sec_per_batch=120",
+                "max_audio_sec_per_actor=360.0",
+                "max_inference_duration_s=90.0",
+                "local_bucketing=false",
             ],
         )
 
     _, _, stage, _ = create_pipeline_from_yaml(cfg, log_config=False).stages
 
-    assert stage.adapter_batch_size == 4
-    assert stage.max_inference_duration_s == 120.0
-    assert isinstance(stage.batch_policy, BatchPolicy)
-    assert stage.batch_policy.buckets_sec == [0, 30, 60]
-    assert stage.batch_policy.max_audio_sec_per_batch == 120
+    assert stage.max_audio_sec_per_actor == 360.0
+    assert stage.max_inference_duration_s == 90.0
+    assert stage.local_bucketing is False
 
 
 def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
