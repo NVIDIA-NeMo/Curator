@@ -657,7 +657,7 @@ so replace an older staging before changing its part count.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (~40k files / ~57h), preserving the 48 kHz full-band workload; EOS calibration pending |
+| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---
 
