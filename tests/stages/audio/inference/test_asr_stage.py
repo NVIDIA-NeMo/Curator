@@ -25,7 +25,6 @@ from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
-from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -39,8 +38,8 @@ def _make_stage(  # noqa: PLR0913
     *,
     default_language: str | None = None,
     batch_size: int = 32,
-    adapter_batch_size: int | None = None,
-    batch_policy: BatchPolicy | None = None,
+    max_audio_sec_per_actor: float = 2400.0,
+    local_bucketing: bool = False,
     target_sample_rate: int = _SR,
     max_inference_duration_s: float = 2400.0,
     supported_language_codes: list[str] | None = None,
@@ -57,8 +56,8 @@ def _make_stage(  # noqa: PLR0913
         pred_text_key="pred_text",
         default_language=default_language,
         batch_size=batch_size,
-        adapter_batch_size=adapter_batch_size,
-        batch_policy=batch_policy,
+        max_audio_sec_per_actor=max_audio_sec_per_actor,
+        local_bucketing=local_bucketing,
         target_sample_rate=target_sample_rate,
         max_inference_duration_s=max_inference_duration_s,
         supported_language_codes=supported_language_codes,
@@ -138,7 +137,11 @@ def test_basic_inference() -> None:
 
 
 def test_adapter_not_initialized_raises() -> None:
-    stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+    )
     with pytest.raises(RuntimeError, match="setup"):
         stage.process_batch([_make_task()])
 
@@ -155,21 +158,23 @@ def test_multi_task_batch_preserves_order() -> None:
     assert results[1].data["pred_text"] == "text2"
 
 
-def test_local_batch_policy_controls_adapter_calls_and_restores_task_order() -> None:
-    policy = BatchPolicy(
-        buckets_sec=[0, 10, 30],
-        max_audio_sec_per_batch=None,
+def test_local_bucketing_groups_all_rows_and_restores_task_order() -> None:
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        max_audio_sec_per_actor=50.0,
+        max_inference_duration_s=50.0,
+        local_bucketing=True,
     )
-    stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
     tasks = [
         _make_waveform_task(waveform=np.zeros(5 * _SR, dtype=np.float32)),
         _make_waveform_task(waveform=np.zeros(40 * _SR, dtype=np.float32)),
         _make_waveform_task(waveform=np.zeros(15 * _SR, dtype=np.float32)),
     ]
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="long")],
-        [ASRResult(text="medium")],
-        [ASRResult(text="short")],
+    for index, task in enumerate(tasks):
+        task.task_id = f"task-{index}"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
     ]
 
     results = stage.process_batch(tasks)
@@ -177,34 +182,30 @@ def test_local_batch_policy_controls_adapter_calls_and_restores_task_order() -> 
     durations_by_call = [
         [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
     ]
-    assert durations_by_call == [[40.0], [15.0], [5.0]]
-    assert [task.data["pred_text"] for task in results] == ["short", "long", "medium"]
+    assert durations_by_call == [[5.0, 15.0], [40.0]]
+    assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
 
 
 @pytest.mark.parametrize(
-    ("adapter_batch_size", "max_audio_sec_per_batch", "durations", "expected_call_durations"),
+    ("local_bucketing", "expected_call_durations"),
     [
-        (2, None, [1.0, 1.0, 1.0], [[1.0, 1.0], [1.0]]),
-        (None, 3.0, [1.0, 2.0, 2.0], [[1.0, 2.0], [2.0]]),
+        (False, [[1.0, 4.0], [1.0]]),
+        (True, [[1.0, 1.0], [4.0]]),
     ],
-    ids=["adapter-cap", "total-audio-seconds-cap"],
+    ids=["input-order", "duration-order"],
 )
-def test_local_batch_policy_respects_adapter_and_audio_caps(
-    adapter_batch_size: int | None,
-    max_audio_sec_per_batch: float | None,
-    durations: list[float],
+def test_actor_audio_budget_is_enforced_with_bucketing_on_or_off(
+    local_bucketing: bool,
     expected_call_durations: list[list[float]],
 ) -> None:
-    policy = BatchPolicy(
-        buckets_sec=[0],
-        max_audio_sec_per_batch=max_audio_sec_per_batch,
-    )
     stage = _make_stage(
         waveform_key="waveform",
         keep_waveform=True,
-        adapter_batch_size=adapter_batch_size,
-        batch_policy=policy,
+        max_audio_sec_per_actor=8.0,
+        max_inference_duration_s=8.0,
+        local_bucketing=local_bucketing,
     )
+    durations = [1.0, 4.0, 1.0]
     tasks = [_make_waveform_task(waveform=np.zeros(int(duration * _SR), dtype=np.float32)) for duration in durations]
     for index, task in enumerate(tasks):
         task.task_id = f"task-{index}"
@@ -219,14 +220,88 @@ def test_local_batch_policy_respects_adapter_and_audio_caps(
     ]
     assert call_durations == expected_call_durations
     assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
+    assert all(len(call) * max(call) <= 8.0 for call in call_durations)
 
 
-def test_local_batch_policy_is_scoped_to_each_process_batch_call() -> None:
-    policy = BatchPolicy(
-        buckets_sec=[0],
-        max_audio_sec_per_batch=None,
+def test_local_bucketing_minimizes_padded_seconds_after_call_count() -> None:
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        max_audio_sec_per_actor=4.0,
+        max_inference_duration_s=4.0,
+        local_bucketing=True,
     )
-    stage = _make_stage(waveform_key="waveform", keep_waveform=True, batch_policy=policy)
+    durations = [1.0, 2.0, 2.0]
+    tasks = [_make_waveform_task(waveform=np.zeros(int(duration * _SR), dtype=np.float32)) for duration in durations]
+    for index, task in enumerate(tasks):
+        task.task_id = f"task-{index}"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    results = stage.process_batch(tasks)
+
+    durations_by_call = [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert durations_by_call == [[1.0], [2.0, 2.0]]
+    assert sum(len(call) * max(call) for call in durations_by_call) == 5.0
+    assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
+
+
+def test_local_bucketing_breaks_exact_score_ties_with_longest_earlier_call() -> None:
+    stage = _make_stage(
+        max_audio_sec_per_actor=2.0,
+        max_inference_duration_s=2.0,
+        local_bucketing=True,
+    )
+    items = [
+        {"audio_seconds": 1.0, "name": "a"},
+        {"audio_seconds": 1.0, "name": "b"},
+        {"audio_seconds": 1.0, "name": "c"},
+    ]
+
+    plan = stage._plan_adapter_batches(items)
+
+    assert [indices for indices, _items in plan] == [[0, 1], [2]]
+    assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b"], ["c"]]
+
+
+@pytest.mark.parametrize("local_bucketing", [False, True])
+def test_actor_budget_accepts_decimal_roundoff_at_exact_boundary(local_bucketing: bool) -> None:
+    stage = _make_stage(
+        max_audio_sec_per_actor=0.3,
+        max_inference_duration_s=0.3,
+        local_bucketing=local_bucketing,
+    )
+    items = [{"audio_seconds": 0.1, "name": name} for name in ["a", "b", "c"]]
+
+    plan = stage._plan_adapter_batches(items)
+
+    assert [indices for indices, _items in plan] == [[0, 1, 2]]
+    assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b", "c"]]
+
+
+def test_local_bucketing_treats_roundoff_equal_scores_as_ties() -> None:
+    stage = _make_stage(
+        max_audio_sec_per_actor=4.2,
+        max_inference_duration_s=4.2,
+        local_bucketing=True,
+    )
+    items = [
+        {"audio_seconds": 0.1, "name": "a"},
+        {"audio_seconds": 1.1, "name": "b"},
+        {"audio_seconds": 2.1, "name": "c"},
+    ]
+
+    plan = stage._plan_adapter_batches(items)
+
+    assert [indices for indices, _items in plan] == [[0, 1], [2]]
+    assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b"], ["c"]]
+
+
+def test_local_bucketing_is_scoped_to_each_process_batch_call() -> None:
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True, local_bucketing=True)
     first = _make_waveform_task()
     second = _make_waveform_task()
     first.task_id = "first-window"
@@ -246,32 +321,37 @@ def test_local_batch_policy_is_scoped_to_each_process_batch_call() -> None:
     assert second_result[0].data["pred_text"] == "second-window"
 
 
-def test_adapter_batch_size_caps_policy_off_adapter_calls() -> None:
+def test_batch_size_does_not_cap_adapter_calls() -> None:
     stage = _make_stage(
         waveform_key="waveform",
         keep_waveform=True,
-        batch_size=8,
-        adapter_batch_size=2,
+        batch_size=2,
+        max_audio_sec_per_actor=3.0,
+        max_inference_duration_s=3.0,
     )
     tasks = [_make_waveform_task() for _ in range(3)]
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="a"), ASRResult(text="b")],
-        [ASRResult(text="c")],
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="a"),
+        ASRResult(text="b"),
+        ASRResult(text="c"),
     ]
 
     results = stage.process_batch(tasks)
 
-    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [2, 1]
+    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [3]
     assert [task.data["pred_text"] for task in results] == ["a", "b", "c"]
 
 
-def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order() -> None:
+@pytest.mark.parametrize("local_bucketing", [False, True])
+def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order(local_bucketing: bool) -> None:
     sample_rate = 10
     stage = _make_stage(
         waveform_key="waveform",
         keep_waveform=True,
         target_sample_rate=sample_rate,
+        max_audio_sec_per_actor=9.0,
         max_inference_duration_s=3.0,
+        local_bucketing=local_bucketing,
     )
     long_waveform = np.arange(5 * sample_rate, dtype=np.float32)
     short_waveform = np.arange(2 * sample_rate, dtype=np.float32) + 100
@@ -279,21 +359,32 @@ def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order() -
         _make_waveform_task(waveform=long_waveform, sample_rate=sample_rate),
         _make_waveform_task(waveform=short_waveform, sample_rate=sample_rate),
     ]
-    stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="first"),
-        ASRResult(text="tail"),
-        ASRResult(text="second"),
-    ]
+
+    def transcribe(items: list[dict[str, object]]) -> list[ASRResult]:
+        results: list[ASRResult] = []
+        for item in items:
+            item_waveform = np.asarray(item["waveform"])
+            if item_waveform[0] == 0:
+                text = "first"
+            elif item_waveform[0] == 30:
+                text = "tail"
+            else:
+                text = "second"
+            results.append(ASRResult(text=text))
+        return results
+
+    stage._adapter.transcribe_batch.side_effect = transcribe
 
     results = stage.process_batch(tasks)
 
-    inferred = stage._adapter.transcribe_batch.call_args.args[0]
-    assert [item["audio_seconds"] for item in inferred] == [3.0, 2.0, 2.0]
-    np.testing.assert_array_equal(inferred[0]["waveform"], long_waveform[: 3 * sample_rate])
-    np.testing.assert_array_equal(inferred[1]["waveform"], long_waveform[3 * sample_rate :])
-    np.testing.assert_array_equal(inferred[2]["waveform"], short_waveform)
+    inferred = [item for call in stage._adapter.transcribe_batch.call_args_list for item in call.args[0]]
+    assert sorted(item["audio_seconds"] for item in inferred) == [2.0, 2.0, 3.0]
+    inferred_by_start = {float(item["waveform"][0]): item for item in inferred}
+    np.testing.assert_array_equal(inferred_by_start[0.0]["waveform"], long_waveform[: 3 * sample_rate])
+    np.testing.assert_array_equal(inferred_by_start[30.0]["waveform"], long_waveform[3 * sample_rate :])
+    np.testing.assert_array_equal(inferred_by_start[100.0]["waveform"], short_waveform)
     np.testing.assert_array_equal(
-        np.concatenate([inferred[0]["waveform"], inferred[1]["waveform"]]),
+        np.concatenate([inferred_by_start[0.0]["waveform"], inferred_by_start[30.0]["waveform"]]),
         long_waveform,
     )
     assert all(item["waveform"].dtype == np.float32 for item in inferred)
@@ -301,41 +392,45 @@ def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order() -
     assert [task.data["pred_text"] for task in results] == ["first tail", "second"]
 
 
-def test_segmented_parent_obeys_adapter_batch_size_before_stitching() -> None:
+def test_segmented_parent_obeys_actor_audio_budget_before_stitching() -> None:
     sample_rate = 10
     waveform = np.arange(10 * sample_rate, dtype=np.float32)
     stage = _make_stage(
         waveform_key="waveform",
         keep_waveform=True,
-        adapter_batch_size=2,
         target_sample_rate=sample_rate,
+        max_audio_sec_per_actor=6.0,
         max_inference_duration_s=3.0,
+        local_bucketing=True,
     )
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="chunk-0"), ASRResult(text="chunk-1")],
-        [ASRResult(text="chunk-2"), ASRResult(text="chunk-3")],
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=f"chunk-{int(np.asarray(item['waveform'])[0]) // 30}") for item in items
     ]
 
     result = stage.process_batch([_make_waveform_task(waveform=waveform, sample_rate=sample_rate)])[0]
 
     assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [2, 2]
     inferred = [item for call in stage._adapter.transcribe_batch.call_args_list for item in call.args[0]]
-    np.testing.assert_array_equal(np.concatenate([item["waveform"] for item in inferred]), waveform)
+    assert [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ] == [
+        [1.0, 3.0],
+        [3.0, 3.0],
+    ]
+    ordered = sorted(inferred, key=lambda item: float(item["waveform"][0]))
+    np.testing.assert_array_equal(np.concatenate([item["waveform"] for item in ordered]), waveform)
     assert result.data["pred_text"] == "chunk-0 chunk-1 chunk-2 chunk-3"
 
 
 def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
     sample_rate = 10
-    policy = BatchPolicy(
-        buckets_sec=[0, 10, 120],
-        max_audio_sec_per_batch=240.0,
-    )
     stage = _make_stage(
         waveform_key="waveform",
         keep_waveform=True,
         target_sample_rate=sample_rate,
+        max_audio_sec_per_actor=240.0,
         max_inference_duration_s=120.0,
-        batch_policy=policy,
+        local_bucketing=True,
     )
     tasks = [
         _make_waveform_task(waveform=np.zeros(250 * sample_rate, dtype=np.float32), sample_rate=sample_rate),
@@ -343,9 +438,8 @@ def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
         _make_waveform_task(waveform=np.zeros(sample_rate, dtype=np.float32), sample_rate=sample_rate),
     ]
     stage._adapter.transcribe_batch.side_effect = [
+        [ASRResult(text="tiny"), ASRResult(text="tail"), ASRResult(text="ten")],
         [ASRResult(text="long-0"), ASRResult(text="long-1")],
-        [ASRResult(text="tail"), ASRResult(text="ten")],
-        [ASRResult(text="tiny")],
     ]
 
     results = stage.process_batch(tasks)
@@ -353,7 +447,7 @@ def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
     durations_by_call = [
         [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
     ]
-    assert durations_by_call == [[120.0, 120.0], [10.0, 10.0], [1.0]]
+    assert durations_by_call == [[1.0, 10.0, 10.0], [120.0, 120.0]]
     assert [task.data["pred_text"] for task in results] == ["long-0 long-1 tail", "ten", "tiny"]
 
 
@@ -561,6 +655,7 @@ def test_inputs_and_exact_output_contract() -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         pred_text_key="custom_prediction",
     )
     _required, required_inputs = stage.inputs()
@@ -610,6 +705,7 @@ def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
         sample_rate_key="sampling_rate",
     )
@@ -708,21 +804,24 @@ def test_invalid_target_sample_rate_is_rejected() -> None:
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             target_sample_rate=0,
         )
 
 
 @pytest.mark.parametrize(
-    ("adapter_batch_size", "expected_exception", "match"),
+    ("max_audio_sec_per_actor", "expected_exception", "match"),
     [
-        (0, ValueError, "adapter_batch_size must be > 0"),
-        (-1, ValueError, "adapter_batch_size must be > 0"),
-        (1.5, TypeError, "adapter_batch_size must be an int or None"),
-        (True, TypeError, "adapter_batch_size must be an int or None"),
+        (0, ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        (-1, ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        (float("inf"), ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        (float("nan"), ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        ("2400", TypeError, "max_audio_sec_per_actor must be numeric"),
+        (True, TypeError, "max_audio_sec_per_actor must be numeric"),
     ],
 )
-def test_invalid_adapter_batch_size_is_rejected(
-    adapter_batch_size: object,
+def test_invalid_max_audio_sec_per_actor_is_rejected(
+    max_audio_sec_per_actor: object,
     expected_exception: type[Exception],
     match: str,
 ) -> None:
@@ -730,15 +829,36 @@ def test_invalid_adapter_batch_size_is_rejected(
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
-            adapter_batch_size=adapter_batch_size,  # type: ignore[arg-type]
+            max_audio_sec_per_actor=max_audio_sec_per_actor,  # type: ignore[arg-type]
+        )
+
+
+def test_invalid_local_bucketing_is_rejected() -> None:
+    with pytest.raises(TypeError, match="local_bucketing must be a bool"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            local_bucketing=1,  # type: ignore[arg-type]
+        )
+
+
+def test_actor_budget_must_fit_one_model_safe_segment() -> None:
+    with pytest.raises(ValueError, match="max_inference_duration_s must be <= max_audio_sec_per_actor"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=10.0,
+            max_inference_duration_s=11.0,
         )
 
 
 def test_invalid_max_inference_duration_is_rejected() -> None:
-    with pytest.raises(ValueError, match="max_inference_duration_s must be > 0"):
+    with pytest.raises(ValueError, match="max_inference_duration_s must be finite and > 0"):
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             max_inference_duration_s=0,
         )
 
@@ -759,6 +879,7 @@ def test_empty_prediction_key_is_rejected() -> None:
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             pred_text_key="",
         )
 
@@ -768,6 +889,7 @@ def test_empty_extras_key_is_rejected() -> None:
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             extras_key=" ",
         )
 
@@ -778,6 +900,7 @@ def test_extras_key_cannot_collide_with_another_output(extras_key: str) -> None:
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             extras_key=extras_key,
         )
 
@@ -788,6 +911,7 @@ def test_control_columns_cannot_be_used_as_prediction_key(pred_text_key: str) ->
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             pred_text_key=pred_text_key,
         )
 
@@ -812,6 +936,7 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         adapter_kwargs={"revision": "abc123"},
     )
     stage.setup_on_node()
@@ -834,7 +959,11 @@ def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock
     side_effect=RuntimeError("missing auth"),
 )
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
-    stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+    )
     with pytest.raises(RuntimeError, match="download_weights_on_node failed"):
         stage.setup_on_node()
     mock_download.assert_called_once_with("mock/model")
@@ -848,6 +977,7 @@ def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> Non
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         prefetch_fail_on_error=False,
     )
     stage.setup_on_node()
@@ -856,12 +986,17 @@ def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> Non
 
 def test_adapter_target_required() -> None:
     with pytest.raises(TypeError):
-        ASRStage(model_id="mock/model")
+        ASRStage(model_id="mock/model", max_audio_sec_per_actor=2400.0)
 
 
 def test_model_id_required() -> None:
     with pytest.raises(TypeError):
-        ASRStage(adapter_target=_QWEN_ADAPTER_TARGET)
+        ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, max_audio_sec_per_actor=2400.0)
+
+
+def test_max_audio_sec_per_actor_required() -> None:
+    with pytest.raises(TypeError):
+        ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
 
 
 def test_stage_rejects_model_specific_revision_field() -> None:
@@ -869,6 +1004,7 @@ def test_stage_rejects_model_specific_revision_field() -> None:
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
             revision="abc123",  # type: ignore[call-arg]
         )
 
@@ -879,6 +1015,7 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         adapter_kwargs={
             "revision": "abc123",
             "vllm_kwargs": {
@@ -918,6 +1055,7 @@ def test_setup_derives_adapter_gpu_count_from_stage_resources(
     stage = ASRStage(
         adapter_target="tests.fake.Adapter",
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         resources=Resources(gpus=requested_gpus),
     )
     fake_adapter = MagicMock()
@@ -933,6 +1071,7 @@ def test_setup_rejects_invalid_stage_gpu_resource(requested_gpus: float) -> None
     stage = ASRStage(
         adapter_target="tests.fake.Adapter",
         model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
         resources=Resources(gpus=requested_gpus),
     )
     fake_adapter = MagicMock()
@@ -947,7 +1086,11 @@ def test_setup_rejects_invalid_stage_gpu_resource(requested_gpus: float) -> None
 
 
 def test_setup_failure_cleans_partial_adapter_and_allows_retry() -> None:
-    stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+    )
     failed_adapter = MagicMock()
     failed_adapter.load_model.side_effect = RuntimeError("engine init failed")
     working_adapter = MagicMock()
