@@ -43,6 +43,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from tokenizers import Tokenizer, models, pre_tokenizers
 
 from nemo_curator.stages.audio.alm.pretrain import (
@@ -110,6 +112,53 @@ _EXPECTED_STAGE_TYPES = (
     SnippetManifestWriterStage,
     PretrainMetricsAggregatorStage,
 )
+
+
+def test_standard_pretrain_chain_validates_with_sink_reads(tmp_path: Path) -> None:
+    pipeline = build_audio_pretrain_pipeline(
+        input_manifest=str(tmp_path / "input.jsonl"),
+        audio_dir=str(tmp_path / "audio"),
+        output_dir=str(tmp_path / "snippets"),
+        output_manifest_path=str(tmp_path / "snippets.jsonl"),
+        output_audio_tar_path=str(tmp_path / "snippets.tar"),
+        metrics_path=str(tmp_path / "metrics.json"),
+        max_duration_sec=30.0,
+        tokenizer_path=str(tmp_path),
+    )
+    report = validate_pipeline(
+        pipeline.stages,
+        initial_roles=set(),
+        initial_keys=set(),
+        initial_task_type="EmptyTask",
+    )
+    assert report.ok, report.summary()
+    assert report.keys_ok, report.summary()
+
+
+def test_delta_contract_region_does_not_trust_shared_corpus_outputs(tmp_path: Path) -> None:
+    extraction = SnippetExtractionStage(
+        output_dir=str(tmp_path / "snippets"),
+        output_audio_tar_path=str(tmp_path / "snippets.tar"),
+    )
+    dry_extraction = SnippetExtractionStage(
+        output_dir=str(tmp_path / "dry"),
+        output_audio_tar_path=str(tmp_path / "dry.tar"),
+        dry_run=True,
+    )
+    writer = SnippetManifestWriterStage(output_path=str(tmp_path / "snippets.jsonl"))
+    aggregator = PretrainMetricsAggregatorStage(output_path=str(tmp_path / "metrics.json"))
+
+    # This ALM source has no include_files narrowing surface, so the
+    # focused region signal is the configured/static independence gate
+    # consumed by delta planning. Shared tar/manifest/summary outputs
+    # must not be accepted as row-independent suffixes.
+    assert build_contract(extraction).gates.per_row_independent is False
+    assert build_contract(writer).gates.per_row_independent is False
+    assert build_contract(aggregator).gates.per_row_independent is False
+    assert static_contract(SnippetExtractionStage).gates.per_row_independent is False
+    assert static_contract(SnippetManifestWriterStage).gates.per_row_independent is False
+    assert static_contract(PretrainMetricsAggregatorStage).gates.per_row_independent is False
+    assert build_contract(dry_extraction).gates.per_row_independent is True
 
 
 def _run_pipeline_inline(  # noqa: PLR0913

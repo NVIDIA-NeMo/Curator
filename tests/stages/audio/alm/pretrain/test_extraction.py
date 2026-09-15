@@ -35,9 +35,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.alm.pretrain import SnippetExtractionStage
 from nemo_curator.stages.audio.alm.pretrain.utils import _PLAN_DATA_KEY
+from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -196,6 +200,32 @@ class TestSnippetExtractionStageReal:
         with tarfile.open(str(shards[0]), "r") as t:
             assert t.getnames() == []
 
+    def test_unreadable_source_emits_usable_id_stub(self, tmp_path: Path) -> None:
+        source = tmp_path / "not-audio.wav"
+        source.write_text("not audio", encoding="utf-8")
+        plan = [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
+        task = AudioTask(dataset_name="ds", data={"audio_filepath": str(source), _PLAN_DATA_KEY: plan})
+        stage, _tar = self._make_stage(tmp_path, output_format="wav")
+        out = stage.process(task)
+        stage.teardown()
+        assert out[0].data["snippet_id"] is None
+        assert out[0].data["id"] == str(task.task_id)
+
+    def test_all_failed_writes_emit_usable_id_stub(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        src = tmp_path / "src.wav"
+        _make_wav(src, duration_sec=2.0, sample_rate=16000)
+        plan = [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
+        task = AudioTask(
+            dataset_name="ds",
+            data={"audio_filepath": str(src), _PLAN_DATA_KEY: plan},
+        )
+        stage, _tar = self._make_stage(tmp_path, output_format="wav")
+        monkeypatch.setattr(stage, "_extract_one_snippet", lambda *_args: None)
+        out = stage.process(task)
+        stage.teardown()
+        assert out[0].data["snippet_id"] is None
+        assert out[0].data["id"] == str(task.task_id)
+
     def test_dry_run_writes_no_tar(self, tmp_path: Path) -> None:
         plan = [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
         stage = SnippetExtractionStage(
@@ -277,6 +307,35 @@ class TestSnippetExtractionStageDryRun:
         out = stage.process(task)
         assert len(out) == 1
         assert out[0].data["snippet_id"] is None
+        assert out[0].data["id"] == "X"
+
+    def test_missing_input_id_uses_task_id_in_normal_output(self, tmp_path: Path) -> None:
+        snippet = {"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}
+        task = AudioTask(
+            dataset_name="ds",
+            data={"audio_filepath": "/missing/source.wav", _PLAN_DATA_KEY: [snippet]},
+        )
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            dry_run=True,
+        )
+        out = stage.process(task)
+        assert out[0].data["id"] == str(task.task_id)
+        assert out[0].data["snippet_id"].startswith(f"{task.task_id}-")
+
+    def test_dry_run_setup_has_no_directory_side_effects(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "nested" / "snips"
+        tar_path = tmp_path / "other" / "snips.tar"
+        stage = SnippetExtractionStage(
+            output_dir=str(output_dir),
+            output_audio_tar_path=str(tar_path),
+            dry_run=True,
+        )
+        stage.setup_on_node()
+        stage.setup()
+        assert not output_dir.exists()
+        assert not tar_path.parent.exists()
 
     def test_invalid_output_format_rejected(self, tmp_path: Path) -> None:
         tar_path = str(tmp_path / "snips.tar")
@@ -284,3 +343,143 @@ class TestSnippetExtractionStageDryRun:
             SnippetExtractionStage(output_dir=str(tmp_path), output_audio_tar_path=tar_path, output_format="m4a")
         with pytest.raises(ValueError, match="target_sample_rate"):
             SnippetExtractionStage(output_dir=str(tmp_path), output_audio_tar_path=tar_path, target_sample_rate=0)
+
+
+class TestSnippetExtractionStageAgentContract:
+    @staticmethod
+    def _plan() -> list[dict]:
+        return [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
+
+    def test_contract_omits_tar_member_path_and_declares_removals(self, tmp_path: Path) -> None:
+        real = SnippetExtractionStage(
+            output_dir=str(tmp_path / "real"),
+            output_audio_tar_path=str(tmp_path / "real.tar"),
+        )
+        dry = SnippetExtractionStage(
+            output_dir=str(tmp_path / "dry"),
+            output_audio_tar_path=str(tmp_path / "dry.tar"),
+            dry_run=True,
+        )
+        real_contract = build_contract(real)
+        dry_contract = build_contract(dry)
+        expected_writes = {"id", "snippet_id", "duration", "segments"}
+        expected_removals = {"alignment", _PLAN_DATA_KEY, "audio_size", "resampled_audio_filepath"}
+
+        assert set(real.outputs()[1]) == expected_writes
+        assert set(real_contract.writes.data_keys) == expected_writes
+        assert real.audio_filepath_key not in real_contract.writes.data_keys
+        assert real_contract.writes.produces == ["disk"]
+        assert dry_contract.writes.produces == []
+        assert real_contract.preserves_upstream_keys is False
+        assert set(real_contract.removes_keys) == expected_removals
+        assert real_contract.gates.per_row_independent is False
+        assert dry_contract.gates.per_row_independent is True
+
+        static = static_contract(SnippetExtractionStage)
+        assert static.gates.writes_to_disk is True
+        assert static.gates.lifecycle_side_effects is True
+        assert static.gates.output_path_params == ["output_dir", "output_audio_tar_path"]
+        assert static.gates.requires_stable_task_id is True
+        assert static.gates.per_row_independent is False
+
+    def test_normal_and_dry_agent_ready(self, tmp_path: Path) -> None:
+        src = tmp_path / "src.wav"
+        _make_wav(src, duration_sec=2.0, sample_rate=16000)
+
+        def fixture() -> AudioTask:
+            return _task_with_plan(
+                src,
+                self._plan(),
+                extras={
+                    "alignment": "old",
+                    "audio_size": 1,
+                    "resampled_audio_filepath": "old.wav",
+                },
+            )
+
+        real = SnippetExtractionStage(
+            output_dir=str(tmp_path / "real"),
+            output_audio_tar_path=str(tmp_path / "real.tar"),
+            output_format="wav",
+        )
+        try:
+            assert_agent_ready(
+                real,
+                fixture,
+                expected_cardinality="1:N fan-out",
+                available_keys={"audio_filepath", _PLAN_DATA_KEY},
+                setup=True,
+            )
+        finally:
+            real.teardown()
+
+        assert_agent_ready(
+            SnippetExtractionStage(
+                output_dir=str(tmp_path / "dry"),
+                output_audio_tar_path=str(tmp_path / "dry.tar"),
+                dry_run=True,
+            ),
+            fixture,
+            expected_cardinality="1:N fan-out",
+            available_keys={"audio_filepath", _PLAN_DATA_KEY},
+        )
+
+    def test_stub_branches_agent_ready(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        dry = SnippetExtractionStage(
+            output_dir=str(tmp_path / "dry"),
+            output_audio_tar_path=str(tmp_path / "dry.tar"),
+            dry_run=True,
+        )
+        assert_agent_ready(
+            dry,
+            lambda: _task_with_plan(tmp_path / "missing.wav", []),
+            expected_cardinality="1:N fan-out",
+            available_keys={"audio_filepath", _PLAN_DATA_KEY},
+        )
+
+        unreadable = tmp_path / "unreadable.wav"
+        unreadable.write_text("not audio", encoding="utf-8")
+        real = SnippetExtractionStage(
+            output_dir=str(tmp_path / "real"),
+            output_audio_tar_path=str(tmp_path / "real.tar"),
+            output_format="wav",
+        )
+        assert_agent_ready(
+            real,
+            lambda: _task_with_plan(unreadable, self._plan()),
+            expected_cardinality="1:N fan-out",
+            available_keys={"audio_filepath", _PLAN_DATA_KEY},
+        )
+
+        src = tmp_path / "src.wav"
+        _make_wav(src, duration_sec=2.0, sample_rate=16000)
+        failed = SnippetExtractionStage(
+            output_dir=str(tmp_path / "failed"),
+            output_audio_tar_path=str(tmp_path / "failed.tar"),
+            output_format="wav",
+        )
+        failed.setup()
+        monkeypatch.setattr(failed, "_extract_one_snippet", lambda *_args: None)
+        try:
+            assert_agent_ready(
+                failed,
+                lambda: _task_with_plan(src, self._plan()),
+                expected_cardinality="1:N fan-out",
+                available_keys={"audio_filepath", _PLAN_DATA_KEY},
+            )
+        finally:
+            failed.teardown()
+
+    def test_normal_file_consumer_is_rejected_by_planner(self, tmp_path: Path) -> None:
+        extractor = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+        )
+        report = validate_pipeline(
+            [extractor, MonoConversionStage()],
+            initial_roles={"audio_filepath"},
+            initial_keys={"audio_filepath", _PLAN_DATA_KEY},
+            initial_task_type="AudioTask",
+        )
+        assert not report.ok
+        assert any(issue.stage_index == 1 and issue.code == "key_removed_upstream" for issue in report.issues)
