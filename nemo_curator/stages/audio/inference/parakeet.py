@@ -54,6 +54,7 @@ PARAKEET_TDT_0_6B_V3_LANGS: frozenset[str] = frozenset(
 )
 
 _ADAPTER_TARGET = "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+_TENSORRT_ADAPTER_TARGET = "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt.TensorRTParakeetRNNTAdapter"
 
 
 @dataclass
@@ -64,9 +65,7 @@ class InferenceParakeetStage(ASRStage):
     model_id: str = "nvidia/parakeet-tdt-0.6b-v3"
     name: str = "Parakeet_inference"
     supported_langs: frozenset[str] | set[str] | None = None
-    # Kept as a named compatibility option for integration-pipeline configs;
-    # this adapter-backed port deliberately supports Curator's NeMo runtime.
-    backend: Literal["nemo"] = "nemo"
+    backend: Literal["nemo", "tensorrt"] = "nemo"
     tensorrt_engine_dir: str | None = None
     chunking_mode: Literal["engine", "none"] = "engine"
     waveform_key: str = "waveform"
@@ -96,13 +95,13 @@ class InferenceParakeetStage(ASRStage):
     adapter_kwargs: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.backend != "nemo":
-            msg = (
-                "InferenceParakeetStage currently supports backend='nemo' only; "
-                "the TensorRT encoder runtime is not installed in Curator's standard audio environment"
-            )
+        if self.backend not in {"nemo", "tensorrt"}:
+            msg = f"Unsupported Parakeet inference backend: {self.backend!r}"
             raise ValueError(msg)
-        if self.tensorrt_engine_dir is not None:
+        if self.backend == "tensorrt" and not self.tensorrt_engine_dir:
+            msg = "tensorrt_engine_dir is required when backend='tensorrt'"
+            raise ValueError(msg)
+        if self.backend == "nemo" and self.tensorrt_engine_dir is not None:
             msg = "tensorrt_engine_dir is only valid with backend='tensorrt'"
             raise ValueError(msg)
         if self.chunking_mode not in {"engine", "none"}:
@@ -110,10 +109,19 @@ class InferenceParakeetStage(ASRStage):
             raise ValueError(msg)
         accepted_languages = self.supported_langs or PARAKEET_TDT_0_6B_V3_LANGS
         self.supported_language_codes = sorted(accepted_languages)
-        self.adapter_kwargs = {
-            "empty_audio_marks_skip": False,
-            "use_cuda_graph_decoder": False,
-        }
+        if self.backend == "tensorrt":
+            self.adapter_target = _TENSORRT_ADAPTER_TARGET
+            self.adapter_kwargs = {
+                "engine_dir": self.tensorrt_engine_dir,
+                "chunking_mode": self.chunking_mode,
+                "empty_audio_marks_skip": False,
+            }
+        else:
+            self.adapter_target = _ADAPTER_TARGET
+            self.adapter_kwargs = {
+                "empty_audio_marks_skip": False,
+                "use_cuda_graph_decoder": False,
+            }
         super().__post_init__()
 
     def outputs(self) -> tuple[list[str], list[str]]:

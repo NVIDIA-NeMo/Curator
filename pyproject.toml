@@ -141,6 +141,10 @@ audio_cuda12 = [
     "qwen-omni-utils>=0.0.9",
     "torchlibrosa>=0.1.0",
 ]
+audio_tensorrt = [
+    "nemo_curator[audio_cuda12]",
+    "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+]
 
 audio_tensorrt = [
     "nemo_curator[audio_cuda12]",
@@ -302,7 +306,7 @@ sdg_cuda12 = [
 
 # All dependencies
 all = [
-    "nemo_curator[audio_cuda12]",
+    "nemo_curator[audio_tensorrt]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
