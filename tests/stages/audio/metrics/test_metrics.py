@@ -14,6 +14,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import torch
@@ -103,6 +104,262 @@ class TestComputeWERStage:
         assert result.data["metrics"]["wer"]["wer"] == 0.0
         assert result.data["metrics"]["cer"]["cer"] == 0.0
         assert result.data["metrics"]["word_rate"] == 0.2
+
+    def test_default_text_keys_compute_metrics(self, audio_task: Callable[..., AudioTask]) -> None:
+        """The documented text/text_ref defaults compute metrics without overrides."""
+        stage = ComputeWERStage(language="en")
+        stage.setup()
+        task = audio_task(
+            segments=[
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "hello world",
+                    "text_ref": "hello world",
+                }
+            ]
+        )
+
+        result = stage.process(task)
+
+        assert result.data["segments"][0]["metrics"]["wer"]["wer"] == 0.0
+
+    def test_missing_text_keys_warn_once_and_continue(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Missing hypothesis/reference fields are summarized without aborting later segments."""
+        stage = ComputeWERStage(language="en")
+        stage.setup()
+        task = audio_task(
+            segments=[
+                {"start": 0.0, "end": 1.0, "text_ref": "missing hypothesis"},
+                {"start": 1.0, "end": 2.0, "text": "missing reference"},
+                {"start": 2.0, "end": 3.0, "text": "hello world", "text_ref": "hello world"},
+            ]
+        )
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning") as warning:
+            result = stage.process(task)
+
+        warning.assert_called_once()
+        warning_message = warning.call_args.args[0]
+        assert "skipped WER computation for 2 segments" in warning_message
+        assert "hypothesis_text_key='text' missing from 1 segment" in warning_message
+        assert "reference_text_key='text_ref' missing from 1 segment" in warning_message
+        segments = result.data["segments"]
+        assert segments[0]["metrics"]["metric_skip_reason"] == "missing_configured_text_key"
+        assert segments[1]["metrics"]["metric_skip_reason"] == "missing_configured_text_key"
+        assert segments[2]["metrics"]["wer"]["wer"] == 0.0
+
+    def test_get_wer_missing_key_warns(self) -> None:
+        """Direct get_wer use is observable when a configured field is absent."""
+        stage = ComputeWERStage(language="en")
+        segment = {"start": 0.0, "end": 1.0, "text": "missing reference"}
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning") as warning:
+            stage.get_wer(segment)
+
+        warning.assert_called_once()
+        warning_message = warning.call_args.args[0]
+        assert "reference_text_key='text_ref'" in warning_message
+        assert segment["metrics"]["metric_skip_reason"] == "missing_configured_text_key"
+
+    def test_process_batch_handles_top_level_missing_keys(self) -> None:
+        """Executor-facing dispatch annotates a top-level entry instead of failing validation."""
+        stage = ComputeWERStage(language="en")
+        task = AudioTask(task_id="missing-entry", data={"duration": 1.0})
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning") as warning:
+            result = stage.process_batch([task])
+
+        assert result == [task]
+        assert task.data["metrics"]["metric_skip_reason"] == "missing_configured_text_key"
+        warning.assert_called_once()
+        assert "1 entry in task 'missing-entry'" in warning.call_args.args[0]
+
+    def test_missing_key_warning_is_rate_limited_per_signature(self) -> None:
+        """Repeated missing-key signatures produce one warning on a worker stage instance."""
+        stage = ComputeWERStage(language="en")
+        first_task = AudioTask(
+            task_id="first-task",
+            data={
+                "segments": [
+                    {"text": "missing reference one"},
+                    {"text": "missing reference two"},
+                ]
+            },
+        )
+        second_task = AudioTask(
+            task_id="second-task",
+            data={"segments": [{"text": "missing reference again"}]},
+        )
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning") as warning:
+            stage.process_batch([first_task, second_task])
+
+        warning.assert_called_once()
+        warning_message = warning.call_args.args[0]
+        assert "2 segments in task 'first-task'" in warning_message
+        assert "reference_text_key='text_ref' missing from 2 segments" in warning_message
+        assert "suppressed on this worker" in warning_message
+
+    def test_distinct_missing_key_signatures_each_warn_once(self) -> None:
+        """Hypothesis-only and reference-only omissions retain separate diagnostics."""
+        stage = ComputeWERStage(language="en")
+        tasks = [
+            AudioTask(task_id="missing-reference", data={"segments": [{"text": "hypothesis"}]}),
+            AudioTask(task_id="missing-hypothesis", data={"segments": [{"text_ref": "reference"}]}),
+            AudioTask(task_id="missing-reference-again", data={"segments": [{"text": "hypothesis"}]}),
+        ]
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning") as warning:
+            stage.process_batch(tasks)
+
+        assert warning.call_count == 2
+        messages = [call.args[0] for call in warning.call_args_list]
+        assert any("reference_text_key='text_ref'" in message for message in messages)
+        assert any("hypothesis_text_key='text'" in message for message in messages)
+
+    def test_rerun_valid_then_missing_clears_stale_wer_metrics(self, audio_task: Callable[..., AudioTask]) -> None:
+        """A later missing key removes every WER-owned result from an earlier successful run."""
+        stage = ComputeWERStage(language="en", compute_pnc_wer=True)
+        stage.setup()
+        task = audio_task(
+            segments=[
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "hello world",
+                    "text_ref": "hello world",
+                    "metrics": {"bandwidth": 8000},
+                }
+            ]
+        )
+        segment = task.data["segments"][0]
+
+        stage.process(task)
+        assert "wer_pnc" in segment["metrics"]
+        del segment["text_ref"]
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning"):
+            stage.process(task)
+
+        metrics = segment["metrics"]
+        stale_keys = {"wer", "cer", "start_cer", "end_cer", "wer_pnc", "cer_pnc", "char_rate", "word_rate"}
+        assert stale_keys.isdisjoint(metrics)
+        assert metrics["metric_skip_reason"] == "missing_configured_text_key"
+        assert metrics["bandwidth"] == 8000
+
+    def test_rerun_missing_then_valid_clears_stale_skip_reason(self, audio_task: Callable[..., AudioTask]) -> None:
+        """A successful rerun removes this stage's earlier missing-key annotation."""
+        stage = ComputeWERStage(language="en")
+        stage.setup()
+        task = audio_task(segments=[{"start": 0.0, "end": 2.0, "text": "hello world"}])
+        segment = task.data["segments"][0]
+
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning"):
+            stage.process(task)
+        assert segment["metrics"]["metric_skip_reason"] == "missing_configured_text_key"
+
+        segment["text_ref"] = "hello world"
+        stage.process(task)
+
+        assert "metric_skip_reason" not in segment["metrics"]
+        assert segment["metrics"]["wer"]["wer"] == 0.0
+
+    def test_successful_wer_preserves_unrelated_skip_reason(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Computing WER must not erase a generic skip reason owned by another metric stage."""
+        stage = ComputeWERStage(language="en")
+        task = audio_task(
+            segments=[
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "hello world",
+                    "text_ref": "hello world",
+                    "metrics": {"metric_skip_reason": "bandwidth unavailable"},
+                }
+            ]
+        )
+        segment = task.data["segments"][0]
+
+        with mock.patch.object(stage, "normalize_and_clean_text", return_value=("hello world", "hello world")):
+            stage.process(task)
+
+        assert segment["metrics"]["metric_skip_reason"] == "bandwidth unavailable"
+        assert segment["metrics"]["wer"]["wer"] == 0.0
+
+    def test_failed_recomputation_clears_partial_wer_metrics(self, audio_task: Callable[..., AudioTask]) -> None:
+        """A caught computation error cannot leave partial or previous WER results beside its skip reason."""
+        stage = ComputeWERStage(language="en")
+        task = audio_task(
+            segments=[
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "hello world",
+                    "text_ref": "hello world",
+                    "metrics": {"bandwidth": 8000, "wer": {"wer": 0.5}},
+                }
+            ]
+        )
+        segment = task.data["segments"][0]
+
+        with (
+            mock.patch.object(stage, "normalize_and_clean_text", return_value=("hello world", "hello world")),
+            mock.patch(
+                "nemo_curator.stages.audio.metrics.wer.word_error_rate_detail",
+                side_effect=ValueError("invalid transcript"),
+            ),
+            mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning"),
+        ):
+            stage.process(task)
+
+        metrics = segment["metrics"]
+        stale_keys = {"wer", "cer", "start_cer", "end_cer", "wer_pnc", "cer_pnc", "char_rate", "word_rate"}
+        assert stale_keys.isdisjoint(metrics)
+        assert metrics["metric_skip_reason"] == "wer_error: invalid transcript"
+        assert metrics["bandwidth"] == 8000
+
+    def test_successful_rerun_clears_wer_error_reason(self, audio_task: Callable[..., AudioTask]) -> None:
+        """A successful rerun removes an earlier WER-owned computation error."""
+        stage = ComputeWERStage(language="en")
+        task = audio_task(
+            segments=[
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "hello world",
+                    "text_ref": "hello world",
+                    "metrics": {"bandwidth": 8000},
+                }
+            ]
+        )
+        segment = task.data["segments"][0]
+
+        with (
+            mock.patch.object(stage, "normalize_and_clean_text", return_value=("hello world", "hello world")),
+            mock.patch(
+                "nemo_curator.stages.audio.metrics.wer.word_error_rate_detail",
+                side_effect=ValueError("invalid transcript"),
+            ),
+            mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning"),
+        ):
+            stage.process(task)
+
+        assert segment["metrics"]["metric_skip_reason"] == "wer_error: invalid transcript"
+
+        with (
+            mock.patch.object(stage, "normalize_and_clean_text", return_value=("hello world", "hello world")),
+            mock.patch(
+                "nemo_curator.stages.audio.metrics.wer.word_error_rate_detail",
+                return_value=(0.0, 2, 0.0, 0.0, 0.0),
+            ),
+        ):
+            stage.process(task)
+
+        metrics = segment["metrics"]
+        assert "metric_skip_reason" not in metrics
+        assert metrics["wer"]["wer"] == 0.0
+        assert metrics["bandwidth"] == 8000
 
     def test_process_computes_wer_cer_for_segments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Segments with hypothesis and reference get WER/CER metrics."""
