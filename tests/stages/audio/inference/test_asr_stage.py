@@ -764,6 +764,7 @@ def test_faster_whisper_empty_8khz_audio_preserves_reference_output(waveform: np
     stage = ASRStage(
         adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
         model_id="large-v3",
+        max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
         sample_rate_key="sampling_rate",
         supported_language_codes=["fil"],
@@ -948,6 +949,7 @@ def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock
     stage = ASRStage(
         adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
         model_id="large-v3",
+        max_audio_sec_per_actor=2400.0,
         adapter_kwargs={"revision": "abc123"},
     )
     stage.setup_on_node()
