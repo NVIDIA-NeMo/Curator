@@ -14,7 +14,7 @@
 
 """Bandwidth estimation stage."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import librosa
@@ -22,8 +22,17 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._agent._residency import InputResidency, residency_read_specs
-from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+from nemo_curator.stages.audio._agent._residency import (
+    InputResidency,
+    residency_read_specs,
+    validate_input_residency,
+)
+from nemo_curator.stages.audio.metrics._common import (
+    metrics_mapping,
+    resident_pair_is_complete,
+    resident_pcm_to_mono_float32,
+    validate_metric_keys,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -44,10 +53,13 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         frequency_threshold: Threshold in dB below peak for bandwidth estimation. Defaults to -50.0.
         audio_filepath_key: Key for the audio file path in the manifest. Defaults to "audio_filepath".
         segments_key: Key for the segments in the manifest. Defaults to "segments".
+        duration_key: Configurable duration fallback used when "end" is absent. Defaults to "duration".
+        metrics_key: Key for the output metrics mapping. Defaults to "metrics".
         waveform_key: Key for an in-memory waveform tensor. Defaults to "waveform".
         sample_rate_key: Key for the in-memory waveform sample rate. Defaults to "sample_rate".
         input_residency: Which input to use — "file" (audio_filepath only; default, unchanged),
-            "waveform" (in-memory only), or "auto" (waveform first, file fallback).
+            "waveform" (in-memory only), or "auto" (a complete waveform/sample-rate
+            pair first, file fallback). Incomplete resident pairs are rejected.
 
     Returns:
         The same data as in the input data, but with bandwidth estimates added to each segment.
@@ -59,14 +71,36 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     frequency_threshold: float = -50.0
     audio_filepath_key: str = "audio_filepath"
     segments_key: str = "segments"
-    duration_key: str = "duration"
-    metrics_key: str = "metrics"
-    waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
-    input_residency: InputResidency = "file"
+    duration_key: str = field(default="duration", kw_only=True)
+    metrics_key: str = field(default="metrics", kw_only=True)
+    waveform_key: str = field(default="waveform", kw_only=True)
+    sample_rate_key: str = field(default="sample_rate", kw_only=True)
+    input_residency: InputResidency = field(default="file", kw_only=True)
 
     # Stage metadata
     name: str = "BandwidthEstimation"
+
+    def __post_init__(self) -> None:
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        validate_metric_keys(
+            self.name,
+            keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "segments_key": self.segments_key,
+                "duration_key": self.duration_key,
+                "metrics_key": self.metrics_key,
+                "waveform_key": self.waveform_key,
+                "sample_rate_key": self.sample_rate_key,
+            },
+            output_field="metrics_key",
+            protected_fields=(
+                "audio_filepath_key",
+                "segments_key",
+                "duration_key",
+                "waveform_key",
+                "sample_rate_key",
+            ),
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
@@ -88,7 +122,7 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             reads_one_of.append(IOSpec(data_keys=[*spec.data_keys, self.duration_key], accepts=list(spec.accepts)))
         return StageContract(
             reads_one_of=reads_one_of,
-            writes=IOSpec(data_keys=[self.metrics_key], segment_data_keys=[self.metrics_key]),
+            writes=IOSpec(),
             conditional_writes=[
                 ConditionalWrite(
                     writes=IOSpec(data_keys=[self.metrics_key]),
@@ -127,7 +161,13 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         allows it, an in-memory ``waveform_key``+``sample_rate_key``.
         """
         data = task.data
-        has_waveform = data.get(self.waveform_key) is not None and data.get(self.sample_rate_key) is not None
+        has_waveform = resident_pair_is_complete(
+            data,
+            residency=self.input_residency,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+            stage_name=self.name,
+        )
         has_file = self.audio_filepath_key in data
         if self.input_residency == "waveform":
             has_audio = has_waveform
@@ -169,7 +209,7 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         return bandwidth
 
     def get_bandwidth(self, audio_segment: dict[str, Any], audio: "np.ndarray", sample_rate: int) -> None:
-        """Get the bandwidth of an audio segment."""
+        """Get bandwidth, using ``duration_key`` when the segment has no ``end``."""
         segment_speaker = audio_segment.get("speaker")
         segment_text = audio_segment.get("text")
 
@@ -178,8 +218,9 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         ):
             return
 
+        metrics = metrics_mapping(audio_segment, metrics_key=self.metrics_key, stage_name=self.name)
         start = audio_segment.get("start", 0.0)
-        end = audio_segment.get("end", audio_segment.get("duration", 0.0))
+        end = audio_segment.get("end", audio_segment.get(self.duration_key, 0.0))
         if end is None or start >= end:
             msg = f"[{self.name}] Invalid segment time range: start={start}, end={end}"
             raise ValueError(msg)
@@ -187,10 +228,8 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         segment_audio_array = audio[int(start * sample_rate) : int(end * sample_rate)]
         bandwidth = self._estimate_bandwidth(segment_audio_array, sample_rate)
 
-        if self.metrics_key not in audio_segment:
-            audio_segment[self.metrics_key] = {}
-
-        audio_segment[self.metrics_key]["bandwidth"] = int(bandwidth)
+        metrics["bandwidth"] = int(bandwidth)
+        audio_segment[self.metrics_key] = metrics
 
     def _resolve_entry_audio(self, data_entry: dict[str, Any]) -> tuple["np.ndarray", int]:
         """Return ``(mono_1d_audio, sample_rate)`` from a waveform or the file.
@@ -199,11 +238,16 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         directly; otherwise the audio file is loaded at its native rate (default, unchanged).
         """
         if self.input_residency != "file":
-            waveform = data_entry.get(self.waveform_key)
-            sr = data_entry.get(self.sample_rate_key)
-            if waveform is not None and sr is not None:
-                audio = ensure_mono(ensure_waveform_2d(waveform)).squeeze(0)
-                return audio.detach().cpu().numpy(), int(sr)
+            has_waveform = resident_pair_is_complete(
+                data_entry,
+                residency=self.input_residency,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+                stage_name=self.name,
+            )
+            if has_waveform:
+                audio = resident_pcm_to_mono_float32(data_entry[self.waveform_key], stage_name=self.name)
+                return audio, int(data_entry[self.sample_rate_key])
             if self.input_residency == "waveform":
                 msg = (
                     f"[{self.name}] Missing '{self.waveform_key}'+'{self.sample_rate_key}' for entry: "
