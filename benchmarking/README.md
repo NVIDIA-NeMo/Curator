@@ -618,18 +618,24 @@ python benchmarking/data_prep/prepare_alm_data.py \
 python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
   --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+python benchmarking/data_prep/prepare_readspeech_data.py \
+  --output-path {datasets_path}/read_speech \
+  --num-parts 3
 ```
 
 The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
+The ReadSpeech preparation command treats an existing WAV staging as complete,
+so replace an older staging before changing its part count.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Shared 750h LibriSpeech manifest, deterministic 27,000-clip prefix: Xenna 10m54s native / 10m32s pipeline; Ray Data 47m52s / 47m28s. Both processed 27,000 inputs and produced 3,832 outputs |
+| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (~40k files / ~57h), preserving the 48 kHz full-band workload; EOS calibration pending |
 
 ---
 
