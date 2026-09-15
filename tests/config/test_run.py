@@ -737,6 +737,9 @@ def test_faster_whisper_tutorial_yaml_matches_reference_contract():
         ["custom_prediction", "_skipme", "additional_notes", "asr_extras"],
     )
     assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 2400.0
+    assert stage.max_inference_duration_s == 2400.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
         "revision": "abc123",
