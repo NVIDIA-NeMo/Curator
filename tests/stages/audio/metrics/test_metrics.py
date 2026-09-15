@@ -26,6 +26,7 @@ from nemo_curator.stages.audio._agent._agent_registry import build_contract, sta
 from nemo_curator.stages.audio._agent._catalog import find_producers
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from nemo_curator.stages.audio.common import PreserveByValueStage
 from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.metrics.wer import ComputeWERStage, GetPairwiseWerStage
@@ -1075,13 +1076,16 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
     pair_task = AudioTask(dataset_name="d", data={"text": "reference", "pred_text": None})
     pairwise.process(pair_task)
     assert "wer_pct" not in pair_task.data
+    selector = PreserveByValueStage("wer_pct", 20.0, "le")
     pair_report = validate_pipeline(
-        [pairwise, _MetricsConsumer(key="wer_pct")],
-        initial_roles={"transcript", "prediction"},
+        [pairwise, selector],
+        initial_roles={"text", "pred_text"},
         initial_keys={"text", "pred_text"},
     )
     assert not pair_report.ok
     assert any(issue.code == "unsatisfied_reads" for issue in pair_report.issues)
+    with pytest.raises(ValueError, match="failed validation"):
+        selector.process_batch([pair_task])
 
     for stage in (bandwidth, squim, ComputeWERStage(), pairwise):
         contract = build_contract(stage)
