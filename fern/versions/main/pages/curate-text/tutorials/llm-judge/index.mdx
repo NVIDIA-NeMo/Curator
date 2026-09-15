@@ -11,9 +11,9 @@ modality: "text-only"
 
 # LLM Judge Runner
 
-In this tutorial, you will use `LLMJudgeWorkflow` to compare two text extractions of the same Common Crawl document. Curator prepares each record with raw HTML, jusText output, and Trafilatura output; a locally served LLM then selects the most useful representation and scores content fidelity, boilerplate removal, and semantic disagreement.
+In this tutorial, you use `LLMJudgeWorkflow` to run a large language model (LLM) as a judge. The judge compares two text extractions of the same Common Crawl document. Curator prepares each record with raw HTML, jusText output, and Trafilatura output. A locally served LLM selects the most useful representation and scores content fidelity, boilerplate removal, and semantic disagreement.
 
-You will learn how to:
+This tutorial teaches you how to:
 
 - Prepare a small, reproducible comparison dataset with Curator.
 - Adapt the supplied Qwen judge configuration to your model and GPUs.
@@ -21,13 +21,43 @@ You will learn how to:
 - Inspect the winning extraction, rubric scores, reasoning, and traces.
 - Decide whether the rubric is ready for a larger evaluation.
 
-For the reusable workflow architecture and complete configuration contract, see [LLM Judge Workflow](/main/curate-text/process-data/quality-assessment/llm-judge).
+For the reusable workflow architecture and complete configuration contract, refer to [LLM Judge Workflow](/main/curate-text/process-data/quality-assessment/llm-judge).
 
 <Warning>
-The supplied prompts, score descriptions, model settings, and thresholds demonstrate the integration; they are not a calibrated extraction-quality benchmark. Validate them against records reviewed by a human before using the results to select or filter training data.
+The supplied prompts, score descriptions, model settings, and thresholds demonstrate the integration. They are not a calibrated extraction-quality benchmark. Validate them against human-reviewed records before using the results to select or filter training data.
 </Warning>
 
-## Files used in this tutorial
+## Before You Start
+
+Before you start the tutorial, confirm the following requirements:
+
+- A Linux checkout of the Curator repository.
+- Access to Common Crawl over HTTPS, or `s5cmd` access when using `--use-aws-to-download`.
+- One or more NVIDIA GPUs with enough aggregate memory for the selected judge model.
+- A Hugging Face-format instruction model available as local weights or a repository ID supported by the installed vLLM version.
+
+This tutorial requires both CUDA extras: `text_cuda12` for Common Crawl processing and text extraction, and `sdg_cuda12` for NeMo Data Designer and local inference serving. `text_cuda12` also supplies the optional FastText language gate, although the main tutorial command does not enable that gate. From the Curator source checkout, create or update the environment with:
+
+```bash
+uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
+source .venv/bin/activate
+```
+
+Run this command and the remaining tutorial commands from the repository root. Refer to [Install NeMo Curator](/main/get-started/installation#package-extras) for CUDA requirements and other supported installation methods.
+
+<Note>
+The language gate is optional. To enable it, download FastText's [`lid.176.bin` language-identification model](https://fasttext.cc/docs/en/language-identification.html):
+
+```bash
+mkdir -p models/fasttext
+curl -L https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin \
+  -o models/fasttext/lid.176.bin
+```
+
+Then add `--language en --fasttext-langid-model-path models/fasttext/lid.176.bin` to the judge-runner command in step 3. Omit those flags to skip the gate. The main tutorial path does not require this download.
+</Note>
+
+## Files Used in This Tutorial
 
 The example separates data preparation, workflow execution, serving configuration, and prompt text so that each part can be changed independently:
 
@@ -43,7 +73,7 @@ The example separates data preparation, workflow execution, serving configuratio
 
 The file names in this table are relative to `tutorials/eval/llm_judge`. Run all shell commands in the rest of the tutorial from the Curator repository root. The Jinja paths inside a judge YAML are instead resolved relative to that YAML file.
 
-## What the example evaluates
+## Concepts Overview: What the Example Evaluates
 
 The preparation script downloads Common Crawl WARC data and applies both extractors to every decodable record:
 
@@ -62,35 +92,7 @@ The single-model YAML runs two judges per row:
 
 The prompts keep extractor identities hidden from the model: `candidate_a` is jusText and `candidate_b` is Trafilatura. This mapping is fixed in the supplied Jinja files and YAML comments.
 
-## Prerequisites
-
-- A Linux checkout of the Curator repository.
-- Access to Common Crawl over HTTPS, or `s5cmd` access when using `--use-aws-to-download`.
-- One or more NVIDIA GPUs with enough aggregate memory for the selected judge model.
-- A Hugging Face-format instruction model available as local weights or a repository ID supported by the installed vLLM version.
-
-This tutorial requires both CUDA extras: `text_cuda12` for Common Crawl processing and text extraction, and `sdg_cuda12` for NeMo Data Designer and local inference serving. `text_cuda12` also supplies the optional FastText language gate, although the main tutorial command does not enable that gate. From the Curator source checkout, create or update the environment with:
-
-```bash
-uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
-source .venv/bin/activate
-```
-
-Run this command and the remaining tutorial commands from the repository root. See [Install NeMo Curator](/main/get-started/installation#package-extras) for CUDA requirements and other supported installation methods.
-
-<Note>
-The language gate is optional. To enable it, download FastText's [`lid.176.bin` language-identification model](https://fasttext.cc/docs/en/language-identification.html):
-
-```bash
-mkdir -p models/fasttext
-curl -L https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin \
-  -o models/fasttext/lid.176.bin
-```
-
-Then add `--language en --fasttext-langid-model-path models/fasttext/lid.176.bin` to the judge-runner command in step 3. Omit those flags to skip the gate; the main tutorial path does not require this download.
-</Note>
-
-## 1. Prepare a small comparison dataset
+## 1. Prepare a Small Comparison Dataset
 
 Download one WARC file and process at most 100 records:
 
@@ -119,7 +121,7 @@ Confirm that the record contains `raw_text`, `justext_text`, and `trafilatura_te
 The defaults intentionally keep this first run small, but one Common Crawl WARC can still take time to download and process. Keep the downloaded WARC directory if you expect to repeat the preparation step.
 </Note>
 
-## 2. Copy and configure the judge files
+## 2. Copy and Configure the Judge Files
 
 Copy the YAML and adjacent Jinja files into a working directory so you do not edit the maintained example in place:
 
@@ -129,13 +131,13 @@ cp tutorials/eval/llm_judge/cc_extract_example/*.yaml configs/cc_extract_judge/
 cp tutorials/eval/llm_judge/cc_extract_example/*.jinja configs/cc_extract_judge/
 ```
 
-Open `configs/cc_extract_judge/text_extraction_qwen_judge.yaml`. The serving portion has four layers; edit the values marked below for your model and allocation:
+Open `configs/cc_extract_judge/text_extraction_qwen_judge.yaml`. The serving portion has four layers. Edit the marked values for your model and allocation:
 
 ```yaml
 models:
   - alias: judge                         # Used by judges[].model_alias
-    model: /path/to/Qwen3.8-27B          # EDIT: weights path or Hugging Face ID
-    served_model_name: Qwen/Qwen3.8-27B  # EDIT: name sent in API requests
+    model: "<model-id-or-local-path>"     # EDIT: weights path or Hugging Face ID
+    served_model_name: "<served-model-name>"  # EDIT: name sent in API requests
     dynamo_model:
       mode: aggregated
       num_replicas: 4                    # EDIT: independent model replicas
@@ -168,7 +170,7 @@ execution:
         # Keep the supplied judge definitions here.
 ```
 
-`model` tells vLLM what to load. `served_model_name` is the API-facing name that Data Designer requests and can differ from a local weights path. `dynamo_model` controls server-side GPU use, while `inference_parameters` controls client requests; `max_parallel_requests` does not create model replicas. `execution.stages[].num_workers` controls Ray/Data Designer workers and is independent of both settings.
+`model` tells vLLM what to load. `served_model_name` is the API-facing name that Data Designer requests and can differ from a local weights path. `dynamo_model` controls server-side GPU use, while `inference_parameters` controls client requests. `max_parallel_requests` does not create model replicas. `execution.stages[].num_workers` controls Ray/Data Designer workers and is independent of both settings.
 
 Add model-specific `engine_kwargs`, such as `trust_remote_code`, only when the selected architecture requires them. The supplied `DYN_SYSTEM_PORT: "0"` lets the Dynamo subprocess choose an available system port. The longer health-check timeout allows a large model to finish loading before Curator treats startup as failed.
 
@@ -178,11 +180,11 @@ As supplied, the YAML requests four GPUs: four replicas multiplied by one GPU pe
 num_replicas * tensor_parallel_size
 ```
 
-The example disables Qwen thinking with `extra_body.chat_template_kwargs.enable_thinking: false` so private deliberation does not consume the completion budget needed for structured JSON. Remove that provider-specific setting when the selected model does not support it. Do not lower `max_model_len` below the rendered prompt plus the requested completion budget; the Jinja character limits do not automatically adapt to this setting.
+The example disables Qwen thinking with `extra_body.chat_template_kwargs.enable_thinking: false`. This setting prevents private deliberation from consuming the completion budget needed for structured JSON. Remove the setting when the selected model does not support it. Do not lower `max_model_len` below the rendered prompt plus the requested completion budget. The Jinja character limits do not automatically adapt to this setting.
 
 Do not change the Jinja field names for this tutorial. They match the dataset created in step 1. When adapting the workflow to another task, use the [`llm-judge-config` authoring skill](/main/curate-text/process-data/quality-assessment/llm-judge#create-configuration-files-with-the-authoring-skill) to design new YAML and Jinja files from the actual input schema.
 
-## 3. Run the judge workflow
+## 3. Run the Judge Workflow
 
 Run the two Qwen judge stages over the prepared JSONL parts:
 
@@ -220,7 +222,7 @@ If you enable a workflow FastText language gate, it is inserted after `JsonlRead
 
 There are no active score filters in the supplied YAML. The workflow therefore does not intentionally remove rows based on the three rubrics. NeMo Data Designer can still reject rows whose model response does not satisfy the structured output contract, so compare input and output counts.
 
-## 4. Inspect structured judgments
+## 4. Inspect Structured Judgments
 
 List the output files and inspect the first record:
 
@@ -259,7 +261,7 @@ Check at least these conditions on a manually reviewed sample:
 - The `last_message` trace on the extraction-quality judge shows the expected rendered evidence and structured response.
 - The number of written records matches expectations.
 
-## 5. Analyze judge decisions
+## 5. Analyze Judge Decisions
 
 Load every non-empty JSONL part and summarize the categorical decision:
 
@@ -299,7 +301,7 @@ Map `candidate_a` back to `justext_text` and `candidate_b` back to `trafilatura_
 
 Do not choose a production filter threshold from the option labels alone. Review the score distribution against human decisions, then decide whether errors near the proposed threshold are acceptable.
 
-## 6. Optionally filter high-fidelity records
+## 6. Optionally Filter High-Fidelity Records
 
 After calibration, uncomment and adjust the example's top-level `filters` block. For example, the supplied commented filter retains rows with a content-fidelity score of at least 4:
 
@@ -313,7 +315,7 @@ filters:
 
 Write this filtered run to a new output directory. Because the configuration changed, also use a new checkpoint directory rather than reusing the checkpoint from the unfiltered run.
 
-## 7. Optionally compare two judge models
+## 7. Optionally Compare Two Judge Models
 
 `text_extraction_qwen_gemma_judges.yaml` applies the same two rubrics with Qwen and Gemma. As supplied, it requests eight GPUs: four single-GPU replicas for each model.
 
@@ -324,9 +326,21 @@ Before running it:
 3. Confirm that both models can share the configured Dynamo worker environment.
 4. Use a new output and checkpoint directory.
 
-The result contains one extraction-quality column and one semantic-disagreement column per model. Extract corresponding nested scores into separate analysis columns and inspect records where the models disagree. A disagreement can reveal ambiguous source evidence, an underspecified rubric, or model-specific behavior; do not automatically average the scores.
+The result contains one extraction-quality column and one semantic-disagreement column per model. Extract corresponding nested scores into separate analysis columns and inspect records where the models disagree. A disagreement can reveal ambiguous source evidence, an underspecified rubric, or model-specific behavior. Do not automatically average the scores.
 
-## Next steps
+## Summary
+
+After completing this tutorial, you can perform the following tasks:
+
+- Prepare Common Crawl records that contain raw HTML and two extraction candidates.
+- Configure model serving, judge prompts, rubrics, execution stages, and optional filters.
+- Run `LLMJudgeWorkflow` while managing the separate Ray and inference-server lifecycles.
+- Inspect structured scores and safely analyze output directories that contain empty JSONL parts.
+- Calibrate filter thresholds or compare two judge models before scaling the evaluation.
+
+## What Is Next
+
+After you validate the example, use the following options to extend the evaluation:
 
 - Test position bias by adding a second judge whose prompt swaps `candidate_a` and `candidate_b`, then map its result back to the original extractor identities before comparing decisions.
 - Increase `--record-limit`, WARC count, client concurrency, or model replicas only after the small run produces valid prompts and stable structured results.

@@ -10,11 +10,11 @@ modality: "text-only"
 
 # Heuristic Filtering
 
-Heuristic filtering uses simple, rule-based metrics to identify and filter out low-quality documents from your dataset. NVIDIA NeMo Curator provides a variety of pre-built heuristic filters that can be configured and combined to meet your specific needs.
+Heuristic filtering uses simple, rule-based metrics to identify and remove low-quality documents from your dataset. NVIDIA NeMo Curator provides prebuilt heuristic filters that you can configure and combine for your requirements.
 
 ## How It Works
 
-Heuristic filters examine specific attributes of text documents and apply predefined thresholds to determine document quality. Unlike classifier-based filtering, heuristic filters don't require training data but rely on configurable thresholds and rules.
+Heuristic filters examine specific attributes of text documents and apply predefined thresholds to determine document quality. Unlike classifier-based filtering, heuristic filters do not require training data. They rely on configurable thresholds and rules.
 
 These filters assess quality using measurable document characteristics such as:
 - Document length (word or character count)
@@ -129,53 +129,63 @@ NeMo Curator includes more than 30 heuristic filters for assessing document qual
 
 ### Text Length Filters
 
+The following filters measure document and word length:
+
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **WordCountFilter** | Filters by word count | `min_words`, `max_words` | min=50, max=100000 |
-| **TokenCountFilter** | Filters by token count | `min_tokens`, `max_tokens` | min=0, max=∞ |
-| **MeanWordLengthFilter** | Filters by average word length | `min_mean_word_length`, `max_mean_word_length` | min=3, max=10 |
-| **LongWordFilter** | Filters by presence of extremely long words | `max_word_length` | 1000 |
+| `WordCountFilter` | Filters by word count | `min_words`, `max_words` | `min=50`, `max=100000` |
+| `TokenCountFilter` | Filters by token count | `min_tokens`, `max_tokens` | `min=0`, `max=∞` |
+| `MeanWordLengthFilter` | Filters by average word length | `min_mean_word_length`, `max_mean_word_length` | `min=3`, `max=10` |
+| `LongWordFilter` | Filters by presence of extremely long words | `max_word_length` | `1000` |
 
 ### Repetition Detection Filters
 
+The following filters detect repeated lines, paragraphs, or n-grams:
+
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **RepeatedLinesFilter** | Detects repeated lines | `max_repeated_line_fraction` | 0.7 |
-| **RepeatedParagraphsFilter** | Detects repeated paragraphs | `max_repeated_paragraphs_ratio` | 0.7 |
-| **RepeatedLinesByCharFilter** | Detects repeated lines by character count | `max_repeated_lines_char_ratio` | 0.8 |
-| **RepeatedParagraphsByCharFilter** | Detects repeated paragraphs by character count | `max_repeated_paragraphs_char_ratio` | 0.8 |
-| **RepeatingTopNGramsFilter** | Detects excessive repetition of n-grams | `n`, `max_repeating_ngram_ratio` | n=2, ratio=0.2 |
-| **RepeatingDuplicateNGramsFilter** | Detects duplicate n-grams | `n`, `max_repeating_duplicate_ngram_ratio` | n=2, ratio=0.2 |
+| `RepeatedLinesFilter` | Detects repeated lines | `max_repeated_line_fraction` | `0.7` |
+| `RepeatedParagraphsFilter` | Detects repeated paragraphs | `max_repeated_paragraphs_ratio` | `0.7` |
+| `RepeatedLinesByCharFilter` | Detects repeated lines by character count | `max_repeated_lines_char_ratio` | `0.8` |
+| `RepeatedParagraphsByCharFilter` | Detects repeated paragraphs by character count | `max_repeated_paragraphs_char_ratio` | `0.8` |
+| `RepeatingTopNGramsFilter` | Detects excessive repetition of n-grams | `n`, `max_repeating_ngram_ratio` | `n=2`, `ratio=0.2` |
+| `RepeatingDuplicateNGramsFilter` | Detects duplicate n-grams | `n`, `max_repeating_duplicate_ngram_ratio` | `n=2`, `ratio=0.2` |
 
 ### Character and Symbol Filters
 
-| Filter | Description | Key Parameters | Default Values |
-|--------|-------------|----------------|---------------|
-| **NonAlphaNumericFilter** | Limits non-alphanumeric content | `max_non_alpha_numeric_to_text_ratio` | 0.25 |
-| **SymbolsToWordsFilter** | Limits symbols in text | `max_symbol_to_word_ratio` | 0.1 |
-| **NumbersFilter** | Limits numeric content | `max_number_to_text_ratio` | 0.15 |
-| **UrlsFilter** | Limits URL content | `max_url_to_text_ratio` | 0.2 |
-| **PunctuationFilter** | Limits sentences without proper punctuation | `max_num_sentences_without_endmark_ratio` | 0.85 |
-| **WhiteSpaceFilter** | Limits excessive whitespace | `max_white_space_ratio` | 0.25 |
-
-### Content-specific Filters
+The following filters measure character, symbol, numeric, URL, punctuation, and whitespace patterns:
 
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **CommonEnglishWordsFilter** | Ensures text contains common words | `min_num_common_words` | 2 |
-| **WordsWithoutAlphabetsFilter** | Limits words without alphabetic chars | `min_words_with_alphabets` | 0.8 |
-| **BulletsFilter** | Limits bullet-point heavy content | `max_bullet_lines_ratio` | 0.9 |
-| **BoilerPlateStringFilter** | Detects boilerplate text | `max_boilerplate_string_ratio`, `remove_if_at_top_or_bottom` | 0.4, True |
-| **ParenthesesFilter** | Limits parentheses content | `max_parentheses_ratio` | 0.1 |
+| `NonAlphaNumericFilter` | Limits non-alphanumeric content | `max_non_alpha_numeric_to_text_ratio` | `0.25` |
+| `SymbolsToWordsFilter` | Limits symbols in text | `max_symbol_to_word_ratio` | `0.1` |
+| `NumbersFilter` | Limits numeric content | `max_number_to_text_ratio` | `0.15` |
+| `UrlsFilter` | Limits URL content | `max_url_to_text_ratio` | `0.2` |
+| `PunctuationFilter` | Limits sentences without proper punctuation | `max_num_sentences_without_endmark_ratio` | `0.85` |
+| `WhiteSpaceFilter` | Limits excessive whitespace | `max_white_space_ratio` | `0.25` |
+
+### Content-Specific Filters
+
+The following filters identify content-specific quality signals:
+
+| Filter | Description | Key Parameters | Default Values |
+|--------|-------------|----------------|---------------|
+| `CommonEnglishWordsFilter` | Ensures text contains common words | `min_num_common_words` | `2` |
+| `WordsWithoutAlphabetsFilter` | Limits words without alphabetic characters | `min_words_with_alphabets` | `0.8` |
+| `BulletsFilter` | Limits content with many bullet points | `max_bullet_lines_ratio` | `0.9` |
+| `BoilerPlateStringFilter` | Detects boilerplate text | `max_boilerplate_string_ratio`, `remove_if_at_top_or_bottom` | `0.4`, `True` |
+| `ParenthesesFilter` | Limits content in parentheses | `max_parentheses_ratio` | `0.1` |
 
 ### Special Purpose Filters
 
+The following filters address specialized quality conditions:
+
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **PornographicUrlsFilter** | Detects URLs containing "porn" substring | None | N/A |
-| **EllipsisFilter** | Limits excessive ellipses | `max_num_lines_ending_with_ellipsis_ratio` | 0.3 |
-| **HistogramFilter** | Filters based on character distribution | `threshold` | 0.8 |
-| **SubstringFilter** | Filters based on presence of specific substring in a position | `substring`, `position` | N/A (required) |
+| `PornographicUrlsFilter` | Detects URLs containing the "porn" substring | `None` | Not applicable |
+| `EllipsisFilter` | Limits excessive ellipses | `max_num_lines_ending_with_ellipsis_ratio` | `0.3` |
+| `HistogramFilter` | Filters based on character distribution | `threshold` | `0.8` |
+| `SubstringFilter` | Filters based on the presence of a specific substring in a position | `substring`, `position` | Required |
 
 ## Configuration
 
@@ -213,12 +223,12 @@ stages:
     path: ${output_path}
 ```
 
-See `nemo_curator/config/text/` for complete pipeline examples.
+Refer to `nemo_curator/config/text/` for complete pipeline examples.
 </Tab>
 
 </Tabs>
 
-For non-English texts, you may need to adjust the filter parameters based on the specific characteristics of your target language.
+For non-English text, you can adjust the filter parameters based on the characteristics of your target language.
 
 ## Best Practices
 
@@ -244,7 +254,7 @@ pipeline.add_stage(ScoreFilter(filter_obj=RepeatingTopNGramsFilter(), text_field
 </Tab>
 
 <Tab title="Performance Tuning">
-See the [Performance Tuning](#performance-tuning) section below for executor configuration examples using Xenna or Ray backends.
+Refer to [Performance Tuning](#performance-tuning) for executor configuration examples that use Xenna or Ray backends.
 </Tab>
 
 <Tab title="Precision vs. Recall">
@@ -310,8 +320,8 @@ quality_pipeline.add_stage(ScoreFilter(
 
 When tuning filter thresholds, analyze score distributions before applying filters. NeMo Curator provides two modules for this workflow:
 
-- **`Score`**: Computes scores and adds them as columns without removing documents
-- **`ScoreFilter`**: Computes scores, filters based on thresholds, and optionally retains scores in output
+- **`Score`**: Computes scores and adds them as columns without removing documents.
+- **`ScoreFilter`**: Computes scores, filters based on thresholds, and optionally retains scores in output.
 
 Use `Score` first to understand your data distribution, then apply `ScoreFilter` with tuned thresholds.
 
@@ -393,7 +403,7 @@ plt.savefig("score_distributions.png")
 # Print statistics
 print(f"Total documents: {len(scored_data)}")
 print(f"Documents below word count threshold: {(scored_data['word_count'] < 80).sum()}")
-print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] &gt;0.18).sum()}")
+print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] > 0.18).sum()}")
 ```
 
 For large datasets, consider sampling or using Ray, Dask, or Polars for memory-efficient analysis.
@@ -430,7 +440,7 @@ pipeline.add_stage(JsonlWriter(path="filtered_output/"))
 # Run with default XennaExecutor
 pipeline.run()
 
-# Or use Ray for distributed processing (see Performance Tuning section)
+# Or use Ray for distributed processing (refer to Performance Tuning)
 # from nemo_curator.backends.ray_data import RayDataExecutor
 # pipeline.run(RayDataExecutor(ignore_head_node=True))
 ```
