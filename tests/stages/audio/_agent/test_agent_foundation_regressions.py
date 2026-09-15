@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -29,7 +30,7 @@ from nemo_curator.stages import audio
 from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent import _catalog
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
-from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import unavailable_modules
 from nemo_curator.stages.audio._agent._composite import expand_composites
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
@@ -38,6 +39,7 @@ from nemo_curator.stages.audio._agent._residency import (
     cleanup_temp_files,
     resolve_audio,
     resolve_audio_path,
+    validate_input_residency,
     write_audio_stable,
 )
 from nemo_curator.stages.audio.common import (
@@ -60,6 +62,26 @@ from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@dataclass
+class _AgentParamMetadataFixture:
+    visible: str = "public"
+    runtime_only: object | None = field(default=None, metadata={"agent_param": False})
+
+
+def test_stage_params_respects_field_level_agent_exclusion() -> None:
+    assert [param.name for param in stage_params(_AgentParamMetadataFixture)] == ["visible"]
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_input_residency_validator_accepts_only_declared_modes(residency: str) -> None:
+    validate_input_residency(residency, stage_name="Fixture")
+
+
+def test_input_residency_validator_rejects_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="input_residency must be one of"):
+        validate_input_residency("wavefrom", stage_name="Fixture")
 
 
 def test_resolve_audio_path_auto_prefers_complete_resident_audio(tmp_path: Path) -> None:

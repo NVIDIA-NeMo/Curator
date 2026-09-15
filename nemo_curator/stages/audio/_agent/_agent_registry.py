@@ -191,7 +191,12 @@ def _dataclass_params(cls: type, descriptions: dict[str, str]) -> list[ParamSpec
     globalns = _module_globals(cls)
     params: list[ParamSpec] = []
     for f in dataclasses.fields(cls):
-        if not f.init or f.name in EXCLUDED_PARAM_NAMES or f.name.startswith("_"):
+        if (
+            not f.init
+            or f.metadata.get("agent_param", True) is False
+            or f.name in EXCLUDED_PARAM_NAMES
+            or f.name.startswith("_")
+        ):
             continue
         if f.default is not _MISSING:
             default, required = f.default, False
