@@ -31,6 +31,13 @@ if TYPE_CHECKING:
 InputResidency = Literal["file", "waveform", "auto"]
 
 
+def validate_input_residency(residency: str, *, stage_name: str) -> None:
+    """Reject unknown residency modes before they can be treated as ``auto``."""
+    if residency not in {"file", "waveform", "auto"}:
+        msg = f"[{stage_name}] input_residency must be one of 'file', 'waveform', or 'auto'; got {residency!r}"
+        raise ValueError(msg)
+
+
 def accepts_for_residency(residency: str) -> list[AudioForm]:
     """Audio forms an instance actually consumes, given its ``input_residency``.
 
