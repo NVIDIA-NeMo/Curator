@@ -1434,7 +1434,7 @@ entries:
       --model-id=openai/gpt-oss-120b
       --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
       --executor=ray_data
-      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.95}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
     ray:
       num_cpus: 32
@@ -1506,7 +1506,7 @@ entries:
       --model-id=openai/gpt-oss-120b
       --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
       --executor=ray_data
-      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.95}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
     ray:
       num_cpus: 32
