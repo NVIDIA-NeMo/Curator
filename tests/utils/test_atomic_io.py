@@ -18,10 +18,39 @@ from pathlib import Path
 import pytest
 
 import nemo_curator.utils.atomic_io as atomic_io_module
-from nemo_curator.utils.atomic_io import write_json_atomically, write_json_atomically_if_absent
+from nemo_curator.utils.atomic_io import write_json_atomically, write_json_atomically_if_absent, write_text_atomically
 
 
 class TestAtomicIo:
+    def test_write_text_atomically_streams_and_replaces_existing_file(self, tmp_path: Path) -> None:
+        output_path = tmp_path / "nested" / "payload.txt"
+        output_path.parent.mkdir(parents=True)
+        output_path.write_text("old", encoding="utf-8")
+
+        def write_chunks(output: object) -> None:
+            output.write("new")
+            output.write("-payload")
+
+        write_text_atomically(output_path, write_chunks)
+
+        assert output_path.read_text(encoding="utf-8") == "new-payload"
+        assert not list(output_path.parent.glob(f".{output_path.name}.*.tmp"))
+
+    def test_write_text_atomically_preserves_existing_file_on_writer_failure(self, tmp_path: Path) -> None:
+        output_path = tmp_path / "payload.txt"
+        output_path.write_text("original", encoding="utf-8")
+
+        def fail_after_partial_write(output: object) -> None:
+            output.write("partial")
+            msg = "writer failed"
+            raise OSError(msg)
+
+        with pytest.raises(OSError, match="writer failed"):
+            write_text_atomically(output_path, fail_after_partial_write)
+
+        assert output_path.read_text(encoding="utf-8") == "original"
+        assert not list(output_path.parent.glob(f".{output_path.name}.*.tmp"))
+
     def test_write_json_atomically_creates_parent_and_writes_json(self, tmp_path: Path) -> None:
         output_path = tmp_path / "nested" / "payload.json"
 

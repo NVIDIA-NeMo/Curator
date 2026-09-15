@@ -12,14 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.tasks import EmptyTask, Task
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.slurm_array import SlurmArrayConfig
 
 
 def _append_input_requirements(lines: list[str], input_specs: StageInputSpecs) -> None:
@@ -96,6 +101,7 @@ class Pipeline:
         self.description = description
         self.stages: list[ProcessingStage] = stages or []
         self.config = config or {}
+        self.performance_records: Any = None
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
@@ -140,6 +146,43 @@ class Pipeline:
         # counters that a sink consumes its outputs (see
         # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
+        for stage_index, stage in enumerate(self.stages):
+            stage._curator_stage_id = f"{stage_index:03d}:{stage.name}"
+
+    def _build_performance_report_context(
+        self,
+        executor: BaseExecutor,
+        slurm_array: "SlurmArrayConfig | None",
+    ) -> dict[str, Any]:
+        """Build driver-owned context passed directly to the report consumer."""
+        # This identity belongs to one Curator Pipeline.run() call. Generate it
+        # here instead of accepting ambient process state that Curator does not
+        # own or validate.
+        pipeline_metadata = {
+            "pipeline_name": self.name,
+            "pipeline_description": self.description or "",
+            "stages": [
+                {
+                    "stage_id": stage._curator_stage_id,
+                    "name": stage.name,
+                    "type": f"{type(stage).__module__}.{type(stage).__name__}",
+                    "batch_size": stage.batch_size,
+                    "num_workers": stage.num_workers(),
+                }
+                for stage in self.stages
+            ],
+        }
+        return {
+            "pipeline_name": self.name,
+            "run_id": uuid.uuid4().hex,
+            "executor": type(executor).__name__,
+            "pipeline": pipeline_metadata,
+            "slurm_array": (
+                {"shard_index": slurm_array.shard_index, "total_shards": slurm_array.total_shards}
+                if slurm_array is not None
+                else None
+            ),
+        }
 
     def _assign_source_sink_roles(self) -> None:
         explicit_sources = [s for s in self.stages if s.is_source_stage]
@@ -247,7 +290,7 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(  # noqa: C901, PLR0912
+    def run(  # noqa: C901, PLR0912, PLR0915
         self,
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
@@ -268,6 +311,10 @@ class Pipeline:
         Returns:
             list[Task] | None: List of tasks
         """
+        cleanup_previous_records = getattr(self.performance_records, "cleanup", None)
+        if callable(cleanup_previous_records):
+            cleanup_previous_records()
+        self.performance_records = None
         self.build()
 
         if checkpoint_path is not None:
@@ -334,11 +381,42 @@ class Pipeline:
                 minimum_shard_index=slurm_array.minimum_shard_index,
             )
 
-        if checkpoint_path is None:
-            result = executor.execute(self.stages, initial_tasks)
-        else:
-            result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        requesting_consumers = [stage for stage in reversed(self.stages) if stage.requests_performance_records()]
+        invalid_consumers = [
+            stage
+            for stage in requesting_consumers
+            if not callable(getattr(stage, "finalize_performance_report", None))
+        ]
+        if invalid_consumers:
+            names = [stage.name for stage in invalid_consumers]
+            msg = f"Stages requesting performance records must implement finalize_performance_report(): {names}"
+            raise TypeError(msg)
+        performance_consumer = requesting_consumers[0] if requesting_consumers else None
+        performance_report_context = (
+            self._build_performance_report_context(executor, slurm_array) if performance_consumer is not None else None
+        )
 
+        run_started_s = time.perf_counter() if performance_consumer is not None else 0.0
+        set_collection_requested = getattr(executor, "_set_stage_perf_collection_requested", None)
+        if callable(set_collection_requested):
+            set_collection_requested(performance_consumer is not None)
+        try:
+            if checkpoint_path is None:
+                result = executor.execute(self.stages, initial_tasks)
+            else:
+                result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        finally:
+            if callable(set_collection_requested):
+                set_collection_requested(False)
+
+        if performance_consumer is not None:
+            wall_time_s = max(time.perf_counter() - run_started_s, 0.0)
+            self.performance_records = executor.consume_external_perf_records()
+            performance_consumer.finalize_performance_report(
+                performance_records=self.performance_records,
+                wall_time_s=wall_time_s,
+                report_context=performance_report_context,
+            )
         if completion_manifest is not None:
             if failed_task_manifest_exists():
                 logger.warning(
