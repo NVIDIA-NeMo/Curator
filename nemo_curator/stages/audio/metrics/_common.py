@@ -39,6 +39,7 @@ def validate_metric_keys(
     keys: dict[str, Any],
     output_field: str,
     protected_fields: tuple[str, ...],
+    reserved_input_keys: tuple[str, ...] = (),
 ) -> None:
     """Reject empty key values and output/input-container collisions."""
     for field_name, key in keys.items():
@@ -51,6 +52,12 @@ def validate_metric_keys(
         if output_key == keys[field_name]:
             msg = f"[{stage_name}] '{output_field}' ({output_key!r}) must not collide with '{field_name}'"
             raise ValueError(msg)
+    if output_key in reserved_input_keys:
+        msg = (
+            f"[{stage_name}] '{output_field}' ({output_key!r}) must not collide with "
+            f"runtime input key {output_key!r}"
+        )
+        raise ValueError(msg)
 
 
 def resident_pair_is_complete(

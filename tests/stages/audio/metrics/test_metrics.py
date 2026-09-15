@@ -23,6 +23,8 @@ import torch
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
+from nemo_curator.stages.audio._agent._catalog import find_producers
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
@@ -277,7 +279,7 @@ class TestComputeWERStage:
         "timing",
         [
             {"begin": 2.0, "finish": 4.0},
-            {"begin": 0.0, "extent": 2.0},
+            {"begin": 2.0, "extent": 4.0},
         ],
         ids=["remapped_end", "remapped_duration_fallback"],
     )
@@ -603,11 +605,32 @@ def test_metrics_stages_reject_input_residency_typo(stage_cls: type) -> None:
     [
         (
             BandwidthEstimationStage,
-            ("audio_filepath", "segments", "duration", "waveform", "sample_rate"),
+            (
+                "audio_filepath",
+                "segments",
+                "duration",
+                "waveform",
+                "sample_rate",
+                "audio_item_id",
+                "speaker",
+                "text",
+                "start",
+                "end",
+            ),
         ),
         (
             TorchSquimQualityMetricsStage,
-            ("resampled_audio_filepath", "segments", "waveform", "sample_rate"),
+            (
+                "resampled_audio_filepath",
+                "segments",
+                "waveform",
+                "sample_rate",
+                "audio_item_id",
+                "speaker",
+                "text",
+                "start",
+                "end",
+            ),
         ),
         (ComputeWERStage, ("text", "text_ref", "segments", "start", "end", "duration")),
     ],
@@ -675,6 +698,143 @@ def test_nonmapping_wer_metrics_fail_before_normalization() -> None:
 class _IdentityNormalizer:
     def normalize(self, text: str, **_kwargs: object) -> str:
         return text
+
+
+class _FakeSquimModel:
+    def __call__(self, waveforms: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch_size = waveforms.shape[0]
+        return (
+            torch.full((batch_size,), 0.8),
+            torch.full((batch_size,), 2.5),
+            torch.full((batch_size,), 3.0),
+        )
+
+
+def test_bandwidth_agent_ready_conformance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "bandwidth-conformance.wav"
+    _write_pcm16(path, _pcm16(1))
+    stage = BandwidthEstimationStage()
+    monkeypatch.setattr(stage, "_estimate_bandwidth", lambda *_args: 4321)
+    task = AudioTask(dataset_name="d", data={"audio_filepath": str(path), "duration": 1.0})
+
+    assert_agent_ready(
+        stage,
+        fixture_factory=lambda: task,
+        available_keys={"audio_filepath", "duration"},
+    )
+
+    assert task.data["metrics"]["bandwidth"] == 4321
+
+
+def test_squim_agent_ready_conformance() -> None:
+    stage = TorchSquimQualityMetricsStage(
+        input_residency="waveform",
+        resources=Resources(gpus=0),
+        model=_FakeSquimModel(),
+    )
+    task = AudioTask(
+        dataset_name="d",
+        data={"waveform": np.ones(16000, dtype=np.float32), "sample_rate": 16000},
+    )
+
+    assert_agent_ready(
+        stage,
+        fixture_factory=lambda: task,
+        available_keys={"waveform", "sample_rate"},
+    )
+
+    assert task.data["metrics"] == {"pesq_squim": 2.5, "stoi_squim": 0.8, "sisdr_squim": 3.0}
+
+
+def test_compute_wer_agent_ready_conformance() -> None:
+    stage = ComputeWERStage()
+    stage._normalizer = _IdentityNormalizer()
+    task = AudioTask(
+        dataset_name="d",
+        data={"text": "same text", "text_ref": "same text", "duration": 1.0},
+    )
+
+    assert_agent_ready(
+        stage,
+        fixture_factory=lambda: task,
+        available_keys={"text", "text_ref", "duration"},
+    )
+
+    assert task.data["metrics"]["wer"]["wer"] == 0.0
+
+
+def test_pairwise_wer_agent_ready_conformance() -> None:
+    stage = GetPairwiseWerStage()
+    task = AudioTask(dataset_name="d", data={"text": "same text", "pred_text": "same text"})
+
+    assert_agent_ready(
+        stage,
+        fixture_factory=lambda: task,
+        available_keys={"text", "pred_text"},
+    )
+
+    assert task.data["wer_pct"] == 0.0
+
+
+def test_bandwidth_residency_consumption(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "bandwidth-residency.wav"
+    pcm = _pcm16(1)
+    _write_pcm16(path, pcm)
+    created: list[AudioTask] = []
+    monkeypatch.setattr(BandwidthEstimationStage, "_estimate_bandwidth", lambda *_args: 2468)
+
+    def file_fixture() -> AudioTask:
+        task = AudioTask(dataset_name="d", data={"audio_filepath": str(path), "duration": 1.0})
+        created.append(task)
+        return task
+
+    def waveform_fixture() -> AudioTask:
+        task = AudioTask(
+            dataset_name="d",
+            data={"waveform": pcm, "sample_rate": 16000, "duration": 1.0},
+        )
+        created.append(task)
+        return task
+
+    assert_residency_consumption(
+        lambda residency: BandwidthEstimationStage(input_residency=residency),
+        file_fixture=file_fixture,
+        waveform_fixture=waveform_fixture,
+    )
+
+    assert [task.data["metrics"]["bandwidth"] for task in created] == [2468, 2468]
+
+
+def test_squim_residency_consumption(tmp_path: Path) -> None:
+    path = tmp_path / "squim-residency.wav"
+    pcm = _pcm16(1)
+    _write_pcm16(path, pcm)
+    created: list[AudioTask] = []
+
+    def stage_factory(residency: str) -> TorchSquimQualityMetricsStage:
+        return TorchSquimQualityMetricsStage(
+            input_residency=residency,
+            resources=Resources(gpus=0),
+            model=_FakeSquimModel(),
+        )
+
+    def file_fixture() -> AudioTask:
+        task = AudioTask(dataset_name="d", data={"resampled_audio_filepath": str(path)})
+        created.append(task)
+        return task
+
+    def waveform_fixture() -> AudioTask:
+        task = AudioTask(dataset_name="d", data={"waveform": pcm, "sample_rate": 16000})
+        created.append(task)
+        return task
+
+    assert_residency_consumption(
+        stage_factory,
+        file_fixture=file_fixture,
+        waveform_fixture=waveform_fixture,
+    )
+
+    assert all(task.data["metrics"]["pesq_squim"] == 2.5 for task in created)
 
 
 def test_compute_wer_custom_keys_augment_existing_mapping() -> None:
@@ -816,6 +976,15 @@ def test_squim_static_hints_and_hidden_runtime_model() -> None:
     )
 
 
+def test_conditional_metric_outputs_remain_discoverable() -> None:
+    assert {
+        "BandwidthEstimationStage",
+        "ComputeWERStage",
+        "TorchSquimQualityMetricsStage",
+    } <= set(find_producers("metrics"))
+    assert "GetPairwiseWerStage" in find_producers("score")
+
+
 class _MetricsConsumer(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     name = "MetricsConsumer"
 
@@ -871,13 +1040,33 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
     assert any(issue.code == "unsatisfied_reads" for issue in segment_report.issues)
 
     compute_wer = ComputeWERStage()
-    wer_task = AudioTask(dataset_name="d", data={"segments": [{}]})
+    compute_wer._normalizer = _IdentityNormalizer()
+    wer_task = AudioTask(
+        dataset_name="d",
+        data={
+            "segments": [
+                {"start": 0.0, "end": 1.0, "text": "same text", "text_ref": "same text"},
+            ]
+        },
+    )
     compute_wer.process(wer_task)
-    assert "metrics" not in wer_task.data["segments"][0]
+    assert wer_task.data["segments"][0]["metrics"]["wer"]["wer"] == 0.0
+    valid_wer_input = validate_pipeline(
+        [compute_wer],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"text", "reference_text"},
+        initial_segment_keys={"text", "text_ref"},
+    )
+    assert valid_wer_input.ok
+    assert valid_wer_input.keys_ok
+    assert {"text", "text_ref"} <= valid_wer_input.produced_keys
     wer_report = validate_pipeline(
         [compute_wer, _MetricsConsumer(nested=True)],
         initial_roles={"segments"},
         initial_keys={"segments"},
+        initial_segment_roles={"text", "reference_text"},
+        initial_segment_keys={"text", "text_ref"},
     )
     assert not wer_report.ok
     assert any(issue.code == "unsatisfied_reads" for issue in wer_report.issues)
