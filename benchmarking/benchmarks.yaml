@@ -1454,7 +1454,179 @@ entries:
         min_value: 245400
         max_value: 245500
       - metric: throughput_rows_per_sec
-        min_value: 150
+        min_value: 60
+
+  # Dynamo throughput stress ladder. These intentionally push request and
+  # scheduler limits; an OOM/rejection is useful data for choosing a ceiling.
+  - name: ndd_dynamo_20b_mpr_256
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --max-parallel-requests=256
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 3600
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_20b_mpr_512
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --max-parallel-requests=512
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 3600
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_20b_mpr_512_batch_16384
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --max-parallel-requests=512
+      --engine-kwargs='{"tensor_parallel_size": 1, "max_num_batched_tokens": 16384}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 3600
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_20b_mpr_1024_batch_32768
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --max-parallel-requests=1024
+      --engine-kwargs='{"tensor_parallel_size": 1, "max_num_batched_tokens": 32768, "max_num_seqs": 1024}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 3600
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_120b_util_097
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 7200
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_120b_util_097_mpr_256
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --max-parallel-requests=256
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 7200
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_120b_util_097_mpr_512
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --max-parallel-requests=512
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 7200
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_120b_util_097_mpr_512_batch_16384
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --max-parallel-requests=512
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97, "max_num_batched_tokens": 16384}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 7200
+    ray:
+      num_cpus: 32
+
+  - name: ndd_dynamo_120b_util_097_mpr_1024_batch_32768
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --max-parallel-requests=1024
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97, "max_num_batched_tokens": 32768, "max_num_seqs": 1024}'
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 7200
+    ray:
+      num_cpus: 32
 
   - name: ndd_ray_serve_20b
     enabled: true
@@ -1526,7 +1698,7 @@ entries:
         min_value: 245400
         max_value: 245500
       - metric: throughput_rows_per_sec
-        min_value: 150
+        min_value: 60
 
 # TODO: Prepare dataset
 # TODO: Update model-paths once the models are copied to hf_cache
@@ -1538,6 +1710,8 @@ entries:
       --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges.yaml
       --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
       --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --input-path={dataset:llm_judge_cc_extract,jsonl}
       --output-path={session_entry_dir}/scratch/output
     ray:

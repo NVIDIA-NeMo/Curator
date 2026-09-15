@@ -105,6 +105,8 @@ def run_llm_judge_benchmark(  # noqa: PLR0913
     judge_config: str,
     qwen_model_path: str,
     gemma_model_path: str,
+    language: str,
+    fasttext_langid_model_path: str,
     input_path: str,
     output_path: str,
     benchmark_results_path: str,
@@ -128,6 +130,7 @@ def run_llm_judge_benchmark(  # noqa: PLR0913
     logger.info(f"Input path: {input_path_obj}")
     logger.info(f"Input rows: {input_row_count}")
     logger.info(f"Output path: {output_path_obj}")
+    logger.info(f"FastText language ID model: {fasttext_langid_model_path}")
 
     workflow = LLMJudgeWorkflow(
         judge_config=prepared_config,
@@ -135,6 +138,8 @@ def run_llm_judge_benchmark(  # noqa: PLR0913
         output_path=str(output_path_obj),
         input_format="jsonl",
         output_format="jsonl",
+        language=language,
+        fasttext_langid_model_path=fasttext_langid_model_path,
     )
 
     run_start_time = time.perf_counter()
@@ -168,6 +173,8 @@ def main() -> int:
     parser.add_argument("--judge-config", required=True)
     parser.add_argument("--qwen-model-path", required=True)
     parser.add_argument("--gemma-model-path", required=True)
+    parser.add_argument("--language", required=True)
+    parser.add_argument("--fasttext-langid-model-path", required=True)
     parser.add_argument("--input-path", required=True)
     parser.add_argument("--output-path", required=True)
     args = parser.parse_args()
@@ -184,6 +191,8 @@ def main() -> int:
                 judge_config=args.judge_config,
                 qwen_model_path=args.qwen_model_path,
                 gemma_model_path=args.gemma_model_path,
+                language=args.language,
+                fasttext_langid_model_path=args.fasttext_langid_model_path,
                 input_path=args.input_path,
                 output_path=args.output_path,
                 benchmark_results_path=args.benchmark_results_path,
