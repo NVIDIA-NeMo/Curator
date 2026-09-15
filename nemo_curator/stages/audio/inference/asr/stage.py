@@ -21,7 +21,9 @@ predictions. The concrete adapter is resolved at runtime from
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -31,6 +33,10 @@ from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.model_input_segmentation import (
+    plan_audio_segments,
+    resolve_max_model_input_duration,
+)
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -95,6 +101,8 @@ _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
 _MONO_DIMENSIONS = 1
 _CHANNEL_FIRST_DIMENSIONS = 2
+_PADDED_SECONDS_REL_TOL = 1e-12
+_PADDED_SECONDS_ABS_TOL = 1e-9
 
 
 def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
@@ -112,11 +120,19 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
     and ``additional_notes``. When ``extras_key`` is configured, it also writes
     non-empty adapter metadata as one nested dictionary under that key.
+
+    Audio longer than ``max_inference_duration_s`` is always split into
+    model-safe segments and stitched back to one result per parent row. Every
+    segment prepared by one backend-provided ``process_batch`` call is packed
+    into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
+    ``local_bucketing`` first orders those segments by duration to reduce GPU
+    padding; disabling it preserves their input order.
     """
 
     # Adapter selection.
     adapter_target: str
     model_id: str
+    max_audio_sec_per_actor: float
     name: str = "ASR_inference"
 
     # Task I/O keys.
@@ -140,6 +156,8 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
 
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
+    max_inference_duration_s: float = 2400.0
+    local_bucketing: bool = False
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -163,9 +181,34 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         if int(self.target_sample_rate) <= 0:
             msg = f"ASRStage.target_sample_rate must be > 0, got {self.target_sample_rate}"
             raise ValueError(msg)
+        self.max_inference_duration_s = resolve_max_model_input_duration(
+            max_duration_s=self.max_inference_duration_s,
+            owner="ASRStage",
+        )
+        self.max_audio_sec_per_actor = self._validate_max_audio_sec_per_actor(self.max_audio_sec_per_actor)
+        if self.max_inference_duration_s > self.max_audio_sec_per_actor:
+            msg = (
+                "ASRStage.max_inference_duration_s must be <= max_audio_sec_per_actor; "
+                f"got {self.max_inference_duration_s} > {self.max_audio_sec_per_actor}"
+            )
+            raise ValueError(msg)
+        if not isinstance(self.local_bucketing, bool):
+            msg = f"ASRStage.local_bucketing must be a bool, got {type(self.local_bucketing).__name__}"
+            raise TypeError(msg)
         self.batch_size = int(self.batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
+
+    @staticmethod
+    def _validate_max_audio_sec_per_actor(value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            msg = f"ASRStage.max_audio_sec_per_actor must be numeric, got {type(value).__name__}"
+            raise TypeError(msg)
+        maximum = float(value)
+        if not math.isfinite(maximum) or maximum <= 0:
+            msg = f"ASRStage.max_audio_sec_per_actor must be finite and > 0, got {value}"
+            raise ValueError(msg)
+        return maximum
 
     @staticmethod
     def _normalise_supported_language_codes(value: object) -> set[str] | None:
@@ -318,7 +361,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         """Transcribe one stage batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
-        adapter_indices: list[int] = []
+        adapter_parent_indices: list[int] = []
         adapter_items: list[dict[str, Any]] = []
         for index in supported_indices:
             item = items[index]
@@ -344,26 +387,35 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                 )
                 by_index[index] = ASRResult(text="", skipped=True, skip_reason="audio_load_error")
                 continue
-            adapter_indices.append(index)
-            adapter_items.append(
-                {
-                    "waveform": waveform,
-                    "sample_rate": self.target_sample_rate,
-                    "language": item["language"],
-                    "language_code": item["language_code"],
-                    "task_id": item["task_id"],
-                }
+            segments = plan_audio_segments(
+                num_samples=int(waveform.shape[0]),
+                sample_rate=self.target_sample_rate,
+                max_duration_s=self.max_inference_duration_s,
+                owner="ASRStage",
             )
+            for segment in segments:
+                adapter_parent_indices.append(index)
+                adapter_items.append(
+                    {
+                        "waveform": np.ascontiguousarray(
+                            waveform[segment.start_sample : segment.stop_sample],
+                            dtype=np.float32,
+                        ),
+                        "sample_rate": self.target_sample_rate,
+                        "audio_seconds": segment.duration_s,
+                        "language": item["language"],
+                        "language_code": item["language_code"],
+                        "task_id": item["task_id"],
+                    }
+                )
 
         if adapter_items:
-            adapter_results = self._adapter.transcribe_batch(adapter_items)
-            if len(adapter_results) != len(adapter_items):
-                msg = (
-                    f"Adapter returned {len(adapter_results)} results for "
-                    f"{len(adapter_items)} supported items (must match 1:1)"
-                )
-                raise RuntimeError(msg)
-            by_index.update(zip(adapter_indices, adapter_results, strict=True))
+            adapter_results = self._run_adapter_batches(adapter_items)
+            per_parent: dict[int, list[ASRResult]] = {}
+            for parent_index, result in zip(adapter_parent_indices, adapter_results, strict=True):
+                per_parent.setdefault(parent_index, []).append(result)
+            for parent_index, chunk_results in per_parent.items():
+                by_index[parent_index] = self._stitch_chunk_results(chunk_results)
         return [
             by_index.get(
                 index,
@@ -380,6 +432,213 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             )
             for index, item in enumerate(items)
         ]
+
+    @staticmethod
+    def _stitch_chunk_results(results: list[ASRResult]) -> ASRResult:
+        """Join ordered chunk outputs into one parent-row result."""
+        if not results:
+            return ASRResult(text="", skipped=True, skip_reason="empty_audio")
+        if len(results) == 1:
+            return results[0]
+
+        texts = [text for result in results if (text := (result.text or "").strip())]
+        all_skipped = all(result.skipped for result in results)
+        skip_reason = next((result.skip_reason for result in results if result.skip_reason), None)
+        unsupported_language = next(
+            (result.unsupported_language for result in results if result.unsupported_language),
+            None,
+        )
+        chunk_extras = [dict(result.extras) for result in results]
+        extras = {"chunks": chunk_extras} if any(chunk_extras) else {}
+        return ASRResult(
+            text=" ".join(texts),
+            skipped=all_skipped,
+            skip_reason=skip_reason if all_skipped else None,
+            unsupported_language=unsupported_language,
+            extras=extras,
+        )
+
+    def _run_adapter_batches(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Run capacity-bounded adapter calls and restore segment order."""
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        sub_batches = self._plan_adapter_batches(items)
+
+        aligned: list[ASRResult | None] = [None] * len(items)
+        for indices, sub_items in sub_batches:
+            sub_results = self._adapter.transcribe_batch(sub_items)
+            if len(sub_results) != len(sub_items):
+                msg = (
+                    f"Adapter returned {len(sub_results)} results for "
+                    f"{len(sub_items)} supported items (must match 1:1)"
+                )
+                raise RuntimeError(msg)
+            for index, result in zip(indices, sub_results, strict=True):
+                aligned[index] = result
+
+        if any(result is None for result in aligned):
+            msg = "Local batch planning did not produce a result for every supported item"
+            raise RuntimeError(msg)
+        return [result for result in aligned if result is not None]
+
+    def _plan_adapter_batches(
+        self,
+        items: list[dict[str, Any]],
+    ) -> list[tuple[list[int], list[dict[str, Any]]]]:
+        """Optimally pack one finite segment list under the padded-audio budget.
+
+        The proxy cost of an adapter call is its longest audio duration times
+        its item count. This models the padded tensor work more closely than a
+        sum of unpadded durations. With local bucketing enabled, dynamic
+        programming over the stable duration order first minimizes adapter-call
+        count and then total padded seconds. Representation-equivalent score
+        ties keep the longest possible earlier call. The budget is enforced
+        in both modes.
+        """
+        indexed_items = [(index, item, self._item_audio_seconds(item)) for index, item in enumerate(items)]
+        for _index, _item, audio_seconds in indexed_items:
+            if not self._fits_audio_budget(audio_seconds):
+                msg = (
+                    f"ASRStage item audio_seconds={audio_seconds} exceeds "
+                    f"max_audio_sec_per_actor={self.max_audio_sec_per_actor}"
+                )
+                raise ValueError(msg)
+
+        if not self.local_bucketing:
+            return self._pack_in_order(indexed_items)
+
+        indexed_items.sort(key=lambda indexed_item: indexed_item[2])
+        return self._pack_duration_sorted(indexed_items)
+
+    def _pack_duration_sorted(
+        self,
+        indexed_items: list[tuple[int, dict[str, Any], float]],
+    ) -> list[tuple[list[int], list[dict[str, Any]]]]:
+        """Find the exact lexicographic optimum over sorted contiguous spans."""
+        item_count = len(indexed_items)
+        if item_count == 0:
+            return []
+
+        # best_score[start] is the exact optimum for the suffix beginning at
+        # start. A batch is always one contiguous span in stable duration
+        # order, so the recurrence considers every possible next boundary.
+        best_score: list[tuple[int, float] | None] = [None] * (item_count + 1)
+        next_boundary = [item_count] * item_count
+        best_score[item_count] = (0, 0.0)
+
+        for start in range(item_count - 1, -1, -1):
+            for stop in range(start + 1, item_count + 1):
+                padded_seconds = indexed_items[stop - 1][2] * (stop - start)
+                if not self._fits_audio_budget(padded_seconds):
+                    break
+
+                suffix_score = best_score[stop]
+                if suffix_score is None:  # pragma: no cover - every singleton is feasible
+                    continue
+                candidate_score = (suffix_score[0] + 1, suffix_score[1] + padded_seconds)
+                current_score = best_score[start]
+                if current_score is None or self._duration_plan_is_better(
+                    candidate_score,
+                    current_score,
+                    candidate_stop=stop,
+                    current_stop=next_boundary[start],
+                ):
+                    best_score[start] = candidate_score
+                    next_boundary[start] = stop
+
+        planned: list[tuple[list[int], list[dict[str, Any]]]] = []
+        start = 0
+        while start < item_count:
+            stop = next_boundary[start]
+            batch = indexed_items[start:stop]
+            planned.append(
+                (
+                    [index for index, _item, _audio_seconds in batch],
+                    [item for _index, item, _audio_seconds in batch],
+                ),
+            )
+            start = stop
+        return planned
+
+    def _pack_in_order(
+        self,
+        indexed_items: list[tuple[int, dict[str, Any], float]],
+    ) -> list[tuple[list[int], list[dict[str, Any]]]]:
+        """Greedily preserve input order while enforcing padded capacity."""
+        planned: list[tuple[list[int], list[dict[str, Any]]]] = []
+        current: list[tuple[int, dict[str, Any], float]] = []
+        current_max_duration = 0.0
+
+        for indexed_item in indexed_items:
+            audio_seconds = indexed_item[2]
+            candidate_max_duration = max(current_max_duration, audio_seconds)
+            candidate_padded_seconds = candidate_max_duration * (len(current) + 1)
+            if current and not self._fits_audio_budget(candidate_padded_seconds):
+                planned.append(
+                    (
+                        [index for index, _item, _audio_seconds in current],
+                        [item for _index, item, _audio_seconds in current],
+                    ),
+                )
+                current = []
+                current_max_duration = 0.0
+
+            current.append(indexed_item)
+            current_max_duration = max(current_max_duration, audio_seconds)
+
+        if current:
+            planned.append(
+                (
+                    [index for index, _item, _audio_seconds in current],
+                    [item for _index, item, _audio_seconds in current],
+                ),
+            )
+        return planned
+
+    def _fits_audio_budget(self, padded_seconds: float) -> bool:
+        """Treat representation-level equality as within the configured budget."""
+        return padded_seconds <= self.max_audio_sec_per_actor or math.isclose(
+            padded_seconds,
+            self.max_audio_sec_per_actor,
+            rel_tol=_PADDED_SECONDS_REL_TOL,
+            abs_tol=_PADDED_SECONDS_ABS_TOL,
+        )
+
+    @staticmethod
+    def _duration_plan_is_better(
+        candidate_score: tuple[int, float],
+        current_score: tuple[int, float],
+        *,
+        candidate_stop: int,
+        current_stop: int,
+    ) -> bool:
+        """Compare lexicographic plan scores without float-noise tie breaks."""
+        candidate_calls, candidate_padded_seconds = candidate_score
+        current_calls, current_padded_seconds = current_score
+        if candidate_calls != current_calls:
+            return candidate_calls < current_calls
+        if math.isclose(
+            candidate_padded_seconds,
+            current_padded_seconds,
+            rel_tol=_PADDED_SECONDS_REL_TOL,
+            abs_tol=_PADDED_SECONDS_ABS_TOL,
+        ):
+            return candidate_stop > current_stop
+        return candidate_padded_seconds < current_padded_seconds
+
+    @staticmethod
+    def _item_audio_seconds(item: dict[str, Any]) -> float:
+        value = item.get("audio_seconds")
+        if isinstance(value, bool) or not isinstance(value, Real):
+            msg = f"ASRStage every adapter item must provide numeric audio_seconds, got {type(value).__name__}"
+            raise TypeError(msg)
+        audio_seconds = float(value)
+        if not math.isfinite(audio_seconds) or audio_seconds < 0:
+            msg = f"ASRStage adapter item audio_seconds must be finite and non-negative, got {value}"
+            raise ValueError(msg)
+        return audio_seconds
 
     def assemble(
         self,

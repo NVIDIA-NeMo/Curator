@@ -135,9 +135,10 @@ Key differences from a CPU stage:
 ### Setting `batch_size` for GPU inference
 
 The `batch_size` field on a GPU stage controls how many `AudioTask` tasks
-the backend groups into a single `process_batch()` call.  This directly
-determines how many files are passed to your model in one batched GPU
-inference call.
+the backend groups into a single `process_batch()` call. The stage can then
+make one or more model calls from that finite candidate window. For example,
+`ASRStage` can segment long parents, locally regroup model items by duration,
+and enforce a padded-audio budget for each adapter call.
 
 **Defining batch_size in the stage class:**
 
@@ -158,25 +159,31 @@ pipeline.add_stage(
     ASRStage(
         adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/parakeet-tdt-0.6b-v2",
+        max_audio_sec_per_actor=240,
+        max_inference_duration_s=120,
+        local_bucketing=True,
         audio_filepath_key="audio_filepath",
     )
     .with_(resources=Resources(gpus=1), batch_size=32)
 )
 ```
 
-The `.with_()` method sets any stage field.  Here it bumps `batch_size`
-from the default `16` to `32` and assigns 1 GPU.
+The `.with_()` method supports common execution overrides such as `resources`
+and `batch_size`. Here it sets `batch_size` to `32` and assigns 1 GPU. Put
+stage- or model-specific fields in the stage constructor.
 
 **Overriding batch_size via Hydra YAML:**
 
 ```yaml
-pipeline:
-  stages:
-    - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-      adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
-      model_id: nvidia/parakeet-tdt-0.6b-v2
-      audio_filepath_key: audio_filepath
-      batch_size: 32
+stages:
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt-0.6b-v2
+    max_audio_sec_per_actor: 240
+    max_inference_duration_s: 120
+    local_bucketing: true
+    audio_filepath_key: audio_filepath
+    batch_size: 32
 ```
 
 For Hydra to accept `batch_size` from YAML, it must be a dataclass field
@@ -189,19 +196,25 @@ Backend reads stage.batch_size
     → groups N tasks into batches of batch_size
     → sends each batch to a worker
     → worker calls stage.process_batch(tasks)
-        → your override receives exactly batch_size tasks
-          (or fewer for the last batch)
+        → your override receives that finite candidate window
+        → stage-specific code makes one or more model calls
 ```
+
+For variable-duration audio, `batch_size` is not necessarily the exact number
+of items in one model call. See
+[Local Duration Bucketing for Audio GPU Inference](inference/README.md) for the
+current `ASRStage` behavior, the duration-packing theory, and the integration
+contract for other GPU stages.
 
 **Choosing a good batch_size:**
 
-- **Too small** (e.g. `1`) — GPU is underutilised; kernel launch overhead
-  dominates.  Each call processes one file, losing the benefit of batching.
-- **Too large** (e.g. `1024`) — may exceed GPU memory (OOM), especially
-  with long audio files or large models.
-- **Sweet spot** — depends on model size, audio length, and GPU VRAM.
-  Start with `16` and increase until you see OOM or throughput plateaus.
-  For NeMo ASR FastConformer models, `16–64` is typical on a single GPU.
+- **Too small** (e.g. `1`) — gives the stage little opportunity to form useful
+  model batches or duration-coherent groups.
+- **Too large** (e.g. `1024`) — can increase waveform preparation and host
+  memory pressure before the stage makes any model calls.
+- **Sweet spot** — depends on the model, audio distribution, GPU memory, and
+  the stage-level audio budget. Tune with representative inputs rather than
+  treating the backend window as the model batch size.
 
 ## What you must always declare
 
@@ -252,8 +265,9 @@ process_batch(list[AudioTask]) -> list[AudioTask]
   with N tasks.
 - `process` is the natural single-task hook for CPU stages — no
   boilerplate to handle lists.
-- GPU/IO stages override `process_batch` to receive the full batch for
-  one batched kernel call.  Their `process()` raises
+- GPU/IO stages override `process_batch` to receive the full backend batch and
+  organize its work efficiently. A stage may issue one or more bounded model
+  calls from that candidate window. Their `process()` raises
   `NotImplementedError`, matching the dedup-stage convention
   (`ConnectedComponentsStage`, `KMeansReadFitWriteStage`, etc.).
 
@@ -346,10 +360,12 @@ For a GPU stage with `resources=Resources(cpus=1.0, gpus=1.0)` and
                         └─────────────────────────────────────────┘
 ```
 
-Each `process_batch([16 tasks])` call goes directly to:
-`ASRStage.process_batch` → validate and load the current task waveforms →
-`NeMoASRAdapter.transcribe_batch` → **one** batched NeMo call → mutate each
-task in-place.
+Each `process_batch([16 tasks])` call goes through:
+`ASRStage.process_batch` → validate, load, and model-safely segment the current
+waveforms → plan capacity-bounded adapter calls across all segments in this
+window → `NeMoASRAdapter.transcribe_batch` once per planned call → stitch
+segments and restore parent-task order. `batch_size=16` therefore defines the
+planning window, not a guarantee of exactly one 16-item NeMo call.
 
 ### Xenna specifics
 
@@ -398,10 +414,11 @@ pipeline.run(executor)
 | Level | What it controls | Who sets it |
 |---|---|---|
 | **Worker count** | How many parallel copies of your stage run (one per CPU core or GPU) | The backend, based on `stage.resources` and available hardware |
-| **`batch_size`** | How many tasks each worker processes per call | The stage author (domain knowledge about optimal GPU batch size) |
+| **`batch_size`** | Maximum candidate tasks supplied to each worker's `process_batch` call | The stage author |
 
-Total in-flight = `num_workers x batch_size`.  For 4 GPUs with
-`batch_size=16`, that is 64 audio files being processed concurrently.
+Maximum candidate tasks in flight = `num_workers x batch_size`. For 4 GPUs
+with `batch_size=16`, up to 64 audio files can be inside stage calls at once.
+The stage may split each candidate window into smaller model calls.
 
 ## How `batch_size` travels from your stage to the backend
 
@@ -527,7 +544,7 @@ pipeline.run(executor)
 │         → models/asr/nemo_asr.py                      NeMoASRAdapter.load_model(num_gpus=1)
 │           ASRModel.from_pretrained(model_name=model_id, map_location=cuda)
 │
-├─ Per batch (batch_size=16, so 16 AudioTask tasks per call):
+├─ Per backend batch (batch_size=16, so up to 16 candidate tasks per call):
 │   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
 │     → backends/base.py                             BaseStageAdapter.process_batch(tasks)
 │         ├─ start perf timer
@@ -539,14 +556,14 @@ pipeline.run(executor)
 │   │  ASRStage.process_batch()                    (generic batched GPU stage)
 │   │    stages/audio/inference/asr/stage.py
 │   │    validate_input(task) per task              schema check
-│   │    load and normalize the current 16 waveforms
-│   │    adapter.transcribe_batch(items)
-│   │      → models/asr/nemo_asr.py
-│   │        self._model.transcribe(audio=waveforms, batch_size=16)
-│   │          → ONE batched NeMo inference call
-│   │        return list[ASRResult]
-│   │    for task, result in zip(tasks, results):
-│   │      task.data[self.pred_text_key] = result.text
+│   │    load and normalize up to 16 current waveforms
+│   │    split every waveform at max_inference_duration_s
+│   │    plan calls bounded by max_audio_sec_per_actor
+│   │    for each planned call:
+│   │      adapter.transcribe_batch(items)
+│   │        → models/asr/nemo_asr.py
+│   │          self._model.transcribe(audio=waveforms, batch_size=len(items))
+│   │    restore segment order, stitch parent transcripts, and update tasks
 │   └─ return tasks                                 → same 16 AudioTask objects
 ```
 
@@ -656,10 +673,11 @@ AudioTask(
 
 ### Stage 2: `ASRStage` + `NeMoASRAdapter` (GPU)
 
-The generic stage loads and normalizes each current-batch waveform; the NeMo
-adapter loads `nvidia/parakeet-tdt-0.6b-v2` onto the GPU and runs one batched
-`transcribe()` call for 16 `AudioTask`s. The stage writes predictions back
-**in-place**.
+The generic stage loads and normalizes each current-batch waveform, performs
+model-safe segmentation, and plans capacity-bounded calls from the current
+candidate window. The NeMo adapter loads `nvidia/parakeet-tdt-0.6b-v2` onto the
+GPU and runs one batched `transcribe()` per planned call. The stage stitches
+segments, restores parent order, and writes predictions back **in-place**.
 
 **Output** — `data` gains `pred_text`:
 
