@@ -44,3 +44,10 @@ data_setups:
       --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
       --cache-dir {datasets_path}/_hf_cache/audio_sortformer
       --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+  - name: read_speech
+    enabled: true
+    script: prepare_readspeech_data.py
+    args: >-
+      --output-path {datasets_path}/read_speech
+      --num-parts 3
