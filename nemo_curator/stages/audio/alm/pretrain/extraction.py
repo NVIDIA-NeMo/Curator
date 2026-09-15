@@ -23,7 +23,7 @@ import os
 import tarfile
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import soundfile as sf
@@ -31,6 +31,7 @@ import torch
 import torchaudio.functional as taf
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.alm.pretrain.planning import relativize_segments
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Slice the source audio per snippet plan, mono-resample, and write into a tar.
 
     For each planned snippet:
@@ -98,6 +99,15 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SnippetExtraction"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            lifecycle_side_effects=True,
+            output_path_params=["output_dir", "output_audio_tar_path"],
+            requires_stable_task_id=True,
+            per_row_independent=False,
+        )
+    )
 
     def __post_init__(self) -> None:
         if self.output_format not in _SOUNDFILE_SUBTYPES:
@@ -113,25 +123,56 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, _PLAN_DATA_KEY]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "snippet_id", "duration", "segments"]
+        return [], ["id", "snippet_id", "duration", "segments"]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key, _PLAN_DATA_KEY], accepts=["file"]),
+            writes=IOSpec(
+                data_keys=["id", "snippet_id", "duration", "segments"],
+                # Disk output only happens when not dry-running; keep this consistent
+                # with the writes_to_disk gate below.
+                produces=[] if self.dry_run else ["disk"],
+            ),
+            cardinality="1:N fan-out",
+            iteration_key=_PLAN_DATA_KEY,
+            preserves_upstream_keys=False,
+            removes_keys=["alignment", _PLAN_DATA_KEY, "audio_size", "resampled_audio_filepath"],
+            gates=Gates(
+                writes_to_disk=not self.dry_run,
+                lifecycle_side_effects=not self.dry_run,
+                output_path_params=["output_dir", "output_audio_tar_path"],
+                # ``task.data["id"]`` is preferred, but its documented fallback
+                # is framework task.task_id and that value enters durable
+                # snippet/member names. A manifest resume creates new task ids,
+                # so candidate boundaries must conservatively refuse this suffix.
+                requires_stable_task_id=True,
+                # Real extraction appends every row into one shared corpus tar.
+                # A delta suffix cannot safely treat that durable output as a
+                # row-independent replacement. Dry-run has no shared side effect.
+                per_row_independent=self.dry_run,
+            ),
+        )
 
     def setup_on_node(
         self,
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
+        if self.dry_run:
+            return
         os.makedirs(self.output_dir, exist_ok=True)
         parent = os.path.dirname(self.output_audio_tar_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        if self.dry_run:
+            return
         os.makedirs(self.output_dir, exist_ok=True)
         parent = os.path.dirname(self.output_audio_tar_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        if self.dry_run:
-            return
         self._tar_shard_path = _make_shard_path(self.output_audio_tar_path, _TAR_SHARD_EXT)
         # The TarFile stays open for the worker's lifetime and is closed in
         # teardown(); a context manager isn't usable here without making every
@@ -275,18 +316,10 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             tarinfo = tarfile.TarInfo(name=member_name)
             tarinfo.size = len(payload)
             self._tar.addfile(tarinfo, io.BytesIO(payload))
-            # Flush the tar's BufferedWriter so this member's bytes hit
-            # the kernel page cache. Cosmos-Xenna shuts actors down with
-            # `ray.kill()` (see lines 74, 1220, 1473 and
-            # cosmos_xenna/ray_utils/actor_pool.py), which does a Quick
-            # exit that bypasses Python cleanup. Anything still in the
-            # user-space buffer at kill time is lost. Page cache survives
-            # process death — the downstream merger reads back the same
-            # file and gets every fully-completed member regardless of
-            # whether teardown() ever ran. Without this flush, ~50%+ of
-            # snippets per shard get dropped during _merge_tar_shards's
-            # Pass 2 streaming because their data sections are truncated
-            # on disk.
+            # Flush so this member reaches the page cache, which survives process death.
+            # Cosmos-Xenna kills actors with ``ray.kill()``, bypassing Python cleanup, so
+            # anything left in the user-space buffer is lost -- without this, 50%+ of snippets
+            # per shard arrive truncated and are dropped by _merge_tar_shards.
             self._tar.fileobj.flush()
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] failed to add {member_name} to tar shard {self._tar_shard_path}: {e}")
@@ -314,6 +347,7 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         # Drop source-file-specific fields that don't apply to the snippet.
         new_data.pop("audio_size", None)
         new_data.pop("resampled_audio_filepath", None)
+        new_data["id"] = str(new_data.get("id") or task.task_id)
         new_data["snippet_id"] = snippet_id
         new_data[self.audio_filepath_key] = out_path
         new_data["duration"] = duration
@@ -341,7 +375,7 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _make_stub_task(self, task: AudioTask) -> AudioTask:
-        original_id = task.data.get("id")
+        original_id = str(task.data.get("id") or task.task_id)
         stub_data: dict = {
             "id": original_id,
             "snippet_id": None,

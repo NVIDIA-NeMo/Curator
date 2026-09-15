@@ -35,11 +35,13 @@ Output control uses two layers:
   always blocked, even if accidentally added to ``passthrough_keys``.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -53,6 +55,46 @@ _NEVER_PASS_KEYS = frozenset(
         "segments",
     }
 )
+
+
+def _segment_bounds(seg: Any) -> tuple[float, float] | None:  # noqa: ANN401 - shape is the point
+    """``(start_sec, end_sec)`` from either segment shape, or ``None`` if unreadable.
+
+    Two producers, two shapes. VAD and SpeakerSep emit ``[start, end]`` pairs; the diarizers
+    emit ``{start, end, speaker}`` dicts (``InferenceSortformerStage.diarize`` is typed
+    ``list[list[dict[str, Any]]]``). Reading only pairs raised ``KeyError: 0`` on real
+    diarizer output, so a diarize->map pipeline died where it should merely have worked.
+
+    Unreadable segments return ``None`` rather than raising: one malformed entry should be
+    skipped, not take down a whole batch.
+    """
+    if isinstance(seg, Mapping):
+        start, end = seg.get("start"), seg.get("end")
+    else:
+        try:
+            start, end = seg[0], seg[1]
+        except (TypeError, IndexError, KeyError):
+            return None
+    try:
+        return float(start), float(end)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ordered_segments(diar_segments: Any) -> list[tuple[Any, float, float]]:  # noqa: ANN401 - shape is the point
+    """``(original_segment, start, end)`` for each readable segment, earliest first.
+
+    The original is carried alongside its bounds so the output can echo the shape it was
+    given -- rewriting a diarizer's ``{start, end, speaker}`` as a bare pair would throw away
+    the speaker label, which is the one thing a diarization pipeline is run for.
+    """
+    out = []
+    for seg in diar_segments or []:
+        bounds = _segment_bounds(seg)
+        if bounds is not None:
+            out.append((seg, bounds[0], bounds[1]))
+    return sorted(out, key=lambda t: t[1])
+
 
 _DEFAULT_PASSTHROUGH_KEYS: list[str] = [
     "speaker_id",
@@ -102,7 +144,7 @@ def _translate_to_original(
 
 
 @dataclass
-class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
+class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Normalize task data at the pipeline output boundary.
 
@@ -124,6 +166,17 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     passthrough_keys: list[str] | None = field(default=None)
+    audio_filepath_key: str = "audio_filepath"
+    original_file_key: str = "original_file"
+    original_start_ms_key: str = "original_start_ms"
+    original_end_ms_key: str = "original_end_ms"
+    duration_ms_key: str = "duration_ms"
+    duration_key: str = "duration"
+    start_ms_key: str = "start_ms"
+    end_ms_key: str = "end_ms"
+    diar_segments_key: str = "diar_segments"
+    speaking_duration_key: str = "speaking_duration"
+    mappings_key: str = "segment_mappings"
     name: str = "TimestampMapper"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
@@ -144,38 +197,157 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["original_file", "original_start_ms", "original_end_ms", "duration_ms", "duration"]
+        return [], [
+            self.original_file_key,
+            self.original_start_ms_key,
+            self.original_end_ms_key,
+            self.duration_ms_key,
+            self.duration_key,
+        ]
+
+    def describe(self) -> StageContract:
+        always_constructed = {
+            self.original_file_key,
+            self.original_start_ms_key,
+            self.original_end_ms_key,
+            self.duration_ms_key,
+            self.duration_key,
+        }
+        passthrough_keys = list(
+            dict.fromkeys(
+                key
+                for key in (self.passthrough_keys or [])
+                if key not in _NEVER_PASS_KEYS and key not in always_constructed
+            )
+        )
+        conditional_writes = [
+            ConditionalWrite(
+                writes=IOSpec(
+                    data_keys=[
+                        self.original_file_key,
+                        self.original_start_ms_key,
+                        self.original_end_ms_key,
+                        self.duration_ms_key,
+                        self.duration_key,
+                    ]
+                ),
+                condition=(
+                    "the mapper resolves a valid mapping/timing branch or its no-mapping fallback "
+                    "and successfully emits an output row"
+                ),
+            ),
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.diar_segments_key]),
+                condition=(
+                    "mappings are absent or empty, no valid start/end branch takes priority, "
+                    "at least one readable diarization segment exists, and the mapper emits an output row"
+                ),
+                value_origin="transforms_upstream_same_key",
+            ),
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.speaking_duration_key]),
+                condition=(
+                    "mappings are absent or empty, no valid start/end branch takes priority, "
+                    "at least one readable diarization segment exists, and speaking duration is assigned"
+                ),
+            ),
+        ]
+        if passthrough_keys:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=passthrough_keys),
+                    condition=(
+                        "the same input key is present, non-null, allowed by passthrough_keys, "
+                        "not safety-blocked, not already constructed as a core output, "
+                        "and the mapper successfully emits an output row"
+                    ),
+                    value_origin="upstream_same_key",
+                )
+            )
+        return StageContract(
+            # original_file is optional-with-fallback in every branch (process()
+            # falls back to audio_filepath / 'unknown'), so it must NOT gate
+            # composition — requiring it false-rejected runnable topologies.
+            reads_one_of=[
+                IOSpec(data_keys=[self.start_ms_key, self.end_ms_key]),
+                IOSpec(data_keys=[self.diar_segments_key]),
+                IOSpec(data_keys=[self.duration_key]),
+            ],
+            writes=IOSpec(
+                data_keys=[
+                    self.original_file_key,
+                    self.original_start_ms_key,
+                    self.original_end_ms_key,
+                    self.duration_ms_key,
+                    self.duration_key,
+                    self.diar_segments_key,
+                    self.speaking_duration_key,
+                ]
+            ),
+            # This stage builds its output from an allowlist (``passthrough_keys``) and hard-
+            # blocks _NEVER_PASS_KEYS, so no waveform or audio blob can leave it -- exactly what
+            # ``sanitizes_output`` means. Leaving it unset made the validator report
+            # ``tensor_into_sink`` against a JSON sink placed after this stage, i.e. it refused a
+            # pipeline that was already safe.
+            gates=Gates(
+                sanitizes_output=True,
+                # The concat->original mappings are read from THIS task's ``_metadata``, so every
+                # position it resolves comes from the row it was handed.
+                per_row_independent=True,
+            ),
+            metadata_reads=[self.mappings_key],
+            preserves_upstream_keys=False,
+            conditional_writes=conditional_writes,
+        )
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        mappings = (task._metadata or {}).get("segment_mappings")
+        mappings = (task._metadata or {}).get(self.mappings_key)
         item = task.data
 
         if mappings:
-            concat_start = item.get("start_ms", 0)
-            concat_end = item.get("end_ms", 0)
-            if concat_end <= concat_start:
-                logger.warning(
-                    f"[TimestampMapper] Skipping task with invalid range: start_ms={concat_start}, end_ms={concat_end}"
-                )
-                return []
-            original_ranges = _translate_to_original(mappings, concat_start, concat_end)
-
-            if len(original_ranges) > 1:
-                logger.debug(
-                    f"[TimestampMapper] Rejecting segment "
-                    f"[{concat_start}-{concat_end}ms] that spans "
-                    f"{len(original_ranges)} concat mappings"
-                )
-                return []
-
-            if len(original_ranges) == 1:
-                result = self._build_output_item(item, original_ranges[0])
+            # start_ms/end_ms is the precise per-segment range, so map it first and fall back
+            # to coarser diar_segments only when absent. Both VAD sources run on a full-length
+            # signal, so these are always concat-time and map directly. Do NOT treat the
+            # presence of diar_segments as a signal to offset instead: that collapsed every
+            # per-speaker VAD sub-segment onto the diar union.
+            start_ms = item.get(self.start_ms_key)
+            end_ms = item.get(self.end_ms_key)
+            diar_segments = item.get(self.diar_segments_key)
+            if start_ms is not None and end_ms is not None:
+                if end_ms <= start_ms:
+                    logger.warning(
+                        f"[TimestampMapper] Skipping task with invalid range: start_ms={start_ms}, end_ms={end_ms}"
+                    )
+                    return []
+                original_ranges = _translate_to_original(mappings, start_ms, end_ms)
+                if len(original_ranges) > 1:
+                    logger.warning(
+                        f"[TimestampMapper] Rejecting segment "
+                        f"[{start_ms}-{end_ms}ms] that spans "
+                        f"{len(original_ranges)} concat mappings"
+                    )
+                    return []
+                if len(original_ranges) == 1:
+                    result = self._build_output_item(item, original_ranges[0])
+                else:
+                    logger.warning(
+                        f"[TimestampMapper] No overlapping mappings for task {task.task_id} "
+                        f"[{start_ms}-{end_ms}ms], dropping"
+                    )
+                    return []
             else:
-                logger.warning(
-                    f"[TimestampMapper] No overlapping mappings for task {task.task_id} "
-                    f"[{concat_start}-{concat_end}ms], dropping"
-                )
-                return []
+                if not diar_segments:
+                    logger.warning(
+                        f"[TimestampMapper] Task {task.task_id} has mappings but no start_ms/end_ms "
+                        f"or diar_segments to resolve against, dropping"
+                    )
+                    return []
+                result = self._build_output_from_diar_and_mappings(item, diar_segments, mappings)
+                if result is None:
+                    logger.warning(
+                        f"[TimestampMapper] No overlapping mappings for diar segments in task {task.task_id}, dropping"
+                    )
+                    return []
         else:
             result = self._build_output_item_no_mapping(item)
 
@@ -192,63 +364,96 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {
-            "original_file": orig["original_file"],
-            "original_start_ms": orig["original_start_ms"],
-            "original_end_ms": orig["original_end_ms"],
-            "duration_ms": orig["duration_ms"],
-            "duration": orig["duration_ms"] / 1000.0,
+            self.original_file_key: orig["original_file"],
+            self.original_start_ms_key: orig["original_start_ms"],
+            self.original_end_ms_key: orig["original_end_ms"],
+            self.duration_ms_key: orig["duration_ms"],
+            self.duration_key: orig["duration_ms"] / 1000.0,
         }
+        self._copy_passthrough(item, result)
+        return result
+
+    def _build_output_from_diar_and_mappings(
+        self,
+        item: dict[str, Any],
+        diar_segments: list,
+        mappings: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Compose concat-time diar segments through concat->original mappings.
+
+        Each diar segment is ``[start_sec, end_sec]`` in concatenated time.
+        We translate every segment to original-file time and span the union.
+        Returns ``None`` if no segment overlaps any mapping.
+        """
+        ranges: list[dict[str, Any]] = []
+        for _seg, start_sec, end_sec in _ordered_segments(diar_segments):
+            ranges.extend(_translate_to_original(mappings, int(start_sec * 1000), int(end_sec * 1000)))
+        if not ranges:
+            return None
+        result: dict[str, Any] = {
+            self.original_file_key: ranges[0]["original_file"],
+            self.original_start_ms_key: min(r["original_start_ms"] for r in ranges),
+            self.original_end_ms_key: max(r["original_end_ms"] for r in ranges),
+        }
+        result[self.duration_ms_key] = result[self.original_end_ms_key] - result[self.original_start_ms_key]
+        result[self.duration_key] = result[self.duration_ms_key] / 1000.0
         self._copy_passthrough(item, result)
         return result
 
     def _build_output_item_no_mapping(self, item: dict[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {
-            "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
+            self.original_file_key: item.get(self.original_file_key, item.get(self.audio_filepath_key, "unknown")),
         }
 
-        start_ms = item.get("start_ms")
-        end_ms = item.get("end_ms")
+        start_ms = item.get(self.start_ms_key)
+        end_ms = item.get(self.end_ms_key)
 
         if start_ms is not None and end_ms is not None and end_ms > start_ms:
-            result["original_start_ms"] = int(start_ms)
-            result["original_end_ms"] = int(end_ms)
-            result["duration_ms"] = int(end_ms - start_ms)
-            result["duration"] = (end_ms - start_ms) / 1000.0
+            result[self.original_start_ms_key] = int(start_ms)
+            result[self.original_end_ms_key] = int(end_ms)
+            result[self.duration_ms_key] = int(end_ms - start_ms)
+            result[self.duration_key] = (end_ms - start_ms) / 1000.0
             self._copy_passthrough(item, result)
             return result
 
-        diar_segments = item.get("diar_segments")
-        if diar_segments and len(diar_segments) > 0:
-            diar_segments = sorted(diar_segments, key=lambda x: x[0])
-            first_start = diar_segments[0][0]
-            last_end = diar_segments[-1][1]
-            result["original_start_ms"] = int(first_start * 1000)
-            result["original_end_ms"] = int(last_end * 1000)
-            result["duration_ms"] = int((last_end - first_start) * 1000)
-            result["duration"] = last_end - first_start
-            speaking = sum(end - start for start, end in diar_segments)
-            result["speaking_duration"] = round(speaking, 3)
-            result["diar_segments"] = [[round(s, 3), round(e, 3)] for s, e in diar_segments]
+        ordered = _ordered_segments(item.get(self.diar_segments_key))
+        if ordered:
+            first_start = ordered[0][1]
+            # max, not the last segment's end: diarized speech overlaps, so the segment that
+            # starts last does not necessarily finish last.
+            last_end = max(end for _s, _st, end in ordered)
+            result[self.original_start_ms_key] = int(first_start * 1000)
+            result[self.original_end_ms_key] = int(last_end * 1000)
+            result[self.duration_ms_key] = int((last_end - first_start) * 1000)
+            result[self.duration_key] = last_end - first_start
+            result[self.speaking_duration_key] = round(sum(end - start for _s, start, end in ordered), 3)
+            # Echo the shape we were handed, so a diarizer's speaker labels survive.
+            result[self.diar_segments_key] = [
+                {**seg, "start": round(start, 3), "end": round(end, 3)}
+                if isinstance(seg, Mapping)
+                else [round(start, 3), round(end, 3)]
+                for seg, start, end in ordered
+            ]
             self._copy_passthrough(item, result)
             return result
 
-        dur = item.get("duration")
+        dur = item.get(self.duration_key)
         if dur is not None and float(dur) > 0:
             duration_ms = int(float(dur) * 1000)
-            result["original_start_ms"] = 0
-            result["original_end_ms"] = duration_ms
-            result["duration_ms"] = duration_ms
-            result["duration"] = float(dur)
+            result[self.original_start_ms_key] = 0
+            result[self.original_end_ms_key] = duration_ms
+            result[self.duration_ms_key] = duration_ms
+            result[self.duration_key] = float(dur)
         else:
             logger.warning(
                 f"[TimestampMapper] No timing information found for "
-                f"{result['original_file']!r} — emitting zero-duration row. "
+                f"{result[self.original_file_key]!r} — emitting zero-duration row. "
                 f"This may indicate a corrupted or zero-length source file."
             )
-            result["original_start_ms"] = 0
-            result["original_end_ms"] = 0
-            result["duration_ms"] = 0
-            result["duration"] = 0.0
+            result[self.original_start_ms_key] = 0
+            result[self.original_end_ms_key] = 0
+            result[self.duration_ms_key] = 0
+            result[self.duration_key] = 0.0
 
         self._copy_passthrough(item, result)
         return result

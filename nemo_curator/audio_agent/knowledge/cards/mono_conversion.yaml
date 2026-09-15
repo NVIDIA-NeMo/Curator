@@ -1,0 +1,56 @@
+stage_id: MonoConversionStage
+category: preprocess
+summary: "Convert audio to mono. Optionally VERIFY the sample rate (drops non-matching rows) -- it does NOT resample; use ResampleAudioStage to change the rate."
+tags: [is_filter]   # strict_sample_rate defaults True, so a rate mismatch DROPS the row. Disk output is opt-in (write_to_disk), so no writes_disk tag.
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU (scipy/soundfile)"
+use_cases:
+  good_for: ["normalizing stereo/multi-channel input to mono before models", "first step of a quality-filter chain when data is already at the target rate"]
+  avoid_for:
+    - "changing the sample rate -- this stage only VERIFIES and DROPS mismatches; use ResampleAudioStage to actually resample"
+    - "data already mono at the target rate"
+composition:
+  typical_upstream: [ManifestReader, CreateInitialManifestReadSpeechStage, ResampleAudioStage]
+  typical_downstream: [VADSegmentationStage, BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage]
+params_of_note:
+  output_sample_rate: "sample rate to VERIFY against (default 48000). NOT a resample target -- the stage never resamples."
+  strict_sample_rate: "if True (DEFAULT), any row whose rate != output_sample_rate is DROPPED (process returns []); set False to skip the check and keep all rows. WARNING: with the defaults (48000 / True), 16 kHz input is silently dropped -- resample first with ResampleAudioStage or set output_sample_rate to match your data."
+  keep_waveform_in_task: "keep the mono waveform in the task for the next stage (default True; in-memory, no disk)."
+  write_to_disk: "OPT-IN (default False): also write the mono WAV to disk (pair with output_dir). Off by default -- that is why this card is not tagged writes_disk."
+semantic_facts:
+  output_sample_rate:
+    meaning: "The rate the stage VERIFIES against -- NOT a resample target. This stage converts to mono only; it never changes the sample rate."
+    unit: "Hz (integer; the expected rate)"
+    provenance: "A configured expectation (default 48000), compared against each row's actual rate."
+    scope: "a verification threshold, not a produced value"
+    propagation: "With strict_sample_rate=True (default), a row whose rate != output_sample_rate is DROPPED (process returns []); it is never converted."
+    counterexamples:
+      - "Setting output_sample_rate=16000 does NOT resample 48 kHz audio to 16 kHz -- it drops the 48 kHz rows. Use ResampleAudioStage to actually change the rate."
+  waveform:
+    meaning: "The mono (channel-mixed-down) waveform of the input -- a transformed copy, same sample rate as the input."
+    unit: "in-memory float tensor + sample_rate"
+    provenance: "scipy/soundfile channel mixdown to mono; rate is unchanged from the input."
+    scope: "this task's audio, converted to a single channel"
+    propagation: "Present when keep_waveform_in_task=True (default); consumed by the next stage."
+    counterexamples:
+      - "This is a transform (stereo->mono), not a filter; and it does not alter the sample rate."
+param_dependencies:
+  strict_sample_rate: "when True, requires input already at output_sample_rate (this stage does not resample) -- insert ResampleAudioStage upstream to convert."
+  write_to_disk: "set output_dir when True; leave keep_waveform_in_task=True to also hand the waveform to the next stage."
+comparison:
+  ChannelCountStage: "does the channel half of this stage ALONE, with no rate gate, and says which of record/select/convert it is doing via its action (it can also upmix to a requested count). Three stages now overlap here and the choice is easy to get wrong: pick this one only when a single-rate gate and a mono downmix are wanted TOGETHER, which is the one thing it does that they cannot. Otherwise prefer the separate stages -- it is the coupling that surprises people, not the mixdown."
+  SampleRateFilterStage: "does the rate half alone, and SELECTS rates rather than requiring exactly one. It also records each row's rate. Use it with ChannelCountStage when rate policy and channel policy should be set independently, or when more than one rate is acceptable."
+  ResampleAudioStage: "actually CONVERTS the rate instead of dropping mismatches, via ffmpeg on disk. Put it upstream of this stage, or use it instead, whenever the answer to a rate mismatch is 'convert it', not 'discard it'."
+notes:
+  - "Mono conversion only (channel mixdown). It does NOT resample: with strict_sample_rate=True (default) a rate != output_sample_rate is DROPPED, not converted. For actual rate conversion use ResampleAudioStage."
+  - "This stage is TWO policies in one: a mono downmix and a strict single-rate gate. That coupling is why the default silently discards a 16 kHz corpus. ChannelCountStage and SampleRateFilterStage split the same work in two so each can be set on its own, and each names whether it is measuring, selecting or converting."
+  - "Disk output is OPT-IN (write_to_disk=False by default); the default keeps the mono waveform in the task, so the card carries no writes_disk tag (matching SpeakerSeparation/SegmentConcatenation)."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 5, last_validated: "2026-07-30"}

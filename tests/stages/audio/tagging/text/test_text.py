@@ -13,7 +13,12 @@
 # limitations under the License.
 
 from collections.abc import Callable
+from unittest.mock import MagicMock
 
+import pytest
+
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
 from nemo_curator.tasks import AudioTask
 
@@ -43,3 +48,51 @@ class TestChineseConversionStage:
         result = stage.process(task)
         out = result.data
         assert "text_simplified" not in out["segments"][0]
+
+    @pytest.mark.parametrize(
+        ("data", "expected"),
+        [
+            ({"segments": [{}]}, None),
+            ({"segments": []}, None),
+            ({"segments": [{"text": "漢字"}]}, "汉字"),
+        ],
+        ids=["missing-text", "empty-segments", "populated"],
+    )
+    def test_agent_ready_conditional_nested_output(
+        self,
+        data: dict,
+        expected: str | None,
+    ) -> None:
+        stage = ChineseConversionStage()
+        converter = MagicMock()
+        converter.convert.return_value = "汉字"
+        stage._converter = converter
+        task = AudioTask(dataset_name="test", data=data)
+
+        contract = assert_agent_ready(
+            stage,
+            lambda: task,
+            segments_key="segments",
+        )
+
+        assert contract.reads.data_keys == ["segments"]
+        assert contract.writes.segment_data_keys == []
+        assert len(contract.conditional_writes) == 1
+        assert contract.conditional_writes[0].writes.segment_data_keys == ["text_simplified"]
+        if expected is None:
+            assert all(
+                "text_simplified" not in segment for segment in task.data.get("segments", [])
+            )
+        else:
+            assert task.data["segments"][0]["text_simplified"] == expected
+
+    def test_planner_does_not_guarantee_conditional_nested_output(self) -> None:
+        report = validate_pipeline(
+            [ChineseConversionStage()],
+            initial_roles={"segments"},
+            initial_keys={"segments"},
+            initial_task_type="AudioTask",
+        )
+
+        assert report.ok
+        assert "text_simplified" not in report.produced_keys

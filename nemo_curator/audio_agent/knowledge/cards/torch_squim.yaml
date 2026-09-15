@@ -1,0 +1,54 @@
+stage_id: TorchSquimQualityMetricsStage
+category: quality
+summary: "Estimate reference-free PESQ / STOI / SI-SDR with the torchaudio SQUIM model; write to metrics (annotate-only)."
+tags: [produces_score, needs_internet_first_run, batch_only]
+model_id: "torchaudio SQUIM (objective) - squim_objective_dns2020"
+model_version: "torchaudio SQUIM_OBJECTIVE (squim_objective_dns2020.pth)"
+domain: {language: any, style: speech}
+constraints: {}   # no supported_sample_rates constraint: any input rate is accepted and resampled internally to target_sr (16000) for the SQUIM model, so no upstream ResampleAudioStage is required
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.4   # measured on RTX 4090 (~0.32 GB reserved for a single 6 s clip)
+  gpu_optional: true
+  bound: gpu
+  throughput_hint: "batched GPU inference; default resources request 1 GPU (set Resources(gpus=0) for CPU)"
+use_cases:
+  good_for: ["reference-free OBJECTIVE quality estimates (PESQ/STOI/SI-SDR proxies)", "curation when you want objective signal metrics rather than a MOS", "scoring an in-memory waveform straight from a producer (SpeakerSeparation/SegmentConcatenation) via input_residency, without a disk round-trip"]
+  avoid_for: ["non-speech audio", "when you need a single overall MOS (use UTMOS) or fine-grained P.804 dimensions (use SIGMOS)"]
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage, SpeakerSeparationStage, SegmentConcatenationStage]
+  typical_downstream: [PreserveByValueStage, AudioToDocumentStage]
+params_of_note:
+  audio_filepath_key: "input audio path key (default resampled_audio_filepath); required unless input_residency supplies an in-memory waveform. Segments alone are never enough."
+  input_residency: "'file' (default; read audio_filepath_key), 'waveform' (in-memory waveform_key+sample_rate_key only), or 'auto' (waveform first, file fallback). Lets SQUIM score a resident waveform without a disk round-trip."
+  waveform_key: "in-memory waveform tensor key (default 'waveform'); consumed when input_residency is 'waveform'/'auto'."
+  sample_rate_key: "sample-rate key for the in-memory waveform (default 'sample_rate')."
+  target_sr: "sample rate fed to SQUIM (default 16000). Input of ANY rate is loaded at native rate and resampled to target_sr internally -- no upstream ResampleAudioStage needed. Keep 16000 (SQUIM_OBJECTIVE only supports 16 kHz)."
+  compute_batch_size: "waveforms per GPU inference call (default 32)"
+  segments_key: "per-segment scoring key (default segments); segments with speaker=='no-speaker' or empty text are skipped"
+param_dependencies:
+  input_residency: "'waveform'/'auto' require waveform_key+sample_rate_key on the task (e.g. from SpeakerSeparationStage or SegmentConcatenationStage with keep_waveform_in_task=True); 'file' requires audio_filepath_key."
+metrics:
+  pesq_squim:                                   # written nested under metrics_key (default 'metrics')
+    scale: {min: 1.0, max: 4.5, direction: higher_better}
+    valid_range: [1.0, 4.64]                    # WB-PESQ estimate (external)
+  stoi_squim:
+    scale: {min: 0.0, max: 1.0, direction: higher_better}
+    valid_range: [0.0, 1.0]                     # intelligibility (external ~0.25-1.0)
+  sisdr_squim:
+    scale: {min: -20.0, max: 40.0, direction: higher_better}
+    valid_range: [-18.0, 35.0]                  # dB (external)
+comparison:
+  language_support: "language-agnostic (objective signal quality; speech only)"
+  accuracy_hint: "objective PESQ/STOI/SI-SDR ESTIMATES (a different family than the MOS predictors UTMOS/SIGMOS)"
+  latency_hint: "heavier than UTMOS; model inference (lower VRAM than SIGMOS)"
+  config_complexity: "low-medium"
+  choose_when: "you want objective signal-quality proxies (PESQ/STOI/SI-SDR) without a reference. For a perceptual MOS use UTMOS; for 7-dimension P.804 quality use SIGMOS."
+  known_limitations: "speech-only; ESTIMATES, not true reference-based measurements; batch-only; annotate-only (filter downstream with PreserveByValueStage)"
+notes:
+  - "BATCH_ONLY: process() raises; only process_batch runs -- cannot be used in single-task pipelines."
+  - "Annotate-only: writes metrics.pesq_squim, metrics.stoi_squim, metrics.sisdr_squim (all higher = better); it does NOT drop rows. Filter downstream with PreserveByValueStage (e.g. keep metrics.pesq_squim >= 3.0)."
+  - "Downloads squim_objective_dns2020.pth from pytorch.org on first run."
+  - "(external) torchaudio SQUIM_OBJECTIVE (trained on the DNS2020 dataset; arXiv 2304.01448): reference-free WB-PESQ (~1.0-4.64), STOI (~0.25-1.0), SI-SDR (~-18..35 dB); 16 kHz only. Source: https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html"
+verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess}
+provenance: {model_card_url: "https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html", card_version: 3, last_validated: "2026-07-24"}

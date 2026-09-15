@@ -1,0 +1,38 @@
+stage_id: SplitLongAudioStage
+category: segment
+summary: "Split long audio files into smaller pieces at natural pauses to keep speech coherent."
+tags: [writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints:
+  input_duration_sweetspot_sec: {min: 1.0, max: 3600.0}   # min_len / suggested_max_len defaults
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; splits at pauses"
+use_cases:
+  good_for: ["breaking very long recordings before ASR/alignment (memory + accuracy)"]
+  avoid_for: ["already-short clips"]
+composition:
+  typical_upstream: [ResampleAudioStage, ManifestReader]
+  typical_downstream: [NeMoASRAlignerStage, JoinSplitAudioMetadataStage]
+params_of_note:
+  suggested_max_len: "target maximum chunk length in seconds (default 3600)"
+  min_len: "minimum length for any split segment (s)"
+  audio_filepath_key: "input audio path key (default resampled_audio_filepath)"
+semantic_facts:
+  split_filepaths:
+    meaning: "Paths to the on-disk audio chunks this long file was split into at natural pauses."
+    unit: "list of file paths"
+    provenance: "torchaudio-written .wav slices when the file's duration exceeds suggested_max_len; a single-element list (the original path) when it is already short enough."
+    scope: "one original recording expanded into a nested per-chunk list within the SAME task (cardinality 1:1 nested-list, NOT a per-task fan-out)"
+    propagation: "The parent audio_filepath still points at the FULL file; downstream iterates split_metadata and JoinSplitAudioMetadataStage recombines the per-chunk results."
+    counterexamples:
+      - "A short file yields split_filepaths == [original_path] (one entry, unsplit); a non-empty list does not imply the file was actually split."
+      - "This produces chunks of one recording (for ASR memory/accuracy); it is not speaker/utterance segmentation and not a filter."
+notes:
+  - "Emits split file paths/metadata under split_* keys, later recombined by JoinSplitAudioMetadataStage. Used inside SplitASRAlignJoinStage."
+verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, resource: best_guess, constraints: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-30"}

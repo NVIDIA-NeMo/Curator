@@ -1,0 +1,70 @@
+stage_id: VADSegmentationStage
+category: segment
+summary: "Silero VAD: detect speech and emit one segment per speech chunk (fan-out) or a nested segments list."
+tags: [fanout]
+model_id: "silero-vad (pip package, bundled weights; no download)"
+model_version: "silero-vad==6.2.1"   # pinned in uv.lock
+domain: {language: any, style: speech}
+constraints: {}   # no supported_sample_rates constraint: Silero runs natively at 8/16/32/48/64/96 kHz and ANY other rate is internally resampled to 16 kHz (see notes), so no upstream ResampleAudioStage is required
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.05  # measured on RTX 4090 (~0.03 GB reserved; Silero VAD is tiny)
+  gpu_optional: true
+  bound: cpu
+  throughput_hint: "lightweight; runs well on CPU (<1 ms per chunk)"
+use_cases:
+  good_for: ["removing silence", "chunking long audio into utterances", "producing per-segment units for quality scoring"]
+  avoid_for: ["when you want whole-file scores (skip VAD entirely)", "getting a speech-probability score (this stage writes segments, NOT a score)"]
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_downstream: [BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage, SegmentConcatenationStage]
+params_of_note:
+  threshold: "speech-probability threshold 0-1 (higher = stricter; default 0.5)"
+  min_duration_sec: "drop speech shorter than this (default 2.0)"
+  max_duration_sec: "force a split beyond this (default 60.0)"
+  min_interval_ms: "minimum silence gap between speech segments in ms (default 500)"
+  speech_pad_ms: "padding added before/after each speech segment in ms (default 300)"
+  nested: "True = one task with all segments under segments_key; False (default) = fan-out one task per segment"
+  keep_segment_waveform_in_task: "keep each segment's waveform in-task (default True); REQUIRED for SegmentConcatenationStage"
+semantic_facts:
+  duration:
+    meaning: "Length of ONE detected speech segment (fan-out mode) -- not the original file."
+    unit: "seconds (float)"
+    provenance: "Derived per segment from its start_ms/end_ms speech span."
+    scope: "per emitted speech-segment child; the fan-out changes granularity from file to segment"
+    propagation: "Written on each per-segment child; a child carries no original-file duration."
+    counterexamples:
+      - "After VAD fan-out, a length filter (duration > 5s) keeps SEGMENTS longer than 5s, NOT files longer than 5s."
+  original_file:
+    meaning: "Identity/path of the ORIGINAL recording each speech segment was cut from."
+    unit: "string (source identifier)"
+    provenance: "Copied from the parent task onto every child so provenance survives the fan-out."
+    scope: "original parent recording; a parent-level identity broadcast unchanged to every child segment"
+    propagation: "Identical on all children from the same source file."
+    counterexamples:
+      - "Many children share one original_file; grouping/deduping by it groups all segments of one recording, not distinct outputs."
+  segments:
+    meaning: "In nested mode (nested=True), the full list of detected speech segments for one file."
+    unit: "list of segment dicts (start_ms, end_ms, segment_num, duration, original_file)"
+    provenance: "Silero VAD speech timestamps for the whole input, mapped back to the original rate."
+    scope: "one original file (nested mode keeps 1:1 granularity); in fan-out mode this list is exploded into per-segment children instead"
+    propagation: "Present only in nested mode; consumed by SegmentConcatenationStage."
+    counterexamples:
+      - "nested=True does NOT fan out; nested=False (default) emits one task per segment -- the same stage yields different granularities."
+presets:
+  conversational: {threshold: 0.5, min_duration_sec: 1.0, max_duration_sec: 30.0}
+  read_speech: {threshold: 0.5, min_duration_sec: 2.0, max_duration_sec: 60.0}
+comparison:
+  language_support: "language-agnostic (speech-probability based; Silero supports 6000+ languages). (external)"
+  latency_hint: "very light; CPU-friendly (<1 ms per chunk)"
+  config_complexity: "low-medium (threshold + duration bounds)"
+  choose_when: "cheap, language-agnostic silence removal / utterance chunking. Use WhisperXVADStage for a model-based VAD inside a WhisperX-style pipeline."
+  known_limitations: "VAD only (no speaker labels); changes granularity to per-segment; writes segments, not a score"
+conflicts_with: [WhisperXVADStage]   # alternative VAD
+notes:
+  - "Sample rate: accepts ANY input rate. Silero runs natively at 8/16/32/48/64/96 kHz; any other rate is internally resampled to 16 kHz for VAD and the segment timestamps are mapped back to the original rate (vad_segmentation.py:57,362-372). No upstream ResampleAudioStage is required."
+  - "Segment schema: each segment dict has start_ms, end_ms, segment_num, duration, original_file (times in MILLISECONDS, not start/end seconds). This is INCOMPATIBLE with SplitLongAudioStage, which reads start/end in seconds -- use diarization segments for splitting."
+  - "For SegmentConcatenationStage, run with nested=True AND keep_segment_waveform_in_task=True (it needs per-segment waveforms)."
+  - "(external) Silero VAD: enterprise-grade, ~2 MB, bundled with the pip package (no download), 8/16 kHz native (fixed 256/512-sample windows in v5). Source: https://github.com/snakers4/silero-vad"
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
+provenance: {model_card_url: "https://github.com/snakers4/silero-vad", card_version: 5, last_validated: "2026-07-30"}

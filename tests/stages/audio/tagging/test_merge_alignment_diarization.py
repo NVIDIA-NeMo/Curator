@@ -14,6 +14,10 @@
 
 from collections.abc import Callable
 
+import pytest
+
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )
@@ -110,3 +114,69 @@ class TestMergeAlignmentDiarizationStage:
         )
         result = stage.process(task)
         assert result.data["segments"] == []
+
+    @pytest.mark.parametrize(
+        ("data", "expected"),
+        [
+            (
+                {
+                    "alignment": [],
+                    "segments": [{"speaker": "s1", "start": 0.0, "end": 1.0}],
+                },
+                None,
+            ),
+            (
+                {
+                    "alignment": [{"word": "hello", "start": 0.0, "end": 0.5}],
+                    "segments": [],
+                },
+                None,
+            ),
+            (
+                {
+                    "alignment": [{"word": "hello", "start": 0.0, "end": 0.5}],
+                    "segments": [{"speaker": "s1", "start": 0.0, "end": 1.0}],
+                },
+                "hello",
+            ),
+        ],
+        ids=["empty-alignment", "empty-segments", "populated"],
+    )
+    def test_agent_ready_conditional_nested_outputs(
+        self,
+        data: dict,
+        expected: str | None,
+    ) -> None:
+        stage = MergeAlignmentDiarizationStage()
+        task = AudioTask(dataset_name="test", data=data)
+
+        contract = assert_agent_ready(
+            stage,
+            lambda: task,
+            segments_key="segments",
+        )
+
+        assert contract.reads.data_keys == ["alignment", "segments"]
+        assert contract.writes.segment_data_keys == []
+        assert len(contract.conditional_writes) == 1
+        assert contract.conditional_writes[0].writes.segment_data_keys == ["text", "words"]
+        if expected is None:
+            assert all(
+                "text" not in segment and "words" not in segment
+                for segment in task.data.get("segments", [])
+            )
+        else:
+            assert task.data["segments"][0]["text"] == expected
+            assert task.data["segments"][0]["words"] == task.data["alignment"]
+
+    def test_planner_does_not_guarantee_conditional_nested_outputs(self) -> None:
+        report = validate_pipeline(
+            [MergeAlignmentDiarizationStage()],
+            initial_roles={"alignment", "segments"},
+            initial_keys={"alignment", "segments"},
+            initial_task_type="AudioTask",
+        )
+
+        assert report.ok
+        assert "text" not in report.produced_keys
+        assert "words" not in report.produced_keys

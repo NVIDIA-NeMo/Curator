@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING
 import pytest
 from tokenizers import Tokenizer, models, pre_tokenizers
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
     SnippetCutPlannerStage,
@@ -90,6 +92,21 @@ class TestOverlapFilterStage:
         assert meta["dropped_empty"] == 0
         assert meta["dropped_overlap"] == 0
 
+    def test_agent_ready_with_empty_and_populated_segments(self) -> None:
+        stage = OverlapFilterStage()
+        assert_agent_ready(
+            stage,
+            lambda: _make_audio_task({"id": "X", "segments": [_ts(0, 2), _ts(3, 5)]}),
+            expected_cardinality="1:1",
+            available_keys={"segments"},
+        )
+        assert_agent_ready(
+            stage,
+            lambda: _make_audio_task({"id": "X", "segments": []}),
+            expected_cardinality="1:1",
+            available_keys={"segments"},
+        )
+
 
 # ----------------------------------------------------------------------
 # SnippetCutPlannerStage
@@ -120,6 +137,21 @@ class TestSnippetCutPlannerStage:
             SnippetCutPlannerStage(max_duration_sec=5.0, min_duration_sec=10.0).__post_init__()
         with pytest.raises(ValueError, match="max_segment_gap_in_snippet"):
             SnippetCutPlannerStage(max_segment_gap_in_snippet=-0.1).__post_init__()
+
+    def test_agent_ready_populated_and_empty_plan(self) -> None:
+        stage = SnippetCutPlannerStage(max_duration_sec=20.0)
+        assert_agent_ready(
+            stage,
+            lambda: _make_audio_task({"id": "X", "segments": [_ts(0, 5), _ts(5, 10)]}),
+            expected_cardinality="1:1",
+            available_keys={"segments"},
+        )
+        assert_agent_ready(
+            stage,
+            lambda: _make_audio_task({"id": "X", "segments": []}),
+            expected_cardinality="1:1",
+            available_keys={"segments"},
+        )
 
 
 # ----------------------------------------------------------------------
@@ -261,3 +293,37 @@ class TestSnippetRepetitionFilterStage:
         # Counters identical (overwrite semantics, not append).
         assert meta2["dropped_repetition"] == first_count
         assert meta2["filtered_repetition_texts"] == first_texts
+
+    def test_agent_ready_with_local_tokenizer(self, tokenizer_dir: Path) -> None:
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))
+        plan = [{"start": 0.0, "end": 5.0, "segments": [_ts(0.0, 5.0, "the quick brown fox")]}]
+        assert_agent_ready(
+            stage,
+            lambda: self._make_task_with_plan(plan),
+            expected_cardinality="1:1",
+            available_keys={_PLAN_DATA_KEY},
+            setup=True,
+        )
+
+    def test_static_and_configured_network_and_secret_hints(self, tokenizer_dir: Path) -> None:
+        static = static_contract(SnippetRepetitionFilterStage)
+        assert static.gates.requires_internet_first_run is True
+        assert static.gates.per_row_independent is True
+        assert static.gates.runtime_secrets == []
+
+        local = build_contract(SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir)))
+        assert local.gates.requires_internet_first_run is False
+        assert local.gates.runtime_secrets == []
+
+        public = build_contract(SnippetRepetitionFilterStage(tokenizer_path="public/tokenizer"))
+        assert public.gates.requires_internet_first_run is True
+        assert public.gates.runtime_secrets == []
+
+        authenticated = build_contract(
+            SnippetRepetitionFilterStage(
+                tokenizer_path="private/tokenizer",
+                hf_token="configured-token",  # noqa: S106 - inert test value
+            )
+        )
+        assert authenticated.gates.requires_internet_first_run is True
+        assert authenticated.gates.runtime_secrets == ["HF_TOKEN"]

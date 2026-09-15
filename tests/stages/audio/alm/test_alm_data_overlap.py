@@ -14,8 +14,12 @@
 
 """Tests for ALMDataOverlapStage using sample data fixtures."""
 
+import copy
+
 import pytest
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.tasks import AudioTask
 
@@ -110,6 +114,104 @@ class TestALMDataOverlap:
         assert "filtered_dur" in output
         assert output["filtered_dur"] >= 0
         assert "filtered_dur_list" in output
+
+    def test_declares_all_guaranteed_outputs_but_not_optional_stats(self) -> None:
+        stage = ALMDataOverlapStage()
+        expected = {
+            "total_dur_window",
+            "total_dur_list_window",
+            "total_dur_list_window_timestamps",
+            "filtered",
+            "filtered_windows",
+            "filtered_dur",
+            "filtered_dur_list",
+            "manifest_filepath",
+            "swift_filepath",
+        }
+        contract = build_contract(stage)
+        assert set(stage.outputs()[1]) == expected
+        assert set(contract.writes.data_keys) == expected
+        assert contract.reads.data_keys == ["windows"]
+        assert "stats" not in contract.reads.data_keys
+
+    def test_fully_renamed_outputs_work_for_populated_and_empty_rows(self, entry_with_windows: dict) -> None:
+        stage = ALMDataOverlapStage(
+            windows_key="input_windows",
+            filtered_windows_key="kept_windows",
+            stats_key="builder_stats",
+            total_dur_window_key="window_duration_total",
+            total_dur_list_window_key="window_durations",
+            total_dur_list_window_timestamps_key="window_timestamps",
+            filtered_key="kept_timestamps",
+            filtered_dur_key="kept_duration_total",
+            filtered_dur_list_key="kept_durations",
+            manifest_filepath_key="source_manifest",
+            swift_filepath_key="source_swift",
+        )
+        renamed = copy.deepcopy(entry_with_windows)
+        renamed["input_windows"] = renamed.pop("windows")
+        renamed["builder_stats"] = {
+            **renamed.pop("stats"),
+            "manifest_path": "manifests/input.jsonl",
+            "swift_path": "swift://bucket/audio.wav",
+        }
+
+        populated = stage.process(AudioTask(data=copy.deepcopy(renamed))).data
+        assert populated["kept_windows"]
+        assert populated["window_duration_total"] >= 0
+        assert populated["source_manifest"] == "manifests/input.jsonl"
+        assert populated["source_swift"] == "swift://bucket/audio.wav"
+
+        empty = copy.deepcopy(renamed)
+        empty["input_windows"] = []
+        empty_output = stage.process(AudioTask(data=empty)).data
+        assert empty_output["kept_windows"] == []
+        assert empty_output["window_duration_total"] == 0.0
+        assert empty_output["window_durations"] == []
+        assert empty_output["window_timestamps"] == []
+        assert empty_output["kept_timestamps"] == []
+        assert empty_output["kept_duration_total"] == 0.0
+        assert empty_output["kept_durations"] == []
+        assert empty_output["source_manifest"] is None
+        assert empty_output["source_swift"] is None
+
+    def test_agent_ready_default_and_fully_renamed(self, entry_with_windows: dict) -> None:
+        def default_fixture() -> AudioTask:
+            return AudioTask(data=copy.deepcopy(entry_with_windows))
+
+        assert_agent_ready(
+            ALMDataOverlapStage(),
+            default_fixture,
+            expected_cardinality="1:1",
+            available_keys={"windows"},
+        )
+
+        stage = ALMDataOverlapStage(
+            windows_key="input_windows",
+            filtered_windows_key="kept_windows",
+            stats_key="builder_stats",
+            total_dur_window_key="window_duration_total",
+            total_dur_list_window_key="window_durations",
+            total_dur_list_window_timestamps_key="window_timestamps",
+            filtered_key="kept_timestamps",
+            filtered_dur_key="kept_duration_total",
+            filtered_dur_list_key="kept_durations",
+            manifest_filepath_key="source_manifest",
+            swift_filepath_key="source_swift",
+        )
+
+        def renamed_fixture() -> AudioTask:
+            entry = copy.deepcopy(entry_with_windows)
+            entry["input_windows"] = entry.pop("windows")
+            entry["builder_stats"] = entry.pop("stats")
+            return AudioTask(data=entry)
+
+        assert_agent_ready(
+            stage,
+            renamed_fixture,
+            expected_cardinality="1:1",
+            available_keys={"input_windows"},
+        )
 
 
 class TestALMDataOverlapIntegration:
