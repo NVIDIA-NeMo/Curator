@@ -15,8 +15,8 @@
 """One-time data preparation for ReadSpeech audio benchmarks.
 
 Downloads the DNS Challenge Read Speech dataset and extracts the WAV files
-to a persistent location. This script is NOT part of the nightly benchmark
-YAML -- it is run once (or whenever the dataset needs refreshing).
+to a persistent location. It is registered in the one-time nightly data setup
+configuration and runs only when the dataset needs staging or refreshing.
 
 The full dataset has 21 parts (partaa-partau), each ~4.88 GB (~102 GB total
 archive, ~299 GB extracted). By default only 1 part is downloaded (~4.88 GB,
