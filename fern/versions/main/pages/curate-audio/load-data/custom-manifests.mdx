@@ -26,13 +26,17 @@ NeMo Curator uses JSONL (JSON Lines) format for audio manifests, with one JSON o
 NeMo Curator does not provide a generic TSV reader stage. You must convert your data to JSONL format before loading, or use dataset-specific importers like the FLEURS manifest creator.
 </Note>
 
+<Warning>
+Resolve local manifest paths to absolute paths on the driver before you build the pipeline. File discovery runs in an executor worker, whose working directory can differ from the directory where you launched the pipeline. Audio file paths in the manifest must likewise be absolute or use a shared storage URI that every worker can access.
+</Warning>
+
 ## Required Fields
 
 Every audio manifest entry must include:
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
-| `audio_filepath` | string | Absolute or relative path to audio file | `/data/audio/sample.wav` |
+| `audio_filepath` | string | Absolute local path visible to every worker, or a shared storage URI | `/data/audio/sample.wav` |
 | `text` | string | Ground truth transcription | `"hello world"` |
 
 ## Optional Fields
@@ -73,6 +77,8 @@ with open("my_audio_manifest.jsonl", "w") as f:
 Load your custom manifest as `AudioTask` objects using the built-in `ManifestReader`:
 
 ```python
+from pathlib import Path
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
@@ -81,9 +87,12 @@ from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 # Create pipeline
 pipeline = Pipeline(name="custom_audio_processing")
 
-# Load custom manifest (produces AudioTask objects)
+# Resolve on the driver before executor workers perform file discovery.
+manifest_path = Path("my_audio_manifest.jsonl").expanduser().resolve()
+
+# Load custom manifest (produces AudioTask objects).
 pipeline.add_stage(
-    ManifestReader(manifest_path="my_audio_manifest.jsonl")
+    ManifestReader(manifest_path=str(manifest_path))
 )
 
 # ASR inference consumes and returns AudioTask objects
@@ -170,8 +179,8 @@ def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeli
 
 # Usage
 pipeline = create_custom_audio_pipeline(
-    manifest_path="my_audio_manifest.jsonl",
-    output_path="processed_results"
+    manifest_path="/absolute/path/to/my_audio_manifest.jsonl",
+    output_path="/absolute/path/to/processed_results"
 )
 ```
 

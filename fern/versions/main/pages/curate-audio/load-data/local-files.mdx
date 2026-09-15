@@ -16,6 +16,10 @@ Load audio files from local directories by creating custom manifests that refere
 
 To process local audio files with NeMo Curator, you need to create a manifest file that lists your audio files and their metadata. NeMo Curator does not provide automatic audio file discovery - you must create a JSONL manifest first.
 
+<Warning>
+Resolve the local manifest path on the driver before constructing `ManifestReader`. File discovery runs in an executor worker, so a relative path can resolve against a different working directory. Store absolute audio paths in the manifest, or use shared storage URIs that every worker can access.
+</Warning>
+
 ## Supported Audio Formats
 
 NeMo Curator supports audio formats compatible with the `soundfile` library:
@@ -68,7 +72,7 @@ def create_audio_manifest(audio_dir: str, manifest_path: str):
 # Usage
 create_audio_manifest(
     audio_dir="/path/to/your/audio/files",
-    manifest_path="local_audio_manifest.jsonl"
+    manifest_path="/absolute/path/to/local_audio_manifest.jsonl"
 )
 ```
 
@@ -104,6 +108,8 @@ create_audio_manifest(
 After creating your manifest, process it with NeMo Curator:
 
 ```python
+from pathlib import Path
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader, PreserveByValueStage
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
@@ -112,6 +118,9 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def process_local_audio_manifest(manifest_path: str, output_dir: str):
     """Process local audio files using a manifest."""
+
+    manifest_path = str(Path(manifest_path).expanduser().resolve())
+    output_dir = str(Path(output_dir).expanduser().resolve())
 
     pipeline = Pipeline(name="local_audio_processing")
 
@@ -151,8 +160,8 @@ def process_local_audio_manifest(manifest_path: str, output_dir: str):
     pipeline.run()
 
 # Usage: First create manifest, then process
-create_audio_manifest("/path/to/audio/files", "local_manifest.jsonl")
-process_local_audio_manifest("local_manifest.jsonl", "/output/processed_audio")
+create_audio_manifest("/path/to/audio/files", "/absolute/path/to/local_manifest.jsonl")
+process_local_audio_manifest("/absolute/path/to/local_manifest.jsonl", "/output/processed_audio")
 ```
 
 ### Manifest with Existing Transcriptions
@@ -199,7 +208,7 @@ def create_manifest_with_transcripts(audio_dir: str, transcript_dir: str, manife
 create_manifest_with_transcripts(
     audio_dir="/path/to/audio/files",
     transcript_dir="/path/to/transcripts",
-    manifest_path="paired_manifest.jsonl"
+    manifest_path="/absolute/path/to/paired_manifest.jsonl"
 )
 ```
 
@@ -254,6 +263,6 @@ def validate_manifest(manifest_path: str):
     return len(missing_files) == 0
 
 # Validate before processing
-if validate_manifest("local_manifest.jsonl"):
-    process_local_audio_manifest("local_manifest.jsonl", "/output")
+if validate_manifest("/absolute/path/to/local_manifest.jsonl"):
+    process_local_audio_manifest("/absolute/path/to/local_manifest.jsonl", "/output")
 ```
