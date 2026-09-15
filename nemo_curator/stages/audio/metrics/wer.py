@@ -24,6 +24,7 @@ from nemo_text_processing.text_normalization import Normalizer
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio.metrics._common import metrics_mapping, validate_metric_keys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -63,7 +64,7 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     edge_length: int = 12
 
     segments_key: str = "segments"
-    metrics_key: str = "metrics"
+    metrics_key: str = field(default="metrics", kw_only=True)
 
     # Stage metadata
     name: str = "ComputeWER"
@@ -72,6 +73,17 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     _normalizer: Any = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        validate_metric_keys(
+            self.name,
+            keys={
+                "hypothesis_text_key": self.hypothesis_text_key,
+                "reference_text_key": self.reference_text_key,
+                "segments_key": self.segments_key,
+                "metrics_key": self.metrics_key,
+            },
+            output_field="metrics_key",
+            protected_fields=("hypothesis_text_key", "reference_text_key", "segments_key"),
+        )
         if self.num_words_look_back >= self.num_words_threshold:
             msg = (
                 f"num_words_look_back ({self.num_words_look_back}) must be less than "
@@ -93,7 +105,7 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 IOSpec(data_keys=[self.segments_key]),
                 IOSpec(data_keys=[self.hypothesis_text_key, self.reference_text_key]),
             ],
-            writes=IOSpec(data_keys=[self.metrics_key], segment_data_keys=[self.metrics_key]),
+            writes=IOSpec(),
             conditional_writes=[
                 ConditionalWrite(
                     writes=IOSpec(data_keys=[self.metrics_key]),
@@ -236,7 +248,7 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
             return
 
-        metrics = audio_segment.get(self.metrics_key, {})
+        metrics = metrics_mapping(audio_segment, metrics_key=self.metrics_key, stage_name=self.name)
 
         hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(audio_segment[self.hypothesis_text_key])
         reference_pnc, reference_clean = self.normalize_and_clean_text(audio_segment[self.reference_text_key])
@@ -377,6 +389,18 @@ class GetPairwiseWerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     pred_text_key: str = "pred_text"
     wer_key: str = "wer_pct"
 
+    def __post_init__(self) -> None:
+        validate_metric_keys(
+            self.name,
+            keys={
+                "text_key": self.text_key,
+                "pred_text_key": self.pred_text_key,
+                "wer_key": self.wer_key,
+            },
+            output_field="wer_key",
+            protected_fields=("text_key", "pred_text_key"),
+        )
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key]
 
@@ -386,7 +410,7 @@ class GetPairwiseWerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(data_keys=[self.text_key, self.pred_text_key]),
-            writes=IOSpec(data_keys=[self.wer_key]),
+            writes=IOSpec(),
             conditional_writes=[
                 ConditionalWrite(
                     writes=IOSpec(data_keys=[self.wer_key]),
