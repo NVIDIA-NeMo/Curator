@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+
 import pandas as pd
 import pytest
+import torch
+from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
@@ -80,3 +85,115 @@ def test_process_batch_single_task() -> None:
     assert len(result) == 1
     assert len(result[0].data) == 1
     assert result[0].data.iloc[0]["text"] == "hi"
+
+
+class TestAudioToDocumentSerializationBoundary:
+    """Nothing that cannot be JSON-encoded may cross into a DocumentBatch.
+
+    Lifted from tests/stages/audio/test_agent_simulation_pipelines.py, which held the only
+    coverage of this boundary. It drives one stage, so it belongs here.
+    """
+
+    def test_a_tensor_is_stripped_and_segments_are_opt_in(self) -> None:
+        task = AudioTask(
+            dataset_name="t",
+            data={
+                "audio_filepath": "src.wav",
+                "text": "hello world",
+                "waveform": torch.randn(1, 8000),
+                "segments": [{"start": 0.0, "end": 0.5, "text": "hello"}],
+            },
+        )
+
+        row = AudioToDocumentStage().process_batch([task])[0].to_pandas().iloc[0].to_dict()
+        assert "waveform" not in row, "a tensor must never reach the document boundary"
+        assert "segments" not in row, "segments are dropped unless asked for"
+        assert row["text"] == "hello world"
+        json.dumps(row)  # raises if anything non-serializable leaked
+
+        kept = AudioToDocumentStage(serialize_segments=True).process_batch([task])[0]
+        seg_row = kept.to_pandas().iloc[0].to_dict()
+        assert "waveform" not in seg_row, "the tensor stays stripped even when segments are kept"
+        assert seg_row["segments"][0]["text"] == "hello"
+
+    def test_nested_tensor_is_removed_without_dropping_json_safe_field_names(self) -> None:
+        task = AudioTask(
+            dataset_name="t",
+            data={
+                "audio_filepath": "src.wav",
+                "custom": {
+                    "audio": "a JSON-safe description",
+                    "segments": [{"text": "nested metadata"}],
+                    "embedding": torch.zeros(2),
+                },
+            },
+        )
+
+        row = AudioToDocumentStage().process_batch([task])[0].to_pandas().iloc[0].to_dict()
+
+        assert row["custom"] == {
+            "audio": "a JSON-safe description",
+            "segments": [{"text": "nested metadata"}],
+        }
+        json.dumps(row)
+
+    def test_non_json_value_in_a_tuple_is_named_and_removed(self, caplog: pytest.LogCaptureFixture) -> None:
+        task = AudioTask(
+            dataset_name="t",
+            data={"audio_filepath": "src.wav", "custom": ("kept", object())},
+        )
+
+        with caplog.at_level("WARNING"):
+            row = AudioToDocumentStage().process_batch([task])[0].to_pandas().iloc[0].to_dict()
+
+        assert row["custom"] == ["kept"]
+        assert "custom[1]" in caplog.text
+        json.dumps(row)
+
+
+def test_configured_projection_is_visible_to_planning_and_runtime() -> None:
+    stage = AudioToDocumentStage(keep_keys=["audio_filepath"])
+    contract = build_contract(stage)
+
+    assert contract.preserves_upstream_keys is False
+    assert contract.reads.data_keys == ["audio_filepath"]
+    assert contract.writes.data_keys == ["audio_filepath"]
+
+    report = validate_pipeline(
+        [stage],
+        initial_keys={"audio_filepath", "text"},
+        initial_roles={"audio_filepath", "transcript"},
+    )
+    assert "text" not in report.produced_keys
+
+    batch = stage.process_batch(
+        [AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "hi"})]
+    )[0]
+    assert list(batch.to_pandas().columns) == ["audio_filepath"]
+
+
+def test_drop_keys_override_keep_keys_in_contract_and_runtime() -> None:
+    stage = AudioToDocumentStage(
+        keep_keys=["audio_filepath", "text"],
+        drop_keys=("text",),
+    )
+
+    contract = stage.describe()
+    batch = stage.process_batch(
+        [AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "hi"})]
+    )[0]
+
+    assert contract.writes.data_keys == ["audio_filepath"]
+    assert list(batch.to_pandas().columns) == ["audio_filepath"]
+
+
+def test_projection_that_keeps_nothing_is_rejected() -> None:
+    stage = AudioToDocumentStage(keep_keys=[])
+
+    with pytest.raises(ValueError, match="kept no columns"):
+        stage.process_batch(
+            [
+                AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav"}),
+                AudioTask(dataset_name="d", data={"audio_filepath": "/b.wav"}),
+            ]
+        )
