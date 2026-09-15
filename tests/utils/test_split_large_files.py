@@ -28,7 +28,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nemo_curator.utils.split_large_files import parse_args, split_jsonl_file_by_size, split_parquet_file_by_size
+from nemo_curator.utils.split_large_files import (
+    _split_table,
+    parse_args,
+    split_jsonl_file_by_size,
+    split_parquet_file_by_size,
+)
 
 
 @pytest.fixture
@@ -108,3 +113,34 @@ def test_split_jsonl_file_by_size(tmp_path: pathlib.Path):
     sizes_mb = [f.stat().st_size / (1024 * 1024) for f in files]
     assert all(s_mb < target_size_mb for s_mb in sizes_mb), (sizes_mb, files)
     assert all(s_mb > target_size_mb / 2 for s_mb in sizes_mb[:-1]), (sizes_mb, files)
+
+
+def test_split_table_single_row_larger_than_target():
+    """A single row that exceeds the target size cannot be bisected any
+    further and must be returned as its own chunk instead of recursing
+    forever (RecursionError)."""
+    big_text = "x" * (3 * 1024 * 1024)  # 3 MB single row
+    t = pa.Table.from_pydict({"id": [1], "text": [big_text]})
+
+    chunks = _split_table(t, target_size=1024 * 1024)
+
+    assert [c.num_rows for c in chunks] == [1]
+
+
+def test_split_parquet_file_by_size_with_row_larger_than_target(tmp_path: pathlib.Path):
+    """Splitting a parquet file whose row group contains a row larger than
+    the target size must not crash with a RecursionError; the oversized row
+    is written as its own shard."""
+    texts = ["small", "x" * (3 * 1024 * 1024), "small"]  # 3 MB middle row
+    t = pa.Table.from_pydict({"id": np.arange(len(texts)), "text": texts})
+    parquet_file = tmp_path / "big_row.parquet"
+    pq.write_table(t, parquet_file)  # single row group containing all rows
+
+    output_path = tmp_path / "out"
+    output_path.mkdir(exist_ok=True)
+    split_parquet_file_by_size._function(input_file=str(parquet_file), output_path=str(output_path), target_size_mb=1)
+
+    expected = pd.read_parquet(parquet_file)
+    result = pd.read_parquet(output_path)
+    # Ensure the original and split data is the same
+    pd.testing.assert_frame_equal(expected, result)
