@@ -68,8 +68,16 @@ def _spec_roles(contract: StageContract, spec_keys: Iterable[str]) -> set[str]:
 
 
 def produced_roles(producer: StageContract) -> set[str]:
-    """Roles a producer emits (from its ``writes`` keys); excludes ``unknown``."""
+    """Roles a producer may emit from unconditional or conditional writes.
+
+    This discovery helper intentionally includes possible outputs. Mechanical
+    planning advances only ``StageContract.writes`` and therefore does not
+    treat these conditional roles as guaranteed.
+    """
     keys = [*producer.writes.data_keys, *producer.writes.segment_data_keys]
+    for conditional in producer.conditional_writes:
+        keys.extend(conditional.writes.data_keys)
+        keys.extend(conditional.writes.segment_data_keys)
     return _spec_roles(producer, keys) - {"unknown"}
 
 

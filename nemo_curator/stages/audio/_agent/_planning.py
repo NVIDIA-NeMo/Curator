@@ -738,11 +738,14 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         walk.tensor_keys.clear()
 
 
-def _seed_walk(
+def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one input task
     initial_roles: set[str] | None,
     initial_keys: set[str] | None,
     initial_tensor_keys: set[str] | None,
     initial_task_type: str | None,
+    *,
+    initial_segment_roles: set[str] | None = None,
+    initial_segment_keys: set[str] | None = None,
 ) -> _Walk:
     """The state the first stage is handed: what the input task already carries."""
     if initial_keys is not None:
@@ -755,6 +758,14 @@ def _seed_walk(
         seed_keys = {r for r in initial_roles if role_for_value(r) == r}
     else:
         seed_keys = set(_DEFAULT_INITIAL_KEYS)
+    if initial_segment_keys is not None:
+        segment_seed_keys = set(initial_segment_keys)
+    elif initial_segment_roles is not None:
+        # Match top-level inference: only a semantic role that is also its
+        # canonical literal key can safely imply a key value.
+        segment_seed_keys = {r for r in initial_segment_roles if role_for_value(r) == r}
+    else:
+        segment_seed_keys = set()
     # An input that arrives carrying a waveform is exactly as resident as one a stage
     # produced, so the serialization gate has to see it. Only writes used to seed this,
     # which left the gate blind to the resident-input case validate_pipeline documents:
@@ -763,10 +774,12 @@ def _seed_walk(
     if initial_tensor_keys is not None:
         seed_tensors = set(initial_tensor_keys)
     else:
-        seed_tensors = {k for k in seed_keys if role_for_value(k) == _TENSOR_ROLE}
+        seed_tensors = {k for k in seed_keys | segment_seed_keys if role_for_value(k) == _TENSOR_ROLE}
     return _Walk(
         available=set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES),
         available_keys=seed_keys,
+        segment_available=set(initial_segment_roles or ()),
+        segment_available_keys=segment_seed_keys,
         tensor_keys=seed_tensors,
         task_type=initial_task_type,
     )
@@ -777,6 +790,8 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
     *,
     initial_roles: set[str] | None = None,
     initial_keys: set[str] | None = None,
+    initial_segment_roles: set[str] | None = None,
+    initial_segment_keys: set[str] | None = None,
     initial_tensor_keys: set[str] | None = None,
     initial_task_type: str | None = None,
     available_gpus: float | None = None,
@@ -793,10 +808,17 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
             Defaults to ``{"audio_filepath"}``. Seeding this lets the
             literal-key check (``keys_ok``) recognize reads satisfied by the
             input rather than by an upstream producer.
+        initial_segment_roles: Semantic roles present inside the input task's
+            segment dictionaries. Defaults to an empty nested state.
+        initial_segment_keys: Literal key VALUES present inside the input
+            task's segment dictionaries. Defaults to an empty nested state.
+            When omitted with explicit ``initial_segment_roles``, canonical
+            role-as-literal key values are inferred using the top-level policy.
         initial_tensor_keys: Which seeded keys hold a resident tensor. ``None`` --
-            the default -- infers them from ``initial_keys`` by role, which covers
-            the canonical ``waveform``. Pass this when the input carries a tensor
-            under a name whose role cannot be inferred (e.g. ``audio_tensor``).
+            the default -- infers them from top-level and segment seed keys by
+            role, which covers the canonical ``waveform``. Pass this when the
+            input carries a tensor under a name whose role cannot be inferred
+            (e.g. ``audio_tensor``).
             Pass an empty set when a schema contains a waveform-named column but
             the input values are known not to be resident tensors.
         initial_task_type: Class name of the task the first stage will be handed
@@ -811,7 +833,14 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
         found (role-level); ``report.keys_ok`` additionally confirms literal-key
         identity (see the class docstring).
     """
-    walk = _seed_walk(initial_roles, initial_keys, initial_tensor_keys, initial_task_type)
+    walk = _seed_walk(
+        initial_roles,
+        initial_keys,
+        initial_tensor_keys,
+        initial_task_type,
+        initial_segment_roles=initial_segment_roles,
+        initial_segment_keys=initial_segment_keys,
+    )
     expansion = expand_composites(stages)
     leaves = expansion.by_recipe_index()
     opaque = dict(expansion.opaque)
