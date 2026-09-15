@@ -54,8 +54,7 @@ def validate_metric_keys(
             raise ValueError(msg)
     if output_key in reserved_input_keys:
         msg = (
-            f"[{stage_name}] '{output_field}' ({output_key!r}) must not collide with "
-            f"runtime input key {output_key!r}"
+            f"[{stage_name}] '{output_field}' ({output_key!r}) must not collide with runtime input key {output_key!r}"
         )
         raise ValueError(msg)
 

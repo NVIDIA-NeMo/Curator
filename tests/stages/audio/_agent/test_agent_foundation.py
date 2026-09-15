@@ -385,6 +385,8 @@ class TestEveryStageSaysWhetherItsRowsStandAlone:
         "PretrainMetricsAggregatorStage",
         "PyAnnoteDiarizationStage",
         "SegmentExtractionStage",
+        "SnippetExtractionStage",
+        "SnippetManifestWriterStage",
         "TorchSquimQualityMetricsStage",
     }
 

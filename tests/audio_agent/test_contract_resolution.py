@@ -43,7 +43,12 @@ from nemo_curator.stages.audio._agent._agent_registry import stage_params
 
 
 def _keys(contract: dict[str, Any], side: str) -> list[str]:
-    return list((contract.get(side) or {}).get("data_keys") or [])
+    spec = contract.get(side) or {}
+    return [*(spec.get("data_keys") or []), *(spec.get("segment_data_keys") or [])]
+
+
+def _conditional_write_keys(contract: dict[str, Any]) -> list[str]:
+    return [key for conditional in contract.get("conditional_writes") or [] for key in _keys(conditional, "writes")]
 
 
 class TestADescribeAnswersTheQuestionItIsAskedFor:
@@ -76,7 +81,7 @@ class TestADescribeAnswersTheQuestionItIsAskedFor:
             contract = out.get("contract") or {}
             if contract.get("accepts_task_type") != contract.get("produces_task_type"):
                 continue
-            answered = _keys(contract, "reads") or _keys(contract, "writes")
+            answered = _keys(contract, "reads") or _keys(contract, "writes") or _conditional_write_keys(contract)
             expanded = (out.get("expands_to") or {}).get("stages")
             explained = out.get("contract_unresolved") or out.get("contract_error")
             if not answered and not expanded and not explained:

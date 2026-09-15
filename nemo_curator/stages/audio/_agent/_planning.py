@@ -180,9 +180,7 @@ def _spec_satisfied_by_role(
     """Whether one I/O alternative is role-satisfied in each declared scope."""
     top = {contract.key_roles.get(key, "unknown") for key in spec.data_keys}
     nested = {contract.key_roles.get(key, "unknown") for key in spec.segment_data_keys}
-    return top.issubset(available_roles | {"unknown"}) and nested.issubset(
-        available_segment_roles | {"unknown"}
-    )
+    return top.issubset(available_roles | {"unknown"}) and nested.issubset(available_segment_roles | {"unknown"})
 
 
 def _reads_satisfied_by_role(
@@ -350,9 +348,7 @@ def _spec_satisfied_by_key(
     available_segment_keys: set[str],
 ) -> bool:
     """Whether one I/O alternative's literal keys exist in their declared scopes."""
-    return not (set(spec.data_keys) - available_keys) and not (
-        set(spec.segment_data_keys) - available_segment_keys
-    )
+    return not (set(spec.data_keys) - available_keys) and not (set(spec.segment_data_keys) - available_segment_keys)
 
 
 def _reads_satisfied_by_key(
@@ -377,8 +373,7 @@ def _reads_satisfied_by_key(
     if not _spec_satisfied_by_key(contract.reads, available_keys, available_segment_keys):
         return False
     return not contract.reads_one_of or any(
-        _spec_satisfied_by_key(option, available_keys, available_segment_keys)
-        for option in contract.reads_one_of
+        _spec_satisfied_by_key(option, available_keys, available_segment_keys) for option in contract.reads_one_of
     )
 
 
@@ -563,9 +558,7 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
         ]
 
     needed = _roles_for_keys(contract, contract.reads.data_keys) | {
-        role
-        for option in contract.reads_one_of
-        for role in _roles_for_keys(contract, option.data_keys)
+        role for option in contract.reads_one_of for role in _roles_for_keys(contract, option.data_keys)
     }
     removed_hit = (needed & walk.removed_roles) - walk.available
     if removed_hit:

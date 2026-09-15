@@ -210,7 +210,12 @@ ADDITIVE_STAGE_NAMES = (
 # gained configurable input-key defaults; and static discovery for extraction,
 # manifest writing, metrics, and repetition filtering now reports their conservative
 # lifecycle, persistence, independence, and network gates.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "f68282c3f5b155d4de0266e10fed4fd2045eb9ec8e286e29709722353ef58388"
+# Regenerated for the metrics safety corrections. Exactly two entries moved:
+# ComputeWERStage gained additive configurable timing-key defaults, and SQUIM
+# static discovery now reports its network/row-dependence gates while omitting
+# the runtime-only model from agent-settable parameters. Constructor defaults
+# and the other 44 stage entries remain unchanged.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "9ead857f23787c32fb0165f038c5c1fcd0bb4f7e54ff105fbd3d266955a5d6d3"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
