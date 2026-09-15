@@ -20,6 +20,7 @@ from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR,
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.deduplication.shuffle_utils.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
 from nemo_curator.stages.deduplication.shuffle_utils.stage import ShuffleStage
+from nemo_curator.stages.text.utils.text import normalize_text
 from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.file_utils import get_fs
 
@@ -51,6 +52,9 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         Whether to assign a unique id to each document.
     id_field
         Existing id field name if not assigning a new id.
+    normalize_text
+        Whether to normalize text before hashing. Normalization lowercases text,
+        collapses whitespace runs, and trims leading and trailing whitespace.
     total_nparts
         Total number of output partitions. If None, will be set automatically by the executor.
     rmm_pool_size
@@ -78,6 +82,7 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         write_kwargs: dict[str, Any] | None = None,
         assign_id: bool = True,
         id_field: str | None = None,
+        normalize_text: bool = False,
         total_nparts: int | None = None,
         rmm_pool_size: int | Literal["auto"] | None = "auto",
         spill_memory_limit: int | Literal["auto"] | None = "auto",
@@ -95,6 +100,7 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         self.input_filetype = input_filetype
         self.assign_id_field = assign_id
         self.id_field = id_field if id_field is not None else CURATOR_DEDUP_ID_STR
+        self.normalize_text = normalize_text
         self.output_fs = get_fs(
             output_path, storage_options=read_kwargs.get("storage_options") if read_kwargs is not None else None
         )
@@ -159,7 +165,10 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         """
         self._check_actor_obj()
         hashed_df = df[[self.id_field]]
-        hashed_df[EXACT_DUPLICATE_GROUP_FIELD] = df[self.text_field].hash_values(method="md5")
+        text_for_hash = df[self.text_field]
+        if self.normalize_text:
+            text_for_hash = normalize_text(text_for_hash)
+        hashed_df[EXACT_DUPLICATE_GROUP_FIELD] = text_for_hash.hash_values(method="md5")
         self.output_columns = list(hashed_df.columns)
         self._actor_obj.insert_chunk(hashed_df, self.output_columns)
 
