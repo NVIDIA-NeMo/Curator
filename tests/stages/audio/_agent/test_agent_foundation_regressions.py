@@ -112,6 +112,37 @@ def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None
     assert "potential_metrics" not in report.produced_keys
 
 
+def test_unknown_role_selector_requires_its_exact_conditional_key() -> None:
+    producer = _ConfiguredContractStage(
+        StageContract(
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=["row_score"]),
+                    condition="valid runtime data causes score assignment",
+                )
+            ],
+            key_roles={"row_score": "score"},
+        )
+    )
+    selector = PreserveByValueStage("row_score", 1.0, "le")
+
+    conditional_only = validate_pipeline(
+        [producer, selector],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    assert not conditional_only.ok
+    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in conditional_only.issues)
+
+    seeded = validate_pipeline(
+        [selector],
+        initial_roles=set(),
+        initial_keys={"row_score"},
+    )
+    assert seeded.ok
+    assert seeded.keys_ok
+
+
 def test_nested_input_requires_explicit_segment_seeds_and_accepts_remapped_key() -> None:
     nested_reader = _ConfiguredContractStage(
         StageContract(
