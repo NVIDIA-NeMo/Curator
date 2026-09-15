@@ -273,6 +273,28 @@ class TestComputeWERStage:
             assert "word_rate" in seg["metrics"]
             assert abs(seg["metrics"]["wer"]["wer"] - expected_wer[idx]) < 1e-4
 
+    @pytest.mark.parametrize(
+        "timing",
+        [
+            {"begin": 2.0, "finish": 4.0},
+            {"begin": 0.0, "extent": 2.0},
+        ],
+        ids=["remapped_end", "remapped_duration_fallback"],
+    )
+    def test_remapped_timing_keys_produce_nonzero_correct_rates(self, timing: dict[str, float]) -> None:
+        stage = ComputeWERStage(start_key="begin", end_key="finish", duration_key="extent")
+        stage._normalizer = _IdentityNormalizer()
+        segment = {
+            **timing,
+            "text": "ab cd",
+            "text_ref": "ab cd",
+        }
+
+        stage.get_wer(segment)
+
+        assert segment["metrics"]["char_rate"] == 2.0
+        assert segment["metrics"]["word_rate"] == 1.0
+
 
 class TestTorchSquimQualityMetricsStage:
     """Tests for TorchSquimQualityMetricsStage on CPU and GPU."""
@@ -587,7 +609,7 @@ def test_metrics_stages_reject_input_residency_typo(stage_cls: type) -> None:
             TorchSquimQualityMetricsStage,
             ("resampled_audio_filepath", "segments", "waveform", "sample_rate"),
         ),
-        (ComputeWERStage, ("text", "text_ref", "segments")),
+        (ComputeWERStage, ("text", "text_ref", "segments", "start", "end", "duration")),
     ],
 )
 def test_metrics_key_rejects_every_input_or_container_collision(
@@ -605,6 +627,9 @@ def test_metrics_key_rejects_every_input_or_container_collision(
         (BandwidthEstimationStage, "duration_key"),
         (TorchSquimQualityMetricsStage, "waveform_key"),
         (ComputeWERStage, "reference_text_key"),
+        (ComputeWERStage, "start_key"),
+        (ComputeWERStage, "end_key"),
+        (ComputeWERStage, "duration_key"),
         (GetPairwiseWerStage, "pred_text_key"),
     ],
 )
@@ -721,7 +746,7 @@ def test_compute_wer_custom_keys_augment_existing_mapping() -> None:
                 "name",
                 "_normalizer",
             ),
-            ("metrics_key",),
+            ("metrics_key", "start_key", "end_key", "duration_key"),
         ),
     ],
 )
@@ -775,6 +800,7 @@ def test_metrics_stages_bind_legacy_positional_values() -> None:
     assert wer.name == "legacy-wer"
     assert wer._normalizer is normalizer
     assert wer.metrics_key == "metrics"
+    assert (wer.start_key, wer.end_key, wer.duration_key) == ("start", "end", "duration")
 
 
 def test_squim_static_hints_and_hidden_runtime_model() -> None:
