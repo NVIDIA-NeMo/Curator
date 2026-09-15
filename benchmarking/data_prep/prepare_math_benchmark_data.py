@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING
 import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
+from curator_benchmarking.paths import resolve_tutorial_file
 from huggingface_hub import hf_hub_download, list_repo_files
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from loguru import logger
@@ -495,7 +496,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--datasets-config",
         type=Path,
-        default=REPO_ROOT / "tutorials" / "math" / "datasets.json",
+        default=resolve_tutorial_file("math/datasets.json"),
         help="Path to datasets.json configuration file",
     )
     parser.add_argument(
