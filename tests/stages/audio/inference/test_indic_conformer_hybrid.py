@@ -69,7 +69,24 @@ def test_stage_builds_adapter_with_all_model_options() -> None:
     assert adapter.decode_mode == "ctc"
     assert adapter.rnnt_precision == "bf16"
     assert adapter.empty_audio_marks_skip is False
+    assert adapter.tensorrt_engine_dir is None
+    assert not hasattr(adapter, "inference_batch_size")
     assert stage.batch_size == 5
+
+
+def test_stage_builds_tensorrt_adapter_while_stage_owns_batch_size() -> None:
+    stage = InferenceIndicConformerHybridStage(
+        backend="tensorrt",
+        tensorrt_engine_dir="/engines/indic-conformer",
+        batch_size=7,
+    )
+
+    adapter = stage._create_adapter()
+
+    assert isinstance(adapter, IndicConformerHybridASR)
+    assert adapter.tensorrt_engine_dir == "/engines/indic-conformer"
+    assert not hasattr(adapter, "inference_batch_size")
+    assert stage.batch_size == 7
 
 
 def test_supported_batch_preserves_order_and_writes_language() -> None:
@@ -111,7 +128,8 @@ def test_unsupported_language_is_not_marked_for_global_skip() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"backend": "tensorrt"}, "backend='nemo' only"),
+        ({"backend": "unknown"}, "Unsupported IndicConformer inference backend"),
+        ({"backend": "tensorrt"}, "required when backend='tensorrt'"),
         ({"tensorrt_engine_dir": "/engine"}, "only valid with backend='tensorrt'"),
     ],
 )

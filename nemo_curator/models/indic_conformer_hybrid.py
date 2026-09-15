@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ANN401, I001, N806, PLR0913, PLR1714, PLW0603
+# ruff: noqa: ANN401, N806, PLR0913, PLR1714, PLW0603
 
 """AI4Bharat IndicConformer *hybrid* (CTC+RNNT) per-language ``.nemo`` ASR.
 
@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import gc
 import os
+from numbers import Integral
 from pathlib import Path
 from typing import Any, Literal
 
@@ -60,6 +61,7 @@ from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.stages.audio.inference.audio_chunking import (
+    engine_chunk_duration,
     has_audio_longer_than,
     merge_chunk_texts,
     split_waveforms,
@@ -353,6 +355,7 @@ class IndicConformerHybridASR:
         decode_mode: Literal["ctc", "rnnt"] = "rnnt",
         *,
         max_symbols_per_step: int = 10,
+        tensorrt_engine_dir: str | None = None,
         rnnt_precision: Literal["fp32", "fp16", "bf16"] = "fp32",
         empty_audio_marks_skip: bool = True,
     ):
@@ -375,12 +378,15 @@ class IndicConformerHybridASR:
         self.revision = revision
         self.decode_mode = decode_mode
         self.max_symbols_per_step = max_symbols_per_step
+        self.tensorrt_engine_dir = tensorrt_engine_dir
         self.rnnt_precision = rnnt_precision
         self.empty_audio_marks_skip = empty_audio_marks_skip
         self._model: Any = None
         self._device: Any = None
         self._num_langs: int = 0
         self._per_lang_classes: int = 0  # V / num_langs (blank index within a head)
+        self._trt_encoder: Any = None
+        self._trt_metadata: dict[str, Any] | None = None
         self._rnnt_decoders: dict[str, Any] = {}
         self._chunk_duration_sec: float | None = _MAX_CHUNK_DURATION_SEC
 
@@ -420,6 +426,9 @@ class IndicConformerHybridASR:
 
     def download_weights_on_node(self) -> None:
         """Resolve the configured checkpoint into the node-local cache without loading it."""
+        if self.tensorrt_engine_dir is not None:
+            self._resolve_tensorrt_bundle()
+            return
         if self.model_id.endswith(".nemo"):
             if not Path(self.model_id).is_file():
                 msg = f"Local NeMo checkpoint not found: {self.model_id}"
@@ -439,27 +448,71 @@ class IndicConformerHybridASR:
             raise RuntimeError(msg)
         hf_hub_download(self.model_id, files[0])
 
+    def _resolve_tensorrt_bundle(self) -> tuple[dict[str, Any], Path, Path]:
+        """Validate and resolve the three local TensorRT bundle artifacts."""
+        from nemo_curator.stages.audio.inference.indic_conformer_tensorrt import load_engine_metadata
+        from nemo_curator.stages.audio.inference.tensorrt_encoder import ENGINE_FILENAME, MODEL_FILENAME
+
+        engine_dir = self.tensorrt_engine_dir
+        if engine_dir is None:
+            msg = "tensorrt_engine_dir is required for IndicConformer TensorRT inference"
+            raise ValueError(msg)
+        bundle_dir = Path(engine_dir)
+        metadata = load_engine_metadata(bundle_dir)
+        engine_path = bundle_dir / ENGINE_FILENAME
+        model_path = bundle_dir / MODEL_FILENAME
+        if not engine_path.is_file():
+            msg = f"TensorRT encoder engine not found: {engine_path}"
+            raise FileNotFoundError(msg)
+        if not model_path.is_file():
+            msg = f"Bundled NeMo model not found: {model_path}"
+            raise FileNotFoundError(msg)
+        return metadata, model_path, engine_path
+
     def load_model(self, *, num_gpus: int) -> None:
         if self._model is not None:
             return
-        if num_gpus < 0:
-            msg = "num_gpus must be non-negative"
+        if isinstance(num_gpus, bool) or not isinstance(num_gpus, Integral) or num_gpus < 0:
+            msg = f"num_gpus must be a non-negative integer, got {num_gpus!r}"
             raise ValueError(msg)
 
         import torch
+
+        engine_path: Path | None = None
+        if self.tensorrt_engine_dir is not None:
+            if num_gpus != 1:
+                msg = f"IndicConformer TensorRT inference requires exactly one GPU, got {num_gpus!r}"
+                raise ValueError(msg)
+            if not torch.cuda.is_available():
+                msg = "IndicConformer TensorRT inference requires CUDA"
+                raise RuntimeError(msg)
+            self._trt_metadata, model_path, engine_path = self._resolve_tensorrt_bundle()
+            nemo_path = str(model_path)
+        else:
+            nemo_path = self._resolve_nemo_path(self.model_id)
+
         import nemo.collections.asr as nemo_asr
 
         _apply_multisoftmax_patches()
         self._device = torch.device("cuda" if num_gpus else "cpu")
-        nemo_path = self._resolve_nemo_path(self.model_id)
         logger.info(f"Loading IndicConformer hybrid model={nemo_path} device={self._device}")
 
-        self._model = nemo_asr.models.ASRModel.restore_from(nemo_path, map_location=self._device)
-        self._model.to(self._device)
-        self._model.eval()
-        self._chunk_duration_sec = _MAX_CHUNK_DURATION_SEC
-        self._configure_rnnt_precision()
+        try:
+            self._model = nemo_asr.models.ASRModel.restore_from(nemo_path, map_location=self._device)
+            self._model.to(self._device)
+            self._model.eval()
+            self._chunk_duration_sec = _MAX_CHUNK_DURATION_SEC
+            self._configure_rnnt_precision()
 
+            if engine_path is not None:
+                self._enable_tensorrt_encoder(engine_path)
+
+            self._finalize_loaded_model()
+        except Exception:
+            self.unload_model()
+            raise
+
+    def _finalize_loaded_model(self) -> None:
         tok = self._model.tokenizer
         if not hasattr(tok, "langs_by_token_id"):
             msg = "Loaded model does not use an AggregateTokenizer; this wrapper expects the multilingual checkpoint."
@@ -471,11 +524,62 @@ class IndicConformerHybridASR:
         # hand them to the (patched) CTC decoder for masked decoding.
         masks: dict[str, list[bool]] = {}
         for lang in tok.tokenizers_dict:
-            m = [tok.langs_by_token_id[i] == lang for i in range(len(tok.langs_by_token_id))]
-            m.append(True)  # blank
-            masks[lang] = m
+            mask = [tok.langs_by_token_id[index] == lang for index in range(len(tok.langs_by_token_id))]
+            mask.append(True)  # blank
+            masks[lang] = mask
         self._model.ctc_decoder.language_masks = masks
         logger.info(f"IndicConformer hybrid ready: {self._num_langs} langs, {self._per_lang_classes} tokens/lang")
+
+    def _enable_tensorrt_encoder(self, engine_path: Path) -> None:
+        """Replace only the bundled NeMo model's encoder with TensorRT."""
+        from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoder
+
+        metadata = self._trt_metadata
+        if metadata is None:
+            msg = "TensorRT metadata is not loaded"
+            raise RuntimeError(msg)
+        encoder = self._model.encoder
+        actual_values = {
+            "feature_count": int(getattr(encoder, "_feat_in", self._model.cfg.encoder.feat_in)),
+            "subsampling_factor": int(encoder.subsampling_factor),
+            "sample_rate": int(self._model.cfg.preprocessor.sample_rate),
+            "encoder_dim": int(self._model.cfg.encoder.d_model),
+        }
+        for key, actual in actual_values.items():
+            if actual != int(metadata[key]):
+                msg = (
+                    f"Bundled NeMo model does not match the TensorRT engine: {key}={actual}, expected={metadata[key]}"
+                )
+                raise ValueError(msg)
+
+        self._model.encoder = None
+        del encoder
+        gc.collect()
+
+        import torch
+
+        torch.cuda.empty_cache()
+        trt_encoder = TensorRTEncoder(
+            engine_path,
+            subsampling_factor=int(metadata["subsampling_factor"]),
+        )
+        try:
+            max_feature_frames = trt_encoder.max_input_shape("audio_signal")[2]
+            supported_duration = engine_chunk_duration(self._model, max_feature_frames)
+        except Exception:
+            trt_encoder.close()
+            raise
+        if supported_duration < _MAX_CHUNK_DURATION_SEC:
+            trt_encoder.close()
+            msg = (
+                "IndicConformer TensorRT engine does not support 40-second audio: "
+                f"max_feature_frames={max_feature_frames}; rebuild with --max-frames 4001"
+            )
+            raise ValueError(msg)
+        self._trt_encoder = trt_encoder
+        self._model.encoder = trt_encoder
+        self._chunk_duration_sec = _MAX_CHUNK_DURATION_SEC
+        logger.info(f"IndicConformer TensorRT encoder loaded: {engine_path}")
 
     def unload_model(self) -> None:
         for decoder in self._rnnt_decoders.values():
@@ -484,8 +588,12 @@ class IndicConformerHybridASR:
             if callable(reset_cuda_graphs):
                 reset_cuda_graphs()
         self._rnnt_decoders.clear()
+        if self._trt_encoder is not None:
+            self._trt_encoder.close()
+            self._trt_encoder = None
         self._model = None
         self._device = None
+        self._trt_metadata = None
         self._chunk_duration_sec = None
         gc.collect()
         try:
@@ -598,18 +706,38 @@ class IndicConformerHybridASR:
             prepared_languages = [prepared_languages[index] for index in duration_order]
             original_indices = [original_indices[index] for index in duration_order]
 
-            if prepared:
-                padded = torch.nn.utils.rnn.pad_sequence(prepared, batch_first=True)
-                length_tensor = torch.tensor(lengths, dtype=torch.long, device=self._device)
+            if not prepared:
+                return texts, langs_out
+            max_rows = len(prepared)
+            if self._trt_encoder is not None:
+                max_rows = self._trt_encoder.max_input_shape("audio_signal")[0]
+            for start in range(0, len(prepared), max_rows):
+                end = start + max_rows
+                group = prepared[start:end]
+                group_lengths = lengths[start:end]
+                group_languages = prepared_languages[start:end]
+                group_indices = original_indices[start:end]
+                padded = torch.nn.utils.rnn.pad_sequence(group, batch_first=True)
+                length_tensor = torch.tensor(group_lengths, dtype=torch.long, device=self._device)
                 encoded, encoded_len = self._model(input_signal=padded, input_signal_length=length_tensor)
-                if mode == "ctc":
-                    batch_texts = self._decode_ctc_batch(encoded, encoded_len, prepared_languages)
-                else:
-                    encoded = encoded.to(dtype=self._rnnt_dtype())
-                    batch_texts = self._decode_rnnt_batch(encoded, encoded_len, prepared_languages)
-                for original_index, text in zip(original_indices, batch_texts, strict=True):
+                batch_texts = self._decode_encoded_batch(encoded, encoded_len, group_languages, mode)
+                for original_index, text in zip(group_indices, batch_texts, strict=True):
                     texts[original_index] = text
         return texts, langs_out
+
+    def _decode_encoded_batch(
+        self,
+        encoded: Any,
+        encoded_len: Any,
+        languages: list[str],
+        mode: str,
+    ) -> list[str]:
+        if mode == "ctc":
+            if self._trt_encoder is not None:
+                encoded = encoded.float()
+            return self._decode_ctc_batch(encoded, encoded_len, languages)
+        encoded = encoded.to(dtype=self._rnnt_dtype())
+        return self._decode_rnnt_batch(encoded, encoded_len, languages)
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe supported rows and preserve the shared one-result-per-item contract."""
