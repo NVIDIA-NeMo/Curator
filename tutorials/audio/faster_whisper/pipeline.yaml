@@ -1,0 +1,175 @@
+# Faster-Whisper pipeline using Curator's generic ASR adapter stage.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/faster_whisper \
+#     --config-name pipeline \
+#     manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl \
+#     default_language=en
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./faster_whisper_output.jsonl
+workspace_dir: /tmp/faster_whisper_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+model_id: large-v3
+model_revision: null
+default_language: null
+# Faster-Whisper Large-v3's 100 canonical language codes, followed by input
+# aliases normalized by FasterWhisperASR before inference.
+supported_language_codes:
+  - en
+  - zh
+  - de
+  - es
+  - ru
+  - ko
+  - fr
+  - ja
+  - pt
+  - tr
+  - pl
+  - ca
+  - nl
+  - ar
+  - sv
+  - it
+  - id
+  - hi
+  - fi
+  - vi
+  - he
+  - uk
+  - el
+  - ms
+  - cs
+  - ro
+  - da
+  - hu
+  - ta
+  - "no"
+  - th
+  - ur
+  - hr
+  - bg
+  - lt
+  - la
+  - mi
+  - ml
+  - cy
+  - sk
+  - te
+  - fa
+  - lv
+  - bn
+  - sr
+  - az
+  - sl
+  - kn
+  - et
+  - mk
+  - br
+  - eu
+  - is
+  - hy
+  - ne
+  - mn
+  - bs
+  - kk
+  - sq
+  - sw
+  - gl
+  - mr
+  - pa
+  - si
+  - km
+  - sn
+  - yo
+  - so
+  - af
+  - oc
+  - ka
+  - be
+  - tg
+  - sd
+  - gu
+  - am
+  - yi
+  - lo
+  - uz
+  - fo
+  - ht
+  - ps
+  - tk
+  - nn
+  - mt
+  - sa
+  - lb
+  - my
+  - bo
+  - tl
+  - mg
+  - as
+  - tt
+  - haw
+  - ln
+  - ha
+  - ba
+  - jw
+  - su
+  - yue
+  - fil
+  - in
+  - iw
+  - ji
+  - jv
+  - nb
+pred_text_key: asr_prediction
+extras_key: asr_extras
+gpus_per_actor: 1
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: ResampleAudio
+    resampled_audio_dir: ${resampled_audio_dir}
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: FasterWhisper_inference
+    adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
+    model_id: ${model_id}
+    default_language: ${default_language}
+    supported_language_codes: ${supported_language_codes}
+    pred_text_key: ${pred_text_key}
+    extras_key: ${extras_key}
+    batch_size: 128
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: ${gpus_per_actor}
+    adapter_kwargs:
+      revision: ${model_revision}
+      compute_type: float16
+      cpu_compute_type: int8
+      beam_size: 5
+      vad_filter: true
+      without_timestamps: true
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}
