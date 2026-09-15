@@ -49,6 +49,9 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         pnc_chars: Punctuation characters to use for normalization. Defaults to special punctuation string.
         edge_length: Length of the edge to compute CER. Defaults to 12.
         segments_key: Key for the segments in the manifest. Defaults to "segments".
+        start_key: Key for the segment start time. Defaults to "start".
+        end_key: Key for the segment end time. Defaults to "end".
+        duration_key: Key used as the end-time fallback when end_key is absent. Defaults to "duration".
 
     Returns:
         The same data as in the input data, but with WER, CER, edge CER, and optionally PNC WER/CER added to each segment.
@@ -65,6 +68,9 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     segments_key: str = "segments"
     metrics_key: str = field(default="metrics", kw_only=True)
+    start_key: str = field(default="start", kw_only=True)
+    end_key: str = field(default="end", kw_only=True)
+    duration_key: str = field(default="duration", kw_only=True)
 
     # Stage metadata
     name: str = "ComputeWER"
@@ -80,9 +86,19 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "reference_text_key": self.reference_text_key,
                 "segments_key": self.segments_key,
                 "metrics_key": self.metrics_key,
+                "start_key": self.start_key,
+                "end_key": self.end_key,
+                "duration_key": self.duration_key,
             },
             output_field="metrics_key",
-            protected_fields=("hypothesis_text_key", "reference_text_key", "segments_key"),
+            protected_fields=(
+                "hypothesis_text_key",
+                "reference_text_key",
+                "segments_key",
+                "start_key",
+                "end_key",
+                "duration_key",
+            ),
         )
         if self.num_words_look_back >= self.num_words_threshold:
             msg = (
@@ -241,8 +257,8 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def get_wer(self, audio_segment: dict[str, Any]) -> None:
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
-        start = audio_segment.get("start", 0)
-        end = audio_segment.get("end", audio_segment.get("duration", 0))
+        start = audio_segment.get(self.start_key, 0)
+        end = audio_segment.get(self.end_key, audio_segment.get(self.duration_key, 0))
         duration = end - start
 
         if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
