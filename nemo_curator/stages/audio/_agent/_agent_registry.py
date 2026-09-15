@@ -526,7 +526,11 @@ def build_contract(stage: Any) -> StageContract:  # noqa: ANN401
         params = list(by_name.values())
     else:
         params = derived
-    key_roles = _resolve_key_roles(stage, base) or dict(base.key_roles)
+    key_roles = _resolve_key_roles(stage, base)
+    # A hand-written contract can declare roles for literal keys that are not
+    # represented by ``*_key`` fields. Preserve those declarations while still
+    # enriching the contract with roles derived from configured parameters.
+    key_roles.update(base.key_roles)
     cls = _as_class(stage)
     accepts_tt, produces_tt = _task_types(cls)
     return dataclasses.replace(

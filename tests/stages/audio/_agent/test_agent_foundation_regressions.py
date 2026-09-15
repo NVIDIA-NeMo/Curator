@@ -29,11 +29,11 @@ import torch
 from nemo_curator.stages import audio
 from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent import _catalog
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import unavailable_modules
 from nemo_curator.stages.audio._agent._composite import expand_composites
-from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, produced_roles
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio._agent._residency import (
     cleanup_temp_files,
@@ -70,8 +70,73 @@ class _AgentParamMetadataFixture:
     runtime_only: object | None = field(default=None, metadata={"agent_param": False})
 
 
+class _ConfiguredContractStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+    def __init__(self, contract: StageContract) -> None:
+        self.contract = contract
+
+    def describe(self) -> StageContract:
+        return self.contract
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+
 def test_stage_params_respects_field_level_agent_exclusion() -> None:
     assert [param.name for param in stage_params(_AgentParamMetadataFixture)] == ["visible"]
+
+
+def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None:
+    producer_contract = StageContract(
+        conditional_writes=[
+            ConditionalWrite(
+                writes=IOSpec(data_keys=["potential_metrics"]),
+                condition="valid runtime data causes metric assignment",
+            )
+        ],
+        key_roles={"potential_metrics": "metrics"},
+    )
+    assert produced_roles(producer_contract) == {"metrics"}
+
+    consumer_contract = StageContract(
+        reads=IOSpec(data_keys=["potential_metrics"]),
+        key_roles={"potential_metrics": "metrics"},
+    )
+    report = validate_pipeline(
+        [_ConfiguredContractStage(producer_contract), _ConfiguredContractStage(consumer_contract)],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+
+    assert not report.ok
+    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
+    assert "potential_metrics" not in report.produced_keys
+
+
+def test_nested_input_requires_explicit_segment_seeds_and_accepts_remapped_key() -> None:
+    nested_reader = _ConfiguredContractStage(
+        StageContract(
+            reads=IOSpec(data_keys=["segments"], segment_data_keys=["custom_text"]),
+            key_roles={"segments": "segments", "custom_text": "text"},
+        )
+    )
+
+    unseeded = validate_pipeline(
+        [nested_reader],
+        initial_roles={"segments", "text"},
+        initial_keys={"segments", "custom_text"},
+    )
+    assert not unseeded.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in unseeded.issues)
+
+    seeded = validate_pipeline(
+        [nested_reader],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"text"},
+        initial_segment_keys={"custom_text"},
+    )
+    assert seeded.ok
+    assert seeded.keys_ok
 
 
 @pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
@@ -343,6 +408,20 @@ def test_an_input_that_arrives_with_a_waveform_is_blocked_from_a_json_sink(sink:
     stage.setup()
     with pytest.raises(TypeError, match="not JSON serializable"):
         stage.process(AudioTask(dataset_name="d", data={"waveform": torch.zeros(1, 16), "sample_rate": 16000}))
+
+
+def test_nested_waveform_seed_is_inferred_as_tensor_resident(tmp_path: Path) -> None:
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [writer],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"waveform"},
+        initial_segment_keys={"waveform"},
+    )
+
+    assert not report.ok
+    assert any(issue.code == "tensor_into_sink" for issue in report.issues)
 
 
 def test_a_tensor_under_an_uninferable_name_can_be_declared_resident(tmp_path: Path) -> None:
