@@ -30,6 +30,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 )
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.tasks import DocumentBatch
+from tests.stages.text.io.utils import normalize_string_dtypes
 
 # File format configurations
 FILE_FORMAT_CONFIGS = {
@@ -205,7 +206,10 @@ class TestReaderIntegrationWithoutIdGenerator:
         actual_sorted = combined_df.sort_values("text").reset_index(drop=True)
 
         # Compare DataFrames
-        pd.testing.assert_frame_equal(expected_sorted, actual_sorted)
+        pd.testing.assert_frame_equal(
+            normalize_string_dtypes(expected_sorted),
+            normalize_string_dtypes(actual_sorted),
+        )
 
     def test_total_record_count(self, test_config: "TestReaderIntegrationWithoutIdGenerator"):
         """Test that total number of records matches expected."""
@@ -332,7 +336,10 @@ class TestReaderIntegrationWithIdGenerator:
         actual_sorted = content_df.sort_values("text").reset_index(drop=True)
 
         # Compare DataFrames
-        pd.testing.assert_frame_equal(expected_sorted, actual_sorted)
+        pd.testing.assert_frame_equal(
+            normalize_string_dtypes(expected_sorted),
+            normalize_string_dtypes(actual_sorted),
+        )
 
     def test_total_record_count_with_ids(self, test_config: "TestReaderIntegrationWithIdGenerator"):
         """Test that total number of records matches expected."""

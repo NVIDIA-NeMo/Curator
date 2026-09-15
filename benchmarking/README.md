@@ -10,7 +10,6 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
-- [Audio Tagging Benchmark](#audio-tagging-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -36,7 +35,7 @@ Note: you may only need to do this periodically when the environment needs to be
 
 **2. Update config:**
 
-Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
+Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/benchmarks.yaml`
 
 ```yaml
 paths:
@@ -57,14 +56,28 @@ pre-staged model snapshots or caches, such as audio tagging.
 
 ```bash
 ./benchmarking/tools/run.sh \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml
 ```
+
+For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the full-suite config:
+
+```bash
+./benchmarking/tools/run.sh \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/4xGB200-64CPU.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml
+```
+
+The 4xGB200-64CPU override updates resource counts, timeout values, known 4-GPU video
+throughput thresholds, and workload-specific scaling settings. Other performance
+requirements are inherited from `benchmarks.yaml` until 4xGB200-64CPU-specific
+baselines are measured.
 
 To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
 ```bash
 ./benchmarking/tools/run.sh \
-  --config ./benchmarking/nightly-benchmark.yaml \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml \
   --use-host-curator
 ```
@@ -79,14 +92,15 @@ Results are written to the `results_path` specified in your configuration, organ
 
 ## Nightly Benchmark Ownership
 
-Curator owns the benchmark workload: `benchmarking/nightly-benchmark.yaml`,
+Curator owns the benchmark workload: `benchmarking/benchmarks.yaml`,
 the benchmark runner, benchmark scripts, data setup scripts, and local developer
 tools such as `benchmarking/tools/run.sh`.
 
 The scheduled nightly run is orchestrated outside of the Curator repository by
 CI infrastructure. That pipeline reads Curator's
-`benchmarking/nightly-benchmark.yaml`, generates one scheduler job per enabled
-entry, and starts each job in a benchmark runtime environment.
+`benchmarking/benchmarks.yaml` plus any selected SKU override config, generates
+one scheduler job per enabled entry from the merged config, and starts each job
+in a benchmark runtime environment.
 
 Each generated job invokes Curator's `benchmarking/run.py` for its assigned
 entry. The jobs share a session name and results root so their per-entry outputs
@@ -282,7 +296,7 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference config and is calibrated for the default 8-GPU H100 nightly environment. SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed after it to override only the values that differ for that environment.
 
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.
@@ -293,7 +307,7 @@ This makes it practical to write small override files that change only specific 
 
 **Example — overriding a single entry's timeout and requirements:**
 
-Base config (`nightly-benchmark.yaml`) defines many entries including:
+Base config (`benchmarks.yaml`) defines many entries including:
 ```yaml
 entries:
   - name: domain_classification_xenna
@@ -316,7 +330,7 @@ entries:
 Running with both files:
 ```bash
 python benchmarking/run.py \
-  --config nightly-benchmark.yaml \
+  --config benchmarks.yaml \
   --config my_overrides.yaml
 ```
 
@@ -566,10 +580,11 @@ Audio benchmarks that depend on external corpora use the same two-layer setup:
 1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
    machine to populate persistent paths under `{datasets_path}` and, when
    needed, `{model_weights_path}`.
-2. Run nightly entries with `--raw-data-dir` and `--no-auto-download` so the
-   benchmark itself never downloads the corpus during the scheduled run.
+2. Run nightly entries from the staged data and local model paths so the
+   benchmark itself never downloads inputs during the scheduled run. Entries
+   that support a standalone download fallback also pass `--no-auto-download`.
 
-The benchmark scripts keep their standalone auto-download path for ad hoc local
+Benchmarks that expose a standalone auto-download path keep it for ad hoc local
 debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
@@ -577,131 +592,44 @@ blobs across reruns, but it is not the nightly path.
 To run the checked-in audio setup before the benchmark session, pass
 `--config benchmarking/nightly-data-setup.yaml` alongside the main benchmark
 config to `benchmarking/tools/run.sh`. All supplied config files are merged
-before the setup entries verify and reuse existing staged data, or download and
+before the setup entries reuse an existing versioned manifest, or download and
 stage it into the configured paths before the nightly benchmark entries start.
 
 Current audio setup commands:
 
 ```bash
-python benchmarking/data_prep/prepare_fleurs_data.py \
-  --output-path {datasets_path}/fleurs
+python benchmarking/data_prep/prepare_librispeech_data.py \
+  --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb \
+  --cache-dir {datasets_path}/_hf_cache/librispeech \
+  --hf-repo-id openslr/librispeech_asr \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
+  --hf-config all \
+  --hf-split train.clean.100+train.clean.360+train.other.500 \
+  --target-audio-hours 750.0
 
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  --output-path {datasets_path}/audio_tagging_ami_sdm \
-  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+  --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
+  --min-audio-hours 30 --max-meeting-duration-minutes 60 \
+  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
+
+python benchmarking/data_prep/prepare_alm_data.py \
+  --output-path {datasets_path}/alm_ami_sdm_8cdaae2
+
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
+  --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 ```
 
-After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
-`fleurs_hy_am` and `{datasets_path}/audio_tagging_ami_sdm` as
-`audio_tagging_ami_sdm`. Both nightly benchmark commands pass `--no-auto-download`.
+The setup pins each Hugging Face revision and selects the configured workload
+scale in one pass. Timed entries consume these versioned paths and validate
+pipeline outputs without rescanning or downloading the staged corpus.
 
----
-
-## Audio Tagging Benchmark
-
-The nightly entries process three real AMI single-distant-microphone meetings:
-about 1.25 hours of long, multi-speaker audio with overlap. Stage this corpus and
-the local PyAnnote diarization snapshot once on the benchmark machine:
-
-```bash
-python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  --output-path /path/to/datasets/audio_tagging_ami_sdm \
-  --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1
-```
-
-The prep script does not take an HF token. By default it downloads the three
-benchmark AMI SDM meetings from `diarizers-community/ami` (`sdm` config,
-`test` split) and the local diarization snapshot from the token-free
-`pyannote-community/speaker-diarization-community-1` mirror. Override the
-defaults only when debugging with `--hf-repo-id`, `--ami-config`, `--ami-split`,
-or `--model-hf-repo-id`. If the PyAnnote snapshot already exists locally, pass
-`--model-source-path` to copy it instead of downloading the model files.
-Benchmark runs do not download or modify these staged inputs. The expected data
-layout is:
-
-```text
-{datasets_path}/audio_tagging_ami_sdm/
-|-- manifest.jsonl
-`-- audio/
-    |-- EN2002b.Array1-01.wav
-    |-- ES2004c.Array1-01.wav
-    `-- TS3003a.Array1-01.wav
-```
-
-`manifest.jsonl` must contain these three rows. `audio_item_id` must be unique
-and stable. The benchmark rewrites a per-run manifest from `--raw-data-dir` so
-`audio_filepath` points at `<raw-data-dir>/audio/<filename>` in the active
-environment rather than relying on hand-authored container paths:
-
-```jsonl
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/EN2002b.Array1-01.wav","audio_item_id":"EN2002b.Array1-01"}
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/ES2004c.Array1-01.wav","audio_item_id":"ES2004c.Array1-01"}
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/TS3003a.Array1-01.wav","audio_item_id":"TS3003a.Array1-01"}
-```
-
-The model output directory must include `config.yaml` and its `segmentation/`,
-`embedding/`, and `plda/` artifacts. The diarization stage loads only this local
-snapshot and requires neither `HF_TOKEN` nor network access. Other model stages
-continue to use their standard NeMo and Torch cache locations.
-
-The benchmark executes the production tagging graph end to end: manifest read,
-optional row repetition, resampling, speaker diarization, long-audio splitting,
-first-pass ASR alignment, split metadata join, alignment/diarization merge,
-bandwidth and SQUIM metrics, TTS-segment preparation, second-pass ASR, WER, and
-manifest write. This follows the same split as the FLEURS benchmark: use the
-data-prep script for persistent nightly inputs, then run the benchmark with
-`--raw-data-dir` and `--no-auto-download`. Use the same pre-staged paths for a
-local benchmark run:
-
-```bash
-python benchmarking/scripts/audio_tagging_benchmark.py \
-  --benchmark-results-path /tmp/audio-tagging-results \
-  --scratch-output-path /tmp/audio-tagging-scratch \
-  --raw-data-dir /path/to/audio_tagging_ami_sdm \
-  --no-auto-download \
-  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
-  --executor xenna
-```
-
-On constrained local GPUs, disable ASR CUDA graphs and lower the model
-microbatches without changing the pipeline or its output checks:
-
-```bash
-python benchmarking/scripts/audio_tagging_benchmark.py \
-  --benchmark-results-path /tmp/audio-tagging-results \
-  --scratch-output-path /tmp/audio-tagging-scratch \
-  --raw-data-dir /path/to/audio_tagging_ami_sdm \
-  --no-auto-download \
-  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
-  --disable-cuda-graphs \
-  --asr-transcribe-batch-size 8 \
-  --squim-compute-batch-size 8 \
-  --diarization-segmentation-batch-size 16 \
-  --diarization-embedding-batch-size 16 \
-  --gpu-stage-num-workers 1 \
-  --cpu-stage-num-workers 1 \
-  --execution-mode batch \
-  --executor xenna
-```
-
-For ad hoc standalone debugging only, the benchmark also mirrors FLEURS'
-runtime auto-download fallback: if `--raw-data-dir` is omitted, it stages under
-`<scratch-output-path>/audio_tagging_ami_sdm`, reuses that staging if present,
-or downloads `manifest.jsonl` and the three `audio/*.wav` files from
-`--hf-repo-id` or `$CURATOR_AUDIO_TAGGING_HF_REPO_ID` with blobs cached under
-`--cache-dir`, `$CURATOR_AUDIO_TAGGING_CACHE_DIR`, or
-`/tmp/curator/audio_tagging_cache`. Nightly does not use this fallback.
-
-Every downstream stage preserves outer task rows, so success requires
-`input manifest rows * repeat factor == returned tasks == output manifest rows`.
-Nested segments may still be rejected when a model does not produce the fields
-needed by the following stage; those segments remain visible in the emitted and
-skipped metrics but do not count as successfully tagged output. Success also
-requires complete second-pass ASR and finite WER output, nonzero work from all
-12 measured processing stages, at least 70 percent segment-output coverage,
-and at least 1.2 source audio hours (2.4 for the repeated entry). The nightly
-configuration additionally requires at least 100 complete segments and 0.2
-tagged audio hours (200 segments and 0.4 hours for the repeated entry).
+| Workload | Before | Current result and target decision |
+| --- | --- | --- |
+| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
+| Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
+| ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
+| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
 
 ---
 
