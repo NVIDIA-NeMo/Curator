@@ -16,11 +16,9 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from fastwarc.warc import ArchiveIterator, WarcRecordType
 from fsspec.core import url_to_fs
 from loguru import logger
-
-# TODO: Consider using fastwarc https://github.com/NVIDIA-NeMo/Curator/issues/778
-from warcio.archiveiterator import ArchiveIterator
 
 from nemo_curator.stages.text.download import DocumentIterator
 
@@ -46,19 +44,44 @@ class CommonCrawlWarcIterator(DocumentIterator):
         num_records = 0
         fs, fs_path = url_to_fs(file_path_str, **self.storage_options)
         with fs.open(fs_path, "rb") as file_pointer:
-            archive_iterator = ArchiveIterator(file_pointer, arc2warc=True)
+            # fastwarc wraps any file-like object and sniffs gzip itself, so the fsspec
+            # handle can be passed straight through. Non-response records are discarded
+            # in C++ before their headers reach Python, and auto_decode="all" keeps the
+            # HTTP body decoded from its Content-Encoding, as this iterator did before.
+            # strict_mode=False resynchronizes past a record with an unparseable WARC
+            # header instead of silently ending the file there, which is the default.
+            #
+            # Gaps that come with fastwarc 0.x, none of them reachable from Common Crawl's
+            # own files: a record resynchronized past is dropped silently -- the parser
+            # exposes no skip counter or callback and does not surface the record even
+            # with record_types=any_type, so there is nothing this loop can log, and a
+            # short record count is the only symptom; chunked transfer-encoding is not
+            # decoded even with auto_decode="all"; and the HTTP preamble is only stripped
+            # from records that declare Content-Type: application/http, which Common Crawl
+            # emits. ARC input, which the previous arc2warc=True accepted, is not supported.
+            archive_iterator = ArchiveIterator(
+                file_pointer, record_types=WarcRecordType.response, auto_decode="all", strict_mode=False
+            )
             while True:
                 try:
                     rec = next(archive_iterator)
-                    if rec.rec_type == "response":
-                        content = rec.content_stream().read()
-                        warc_id = rec.rec_headers.get_header("WARC-Record-ID")[10:-1]
-                        url = rec.rec_headers.get_header("WARC-Target-URI")
-                        yield {"url": url, "warc_id": warc_id, "source_id": filename, "content": content}
-                        num_records += 1
                 except StopIteration:
                     # End of file reached normally
                     break
+                except Exception as e:  # noqa: BLE001
+                    # next() has its own try because a stream the parser cannot open at all
+                    # fails here (fastwarc raises StreamError) rather than while reading a
+                    # record, and leaves nothing to resynchronize to. Report it once and stop
+                    # instead of calling next() again on a stream that is already dead.
+                    logger.error(f"Error processing record {num_records} in {filename}: {e!s}")
+                    break
+
+                try:
+                    content = rec.reader.read()
+                    warc_id = rec.headers.get("WARC-Record-ID")[10:-1]
+                    url = rec.headers.get("WARC-Target-URI")
+                    yield {"url": url, "warc_id": warc_id, "source_id": filename, "content": content}
+                    num_records += 1
                 except Exception as e:  # noqa: BLE001
                     # Handle corruption or other errors
                     logger.error(f"Error processing record {num_records} in {filename}: {e!s}")
