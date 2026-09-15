@@ -116,7 +116,14 @@ def read_parquet_file_info(  # noqa: C901
                     for column_chunk in row_group.columns
                     if column_chunk.meta_data.path_in_schema[0] == embedding_column
                 )
-                result.append(ParquetFileInfo(path, footer.num_rows, metadata_bytes, embedding_elements))
+                result.append(
+                    ParquetFileInfo(
+                        path,
+                        footer.num_rows,
+                        metadata_bytes,
+                        embedding_elements=embedding_elements,
+                    )
+                )
         return result  # noqa: TRY300
     except Exception as error:
         # TODO: Retry failed footer batches file-by-file so the error can expose the individual filename(s).
@@ -150,5 +157,5 @@ def break_parquet_partition_into_groups(
     if subgroup:
         subgroups.append(subgroup)
     if len(subgroups) > 1:
-        logger.debug(f"Broke {len(file_info)} files into {len(subgroups)} exact element-bounded subgroups")
+        logger.debug(f"Broke {len(file_info)} files into {len(subgroups)} bounded subgroups")
     return subgroups
