@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 import pytest
 import soundfile as sf
@@ -291,6 +292,24 @@ def test_resolve_audio_path_auto_prefers_complete_resident_audio(tmp_path: Path)
 
     cleanup_temp_files(temporary_paths)
     assert not os.path.exists(resolved)
+
+
+def test_resolve_audio_path_preserves_float_waveform_samples(tmp_path: Path) -> None:
+    waveform = np.array([[1e-5, -1e-5, 1.25, -1.25]], dtype=np.float32)
+    temporary_paths: list[str] = []
+
+    resolved = resolve_audio_path(
+        {"waveform": waveform, "sample_rate": 16000},
+        residency="waveform",
+        temp_dir=str(tmp_path),
+        register_temp=temporary_paths,
+    )
+
+    observed, sample_rate = sf.read(resolved, dtype="float32", always_2d=True)
+    assert sample_rate == 16000
+    assert sf.info(resolved).subtype == "FLOAT"
+    np.testing.assert_array_equal(observed[:, 0], waveform[0])
+    cleanup_temp_files(temporary_paths)
 
 
 def test_stable_audio_names_include_layout_and_written_short_stereo_shape(tmp_path: Path) -> None:
