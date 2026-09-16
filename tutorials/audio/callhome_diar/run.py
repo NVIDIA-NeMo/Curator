@@ -34,7 +34,6 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
@@ -144,8 +143,8 @@ class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.filepath_key]
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers_per_node": 1}
+    def num_workers_per_node(self) -> int:
+        return 1
 
     def process(self, task: EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)

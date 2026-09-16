@@ -28,7 +28,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from runner.sinks.sink import Sink
 from runner.datasets import DatasetResolver
-from runner.entry import Entry
+from runner.entry import Entry, normalize_environment
 from runner.path_resolver import PathResolver
 from runner.utils import assert_valid_config_dict, get_total_memory_bytes
 
@@ -91,6 +91,9 @@ class Session:
     run_reason: str | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)
+    # Global environment variables inherited by all benchmark subprocesses; per-entry
+    # environment sections override individual variables by name.
+    environment: dict[str, str] = field(default_factory=dict)
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
@@ -111,6 +114,8 @@ class Session:
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
+        self.environment = normalize_environment(self.environment, "session")
 
         # Validate the session-level warning threshold range, if set.
         if self.gpu_mem_use_warning_threshold is not None and not (0 <= self.gpu_mem_use_warning_threshold <= 1):
@@ -170,6 +175,11 @@ class Session:
         for entry in self.entries:
             entry.ray = {**self.ray, **entry.ray}
 
+        # Apply global environment defaults to each subprocess entry, with per-entry
+        # values taking precedence per variable name.
+        for entry in [*self.entries, *self.data_setups]:
+            entry.environment = {**self.environment, **entry.environment}
+
     @classmethod
     def from_dict(
         cls,
@@ -212,9 +222,7 @@ class Session:
         #   provided list, with strict exact-name matching. Every requested name must
         #   correspond to a configured (enabled) entry; otherwise ValueError is raised.
         #   Duplicates in the input are collapsed; result order follows the YAML.
-        #   Use this for automated callers (e.g. CI per-job invocations) and any context
-        #   where substring matching would dangerously match prefix-overlapping siblings
-        #   (e.g. "audio_tagging_tts_xenna" matching "audio_tagging_tts_xenna_repeat").
+        #   Use this for CI callers or entries with shared name prefixes.
         # - entry_filter_expr accepts a pytest "-k" style substring expression, e.g.
         #   "foo and not foobar" includes all entries containing "foo" but not "foobar".
         if entries_exact is not None:

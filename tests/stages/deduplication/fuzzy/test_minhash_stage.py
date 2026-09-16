@@ -1,4 +1,5 @@
 # modality: text
+# ruff: noqa: RUF001
 
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
@@ -118,6 +119,27 @@ def input_task(
     return DocumentBatch(dataset_name="test_dataset", data=data, _metadata={})
 
 
+@pytest.fixture
+def multilingual_normalization_variants() -> list[tuple[str, str]]:
+    """Text pairs that differ only in case and whitespace before normalization."""
+    return [
+        ("english", "  THE quick\tbrown\nfox jumps over the lazy dog.  "),
+        ("english", "the quick brown fox jumps over the lazy dog."),
+        ("french", "  CAFÉ\tÀ LA\nCRÈME — DÉJÀ VU  "),
+        ("french", "café à la crème — déjà vu"),
+        ("spanish", "  ¡HOLA,\tSEÑOR!  ¿CÓMO\nESTÁ?  "),
+        ("spanish", "¡hola, señor! ¿cómo está?"),
+        ("greek", "  ΓΕΙΆ\tΣΟΥ\nΚΌΣΜΕ  "),
+        ("greek", "γειά σου κόσμε"),
+        ("russian", "  ПРИВЕТ\tМИР,\nКАК ДЕЛА?  "),
+        ("russian", "привет мир, как дела?"),
+        ("arabic", "  مرحبًا\tبالعالم،\nكيف حالك؟  "),
+        ("arabic", "مرحبًا بالعالم، كيف حالك؟"),
+        ("japanese", "  こんにちは\t世界。\nお元気ですか？  "),
+        ("japanese", "こんにちは 世界。 お元気ですか？"),
+    ]
+
+
 @pytest.mark.gpu
 class TestMinHashStage:
     """Test suite for MinHashStage ProcessingStage."""
@@ -221,6 +243,45 @@ class TestMinHashStage:
             if use_64bit_hash
             else cudf.core.dtypes.ListDtype("uint32")
         )
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_normalized_multilingual_variants_have_identical_minhashes(
+        self,
+        tmp_path: Path,
+        multilingual_normalization_variants: list[tuple[str, str]],
+    ) -> None:
+        """Case and whitespace variants should hash identically after normalization."""
+        data = pd.DataFrame(multilingual_normalization_variants, columns=["language", "text"])
+        input_file = tmp_path / "normalization_variants.jsonl"
+        data.to_json(input_file, orient="records", lines=True, force_ascii=False)
+        input_task = FileGroupTask(
+            dataset_name="normalization_variants",
+            data=[str(input_file)],
+            _metadata={},
+        )
+
+        stage = MinHashStage(
+            output_path=str(tmp_path / "output"),
+            normalize_text=True,
+            char_ngrams=3,
+            num_hashes=64,
+            pool=False,
+            read_format="jsonl",
+        )
+        stage.setup()
+        output_task = stage.process(input_task)
+
+        result_df = cudf.read_parquet(output_task.data[0]).sort_values(CURATOR_DEDUP_ID_STR)
+        minhashes = result_df["_minhash_signature"].to_pandas().tolist()
+        signatures_by_language: dict[str, list[list[int]]] = {}
+        for (language, _), minhash in zip(multilingual_normalization_variants, minhashes, strict=True):
+            signatures_by_language.setdefault(language, []).append(minhash)
+
+        for language, signatures in signatures_by_language.items():
+            assert signatures[0] == signatures[1], f"Normalization did not produce matching {language} minhashes"
+
+        distinct_signatures = {tuple(signatures[0]) for signatures in signatures_by_language.values()}
+        assert len(distinct_signatures) == len(signatures_by_language)
 
     @pytest.mark.usefixtures("ray_client_with_id_generator")
     def test_error_handling_missing_column(self, tmp_path: Path) -> None:
