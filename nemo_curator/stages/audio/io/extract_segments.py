@@ -464,7 +464,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     # Shared extraction engine
     # ------------------------------------------------------------------
 
-    def _extract_file_segments(
+    def _extract_file_segments(  # noqa: C901
         self,
         entries: list[dict],
         *,

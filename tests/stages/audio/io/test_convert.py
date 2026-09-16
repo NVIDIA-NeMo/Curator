@@ -13,16 +13,16 @@
 # limitations under the License.
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
 import pytest
 import torch
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
 
@@ -155,7 +155,7 @@ class TestAudioToDocumentSerializationBoundary:
 
     def test_default_preserves_legacy_dataframe_values(self) -> None:
         values = {
-            "when": datetime(2026, 9, 16, 12, 30),
+            "when": datetime(2026, 9, 16, 12, 30, tzinfo=UTC),
             "amount": Decimal("1.25"),
             "path": Path("relative/file.wav"),
             "pair": ("left", "right"),

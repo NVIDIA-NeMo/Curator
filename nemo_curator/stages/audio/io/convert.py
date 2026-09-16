@@ -79,7 +79,7 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
     segments_key: str = "segments"
     strict_json: bool = False
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         batch_size: int = 64,
         keep_keys: list[str] | None = None,
