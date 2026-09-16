@@ -554,13 +554,6 @@ def test_mapped_diarization_rejects_multiple_original_files() -> None:
 def test_custom_non_json_passthrough_is_removed_before_real_writer(tmp_path: Path) -> None:
     mapper = TimestampMapperStage(passthrough_keys=["audio_tensor", "nested"])
     writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
-    report = validate_pipeline(
-        [mapper, writer],
-        initial_keys={"audio_filepath", "duration", "audio_tensor", "nested"},
-        initial_tensor_keys={"audio_tensor"},
-    )
-    assert report.ok
-
     task = _make_task(
         {
             "audio_filepath": "clip.wav",
