@@ -215,7 +215,12 @@ ADDITIVE_STAGE_NAMES = (
 # static discovery now reports its network/row-dependence gates while omitting
 # the runtime-only model from agent-settable parameters. Constructor defaults
 # and the other 44 stage entries remain unchanged.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "9ead857f23787c32fb0165f038c5c1fcd0bb4f7e54ff105fbd3d266955a5d6d3"
+# Regenerated for the inference safety corrections. Exactly four entries moved:
+# ASR now exposes its invariant network/row-independence gates; PyAnnote,
+# Sortformer, and WhisperX expose conservative/default lifecycle gates and both
+# configured cardinalities. Constructor defaults, parameters, and the other
+# 42 stage entries remain unchanged.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "0d14da46ec81779bfd09d8bb4fb13b5cfa5f2e8c220a32bb734b3fb932e04d1f"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
