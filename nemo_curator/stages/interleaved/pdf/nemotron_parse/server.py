@@ -25,7 +25,10 @@ from nemo_curator.core.serve import (
     InferenceServer,
     RayServeModelConfig,
 )
-from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT_MODEL_PATH
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+    DEFAULT_MODEL_PATH,
+    set_nemotron_parse_attention_backend,
+)
 
 NemotronParseServerBackend = Literal["ray-serve", "dynamo"]
 
@@ -85,6 +88,9 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
             health_check_timeout_s=health_check_timeout_s,
         )
     if backend == "ray-serve":
+        # Assumes the driver's GPU architecture matches the serving replicas;
+        # a CPU-only or heterogeneous driver cannot select their fallback.
+        set_nemotron_parse_attention_backend(resolved_engine_kwargs)
         model = RayServeModelConfig(
             **model_kwargs,
             deployment_config={"num_replicas": num_replicas},
