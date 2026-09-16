@@ -21,10 +21,17 @@ writer finished — letting the tasks of a SLURM array share one checkpoint dir.
 
 ``apply_deltas`` is fire-and-forget and never raises; see its docstring for the
 dedup/rewrite/anomaly rules.
+
+LMDB is also unsupported on *remote* filesystems (upstream: "do not use LMDB
+databases on remote filesystems, even between processes on the same host") — it
+relies on memory-mapped I/O that NFS and friends do not guarantee. Startup is
+therefore bounded by a timeout and network mounts are flagged, so a hostile
+mount surfaces as an actionable error instead of a silent, indefinite hang.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 from pathlib import Path
@@ -43,6 +50,83 @@ _DEFAULT_MAP_SIZE = 1 << 30  # 1 GiB; sparse on Linux so effectively free
 # Subdirectory (under the user-provided checkpoint dir) that holds the
 # per-writer LMDB files. Hidden so it sits unobtrusively next to outputs.
 METADATA_DIRNAME = ".nemo_curator_metadata"
+
+STARTUP_TIMEOUT_ENV_VAR = "NEMO_CURATOR_RESUMABILITY_STARTUP_TIMEOUT_S"
+_DEFAULT_STARTUP_TIMEOUT_S = 120.0
+
+# Filesystems LMDB documents as unsupported: it memory-maps the database, and
+# these give no coherence guarantee between the map and the writes behind it.
+# A checkpoint dir on one of these can wedge or SIGBUS the actor, so we say so
+# up front rather than letting the run stall with no explanation.
+_NETWORK_FS_TYPES = frozenset(
+    {
+        "9p",
+        "afs",
+        "ceph",
+        "cifs",
+        "davfs",
+        "fuse.sshfs",
+        "fuse.s3fs",
+        "fuseblk",
+        "ncpfs",
+        "nfs",
+        "nfs4",
+        "smb2",
+        "smb3",
+        "smbfs",
+    }
+)
+
+
+def filesystem_type(path: str | Path) -> str | None:
+    """Filesystem type backing ``path`` (e.g. ``"nfs4"``, ``"lustre"``, ``"ext4"``).
+
+    Reads ``/proc/self/mountinfo`` and picks the longest mount point that is a
+    prefix of the resolved path. Returns ``None`` when that is unavailable (non
+    Linux) or unreadable — callers treat an unknown filesystem as fine.
+    """
+    try:
+        resolved = Path(path).resolve()
+        mountinfo = Path("/proc/self/mountinfo").read_text()
+    except OSError:
+        return None
+
+    best_mount, best_type = "", None
+    for line in mountinfo.splitlines():
+        # <id> <parent> <maj:min> <root> <mountpoint> <opts>... - <fstype> <src> <sopts>
+        pre, sep, post = line.partition(" - ")
+        pre_fields, post_fields = pre.split(), post.split()
+        if not sep or len(pre_fields) < 5 or not post_fields:  # noqa: PLR2004
+            continue
+        mount_point = pre_fields[4].replace(r"\040", " ").replace(r"\011", "\t")
+        # `<` not `<=`: mountinfo is in mount order, so a later entry for the
+        # same mount point is the one actually stacked on top.
+        if len(mount_point) < len(best_mount):
+            continue
+        if resolved == Path(mount_point) or mount_point == "/" or str(resolved).startswith(mount_point + "/"):
+            best_mount, best_type = mount_point, post_fields[0]
+    return best_type
+
+
+def warn_if_unsupported_checkpoint_filesystem(checkpoint_path: str | Path) -> str | None:
+    """Warn when ``checkpoint_path`` sits on a filesystem LMDB does not support.
+
+    Returns the detected filesystem type (or ``None``) so callers can name it in
+    later error messages. Deliberately a warning, not an error: single-writer
+    LMDB does work on some network mounts, and refusing outright would break
+    shared-checkpoint SLURM arrays that run fine today.
+    """
+    fs_type = filesystem_type(checkpoint_path)
+    if fs_type in _NETWORK_FS_TYPES:
+        logger.warning(
+            f"resumability: checkpoint_path {str(checkpoint_path)!r} is on a {fs_type} "
+            f"filesystem. LMDB does not support network filesystems — it memory-maps the "
+            f"checkpoint, and the mapping can stall or fault when the mount is slow, full, "
+            f"or written from more than one host. Prefer local disk or a parallel filesystem "
+            f"(Lustre, GPFS, BeeGFS). Keep the network path only if you have verified "
+            f"resume works end to end there."
+        )
+    return fs_type
 
 
 @ray.remote(num_cpus=0, max_concurrency=1)
@@ -109,10 +193,13 @@ class ResumabilityActor:
         """Parallel bool list: which source_ids are complete (skip on rerun)."""
         return [sid in self._completed for sid in source_ids]
 
-    def wait(self) -> None:
-        """No-op the caller ``ray.get``s after spawning the actor: it blocks until
-        ``__init__`` (the checkpoint scan) has finished and surfaces any startup
-        error (e.g. an LMDB open failure) before the pipeline begins."""
+    def wait(self) -> int:
+        """Number of already-completed sources, for the caller to ``ray.get``
+        after spawning the actor: it blocks until ``__init__`` (the checkpoint
+        scan) has finished and surfaces any startup error (e.g. an LMDB open
+        failure) before the pipeline begins. The count lets the driver report
+        how much of the input this run will skip."""
+        return len(self._completed)
 
     # ------------------------------------------------------------ write
 
@@ -207,17 +294,71 @@ class ResumabilityActor:
 # workers find it by (name, namespace).
 
 
+def _startup_timeout_s() -> float:
+    """Seconds to wait for the actor's checkpoint scan, from ``$NEMO_CURATOR_RESUMABILITY_STARTUP_TIMEOUT_S``.
+
+    ``0`` (or negative) disables the bound and waits forever, for the rare
+    checkpoint dir whose scan legitimately outlasts the default.
+    """
+    raw = os.environ.get(STARTUP_TIMEOUT_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_STARTUP_TIMEOUT_S
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning(
+            f"resumability: {STARTUP_TIMEOUT_ENV_VAR}={raw!r} is not a number; "
+            f"using the default of {_DEFAULT_STARTUP_TIMEOUT_S}s."
+        )
+        return _DEFAULT_STARTUP_TIMEOUT_S
+
+
 def create_resumability_actor(checkpoint_path: str) -> None:
     """Spawn the detached resumability actor and block until it has scanned the
     checkpoint dir (so the first ``apply_deltas``/``are_completed`` works, and any
     LMDB startup error surfaces here). Must be called with an active Ray
-    connection — the pipeline wraps it in ``with ray.init()``."""
+    connection — the pipeline wraps it in ``with ray.init()``.
+
+    The wait is bounded (see ``_startup_timeout_s``): opening LMDB on a wedged
+    or unsupported mount can block indefinitely inside the actor, and an
+    unbounded ``ray.get`` would turn that into a silent hang with no clue as to
+    which of the pipeline's moving parts stalled.
+    """
     from nemo_curator.utils.resumability_client import ACTOR_NAME
+
+    fs_type = warn_if_unsupported_checkpoint_filesystem(checkpoint_path)
 
     actor = ResumabilityActor.options(  # type: ignore[attr-defined]
         name=ACTOR_NAME, namespace=ACTOR_NAME, lifetime="detached", get_if_exists=True
     ).remote(checkpoint_path)
-    ray.get(actor.wait.remote())
+
+    timeout_s = _startup_timeout_s()
+    try:
+        already_completed = ray.get(actor.wait.remote(), timeout=timeout_s if timeout_s > 0 else None)
+    except ray.exceptions.GetTimeoutError as e:
+        # Leave nothing detached behind: a half-started actor keeps the fixed
+        # cluster-wide name and the next run would silently adopt it.
+        with contextlib.suppress(Exception):
+            ray.kill(actor)
+        where = f" (filesystem: {fs_type})" if fs_type else ""
+        msg = (
+            f"Resumability checkpoint actor did not start within {timeout_s:g}s.\n"
+            f"  checkpoint_path: {checkpoint_path}{where}\n"
+            f"It was still opening the LMDB checkpoint under {METADATA_DIRNAME}/. LMDB does "
+            f"not support network filesystems, and a slow, full, or contended mount can block "
+            f"there indefinitely. Move checkpoint_path to local disk or a parallel filesystem "
+            f"(Lustre, GPFS, BeeGFS), check the mount is healthy and has free space, or raise "
+            f"the bound with {STARTUP_TIMEOUT_ENV_VAR} (0 waits forever)."
+        )
+        raise RuntimeError(msg) from e
+
+    # Confirm resumability is live and say how much of the input it will skip;
+    # without this the feature is invisible in the log until something breaks.
+    on_fs = f" on {fs_type}" if fs_type else ""
+    logger.info(
+        f"resumability: checkpoint at {checkpoint_path}{on_fs}; "
+        f"{already_completed} source(s) already completed and will be skipped."
+    )
 
 
 def shutdown_resumability_actor() -> None:
