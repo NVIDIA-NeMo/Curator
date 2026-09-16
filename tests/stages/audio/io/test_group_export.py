@@ -69,6 +69,32 @@ class TestGroupExport:
         assert (out / "speaker_1_A.txt").read_text().strip() == "already safe"
         assert _unsafe_group_file(out, "speaker_1_A", "txt").read_text().strip() == "unsafe spelling"
 
+    def test_typed_group_values_with_the_same_text_get_distinct_files(self, tmp_path: Path) -> None:
+        out = tmp_path / "g"
+        rows = [
+            {"speaker_id": 1, "text": "integer group"},
+            {"speaker_id": "1", "text": "string group"},
+        ]
+
+        _run(ManifestGroupExportStage(output_dir=str(out), include_timestamps=False), rows)
+
+        outputs = {path.read_text().strip() for path in out.glob("1*.txt")}
+        assert outputs == {"integer group", "string group"}
+
+    def test_missing_group_and_real_fallback_value_get_distinct_files(self, tmp_path: Path) -> None:
+        out = tmp_path / "g"
+        rows = [
+            {"text": "missing group"},
+            {"speaker_id": "unknown", "text": "real unknown group"},
+        ]
+
+        _run(ManifestGroupExportStage(output_dir=str(out), include_timestamps=False), rows)
+
+        assert (out / "unknown.txt").read_text().strip() == "missing group"
+        colliding = list(out.glob("unknown~*.txt"))
+        assert len(colliding) == 1
+        assert colliding[0].read_text().strip() == "real unknown group"
+
     def test_timeline_group_cannot_replace_the_combined_timeline(self, tmp_path: Path) -> None:
         out = tmp_path / "g"
         stage = ManifestGroupExportStage(
@@ -81,6 +107,20 @@ class TestGroupExport:
 
         assert (out / "timeline.txt").read_text().strip() == "timeline: kept in both outputs"
         assert _unsafe_group_file(out, "timeline", "txt").read_text().strip() == "kept in both outputs"
+
+    def test_timeline_labels_distinguish_groups_that_sanitize_alike(self, tmp_path: Path) -> None:
+        out = tmp_path / "g"
+        rows = [
+            {"speaker_id": "speaker 1/A", "text": "first", "start": 0.0, "end": 1.0},
+            {"speaker_id": "speaker_1_A", "text": "second", "start": 1.0, "end": 2.0},
+        ]
+
+        _run(ManifestGroupExportStage(output_dir=str(out), write_timeline=True), rows)
+
+        lines = (out / "timeline.txt").read_text().splitlines()
+        labels = [line.split("] ", 1)[1].split(": ", 1)[0] for line in lines]
+        assert labels[0] != labels[1]
+        assert [line.rsplit(": ", 1)[1] for line in lines] == ["first", "second"]
 
     def test_rows_pass_through_unchanged(self, tmp_path) -> None:  # noqa: ANN001
         # It is a tee, not a sink: a writer can follow it.
