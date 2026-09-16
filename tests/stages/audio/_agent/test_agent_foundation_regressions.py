@@ -85,6 +85,17 @@ def test_stage_params_respects_field_level_agent_exclusion() -> None:
     assert [param.name for param in stage_params(_AgentParamMetadataFixture)] == ["visible"]
 
 
+def test_optional_reads_are_visible_without_blocking_fallback_paths() -> None:
+    contract = StageContract(
+        reads=IOSpec(data_keys=["text"]),
+        optional_reads=IOSpec(data_keys=["speaker_id"]),
+    )
+    stage = _ConfiguredContractStage(contract)
+
+    assert build_contract(stage).to_dict()["optional_reads"]["data_keys"] == ["speaker_id"]
+    assert validate_pipeline([stage], initial_keys={"text"}).ok
+
+
 def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None:
     producer_contract = StageContract(
         conditional_writes=[

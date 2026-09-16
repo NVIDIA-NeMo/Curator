@@ -119,14 +119,19 @@ def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901
         # absent from writes — but it must still resolve to a semantic role).
         # Catches synthetic labels like the former 'speakers' that name nothing.
         contract_keys: set[str] = set()
-        for spec in [c.reads, c.writes, *c.reads_one_of]:
+        for spec in [c.reads, c.writes, c.optional_reads, *c.reads_one_of]:
             contract_keys.update(spec.data_keys)
             contract_keys.update(spec.segment_data_keys)
         assert c.iteration_key in contract_keys or c.iteration_key in c.key_roles, (
             f"{name}: iteration_key {c.iteration_key!r} is neither a contract read/write "
             f"key nor a role-resolvable key value — it names nothing an agent can find"
         )
-    for spec, label in [(c.reads, "reads"), (c.writes, "writes"), *[(s, "reads_one_of") for s in c.reads_one_of]]:
+    for spec, label in [
+        (c.reads, "reads"),
+        (c.writes, "writes"),
+        (c.optional_reads, "optional_reads"),
+        *[(s, "reads_one_of") for s in c.reads_one_of],
+    ]:
         for a in spec.accepts:
             assert a in _VALID_ACCEPTS, f"{name}: {label}.accepts has invalid form {a!r}"
         for p in spec.produces:
@@ -159,6 +164,12 @@ def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901
     # no duplicate keys within a single spec list
     for spec, label in [(c.reads, "reads"), (c.writes, "writes")]:
         assert len(spec.data_keys) == len(set(spec.data_keys)), f"{name}: duplicate {label}.data_keys"
+    assert len(c.optional_reads.data_keys) == len(set(c.optional_reads.data_keys)), (
+        f"{name}: duplicate optional_reads.data_keys"
+    )
+    assert len(c.optional_reads.segment_data_keys) == len(set(c.optional_reads.segment_data_keys)), (
+        f"{name}: duplicate optional_reads.segment_data_keys"
+    )
 
 
 def _check_roles(stage_or_cls: Any, c: StageContract, name: str) -> None:  # noqa: ANN401
