@@ -19,7 +19,7 @@ Merges adjacent same-speaker segments and splits by duration, punctuation, and b
 
 import hashlib
 import random
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 from typing import Any
 
 from loguru import logger
@@ -57,6 +57,7 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         The same data as in the input manifest, but with the new segments added to the metadata.
     """
 
+    # Legacy positional slots (pre-agent order preserved).
     module: str = "tts"
     min_duration: float = 5.0
     max_duration: float = 20.0
@@ -66,11 +67,21 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
     terminal_punct_marks: str = ".!?。？？！。"  # noqa: RUF001
     full_utterance_ratio: float = 1.0
     punctuation_split_only: bool = False
+
+    name: str = "PrepareModuleSegments"
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
     segments_key: str = "segments"
     duration_key: str = "duration"
     metrics_key: str = "metrics"
-
-    name: str = "PrepareModuleSegments"
+    # Previously hard-coded literals inside process/describe -- now configurable so a renamed
+    # alignment / overlap / identity key is honored instead of silently missed.
+    alignment_key: str = "alignment"
+    overlap_segments_key: str = "overlap_segments"
+    audio_filepath_key: str = "audio_filepath"
+    audio_item_id_key: str = "audio_item_id"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.segments_key, self.duration_key]
@@ -82,6 +93,16 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         return StageContract(
             reads=IOSpec(data_keys=[self.segments_key, self.duration_key]),
             writes=IOSpec(data_keys=[self.segments_key]),
+            # Consulted-when-present: an alignment/overlap list and the row-identity keys used
+            # to seed the per-row RNG. Optional so planning never blocks on their absence.
+            optional_reads=IOSpec(
+                data_keys=[
+                    self.alignment_key,
+                    self.overlap_segments_key,
+                    self.audio_filepath_key,
+                    self.audio_item_id_key,
+                ]
+            ),
             # The ``asr`` module draws its per-segment length limit from ``self._rng``, which
             # ``process`` reseeds from a hash of the row's own id before touching it. So the draws
             # a row gets depend on that row alone, unlike PyAnnoteDiarizationStage's unseeded
@@ -115,9 +136,9 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         segments = metadata[self.segments_key]
         audio_duration = metadata.get(self.duration_key, 0.0)
 
-        if "overlap_segments" not in metadata:
+        if self.overlap_segments_key not in metadata:
             add_non_speaker_segments(segments, audio_duration)
-            alignment = metadata.get("alignment", [])
+            alignment = metadata.get(self.alignment_key, [])
             MergeAlignmentDiarizationStage.align_words_to_segments(alignment, segments, self.text_key, self.words_key)
 
         words = []
@@ -345,7 +366,14 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         return segments_out
 
     def add_new_segments_to_metadata(self, metadata: dict[str, Any], new_segments: list[dict[str, Any]]) -> None:
-        """Write new segment list into metadata with text, words, and metrics keys."""
+        """Write new segment list into metadata with text, words, and metrics keys.
+
+        An empty ``new_segments`` never overwrites a non-empty input segment list: a word-less
+        or unaligned row (e.g. a renamed ``alignment_key`` that carried no words) would
+        otherwise silently blank out segments the row already had. Keep the original instead.
+        """
+        if not new_segments and metadata.get(self.segments_key):
+            return
         segments = []
         for new_segment in new_segments:
             if self.module == "tts":
@@ -426,12 +454,14 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
     def process(self, task: AudioTask) -> AudioTask:
         """Process one entry: build words from segments, then prepare TTS or ASR segments."""
         data_entry = task.data
-        entry_id = data_entry.get("audio_filepath", data_entry.get("audio_item_id", ""))
+        entry_id = data_entry.get(self.audio_filepath_key, data_entry.get(self.audio_item_id_key, ""))
         seed = int(hashlib.md5(entry_id.encode()).hexdigest()[:8], 16)  # noqa: S324
         self._rng.seed(seed)
         try:
             if self.segments_key not in data_entry:
-                logger.info(f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}")
+                logger.info(
+                    f"[{self.name}] No segments in metadata for: {data_entry.get(self.audio_filepath_key, '')}"
+                )
                 return task
 
             words = self.get_words_list_from_all_segments(data_entry)

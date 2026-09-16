@@ -387,7 +387,7 @@ def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 
-    def test_contract_guarantees_outputs_and_removes_temporary_keys(self) -> None:
+    def test_contract_declares_conditional_outputs_and_removes_only_the_sentinel(self) -> None:
         stage = JoinSplitAudioMetadataStage(
             text_key="transcript",
             alignment_key="word_alignment",
@@ -397,44 +397,45 @@ class TestJoinSplitAudioMetadataStage:
 
         contract = build_contract(stage)
 
-        assert contract.writes.data_keys == ["transcript", "word_alignment"]
-        assert contract.removes_keys == ["chunk_paths", "chunks"]
+        # text/alignment are written ONLY on the populated-split branch, so they are declared
+        # conditional -- not unconditional writes. Only the split_filepaths sentinel is removed
+        # unconditionally; split_metadata is removed only on the populated branch.
+        assert contract.writes.data_keys == []
+        assert [cw.writes.data_keys for cw in contract.conditional_writes] == [["transcript", "word_alignment"]]
+        assert contract.removes_keys == ["chunk_paths"]
 
-    def test_no_split_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
-        """No-split preserves existing outputs while dropping both temporary keys."""
+    def test_no_split_none_only_removes_the_sentinel(self, audio_task: Callable[..., AudioTask]) -> None:
+        """split_filepaths=None with populated split_metadata: only strip the sentinel (legacy)."""
         stage = JoinSplitAudioMetadataStage()
         original_alignment = [{"word": "hello", "start": 0.0, "end": 0.5}]
+        original_metadata = [{"text": "must not replace the top-level value"}]
         task = audio_task(
             audio_item_id="x",
             split_filepaths=None,
-            split_metadata=[{"text": "must not replace the top-level value"}],
+            split_metadata=original_metadata,
             split_offsets=[1.25],
             split_timestamps=[2.5],
             text="hello",
             alignment=original_alignment,
         )
 
-        assert_agent_ready(
-            stage,
-            lambda: task,
-            available_keys={
-                "split_filepaths",
-                "split_metadata",
-                "split_offsets",
-                "split_timestamps",
-            },
-        )
+        result = stage.process(task)
 
-        out = task.data
-        assert "split_filepaths" not in out
-        assert "split_metadata" not in out
-        assert out["text"] == "hello"
-        assert out["alignment"] is original_alignment
-        assert out["split_offsets"] == [1.25]
-        assert out["split_timestamps"] == [2.5]
+        # Exact dict: the sentinel is gone; split_metadata is preserved (not deleted, not joined),
+        # and no text/alignment is fabricated over the row's own values.
+        assert result.data == {
+            "audio_item_id": "x",
+            "split_metadata": original_metadata,
+            "split_offsets": [1.25],
+            "split_timestamps": [2.5],
+            "text": "hello",
+            "alignment": original_alignment,
+        }
+        assert result.data["alignment"] is original_alignment
+        assert result.data["split_metadata"] is original_metadata
 
-    def test_empty_split_supplies_safe_defaults(self, audio_task: Callable[..., AudioTask]) -> None:
-        """Empty split metadata supplies outputs without removing unrelated split timing."""
+    def test_empty_split_only_removes_the_sentinel(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Empty split_metadata: only strip the sentinel; write no outputs (legacy)."""
         stage = JoinSplitAudioMetadataStage()
         task = audio_task(
             audio_item_id="empty",
@@ -444,23 +445,42 @@ class TestJoinSplitAudioMetadataStage:
             split_timestamps=[],
         )
 
-        assert_agent_ready(
-            stage,
-            lambda: task,
-            available_keys={
-                "split_filepaths",
-                "split_metadata",
-                "split_offsets",
-                "split_timestamps",
-            },
+        result = stage.process(task)
+
+        # Exact dict: sentinel gone, empty split_metadata kept, no text/alignment fabricated.
+        assert result.data == {
+            "audio_item_id": "empty",
+            "split_metadata": [],
+            "split_offsets": [],
+            "split_timestamps": [],
+        }
+
+    def test_populated_split_joins_and_removes_both_split_keys(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Populated split_metadata: join text/alignment and remove both split keys (exact dict)."""
+        stage = JoinSplitAudioMetadataStage()
+        task = audio_task(
+            audio_item_id="parent",
+            split_filepaths=["/a.wav", "/b.wav"],
+            split_metadata=[
+                {"text": "first", "alignment": [{"word": "first", "start": 0.0, "end": 0.5}]},
+                {"text": "second", "alignment": [{"word": "second", "start": 0.0, "end": 0.5}]},
+            ],
+            split_offsets=[0.0, 5.0],
+            split_timestamps=[5.0],
         )
 
-        assert task.data["text"] == ""
-        assert task.data["alignment"] == []
-        assert "split_filepaths" not in task.data
-        assert "split_metadata" not in task.data
-        assert task.data["split_offsets"] == []
-        assert task.data["split_timestamps"] == []
+        result = stage.process(task)
+
+        assert result.data == {
+            "audio_item_id": "parent",
+            "split_offsets": [0.0, 5.0],
+            "split_timestamps": [5.0],
+            "text": "first second",
+            "alignment": [
+                {"word": "first", "start": 0.0, "end": 0.5},
+                {"word": "second", "start": 5.0, "end": 5.5},
+            ],
+        }
 
     def test_join_split_metadata_concatenates_text_and_alignments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Meta-entry with split_metadata joins text and adjusts alignment timestamps."""
@@ -519,10 +539,6 @@ class TestJoinSplitAudioMetadataStage:
                 "split_filepaths",
                 MergeAlignmentDiarizationStage(alignment_key="split_filepaths"),
             ),
-            (
-                "split_metadata",
-                MergeAlignmentDiarizationStage(segments_key="split_metadata"),
-            ),
         ],
     )
     def test_planner_does_not_carry_removed_temporary_key(
@@ -549,8 +565,6 @@ class TestJoinSplitAudioMetadataStage:
         assert not report.keys_ok
         assert removed_key not in report.produced_keys
         assert any(
-            issue.stage_index == 1
-            and issue.code == "dangling_key"
-            and removed_key in issue.message
+            issue.stage_index == 1 and issue.code == "dangling_key" and removed_key in issue.message
             for issue in report.issues
         )

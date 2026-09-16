@@ -17,7 +17,7 @@ Merge Alignment and Diarization Stage.
 """
 
 import time
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 
 from loguru import logger
 
@@ -55,14 +55,18 @@ class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, Audi
               words_key: "words"
     """
 
-    # Output keys
+    # Output keys (legacy positional slots)
     text_key: str = "text"
     words_key: str = "words"
+
+    # Stage metadata (legacy positional slot)
+    name: str = "MergeAlignmentDiarization"
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
     alignment_key: str = "alignment"
     segments_key: str = "segments"
-
-    # Stage metadata
-    name: str = "MergeAlignmentDiarization"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.alignment_key, self.segments_key]
@@ -76,9 +80,7 @@ class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, Audi
             conditional_writes=[
                 ConditionalWrite(
                     writes=IOSpec(segment_data_keys=[self.text_key, self.words_key]),
-                    condition=(
-                        f"both '{self.alignment_key}' and '{self.segments_key}' are non-empty"
-                    ),
+                    condition=(f"both '{self.alignment_key}' and '{self.segments_key}' are non-empty"),
                 )
             ],
             # Merges this row's own alignment with this row's own segments.

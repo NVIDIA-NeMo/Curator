@@ -14,7 +14,7 @@
 
 """Chinese text conversion stage (Traditional -> Simplified, etc.)."""
 
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -45,16 +45,21 @@ class ChineseConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         convert_type: OpenCC conversion type (e.g. ``"t2s"``, ``"s2t"``).
     """
 
+    # Legacy positional slots (pre-agent order preserved).
     text_key: str = "text"
     convert_type: str = "t2s"
-    segments_key: str = "segments"
-    output_suffix: str = "_simplified"
 
     # Stage metadata
     name: str = "ChineseConversion"
 
     # Internal state
     _converter: Any = field(default=None, repr=False)
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    segments_key: str = "segments"
+    output_suffix: str = "_simplified"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.segments_key]

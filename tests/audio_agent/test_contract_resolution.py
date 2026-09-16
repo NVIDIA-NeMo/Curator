@@ -111,7 +111,13 @@ class TestACompositeReportsWhatItsInnerStagesNeed:
         expanded = aa.describe("SplitASRAlignJoinStage")["expands_to"]
 
         assert "SplitLongAudioStage" in [s["stage"] for s in expanded["stages"]]
-        assert "text" in expanded["produces"]
+        # The inner split stage unconditionally produces the split-plan keys.
+        assert "split_metadata" in expanded["produces"]
+        # text/alignment are produced only on the populated-split runtime path (the aligner and
+        # the join declare them as conditional writes), so the mechanical, always-true `produces`
+        # deliberately does NOT list them -- it never over-promises a data-dependent output.
+        assert "text" not in expanded["produces"]
+        assert "alignment" not in expanded["produces"]
 
     def test_a_key_produced_inside_is_not_demanded_from_upstream(self) -> None:
         """``split_filepaths`` is made by the first inner stage and read by the second."""

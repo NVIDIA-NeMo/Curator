@@ -59,8 +59,21 @@ class TestResampleAudioStage:
             stage.setup()
             stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(audio_filepath)}))
 
-            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:8]
+            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:16]
             assert os.listdir(tmpdir) == [f"{audio_filepath.stem}_{path_hash}.wav"]
+
+    def test_two_paths_sharing_a_stem_get_distinct_output_stems(self, tmp_path: Path) -> None:
+        """A 32-bit (8-hex) suffix collided too easily; distinct paths must not share a stem."""
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+        stems = set()
+        for parent in ("a", "b"):
+            local_audio_path = str(tmp_path / parent / "clip.wav")
+            stem = stage._item_id(local_audio_path, from_scratch_file=False, source=None)
+            # The full sha256 hex must be relied on to disambiguate, never an 8-hex prefix.
+            assert stem.startswith("clip_")
+            assert len(stem.split("_")[-1]) == 16
+            stems.add(stem)
+        assert len(stems) == 2, "distinct paths with the same basename stem collided onto one stem"
 
     def test_a_waveform_input_writes_one_file_however_often_it_is_rerun(self) -> None:
         waveform = torch.sin(torch.arange(0, 16000 * 2) * 0.01).unsqueeze(0)
@@ -281,9 +294,7 @@ class TestResampleAudioStage:
         assert sample_rate == 16000
         assert tuple(converted.shape[:1]) == (1,)
 
-    def test_sink_contracts_and_static_gates(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sink_contracts_and_static_gates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_copy)
         source = tmp_path / "source.wav"
         sf.write(source, np.zeros(16000, dtype=np.float32), 16000)
@@ -323,9 +334,7 @@ class TestResampleAudioStage:
             )
         )
         assert replacement.writes.data_keys.count("audio_filepath") == 1
-        assert [write.writes.data_keys for write in replacement.conditional_writes] == [
-            ["original_audio_filepath"]
-        ]
+        assert [write.writes.data_keys for write in replacement.conditional_writes] == [["original_audio_filepath"]]
 
         static = static_contract(ResampleAudioStage)
         configured = build_contract(ResampleAudioStage(resampled_audio_dir=str(tmp_path / "configured")))
@@ -411,3 +420,103 @@ class TestSkippingExistingOutput:
         for _ in range(2):
             mem_stage.process(AudioTask(dataset_name="t", data={"audio_filepath": str(source), "audio_item_id": "m"}))
         assert calls["n"] == 2, "an in-memory run has no durable output to skip"
+
+
+class TestResampleReviewFixes:
+    """Regressions for the PR #2339 re-review safety fixes."""
+
+    def test_constructor_rejects_unknown_residency(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="input_residency"):
+            ResampleAudioStage(resampled_audio_dir=str(tmp_path), input_residency="disk")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        ("sample_rate", "usable"),
+        [(0, False), (-16000, False), (True, False), (16000.5, False), (16000, True), (16000.0, True)],
+    )
+    def test_resident_sample_rate_is_validated(self, tmp_path: Path, sample_rate: object, usable: bool) -> None:
+        waveform = torch.ones(1, 16000)
+        for residency in ("waveform", "auto"):
+            stage = ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path / "unused"),
+                input_residency=residency,
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+            )
+            task = AudioTask(dataset_name="d", data={"waveform": waveform, "sample_rate": sample_rate})
+            assert stage.validate_input(task) is usable
+
+    def test_process_batch_rejects_fractional_resident_rate(self, tmp_path: Path) -> None:
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "unused"),
+            input_residency="waveform",
+            write_to_disk=False,
+            keep_waveform_in_task=True,
+        )
+        task = AudioTask(dataset_name="d", data={"waveform": torch.ones(1, 16), "sample_rate": 16000.5})
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([task])
+
+    def test_file_mode_preserves_a_preexisting_sample_rate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_convert)
+        source = tmp_path / "source.wav"
+        sf.write(source, np.zeros((8000, 1), dtype=np.float32), 8000)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="file",
+            target_sample_rate=16000,
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+        )
+        task = AudioTask(dataset_name="d", data={"audio_filepath": str(source), "sample_rate": 8000})
+        result = stage.process(task)
+        assert result.data.get("sample_rate") == 8000, "file-route conversion must not drop the row pair"
+        assert build_contract(stage).removes_keys == []
+
+    def test_resident_disk_only_still_drops_the_pair(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_convert)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="waveform",
+            target_sample_rate=16000,
+            target_nchannels=1,
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+        )
+        task = AudioTask(dataset_name="d", data={"waveform": torch.zeros(1, 8000), "sample_rate": 8000})
+        result = stage.process(task)
+        assert "waveform" not in result.data
+        assert "sample_rate" not in result.data
+        assert set(build_contract(stage).removes_keys) == {"waveform", "sample_rate"}
+
+    def test_default_outputs_match_the_pre_pr_public_tuple(self, tmp_path: Path) -> None:
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+        assert stage.outputs() == (
+            [],
+            ["audio_filepath", "audio_item_id", "resampled_audio_filepath", "duration"],
+        )
+
+    def test_legacy_positional_signature_still_binds(self) -> None:
+        stage = ResampleAudioStage(
+            "dir",
+            "flac",
+            48000,
+            "flac",
+            2,
+            "af_key",
+            "resampled_key",
+            "dur_key",
+            "item_key",
+            "LegacyName",
+        )
+        assert stage.resampled_audio_dir == "dir"
+        assert stage.input_format == "flac"
+        assert stage.target_sample_rate == 48000
+        assert stage.target_format == "flac"
+        assert stage.target_nchannels == 2
+        assert stage.audio_filepath_key == "af_key"
+        assert stage.resampled_audio_filepath_key == "resampled_key"
+        assert stage.duration_key == "dur_key"
+        assert stage.audio_item_id_key == "item_key"
+        assert stage.name == "LegacyName"

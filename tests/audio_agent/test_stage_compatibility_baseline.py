@@ -235,7 +235,19 @@ ADDITIVE_STAGE_NAMES = (
 # default, and SegmentExtractionStage.output_key became keyword-only so the
 # pre-existing positional parameters retain their original meaning. No existing
 # default value changed.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "54c5d935f6a486b782d192f510f9d3a145b3b071e4e09ca0fb0d2d05a0692bb3"
+# Regenerated for the tagging re-review safety corrections (PR #2339). Exactly three legacy
+# entries moved, all param-order or gate changes, none altering an existing default value:
+#   * ResampleAudioStage: waveform_key/sample_rate_key/original_audio_filepath_key and the
+#     residency/sink knobs became keyword-only, so the legacy positional slots keep their order;
+#   * PrepareModuleSegmentsStage: gained additive configurable keys (alignment_key,
+#     overlap_segments_key, audio_filepath_key, audio_item_id_key) defaulting to the literals it
+#     previously hard-coded, all keyword-only;
+#   * NeMoASRAlignerStage: alignment_key/audio_filepath_key/resampled_audio_filepath_key/
+#     split_filepaths_key/split_metadata_key became keyword-only, and it now declares the
+#     conservative AGENT_STATIC superset gates.requires_internet_first_run=True (matching its
+#     default-configured contract). Verified additive by diffing each stage's payload against
+#     origin/agent/adv: no param/default/read/write value changed on any other entry.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "274967f7f4cd3d1ffa9f106d612dc049b6b17054434703302863012668aab2fd"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

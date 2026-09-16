@@ -71,12 +71,20 @@ class TestNeMoASRAlignerStage:
         )
         assert full.cardinality == "1:1 nested-list"
         assert full.iteration_key == "chunks"
+        # No unconditional writes: full-mode writes are entirely data-dependent (nested into a
+        # matching split_metadata item, or a top-level fallback for an empty/unmatched split).
         assert full.writes.data_keys == []
-        assert full.writes.segment_data_keys == ["transcript", "token_alignment"]
-        assert "must_not_be_claimed" not in full.writes.segment_data_keys
-        assert len(full.conditional_writes) == 1
-        assert full.conditional_writes[0].writes.data_keys == ["transcript", "token_alignment"]
-        assert full.conditional_writes[0].writes.segment_data_keys == []
+        assert full.writes.segment_data_keys == []
+        # Full-mode never reads duration/segments; it only consumes the split keys.
+        assert full.reads.data_keys == ["chunk_paths", "chunks"]
+        nested = full.conditional_writes[0]
+        top_level = full.conditional_writes[1]
+        assert nested.writes.segment_data_keys == ["transcript", "token_alignment"]
+        assert nested.writes.data_keys == []
+        assert top_level.writes.data_keys == ["transcript", "token_alignment"]
+        assert top_level.writes.segment_data_keys == []
+        assert "must_not_be_claimed" not in nested.writes.segment_data_keys
+        assert "must_not_be_claimed" not in top_level.writes.data_keys
 
         segment_only = build_contract(
             NeMoASRAlignerStage(
@@ -89,8 +97,33 @@ class TestNeMoASRAlignerStage:
         assert segment_only.cardinality == "1:1 nested-list"
         assert segment_only.iteration_key == "utterances"
         assert segment_only.writes.data_keys == []
-        assert segment_only.writes.segment_data_keys == ["transcript", "tokens"]
-        assert segment_only.conditional_writes == []
+        assert segment_only.writes.segment_data_keys == []
+        # text is conditional on a segment meeting min_len; words additionally on timestamps.
+        assert [cw.writes.segment_data_keys for cw in segment_only.conditional_writes] == [
+            ["transcript"],
+            ["tokens"],
+        ]
+        # Segment audio path is a configured alternative: resampled_audio_filepath OR audio_filepath.
+        assert [opt.data_keys for opt in segment_only.reads_one_of] == [
+            ["resampled_audio_filepath"],
+            ["audio_filepath"],
+        ]
+
+    def test_describe_segment_mode_omits_words_when_timestamps_off(self) -> None:
+        contract = build_contract(NeMoASRAlignerStage(infer_segment_only=True, compute_timestamps=False))
+        # With timestamps off, words are never written, so only the text conditional remains.
+        assert [cw.writes.segment_data_keys for cw in contract.conditional_writes] == [["text"]]
+
+    def test_static_contract_declares_conservative_gpu_and_network_superset(self) -> None:
+        from nemo_curator.stages.audio._agent._agent_registry import static_contract
+
+        static = static_contract(NeMoASRAlignerStage)
+        configured = build_contract(NeMoASRAlignerStage(resources=Resources(cpus=1.0)))
+        # AGENT_STATIC is a conservative superset: the instance-free view must not under-report
+        # the network gate that a default-configured (model_path=None) instance reports.
+        assert static.gates.requires_internet_first_run is True
+        assert static.gates.requires_internet_first_run == configured.gates.requires_internet_first_run
+        assert static.gates.requires_gpu is True
 
     def test_agent_ready_full_normal_split_writes_nested_metadata(self) -> None:
         stage = NeMoASRAlignerStage(
@@ -200,9 +233,7 @@ class TestNeMoASRAlignerStage:
             initial_task_type="AudioTask",
         )
         assert not report.ok
-        assert any(
-            issue.stage_index == 1 and issue.code == "unsatisfied_reads" for issue in report.issues
-        )
+        assert any(issue.stage_index == 1 and issue.code == "unsatisfied_reads" for issue in report.issues)
 
         _stub_asr(aligner)
         task = AudioTask(
@@ -242,12 +273,12 @@ class TestNeMoASRAlignerStage:
             initial_task_type="AudioTask",
         )
 
-        assert report.ok
-        assert report.keys_ok
-        assert "text" in report.produced_keys
-        assert "alignment" in report.produced_keys
+        # Honest contract: the aligner and the join both produce top-level text/alignment ONLY
+        # conditionally (they are data-dependent), so mechanical planning no longer GUARANTEES a
+        # top-level alignment for the merger -- it flags the read rather than silently assuming it.
+        assert not report.ok
+        assert any(issue.stage_index == 2 and issue.code == "unsatisfied_reads" for issue in report.issues)
         assert "split_filepaths" not in report.produced_keys
-        assert "split_metadata" not in report.produced_keys
 
         _stub_asr(aligner)
         task = AudioTask(
@@ -324,3 +355,72 @@ class TestNeMoASRAlignerStage:
         assert isinstance(split["alignment"], list)
         assert split["text"] != ""
         assert len(split["alignment"]) > 10
+
+
+def test_base_asr_processor_legacy_positional_signature_still_binds() -> None:
+    """Agent-added keys are keyword-only, so the pre-agent positional slots keep their meaning."""
+    from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import BaseASRProcessorStage
+
+    class _Concrete(BaseASRProcessorStage):
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    stage = _Concrete(2.0, 30.0, 64, 4, 999, True, "t", "w", False, "segs", "MyBase", Resources(cpus=1.0))
+    assert stage.min_len == 2.0
+    assert stage.max_len == 30.0
+    assert stage.batch_size == 64
+    assert stage.dataloader_num_workers == 4
+    assert stage.split_batch_size == 999
+    assert stage.infer_segment_only is True
+    assert stage.text_key == "t"
+    assert stage.words_key == "w"
+    assert stage.compute_timestamps is False
+    assert stage.segments_key == "segs"
+    assert stage.name == "MyBase"
+    assert stage.resources.cpus == 1.0
+
+
+def test_nemo_aligner_legacy_positional_signature_still_binds() -> None:
+    """Agent-added keys are keyword-only, so the pre-agent positional slots keep their meaning."""
+    stage = NeMoASRAlignerStage(
+        2.0,  # min_len
+        30.0,  # max_len
+        64,  # batch_size
+        4,  # dataloader_num_workers
+        999,  # split_batch_size
+        True,  # infer_segment_only
+        "t",  # text_key
+        "w",  # words_key
+        False,  # compute_timestamps
+        "segs",  # segments_key
+        "MyAligner",  # name
+        Resources(cpus=1.0),  # resources
+        "my/model",  # model_name
+        "ckpt/m.nemo",  # model_path
+        False,  # is_fastconformer
+        "ctc",  # decoder_type
+        False,  # use_cuda_graphs
+        8,  # transcribe_batch_size
+        "char",  # timestamp_type
+        True,  # disable_word_confidence
+    )
+    assert stage.min_len == 2.0
+    assert stage.max_len == 30.0
+    assert stage.batch_size == 64
+    assert stage.dataloader_num_workers == 4
+    assert stage.split_batch_size == 999
+    assert stage.infer_segment_only is True
+    assert stage.text_key == "t"
+    assert stage.words_key == "w"
+    assert stage.compute_timestamps is False
+    assert stage.segments_key == "segs"
+    assert stage.name == "MyAligner"
+    assert stage.resources.cpus == 1.0
+    assert stage.model_name == "my/model"
+    assert stage.model_path == "ckpt/m.nemo"
+    assert stage.is_fastconformer is False
+    assert stage.decoder_type == "ctc"
+    assert stage.use_cuda_graphs is False
+    assert stage.transcribe_batch_size == 8
+    assert stage.timestamp_type == "char"
+    assert stage.disable_word_confidence is True

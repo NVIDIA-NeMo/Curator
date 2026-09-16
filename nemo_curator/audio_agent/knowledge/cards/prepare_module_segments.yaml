@@ -23,5 +23,7 @@ params_of_note:
   max_duration: "maximum segment duration (s)"
   max_pause: "pause length that forces a split (s)"
   punctuation_split_only: "split only on terminal punctuation"
+  alignment_key: "metadata key holding the word alignment consulted when segments lack overlap_segments (default 'alignment')"
+  overlap_segments_key: "metadata key whose presence marks segments as already word-aligned, skipping re-alignment (default 'overlap_segments')"
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-16"}
