@@ -161,6 +161,20 @@ def test_static_contract_is_instance_free_for_required_arg_stage():  # noqa: ANN
     assert contract.stage_id == "_ToyInitStage"
 
 
+def test_optional_reads_are_visible_but_never_required():  # noqa: ANN202
+    class _OptionalReader(AgentReady):
+        def describe(self) -> StageContract:
+            return StageContract(
+                reads=IOSpec(data_keys=["text"]),
+                optional_reads=IOSpec(data_keys=["speaker_id"]),
+            )
+
+    contract = assert_contract_wellformed(_OptionalReader())
+
+    assert contract.to_dict()["optional_reads"]["data_keys"] == ["speaker_id"]
+    assert reads_satisfied_by_role(contract, {"text"}) is True
+
+
 def test_to_dict_is_json_safe_even_with_nonserializable_default():  # noqa: ANN202
     class _Weird:
         pass

@@ -13,12 +13,12 @@ resource:
   bound: cpu
   throughput_hint: "CPU; aggregates a batch into one DataFrame"
 use_cases:
-  good_for: ["the sanctioned bridge before DocumentBatchJsonlWriterStage", "making task data serialization-safe"]
+  good_for: ["batching AudioTasks for a DocumentBatch consumer", "removing resident tensors before a JSON sink"]
   avoid_for: ["mid-pipeline (place it just before the writer)"]
 composition:
   typical_upstream: [UTMOSFilterStage, SIGMOSFilterStage, GetAudioDurationStage, TimestampMapperStage]
   typical_downstream: [DocumentBatchJsonlWriterStage]
 notes:
-  - "Sanitizes output: strips torch tensors / audio arrays / segments, then emits a DocumentBatch. Follow it with DocumentBatchJsonlWriterStage, not the AudioTask-only ManifestWriterStage."
+  - "The default preserves legacy DataFrame values such as datetime, Decimal, pathlib paths, and tuples while stripping tensors/audio arrays/segments. Set strict_json=true before DocumentBatchJsonlWriterStage when arbitrary custom values may be present."
 verified: {tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
 provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-28"}

@@ -230,7 +230,12 @@ ADDITIVE_STAGE_NAMES = (
 # positional slots (including strict_sample_rate) keep their historical meaning.
 # No constructor default, key, read/write, or gate changed, and the other 45
 # stage entries are byte-identical.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "357101d266c900fa9fbefd43fd95205fd56f62e00589809b69dd8cbc6e6871f1"
+# Regenerated for the IO compatibility corrections. AudioToDocumentStage gained
+# additive strict_json=False, preserving its historical conversion behavior by
+# default, and SegmentExtractionStage.output_key became keyword-only so the
+# pre-existing positional parameters retain their original meaning. No existing
+# default value changed.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "1c38961acc3e7f28cbc24b81b7b43836a64de27de5798ee0ee1d25d2697285f2"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

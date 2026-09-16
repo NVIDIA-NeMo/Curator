@@ -665,6 +665,8 @@ def _io_view(contract: Any) -> dict[str, Any]:  # noqa: ANN401 - StageContract
     one_of = [list(spec.data_keys) for spec in contract.reads_one_of if spec.data_keys]
     if one_of:
         view["reads_one_of"] = one_of
+    if contract.optional_reads.data_keys:
+        view["optional_reads"] = list(contract.optional_reads.data_keys)
     return view
 
 

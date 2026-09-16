@@ -730,6 +730,16 @@ def _contract_reads(contract: Any, key_params: dict[str, list[str]]) -> list[dic
             )
             for key in getattr(option, "segment_data_keys", ()) or ()
         )
+    optional = getattr(contract, "optional_reads", None)
+    if optional is not None:
+        reads.extend(
+            _field_entry(key, scope="task", contract=contract, key_params=key_params, requirement="optional")
+            for key in getattr(optional, "data_keys", ()) or ()
+        )
+        reads.extend(
+            _field_entry(key, scope="segment", contract=contract, key_params=key_params, requirement="optional")
+            for key in getattr(optional, "segment_data_keys", ()) or ()
+        )
     reads.extend(
         _field_entry(
             key,
@@ -1160,6 +1170,8 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
             for read in reads:
                 slot = (read["scope"], read["key"])
                 latest = copy.deepcopy(active_writers.get(slot))
+                if latest is None and read.get("requirement") == "optional":
+                    continue
                 if latest is None:
                     latest = {
                         "kind": "unresolved",
