@@ -62,6 +62,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         assign_id: bool = True,
         id_field: str | None = None,
         text_field: str = "text",
+        normalize_text: bool = False,
         perform_removal: bool = False,
         total_nparts: int | None = None,
         rmm_pool_size: int | Literal["auto"] | None = "auto",
@@ -104,6 +105,9 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             Existing id field name if not automatically assigning a new id.
         text_field: str
             Field containing the text to deduplicate.
+        normalize_text: bool
+            Whether to normalize text before hashing. Normalization lowercases text,
+            collapses whitespace runs, and trims leading and trailing whitespace.
         perform_removal: bool
             Whether to remove the duplicates from the original dataset.
         total_nparts: int | None = None
@@ -131,6 +135,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         self.write_kwargs = write_kwargs
 
         self.text_field = text_field
+        self.normalize_text = normalize_text
         self.assign_id = assign_id
         self.id_field = id_field
         self.perform_removal = perform_removal
@@ -175,6 +180,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
                     write_kwargs=self.write_kwargs,
                     assign_id=self.assign_id,
                     id_field=self.id_field,
+                    normalize_text=self.normalize_text,
                     # Matches previous implementation to write out to 1/3 the number of input tasks
                     total_nparts=max(1, num_input_tasks // 3)
                     if self.total_nparts is None
