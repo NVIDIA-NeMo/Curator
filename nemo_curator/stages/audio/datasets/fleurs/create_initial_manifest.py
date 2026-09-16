@@ -97,8 +97,9 @@ class CreateInitialManifestFleursStage(AgentReady, ProcessingStage[EmptyTask, Au
         return StageContract(
             writes=IOSpec(data_keys=[self.filepath_key, self.text_key], produces=["disk"]),
             cardinality="1:N fan-out",
-            # The download stages the split once; after that every emitted row's path and text
-            # come from its own transcript line, and no line is dropped or reordered.
+            # The download stages the split once; after that every valid transcript line
+            # emits its own path and text in input order. Malformed lines with fewer than
+            # three tab-separated columns are skipped.
             gates=Gates(
                 writes_to_disk=True,
                 requires_internet_first_run=self.auto_download,
