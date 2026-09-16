@@ -16,11 +16,14 @@
 
 import glob
 import os
+import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
+from nemo_curator.core import client as client_module
 from nemo_curator.core.client import RayClient
 
 
@@ -199,3 +202,49 @@ def test_ray_client_stop_keeps_sessions_of_external_cluster(
         assert client.ray_process is None
         client.stop()
         assert os.path.isdir(external)
+
+
+def _fake_ray_start(monkeypatch: pytest.MonkeyPatch, session_roots: list[Path], on_sigterm: str = ":") -> None:
+    """Stand in for `ray start`: a process that makes session_*_<its pid> under each root, runs `on_sigterm` on SIGTERM."""
+
+    def fake_init_cluster(**kwargs) -> subprocess.Popen:
+        roots = " ".join(f"'{r}'" for r in session_roots)
+        script = (
+            f"trap '{on_sigterm}; exit 0' TERM; for r in {roots}; do mkdir -p \"$r/session_2099-01-01_$$\"; done; "
+        )
+        script += "while :; do sleep 0.1; done"
+        proc = subprocess.Popen(["bash", "-c", script], start_new_session=True)  # noqa: S603, S607
+        for root in session_roots:
+            while not (root / f"session_2099-01-01_{proc.pid}").is_dir():
+                time.sleep(0.05)
+        return proc
+
+    monkeypatch.setattr(client_module, "init_cluster", fake_init_cluster)
+    monkeypatch.setattr(client_module, "check_ray_responsive", lambda: True)
+
+
+@pytest.mark.parametrize("temp_dir_name", ["ray[1]", "ray*", "ray?"])
+def test_ray_client_stop_never_touches_sibling_of_temp_dir_with_glob_characters(
+    clean_env: pytest.fixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, temp_dir_name: str
+):
+    ray_tmp, sibling = tmp_path / temp_dir_name, tmp_path / "ray1"
+    _fake_ray_start(monkeypatch, [ray_tmp, sibling])
+    client = RayClient(ray_temp_dir=str(ray_tmp), include_dashboard=False, cleanup_ray_session_dir=True)
+    client.start()
+    pid = client.ray_process.pid
+    client.stop()
+    assert not (ray_tmp / f"session_2099-01-01_{pid}").exists()
+    assert (sibling / f"session_2099-01-01_{pid}").is_dir()
+
+
+def test_ray_client_stop_keeps_session_dir_that_appears_after_stop_begins(
+    clean_env: pytest.fixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # Once the process is reaped its pid can be reused, so a dir showing up after the kill is not provably ours.
+    _fake_ray_start(monkeypatch, [tmp_path], on_sigterm=f'mkdir "{tmp_path}/session_late_$$"')
+    client = RayClient(ray_temp_dir=str(tmp_path), include_dashboard=False, cleanup_ray_session_dir=True)
+    client.start()
+    pid = client.ray_process.pid
+    client.stop()
+    assert not (tmp_path / f"session_2099-01-01_{pid}").exists()
+    assert (tmp_path / f"session_late_{pid}").is_dir()

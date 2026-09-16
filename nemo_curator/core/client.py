@@ -153,7 +153,7 @@ class RayClient:
             ip_address = socket.gethostbyname(socket.gethostname())
 
             if self.cleanup_ray_session_dir:
-                self._sessions_before = set(glob.glob(os.path.join(self.ray_temp_dir, "session_*")))
+                self._sessions_before = set(glob.glob(os.path.join(glob.escape(self.ray_temp_dir), "session_*")))
             self.ray_process = init_cluster(
                 ray_port=self.ray_port,
                 ray_temp_dir=self.ray_temp_dir,
@@ -186,6 +186,8 @@ class RayClient:
                 logger.debug("Could not remove Ray metrics service discovery during shutdown.")
 
         if self.ray_process:
+            # Find our session dirs before the kill: once wait() reaps `ray start`, another cluster can reuse its pid.
+            own_sessions = self._own_session_dirs(self.ray_process.pid) if self.cleanup_ray_session_dir else set()
             # Kill the entire process group to ensure child processes are terminated
             try:
                 os.killpg(os.getpgid(self.ray_process.pid), signal.SIGTERM)
@@ -202,7 +204,7 @@ class RayClient:
                 # Process group not found or process group already terminated
                 pass
             if self.cleanup_ray_session_dir:
-                self._remove_own_session_dirs(self.ray_process.pid)
+                self._remove_session_dirs(own_sessions)
             # Reset the environment variable for RAY_ADDRESS
             os.environ.pop("RAY_ADDRESS", None)
             # Currently there is no good way of stopping a particular Ray cluster. https://github.com/ray-project/ray/issues/54989
@@ -214,13 +216,16 @@ class RayClient:
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
 
-    def _remove_own_session_dirs(self, pid: int) -> None:
+    def _own_session_dirs(self, pid: int) -> set[str]:
         # `ray start` names its session dir session_<date>_<pid of ray start> (ray/_private/node.py), so the pid
         # keeps the dirs of other clusters sharing ray_temp_dir, and the pre-start snapshot keeps older dirs of
-        # a reused pid.
-        own = set(glob.glob(os.path.join(self.ray_temp_dir, f"session_*_{pid}"))) - self._sessions_before
+        # a reused pid. glob.escape keeps metacharacters in ray_temp_dir from matching other directories.
+        own = set(glob.glob(os.path.join(glob.escape(self.ray_temp_dir), f"session_*_{pid}"))) - self._sessions_before
         if not own:
             logger.debug(f"No Ray session directory for pid {pid} found in {self.ray_temp_dir}.")
+        return own
+
+    def _remove_session_dirs(self, own: set[str]) -> None:
         for session_dir in own:
             try:
                 shutil.rmtree(session_dir)
