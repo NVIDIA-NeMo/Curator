@@ -14,13 +14,24 @@
 
 """Unit tests for UTMOSFilterStage."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
+import soundfile as sf
 import torch
+from nemo_curator.stages.audio._agent._agent_registry import static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_task(duration_s: float = 1.0, sample_rate: int = 16000) -> AudioTask:
@@ -47,7 +58,50 @@ def _mock_model(score: float) -> MagicMock:
     return model
 
 
+def _write_wav(path: Path, *, samples: int = 32, sample_rate: int = 16000) -> str:
+    sf.write(path, np.linspace(-0.25, 0.25, samples, dtype=np.float32), sample_rate)
+    return str(path)
+
+
+def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = "auto") -> UTMOSFilterStage:
+    stage = UTMOSFilterStage(mode=mode, action="annotate", input_residency=input_residency)
+    if scorable:
+        stage._model = _mock_model(4.0)
+    return stage
+
+
 class TestUTMOSFilterStage:
+    def test_legacy_positional_constructor_order_is_preserved(self) -> None:
+        resources = Resources(cpus=2)
+
+        stage = UTMOSFilterStage(4.1, 22050, "legacy", 8, resources)
+
+        assert stage.mos_threshold == 4.1
+        assert stage.sample_rate == 22050
+        assert stage.name == "legacy"
+        assert stage.batch_size == 8
+        assert stage.resources is resources
+
+    @pytest.mark.parametrize("residency", ["wavefrom", "", "FILE"])
+    def test_invalid_input_residency_is_rejected(self, residency: str) -> None:
+        with pytest.raises(ValueError, match="input_residency"):
+            UTMOSFilterStage(input_residency=residency)  # type: ignore[arg-type]
+
+    def test_score_key_cannot_overwrite_audio_input(self) -> None:
+        with (
+            patch("nemo_curator.stages.audio.filtering.utmos.torch.hub.load") as load_model,
+            pytest.raises(ValueError, match="must not collide"),
+        ):
+            UTMOSFilterStage(score_key="waveform")
+
+        load_model.assert_not_called()
+
+    def test_static_contract_conservatively_reports_download_and_row_independence(self) -> None:
+        contract = static_contract(UTMOSFilterStage)
+
+        assert contract.gates.requires_internet_first_run is True
+        assert contract.gates.per_row_independent is True
+
     def test_native_defaults_remain_filter_and_auto(self) -> None:
         stage = UTMOSFilterStage()
 
@@ -64,6 +118,87 @@ class TestUTMOSFilterStage:
 
         assert isinstance(result, AudioTask)
         assert abs(result.data["utmos_mos"] - 4.5) < 1e-3
+
+    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
+    def test_auto_incomplete_waveform_pair_falls_back_to_file(self, mock_ensure: MagicMock, tmp_path: Path) -> None:
+        stage = UTMOSFilterStage(action="annotate", input_residency="auto")
+        stage._model = _mock_model(4.0)
+        task = AudioTask(
+            dataset_name="test",
+            data={
+                "waveform": torch.ones(1, 7),
+                "audio_filepath": _write_wav(tmp_path / "fallback.wav", samples=32),
+            },
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        inferred_waveform = stage._model.call_args.args[0]
+        assert inferred_waveform.shape == (1, 32)
+        assert task.data["sample_rate"] == 16000
+        assert torch.allclose(inferred_waveform, task.data["waveform"])
+
+    @pytest.mark.parametrize(
+        "orphan",
+        [
+            pytest.param({"waveform": torch.ones(1, 7)}, id="waveform-without-rate"),
+            pytest.param({"sample_rate": 8000}, id="rate-without-waveform"),
+        ],
+    )
+    def test_auto_partial_pair_is_replaced_with_file_audio(self, orphan: dict, tmp_path: Path) -> None:
+        stage = _stage(input_residency="auto")
+        task = AudioTask(
+            dataset_name="test",
+            data={**orphan, "audio_filepath": _write_wav(tmp_path / "fallback.wav", samples=31)},
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        inferred_waveform = stage._model.call_args.args[0]
+        assert stage._model.call_args.kwargs["sr"] == task.data["sample_rate"] == 16000
+        assert inferred_waveform.shape == task.data["waveform"].shape == (1, 31)
+        assert torch.allclose(inferred_waveform, task.data["waveform"])
+
+    @pytest.mark.parametrize("input_residency", ["file", "auto"])
+    def test_ordinary_file_only_input_does_not_persist_residency(
+        self,
+        input_residency: str,
+        tmp_path: Path,
+    ) -> None:
+        stage = _stage(input_residency=input_residency)
+        task = AudioTask(
+            dataset_name="test",
+            data={"audio_filepath": _write_wav(tmp_path / "file-only.wav", samples=29)},
+        )
+
+        assert isinstance(stage.process(task), AudioTask)
+        inferred_waveform = stage._model.call_args.args[0]
+        assert stage._model.call_args.kwargs["sr"] == 16000
+        assert inferred_waveform.shape == (1, 29)
+        assert "waveform" not in task.data
+        assert "sample_rate" not in task.data
+
+    def test_nested_partial_auto_hydration_is_declared_and_conformant(self, tmp_path: Path) -> None:
+        stage = _stage(mode="auto", input_residency="auto")
+        path = _write_wav(tmp_path / "nested-file.wav", samples=31)
+
+        def fixture() -> AudioTask:
+            return AudioTask(
+                dataset_name="test",
+                data={"segments": [{"audio_filepath": path, "sample_rate": 8000}]},
+            )
+
+        assert_agent_ready(stage, fixture, expected_cardinality="1:1", segments_key="segments")
+        task = fixture()
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        segment = task.data["segments"][0]
+        inferred_waveform = stage._model.call_args.args[0]
+        assert stage._model.call_args.kwargs["sr"] == segment["sample_rate"] == 16000
+        assert torch.allclose(inferred_waveform, segment["waveform"])
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_process_filters_below_threshold(self, mock_ensure: MagicMock) -> None:
@@ -229,3 +364,52 @@ class TestSegmentModeFiltering:
         assert isinstance(out, AudioTask)
         assert [seg["id"] for seg in out.data["agent_segments"]] == [0, 2], "only the passing segments survive"
         assert [seg["agent_utmos"] for seg in out.data["agent_segments"]] == pytest.approx([4.2, 4.1])
+
+
+@pytest.mark.parametrize("mode", ["task", "segments", "auto"])
+@pytest.mark.parametrize("scorable", [True, False], ids=["success", "unscorable"])
+def test_utmos_agent_conformance_covers_all_scopes(mode: str, scorable: bool) -> None:
+    stage = _stage(mode=mode, scorable=scorable, input_residency="waveform")
+
+    def fixture() -> AudioTask:
+        audio = {"waveform": torch.zeros(1, 32), "sample_rate": 16000}
+        data = {"segments": [audio]} if mode == "segments" else audio
+        return AudioTask(dataset_name="test", data=data)
+
+    assert_agent_ready(stage, fixture, expected_cardinality="1:1", segments_key="segments")
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["task", "segments"])
+@pytest.mark.parametrize("scorable", [True, False], ids=["success", "unscorable"])
+def test_utmos_auto_runtime_outputs_match_selected_scope(nested: bool, scorable: bool) -> None:
+    stage = _stage(mode="auto", scorable=scorable, input_residency="waveform")
+
+    def fixture() -> AudioTask:
+        audio = {"waveform": torch.zeros(1, 32), "sample_rate": 16000}
+        return AudioTask(dataset_name="test", data={"segments": [audio]} if nested else audio)
+
+    assert_agent_ready(stage, fixture, expected_cardinality="1:1", segments_key="segments")
+    task = fixture()
+
+    result = stage.process(task)
+
+    assert isinstance(result, AudioTask)
+    selected = task.data["segments"][0] if nested else task.data
+    assert ("utmos_mos" in selected) is scorable
+    if nested:
+        assert "utmos_mos" not in task.data
+    else:
+        assert "segments" not in task.data
+
+
+def test_utmos_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
+    path = _write_wav(tmp_path / "utmos.wav")
+
+    assert_residency_consumption(
+        lambda residency: _stage(input_residency=residency),
+        file_fixture=lambda: AudioTask(dataset_name="test", data={"audio_filepath": path}),
+        waveform_fixture=lambda: AudioTask(
+            dataset_name="test",
+            data={"waveform": torch.zeros(1, 32), "sample_rate": 16000},
+        ),
+    )

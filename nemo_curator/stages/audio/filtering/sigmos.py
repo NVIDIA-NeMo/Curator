@@ -41,7 +41,7 @@ Example:
 
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -51,13 +51,16 @@ import torch
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
+    normalize_audio_waveform,
     resolve_audio,
     scoped_audio_conditional_writes,
     scoped_audio_io_specs,
+    scoped_file_audio_hydration_writes,
+    validate_audio_key_configuration,
+    validate_input_residency,
 )
-from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.filtering.sigmos_filter_module.third_party.sigmos.sigmos import build_sigmos_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -104,6 +107,7 @@ def _get_audio_numpy_sr(  # noqa: PLR0913 (complexity accepted: keyword-only res
             waveform_key=waveform_key,
             sample_rate_key=sample_rate_key,
             mono=True,
+            file_audio_hydration="auto_partial",
         )
     except Exception as e:  # noqa: BLE001
         logger.error(f"[{task_id}] Failed to load audio file: {e}")
@@ -116,10 +120,14 @@ def _get_audio_numpy_sr(  # noqa: PLR0913 (complexity accepted: keyword-only res
             logger.warning(f"[{task_id}] No {waveform_key}+{sample_rate_key} or valid {audio_filepath_key} found")
         return None
 
-    waveform, sample_rate = resolved
-    mono = ensure_mono(ensure_waveform_2d(waveform))
-    audio = mono.squeeze(0).detach().cpu().numpy().astype(np.float32)
-    return audio, int(sample_rate)
+    try:
+        waveform, sample_rate = resolved
+        mono = normalize_audio_waveform(waveform, stage_name="SIGMOSFilterStage", mono=True)
+        audio = mono.squeeze(0).detach().cpu().numpy().astype(np.float32)
+        return audio, int(sample_rate)
+    except (RuntimeError, TypeError, ValueError) as e:
+        logger.error(f"[{task_id}] Failed to normalize resident audio: {e}")
+        return None
 
 
 @dataclass
@@ -200,6 +208,12 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     disc_threshold: float | None = None
     loud_threshold: float | None = None
     reverb_threshold: float | None = None
+
+    name: str = "SIGMOSFilter"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.5))
+
+    _: KW_ONLY
     input_residency: Literal["file", "waveform", "auto"] = "auto"
     mode: Literal["task", "segments", "auto"] = "auto"
     action: Literal["filter", "annotate"] = "filter"
@@ -215,9 +229,9 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     loud_key: str = "sigmos_loud"
     reverb_key: str = "sigmos_reverb"
 
-    name: str = "SIGMOSFilter"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.5))
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_internet_first_run=True, per_row_independent=True)
+    )
 
     def __post_init__(self):
         super().__init__()
@@ -227,6 +241,25 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.action not in _VALID_ACTIONS:
             msg = f"action must be one of {_VALID_ACTIONS!r}, got {self.action!r}"
             raise ValueError(msg)
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "waveform_key": self.waveform_key,
+                "sample_rate_key": self.sample_rate_key,
+                "segments_key": self.segments_key,
+            },
+            output_keys={
+                "noise_key": self.noise_key,
+                "ovrl_key": self.ovrl_key,
+                "sig_key": self.sig_key,
+                "col_key": self.col_key,
+                "disc_key": self.disc_key,
+                "loud_key": self.loud_key,
+                "reverb_key": self.reverb_key,
+            },
+        )
         self._model = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -253,6 +286,7 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.loud_key,
             self.reverb_key,
         ]
+        guaranteed_output_keys = [] if self.action == "annotate" or self.mode == "auto" else score_keys
         reads, reads_one_of, writes = scoped_audio_io_specs(
             self.input_residency,
             mode=self.mode,
@@ -260,26 +294,36 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             waveform_key=self.waveform_key,
             sample_rate_key=self.sample_rate_key,
             segments_key=self.segments_key,
-            output_keys=score_keys,
+            output_keys=guaranteed_output_keys,
         )
         return StageContract(
             reads=reads,
             reads_one_of=reads_one_of,
             writes=writes,
-            conditional_writes=scoped_audio_conditional_writes(
-                self.mode,
-                segments_key=self.segments_key,
-                output_keys=score_keys,
-                assignment_condition=(
-                    "audio and model inference succeed and all configured SIGMOS "
-                    "dimensions are finite before any score key is assigned"
-                    + (
-                        " on an item that meets every enabled threshold and is retained"
-                        if self.action == "filter"
-                        else ""
-                    )
+            conditional_writes=[
+                *scoped_file_audio_hydration_writes(
+                    self.input_residency,
+                    hydration_policy="auto_partial",
+                    mode=self.mode,
+                    waveform_key=self.waveform_key,
+                    sample_rate_key=self.sample_rate_key,
+                    segments_key=self.segments_key,
                 ),
-            ),
+                *scoped_audio_conditional_writes(
+                    self.mode,
+                    segments_key=self.segments_key,
+                    output_keys=score_keys,
+                    assignment_condition=(
+                        "audio and model inference succeed and all configured SIGMOS "
+                        "dimensions are finite before any score key is assigned"
+                        + (
+                            " on an item that meets every enabled threshold and is retained"
+                            if self.action == "filter"
+                            else ""
+                        )
+                    ),
+                ),
+            ],
             cardinality="filter" if self.action == "filter" else "1:1",
             cardinality_options=["filter", "annotate"],
             gates=Gates(
@@ -344,8 +388,11 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _resolve_model_path(self) -> str:
         """Resolve the ONNX model path: model_path override → model_dir download."""
-        if self.model_path is not None and os.path.isfile(self.model_path):
-            return self.model_path
+        if self.model_path is not None:
+            if os.path.isfile(self.model_path) and os.path.getsize(self.model_path) > 0:
+                return self.model_path
+            msg = f"SIGMOS model_path does not exist, is empty, or is not a file: {self.model_path!r}"
+            raise FileNotFoundError(msg)
         return self._download_model(self.model_dir)
 
     def _initialize_model(self) -> None:
