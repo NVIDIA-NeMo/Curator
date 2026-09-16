@@ -33,7 +33,7 @@ Example:
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
 import torch
@@ -93,7 +93,17 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         audio_filepath_key: Key set to the written combined-audio path (write_to_disk).
     """
 
+    # Legacy positional slots (pre-agent order preserved): silence_duration_sec, name,
+    # batch_size, resources. Everything the agent work added is keyword-only (below the
+    # KW_ONLY sentinel), so a legacy positional call like ``SegmentConcatenationStage(0.5)``
+    # keeps its meaning.
     silence_duration_sec: float = 0.5
+
+    name: str = "SegmentConcatenation"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    _: KW_ONLY
     segments_key: str = "segments"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
@@ -105,10 +115,6 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
     keep_waveform_in_task: bool = True
     write_to_disk: bool = False
     output_dir: str | None = None
-
-    name: str = "SegmentConcatenation"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self):
         super().__init__()
@@ -141,7 +147,14 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
             writes.append(self.audio_filepath_key)
             produces.append("disk")
         return StageContract(
-            reads=IOSpec(data_keys=[self.segments_key]),
+            # Each child segment must carry its own waveform + sample_rate: ``process`` reads
+            # ``seg[waveform_key]``/``seg[sample_rate_key]`` per item, so declaring only the
+            # top-level container let a nested seed/producer that omitted them validate clean
+            # and then drop every segment at runtime.
+            reads=IOSpec(
+                data_keys=[self.segments_key],
+                segment_data_keys=[self.waveform_key, self.sample_rate_key],
+            ),
             writes=IOSpec(data_keys=writes, produces=produces),
             metadata_writes=["segment_mappings"],
             cardinality="N:1",
@@ -292,15 +305,17 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         current_pos_ms -= silence_duration_ms
         total_duration_sec = current_pos_ms / 1000.0
 
-        output_data = {
-            self.original_file_key: original_file,
-            self.num_segments_key: len(mappings),
-            self.total_duration_sec_key: total_duration_sec,
-        }
+        # Legacy key insertion order: waveform, sample_rate, original_file, num_segments,
+        # total_duration_sec, then any on-disk path. Values are unchanged; only the order the
+        # keys land in the output dict (and thus a serialized row) is restored.
+        output_data: dict[str, Any] = {}
         # Output residency: keep the combined waveform in-task (default) and/or persist it.
         if self.keep_waveform_in_task:
             output_data[self.waveform_key] = combined
             output_data[self.sample_rate_key] = sample_rate
+        output_data[self.original_file_key] = original_file
+        output_data[self.num_segments_key] = len(mappings)
+        output_data[self.total_duration_sec_key] = total_duration_sec
         if self.write_to_disk:
             output_data[self.audio_filepath_key] = self._write_wav(combined, sample_rate, original_file)
 

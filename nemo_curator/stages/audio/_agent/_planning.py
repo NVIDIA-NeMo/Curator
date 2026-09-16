@@ -460,6 +460,28 @@ def _describes_itself(stage: Any) -> bool:  # noqa: ANN401 - any child stage
     return True
 
 
+def _missing_literal_role_keys(
+    contract: StageContract,
+    spec: Any,  # noqa: ANN401 - IOSpec, kept loose to avoid a runtime-only import
+    available_keys: set[str],
+    available_segment_keys: set[str],
+) -> set[str]:
+    """Role-bearing key VALUES in one spec whose exact value is absent from its scope.
+
+    ``unknown``/internal bookkeeping keys are excluded — a separate value-identity check for
+    those is tracked in the backlog. Empty means every role-bearing key in ``spec`` is present,
+    i.e. this alternative is literally complete.
+    """
+    missing: set[str] = set()
+    for key, scope_keys in (
+        *[(k, available_keys) for k in spec.data_keys],
+        *[(k, available_segment_keys) for k in spec.segment_data_keys],
+    ):
+        if contract.key_roles.get(key, "unknown") != "unknown" and key not in scope_keys:
+            missing.add(key)
+    return missing
+
+
 def _dangling_read_keys(
     contract: StageContract,
     available_keys: set[str],
@@ -468,27 +490,28 @@ def _dangling_read_keys(
     """Read key VALUES whose role is known but whose exact value was not
     produced upstream nor seeded — the renamed-producer dangle the role check misses.
 
-    Covers primary ``reads`` plus a ``reads_one_of`` that offers a *single*
-    alternative: one option is not a choice, so its keys are as mandatory as a
-    primary read (this is how a residency-derived contract expresses
-    ``input_residency="file"``). A genuine multi-way ``reads_one_of`` is skipped —
-    the stage may legitimately take the other branch. Role-bearing keys only
-    (``unknown``/internal bookkeeping keys are excluded — a separate
-    value-identity check for those is tracked in the backlog).
+    Covers primary ``reads`` (always mandatory) plus ``reads_one_of``:
+
+    * a *single* alternative is not a choice, so its keys are as mandatory as a primary read
+      (this is how a residency-derived contract expresses ``input_residency="file"``);
+    * a genuine *multi-way* ``reads_one_of`` is satisfied by ANY one complete literal
+      alternative. When NO alternative is literally complete — every branch has a role-bearing
+      key that was only satisfied by a renamed/role-level producer — the read dangles even
+      though a role check passed, so the union of each branch's missing keys is reported.
+
+    Role-bearing keys only (``unknown``/internal bookkeeping keys are excluded).
     """
-    reads = [(key, available_keys) for key in contract.reads.data_keys]
-    reads += [(key, available_segment_keys) for key in contract.reads.segment_data_keys]
-    if len(contract.reads_one_of) == 1:
-        only = contract.reads_one_of[0]
-        reads += [(key, available_keys) for key in only.data_keys]
-        reads += [(key, available_segment_keys) for key in only.segment_data_keys]
-    dangling: set[str] = set()
-    for k, scope_keys in reads:
-        role = contract.key_roles.get(k, "unknown")
-        if role == "unknown":
-            continue
-        if k not in scope_keys:
-            dangling.add(k)
+    dangling = _missing_literal_role_keys(contract, contract.reads, available_keys, available_segment_keys)
+    options = contract.reads_one_of
+    if len(options) == 1:
+        dangling |= _missing_literal_role_keys(contract, options[0], available_keys, available_segment_keys)
+    elif len(options) > 1:
+        per_option = [
+            _missing_literal_role_keys(contract, option, available_keys, available_segment_keys) for option in options
+        ]
+        # Clean iff at least one alternative is literally complete (no missing role-bearing key).
+        if all(missing for missing in per_option):
+            dangling |= set().union(*per_option)
     return dangling
 
 
@@ -500,7 +523,11 @@ class _Walk:
     available_keys: set[str]  # literal top-level key VALUES produced so far
     segment_available: set[str] = field(default_factory=set)  # nested-item roles produced so far
     segment_available_keys: set[str] = field(default_factory=set)  # literal nested-item key VALUES
+    # Tensor residency is tracked per scope: a top-level carrier and a nested (segment) carrier
+    # are distinct to a serializer, so a stage dropping one must not be credited with clearing
+    # the other. ``tensor_keys`` holds top-level carriers; ``segment_tensor_keys`` nested ones.
     tensor_keys: set[str] = field(default_factory=set)
+    segment_tensor_keys: set[str] = field(default_factory=set)
     removed_roles: set[str] = field(default_factory=set)
     key_producer: dict[str, str] = field(default_factory=dict)
     segment_key_producer: dict[str, str] = field(default_factory=dict)
@@ -738,7 +765,8 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
     walk.segment_available_keys |= segment_written
     for rk in contract.removes_keys:
         walk.available_keys.discard(rk)
-        # Dropping the carrier ends the tensor residency as surely as sanitizing does.
+        # ``removes_keys`` names TOP-LEVEL task keys, so dropping the carrier ends only the
+        # top-level tensor residency; a nested (segment) carrier of the same name survives.
         walk.tensor_keys.discard(rk)
         role = contract.key_roles.get(rk, role_for_value(rk))
         if (
@@ -748,23 +776,47 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         ):
             walk.available.discard(role)
             walk.removed_roles.add(role)
-    tensor_writes = written | segment_written
+    _advance_tensor_residency(walk, contract, written, segment_written)
+
+
+def _advance_tensor_residency(
+    walk: _Walk,
+    contract: StageContract,
+    written: set[str],
+    segment_written: set[str],
+) -> None:
+    """Fold one stage's tensor writes/sanitization into the per-scope residency sets."""
+    task_tensor_writes = set(written)
+    segment_tensor_writes = set(segment_written)
     has_possible_tensor_write = "tensor" in contract.writes.produces
     for conditional in contract.conditional_writes:
         if "tensor" in conditional.writes.produces:
             has_possible_tensor_write = True
-            tensor_writes.update(conditional.writes.data_keys)
-            tensor_writes.update(conditional.writes.segment_data_keys)
+            task_tensor_writes.update(conditional.writes.data_keys)
+            segment_tensor_writes.update(conditional.writes.segment_data_keys)
     if has_possible_tensor_write:
         # The stage's OWN key_roles first, global names only as fallback. A custom
         # ``waveform_key`` still declares its role in the contract, but the global lookup
         # returned "unknown", so residency tracked ``_UNNAMED_TENSOR`` instead of the real
         # carrier -- and a downstream stage dropping that carrier still looked resident,
         # raising a spurious ``tensor_into_sink`` on a recipe that had cleaned up correctly.
-        carriers = {key for key in tensor_writes if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE}
-        walk.tensor_keys |= carriers or {_UNNAMED_TENSOR}
+        task_carriers = {
+            key for key in task_tensor_writes if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE
+        }
+        segment_carriers = {
+            key for key in segment_tensor_writes if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE
+        }
+        if task_carriers or segment_carriers:
+            walk.tensor_keys |= task_carriers
+            walk.segment_tensor_keys |= segment_carriers
+        else:
+            # ``produces=["tensor"]`` but no waveform-roled key names the carrier: keep the
+            # pre-split behaviour of tracking it as a top-level unnamed tensor only a
+            # sanitizer can clear.
+            walk.tensor_keys |= {_UNNAMED_TENSOR}
     if contract.gates.sanitizes_output:
         walk.tensor_keys.clear()
+        walk.segment_tensor_keys.clear()
 
 
 def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one input task
@@ -775,6 +827,7 @@ def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one inpu
     *,
     initial_segment_roles: set[str] | None = None,
     initial_segment_keys: set[str] | None = None,
+    initial_segment_tensor_keys: set[str] | None = None,
 ) -> _Walk:
     """The state the first stage is handed: what the input task already carries."""
     if initial_keys is not None:
@@ -803,13 +856,18 @@ def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one inpu
     if initial_tensor_keys is not None:
         seed_tensors = set(initial_tensor_keys)
     else:
-        seed_tensors = {k for k in seed_keys | segment_seed_keys if role_for_value(k) == _TENSOR_ROLE}
+        seed_tensors = {k for k in seed_keys if role_for_value(k) == _TENSOR_ROLE}
+    if initial_segment_tensor_keys is not None:
+        seed_segment_tensors = set(initial_segment_tensor_keys)
+    else:
+        seed_segment_tensors = {k for k in segment_seed_keys if role_for_value(k) == _TENSOR_ROLE}
     return _Walk(
         available=set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES),
         available_keys=seed_keys,
         segment_available=set(initial_segment_roles or ()),
         segment_available_keys=segment_seed_keys,
         tensor_keys=seed_tensors,
+        segment_tensor_keys=seed_segment_tensors,
         task_type=initial_task_type,
     )
 
@@ -822,6 +880,7 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
     initial_segment_roles: set[str] | None = None,
     initial_segment_keys: set[str] | None = None,
     initial_tensor_keys: set[str] | None = None,
+    initial_segment_tensor_keys: set[str] | None = None,
     initial_task_type: str | None = None,
     available_gpus: float | None = None,
 ) -> PipelineReport:
@@ -850,6 +909,10 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
             (e.g. ``audio_tensor``).
             Pass an empty set when a schema contains a waveform-named column but
             the input values are known not to be resident tensors.
+        initial_segment_tensor_keys: The nested (segment-scope) equivalent of
+            ``initial_tensor_keys``. ``None`` -- the default -- infers resident
+            segment tensors from the segment seed keys by role. Pass this when a
+            segment carries a tensor under a name whose role cannot be inferred.
         initial_task_type: Class name of the task the first stage will be handed
             (e.g. ``"EmptyTask"`` for a pipeline that starts at a source, ``"AudioTask"``
             for a suffix resumed from a manifest). ``None`` -- the default -- leaves the
@@ -869,6 +932,7 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
         initial_task_type,
         initial_segment_roles=initial_segment_roles,
         initial_segment_keys=initial_segment_keys,
+        initial_segment_tensor_keys=initial_segment_tensor_keys,
     )
     expansion = expand_composites(stages)
     leaves = expansion.by_recipe_index()
@@ -977,7 +1041,14 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
             issues.extend(_task_type_issue(walk, site, contract))
             # Serialization / GPU gates reason about the environment rather than about roles, so
             # they run for every concrete stage even downstream of a composite nobody could expand.
-            issues.extend(_gate_issues(site, contract, available_gpus, tensor_resident=bool(walk.tensor_keys)))
+            issues.extend(
+                _gate_issues(
+                    site,
+                    contract,
+                    available_gpus,
+                    tensor_resident=bool(walk.tensor_keys or walk.segment_tensor_keys),
+                )
+            )
             _advance(walk, contract, site.name)
             # An undeclared output type is not "unchanged": it is unknown, and carrying the
             # previous stage's type past it would judge the next stage against a task that is

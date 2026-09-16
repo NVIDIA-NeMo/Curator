@@ -148,3 +148,51 @@ class TestSegmentConcatenationStage:
     def test_requires_at_least_one_output_sink(self) -> None:
         with pytest.raises(ValueError, match="keep_waveform_in_task or write_to_disk"):
             SegmentConcatenationStage(keep_waveform_in_task=False)
+
+    # --- positional compatibility (KW_ONLY sentinel) ---
+
+    def test_legacy_positional_call_matches_legacy_order(self) -> None:
+        """Pre-agent positionals were (silence_duration_sec, name, batch_size, resources)."""
+        from nemo_curator.stages.resources import Resources
+
+        stage = SegmentConcatenationStage(1.5)
+        assert stage.silence_duration_sec == 1.5
+        # Agent-added fields stayed keyword-only, so they keep their defaults.
+        assert stage.segments_key == "segments"
+        assert stage.waveform_key == "waveform"
+
+        # name/batch_size/resources remain the legacy positional slots after silence_duration_sec.
+        stage2 = SegmentConcatenationStage(1.5, "Concat", 4, Resources(cpus=1.0))
+        assert (stage2.name, stage2.batch_size) == ("Concat", 4)
+
+        # A 5th positional would be a keyword-only agent field -> TypeError.
+        with pytest.raises(TypeError):
+            SegmentConcatenationStage(1.5, "Concat", 4, Resources(cpus=1.0), "segs")
+
+    # --- output key insertion order (legacy layout) ---
+
+    def test_output_key_order_matches_legacy(self) -> None:
+        segments = [
+            _make_segment_dict(duration_ms=1000, segment_num=0),
+            _make_segment_dict(duration_ms=1000, segment_num=1),
+        ]
+        result = SegmentConcatenationStage().process(_make_nested_task(segments))
+        assert list(result.data.keys()) == [
+            "waveform",
+            "sample_rate",
+            "original_file",
+            "num_segments",
+            "total_duration_sec",
+        ]
+
+    def test_output_key_order_places_disk_path_last(self, tmp_path) -> None:  # noqa: ANN001
+        stage = SegmentConcatenationStage(write_to_disk=True, output_dir=str(tmp_path / "c"))
+        result = stage.process(_make_nested_task([_make_segment_dict(duration_ms=1000)]))
+        assert list(result.data.keys()) == [
+            "waveform",
+            "sample_rate",
+            "original_file",
+            "num_segments",
+            "total_duration_sec",
+            "audio_filepath",
+        ]
