@@ -24,7 +24,7 @@ by the catalog rather than failing the test.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Literal
 
 import pytest
@@ -80,6 +80,14 @@ class _ToyDataclassStage(AgentReady):
         )
 
 
+@dataclass
+class _RuntimeDefaultAgentRequiredStage(AgentReady):
+    required_for_agent: str = field(default="", metadata={"agent_required": True})
+
+    def describe(self) -> StageContract:
+        return StageContract()
+
+
 class _ToyInitStage(AgentReady):
     """A toy stage that uses ``__init__`` (not a dataclass).
 
@@ -122,6 +130,14 @@ def test_stage_params_init_signature_required_and_defaults():  # noqa: ANN202
     assert params["operator"].required is False
     assert params["operator"].default == "eq"
     assert params["input_value_key"].description == "Field to evaluate."
+
+
+def test_stage_params_can_require_a_runtime_default_for_agent_configuration():  # noqa: ANN202
+    param = stage_params(_RuntimeDefaultAgentRequiredStage)[0]
+
+    assert param.default == ""
+    assert param.required is True
+    assert to_json_schema([param])["required"] == ["required_for_agent"]
 
 
 def test_docstring_args_parser_handles_continuations_and_sections():  # noqa: ANN202
@@ -288,7 +304,8 @@ class TestStagesDeclareTheirOwnAgentFacts:
     # The exact mapping the deleted verbs._SMOKE_DISK_ADAPTERS table held. Pinned so a
     # refactor that silently drops or widens a redirect is caught, not just noticed.
     EXPECTED_OUTPUT_PATH_PARAMS: ClassVar[dict[str, list[str]]] = {
-        "CreateInitialManifestReadSpeechStage": [],
+        "CreateInitialManifestFleursStage": ["raw_data_dir", "cache_dir"],
+        "CreateInitialManifestReadSpeechStage": ["raw_data_dir"],
         "DocumentBatchJsonlWriterStage": ["output_path"],
         "InferenceSortformerStage": ["rttm_out_dir"],
         "ManifestCheckpointStage": ["output_path"],
@@ -317,6 +334,10 @@ class TestStagesDeclareTheirOwnAgentFacts:
             for f in fields(cls)
             if f.init and f.default is MISSING and f.default_factory is MISSING
         }
+        for param in stage_params(cls):
+            if param.required:
+                value = "/tmp/x" if ("path" in param.name or "dir" in param.name) else "x"  # noqa: S108
+                kwargs.setdefault(param.name, value)
         if "write_to_disk" in names:
             kwargs["write_to_disk"] = True
         for name in self._REQUIRED_DIRS & names:

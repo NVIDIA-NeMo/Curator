@@ -204,6 +204,7 @@ def _dataclass_params(cls: type, descriptions: dict[str, str]) -> list[ParamSpec
             default, required = _call_factory(f.default_factory)
         else:
             default, required = None, True
+        required = required or bool(f.metadata.get("agent_required", False))
         hint = _resolve_hint(f.type, globalns)
         params.append(
             ParamSpec(

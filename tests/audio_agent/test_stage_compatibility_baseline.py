@@ -256,7 +256,13 @@ ADDITIVE_STAGE_NAMES = (
 # Regenerated for the segmentation safety corrections. Speaker separation now
 # advertises its first-run network requirement, while new segmentation knobs are
 # keyword-only so the legacy positional constructor surface remains unchanged.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "5bb647202fc63d890106434bb2c601fc50dfcec70fdfca3066da9d9abd94cae8"
+# Regenerated for the dataset source contract corrections. ReadSpeech gained
+# additive sample-rate/book/reader key parameters whose defaults reproduce its
+# existing rows. FLEURS keeps its empty-string constructor defaults but marks
+# the three values rejected by __post_init__ as agent-required. Both sources
+# now expose conservative static download gates and configured no-download
+# contracts no longer claim writes. No existing runtime default changed.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "14b2ed51bfbfe777bd5be24f42865d4457b7c67971d521f1952c365ada5ca660"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
