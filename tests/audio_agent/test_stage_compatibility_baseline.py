@@ -253,7 +253,10 @@ ADDITIVE_STAGE_NAMES = (
 # Regenerated for the postprocessing safety corrections. TimestampMapper's
 # agent-added key knobs are keyword-only, preserving its four legacy positional
 # slots, while static discovery now reports its sanitizer and filter behavior.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "2172e59d36d2bf5cee459b736385a3484fedff49eda72cf30d94a1b8c2474187"
+# Regenerated for the segmentation safety corrections. Speaker separation now
+# advertises its first-run network requirement, while new segmentation knobs are
+# keyword-only so the legacy positional constructor surface remains unchanged.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "5bb647202fc63d890106434bb2c601fc50dfcec70fdfca3066da9d9abd94cae8"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

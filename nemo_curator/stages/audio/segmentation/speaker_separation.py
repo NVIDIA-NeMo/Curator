@@ -30,11 +30,15 @@ Example:
     )
 """
 
+import contextlib
 import os
+import shutil
+import tempfile
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar, cast
 
 import numpy as np
+import soundfile as sf
 import torch
 from loguru import logger
 from pydub import AudioSegment
@@ -45,13 +49,14 @@ except ImportError:
     SortformerEncLabelModel = None
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
     resolve_audio,
     write_audio_stable,
 )
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -82,13 +87,14 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         min_duration: Minimum segment duration in seconds
         gap_threshold: Gap threshold for merging speaker segments
         buffer_time: Buffer time around speaker segments
-        audio_filepath_key: Key in data dict for the input audio file path.
         waveform_key: Key in data dict for the in-memory waveform tensor.
         sample_rate_key: Key in data dict for the waveform sample rate.
+        audio_filepath_key: Key in data dict for the input audio file path.
         speaker_id_key: Key where each child task's speaker id is written.
         num_speakers_key: Key where the detected speaker count is written.
         duration_key: Key where each child's speech duration in seconds is written.
         diar_segments_key: Key where each child's diarization segments are written.
+        original_file_key: Key carrying the source file path for provenance.
         input_residency: Which input to use — "waveform" (in-memory only), "file"
             (audio_filepath only), or "auto" (waveform first, file fallback; default).
         keep_waveform_in_task: Keep each per-speaker waveform in the task (default True,
@@ -113,6 +119,12 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     min_duration: float = 0.8
     gap_threshold: float = 0.1
     buffer_time: float = 0.5
+
+    name: str = "SpeakerSeparation"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
+
+    # New agent/residency fields follow every legacy positional field.
     audio_filepath_key: str = "audio_filepath"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
@@ -120,15 +132,14 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     num_speakers_key: str = "num_speakers"
     duration_key: str = "duration"
     diar_segments_key: str = "diar_segments"
+    original_file_key: str = "original_file"
     input_residency: InputResidency = "auto"
     # Output residency (both default to today's behavior: in-memory waveform only, no disk).
     keep_waveform_in_task: bool = True
     write_to_disk: bool = False
     separated_audio_dir: str | None = None
 
-    name: str = "SpeakerSeparation"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(requires_internet_first_run=True))
 
     def __post_init__(self):
         super().__init__()
@@ -146,11 +157,30 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         outs: list[str] = []
         if self.keep_waveform_in_task:
-            outs.extend([self.waveform_key, self.sample_rate_key])
+            outs.append(self.waveform_key)
+        outs.append(self.sample_rate_key)
         outs.extend([self.speaker_id_key, self.num_speakers_key, self.duration_key, self.diar_segments_key])
+        outs.append(self.original_file_key)
         if self.write_to_disk:
             outs.append(self.audio_filepath_key)
         return [], outs
+
+    def _removed_output_keys(self) -> list[str]:
+        """Return parent fields that are absent rather than replaced in each child."""
+        removes = {"audio", "num_samples"}
+        if not self.keep_waveform_in_task:
+            removes.add(self.waveform_key)
+        if self.waveform_key != "waveform" or not self.keep_waveform_in_task:
+            removes.add("waveform")
+        if not self.write_to_disk:
+            removes.add(self.audio_filepath_key)
+        if self.audio_filepath_key != "audio_filepath" or not self.write_to_disk:
+            removes.add("audio_filepath")
+        if self.sample_rate_key != "sample_rate":
+            removes.add("sample_rate")
+        if self.duration_key != "duration":
+            removes.add("duration")
+        return sorted(removes)
 
     def describe(self) -> StageContract:
         forms = accepts_for_residency(self.input_residency)
@@ -162,10 +192,17 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         writes: list[str] = []
         produces: list[str] = []
         if self.keep_waveform_in_task:
-            writes.extend([self.waveform_key, self.sample_rate_key])
+            writes.append(self.waveform_key)
             produces.append("tensor")
+        writes.append(self.sample_rate_key)
         writes.extend(
-            [self.speaker_id_key, self.num_speakers_key, self.duration_key, self.diar_segments_key, "original_file"]
+            [
+                self.speaker_id_key,
+                self.num_speakers_key,
+                self.duration_key,
+                self.diar_segments_key,
+                self.original_file_key,
+            ]
         )
         if self.write_to_disk:
             writes.append(self.audio_filepath_key)
@@ -173,8 +210,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return StageContract(
             reads_one_of=reads_one_of,
             writes=IOSpec(data_keys=writes, produces=produces),
-            # children drop the parent's audio_filepath (and blob keys)
-            preserves_upstream_keys=False,
+            preserves_upstream_keys=True,
             cardinality="1:N fan-out",
             # One child per detected speaker; speaker_id is the per-child key that
             # identifies which slice of the iteration a child is (role-resolvable).
@@ -190,6 +226,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 # digest of its own samples rather than after the source basename.
                 per_row_independent=True,
             ),
+            removes_keys=self._removed_output_keys(),
         )
 
     def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ANN401
@@ -251,16 +288,64 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     # each child gets its own duration from the diarization result.
     _INHERITED_DROP_KEYS = frozenset({"audio", "waveform", "duration", "num_samples"})
 
-    def _write_speaker_wav(self, waveform: torch.Tensor, sr: int, original_file: str, speaker_id: str) -> str:
+    def _write_speaker_wav(
+        self,
+        waveform: torch.Tensor,
+        sr: int,
+        original_file: str,
+        speaker_id: str,
+        *,
+        output_dir: str | None = None,
+    ) -> str:
         """Write one per-speaker waveform to ``separated_audio_dir`` and return the path."""
         stem = os.path.splitext(os.path.basename(str(original_file)))[0] or "audio"
         return write_audio_stable(
             waveform,
             sr,
-            output_dir=self.separated_audio_dir,
+            output_dir=output_dir or self.separated_audio_dir,
             stem=stem,
             tag=str(speaker_id),
         )
+
+    def _persist_speaker_wavs(
+        self,
+        pending: list[tuple[dict[str, Any], torch.Tensor, int, str]],
+    ) -> None:
+        """Stage every speaker WAV, then publish the complete set without clobbering existing outputs."""
+        output_dir = str(self.separated_audio_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        staging_dir = tempfile.mkdtemp(prefix=".speaker-separation-", dir=output_dir)
+        created: list[str] = []
+        try:
+            staged: list[tuple[dict[str, Any], str, str]] = []
+            for speaker_data, waveform, sample_rate, speaker_id in pending:
+                staged_path = self._write_speaker_wav(
+                    waveform,
+                    sample_rate,
+                    speaker_data[self.original_file_key],
+                    speaker_id,
+                    output_dir=staging_dir,
+                )
+                final_path = os.path.join(output_dir, os.path.basename(staged_path))
+                staged.append((speaker_data, staged_path, final_path))
+
+            for speaker_data, staged_path, final_path in staged:
+                try:
+                    # The staging directory is inside output_dir, so a hard link is an
+                    # atomic no-clobber publish. A pre-existing content-addressed output
+                    # is already the complete desired artifact and must not be replaced.
+                    os.link(staged_path, final_path)
+                    created.append(final_path)
+                except FileExistsError:
+                    pass
+                speaker_data[self.audio_filepath_key] = final_path
+        except BaseException:
+            for path in created:
+                with contextlib.suppress(OSError):
+                    os.remove(path)
+            raise
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
     def _build_speaker_tasks(
         self,
@@ -269,7 +354,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         task: AudioTask,
     ) -> list[AudioTask]:
         """Build AudioTask list from speaker audio data."""
-        results: list[AudioTask] = []
+        pending: list[tuple[dict[str, Any], torch.Tensor, int, str]] = []
         num_speakers = len(speaker_audio_data)
         for speaker_id, result in speaker_audio_data.items():
             if result.duration < self.min_duration:
@@ -287,29 +372,35 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 self.duration_key,
                 self.audio_filepath_key,
                 "audio_filepath",
+                self.sample_rate_key,
+                "sample_rate",
             }
+            original_file = (
+                item.get(self.original_file_key)
+                or item.get(self.audio_filepath_key)
+                or item.get("audio_filepath")
+                or "unknown"
+            )
             speaker_data = {
                 **{k: v for k, v in item.items() if k not in drop_keys},
                 self.speaker_id_key: speaker_id,
                 self.num_speakers_key: num_speakers,
                 self.duration_key: result.duration,
                 self.diar_segments_key: result.diar_segments,
-                # Source identity must survive the audio_filepath drop above —
-                # TimestampMapper (and any provenance consumer) reads original_file.
-                "original_file": item.get("original_file")
-                or item.get(self.audio_filepath_key)
-                or item.get("audio_filepath")
-                or "unknown",
+                self.original_file_key: original_file,
+                self.sample_rate_key: spk_sr,
             }
             # Output residency: keep the in-memory waveform (default) and/or persist a
             # per-speaker WAV and point audio_filepath at it (opt-in write_to_disk).
             if self.keep_waveform_in_task:
                 speaker_data[self.waveform_key] = spk_waveform
-                speaker_data[self.sample_rate_key] = spk_sr
-            if self.write_to_disk:
-                speaker_data[self.audio_filepath_key] = self._write_speaker_wav(
-                    spk_waveform, spk_sr, speaker_data["original_file"], speaker_id
-                )
+            pending.append((speaker_data, spk_waveform, spk_sr, speaker_id))
+
+        if self.write_to_disk:
+            self._persist_speaker_wavs(pending)
+
+        results: list[AudioTask] = []
+        for speaker_data, _waveform, _sample_rate, _speaker_id in pending:
             spk_task = AudioTask(
                 data=speaker_data,
                 dataset_name=task.dataset_name,
@@ -318,6 +409,38 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             )
             results.append(spk_task)
         return results
+
+    def _resolve_audio(self, item: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
+        """Resolve mono input while preserving the legacy resident-waveform semantics."""
+        if self.input_residency != "file":
+            resident = item.get(self.waveform_key)
+            if resident is not None:
+                sample_rate = item.get(self.sample_rate_key)
+                if sample_rate is None:
+                    if self.input_residency == "waveform":
+                        return None
+                    path = item.get(self.audio_filepath_key)
+                    if not path:
+                        return None
+                    expanded = os.path.expanduser(str(path))
+                    if not os.path.exists(expanded):
+                        return None
+                    # The pre-residency stage read only the file header in this
+                    # case; it did not replace the caller's resident samples.
+                    sample_rate = sf.info(expanded).samplerate
+                return ensure_mono(ensure_waveform_2d(resident)), int(sample_rate)
+
+        resolved = resolve_audio(
+            item,
+            residency=self.input_residency,  # type: ignore[arg-type]
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
+        if resolved is None:
+            return None
+        waveform, sample_rate = resolved
+        return ensure_mono(waveform), sample_rate
 
     def process(self, task: AudioTask) -> list[AudioTask]:
         """
@@ -332,16 +455,10 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         item = dict(task.data)
         waveform = None
-        results: list[AudioTask] = []
+        speaker_audio_data: dict[str, Any] | None = None
 
         try:
-            audio_result = resolve_audio(
-                item,
-                residency=self.input_residency,  # type: ignore[arg-type]
-                audio_filepath_key=self.audio_filepath_key,
-                waveform_key=self.waveform_key,
-                sample_rate_key=self.sample_rate_key,
-            )
+            audio_result = self._resolve_audio(item)
             if audio_result is None:
                 return []
             waveform, sample_rate = audio_result
@@ -360,7 +477,6 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 return []
 
             logger.info(f"Detected {len(speaker_audio_data)} speakers")
-            results = self._build_speaker_tasks(speaker_audio_data, item, task)
 
         except torch.cuda.OutOfMemoryError as e:
             torch.cuda.empty_cache()
@@ -372,10 +488,13 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise RuntimeError(msg) from e
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[SpeakerSeparation] Failed to process task {task.task_id}: {e}")
+            return []
         finally:
             if waveform is not None:
                 del waveform
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-        return results
+        # Packaging and persistence are intentionally outside the inference catch:
+        # malformed model output and disk failures are stage failures, not skipped rows.
+        return self._build_speaker_tasks(cast("dict[str, Any]", speaker_audio_data), item, task)

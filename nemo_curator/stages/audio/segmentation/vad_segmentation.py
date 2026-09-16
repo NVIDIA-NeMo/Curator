@@ -101,22 +101,24 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     max_duration_sec: float = 60.0
     threshold: float = 0.5
     speech_pad_ms: int = 300
-    audio_filepath_key: str = "audio_filepath"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
+    nested: bool = False
+
+    name: str = "VADSegmentation"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.0))
+
+    # New agent/residency fields follow every legacy positional field.
+    audio_filepath_key: str = "audio_filepath"
     segments_key: str = "segments"
     start_ms_key: str = "start_ms"
     end_ms_key: str = "end_ms"
     segment_num_key: str = "segment_num"
     duration_key: str = "duration"
     original_file_key: str = "original_file"
-    nested: bool = False
     input_residency: InputResidency = "auto"
     keep_segment_waveform_in_task: bool = True
-
-    name: str = "VADSegmentation"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.0))
 
     def __post_init__(self):
         super().__init__()
@@ -142,7 +144,7 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], outputs
 
     def describe(self) -> StageContract:
-        writes = [
+        segment_writes = [
             self.sample_rate_key,
             self.start_ms_key,
             self.end_ms_key,
@@ -152,10 +154,26 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         ]
         produces = []
         if self.keep_segment_waveform_in_task:
-            writes.append(self.waveform_key)
+            segment_writes.append(self.waveform_key)
             produces.append("tensor")
         if self.nested:
-            writes = [self.segments_key]
+            writes = IOSpec(
+                data_keys=[self.segments_key],
+                segment_data_keys=segment_writes,
+                produces=produces,
+            )
+            removes = {self.waveform_key}
+            if self.waveform_key != "waveform":
+                removes.add("waveform")
+        else:
+            writes = IOSpec(data_keys=segment_writes, produces=produces)
+            removes = {self.audio_filepath_key, "audio_filepath", "num_samples"}
+            if not self.keep_segment_waveform_in_task:
+                removes.add(self.waveform_key)
+            if self.waveform_key != "waveform" or not self.keep_segment_waveform_in_task:
+                removes.add("waveform")
+            if self.sample_rate_key != "sample_rate":
+                removes.add("sample_rate")
         forms = accepts_for_residency(self.input_residency)
         reads_one_of = []
         if "waveform" in forms:
@@ -164,13 +182,11 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             reads_one_of.append(IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]))
         return StageContract(
             reads_one_of=reads_one_of,
-            writes=IOSpec(data_keys=writes, produces=produces),
+            writes=writes,
             cardinality="1:1 nested-list" if self.nested else "1:N fan-out",
             cardinality_options=["fan_out", "nested"],
-            iteration_key=self.segments_key,
-            # nested mode pops the top-level waveform after building segments, so a
-            # downstream stage reading the top-level waveform would find it gone.
-            removes_keys=[self.waveform_key] if self.nested else [],
+            iteration_key=self.segments_key if self.nested else self.segment_num_key,
+            removes_keys=sorted(removes),
             # Silero decides speech from this file's own samples against the configured
             # threshold, and every segment it emits is a slice of that same file.
             gates=Gates(requires_gpu=self.resources.requires_gpu, per_row_independent=True),
@@ -247,15 +263,19 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             k: v
             for k, v in item.items()
             if k
-            not in (
+            not in {
                 self.waveform_key,
+                "waveform",
                 self.sample_rate_key,
+                "sample_rate",
+                self.audio_filepath_key,
+                "audio_filepath",
                 self.start_ms_key,
                 self.end_ms_key,
                 self.segment_num_key,
                 self.duration_key,
                 "num_samples",
-            )
+            }
         }
         if not self.keep_segment_waveform_in_task:
             segment_waveform = None
@@ -266,12 +286,25 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 self.end_ms_key: end_ms,
                 self.segment_num_key: segment_num,
                 self.duration_key: (end_ms - start_ms) / 1000.0,
-                self.original_file_key: item.get(self.original_file_key, item.get(self.audio_filepath_key, "unknown")),
+                self.original_file_key: (
+                    item.get(self.original_file_key)
+                    or item.get(self.audio_filepath_key)
+                    or item.get("audio_filepath")
+                    or "unknown"
+                ),
             }
         )
         if segment_waveform is not None:
             segment_data[self.waveform_key] = segment_waveform
         return segment_data
+
+    def _finalize_nested(self, task: AudioTask, segments: list[dict[str, Any]]) -> AudioTask:
+        """Attach nested segments and remove the parent resident waveform in every outcome."""
+        task.data[self.segments_key] = segments
+        task.data.pop(self.waveform_key, None)
+        if self.waveform_key != "waveform":
+            task.data.pop("waveform", None)
+        return task
 
     def _resolve_audio(self, item: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
         """Resolve waveform and sample_rate from task data. Returns None on failure."""
@@ -314,11 +347,15 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if not segments:
                 logger.warning("No speech segments detected by VAD")
                 if self.nested:
-                    task.data[self.segments_key] = []
-                    return task
+                    return self._finalize_nested(task, [])
                 return []
 
-            original_file = task.data.get(self.audio_filepath_key, "unknown")
+            original_file = (
+                task.data.get(self.original_file_key)
+                or task.data.get(self.audio_filepath_key)
+                or task.data.get("audio_filepath")
+                or "unknown"
+            )
             file_name = os.path.basename(original_file) if original_file != "unknown" else task.task_id
             total_duration = sum((s["end"] - s["start"]) for s in segments)
             logger.info(
@@ -326,12 +363,11 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             )
 
             if self.nested:
-                task.data[self.segments_key] = [
+                nested_segments = [
                     self._build_segment_item(task.data, waveform, sample_rate, seg, i)
                     for i, seg in enumerate(segments)
                 ]
-                task.data.pop(self.waveform_key, None)
-                return task
+                return self._finalize_nested(task, nested_segments)
 
             output_tasks: list[AudioTask] = []
             for i, segment in enumerate(segments):
