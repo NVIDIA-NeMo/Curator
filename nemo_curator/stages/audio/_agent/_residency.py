@@ -542,7 +542,7 @@ def resolve_audio_path(  # noqa: C901, PLR0913 (keyword-only residency/key knobs
             fd, tmp = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
             os.close(fd)
             try:
-                sf.write(tmp, _as_soundfile_array(waveform), int(sample_rate))
+                sf.write(tmp, _as_soundfile_array(waveform), int(sample_rate), subtype="FLOAT")
             except BaseException:
                 with contextlib.suppress(OSError):
                     os.remove(tmp)
