@@ -53,7 +53,7 @@ inference_server:
 execution:
   stages:
     - name: qwen_extraction_quality
-      num_workers: 2
+      num_workers: 4
       judges:
         - &qwen_extraction_quality
           name: qwen3_8_27b_text_extraction_judgment
@@ -87,7 +87,7 @@ execution:
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
     - name: qwen_semantic_disagreement
-      num_workers: 2
+      num_workers: 4
       judges:
         - &qwen_semantic_disagreement
           name: qwen3_8_27b_text_extraction_disagreement
@@ -104,13 +104,13 @@ execution:
                 4: The candidates have major meaningful-content differences.
                 5: The candidates disagree so substantially that manual review is needed.
     - name: gemma_extraction_quality
-      num_workers: 2
+      num_workers: 4
       judges:
         - <<: *qwen_extraction_quality
           name: gemma_3_27b_text_extraction_judgment
           model_alias: gemma
     - name: gemma_semantic_disagreement
-      num_workers: 2
+      num_workers: 4
       judges:
         - <<: *qwen_semantic_disagreement
           name: gemma_3_27b_text_extraction_disagreement

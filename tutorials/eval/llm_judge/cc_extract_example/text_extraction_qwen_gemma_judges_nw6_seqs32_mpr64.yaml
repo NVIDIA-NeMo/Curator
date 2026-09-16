@@ -13,8 +13,8 @@ models:
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 16
-        gpu_memory_utilization: 0.85
+        max_num_seqs: 32
+        gpu_memory_utilization: 0.95
     inference_parameters:
       temperature: 0.0
       # Structured judging needs the final JSON, not Qwen's private deliberation.
@@ -33,8 +33,8 @@ models:
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 16
-        gpu_memory_utilization: 0.85
+        max_num_seqs: 32
+        gpu_memory_utilization: 0.95
     inference_parameters:
       temperature: 0.0
       max_tokens: 4096
@@ -53,7 +53,7 @@ inference_server:
 execution:
   stages:
     - name: qwen_extraction_quality
-      num_workers: 2
+      num_workers: 6
       judges:
         - &qwen_extraction_quality
           name: qwen3_8_27b_text_extraction_judgment
@@ -87,7 +87,7 @@ execution:
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
     - name: qwen_semantic_disagreement
-      num_workers: 2
+      num_workers: 6
       judges:
         - &qwen_semantic_disagreement
           name: qwen3_8_27b_text_extraction_disagreement
@@ -104,13 +104,13 @@ execution:
                 4: The candidates have major meaningful-content differences.
                 5: The candidates disagree so substantially that manual review is needed.
     - name: gemma_extraction_quality
-      num_workers: 2
+      num_workers: 6
       judges:
         - <<: *qwen_extraction_quality
           name: gemma_3_27b_text_extraction_judgment
           model_alias: gemma
     - name: gemma_semantic_disagreement
-      num_workers: 2
+      num_workers: 6
       judges:
         - <<: *qwen_semantic_disagreement
           name: gemma_3_27b_text_extraction_disagreement

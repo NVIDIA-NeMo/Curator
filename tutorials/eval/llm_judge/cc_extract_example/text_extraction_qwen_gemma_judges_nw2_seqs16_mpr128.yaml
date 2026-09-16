@@ -23,7 +23,7 @@ models:
           enable_thinking: false
       max_tokens: 4096
       timeout: 600
-      max_parallel_requests: 64
+      max_parallel_requests: 128
   - alias: gemma
     model: /path/to/your/hf_cache/gemma-3-27b-it
     served_model_name: google/gemma-3-27b-it
@@ -39,7 +39,7 @@ models:
       temperature: 0.0
       max_tokens: 4096
       timeout: 600
-      max_parallel_requests: 64
+      max_parallel_requests: 128
 
 dynamo_server:
   subprocess_env:

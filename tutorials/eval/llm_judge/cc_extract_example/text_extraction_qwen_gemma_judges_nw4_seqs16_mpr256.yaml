@@ -23,7 +23,7 @@ models:
           enable_thinking: false
       max_tokens: 4096
       timeout: 600
-      max_parallel_requests: 64
+      max_parallel_requests: 256
   - alias: gemma
     model: /path/to/your/hf_cache/gemma-3-27b-it
     served_model_name: google/gemma-3-27b-it
@@ -39,7 +39,7 @@ models:
       temperature: 0.0
       max_tokens: 4096
       timeout: 600
-      max_parallel_requests: 64
+      max_parallel_requests: 256
 
 dynamo_server:
   subprocess_env:
@@ -53,7 +53,7 @@ inference_server:
 execution:
   stages:
     - name: qwen_extraction_quality
-      num_workers: 2
+      num_workers: 4
       judges:
         - &qwen_extraction_quality
           name: qwen3_8_27b_text_extraction_judgment
@@ -87,7 +87,7 @@ execution:
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
     - name: qwen_semantic_disagreement
-      num_workers: 2
+      num_workers: 4
       judges:
         - &qwen_semantic_disagreement
           name: qwen3_8_27b_text_extraction_disagreement
@@ -104,13 +104,13 @@ execution:
                 4: The candidates have major meaningful-content differences.
                 5: The candidates disagree so substantially that manual review is needed.
     - name: gemma_extraction_quality
-      num_workers: 2
+      num_workers: 4
       judges:
         - <<: *qwen_extraction_quality
           name: gemma_3_27b_text_extraction_judgment
           model_alias: gemma
     - name: gemma_semantic_disagreement
-      num_workers: 2
+      num_workers: 4
       judges:
         - <<: *qwen_semantic_disagreement
           name: gemma_3_27b_text_extraction_disagreement
