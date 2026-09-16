@@ -1,6 +1,6 @@
 stage_id: InferenceSortformerStage
 category: diarize
-summary: "Speaker diarization (who spoke when) with NVIDIA Sortformer; passthrough (diar_segments + num_speakers count) or fan-out per segment. Annotates only -- does NOT separate audio."
+summary: "Speaker diarization (who spoke when) with NVIDIA Sortformer; passthrough annotates with diar_segments + num_speakers, while fan-out emits one sliced in-memory waveform task per turn."
 tags: [needs_gpu, needs_internet_first_run]
 model_id: "nvidia/diar_streaming_sortformer_4spk-v2.1 (streaming; offline variant: nvidia/diar_sortformer_4spk-v1)"
 model_version: "nvidia/diar_streaming_sortformer_4spk-v2.1"   # stage default model_name
@@ -29,11 +29,12 @@ use_cases:
     - "when you need explicit overlap_segments or timeline gap coverage as no-speaker rows (PyAnnoteDiarizationStage)"
 composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage]
-  typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage]
+  typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, ASRStage]
 params_of_note:
   model_name: "the Sortformer checkpoint id (default streaming v2.1)"
   model_path: "local .nemo checkpoint path; overrides model_name (skips the HF download)"
-  fanout: "False (default) = passthrough with a diar_segments list; True = emit one task per speaker segment"
+  fanout: "False (default) = passthrough with a diar_segments list; True = emit one task per speaker turn carrying only that turn's cloned waveform + sample_rate. Fan-out children drop full-recording path keys and preserve provenance under original_file."
+  input_residency: "which source to use: file (default), waveform, or auto. Auto prefers a complete waveform/sample_rate pair, falls back to a file only when neither resident field is present, and rejects partial resident pairs."
   chunk_len: "streaming chunk size in 80 ms frames (default 340 ~= 27.2 s); larger = more context/accuracy but higher latency + VRAM"
   inference_batch_size: "internal batch size passed to diarize() (default 1; streaming state is per-clip)"
   rttm_out_dir: "optional dir to also write RTTM files (sets writes_to_disk when provided)"
@@ -42,10 +43,10 @@ semantic_facts:
     meaning: "Who-spoke-when as SPEECH TURNS ONLY: a list of {start, end, speaker} for ONE recording. Silence between turns is omitted (not written as placeholder rows)."
     unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds)"
     provenance: "Sortformer neural-diarization output over the whole clip; labels are the model's clustered turn assignments. Unlike PyAnnoteDiarizationStage, this stage does NOT call add_non_speaker_segments / does NOT insert speaker='no-speaker' gap rows."
-    scope: "the whole recording (passthrough); with fanout=True the same turns become one task per segment"
-    propagation: "Written under diar_segments (NOT 'segments' -- set MergeAlignmentDiarizationStage.segments_key=diar_segments, or remapped diar_segments_key='segments', when chaining)."
+    scope: "the whole recording in passthrough mode; with fanout=True each turn becomes one task whose waveform is sliced to that turn's start/end bounds"
+    propagation: "Passthrough writes diar_segments (NOT 'segments'). Fan-out removes the parent diar_segments container and full-recording paths, then emits waveform + sample_rate + timing/provenance fields. Configure ASRStage.waveform_key='waveform' for direct transcription."
     counterexamples:
-      - "This stage ANNOTATES (labels who-spoke-when); it does NOT separate/split audio. To get per-speaker audio tracks use SpeakerSeparationStage instead."
+      - "Passthrough mode only annotates. Fan-out cuts individual turn waveform slices, but it does NOT build one consolidated track per speaker; use SpeakerSeparationStage for that."
       - "Do NOT expect timeline gap coverage or overlap_segments here -- for those use PyAnnoteDiarizationStage (which also injects no-speaker silence rows into segments)."
   num_speakers:
     meaning: "Total distinct speakers detected in the recording (passthrough mode only)."
@@ -74,9 +75,10 @@ comparison:
 conflicts_with: [PyAnnoteDiarizationStage]   # alternative diarizer
 notes:
   - "Output key is `diar_segments`; MergeAlignmentDiarizationStage defaults to reading `segments` -- set its segments_key=diar_segments (or rename) when chaining."
+  - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains the source path or deterministic waveform identity under `original_file`. File-only downstream stages are intentionally incompatible unless audio is materialized separately."
   - "Speech-turn-only list: silence between turns is simply absent. Window duration for consumers that use first_start→last_end still spans those gaps without needing placeholder rows."
   - "Streaming defaults (chunk_len=340, fifo_len=40, spkcache_len=188, spkcache_update_period=300, chunk_right_context=40) match the model card's recommended streaming config."
-  - "GPU is required (checkpoint loads with map_location='cuda' and the contract gates requires_gpu=True); no CPU fallback. First-run model download needs an HF token."
+  - "GPU is required (checkpoint loads with map_location='cuda' and the contract gates requires_gpu=True); no CPU fallback. The default checkpoint needs internet on first use; model_path can point to a pre-cached local .nemo file."
   - "Model constraints (4-speaker cap, 16 kHz, English-conversational training) are model-card facts, not enforced in source."
   - "(external) Sortformer is an end-to-end neural diarizer (arrival-time ordering, Sort Loss; arXiv 2409.06656). Streaming v2.1 handles long/streaming audio; offline v1 (used by SpeakerSeparationStage) bounds a single recording by GPU memory (~12 min on a 48 GB A6000)."
 presets:
@@ -86,4 +88,4 @@ versions:   # verified interchangeable via model_name -- load + run + IDENTICAL 
   "nvidia/diar_sortformer_4spk-v1": "WHEN: batch/offline diarization of short-to-medium clips (non-streaming). Also the checkpoint used by SpeakerSeparationStage. Preset: offline_v1."
   "nvidia/diar_streaming_sortformer_4spk-v2": "WHEN: long or streaming audio / low-latency. Tune chunk_len for latency vs accuracy. Preset: streaming_v2. (The stage's default model_name is the -v2.1 point-release of this same streaming family -- not independently tested here.)"
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 7, last_validated: "2026-08-10"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 8, last_validated: "2026-09-16"}
