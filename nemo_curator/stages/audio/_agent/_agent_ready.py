@@ -246,6 +246,10 @@ class StageContract:
     # compatibility; this never changes stage execution or the legacy
     # mechanical interpretation of ``writes``.
     conditional_writes: list[ConditionalWrite] = field(default_factory=list)
+    # Keys the stage can consult when present but does not require. Appended for
+    # positional compatibility and kept outside ``reads``/``reads_one_of`` so
+    # planning never blocks a valid fallback path on their absence.
+    optional_reads: IOSpec = field(default_factory=IOSpec)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict of this contract (``json.dumps`` never raises)."""
@@ -254,6 +258,7 @@ class StageContract:
             "reads": asdict(self.reads),
             "writes": asdict(self.writes),
             "reads_one_of": [asdict(spec) for spec in self.reads_one_of],
+            "optional_reads": asdict(self.optional_reads),
             "metadata_reads": list(self.metadata_reads),
             "metadata_writes": list(self.metadata_writes),
             "cardinality": self.cardinality,

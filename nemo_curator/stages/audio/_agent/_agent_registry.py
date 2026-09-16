@@ -331,7 +331,7 @@ def _first_doc_line(cls: type) -> str | None:
 
 def _contract_referenced_keys(contract: StageContract) -> set[str]:
     keys: set[str] = set()
-    for spec in [contract.reads, contract.writes, *contract.reads_one_of]:
+    for spec in [contract.reads, contract.writes, contract.optional_reads, *contract.reads_one_of]:
         keys.update(spec.data_keys)
         keys.update(spec.segment_data_keys)
     keys.update(contract.metadata_reads)

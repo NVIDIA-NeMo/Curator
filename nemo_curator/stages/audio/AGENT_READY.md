@@ -192,6 +192,11 @@ find yourself wanting to, declare `False` and raise it instead.
 
 You never put `params` in `describe()`.
 
+Use `optional_reads=IOSpec(...)` for keys a stage consults when present but can
+correctly run without. Optional reads are visible to discovery and semantic
+review, but they never make validation reject a fallback path. Do not put a
+fallback key in `reads` or legacy `inputs()` merely to advertise it.
+
 ## What is OPTIONAL — set only if it's obvious
 
 Declared via one class attribute, `AGENT_STATIC = StaticHints(...)`, or on the contract:
