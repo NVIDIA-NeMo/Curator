@@ -31,7 +31,14 @@ import torch
 import torchaudio.functional as taf
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.alm.pretrain.planning import relativize_segments
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
@@ -99,6 +106,36 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     name: str = "SnippetExtraction"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    id_key: str = "id"
+    snippet_id_key: str = "snippet_id"
+    duration_key: str = "duration"
+    segments_key: str = "segments"
+    snippet_plan_key: str = _PLAN_DATA_KEY
+    alignment_key: str = "alignment"
+    audio_size_key: str = "audio_size"
+    resampled_audio_filepath_key: str = "resampled_audio_filepath"
+    actual_duration_key: str = "actual_duration"
+    proposed_duration_key: str = "proposed_duration"
+    audio_sample_rate_key: str = "audio_sample_rate"
+    audio_num_channels_key: str = "audio_num_channels"
+    swift_audio_filepath_key: str = "swift_audio_filepath"
+    text_key: str = "text"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "id_key",
+            "snippet_id_key",
+            "snippet_plan_key",
+            "alignment_key",
+            "audio_size_key",
+            "resampled_audio_filepath_key",
+            "actual_duration_key",
+            "proposed_duration_key",
+            "audio_sample_rate_key",
+            "audio_num_channels_key",
+            "swift_audio_filepath_key",
+            "text_key",
+        }
+    )
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(
             writes_to_disk=True,
@@ -116,33 +153,67 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.target_sample_rate <= 0:
             msg = "target_sample_rate must be > 0"
             raise ValueError(msg)
+        stable_output_keys = [self.id_key, self.snippet_id_key, self.duration_key, self.segments_key]
+        if len(set(stable_output_keys)) != len(stable_output_keys):
+            msg = "id, snippet, duration, and segments output keys must be distinct"
+            raise ValueError(msg)
+        if self.snippet_plan_key in {self.audio_filepath_key, *stable_output_keys}:
+            msg = "snippet_plan_key must be distinct from input and output keys"
+            raise ValueError(msg)
+        if self.audio_filepath_key in set(stable_output_keys):
+            msg = "audio_filepath_key must be distinct from stable output keys"
+            raise ValueError(msg)
         self._tar_shard_path: str | None = None
         self._tar: Any = None  # tarfile.TarFile, opened lazily in setup()
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, _PLAN_DATA_KEY]
+        return [], [self.audio_filepath_key, self.snippet_plan_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["id", "snippet_id", "duration", "segments"]
+        return [], [self.id_key, self.snippet_id_key, self.duration_key, self.segments_key]
 
     def describe(self) -> StageContract:
+        _, output_keys = self.outputs()
+        removal_candidates = {
+            self.alignment_key,
+            self.snippet_plan_key,
+            self.audio_size_key,
+            self.resampled_audio_filepath_key,
+        }
+        removals = removal_candidates - set(output_keys) - {self.audio_filepath_key}
+        conditional_keys = [
+            self.actual_duration_key,
+            self.proposed_duration_key,
+            self.audio_sample_rate_key,
+            self.audio_num_channels_key,
+            self.swift_audio_filepath_key,
+            self.text_key,
+        ]
         return StageContract(
-            reads=IOSpec(data_keys=[self.audio_filepath_key, _PLAN_DATA_KEY], accepts=["file"]),
+            reads=IOSpec(data_keys=[self.audio_filepath_key, self.snippet_plan_key, self.id_key], accepts=["file"]),
             writes=IOSpec(
-                data_keys=["id", "snippet_id", "duration", "segments"],
+                data_keys=output_keys,
                 # Disk output only happens when not dry-running; keep this consistent
                 # with the writes_to_disk gate below.
                 produces=[] if self.dry_run else ["disk"],
             ),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[key]),
+                    condition=f"the source row contains '{key}' and a normal snippet is emitted",
+                    value_origin="transforms_upstream_same_key",
+                )
+                for key in conditional_keys
+            ],
             cardinality="1:N fan-out",
-            iteration_key=_PLAN_DATA_KEY,
+            iteration_key=self.snippet_plan_key,
             preserves_upstream_keys=False,
-            removes_keys=["alignment", _PLAN_DATA_KEY, "audio_size", "resampled_audio_filepath"],
+            removes_keys=sorted(removals),
             gates=Gates(
                 writes_to_disk=not self.dry_run,
-                lifecycle_side_effects=not self.dry_run,
+                lifecycle_side_effects=True,
                 output_path_params=["output_dir", "output_audio_tar_path"],
-                # ``task.data["id"]`` is preferred, but its documented fallback
+                # The configured source id is preferred, but its documented fallback
                 # is framework task.task_id and that value enters durable
                 # snippet/member names. A manifest resume creates new task ids,
                 # so candidate boundaries must conservatively refuse this suffix.
@@ -159,20 +230,18 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        if self.dry_run:
-            return
         os.makedirs(self.output_dir, exist_ok=True)
         parent = os.path.dirname(self.output_audio_tar_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        if self.dry_run:
-            return
         os.makedirs(self.output_dir, exist_ok=True)
         parent = os.path.dirname(self.output_audio_tar_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
+        if self.dry_run:
+            return
         self._tar_shard_path = _make_shard_path(self.output_audio_tar_path, _TAR_SHARD_EXT)
         # The TarFile stays open for the worker's lifetime and is closed in
         # teardown(); a context manager isn't usable here without making every
@@ -195,22 +264,28 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         # Read the plan without mutating the input task -- Xenna may preempt
         # and replay the same task through this stage; popping would leave the
         # retried task without a plan and fail validate_input on retry.
-        plan: list[dict] = list(task.data.get(_PLAN_DATA_KEY) or [])
+        plan: list[dict] = list(task.data.get(self.snippet_plan_key) or [])
         if not plan:
             return [self._make_stub_task(task)]
 
-        original_id = str(task.data.get("id") or task.task_id)
+        original_id = str(task.data.get(self.id_key) or task.task_id)
 
         if self.dry_run:
             outputs = self._dry_run_emit(task, plan, original_id)
         else:
             outputs = self._extract_emit(task, plan, original_id)
 
-        total_dur = 0.0 if _is_origin_stub(outputs[0]) else sum(t.data["duration"] for t in outputs)
+        total_dur = (
+            0.0
+            if _is_origin_stub(outputs[0], self.snippet_id_key)
+            else sum(t.data[self.duration_key] for t in outputs)
+        )
         self._log_metrics(
             {
                 "extract_time": time.perf_counter() - t0,
-                "snippets_written": float(len(outputs) if not _is_origin_stub(outputs[0]) else 0),
+                "snippets_written": float(
+                    len(outputs) if not _is_origin_stub(outputs[0], self.snippet_id_key) else 0
+                ),
                 "snippets_total_duration": float(total_dur),
             }
         )
@@ -342,30 +417,29 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         duration: float,
     ) -> AudioTask:
         new_data = dict(task.data)
-        new_data.pop("alignment", None)
-        new_data.pop(_PLAN_DATA_KEY, None)
+        new_data.pop(self.alignment_key, None)
+        new_data.pop(self.snippet_plan_key, None)
         # Drop source-file-specific fields that don't apply to the snippet.
-        new_data.pop("audio_size", None)
-        new_data.pop("resampled_audio_filepath", None)
-        new_data["id"] = str(new_data.get("id") or task.task_id)
-        new_data["snippet_id"] = snippet_id
+        new_data.pop(self.audio_size_key, None)
+        new_data.pop(self.resampled_audio_filepath_key, None)
+        new_data[self.snippet_id_key] = snippet_id
         new_data[self.audio_filepath_key] = out_path
-        new_data["duration"] = duration
+        new_data[self.duration_key] = duration
         # Update audio-property fields only if the source row had them.
-        if "actual_duration" in new_data:
-            new_data["actual_duration"] = duration
-        if "proposed_duration" in new_data:
-            new_data["proposed_duration"] = duration
-        if "audio_sample_rate" in new_data:
-            new_data["audio_sample_rate"] = self.target_sample_rate
-        if "audio_num_channels" in new_data:
-            new_data["audio_num_channels"] = 1
+        if self.actual_duration_key in new_data:
+            new_data[self.actual_duration_key] = duration
+        if self.proposed_duration_key in new_data:
+            new_data[self.proposed_duration_key] = duration
+        if self.audio_sample_rate_key in new_data:
+            new_data[self.audio_sample_rate_key] = self.target_sample_rate
+        if self.audio_num_channels_key in new_data:
+            new_data[self.audio_num_channels_key] = 1
         # Reset to "" — a downstream pipeline is expected to set this correctly.
-        if "swift_audio_filepath" in new_data:
-            new_data["swift_audio_filepath"] = ""
-        new_data["segments"] = relativize_segments(snippet["segments"], snippet["start"], snippet["end"])
-        if "text" in new_data:
-            new_data["text"] = " ".join(_segment_text(s) for s in snippet["segments"]).strip()
+        if self.swift_audio_filepath_key in new_data:
+            new_data[self.swift_audio_filepath_key] = ""
+        new_data[self.segments_key] = relativize_segments(snippet["segments"], snippet["start"], snippet["end"])
+        if self.text_key in new_data:
+            new_data[self.text_key] = " ".join(_segment_text(s) for s in snippet["segments"]).strip()
         return AudioTask(
             dataset_name=task.dataset_name,
             data=new_data,
@@ -375,13 +449,12 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _make_stub_task(self, task: AudioTask) -> AudioTask:
-        original_id = str(task.data.get("id") or task.task_id)
         stub_data: dict = {
-            "id": original_id,
-            "snippet_id": None,
+            self.id_key: task.data.get(self.id_key),
+            self.snippet_id_key: None,
             self.audio_filepath_key: None,
-            "duration": 0.0,
-            "segments": [],
+            self.duration_key: 0.0,
+            self.segments_key: [],
         }
         return AudioTask(
             dataset_name=task.dataset_name,

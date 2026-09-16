@@ -206,7 +206,7 @@ class TestReadLongFormManifestStage:
         messages: list[str] = []
         sink_id = logger.add(lambda message: messages.append(str(message)), format="{message}")
         try:
-            out = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data").process(
+            out = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", strict_schema=True).process(
                 EmptyTask(dataset_name="empty", data=None)
             )
         finally:
@@ -233,13 +233,26 @@ class TestReadLongFormManifestStage:
             + "\n",
             encoding="utf-8",
         )
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
+        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", strict_schema=True)
         assert_agent_ready(
             stage,
             lambda: EmptyTask(dataset_name="empty", data=None),
             expected_cardinality="1:N fan-out",
             available_keys=set(),
         )
+
+    def test_default_preserves_legacy_row_without_segments(self, tmp_path: Path) -> None:
+        p = tmp_path / "legacy.jsonl"
+        p.write_text(json.dumps({"id": 7, "audio_filepath": "./a.wav"}) + "\n", encoding="utf-8")
+
+        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
+
+        assert len(out) == 1
+        assert out[0].data == {"id": 7, "audio_filepath": "/data/a.wav"}
+        assert stage.outputs()[1] == ["audio_filepath", "id"]
+        assert build_contract(stage).gates.per_row_independent is False
+        assert static_contract(ReadLongFormManifestStage).gates.per_row_independent is False
 
 
 # ----------------------------------------------------------------------
@@ -302,8 +315,9 @@ class TestSnippetManifestWriterStage:
             output_path=str(tmp_path / "out.jsonl"),
             snippet_id_key="clip_id",
         )
-        assert stage.validate_input(_make_audio_task({})) is False
+        assert stage.validate_input(_make_audio_task({})) is True
         assert stage.validate_input(_make_audio_task({"clip_id": "X-0-1"})) is True
+        assert stage.process_batch([_make_audio_task({})])[0].data == {}
         contract = assert_agent_ready(
             stage,
             lambda: _make_audio_task({"id": "X", "clip_id": "X-0-1", "duration": 1.0}),
@@ -424,7 +438,7 @@ class TestPretrainMetricsAggregatorStage:
             segments_key="turns",
             duration_key="clip_duration",
         )
-        assert stage.validate_input(_make_audio_task({})) is False
+        assert stage.validate_input(_make_audio_task({})) is True
         valid_data = {
             "source_id": "A",
             "clip_id": "A-0-5",
@@ -432,6 +446,7 @@ class TestPretrainMetricsAggregatorStage:
             "clip_duration": 5.0,
         }
         assert stage.validate_input(_make_audio_task(valid_data)) is True
+        assert stage.process_batch([_make_audio_task({})])[0].data == {}
 
         def fixture() -> AudioTask:
             task = _make_audio_task(dict(valid_data))

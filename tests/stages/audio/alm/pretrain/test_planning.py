@@ -153,6 +153,30 @@ class TestSnippetCutPlannerStage:
             available_keys={"segments"},
         )
 
+    def test_custom_keys_flow_across_planning_stages(self, tmp_path: Path) -> None:
+        pytest.importorskip("transformers")
+        tokenizer_dir = _build_tiny_word_tokenizer(tmp_path, ["hello", "world"])
+        task = _make_audio_task({"turns": [_ts(0, 5, "hello world")]})
+        overlap = OverlapFilterStage(segments_key="turns")
+        planner = SnippetCutPlannerStage(
+            max_duration_sec=20.0,
+            segments_key="turns",
+            snippet_plan_key="plans",
+        )
+        repetition = SnippetRepetitionFilterStage(
+            tokenizer_path=str(tokenizer_dir),
+            snippet_plan_key="plans",
+        )
+        repetition.setup()
+
+        result = repetition.process(planner.process(overlap.process(task)))
+
+        assert result.data["turns"][0]["text"] == "hello world"
+        assert len(result.data["plans"]) == 1
+        assert overlap.inputs()[1] == ["turns"]
+        assert planner.outputs()[1] == ["plans"]
+        assert repetition.inputs()[1] == ["plans"]
+
 
 # ----------------------------------------------------------------------
 # SnippetRepetitionFilterStage

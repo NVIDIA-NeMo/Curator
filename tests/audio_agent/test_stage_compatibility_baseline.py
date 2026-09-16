@@ -235,7 +235,7 @@ ADDITIVE_STAGE_NAMES = (
 # default, and SegmentExtractionStage.output_key became keyword-only so the
 # pre-existing positional parameters retain their original meaning. No existing
 # default value changed.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "1c38961acc3e7f28cbc24b81b7b43836a64de27de5798ee0ee1d25d2697285f2"
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "54c5d935f6a486b782d192f510f9d3a145b3b071e4e09ca0fb0d2d05a0692bb3"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

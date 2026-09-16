@@ -26,7 +26,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -165,6 +165,16 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self.max_duration = self.target_window_duration + tol
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
+        generated_keys = [self.windows_key, self.stats_key, self.truncation_events_key]
+        protected_keys = [
+            self.audio_filepath_key,
+            self.segments_key,
+            self.audio_sample_rate_key,
+            self.swift_audio_filepath_key,
+        ]
+        if len(set(generated_keys)) != len(generated_keys) or set(generated_keys) & set(protected_keys):
+            msg = "generated output keys must be distinct from each other and from input keys"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]
@@ -177,9 +187,24 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def describe(self) -> StageContract:
         _, output_keys = self.outputs()
+        generated_keys = {self.windows_key, self.stats_key, self.truncation_events_key}
+        removals = self._drop_fields_top_level_set - generated_keys - {self.audio_filepath_key}
+        conditional_writes = []
+        if self.audio_filepath_key in self._drop_fields_top_level_set:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.audio_filepath_key]),
+                    condition=(
+                        f"'{self.audio_sample_rate_key}' is below min_sample_rate, so the legacy low-rate branch "
+                        f"preserves '{self.audio_filepath_key}'"
+                    ),
+                    value_origin="upstream_same_key",
+                )
+            )
         return StageContract(
             reads=IOSpec(data_keys=[self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]),
             writes=IOSpec(data_keys=output_keys),
+            conditional_writes=conditional_writes,
             # process() rebuilds task.data selectively (words/segments stripped;
             # the min_sample_rate branch keeps only a four-key subset).
             preserves_upstream_keys=False,
@@ -189,7 +214,7 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # pipeline that would have run -- the kind of wrong hard gate that pushes a caller
             # into faking a value to get past it. Derived from the configured parameter so the
             # declaration tracks whatever the caller actually set.
-            removes_keys=sorted(self._drop_fields_top_level_set),
+            removes_keys=sorted(removals),
             # Windows are built by sliding over this row's own segments.
             gates=Gates(per_row_independent=True),
         )
@@ -236,8 +261,7 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 self.stats_key: stat.to_dict(),
                 self.truncation_events_key: total_truncation_events,
             }
-            if self.audio_filepath_key not in self._drop_fields_top_level_set:
-                result[self.audio_filepath_key] = audio_file
+            result[self.audio_filepath_key] = audio_file
             return result
 
         valid_windows: list[dict[str, Any]] = []

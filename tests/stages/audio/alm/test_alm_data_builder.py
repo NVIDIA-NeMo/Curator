@@ -171,7 +171,22 @@ class TestALMDataBuilder:
         low_rate_entry = copy.deepcopy(sample_entry)
         low_rate_entry["audio_sample_rate"] = 8000
         low_rate = dropped.process(AudioTask(data=low_rate_entry))
-        assert "audio_filepath" not in low_rate.data
+        assert low_rate.data["audio_filepath"] == sample_entry["audio_filepath"]
+        assert "audio_filepath" not in build_contract(dropped).removes_keys
+        assert build_contract(dropped).conditional_writes[0].writes.data_keys == ["audio_filepath"]
+
+    def test_generated_outputs_are_not_declared_removed(self, sample_entry: dict) -> None:
+        stage = ALMDataBuilderStage(drop_fields_top_level="words,segments,windows,stats,truncation_events")
+        contract = build_contract(stage)
+
+        assert not {"windows", "stats", "truncation_events"} & set(contract.removes_keys)
+        result = stage.process(AudioTask(data=copy.deepcopy(sample_entry)))
+        assert {"windows", "stats", "truncation_events"} <= set(result.data)
+
+    @pytest.mark.parametrize("kwargs", [{"windows_key": "stats"}, {"windows_key": "segments"}])
+    def test_generated_output_key_collisions_are_rejected(self, kwargs: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="generated output keys"):
+            ALMDataBuilderStage(**kwargs)
 
     def test_agent_ready_default_custom_and_explicit_drop(self, sample_entry: dict) -> None:
         def default_fixture() -> AudioTask:
