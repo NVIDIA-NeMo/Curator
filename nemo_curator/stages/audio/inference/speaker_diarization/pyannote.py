@@ -20,8 +20,7 @@ import os
 import random
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import soundfile as sf
 import torch
@@ -35,14 +34,27 @@ from pyannote.core import Segment
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     cleanup_temp_files,
-    residency_read_specs,
     resolve_audio_path,
+    validate_input_residency,
 )
 from nemo_curator.stages.audio.common import get_audio_duration
+from nemo_curator.stages.audio.inference.base import (
+    _channel_first_waveform,
+    _fanout_audio_slice,
+    _fanout_original_file,
+    _fanout_path_keys,
+    _inference_audio_input_spec,
+    _inference_audio_read_specs,
+    _resident_audio_duration,
+    _stable_audio_identity,
+    _stable_source_path,
+    _validate_fanout_key_contract,
+    _validate_inference_audio_input,
+)
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
 from nemo_curator.stages.base import ProcessingStage
@@ -94,7 +106,8 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         min_length: Minimum segment length in seconds
         max_length: Maximum segment length in seconds
         num_speakers_key: Key in output data for the distinct-speaker count derived
-            from the diarization result (passthrough mode only). Defaults to "num_speakers".
+            from the diarization result. Fan-out children retain their parent's count.
+            Defaults to "num_speakers".
         xenna_num_workers: If set, caps workers cluster-wide. Prefer ``with_(num_workers=...)`` for new code.
     """
 
@@ -112,24 +125,24 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     max_length: float = 40.0
 
     audio_filepath_key: str = "resampled_audio_filepath"
-    waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
+    waveform_key: str = field(default="waveform", kw_only=True)
+    sample_rate_key: str = field(default="sample_rate", kw_only=True)
     segments_key: str = "segments"
     overlap_segments_key: str = "overlap_segments"
-    num_speakers_key: str = "num_speakers"
-    input_residency: InputResidency = "file"
-    write_rttm: bool = True
-    vad_onset: float = 0.5
-    vad_offset: float = 0.363
-    fanout: bool = False
-    start_key: str = "start"
-    end_key: str = "end"
-    start_ms_key: str = "start_ms"
-    end_ms_key: str = "end_ms"
-    duration_key: str = "duration"
-    segment_num_key: str = "segment_num"
-    speaker_key: str = "speaker"
-    original_file_key: str = "original_file"
+    num_speakers_key: str = field(default="num_speakers", kw_only=True)
+    input_residency: InputResidency = field(default="file", kw_only=True)
+    write_rttm: bool = field(default=True, kw_only=True)
+    vad_onset: float = field(default=0.5, kw_only=True)
+    vad_offset: float = field(default=0.363, kw_only=True)
+    fanout: bool = field(default=False, kw_only=True)
+    start_key: str = field(default="start", kw_only=True)
+    end_key: str = field(default="end", kw_only=True)
+    start_ms_key: str = field(default="start_ms", kw_only=True)
+    end_ms_key: str = field(default="end_ms", kw_only=True)
+    duration_key: str = field(default="duration", kw_only=True)
+    segment_num_key: str = field(default="segment_num", kw_only=True)
+    speaker_key: str = field(default="speaker", kw_only=True)
+    original_file_key: str = field(default="original_file", kw_only=True)
 
     # Stage metadata
     name: str = "PyAnnoteDiarization"
@@ -143,13 +156,63 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
     _rng: random.Random | None = field(default=None, repr=False)
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        cardinality_options=["1:1", "1:N fan-out"],
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=[],
+            requires_gpu=True,
+            requires_internet_first_run=True,
+            runtime_secrets=["HF_TOKEN"],
+            per_row_independent=False,
+        ),
+    )
+
+    def __post_init__(self) -> None:
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        if self.fanout:
+            _validate_fanout_key_contract(
+                stage_name=self.name,
+                audio_filepath_key=self.audio_filepath_key,
+                output_keys=[
+                    self.waveform_key,
+                    self.sample_rate_key,
+                    self.start_key,
+                    self.end_key,
+                    self.start_ms_key,
+                    self.end_ms_key,
+                    self.duration_key,
+                    self.segment_num_key,
+                    self.speaker_key,
+                    self.original_file_key,
+                    self.num_speakers_key,
+                ],
+                removed_container_keys=(self.segments_key, self.overlap_segments_key),
+            )
+
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key]
+        return _inference_audio_input_spec(
+            self.input_residency,
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
+
+    def validate_input(self, task: AudioTask) -> bool:
+        return _validate_inference_audio_input(
+            task,
+            stage_name=self.name,
+            residency=self.input_residency,
+            audio_filepath_keys=tuple(dict.fromkeys([self.audio_filepath_key, "audio_filepath"])),
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.fanout:
             return [], [
-                self.audio_filepath_key,
+                self.waveform_key,
+                self.sample_rate_key,
                 self.start_key,
                 self.end_key,
                 self.start_ms_key,
@@ -158,13 +221,15 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 self.segment_num_key,
                 self.speaker_key,
                 self.original_file_key,
+                self.num_speakers_key,
             ]
         return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key, self.num_speakers_key]
 
     def describe(self) -> StageContract:
         if self.fanout:
             writes = [
-                self.audio_filepath_key,
+                self.waveform_key,
+                self.sample_rate_key,
                 self.start_key,
                 self.end_key,
                 self.start_ms_key,
@@ -173,26 +238,49 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 self.segment_num_key,
                 self.speaker_key,
                 self.original_file_key,
+                self.num_speakers_key,
             ]
             cardinality = "1:N fan-out"
         else:
             writes = [self.segments_key, self.overlap_segments_key, self.num_speakers_key]
             cardinality = "1:1"
         return StageContract(
-            reads_one_of=residency_read_specs(
+            reads_one_of=_inference_audio_read_specs(
                 self.input_residency,
                 audio_filepath_key=self.audio_filepath_key,
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
+                fallback_audio_filepath_keys=("audio_filepath",),
             ),
-            writes=IOSpec(data_keys=writes),
+            writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,
-            cardinality_options=["passthrough", "fan_out"],
+            cardinality_options=["1:1", "1:N fan-out"],
             iteration_key=self.segments_key if self.fanout else None,
+            removes_keys=(
+                list(
+                    dict.fromkeys(
+                        [
+                            *_fanout_path_keys(self.audio_filepath_key),
+                            self.segments_key,
+                            self.overlap_segments_key,
+                        ]
+                    )
+                )
+                if self.fanout
+                else []
+            ),
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
                 writes_to_disk=self.write_rttm,
-                runtime_secrets=["HF_TOKEN"],
+                output_path_params=[] if self.write_rttm else None,
+                # Even a local diarization pipeline constructs WhisperXVADModel,
+                # whose weights are downloaded on first use.
+                requires_internet_first_run=True,
+                runtime_secrets=(
+                    ["HF_TOKEN"]
+                    if self.hf_token is None and not os.path.exists(os.path.expanduser(self.model_name))
+                    else []
+                ),
                 # ``add_vad_segments`` draws from one unseeded ``random.Random()`` built in
                 # ``setup()``, so the durations a file gets depend on how many files that worker
                 # segmented before it.
@@ -205,16 +293,28 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
         return {}
 
-    def _segment_child_data(
+    def _segment_child_data(  # noqa: PLR0913
         self,
         item: dict[str, Any],
         segment: dict[str, Any],
         segment_num: int,
+        waveform: Any,  # noqa: ANN401
+        sample_rate: int,
+        original_file: Any,  # noqa: ANN401
     ) -> dict[str, Any]:
-        child = {k: v for k, v in item.items() if k not in {self.segments_key, self.overlap_segments_key}}
-        child.update({k: v for k, v in segment.items() if k not in {"start", "end", "speaker"}})
+        excluded = {
+            self.segments_key,
+            self.overlap_segments_key,
+            self.waveform_key,
+            self.sample_rate_key,
+            *_fanout_path_keys(self.audio_filepath_key),
+        }
+        child = {k: v for k, v in item.items() if k not in excluded}
+        child.update({k: v for k, v in segment.items() if k not in {"start", "end", "speaker", *excluded}})
         start = float(segment.get("start", 0.0))
         end = float(segment.get("end", start))
+        child[self.waveform_key] = _fanout_audio_slice(waveform, sample_rate, start=start, end=end)
+        child[self.sample_rate_key] = int(sample_rate)
         child[self.start_key] = start
         child[self.end_key] = end
         child[self.start_ms_key] = round(start * 1000)
@@ -223,26 +323,30 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         child[self.segment_num_key] = segment_num
         if "speaker" in segment:
             child[self.speaker_key] = segment["speaker"]
-        # provenance chain mirrors whisperx: configured key, then the CANONICAL
-        # audio_filepath, then the legacy resampled key — never skip canonical
-        # (with the default audio_filepath_key='resampled_audio_filepath' the
-        # old chain probed the same key twice and fell to "unknown").
-        original_file = item.get(
-            self.original_file_key,
-            item.get(
-                self.audio_filepath_key,
-                item.get("audio_filepath", item.get("resampled_audio_filepath", "unknown")),
-            ),
-        )
-        child.setdefault(self.original_file_key, original_file)
+        child[self.original_file_key] = original_file
+        child[self.num_speakers_key] = item[self.num_speakers_key]
         return child
 
-    def _fanout_segments(self, task: AudioTask, segments: list[dict[str, Any]]) -> list[AudioTask]:
+    def _fanout_segments(
+        self,
+        task: AudioTask,
+        segments: list[dict[str, Any]],
+        waveform: Any,  # noqa: ANN401
+        sample_rate: int,
+        original_file: Any,  # noqa: ANN401
+    ) -> list[AudioTask]:
         return [
             AudioTask(
                 dataset_name=task.dataset_name,
                 filepath_key=task.filepath_key or self.audio_filepath_key,
-                data=self._segment_child_data(task.data, segment, index),
+                data=self._segment_child_data(
+                    task.data,
+                    segment,
+                    index,
+                    waveform,
+                    sample_rate,
+                    original_file,
+                ),
                 _metadata=dict(task._metadata or {}),
                 _stage_perf=list(task._stage_perf),
             )
@@ -342,20 +446,38 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         """Process a single entry for diarization and overlap detection."""
         t0 = time.perf_counter()
         data_entry = task.data
+        if not self.validate_input(task):
+            msg = f"[{self.name}] task {task.task_id!r} has no valid {self.input_residency} audio input"
+            raise ValueError(msg)
+        source_path = _stable_source_path(
+            data_entry,
+            self.audio_filepath_key,
+            "audio_filepath",
+            "resampled_audio_filepath",
+        )
+        resident_waveform = (
+            _channel_first_waveform(data_entry[self.waveform_key])
+            if self.input_residency != "file"
+            and data_entry.get(self.waveform_key) is not None
+            and data_entry.get(self.sample_rate_key) is not None
+            else None
+        )
+        resident_sample_rate = int(data_entry[self.sample_rate_key]) if resident_waveform is not None else None
+        audio_input = data_entry if resident_waveform is None else {**data_entry, self.waveform_key: resident_waveform}
         temp_paths: list[str] = []
         file_path = resolve_audio_path(
-            data_entry,
+            audio_input,
             residency=self.input_residency,  # type: ignore[arg-type]
             audio_filepath_key=self.audio_filepath_key,
             waveform_key=self.waveform_key,
             sample_rate_key=self.sample_rate_key,
             register_temp=temp_paths,
         )
-        if file_path is None and self.audio_filepath_key == "resampled_audio_filepath":
+        if file_path is None and self.audio_filepath_key != "audio_filepath":
             # Composability fallback: pipelines that did not run ResampleAudioStage
             # only have the original audio_filepath.
             file_path = resolve_audio_path(
-                data_entry,
+                audio_input,
                 residency=self.input_residency,  # type: ignore[arg-type]
                 audio_filepath_key="audio_filepath",
                 waveform_key=self.waveform_key,
@@ -366,21 +488,51 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             entry_id = data_entry.get("audio_item_id", "unknown")
             msg = f"[{self.name}] Missing key '{self.audio_filepath_key}' in entry: {entry_id}"
             raise ValueError(msg)
+        if self.write_rttm and file_path in temp_paths:
+            temp_paths.append(os.path.splitext(file_path)[0] + ".rttm")
         try:
-            return self._diarize_file(task, data_entry, file_path, t0)
+            return self._diarize_file(
+                task,
+                data_entry,
+                file_path,
+                t0,
+                resident_waveform,
+                resident_sample_rate,
+                source_path,
+            )
         finally:
             cleanup_temp_files(temp_paths)
 
-    def _diarize_file(  # noqa: C901 (complexity accepted: single diarize->filter->fanout flow; no refactor pre-PR)
+    def _diarize_file(  # noqa: PLR0913
         self,
         task: AudioTask,
         data_entry: dict[str, Any],
         file_path: str,
         t0: float,
+        resident_waveform: Any | None,  # noqa: ANN401
+        resident_sample_rate: int | None,
+        source_path: str | None,
     ) -> AudioTask | list[AudioTask]:
         # Load audio using soundfile (avoids torchcodec/FFmpeg dependency)
         data, fs = sf.read(file_path, dtype="float32")
         s = torch.from_numpy(data).unsqueeze(0) if data.ndim == 1 else torch.from_numpy(data.T)
+        source_waveform = resident_waveform if resident_waveform is not None else s.numpy()
+        source_sample_rate = resident_sample_rate if resident_sample_rate is not None else int(fs)
+        identity_source_path = source_path or _stable_source_path(data_entry, self.original_file_key)
+        stable_identity = _stable_audio_identity(
+            data_entry,
+            source_waveform,
+            source_sample_rate,
+            source_path=identity_source_path,
+            explicit_keys=("audio_item_id", "speaker_id"),
+            fallback_keys=("session_name",),
+        )
+        original_file = _fanout_original_file(
+            data_entry,
+            original_file_key=self.original_file_key,
+            source_path=source_path,
+            stable_identity=stable_identity,
+        )
         logger.info(f"Processing {file_path}")
 
         # Run diarization
@@ -408,23 +560,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
         # Process speaker turns
         for speech_turn, _track, speaker in diarization.itertracks(yield_label=True):
-            if "audio_item_id" in data_entry:
-                speaker_id = data_entry["audio_item_id"] + "_" + speaker
-            elif "speaker_id" in data_entry:
-                speaker_id = data_entry["speaker_id"] + "_" + speaker
-            elif self.audio_filepath_key in data_entry:
-                speaker_id = Path(data_entry[self.audio_filepath_key]).stem + "_" + speaker
-            elif "audio_filepath" in data_entry:
-                # the composability fallback resolves canonical audio_filepath
-                # when the configured (resampled) key is absent — derive the
-                # identifier from the same source instead of raising after a
-                # full diarization pass.
-                speaker_id = Path(data_entry["audio_filepath"]).stem + "_" + speaker
-            elif file_path:
-                speaker_id = Path(file_path).stem + "_" + speaker
-            else:
-                msg = f"No speaker identifier in {file_path}"
-                raise ValueError(msg)
+            speaker_id = f"{stable_identity}_{speaker}"
 
             if has_overlap(speech_turn, overlaps):
                 overlap_segments.append(
@@ -447,7 +583,11 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                     )
 
         # Add non-speaker segments
-        audio_duration = data_entry.get("duration", get_audio_duration(file_path))
+        audio_duration = (
+            _resident_audio_duration(source_waveform, source_sample_rate)
+            if resident_waveform is not None
+            else data_entry.get("duration", get_audio_duration(file_path))
+        )
         add_non_speaker_segments(segments, audio_duration, self.max_length)
 
         # Update entry
@@ -468,5 +608,11 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             }
         )
         if self.fanout:
-            return self._fanout_segments(task, segments)
+            return self._fanout_segments(
+                task,
+                segments,
+                source_waveform,
+                source_sample_rate,
+                original_file,
+            )
         return task
