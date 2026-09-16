@@ -90,11 +90,8 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "end_key": self.end_key,
                 "duration_key": self.duration_key,
             },
-            output_field="metrics_key",
-            protected_fields=(
-                "hypothesis_text_key",
-                "reference_text_key",
-                "segments_key",
+            strict_fields=(
+                "metrics_key",
                 "start_key",
                 "end_key",
                 "duration_key",
@@ -404,18 +401,6 @@ class GetPairwiseWerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "text"
     pred_text_key: str = "pred_text"
     wer_key: str = "wer_pct"
-
-    def __post_init__(self) -> None:
-        validate_metric_keys(
-            self.name,
-            keys={
-                "text_key": self.text_key,
-                "pred_text_key": self.pred_text_key,
-                "wer_key": self.wer_key,
-            },
-            output_field="wer_key",
-            protected_fields=("text_key", "pred_text_key"),
-        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key]
