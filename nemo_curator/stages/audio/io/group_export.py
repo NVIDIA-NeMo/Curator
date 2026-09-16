@@ -163,15 +163,24 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         return 1  # every group file is appended to from one place; keeps ordering sane
 
     # ------------------------------------------------------------------ contract
+    def _required_data_keys(self) -> list[str]:
+        required: list[str] = []
+        if self.format == "txt" or self.write_timeline:
+            required.append(self.text_key)
+        if self.format in {"json", "csv"} and self.columns is not None:
+            required.extend(self.columns)
+        return list(dict.fromkeys(required))
+
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.group_by]
+        return [], self._required_data_keys()
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=[self.group_by]),
+            reads=IOSpec(data_keys=self._required_data_keys()),
+            optional_reads=IOSpec(data_keys=[self.group_by]),
             writes=IOSpec(produces=["disk"]),
             gates=Gates(
                 writes_to_disk=True,

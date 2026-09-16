@@ -58,11 +58,26 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
     Non-serializable keys (torch tensors, raw audio arrays) are
     stripped before building the DataFrame as a safety net, even if
     upstream stages failed to clean them up.
+
+    Args:
+        batch_size: Optional instance override for the inherited batch size.
+        keep_keys: Optional allowlist of task-data keys to retain.
+        drop_keys: Additional task-data keys to remove.
+        serialize_segments: Retain and recursively sanitize ``segments_key``.
+        segments_key: Configurable key containing segment metadata.
+        strict_json: Also drop values rejected by ``json.dumps``. Disabled by
+            default to preserve the historical DataFrame conversion behavior
+            for datetime, Decimal, pathlib paths, tuples, and custom scalars.
     """
 
     name = "AudioToDocumentStage"
     BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     batch_size: int = 64
+    keep_keys: list[str] | None = None
+    drop_keys: tuple[str, ...] = ()
+    serialize_segments: bool = False
+    segments_key: str = "segments"
+    strict_json: bool = False
 
     def __init__(
         self,
@@ -71,12 +86,15 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
         drop_keys: tuple[str, ...] = (),
         serialize_segments: bool = False,
         segments_key: str = "segments",
+        strict_json: bool = False,
     ) -> None:
-        self.batch_size = batch_size
+        if batch_size != AudioToDocumentStage.batch_size or "batch_size" not in type(self).__dict__:
+            self.batch_size = batch_size
         self.keep_keys = keep_keys
         self.drop_keys = drop_keys
         self.serialize_segments = serialize_segments
         self.segments_key = segments_key
+        self.strict_json = strict_json
 
     def process(self, task: AudioTask) -> DocumentBatch:
         msg = "AudioToDocumentStage only supports process_batch"
@@ -86,6 +104,8 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
         removed = set(_NON_SERIALIZABLE_KEYS)
         if self.serialize_segments:
             removed.discard(self.segments_key)
+        else:
+            removed.add(self.segments_key)
         removed.update(self.drop_keys)
         return removed
 
@@ -106,9 +126,10 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
             # Strips tensors/audio blobs while building the DataFrame, so its
             # output is serialization-safe — the sanctioned sink to place before
             # a JSON writer when a resident tensor may be present.
-            # Packs rows into one batch for downstream throughput; the values are untouched.
+            # Packs rows into one batch for downstream throughput. Legacy scalar/container
+            # values are preserved unless strict_json=True; tensors and cycles are removed.
             gates=Gates(sanitizes_output=True, per_row_independent=True),
-            description="Aggregate AudioTasks into a DocumentBatch, stripping tensors/audio blobs (JSON/disk-safe).",
+            description="Aggregate AudioTasks into a DocumentBatch while stripping tensors/audio blobs.",
         )
 
     def _sanitize_nested(  # noqa: C901, PLR0911, PLR0912
@@ -118,7 +139,7 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
         path: str,
         active: set[int],
     ) -> object:
-        """Return a JSON-safe value, dropping only the value that cannot be represented."""
+        """Remove tensors/cycles while preserving legacy values unless strict JSON is requested."""
         if _is_tensor(value):
             logger.warning(f"[AudioToDocumentStage] Dropping {path}: torch.Tensor is not JSON serializable")
             return _DROP_VALUE
@@ -132,13 +153,15 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
             try:
                 cleaned: dict[object, object] = {}
                 for key, item in value.items():
-                    try:
-                        json.dumps({key: None})
-                    except (TypeError, ValueError, OverflowError):
-                        logger.warning(
-                            f"[AudioToDocumentStage] Dropping {path}[{key!r}]: mapping key is not JSON serializable"
-                        )
-                        continue
+                    if self.strict_json:
+                        try:
+                            json.dumps({key: None})
+                        except (TypeError, ValueError, OverflowError):
+                            logger.warning(
+                                f"[AudioToDocumentStage] Dropping {path}[{key!r}]: "
+                                "mapping key is not JSON serializable"
+                            )
+                            continue
                     nested = self._sanitize_nested(item, path=f"{path}[{key!r}]", active=active)
                     if nested is not _DROP_VALUE:
                         cleaned[key] = nested
@@ -158,23 +181,26 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
                     nested = self._sanitize_nested(item, path=f"{path}[{index}]", active=active)
                     if nested is not _DROP_VALUE:
                         cleaned_list.append(nested)
-                return cleaned_list
+                return cleaned_list if isinstance(value, list) or self.strict_json else tuple(cleaned_list)
             finally:
                 active.remove(identity)
 
-        if type(value).__module__.startswith("numpy") and callable(item := getattr(value, "item", None)):
+        if self.strict_json and type(value).__module__.startswith("numpy") and callable(
+            item := getattr(value, "item", None)
+        ):
             try:
                 return self._sanitize_nested(item(), path=path, active=active)
             except ValueError:
                 pass
 
-        try:
-            json.dumps(value)
-        except (TypeError, ValueError, OverflowError):
-            logger.warning(
-                f"[AudioToDocumentStage] Dropping {path}: {type(value).__name__} is not JSON serializable"
-            )
-            return _DROP_VALUE
+        if self.strict_json:
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError, OverflowError):
+                logger.warning(
+                    f"[AudioToDocumentStage] Dropping {path}: {type(value).__name__} is not JSON serializable"
+                )
+                return _DROP_VALUE
         return value
 
     def _sanitize(self, data: dict) -> dict:

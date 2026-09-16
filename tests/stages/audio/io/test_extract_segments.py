@@ -15,6 +15,7 @@
 """Tests for nemo_curator.stages.audio.io.extract_segments."""
 
 import csv
+import copy
 import json
 import os
 from pathlib import Path
@@ -33,9 +34,11 @@ from nemo_curator.stages.audio.io.extract_segments import (
     _read_segment,
     _write_metadata_csv,
     detect_combo,
+    extract_segments_by_timestamps,
     load_manifest,
     load_manifests,
 )
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 SAMPLE_RATE = 16000
@@ -278,6 +281,28 @@ class TestSegmentExtractionStageInit:
         stage = SegmentExtractionStage(output_dir=str(tmp_path))
         assert stage.num_workers() == 1
         assert stage.xenna_stage_spec() == {}
+
+    def test_legacy_positional_layout_and_match_args_are_unchanged(self) -> None:
+        resources = Resources(cpus=2)
+        stage = SegmentExtractionStage("legacy", "/tmp/out", "flac", 17, resources)  # noqa: S108
+
+        assert stage.name == "legacy"
+        assert stage.output_dir == "/tmp/out"  # noqa: S108
+        assert stage.output_format == "flac"
+        assert stage.batch_size == 17
+        assert stage.resources is resources
+        assert stage.output_key == "extracted_path"
+        assert SegmentExtractionStage.__match_args__[:5] == (
+            "name",
+            "output_dir",
+            "output_format",
+            "batch_size",
+            "resources",
+        )
+
+    def test_output_key_must_be_a_nonempty_string(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="output_key must be a non-empty string"):
+            SegmentExtractionStage(output_dir=str(tmp_path), output_key="")
 
 
 # ------------------------------------------------------------------
@@ -541,6 +566,33 @@ class TestOutputKeyBookkeeping:
         assert isinstance(paths, list)
         assert len(paths) == 1
         assert os.path.exists(paths[0])
+
+    def test_legacy_free_function_does_not_mutate_entries_or_hide_existing_field(
+        self,
+        wav_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        entries = [
+            {
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+                "duration": 1.0,
+                "extracted_path": "legacy-token",
+            }
+        ]
+        before = copy.deepcopy(entries)
+        output_dir = tmp_path / "legacy"
+        output_dir.mkdir()
+
+        _count, _duration, _speakers, metadata = extract_segments_by_timestamps(
+            entries,
+            str(output_dir),
+            "wav",
+        )
+
+        assert entries == before
+        assert metadata[0]["extracted_path"] == "legacy-token"
 
     def test_multi_interval_entry_collects_all_paths(self, wav_dir: Path, tmp_path: Path) -> None:
         out_dir = str(tmp_path / "extracted")

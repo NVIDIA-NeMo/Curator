@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.io.group_export import ManifestGroupExportStage
 from nemo_curator.tasks import AudioTask
 
@@ -187,6 +189,47 @@ class TestGroupExport:
         assert os.path.isfile(os.path.join(out, "unknown.jsonl"))
         # A resident tensor/object must be dropped, not crash the export.
         assert json.loads((tmp_path / "g" / "unknown.jsonl").read_text()) == {"text": "no speaker"}
+
+    def test_missing_group_fallback_survives_framework_validation(self, tmp_path: Path) -> None:
+        stage = ManifestGroupExportStage(output_dir=str(tmp_path / "g"), include_timestamps=False)
+        stage.setup()
+        task = AudioTask(dataset_name="t", data={"text": "no speaker"})
+
+        assert stage.process_batch([task]) == [task]
+        assert (tmp_path / "g" / "unknown.txt").read_text().strip() == "no speaker"
+
+        contract = build_contract(stage)
+        assert contract.reads.data_keys == ["text"]
+        assert contract.optional_reads.data_keys == ["speaker_id"]
+        assert validate_pipeline([stage], initial_keys={"text"}).ok
+
+    def test_configured_text_and_selected_columns_are_required_reads(self, tmp_path: Path) -> None:
+        txt = ManifestGroupExportStage(
+            output_dir=str(tmp_path / "txt"),
+            text_key="transcript",
+            include_timestamps=False,
+        )
+        timeline = ManifestGroupExportStage(
+            output_dir=str(tmp_path / "timeline"),
+            format="json",
+            text_key="transcript",
+            write_timeline=True,
+        )
+        selected = ManifestGroupExportStage(
+            output_dir=str(tmp_path / "json"),
+            format="json",
+            columns=["transcript", "lang"],
+        )
+
+        assert build_contract(txt).reads.data_keys == ["transcript"]
+        assert build_contract(timeline).reads.data_keys == ["transcript"]
+        assert build_contract(selected).reads.data_keys == ["transcript", "lang"]
+        assert not validate_pipeline([txt], initial_keys={"speaker_id"}).ok
+
+        txt.setup()
+        task = AudioTask(dataset_name="t", data={"speaker_id": "s", "transcript": "nonblank"})
+        assert txt.process_batch([task]) == [task]
+        assert (tmp_path / "txt" / "s.txt").read_text().strip() == "nonblank"
 
     def test_rerun_replaces_its_own_output(self, tmp_path) -> None:  # noqa: ANN001
         out = str(tmp_path / "g")
