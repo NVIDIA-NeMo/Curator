@@ -111,9 +111,12 @@ and downloads only the missing files.
 For a local `download_dir`, the downloader writes each in-progress file to a
 temporary `.tmp` path, then moves it into place after a successful download.
 For a remote `download_dir`, it stages the file in the local temporary
-directory and uploads it only after the download succeeds. Either way, a
-cancelled or failed download does not look like a completed WARC file on the
-next run.
+directory and uploads it only after the download succeeds. For a local
+`download_dir`, or one on S3 or GCS, where an upload creates the object only
+once it completes, a cancelled or failed download does not look like a
+completed WARC file on the next run. Backends that write in place, such as
+SFTP or FTP, can leave a partial file after a cancelled upload; delete it
+before you rerun.
 
 ```python
 from nemo_curator.core.client import RayClient
