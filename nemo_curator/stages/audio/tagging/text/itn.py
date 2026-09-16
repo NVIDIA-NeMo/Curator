@@ -14,7 +14,7 @@
 
 """Inverse Text Normalization stage."""
 
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -47,18 +47,23 @@ class InverseTextNormalizationStage(AgentReady, ProcessingStage[AudioTask, Audio
         text_key: Key to use for the text
     """
 
+    # Legacy positional slots (pre-agent order preserved).
     # Language
     language: str = "en"
 
     # Text key
     text_key: str = "text"
-    segments_key: str = "segments"
-    output_suffix: str = "_ITN"
 
     # Stage metadata
     name: str = "InverseTextNormalization"
 
     _normalizer: Any = field(default=None, repr=False)
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    segments_key: str = "segments"
+    output_suffix: str = "_ITN"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.segments_key]
@@ -72,9 +77,7 @@ class InverseTextNormalizationStage(AgentReady, ProcessingStage[AudioTask, Audio
             conditional_writes=[
                 ConditionalWrite(
                     writes=IOSpec(segment_data_keys=[f"{self.text_key}{self.output_suffix}"]),
-                    condition=(
-                        f"an item in '{self.segments_key}' contains a truthy '{self.text_key}' value"
-                    ),
+                    condition=(f"an item in '{self.segments_key}' contains a truthy '{self.text_key}' value"),
                 )
             ],
             # The normalizer's grammars come from ``language``; each segment's text normalizes alone.

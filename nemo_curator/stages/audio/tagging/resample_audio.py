@@ -28,7 +28,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 from typing import ClassVar
 
 import soundfile
@@ -51,10 +51,26 @@ from nemo_curator.stages.audio._agent._residency import (
     reject_sinkless_conversion,
     residency_read_specs,
     resolve_audio_path,
+    validate_input_residency,
 )
 from nemo_curator.stages.audio.common import get_audio_duration, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+
+
+def _is_usable_sample_rate(value: object) -> bool:
+    """Whether a resident ``sample_rate`` can actually time a waveform.
+
+    Rejects ``None``, ``bool`` (an accidental ``int`` subclass), non-positive rates, and
+    fractional floats such as ``16000.5``; accepts a positive int or an integer-valued float.
+    """
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, int):
+        return value > 0
+    if isinstance(value, float):
+        return value > 0 and value.is_integer()
+    return False
 
 
 @dataclass
@@ -77,31 +93,35 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
     )
 
-    # Processing parameters
+    # Processing parameters (legacy positional order preserved)
     resampled_audio_dir: str
     input_format: str = "wav"
     target_sample_rate: int = 16000
     target_format: str = "wav"
     target_nchannels: int = 1
 
-    # Key names
+    # Key names (legacy positional slots)
     audio_filepath_key: str = "audio_filepath"
     resampled_audio_filepath_key: str = "resampled_audio_filepath"
-    waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
     duration_key: str = "duration"
     audio_item_id_key: str = "audio_item_id"
-    original_audio_filepath_key: str = "original_audio_filepath"
 
+    # Stage metadata (legacy positional slot)
+    name: str = "ResampleAudio"
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional
+    # slots above keep their historical order and meaning.
+    _: KW_ONLY
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    original_audio_filepath_key: str = "original_audio_filepath"
     input_residency: InputResidency = "file"
     keep_waveform_in_task: bool = False
     write_to_disk: bool = True
     update_audio_filepath: bool = False
 
-    # Stage metadata
-    name: str = "ResampleAudio"
-
     def __post_init__(self) -> None:
+        validate_input_residency(self.input_residency, stage_name=type(self).__name__)
         reject_sinkless_conversion(
             stage=type(self).__name__,
             keep_waveform_in_task=self.keep_waveform_in_task,
@@ -122,10 +142,18 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key]
 
     def validate_input(self, task: AudioTask) -> bool:
-        """Validate the configured file/waveform residency alternative."""
+        """Validate the configured file/waveform residency alternative.
+
+        A resident waveform is only a usable alternative when its ``sample_rate`` is a
+        positive, non-boolean, losslessly-integer value: a missing/zero/negative rate cannot
+        time the audio, ``True`` is an accident of ``bool`` being an ``int`` subclass, and a
+        fractional rate (e.g. ``16000.5``) is not a frame rate the converter can honor.
+        """
         data = task.data
         has_file = bool(data.get(self.audio_filepath_key))
-        has_waveform = data.get(self.waveform_key) is not None and data.get(self.sample_rate_key) is not None
+        has_waveform = data.get(self.waveform_key) is not None and _is_usable_sample_rate(
+            data.get(self.sample_rate_key)
+        )
         if self.input_residency == "file":
             return has_file
         if self.input_residency == "waveform":
@@ -133,13 +161,17 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return has_file or has_waveform
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        outputs = [self.audio_item_id_key, self.duration_key]
+        # Keep the pre-PR public tuple (audio_filepath, audio_item_id, resampled_audio_filepath,
+        # duration) for the default/file-compatible route, since the runtime preserves those
+        # keys, and extend it for the newer resident/rename sink modes.
+        outputs = [self.audio_filepath_key, self.audio_item_id_key]
         if self.write_to_disk:
             outputs.append(self.resampled_audio_filepath_key)
+        outputs.append(self.duration_key)
         if self.keep_waveform_in_task:
             outputs.extend([self.waveform_key, self.sample_rate_key])
         if self.update_audio_filepath:
-            outputs.extend([self.audio_filepath_key, self.original_audio_filepath_key])
+            outputs.append(self.original_audio_filepath_key)
         return [], outputs
 
     def describe(self) -> StageContract:
@@ -171,9 +203,11 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=writes, produces=produces),
+            # Only a resident-source config (waveform/auto) supersedes and drops the resident
+            # pair. The legacy file route never touches it, so its contract stays empty.
             removes_keys=(
                 [self.waveform_key, self.sample_rate_key]
-                if self.write_to_disk and not self.keep_waveform_in_task
+                if self.write_to_disk and not self.keep_waveform_in_task and self.input_residency != "file"
                 else []
             ),
             conditional_writes=conditional_writes,
@@ -207,7 +241,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         """
         if not from_scratch_file:
             stem = os.path.splitext(os.path.basename(local_audio_path))[0]
-            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:8]}"
+            # 16 hex (64 bits) matches _audio_digest: an 8-hex (32-bit) suffix made two distinct
+            # paths sharing a basename stem collide far too readily onto one output stem.
+            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:16]}"
         # Keep the source name on the front so a clip stays traceable by eye.
         stem = os.path.splitext(os.path.basename(str(source)))[0] if source else "clip"
         return f"{stem}_{self._audio_digest(local_audio_path)}"
@@ -285,6 +321,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 input_audio_path=input_audio_path,
                 output_audio_path=output_audio_path,
                 original_audio_filepath=original_audio_filepath,
+                # A materialized temp path means the source was a resident waveform, so the
+                # resident pair is now stale and must be dropped. The file route never is.
+                used_resident_source=bool(temp_paths),
                 started_at=t0,
             )
         finally:
@@ -292,13 +331,14 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if not self.write_to_disk:
                 cleanup_temp_files([output_audio_path])
 
-    def _convert_and_update(
+    def _convert_and_update(  # noqa: PLR0913 - keyword-only per-conversion inputs, not unrelated knobs
         self,
         task: AudioTask,
         *,
         input_audio_path: str,
         output_audio_path: str,
         original_audio_filepath: str | None,
+        used_resident_source: bool,
         started_at: float,
     ) -> AudioTask:
         """Convert one resolved input and update its task metadata."""
@@ -361,7 +401,10 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             waveform, sample_rate = load_audio_file(output_audio_path, mono=False)
             data_entry[self.waveform_key] = waveform
             data_entry[self.sample_rate_key] = sample_rate
-        elif self.write_to_disk:
+        elif self.write_to_disk and used_resident_source:
+            # Drop the stale resident pair only when the conversion actually consumed a
+            # resident/materialized source; a plain file-route conversion leaves the row's
+            # own pre-existing pair (e.g. a carried sample_rate) untouched.
             drop_resident_audio(
                 data_entry,
                 waveform_key=self.waveform_key,

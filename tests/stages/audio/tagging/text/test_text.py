@@ -80,9 +80,7 @@ class TestChineseConversionStage:
         assert len(contract.conditional_writes) == 1
         assert contract.conditional_writes[0].writes.segment_data_keys == ["text_simplified"]
         if expected is None:
-            assert all(
-                "text_simplified" not in segment for segment in task.data.get("segments", [])
-            )
+            assert all("text_simplified" not in segment for segment in task.data.get("segments", []))
         else:
             assert task.data["segments"][0]["text_simplified"] == expected
 
@@ -96,3 +94,13 @@ class TestChineseConversionStage:
 
         assert report.ok
         assert "text_simplified" not in report.produced_keys
+
+
+def test_chinese_legacy_positional_signature_still_binds() -> None:
+    """The agent-added keys are keyword-only, so legacy positional slots keep their meaning."""
+    stage = ChineseConversionStage("t", "s2t", "MyName")
+    assert stage.text_key == "t"
+    assert stage.convert_type == "s2t"
+    assert stage.name == "MyName"
+    assert stage.segments_key == "segments"
+    assert stage.output_suffix == "_simplified"

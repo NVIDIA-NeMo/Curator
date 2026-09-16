@@ -16,6 +16,8 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
@@ -253,3 +255,84 @@ class TestPerEntryRandomSeed:
 
         assert len(seeds_used) == 2
         assert seeds_used[0] == seeds_used[1], "Same entry must always get the same seed"
+
+
+class TestPrepareModuleSegmentsReviewFixes:
+    """Regressions for the PR #2339 re-review safety fixes."""
+
+    def test_non_default_alignment_key_wordless_segments_are_not_emptied(self) -> None:
+        stage = PrepareModuleSegmentsStage(
+            module="tts",
+            alignment_key="my_alignment",
+            overlap_segments_key="my_overlap",
+        )
+        data_entry = {
+            "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
+            "duration": 3.0,
+        }
+        result = stage.process(AudioTask(data=data_entry))
+        assert result.data["segments"], "an empty result must not erase a non-empty input segment list"
+
+    def test_renamed_identity_key_yields_distinct_seeds(self) -> None:
+        stage = PrepareModuleSegmentsStage(module="asr", audio_filepath_key="my_path")
+        seeds_used: list[int] = []
+        orig_seed = stage._rng.seed
+
+        def capture_seed(s: int) -> None:
+            seeds_used.append(s)
+            orig_seed(s)
+
+        with patch.object(stage._rng, "seed", side_effect=capture_seed):
+            stage.process(AudioTask(data={"my_path": "file_a.wav", "segments": []}))
+            stage.process(AudioTask(data={"my_path": "file_b.wav", "segments": []}))
+
+        assert len(seeds_used) == 2
+        assert seeds_used[0] != seeds_used[1], "distinct renamed identity values must seed differently"
+
+    def test_legacy_positional_signature_still_binds(self) -> None:
+        stage = PrepareModuleSegmentsStage("asr", 3.0, 25.0, 1.5, "t", "w", ".", 0.5, True, "MyName")
+        assert stage.module == "asr"
+        assert stage.min_duration == 3.0
+        assert stage.max_duration == 25.0
+        assert stage.max_pause == 1.5
+        assert stage.text_key == "t"
+        assert stage.words_key == "w"
+        assert stage.terminal_punct_marks == "."
+        assert stage.full_utterance_ratio == 0.5
+        assert stage.punctuation_split_only is True
+        assert stage.name == "MyName"
+
+
+def test_prepare_module_segments_is_agent_ready() -> None:
+    """Conformance: contract shape/roles/serialization hold and declared writes appear at runtime."""
+    stage = PrepareModuleSegmentsStage(module="tts", min_duration=1.0, max_duration=20.0)
+
+    def fixture() -> AudioTask:
+        return AudioTask(
+            data={
+                "segments": [
+                    {
+                        "speaker": "s1",
+                        "start": 0.0,
+                        "end": 3.0,
+                        "text": "hi there",
+                        "words": [
+                            {"word": "hi", "start": 0.0, "end": 1.0, "speaker": "s1"},
+                            {"word": "there", "start": 1.0, "end": 2.5, "speaker": "s1"},
+                        ],
+                    }
+                ],
+                "overlap_segments": [],
+                "duration": 3.0,
+            }
+        )
+
+    contract = assert_agent_ready(stage, fixture, available_keys={"segments", "duration"})
+    assert contract.reads.data_keys == ["segments", "duration"]
+    assert contract.writes.data_keys == ["segments"]
+    assert set(contract.optional_reads.data_keys) == {
+        "alignment",
+        "overlap_segments",
+        "audio_filepath",
+        "audio_item_id",
+    }

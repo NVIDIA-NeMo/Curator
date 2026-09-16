@@ -34,7 +34,14 @@ from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractFileSystem
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -389,8 +396,20 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
                     self.split_timestamps_key,
                 ]
             ),
-            writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
-            removes_keys=[self.split_filepaths_key, self.split_metadata_key],
+            # text/alignment are written ONLY on the populated-split branch; the None and
+            # empty-split branches only strip the sentinel (legacy behavior), so declaring these
+            # as unconditional writes would over-promise. split_metadata is likewise removed only
+            # on the populated branch, so it is not an unconditional removal either.
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+                    condition=(
+                        f"'{self.split_filepaths_key}' is present and not None and "
+                        f"'{self.split_metadata_key}' is a non-empty list"
+                    ),
+                )
+            ],
+            removes_keys=[self.split_filepaths_key],
             # Rejoins the chunks THIS row was split into, all of which came from its own file.
             gates=Gates(per_row_independent=True),
         )
@@ -410,14 +429,13 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
         # Check if this is a meta-entry with split information
         if self.split_filepaths_key in data_entry:
             if data_entry[self.split_filepaths_key] is None:
-                data_entry.setdefault(self.text_key, "")
-                data_entry.setdefault(self.alignment_key, [])
-                for key in [self.split_filepaths_key, self.split_metadata_key]:
-                    data_entry.pop(key, None)
+                # Legacy behavior: only remove the sentinel. Do NOT fabricate text/alignment or
+                # delete split_metadata -- the contract advertises text/alignment conditionally.
+                data_entry.pop(self.split_filepaths_key, None)
             else:
                 splits_joined = len(data_entry.get(self.split_metadata_key, []) or [])
                 self._join_split_metadata(data_entry)
-            words_aligned = len(data_entry.get(self.alignment_key, []) or [])
+                words_aligned = len(data_entry.get(self.alignment_key, []) or [])
 
         self._log_metrics(
             {
@@ -434,10 +452,8 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
         split_offsets = meta_entry.get(self.split_offsets_key, [])
 
         if not split_metadata:
-            meta_entry.setdefault(self.text_key, "")
-            meta_entry.setdefault(self.alignment_key, [])
-            for key in [self.split_filepaths_key, self.split_metadata_key]:
-                meta_entry.pop(key, None)
+            # Legacy behavior: only remove the sentinel; keep split_metadata and write nothing.
+            meta_entry.pop(self.split_filepaths_key, None)
             return
 
         transcripts = []

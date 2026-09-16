@@ -88,3 +88,13 @@ class TestInverseTextNormalizationStage:
 
         assert report.ok
         assert "text_ITN" not in report.produced_keys
+
+
+def test_itn_legacy_positional_signature_still_binds() -> None:
+    """The agent-added keys are keyword-only, so legacy positional slots keep their meaning."""
+    stage = InverseTextNormalizationStage("es", "t", "MyName")
+    assert stage.language == "es"
+    assert stage.text_key == "t"
+    assert stage.name == "MyName"
+    assert stage.segments_key == "segments"
+    assert stage.output_suffix == "_ITN"

@@ -24,8 +24,8 @@ and ``segments``.
 """
 
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import KW_ONLY, dataclass, field
+from typing import Any, ClassVar
 
 import nemo.collections.asr as nemo_asr
 import torch
@@ -41,6 +41,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     Gates,
     IOSpec,
     StageContract,
+    StaticHints,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -66,6 +67,7 @@ class BaseASRProcessorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         segments_key: Key for segments list in manifest.
     """
 
+    # Legacy positional slots (pre-agent order preserved).
     # Length constraints
     min_len: float = 1.0
     max_len: float = 40.0
@@ -79,18 +81,22 @@ class BaseASRProcessorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     # Output keys
     text_key: str = "text"
     words_key: str = "words"
-    alignment_key: str = "alignment"
 
     compute_timestamps: bool = True
     segments_key: str = "segments"
-    audio_filepath_key: str = "audio_filepath"
-    resampled_audio_filepath_key: str = "resampled_audio_filepath"
-    split_filepaths_key: str = "split_filepaths"
-    split_metadata_key: str = "split_metadata"
 
     # Stage metadata (subclasses can override)
     name: str = "BaseASRProcessor"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    alignment_key: str = "alignment"
+    audio_filepath_key: str = "audio_filepath"
+    resampled_audio_filepath_key: str = "resampled_audio_filepath"
+    split_filepaths_key: str = "split_filepaths"
+    split_metadata_key: str = "split_metadata"
 
     @property
     def _device(self) -> str:
@@ -175,6 +181,11 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         disable_word_confidence (bool): Whether to disable word confidence score computation
     """
 
+    # Conservative instance-free superset: the default checkpoint downloads on first run and
+    # decodes on a GPU, so static discovery must not advertise a network/GPU-free stage.
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(requires_internet_first_run=True, requires_gpu=True))
+
+    # Legacy positional slots (pre-agent order preserved).
     # Model configuration
     model_name: str = "nvidia/parakeet-tdt_ctc-1.1b"
     model_path: str | None = None
@@ -202,9 +213,6 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     # input keys
     segments_key: str = "segments"
-    split_filepaths_key: str = "split_filepaths"
-    split_metadata_key: str = "split_metadata"
-    alignment_key: str = "alignment"
 
     # Output keys
     text_key: str = "text"
@@ -215,6 +223,13 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     name: str = "NeMoASRAligner"
     _asr_model: Any = field(default=None, repr=False)
     _override_cfg: Any = field(default=None, repr=False)
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    split_filepaths_key: str = "split_filepaths"
+    split_metadata_key: str = "split_metadata"
+    alignment_key: str = "alignment"
 
     def __post_init__(self) -> None:
         """Validate config."""
@@ -293,27 +308,62 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     def describe(self) -> StageContract:
         if self.infer_segment_only:
-            reads = IOSpec(data_keys=[self.resampled_audio_filepath_key, self.segments_key])
-            writes = IOSpec(segment_data_keys=[self.text_key, self.words_key])
+            # Segment audio is resolved as resampled_audio_filepath OR an audio_filepath fallback.
+            reads = IOSpec(data_keys=[self.segments_key])
+            reads_one_of = [
+                IOSpec(data_keys=[self.resampled_audio_filepath_key], accepts=["file"]),
+                IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
+            ]
+            # Nothing is written unconditionally: a segment shorter than min_len (or with empty cut
+            # audio) gets no text/word write, and words are only written when timestamps are on.
+            writes = IOSpec()
             iteration_key = self.segments_key
-            conditional_writes = []
-        else:
-            reads = IOSpec(
-                data_keys=["duration", self.segments_key, self.split_filepaths_key, self.split_metadata_key]
-            )
-            writes = IOSpec(segment_data_keys=[self.text_key, self.alignment_key])
-            iteration_key = self.split_metadata_key
             conditional_writes = [
                 ConditionalWrite(
-                    writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+                    writes=IOSpec(segment_data_keys=[self.text_key]),
                     condition=(
-                        f"'{self.split_filepaths_key}' is an empty list, or a transcribed split "
-                        f"has no corresponding item in '{self.split_metadata_key}'"
+                        f"a segment's duration >= min_len and its cut audio is non-empty; "
+                        f"its transcript is written to '{self.text_key}'"
                     ),
                 )
             ]
+            if self.compute_timestamps:
+                conditional_writes.append(
+                    ConditionalWrite(
+                        writes=IOSpec(segment_data_keys=[self.words_key]),
+                        condition=(
+                            f"compute_timestamps is True and a segment's duration >= min_len with "
+                            f"non-empty cut audio; word alignments are written to '{self.words_key}'"
+                        ),
+                    )
+                )
+        else:
+            # Full-mode only consumes the split keys (duration/segments are never read here).
+            reads = IOSpec(data_keys=[self.split_filepaths_key, self.split_metadata_key])
+            reads_one_of = []
+            writes = IOSpec()
+            iteration_key = self.split_metadata_key
+            conditional_writes = [
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.text_key, self.alignment_key]),
+                    condition=(
+                        f"a transcribed split has a corresponding item in '{self.split_metadata_key}'; "
+                        f"its text and alignment are written into that split entry"
+                    ),
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+                    condition=(
+                        f"'{self.split_filepaths_key}' is an empty list (top-level fallback of empty "
+                        f"text and alignment), or a transcribed split has no corresponding item in "
+                        f"'{self.split_metadata_key}'; a None or missing '{self.split_filepaths_key}' "
+                        f"writes neither"
+                    ),
+                ),
+            ]
         return StageContract(
             reads=reads,
+            reads_one_of=reads_one_of,
             writes=writes,
             cardinality="1:1 nested-list",
             iteration_key=iteration_key,

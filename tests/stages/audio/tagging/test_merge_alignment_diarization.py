@@ -161,10 +161,7 @@ class TestMergeAlignmentDiarizationStage:
         assert len(contract.conditional_writes) == 1
         assert contract.conditional_writes[0].writes.segment_data_keys == ["text", "words"]
         if expected is None:
-            assert all(
-                "text" not in segment and "words" not in segment
-                for segment in task.data.get("segments", [])
-            )
+            assert all("text" not in segment and "words" not in segment for segment in task.data.get("segments", []))
         else:
             assert task.data["segments"][0]["text"] == expected
             assert task.data["segments"][0]["words"] == task.data["alignment"]
@@ -180,3 +177,13 @@ class TestMergeAlignmentDiarizationStage:
         assert report.ok
         assert "text" not in report.produced_keys
         assert "words" not in report.produced_keys
+
+
+def test_merge_legacy_positional_signature_still_binds() -> None:
+    """The agent-added keys are keyword-only, so legacy positional slots keep their meaning."""
+    stage = MergeAlignmentDiarizationStage("t", "w", "MyName")
+    assert stage.text_key == "t"
+    assert stage.words_key == "w"
+    assert stage.name == "MyName"
+    assert stage.alignment_key == "alignment"
+    assert stage.segments_key == "segments"
