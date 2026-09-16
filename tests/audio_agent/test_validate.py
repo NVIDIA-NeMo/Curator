@@ -232,6 +232,12 @@ class TestOutputCompleteness:
         r = _validate([_READER, _DURATION, _WRITER], expected_outputs=["duration"])
         assert "missing_output_producer" not in _codes(r)
 
+    def test_satisfied_by_conditional_produced_key(self) -> None:
+        pairwise_wer = {"ref": "GetPairwiseWerStage", "params": {}}
+        result = _validate([_READER, pairwise_wer, _WRITER], expected_outputs=["wer_pct"])
+
+        assert "missing_output_producer" not in _codes(result)
+
 
 class TestAcceptanceContractBinding:
     _CRITERIA: ClassVar[list[dict]] = [

@@ -508,6 +508,8 @@ def _check_output_completeness(ctx: CheckContext) -> CheckResult:
             continue
         available_roles |= produced_roles(contract)
         available_keys |= set(contract.writes.data_keys) | set(contract.writes.segment_data_keys)
+        for conditional in contract.conditional_writes:
+            available_keys |= set(conditional.writes.data_keys) | set(conditional.writes.segment_data_keys)
     out: list[Issue] = []
     for want in ctx.expected_outputs:
         # Satisfied by a produced semantic role OR a literal produced key. The key match
