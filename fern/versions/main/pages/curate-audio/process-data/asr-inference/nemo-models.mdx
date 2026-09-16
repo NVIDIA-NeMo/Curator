@@ -74,42 +74,6 @@ asr_stage = InferenceAsrNemoStage(model_name="your_chosen_model_name")
 asr_stage.setup()
 ```
 
-## TensorRT Encoder Backends
-
-Indic Parakeet RNN-T and AI4Bharat IndicConformer stages can replace the NeMo
-encoder with an FP16 TensorRT engine while retaining the checkpoint's tokenizer
-and decoder. Install the optional backend with `nemo-curator[audio_tensorrt]`,
-then, from a Curator source checkout, build a bundle on the same GPU architecture
-used for inference:
-
-```bash
-python scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
-  --model /path/to/model.nemo \
-  --output-dir /path/to/engine-bundle
-```
-
-The command validates TensorRT output parity before publishing `encoder.plan`,
-`model.nemo`, and `metadata.json`. It refuses to overwrite an existing bundle.
-
-```python
-from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
-
-asr_stage = InferenceParakeetStage(
-    backend="tensorrt",
-    tensorrt_engine_dir="/path/to/engine-bundle",
-    supported_langs=frozenset({"hi", "ta", "bn"}),
-    batch_size=16,
-)
-```
-
-Use `scripts/build_indic_conformer_tensorrt_engine.py` and
-`InferenceIndicConformerHybridStage` for an IndicConformer checkpoint. The ASR
-stage's `batch_size` is the only user-facing batch control; the runtime
-automatically subdivides a stage batch when the serialized engine profile has a
-lower maximum. With the default engine chunking mode, both backends split audio
-longer than 40 seconds into consecutive chunks and preserve one output transcript
-per input.
-
 ## Resource Configuration
 
 Configure GPU and CPU resources based on your hardware:
