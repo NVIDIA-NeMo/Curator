@@ -33,7 +33,7 @@ from nemo_curator.stages.audio._agent._residency import (
 )
 from nemo_curator.stages.audio.inference.base import (
     _channel_first_waveform,
-    _fanout_audio_slice,
+    _fanout_audio_segment,
     _fanout_original_file,
     _fanout_path_keys,
     _inference_audio_input_spec,
@@ -127,8 +127,8 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         diar_model: Pre-loaded SortformerEncLabelModel; if provided, setup() is a no-op.
         filepath_key: Key in data for path to audio file. Defaults to "audio_filepath".
         diar_segments_key: Key in output data for diarization segments list. Defaults to "diar_segments".
-        num_speakers_key: Key in output data for the distinct-speaker count derived
-            from diar_segments (passthrough mode only). Defaults to "num_speakers".
+        num_speakers_key: Optional output key for the distinct-speaker count derived
+            from diar_segments. Disabled by default for legacy compatibility.
         rttm_out_dir: Optional directory to write RTTM files. Defaults to None.
         chunk_len: Streaming chunk size in 80 ms frames. Defaults to 340 (~30.4 s latency).
         chunk_left_context: Left context frames. Defaults to 1.
@@ -148,7 +148,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     waveform_key: str = field(default="waveform", kw_only=True)
     sample_rate_key: str = field(default="sample_rate", kw_only=True)
     diar_segments_key: str = "diar_segments"
-    num_speakers_key: str = field(default="num_speakers", kw_only=True)
+    num_speakers_key: str | None = field(default=None, kw_only=True)
     input_residency: InputResidency = field(default="file", kw_only=True)
     fanout: bool = field(default=False, kw_only=True)
     start_key: str = field(default="start", kw_only=True)
@@ -174,6 +174,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         cardinality_options=["1:1", "1:N fan-out"],
         gates=Gates(
+            writes_to_disk=True,
             requires_gpu=True,
             requires_internet_first_run=True,
             output_path_params=["rttm_out_dir"],
@@ -183,6 +184,13 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
+        self.is_resumable = not self.fanout
+        if self.num_speakers_key is not None and self.num_speakers_key in {
+            self.filepath_key,
+            self.diar_segments_key,
+        }:
+            msg = "num_speakers_key must be distinct from path and segment output keys when enabled"
+            raise ValueError(msg)
         if self.fanout:
             _validate_fanout_key_contract(
                 stage_name=self.name,
@@ -302,7 +310,10 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 self.speaker_key,
                 self.original_file_key,
             ]
-        return ["data"], [self.filepath_key, self.diar_segments_key, self.num_speakers_key]
+        output_keys = [self.filepath_key, self.diar_segments_key]
+        if self.num_speakers_key is not None:
+            output_keys.append(self.num_speakers_key)
+        return ["data"], output_keys
 
     def describe(self) -> StageContract:
         if self.fanout:
@@ -320,7 +331,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             ]
             cardinality = "1:N fan-out"
         else:
-            writes = [self.filepath_key, self.diar_segments_key, self.num_speakers_key]
+            writes = [self.filepath_key, self.diar_segments_key]
+            if self.num_speakers_key is not None:
+                writes.append(self.num_speakers_key)
             cardinality = "1:1"
         return StageContract(
             reads_one_of=_inference_audio_read_specs(
@@ -339,8 +352,8 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 else []
             ),
             gates=Gates(
-                requires_gpu=True,
-                writes_to_disk=self.rttm_out_dir is not None,
+                requires_gpu=self.resources.requires_gpu or self.diar_model is None,
+                writes_to_disk=self.rttm_out_dir is not None or self.input_residency != "file",
                 # The ROW is per-file: ``process`` handles one task and calls ``diarize`` with a
                 # single-element list, so the model never sees another file whatever
                 # ``inference_batch_size`` says. The RTTM is not: its name falls back to the audio
@@ -349,7 +362,11 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 # stage is safe to run over a subset.
                 per_row_independent=self.rttm_out_dir is None,
                 requires_internet_first_run=self.model_path is None and self.diar_model is None,
-                output_path_params=["rttm_out_dir"],
+                output_path_params=(
+                    ["rttm_out_dir"]
+                    if self.rttm_out_dir is not None
+                    else ([] if self.input_residency != "file" else None)
+                ),
             ),
         )
 
@@ -375,9 +392,11 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         }
         child = {k: v for k, v in item.items() if k not in excluded}
         child.update({k: v for k, v in segment.items() if k not in {"start", "end", "speaker", *excluded}})
-        start = float(segment.get("start", 0.0))
-        end = float(segment.get("end", start))
-        child[self.waveform_key] = _fanout_audio_slice(waveform, sample_rate, start=start, end=end)
+        raw_start = float(segment.get("start", 0.0))
+        raw_end = float(segment.get("end", raw_start))
+        child[self.waveform_key], start, end = _fanout_audio_segment(
+            waveform, sample_rate, start=raw_start, end=raw_end
+        )
         child[self.sample_rate_key] = int(sample_rate)
         child[self.start_key] = start
         child[self.end_key] = end
@@ -498,7 +517,8 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
             output_data = dict(task.data)
             output_data[self.diar_segments_key] = segments
-            output_data[self.num_speakers_key] = _count_distinct_speakers(segments)
+            if self.num_speakers_key is not None:
+                output_data[self.num_speakers_key] = _count_distinct_speakers(segments)
 
             return AudioTask(
                 dataset_name=task.dataset_name,

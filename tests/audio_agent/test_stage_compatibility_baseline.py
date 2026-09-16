@@ -247,7 +247,10 @@ ADDITIVE_STAGE_NAMES = (
 #     conservative AGENT_STATIC superset gates.requires_internet_first_run=True (matching its
 #     default-configured contract). Verified additive by diffing each stage's payload against
 #     origin/agent/adv: no param/default/read/write value changed on any other entry.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "274967f7f4cd3d1ffa9f106d612dc049b6b17054434703302863012668aab2fd"
+# Regenerated again after the inference re-review corrections added strict opt-in
+# path fallback, disabled additive speaker-count outputs by default, and corrected
+# static disk/gpu gates for the three inference stages.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "593d1056a69285f15f1f605c8d7589004cad293f9bd49e32343c6c942cbc23f4"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

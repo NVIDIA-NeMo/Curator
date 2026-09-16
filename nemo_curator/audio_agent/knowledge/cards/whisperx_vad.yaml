@@ -27,6 +27,7 @@ params_of_note:
   fanout: "False (default) = retain one task with vad_segments metadata; True = emit one task per segment carrying only that segment's cloned waveform + sample_rate and no full-recording path"
   segments_key: "output key for the segments list (default vad_segments)"
   input_residency: "which source to use: file (default), waveform, or auto. Auto prefers a complete waveform/sample_rate pair, falls back to a file only when neither resident field is present, and rejects partial resident pairs."
+  allow_audio_filepath_fallback: "False (default) reads only audio_filepath_key; True also permits the canonical audio_filepath key when the configured path key is absent"
 comparison:
   language_support: "language-agnostic (VAD)"
   latency_hint: "heavier than Silero VAD (model-based)"

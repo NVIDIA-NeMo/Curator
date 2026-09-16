@@ -40,14 +40,16 @@ params_of_note:
   segmentation_batch_size: "batch size for the segmentation model (default 128; VRAM/latency knob)"
   embedding_batch_size: "batch size for speaker embeddings (default 128)"
   write_rttm: "also write RTTM files beside the audio (default True)"
-  fanout: "False (default) = passthrough with segments; True = one task per segment carrying only that segment's cloned waveform + sample_rate. Fan-out children drop full-recording path keys, preserve the source under original_file, and include no-speaker placeholders."
+  fanout: "False (default) = passthrough with segments + overlap_segments; True = one task per real-speaker turn plus one task per overlap turn, carrying the cloned waveform + sample_rate. Fan-out excludes no-speaker gap placeholders, marks overlap children with is_overlap=true, drops full-recording path keys, and preserves the source under original_file."
+  num_speakers_key: "optional output key for the whole-recording distinct-speaker count; disabled by default for legacy compatibility (set to num_speakers to enable)"
+  allow_audio_filepath_fallback: "False (default) reads only audio_filepath_key; True also permits the canonical audio_filepath key when the configured path key is absent"
   input_residency: "which source to use: file (default), waveform, or auto. Auto prefers a complete waveform/sample_rate pair, falls back to a file only when neither resident field is present, and rejects partial resident pairs."
 semantic_facts:
   segments:
     meaning: "Time-ordered coverage of the recording as a MIXED list: (1) speech turns from pyannote clustering and (2) silence/gap placeholders inserted afterward with speaker='no-speaker' (add_non_speaker_segments). Not speech-only."
     unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds). Speech labels look like '<id>_SPEAKER_00'; silence rows use the literal string 'no-speaker'."
     provenance: "Speech turns from pyannote 3.1 diarization (+ internal VAD re-segmentation of long turns). Gaps from 0→first turn, between turns, and last turn→duration are filled as no-speaker; when max_length is set those gaps are chunked to that length. Boundaries can vary run-to-run (randomized VAD chunking, no seed exposed)."
-    scope: "the whole recording in passthrough mode; fanout=True emits one task per list entry, including no-speaker rows, with a waveform sliced to that entry's start/end bounds"
+    scope: "the whole recording in passthrough mode; fanout=True emits speech-turn children from segments (excluding no-speaker rows) and additional children from overlap_segments"
     propagation: "Passthrough writes segments alongside overlap_segments. Fan-out removes those parent containers and full-recording paths, then emits waveform + sample_rate + timing/provenance fields. Configure ASRStage.waveform_key='waveform' for direct transcription."
     counterexamples:
       - "Passthrough mode only annotates. Fan-out cuts individual turn/gap waveform slices, but it does NOT build one consolidated track per speaker; use SpeakerSeparationStage for that."
@@ -66,7 +68,7 @@ semantic_facts:
     unit: "int (distinct speaker labels across segments AND overlap_segments, excluding the 'no-speaker' silence placeholder)"
     provenance: "Derived from the diarization result after clustering -- written under num_speakers so a downstream PreserveByValueStage can filter single-speaker clips without a separation stage. This is the OBSERVED count, not an input constraint."
     scope: "the whole recording; written on the passthrough task and copied to every fan-out child as parent-level context"
-    propagation: "Written under num_speakers alongside segments/overlap_segments in passthrough mode and retained on fan-out children; no fixed speaker cap (unlike Sortformer)."
+    propagation: "Only written when num_speakers_key is configured; then emitted alongside segments/overlap_segments in passthrough mode and retained on fan-out children. There is no fixed speaker cap (unlike Sortformer)."
     counterexamples:
       - "num_speakers is the DETECTED count, not a min_speakers/max_speakers knob -- the stage still cannot be told how many speakers to find."
       - "A non-zero num_speakers does NOT imply segments is free of no-speaker rows -- silence placeholders are excluded from the count but still present in the list."
@@ -84,11 +86,11 @@ comparison:
   accuracy_hint: "detects overlapping speech; no fixed speaker cap. DER approx AMI 12-14%, VoxConverse 9-11%, DIHARD III 17-19% (external, 'Full' setup)"
   config_complexity: "medium-high (needs token + license; onset/offset/batch knobs)"
   choose_when: "you need overlap detection, >4 speakers, or non-English, and can supply an HF token. If a downstream consumer needs a speech-turn-only list, normalize out speaker=='no-speaker' first; alternatively choose InferenceSortformerStage for raw <=4-speaker English audio. Do not diarize again when an existing manifest already has suitable speaker turns."
-  known_limitations: "requires an HF token and accepting TWO gated licenses; exposes the DETECTED num_speakers count (passthrough) but has NO min_speakers/max_speakers knob; segments always include no-speaker silence placeholders after gap-fill (not optional today)"
+  known_limitations: "requires an HF token and accepting TWO gated licenses; can expose the DETECTED num_speakers count when num_speakers_key is enabled but has NO min_speakers/max_speakers knob; passthrough segments include no-speaker silence placeholders after gap-fill"
 conflicts_with: [InferenceSortformerStage]   # alternative diarizer
 notes:
   - "Emits BOTH `segments` and `overlap_segments`; downstream (MergeAlignmentDiarizationStage / TimestampMapperStage) should handle the overlap list too."
-  - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains the source path or deterministic waveform identity under `original_file`. File-only downstream stages are intentionally incompatible unless audio is materialized separately."
+  - "Fan-out children are waveform-only audio carriers for real-speaker and overlap turns: each has a cloned channel-first `waveform` slice and `sample_rate`, an `is_overlap` flag, normalized sample-aligned boundaries, drops `audio_filepath`/`resampled_audio_filepath`, and retains the source path or deterministic waveform identity under `original_file`. Silence placeholders are not fanned out."
   - "After speech turns are collected, `add_non_speaker_segments` fills timeline gaps with speaker='no-speaker' (chunked by max_length when set). This is intentional for tagging-style pipelines; it is not optional via a constructor flag."
   - "Stages that already special-case no-speaker include PrepareModuleSegmentsStage (skips those turns when shaping TTS/ASR segments) and TorchSquimQualityMetricsStage (skips no-speaker / empty-text segments when scoring)."
   - "Gated: you must accept BOTH pyannote/segmentation-3.0 AND pyannote/speaker-diarization-3.1 license terms on HuggingFace (missing the segmentation acceptance -> 401)."

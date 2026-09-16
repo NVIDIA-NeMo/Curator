@@ -1,6 +1,6 @@
 stage_id: InferenceSortformerStage
 category: diarize
-summary: "Speaker diarization (who spoke when) with NVIDIA Sortformer; passthrough annotates with diar_segments + num_speakers, while fan-out emits one sliced in-memory waveform task per turn."
+summary: "Speaker diarization (who spoke when) with NVIDIA Sortformer; passthrough annotates with diar_segments and can optionally add num_speakers, while fan-out emits one sliced in-memory waveform task per turn."
 tags: [needs_gpu, needs_internet_first_run]
 model_id: "nvidia/diar_streaming_sortformer_4spk-v2.1 (streaming; offline variant: nvidia/diar_sortformer_4spk-v1)"
 model_version: "nvidia/diar_streaming_sortformer_4spk-v2.1"   # stage default model_name
@@ -34,6 +34,7 @@ params_of_note:
   model_name: "the Sortformer checkpoint id (default streaming v2.1)"
   model_path: "local .nemo checkpoint path; overrides model_name (skips the HF download)"
   fanout: "False (default) = passthrough with a diar_segments list; True = emit one task per speaker turn carrying only that turn's cloned waveform + sample_rate. Fan-out children drop full-recording path keys and preserve provenance under original_file."
+  num_speakers_key: "optional output key for the whole-recording distinct-speaker count; disabled by default for legacy compatibility (set to num_speakers to enable)"
   input_residency: "which source to use: file (default), waveform, or auto. Auto prefers a complete waveform/sample_rate pair, falls back to a file only when neither resident field is present, and rejects partial resident pairs."
   chunk_len: "streaming chunk size in 80 ms frames (default 340 ~= 27.2 s); larger = more context/accuracy but higher latency + VRAM"
   inference_batch_size: "internal batch size passed to diarize() (default 1; streaming state is per-clip)"
@@ -53,7 +54,7 @@ semantic_facts:
     unit: "int (count of distinct speaker labels in diar_segments, excluding the 'unknown' parse-failure placeholder)"
     provenance: "Derived from diar_segments after diarization -- written under num_speakers so a downstream PreserveByValueStage can filter single-speaker clips without a separation/fan-out stage."
     scope: "the whole recording; written only in passthrough mode (fanout=True emits per-segment children and does not attach this count)"
-    propagation: "Written under num_speakers alongside diar_segments; bounded by the 4-speaker model cap."
+    propagation: "Only written when num_speakers_key is configured; then emitted alongside diar_segments in passthrough mode. The value is bounded by the 4-speaker model cap."
     counterexamples:
       - "num_speakers counts distinct speakers in the WHOLE clip; it is not a per-segment field and does not exist on fan-out children."
       - "'unknown' is a parse-failure placeholder, not a silence/gap marker like PyAnnote's 'no-speaker'."

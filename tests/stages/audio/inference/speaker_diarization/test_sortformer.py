@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
+from __future__ import annotations
+
+from pathlib import Path  # noqa: TC003
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +24,7 @@ from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import (
     _write_rttm,
 )
 from nemo_curator.tasks import AudioTask
+from tests.stages.audio.inference import review_helpers as rh
 
 
 class TestParseSortformerSegments:
@@ -184,3 +187,14 @@ class TestInferenceSortformerStage:
         )
         stage.process(task)
         assert (tmp_path / "sess_42.rttm").exists()
+
+
+def test_cpu_injected_sortformer_does_not_claim_gpu_requirement() -> None:
+    cpu_injected = rh.build_contract(
+        rh.InferenceSortformerStage(diar_model=rh.MagicMock(), resources=rh.Resources(gpus=0))
+    )
+    restored = rh.build_contract(
+        rh.InferenceSortformerStage(model_path="/models/local.nemo", resources=rh.Resources(gpus=0))
+    )
+    assert cpu_injected.gates.requires_gpu is False
+    assert restored.gates.requires_gpu is True
