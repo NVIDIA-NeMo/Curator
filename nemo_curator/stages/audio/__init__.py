@@ -60,10 +60,10 @@ __all__ = [
     "BandFilterStage",
     "ChatterboxTTSStage",
     "GetAudioDurationStage",
+    "MFAAlignmentStage",
     "ManifestReader",
     "ManifestWriterStage",
     "MergeConversationSDPStage",
-    "MFAAlignmentStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "RegexSubstitutionStage",
@@ -73,8 +73,8 @@ __all__ = [
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
-    "vLLMInference",
     "WhisperHallucinationStage",
+    "vLLMInference",
 ]
 
 
