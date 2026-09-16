@@ -31,7 +31,7 @@ Example:
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from typing import ClassVar, Literal
 
 import torch
@@ -39,11 +39,15 @@ from huggingface_hub import hf_hub_download
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
+    normalize_audio_waveform,
     resolve_audio,
     scoped_audio_conditional_writes,
     scoped_audio_io_specs,
+    scoped_file_audio_hydration_writes,
+    validate_audio_key_configuration,
+    validate_input_residency,
 )
 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 from nemo_curator.stages.base import ProcessingStage
@@ -98,6 +102,12 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     model_path: str | None = None
     cache_dir: str | None = None
     band_value: Literal["full_band", "narrow_band"] = "full_band"
+
+    name: str = "BandFilter"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=4.0))
+
+    _: KW_ONLY
     mode: Literal["task", "segments", "auto"] = "auto"
     action: Literal["filter", "annotate"] = "filter"
     audio_filepath_key: str = "audio_filepath"
@@ -107,11 +117,10 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     prediction_key: str = "band_prediction"
     input_residency: Literal["file", "waveform", "auto"] = "auto"
 
-    name: str = "BandFilter"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=4.0))
-
     _VALID_BAND_VALUES: ClassVar[set[str]] = {"full_band", "narrow_band"}
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_internet_first_run=True, per_row_independent=True)
+    )
 
     def __post_init__(self):
         super().__init__()
@@ -126,6 +135,17 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.action not in _VALID_ACTIONS:
             msg = f"action must be one of {_VALID_ACTIONS!r}, got {self.action!r}"
             raise ValueError(msg)
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "waveform_key": self.waveform_key,
+                "sample_rate_key": self.sample_rate_key,
+                "segments_key": self.segments_key,
+            },
+            output_keys={"prediction_key": self.prediction_key},
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -134,6 +154,7 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.prediction_key]
 
     def describe(self) -> StageContract:
+        guaranteed_output_keys = [] if self.action == "annotate" or self.mode == "auto" else [self.prediction_key]
         reads, reads_one_of, writes = scoped_audio_io_specs(
             self.input_residency,
             mode=self.mode,
@@ -141,22 +162,38 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             waveform_key=self.waveform_key,
             sample_rate_key=self.sample_rate_key,
             segments_key=self.segments_key,
-            output_keys=[self.prediction_key],
+            output_keys=guaranteed_output_keys,
+            infer_sample_rate_from_file=True,
         )
         return StageContract(
             reads=reads,
             reads_one_of=reads_one_of,
             writes=writes,
-            conditional_writes=scoped_audio_conditional_writes(
-                self.mode,
-                segments_key=self.segments_key,
-                output_keys=[self.prediction_key],
-                assignment_condition=(
-                    "audio resolves, the predictor returns 'full_band' or 'narrow_band', "
-                    f"'{self.prediction_key}' is assigned"
-                    + (", and the item matches the configured band and is retained" if self.action == "filter" else "")
+            conditional_writes=[
+                *scoped_file_audio_hydration_writes(
+                    self.input_residency,
+                    hydration_policy="always",
+                    mode=self.mode,
+                    waveform_key=self.waveform_key,
+                    sample_rate_key=self.sample_rate_key,
+                    segments_key=self.segments_key,
+                    infer_sample_rate_from_file=True,
                 ),
-            ),
+                *scoped_audio_conditional_writes(
+                    self.mode,
+                    segments_key=self.segments_key,
+                    output_keys=[self.prediction_key],
+                    assignment_condition=(
+                        "audio resolves, the predictor returns 'full_band' or 'narrow_band', "
+                        f"'{self.prediction_key}' is assigned"
+                        + (
+                            ", and the item matches the configured band and is retained"
+                            if self.action == "filter"
+                            else ""
+                        )
+                    ),
+                ),
+            ],
             cardinality="filter" if self.action == "filter" else "1:1",
             cardinality_options=["filter", "annotate"],
             gates=Gates(
@@ -192,8 +229,11 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 torch.cuda.empty_cache()
 
     def _resolve_model_path(self) -> str:
-        if self.model_path is not None and os.path.isfile(self.model_path):
-            return self.model_path
+        if self.model_path is not None:
+            if os.path.isfile(self.model_path) and os.path.getsize(self.model_path) > 0:
+                return self.model_path
+            msg = f"Band classifier model_path does not exist, is empty, or is not a file: {self.model_path!r}"
+            raise FileNotFoundError(msg)
         return hf_hub_download(
             repo_id=_HF_REPO_ID,
             filename=_HF_MODEL_FILENAME,
@@ -239,6 +279,9 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _process_single(self, task: AudioTask) -> AudioTask | None:
         """Run band classification on a single (non-nested) task."""
+        # This stage owns ``prediction_key``. Clear a prior annotation before
+        # inference so an unscorable rerun cannot retain stale classification.
+        task.data.pop(self.prediction_key, None)
         if self._predictor is None:
             logger.error("Band predictor not available")
             return None
@@ -250,8 +293,16 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 audio_filepath_key=self.audio_filepath_key,
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
+                infer_sample_rate_from_file=True,
+                file_audio_hydration="always",
             )
-        except (OSError, RuntimeError) as e:  # corrupt/unreadable audio -> skip the row, don't crash the batch
+            if audio is not None:
+                waveform, sample_rate = audio
+                audio = (
+                    normalize_audio_waveform(waveform, stage_name=self.name, mono=True),
+                    sample_rate,
+                )
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.error(f"Failed to load audio for {task.data.get(self.audio_filepath_key)!r}: {e}")
             return None
         if audio is None:
