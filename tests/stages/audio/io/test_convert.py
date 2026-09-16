@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -155,7 +155,7 @@ class TestAudioToDocumentSerializationBoundary:
 
     def test_default_preserves_legacy_dataframe_values(self) -> None:
         values = {
-            "when": datetime(2026, 9, 16, 12, 30),
+            "when": datetime(2026, 9, 16, 12, 30, tzinfo=UTC),
             "amount": Decimal("1.25"),
             "path": Path("relative/file.wav"),
             "pair": ("left", "right"),

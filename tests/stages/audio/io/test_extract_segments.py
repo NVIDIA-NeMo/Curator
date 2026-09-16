@@ -14,8 +14,8 @@
 
 """Tests for nemo_curator.stages.audio.io.extract_segments."""
 
-import csv
 import copy
+import csv
 import json
 import os
 from pathlib import Path
