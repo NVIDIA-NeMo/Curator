@@ -197,6 +197,11 @@ correctly run without. Optional reads are visible to discovery and semantic
 review, but they never make validation reject a fallback path. Do not put a
 fallback key in `reads` or legacy `inputs()` merely to advertise it.
 
+When compatibility requires retaining a constructor default that runtime validation rejects,
+declare the field with `metadata={"agent_required": True}`. Discovery then requires an explicit
+value without changing the Python constructor or its default. Use this only for values that the
+stage cannot run without; ordinary defaults remain optional.
+
 ## What is OPTIONAL — set only if it's obvious
 
 Declared via one class attribute, `AGENT_STATIC = StaticHints(...)`, or on the contract:

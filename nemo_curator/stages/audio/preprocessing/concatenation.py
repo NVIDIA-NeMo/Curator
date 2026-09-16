@@ -167,6 +167,7 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 output_path_params=["output_dir"],
+                sanitizes_output=not self.keep_waveform_in_task,
                 # The ``N`` this stage collapses is the segments of ONE row's own file, so no
                 # other file's audio reaches the combined waveform -- the ``N:1`` cardinality
                 # counts tasks, not the origins of the values. ``write_to_disk`` does not change
