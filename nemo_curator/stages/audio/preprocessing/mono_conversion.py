@@ -27,7 +27,7 @@ Example:
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 
 import torch
 from loguru import logger
@@ -83,8 +83,19 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         output_dir: Directory for the written WAV files (default: system temp dir).
     """
 
+    # Legacy positional slots (pre-agent order preserved): output_sample_rate,
+    # audio_filepath_key, strict_sample_rate, name, batch_size, resources. Everything the
+    # agent work added is keyword-only (below the KW_ONLY sentinel), so a legacy positional
+    # call like ``MonoConversionStage(48000, "audio_filepath", True)`` keeps its meaning.
     output_sample_rate: int = 48000
     audio_filepath_key: str = "audio_filepath"
+    strict_sample_rate: bool = True
+
+    name: str = "MonoConversion"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    _: KW_ONLY
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     is_mono_key: str = "is_mono"
@@ -92,7 +103,6 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     num_samples_key: str = "num_samples"
     output_audio_filepath_key: str = "mono_audio_filepath"
     original_audio_filepath_key: str = "original_audio_filepath"
-    strict_sample_rate: bool = True
     # "file", not "auto": this stage only ever read ``audio_filepath`` before the agent work
     # (``load_audio_file(audio_filepath, mono=False)``), unlike sigmos/utmos/band/vad, whose
     # own resolvers already preferred a resident waveform and so default to "auto" honestly.
@@ -102,10 +112,6 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     write_to_disk: bool = False
     update_audio_filepath: bool = False
     output_dir: str | None = None
-
-    name: str = "MonoConversion"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self):
         super().__init__()

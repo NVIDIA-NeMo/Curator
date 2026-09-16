@@ -663,3 +663,141 @@ def test_a_null_waveform_does_not_authenticate_a_stale_sample_rate(tmp_path: Pat
         data={"audio_filepath": str(path), "sample_rate": 16000, "waveform": torch.zeros(1, 16000)},
     )
     assert stage._observed_rate(resident) == 16000
+
+
+def test_concatenation_reads_require_nested_segment_audio_keys() -> None:
+    """SegmentConcatenation reads waveform+sample_rate from EACH child, not just the container."""
+    concat = SegmentConcatenationStage()
+
+    # Only the top-level segments container is present; the per-child audio the runtime reads
+    # is missing, so the stage must not validate clean.
+    top_only = validate_pipeline(
+        [concat],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+    )
+    assert not top_only.ok
+    assert any(i.code == "unsatisfied_reads" and i.stage_index == 0 for i in top_only.issues)
+
+    # Seeding the nested waveform/sample_rate the child carries makes it compose.
+    with_nested = validate_pipeline(
+        [concat],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"waveform", "sample_rate"},
+        initial_segment_keys={"waveform", "sample_rate"},
+    )
+    assert with_nested.ok
+    assert with_nested.keys_ok
+
+    # Remapped child keys chain by role: pointed at the names the seed carries, it stays clean.
+    remapped = SegmentConcatenationStage(waveform_key="seg_wav", sample_rate_key="seg_sr")
+    report = validate_pipeline(
+        [remapped],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"waveform", "sample_rate"},
+        initial_segment_keys={"seg_wav", "seg_sr"},
+    )
+    assert report.ok
+    assert report.keys_ok
+
+
+@pytest.mark.parametrize("sink", [ManifestWriterStage, ManifestCheckpointStage])
+def test_same_name_nested_tensor_survives_top_level_drop_into_sink(sink: type, tmp_path: Path) -> None:
+    """A disk-only conversion drops the TOP-LEVEL waveform; a same-named nested one still blocks a sink."""
+    mono = MonoConversionStage(
+        output_sample_rate=16000,
+        input_residency="waveform",
+        keep_waveform_in_task=False,
+        write_to_disk=True,
+        output_dir=str(tmp_path / "out"),
+    )
+    assert set(build_contract(mono).removes_keys) == {"waveform", "sample_rate"}
+    writer = sink(output_path=str(tmp_path / "out.jsonl"))
+
+    # Task-level AND segment-level waveforms share the key name "waveform". The conversion
+    # removes only the task-level carrier; the nested one reaches the JSON sink.
+    report = validate_pipeline(
+        [mono, writer],
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_segment_roles={"waveform", "sample_rate"},
+        initial_segment_keys={"waveform", "sample_rate"},
+    )
+    assert not report.ok
+    assert any(i.code == "tensor_into_sink" and i.severity == "error" for i in report.issues)
+
+    # Single-scope behavior is unchanged: with no nested carrier, dropping the top-level one
+    # clears residency and the sink is clean (no false positive from the scope split).
+    clean = validate_pipeline(
+        [mono, writer],
+        initial_roles={"waveform", "sample_rate"},
+        initial_keys={"waveform", "sample_rate"},
+    )
+    assert not any(i.code == "tensor_into_sink" for i in clean.issues)
+
+
+def test_multi_alternative_read_dangles_when_no_literal_branch_is_complete() -> None:
+    """An auto consumer whose role is met only by a renamed producer key has no complete branch."""
+    renamed_role_only = _ConfiguredContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["resampled_audio_filepath"]),
+            key_roles={"resampled_audio_filepath": "audio_filepath"},
+        )
+    )
+    auto_consumer = MonoConversionStage(input_residency="auto")
+
+    dangling = validate_pipeline(
+        [renamed_role_only, auto_consumer],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    # Role-level composability holds, but no reads_one_of branch is literally complete.
+    assert dangling.ok
+    assert not dangling.keys_ok
+    assert any(i.code == "dangling_key" and i.stage_index == 1 for i in dangling.issues)
+
+    # A complete FILE branch (literal audio_filepath) stays clean.
+    file_producer = _ConfiguredContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["audio_filepath"]),
+            key_roles={"audio_filepath": "audio_filepath"},
+        )
+    )
+    clean_file = validate_pipeline(
+        [file_producer, MonoConversionStage(input_residency="auto")],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    assert clean_file.ok
+    assert clean_file.keys_ok
+
+    # A complete WAVEFORM-PAIR branch stays clean too.
+    waveform_producer = _ConfiguredContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["waveform", "sample_rate"], produces=["tensor"]),
+            key_roles={"waveform": "waveform", "sample_rate": "sample_rate"},
+        )
+    )
+    clean_waveform = validate_pipeline(
+        [waveform_producer, MonoConversionStage(input_residency="auto")],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    assert clean_waveform.ok
+    assert clean_waveform.keys_ok
+
+
+def test_conformance_requires_exact_literal_key_for_unknown_role_read(tmp_path: Path) -> None:
+    """A custom (unknown-role) read must be satisfied by its exact key, not waved through."""
+    wav = tmp_path / "a.wav"
+    sf.write(wav, torch.zeros(48000).numpy(), 48000)
+    selector = PreserveByValueStage("mos", 3.0, "ge")  # input_value_key='mos' -> unknown role
+
+    # 'mos' is not among the available keys, so the unknown-role read is unsatisfied.
+    with pytest.raises(AssertionError, match="not satisfied"):
+        assert_agent_ready(selector, available_keys={"audio_filepath"}, run=False)
+
+    # Present exactly, it passes.
+    assert_agent_ready(selector, available_keys={"mos"}, run=False)

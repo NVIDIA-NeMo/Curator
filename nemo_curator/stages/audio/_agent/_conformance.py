@@ -323,12 +323,50 @@ def _check_gpu_gate(stage: Any, c: StageContract, name: str) -> None:  # noqa: A
         raise AssertionError(msg)
 
 
+def _assert_reads_satisfiable(
+    c: StageContract,
+    name: str,
+    available_keys: Iterable[str],
+    available_segment_keys: Iterable[str] | None,
+) -> None:
+    """Assert reads are satisfiable using the SAME rule the planner applies.
+
+    Reuses the planner's read check verbatim so conformance and planning cannot drift: known
+    roles satisfy a read, an unknown-role read needs its exact literal key, and ``reads_one_of``
+    is evaluated per alternative per scope.
+    """
+    from nemo_curator.stages.audio._agent._planning import _reads_satisfied_by_role
+    from nemo_curator.stages.audio._agent._roles import role_for_value
+
+    avail_keys = set(available_keys)
+    avail_segment_keys = set(available_segment_keys or ())
+
+    def _roles_of_keys(keys: set[str]) -> set[str]:
+        # Both this stage's own key_roles and the shared literal table, minus the permissive
+        # "unknown" so an unknown-role read is decided by its literal key, not waved through.
+        resolved = {c.key_roles.get(k, "unknown") for k in keys} | {role_for_value(k) for k in keys}
+        return resolved - {"unknown"}
+
+    assert _reads_satisfied_by_role(
+        c,
+        _roles_of_keys(avail_keys),
+        _roles_of_keys(avail_segment_keys),
+        avail_keys,
+        avail_segment_keys,
+    ), (
+        f"{name}: reads {c.reads.data_keys}/{[s.data_keys for s in c.reads_one_of]} "
+        f"not satisfied by available keys {sorted(avail_keys)}"
+        + (f" / segment keys {sorted(avail_segment_keys)}" if avail_segment_keys else "")
+    )
+
+
 def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: one linear checklist of independent conformance checks)
     stage: Any,  # noqa: ANN401
     fixture_factory: Callable[[], Any] | None = None,
     *,
     expected_cardinality: str | None = None,
     available_keys: Iterable[str] | None = None,
+    available_segment_keys: Iterable[str] | None = None,
     segments_key: str | None = None,
     ignore_new_keys: Iterable[str] = (),
     run: bool = True,
@@ -344,8 +382,13 @@ def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: on
         stage: A constructed stage instance.
         fixture_factory: Returns a fresh input task (or batch) each call.
         expected_cardinality: If given, assert the contract declares it.
-        available_keys: Upstream-available key values; asserts reads are
-            satisfiable by role.
+        available_keys: Upstream-available top-level key values; asserts reads are
+            satisfiable using the SAME rule the planner applies — known roles or
+            exact literal keys for unknown-role reads, with ``reads_one_of``
+            evaluated per alternative per scope (an unknown-role read is no
+            longer treated as always-satisfied).
+        available_segment_keys: Upstream-available nested (segment-scope) key
+            values, for the nested equivalent of ``available_keys``.
         segments_key: Resolved segments key, for checking segment-level writes.
         ignore_new_keys: Extra top-level keys allowed in output (framework
             bookkeeping) beyond declared writes.
@@ -368,15 +411,7 @@ def assert_agent_ready(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: on
             f"{name}: cardinality {c.cardinality!r} != expected {expected_cardinality!r}"
         )
     if available_keys is not None:
-        avail_roles = {c.key_roles.get(k, "unknown") for k in available_keys}
-        # also resolve via literal table for keys not in this stage's key_roles
-        from nemo_curator.stages.audio._agent._roles import role_for_value
-
-        avail_roles |= {role_for_value(k) for k in available_keys}
-        assert reads_satisfied_by_role(c, avail_roles), (
-            f"{name}: reads {c.reads.data_keys}/{[s.data_keys for s in c.reads_one_of]} "
-            f"not satisfied by available roles {avail_roles}"
-        )
+        _assert_reads_satisfiable(c, name, available_keys, available_segment_keys)
 
     if not run or fixture_factory is None:
         return c

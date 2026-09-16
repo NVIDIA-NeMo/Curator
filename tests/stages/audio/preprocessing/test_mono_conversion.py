@@ -164,3 +164,28 @@ class TestMonoOutputGatingAndResidency:
 
         assert "agent_mono_path" in result.data, "disk-path key must be present when write_to_disk=True"
         assert "agent_waveform" not in result.data, "tensor must be omitted when keep_waveform_in_task=False"
+
+
+class TestMonoConversionPositionalCompatibility:
+    def test_legacy_positional_call_keeps_strict_sample_rate_third(self) -> None:
+        """Pre-agent order was (output_sample_rate, audio_filepath_key, strict_sample_rate)."""
+        stage = MonoConversionStage(16000, "path_col", False)
+        assert stage.output_sample_rate == 16000
+        assert stage.audio_filepath_key == "path_col"
+        assert stage.strict_sample_rate is False
+        # The agent-added fields stayed keyword-only, so they keep their defaults here.
+        assert stage.input_residency == "file"
+        assert stage.waveform_key == "waveform"
+
+    def test_agent_added_fields_are_keyword_only(self) -> None:
+        """A former agent field cannot be reached positionally past the legacy slots."""
+        import pytest
+
+        from nemo_curator.stages.resources import Resources
+
+        # The six legacy positional slots still accept positionals in their original order.
+        stage = MonoConversionStage(16000, "path_col", True, "Custom", 2, Resources(cpus=1.0))
+        assert (stage.name, stage.batch_size) == ("Custom", 2)
+        # A 7th positional would be a keyword-only agent field -> TypeError.
+        with pytest.raises(TypeError):
+            MonoConversionStage(16000, "path_col", True, "Custom", 2, Resources(cpus=1.0), "wf")
