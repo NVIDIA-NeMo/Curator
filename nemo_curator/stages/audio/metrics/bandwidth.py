@@ -31,6 +31,7 @@ from nemo_curator.stages.audio.metrics._common import (
     metrics_mapping,
     resident_pair_is_complete,
     resident_pcm_to_mono_float32,
+    resident_sample_rate,
     validate_metric_keys,
 )
 from nemo_curator.stages.base import ProcessingStage
@@ -92,15 +93,12 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 "waveform_key": self.waveform_key,
                 "sample_rate_key": self.sample_rate_key,
             },
-            output_field="metrics_key",
-            protected_fields=(
-                "audio_filepath_key",
-                "segments_key",
+            strict_fields=(
                 "duration_key",
+                "metrics_key",
                 "waveform_key",
                 "sample_rate_key",
             ),
-            reserved_input_keys=("audio_item_id", "speaker", "text", "start", "end"),
         )
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -248,7 +246,12 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             )
             if has_waveform:
                 audio = resident_pcm_to_mono_float32(data_entry[self.waveform_key], stage_name=self.name)
-                return audio, int(data_entry[self.sample_rate_key])
+                sample_rate = resident_sample_rate(
+                    data_entry[self.sample_rate_key],
+                    sample_rate_key=self.sample_rate_key,
+                    stage_name=self.name,
+                )
+                return audio, sample_rate
             if self.input_residency == "waveform":
                 msg = (
                     f"[{self.name}] Missing '{self.waveform_key}'+'{self.sample_rate_key}' for entry: "

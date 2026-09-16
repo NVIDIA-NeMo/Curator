@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import MutableMapping
+from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -37,27 +39,50 @@ def validate_metric_keys(
     stage_name: str,
     *,
     keys: dict[str, Any],
-    output_field: str,
-    protected_fields: tuple[str, ...],
-    reserved_input_keys: tuple[str, ...] = (),
+    strict_fields: tuple[str, ...],
 ) -> None:
-    """Reject empty key values and output/input-container collisions."""
-    for field_name, key in keys.items():
+    """Validate keys introduced with agent-ready metrics configuration.
+
+    Legacy key fields deliberately remain permissive: empty literals and
+    in-place/cross-scope aliases were accepted before these stages became
+    agent-ready. Same-scope incompatibilities are rejected by
+    :func:`metrics_mapping` on the runtime branch that actually writes them.
+    """
+    for field_name in strict_fields:
+        key = keys[field_name]
         if not isinstance(key, str) or not key.strip():
             msg = f"[{stage_name}] '{field_name}' must be a non-empty string"
             raise ValueError(msg)
 
-    output_key = keys[output_field]
-    for field_name in protected_fields:
-        if output_key == keys[field_name]:
-            msg = f"[{stage_name}] '{output_field}' ({output_key!r}) must not collide with '{field_name}'"
-            raise ValueError(msg)
-    if output_key in reserved_input_keys:
+
+
+def resident_sample_rate(value: Any, *, sample_rate_key: str, stage_name: str) -> int:  # noqa: ANN401
+    """Return a positive integral resident sample rate without lossy coercion."""
+    if torch.is_tensor(value) and value.ndim == 0:
+        value = value.item()
+
+    rate: int | None = None
+    if isinstance(value, (bool, np.bool_)):
+        rate = None
+    elif isinstance(value, str):
+        try:
+            rate = int(value)
+        except ValueError:
+            rate = None
+    elif isinstance(value, Integral):
+        rate = int(value)
+    elif isinstance(value, Real):
+        numeric = float(value)
+        if math.isfinite(numeric) and numeric.is_integer():
+            rate = int(numeric)
+
+    if rate is None or rate <= 0:
         msg = (
-            f"[{stage_name}] '{output_field}' ({output_key!r}) must not collide with "
-            f"runtime input key {output_key!r}"
+            f"[{stage_name}] Resident sample rate '{sample_rate_key}' must be a positive, "
+            f"losslessly integral, non-boolean value; got {value!r}"
         )
         raise ValueError(msg)
+    return rate
 
 
 def resident_pair_is_complete(
@@ -88,6 +113,8 @@ def resident_pair_is_complete(
             f"'{present}' is present but '{missing}' is missing"
         )
         raise ValueError(msg)
+    if has_sample_rate:
+        resident_sample_rate(item[sample_rate_key], sample_rate_key=sample_rate_key, stage_name=stage_name)
     return has_waveform
 
 
