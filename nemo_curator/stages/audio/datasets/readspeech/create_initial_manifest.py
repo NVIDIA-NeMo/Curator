@@ -16,10 +16,11 @@ import glob
 import os
 import subprocess
 from dataclasses import dataclass
+from typing import ClassVar
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -48,7 +49,22 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
         raw_data_dir: Directory where data will be downloaded/extracted to.
         max_samples: Maximum number of samples to include (-1 for all).
         auto_download: If True, automatically download and extract dataset.
+        filepath_key: Key name used for each emitted audio path.
+        text_key: Key name used for each emitted transcript.
+        sample_rate_key: Key name used for the constant 48 kHz sample rate.
+        book_id_key: Key name used for the parsed book identifier.
+        reader_id_key: Key name used for the parsed reader identifier.
     """
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["raw_data_dir"],
+            requires_internet_first_run=True,
+            per_row_independent=True,
+        )
+    )
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"book_id_key", "reader_id_key"})
 
     raw_data_dir: str
     max_samples: int = 5000
@@ -57,6 +73,9 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
     text_key: str = "text"
     name: str = "CreateInitialManifestReadSpeech"
     batch_size: int = 1
+    sample_rate_key: str = "sample_rate"
+    book_id_key: str = "book_id"
+    reader_id_key: str = "reader_id"
 
     def __post_init__(self):
         super().__init__()
@@ -65,16 +84,31 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filepath_key, self.text_key]
+        return [], [
+            self.filepath_key,
+            self.text_key,
+            self.sample_rate_key,
+            self.book_id_key,
+            self.reader_id_key,
+        ]
 
     def describe(self) -> StageContract:
         return StageContract(
-            writes=IOSpec(data_keys=[self.filepath_key, self.text_key], produces=["disk"]),
+            writes=IOSpec(
+                data_keys=[
+                    self.filepath_key,
+                    self.text_key,
+                    self.sample_rate_key,
+                    self.book_id_key,
+                    self.reader_id_key,
+                ],
+                produces=["disk"] if self.auto_download else [],
+            ),
             cardinality="1:N fan-out",
             gates=Gates(
-                writes_to_disk=True,
+                writes_to_disk=self.auto_download,
                 requires_internet_first_run=self.auto_download,
-                output_path_params=[],
+                output_path_params=["raw_data_dir"] if self.auto_download else [],
                 # Each row is parsed from its own filename. Declared True unconditionally BY
                 # DECISION: ``max_samples`` (default 5000 of ~14k) truncates the SORTED listing,
                 # so a delta enumerating only changed files can admit files a full run would not
@@ -221,9 +255,9 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
 
     def parse_filename(self, filename: str) -> dict:
         metadata = {
-            "book_id": "",
+            self.book_id_key: "",
             "chapter": "",
-            "reader_id": "",
+            self.reader_id_key: "",
         }
 
         basename = os.path.splitext(filename)[0]
@@ -234,7 +268,7 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
                 if "book" in parts:
                     book_idx = parts.index("book")
                     if book_idx + 1 < len(parts):
-                        metadata["book_id"] = parts[book_idx + 1]
+                        metadata[self.book_id_key] = parts[book_idx + 1]
 
                 if "chp" in parts:
                     chp_idx = parts.index("chp")
@@ -244,7 +278,7 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
                 if "reader" in parts:
                     reader_idx = parts.index("reader")
                     if reader_idx + 1 < len(parts):
-                        metadata["reader_id"] = parts[reader_idx + 1]
+                        metadata[self.reader_id_key] = parts[reader_idx + 1]
         except (ValueError, IndexError):
             pass
 
@@ -267,9 +301,9 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
             entry = {
                 self.filepath_key: os.path.abspath(wav_path),
                 self.text_key: "",
-                "sample_rate": SAMPLE_RATE_48KHZ,
-                "book_id": metadata.get("book_id", ""),
-                "reader_id": metadata.get("reader_id", ""),
+                self.sample_rate_key: SAMPLE_RATE_48KHZ,
+                self.book_id_key: metadata.get(self.book_id_key, ""),
+                self.reader_id_key: metadata.get(self.reader_id_key, ""),
             }
             entries.append(entry)
 
@@ -304,10 +338,10 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
         unique_readers = set()
         unique_books = set()
         for entry in entries:
-            if entry.get("reader_id"):
-                unique_readers.add(entry["reader_id"])
-            if entry.get("book_id"):
-                unique_books.add(entry["book_id"])
+            if entry.get(self.reader_id_key):
+                unique_readers.add(entry[self.reader_id_key])
+            if entry.get(self.book_id_key):
+                unique_books.add(entry[self.book_id_key])
 
         logger.info(f"Unique readers: {len(unique_readers)}")
         logger.info(f"Unique books: {len(unique_books)}")

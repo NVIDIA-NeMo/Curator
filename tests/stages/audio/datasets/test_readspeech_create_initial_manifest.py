@@ -15,6 +15,9 @@
 from pathlib import Path
 from unittest.mock import patch
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
 from nemo_curator.stages.audio.datasets.readspeech.create_initial_manifest import (
     CreateInitialManifestReadSpeechStage,
 )
@@ -32,7 +35,56 @@ def test_ray_stage_spec(tmp_path: Path) -> None:
 def test_inputs_outputs(tmp_path: Path) -> None:
     stage = CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False)
     assert stage.inputs() == ([], [])
-    assert stage.outputs() == ([], ["audio_filepath", "text"])
+    assert stage.outputs() == ([], ["audio_filepath", "text", "sample_rate", "book_id", "reader_id"])
+
+
+def test_contract_declares_all_outputs_and_conditional_download_gate(tmp_path: Path) -> None:
+    local = CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False)
+    downloading = CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=True)
+
+    local_contract = build_contract(local)
+    assert local_contract.writes.data_keys == ["audio_filepath", "text", "sample_rate", "book_id", "reader_id"]
+    assert local_contract.writes.produces == []
+    assert local_contract.gates.writes_to_disk is False
+    assert local_contract.gates.requires_internet_first_run is False
+    assert local_contract.gates.output_path_params == []
+
+    download_contract = build_contract(downloading)
+    assert download_contract.writes.produces == ["disk"]
+    assert download_contract.gates.writes_to_disk is True
+    assert download_contract.gates.requires_internet_first_run is True
+    assert download_contract.gates.output_path_params == ["raw_data_dir"]
+
+    static = static_contract(CreateInitialManifestReadSpeechStage)
+    assert static.gates.writes_to_disk is True
+    assert static.gates.requires_internet_first_run is True
+    assert static.gates.output_path_params == ["raw_data_dir"]
+
+
+def test_custom_output_keys_are_used_everywhere(tmp_path: Path) -> None:
+    wav = tmp_path / "book_00000_chp_0001_reader_00100_0_seg_1_seg1.wav"
+    wav.write_bytes(b"\x00")
+    stage = CreateInitialManifestReadSpeechStage(
+        raw_data_dir=str(tmp_path),
+        auto_download=False,
+        filepath_key="path",
+        text_key="transcript",
+        sample_rate_key="rate",
+        book_id_key="book",
+        reader_id_key="reader",
+    )
+
+    entries = stage.collect_audio_files(str(tmp_path))
+    assert entries == [
+        {
+            "path": str(wav.resolve()),
+            "transcript": "",
+            "rate": 48000,
+            "book": "00000",
+            "reader": "00100",
+        }
+    ]
+    assert build_contract(stage).writes.data_keys == ["path", "transcript", "rate", "book", "reader"]
 
 
 def test_parse_filename_standard(tmp_path: Path) -> None:
@@ -88,6 +140,20 @@ def test_process_end_to_end(tmp_path: Path) -> None:
     assert len(results) == 2
     assert all(isinstance(r, AudioTask) for r in results)
     assert results[0].dataset_name == "DNS-ReadSpeech"
+
+
+def test_agent_conformance(tmp_path: Path) -> None:
+    wav_dir = tmp_path / "read_speech"
+    wav_dir.mkdir()
+    (wav_dir / "book_00000_chp_0001_reader_00100_0_seg_1_seg1.wav").write_bytes(b"\x00")
+    stage = CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False)
+
+    assert_agent_ready(
+        stage,
+        lambda: EmptyTask(dataset_name="test", data=None),
+        expected_cardinality="1:N fan-out",
+        available_keys=set(),
+    )
 
 
 def test_process_empty_dir(tmp_path: Path) -> None:
