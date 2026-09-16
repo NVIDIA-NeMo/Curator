@@ -112,8 +112,8 @@ it.
 ## Packing algorithm
 
 Planning is deterministic, but the two modes use different boundary planners.
-Both first validate every segment's `audio_seconds` as numeric, finite, and
-nonnegative, and both enforce the padded-audio budget on every adapter call.
+Both enforce the padded-audio budget on every adapter call. Durations need no
+second validation here: they are produced internally from model-safe segments.
 
 With `local_bucketing=false`, the planner preserves input order and scans it
 greedily. It extends the current call while the candidate padded cost fits,
@@ -131,10 +131,7 @@ With `local_bucketing=true`, the planner:
    feasible next boundary.
 4. Minimizes the score lexicographically: first the total number of adapter
    calls, then the sum of padded seconds across those calls.
-5. When two choices have the same score after representation-level floating
-   point tolerance, chooses the longer earlier call. This makes the otherwise
-   equivalent plan deterministic.
-6. Reconstructs the selected spans, executes them in sorted-plan order, and
+5. Reconstructs the selected spans, executes them in sorted-plan order, and
    scatters each result through its saved pre-planning segment index.
 
 The enabled planner is therefore the exact optimum for its stable
@@ -193,12 +190,11 @@ score  -> 2 calls, 5 padded seconds
 
 Three singleton calls would also total 5 padded seconds, but they lose on the
 primary call-count objective. Thus the selected `[1]`, `[2, 2]` plan is the
-lexicographic optimum. As a tie example, three one-second segments with a
-budget of `2` can be split as either `[1, 1]`, `[1]` or `[1]`, `[1, 1]` with
-the same score; the longest-earlier-call rule selects the first plan. Budget
-and score comparisons treat only representation-level differences as equal
-(`rel_tol=1e-12`, `abs_tol=1e-9`), so decimal boundaries such as three
-0.1-second items under a 0.3-second budget do not split spuriously.
+lexicographic optimum. Python tuple ordering implements the calls-first,
+padded-seconds-second comparison directly. Exact score ties keep the first
+boundary encountered. Budget feasibility alone uses a small floating-point
+tolerance (`rel_tol=1e-12`, `abs_tol=1e-9`), so decimal boundaries such as
+three 0.1-second items under a 0.3-second budget do not split spuriously.
 
 ## Configuration
 
@@ -293,8 +289,7 @@ An implementation is correct only when all of these properties hold:
    `len(call) * max(duration) <= max_audio_sec_per_actor`.
 5. Bucketing off greedily packs the original segment order. Bucketing on uses
    stable ascending duration order and chooses the contiguous partition with
-   the fewest calls and then the fewest total padded seconds; exact-score ties
-   favor the longest earlier call.
+   the fewest calls and then the fewest total padded seconds.
 6. Each adapter call returns exactly one result per submitted segment.
 7. Results are scattered to original segment positions before parent
    assembly.
@@ -362,14 +357,14 @@ always require a model-specific correctness design.
 
 Unit tests should use a recording adapter stub and cover:
 
-- missing, Boolean, negative, `NaN`, and infinite durations or budgets;
+- missing, Boolean, negative, `NaN`, and infinite budgets, plus model limits
+  shorter than one sample;
 - an empty input and zero-duration audio;
 - exact budget fills and a candidate that begins the next call;
 - original-order and stable duration-order call membership;
 - equal-duration stability;
 - the `[1, 2, 2]` budget-`4` case that distinguishes the optimal boundary
   plan from sorted greedy packing;
-- exact-score tie-breaking in favor of the longest earlier call;
 - planning across segments from multiple rows in one call, but never across
   two `process_batch()` calls;
 - exact model-duration boundaries, multi-segment parents, and every final

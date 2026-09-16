@@ -442,18 +442,19 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             return results[0]
 
         texts = [text for result in results if (text := (result.text or "").strip())]
-        all_skipped = all(result.skipped for result in results)
+        any_skipped = any(result.skipped for result in results)
         skip_reason = next((result.skip_reason for result in results if result.skip_reason), None)
         unsupported_language = next(
             (result.unsupported_language for result in results if result.unsupported_language),
             None,
         )
-        chunk_extras = [dict(result.extras) for result in results]
-        extras = {"chunks": chunk_extras} if any(chunk_extras) else {}
+        extras: dict[str, Any] = {}
+        for result in results:
+            extras.update(result.extras)
         return ASRResult(
             text=" ".join(texts),
-            skipped=all_skipped,
-            skip_reason=skip_reason if all_skipped else None,
+            skipped=any_skipped,
+            skip_reason=skip_reason if any_skipped else None,
             unsupported_language=unsupported_language,
             extras=extras,
         )
@@ -493,18 +494,10 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         its item count. This models the padded tensor work more closely than a
         sum of unpadded durations. With local bucketing enabled, dynamic
         programming over the stable duration order first minimizes adapter-call
-        count and then total padded seconds. Representation-equivalent score
-        ties keep the longest possible earlier call. The budget is enforced
-        in both modes.
+        count and then total padded seconds. The budget is enforced in both
+        modes.
         """
-        indexed_items = [(index, item, self._item_audio_seconds(item)) for index, item in enumerate(items)]
-        for _index, _item, audio_seconds in indexed_items:
-            if not self._fits_audio_budget(audio_seconds):
-                msg = (
-                    f"ASRStage item audio_seconds={audio_seconds} exceeds "
-                    f"max_audio_sec_per_actor={self.max_audio_sec_per_actor}"
-                )
-                raise ValueError(msg)
+        indexed_items = [(index, item, item["audio_seconds"]) for index, item in enumerate(items)]
 
         if not self.local_bucketing:
             return self._pack_in_order(indexed_items)
@@ -539,12 +532,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                     continue
                 candidate_score = (suffix_score[0] + 1, suffix_score[1] + padded_seconds)
                 current_score = best_score[start]
-                if current_score is None or self._duration_plan_is_better(
-                    candidate_score,
-                    current_score,
-                    candidate_stop=stop,
-                    current_stop=next_boundary[start],
-                ):
+                if current_score is None or candidate_score < current_score:
                     best_score[start] = candidate_score
                     next_boundary[start] = stop
 
@@ -605,40 +593,6 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             rel_tol=_PADDED_SECONDS_REL_TOL,
             abs_tol=_PADDED_SECONDS_ABS_TOL,
         )
-
-    @staticmethod
-    def _duration_plan_is_better(
-        candidate_score: tuple[int, float],
-        current_score: tuple[int, float],
-        *,
-        candidate_stop: int,
-        current_stop: int,
-    ) -> bool:
-        """Compare lexicographic plan scores without float-noise tie breaks."""
-        candidate_calls, candidate_padded_seconds = candidate_score
-        current_calls, current_padded_seconds = current_score
-        if candidate_calls != current_calls:
-            return candidate_calls < current_calls
-        if math.isclose(
-            candidate_padded_seconds,
-            current_padded_seconds,
-            rel_tol=_PADDED_SECONDS_REL_TOL,
-            abs_tol=_PADDED_SECONDS_ABS_TOL,
-        ):
-            return candidate_stop > current_stop
-        return candidate_padded_seconds < current_padded_seconds
-
-    @staticmethod
-    def _item_audio_seconds(item: dict[str, Any]) -> float:
-        value = item.get("audio_seconds")
-        if isinstance(value, bool) or not isinstance(value, Real):
-            msg = f"ASRStage every adapter item must provide numeric audio_seconds, got {type(value).__name__}"
-            raise TypeError(msg)
-        audio_seconds = float(value)
-        if not math.isfinite(audio_seconds) or audio_seconds < 0:
-            msg = f"ASRStage adapter item audio_seconds must be finite and non-negative, got {value}"
-            raise ValueError(msg)
-        return audio_seconds
 
     def assemble(
         self,

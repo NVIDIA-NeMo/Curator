@@ -119,9 +119,9 @@ before the adapter is called.
 `ASRStage` writes transcription text to `asr_prediction`. For a single stage
 segment, it writes the forced, normalized language code under
 `asr_extras.language_code`; this value is the requested inference language,
-not a detected language. If an input exceeds `max_inference_duration_s`, the
-stitched parent row records per-segment metadata under
-`asr_extras.chunks[*].language_code`.
+not a detected language. For a segmented input, adapter extras are merged in
+temporal order without changing that flat schema; every segment uses the same
+forced language code.
 
 The adapter intentionally discards Faster-Whisper's `TranscriptionInfo` and
 does not emit detected-language confidence, duration metadata, segment

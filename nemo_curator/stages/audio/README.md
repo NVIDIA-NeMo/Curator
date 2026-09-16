@@ -457,7 +457,9 @@ Key takeaways:
 - Subclasses override it as a field (e.g. `batch_size: int = 16`).
 - Pipeline authors can further override via `.with_(batch_size=32)` or Hydra YAML.
 - The backend adapter reads `stage.batch_size` and groups tasks *before*
-  calling `process_batch`.  Your stage never has to split or batch tasks itself.
+  calling `process_batch`.
+- A stage can still split model-unsafe inputs and plan one or more adapter
+  calls within that finite backend-provided batch, as `ASRStage` does.
 
 ## Exact call chains
 

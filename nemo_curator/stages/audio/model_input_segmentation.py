@@ -63,6 +63,10 @@ def plan_audio_segments(
     if sample_rate <= 0:
         msg = f"{owner}.sample_rate must be > 0, got {sample_rate}"
         raise ValueError(msg)
+    max_samples = int(maximum * float(sample_rate))
+    if max_samples < 1:
+        msg = f"{owner}.max_inference_duration_s must cover at least one sample at sample_rate={sample_rate}"
+        raise ValueError(msg)
     if num_samples <= 0:
         return (
             AudioSegment(
@@ -72,7 +76,6 @@ def plan_audio_segments(
             ),
         )
 
-    max_samples = max(1, int(maximum * float(sample_rate)))
     starts = list(range(0, int(num_samples), max_samples))
     segments: list[AudioSegment] = []
     for start in starts:

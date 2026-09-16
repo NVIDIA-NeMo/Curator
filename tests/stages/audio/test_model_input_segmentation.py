@@ -31,6 +31,11 @@ def test_plan_audio_segments_rejects_invalid_sample_rate() -> None:
         plan_audio_segments(num_samples=100, sample_rate=0, max_duration_s=10.0, owner="test")
 
 
+def test_plan_audio_segments_rejects_sub_sample_max_duration() -> None:
+    with pytest.raises(ValueError, match="must cover at least one sample"):
+        plan_audio_segments(num_samples=100, sample_rate=16000, max_duration_s=1e-6, owner="test")
+
+
 def test_plan_audio_segments_keeps_zero_sample_inputs_representable() -> None:
     segments = plan_audio_segments(num_samples=0, sample_rate=16000, max_duration_s=30.0, owner="test")
 

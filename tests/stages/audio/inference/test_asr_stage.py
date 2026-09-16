@@ -187,16 +187,17 @@ def test_local_bucketing_groups_all_rows_and_restores_task_order() -> None:
 
 
 @pytest.mark.parametrize(
-    ("local_bucketing", "expected_call_durations"),
+    ("local_bucketing", "expected_call_durations", "expected_call_task_ids"),
     [
-        (False, [[1.0, 4.0], [1.0]]),
-        (True, [[1.0, 1.0], [4.0]]),
+        (False, [[1.0, 4.0], [1.0]], [["task-0", "task-1"], ["task-2"]]),
+        (True, [[1.0, 1.0], [4.0]], [["task-0", "task-2"], ["task-1"]]),
     ],
     ids=["input-order", "duration-order"],
 )
 def test_actor_audio_budget_is_enforced_with_bucketing_on_or_off(
     local_bucketing: bool,
     expected_call_durations: list[list[float]],
+    expected_call_task_ids: list[list[str]],
 ) -> None:
     stage = _make_stage(
         waveform_key="waveform",
@@ -218,7 +219,11 @@ def test_actor_audio_budget_is_enforced_with_bucketing_on_or_off(
     call_durations = [
         [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
     ]
+    call_task_ids = [
+        [item["task_id"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
     assert call_durations == expected_call_durations
+    assert call_task_ids == expected_call_task_ids
     assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
     assert all(len(call) * max(call) <= 8.0 for call in call_durations)
 
@@ -249,24 +254,6 @@ def test_local_bucketing_minimizes_padded_seconds_after_call_count() -> None:
     assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
 
 
-def test_local_bucketing_breaks_exact_score_ties_with_longest_earlier_call() -> None:
-    stage = _make_stage(
-        max_audio_sec_per_actor=2.0,
-        max_inference_duration_s=2.0,
-        local_bucketing=True,
-    )
-    items = [
-        {"audio_seconds": 1.0, "name": "a"},
-        {"audio_seconds": 1.0, "name": "b"},
-        {"audio_seconds": 1.0, "name": "c"},
-    ]
-
-    plan = stage._plan_adapter_batches(items)
-
-    assert [indices for indices, _items in plan] == [[0, 1], [2]]
-    assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b"], ["c"]]
-
-
 @pytest.mark.parametrize("local_bucketing", [False, True])
 def test_actor_budget_accepts_decimal_roundoff_at_exact_boundary(local_bucketing: bool) -> None:
     stage = _make_stage(
@@ -280,24 +267,6 @@ def test_actor_budget_accepts_decimal_roundoff_at_exact_boundary(local_bucketing
 
     assert [indices for indices, _items in plan] == [[0, 1, 2]]
     assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b", "c"]]
-
-
-def test_local_bucketing_treats_roundoff_equal_scores_as_ties() -> None:
-    stage = _make_stage(
-        max_audio_sec_per_actor=4.2,
-        max_inference_duration_s=4.2,
-        local_bucketing=True,
-    )
-    items = [
-        {"audio_seconds": 0.1, "name": "a"},
-        {"audio_seconds": 1.1, "name": "b"},
-        {"audio_seconds": 2.1, "name": "c"},
-    ]
-
-    plan = stage._plan_adapter_batches(items)
-
-    assert [indices for indices, _items in plan] == [[0, 1], [2]]
-    assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b"], ["c"]]
 
 
 def test_local_bucketing_is_scoped_to_each_process_batch_call() -> None:
@@ -451,7 +420,7 @@ def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
     assert [task.data["pred_text"] for task in results] == ["long-0 long-1 tail", "ten", "tiny"]
 
 
-def test_segmented_parent_is_skipped_only_when_all_chunks_are_skipped() -> None:
+def test_segmented_parent_marks_partial_chunk_failure() -> None:
     sample_rate = 10
     stage = _make_stage(
         waveform_key="waveform",
@@ -468,10 +437,10 @@ def test_segmented_parent_is_skipped_only_when_all_chunks_are_skipped() -> None:
     result = stage.process_batch([task])[0]
 
     assert result.data["pred_text"] == "recovered"
-    assert "_skipme" not in result.data
+    assert result.data["_skipme"] == "empty_audio"
 
 
-def test_segmented_parent_preserves_all_skipped_reason_and_chunk_extras() -> None:
+def test_segmented_parent_preserves_skip_reason_and_flat_adapter_extras() -> None:
     sample_rate = 10
     stage = _make_stage(
         waveform_key="waveform",
@@ -482,15 +451,15 @@ def test_segmented_parent_preserves_all_skipped_reason_and_chunk_extras() -> Non
     )
     task = _make_waveform_task(waveform=np.zeros(5 * sample_rate, dtype=np.float32), sample_rate=sample_rate)
     stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="", skipped=True, skip_reason="decode_failed", extras={"chunk": 0}),
-        ASRResult(text="", skipped=True, skip_reason="empty_audio", extras={"chunk": 1}),
+        ASRResult(text="", skipped=True, skip_reason="decode_failed", extras={"first_chunk": 0}),
+        ASRResult(text="", skipped=True, skip_reason="empty_audio", extras={"last_chunk": 1}),
     ]
 
     result = stage.process_batch([task])[0]
 
     assert result.data["pred_text"] == ""
     assert result.data["_skipme"] == "decode_failed"
-    assert result.data["asr_extras"] == {"chunks": [{"chunk": 0}, {"chunk": 1}]}
+    assert result.data["asr_extras"] == {"first_chunk": 0, "last_chunk": 1}
 
 
 def test_audio_load_failure_skips_only_failed_item_and_preserves_order() -> None:
