@@ -112,6 +112,30 @@ def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None
     assert "potential_metrics" not in report.produced_keys
 
 
+def test_conditional_tensor_write_is_not_guaranteed_but_still_blocks_json_sink(tmp_path: Path) -> None:
+    producer = _ConfiguredContractStage(
+        StageContract(
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=["resident_audio"], produces=["tensor"]),
+                    condition="file decoding succeeds and resident audio is assigned",
+                )
+            ],
+            key_roles={"resident_audio": "waveform"},
+        )
+    )
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+
+    report = validate_pipeline(
+        [producer, writer],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+
+    assert "resident_audio" not in report.produced_keys
+    assert any(issue.code == "tensor_into_sink" and issue.severity == "error" for issue in report.issues)
+
+
 def test_unknown_role_selector_requires_its_exact_conditional_key() -> None:
     producer = _ConfiguredContractStage(
         StageContract(
@@ -178,6 +202,57 @@ def test_input_residency_validator_accepts_only_declared_modes(residency: str) -
 def test_input_residency_validator_rejects_unknown_mode() -> None:
     with pytest.raises(ValueError, match="input_residency must be one of"):
         validate_input_residency("wavefrom", stage_name="Fixture")
+
+
+def test_file_audio_hydration_policies_are_opt_in_and_atomic(tmp_path: Path) -> None:
+    path = tmp_path / "audio.wav"
+    path.touch()
+    loaded = torch.arange(8, dtype=torch.float32).unsqueeze(0)
+
+    def loader(_path: str, *, mono: bool) -> tuple[torch.Tensor, int]:
+        assert mono
+        return loaded, 16000
+
+    untouched = {"audio_filepath": str(path)}
+    resolve_audio(untouched, residency="file", loader=loader)
+    assert set(untouched) == {"audio_filepath"}
+
+    always = {"audio_filepath": str(path)}
+    resolve_audio(always, residency="file", loader=loader, file_audio_hydration="always")
+    assert always["waveform"] is loaded
+    assert always["sample_rate"] == 16000
+
+    partial = {"audio_filepath": str(path), "sample_rate": 8000}
+    resolve_audio(partial, residency="auto", loader=loader, file_audio_hydration="auto_partial")
+    assert partial["waveform"] is loaded
+    assert partial["sample_rate"] == 16000
+
+    ordinary_auto = {"audio_filepath": str(path)}
+    resolve_audio(ordinary_auto, residency="auto", loader=loader, file_audio_hydration="auto_partial")
+    assert set(ordinary_auto) == {"audio_filepath"}
+
+
+def test_failed_file_hydration_preserves_the_existing_pair(tmp_path: Path) -> None:
+    path = tmp_path / "audio.wav"
+    path.touch()
+    stale = torch.ones(1, 4)
+    item = {"audio_filepath": str(path), "waveform": stale, "sample_rate": 8000}
+
+    def failing_loader(_path: str, *, mono: bool) -> tuple[torch.Tensor, int]:
+        assert mono
+        msg = "decode failed"
+        raise OSError(msg)
+
+    with pytest.raises(OSError, match="decode failed"):
+        resolve_audio(
+            item,
+            residency="file",
+            loader=failing_loader,
+            file_audio_hydration="always",
+        )
+
+    assert item["waveform"] is stale
+    assert item["sample_rate"] == 8000
 
 
 def test_resolve_audio_path_auto_prefers_complete_resident_audio(tmp_path: Path) -> None:
