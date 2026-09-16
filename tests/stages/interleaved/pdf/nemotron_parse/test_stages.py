@@ -30,6 +30,7 @@ import pytest
 from PIL import Image
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import set_nemotron_parse_attention_backend
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
@@ -41,6 +42,36 @@ if TYPE_CHECKING:
 
 def _empty_task() -> EmptyTask:
     return EmptyTask(dataset_name="test", data=None)
+
+
+@pytest.mark.parametrize(
+    ("capability", "vllm_version", "engine_kwargs", "expected_backend"),
+    [
+        ((8, 0), "0.23.0", {}, "TRITON_ATTN"),
+        ((8, 6), "0.23.0", {}, "TRITON_ATTN"),
+        ((9, 0), "0.22.0", {}, None),
+        ((10, 0), "0.22.0", {}, "TRITON_ATTN"),
+        ((10, 0), "0.23.0", {}, None),
+        ((10, 0), "0.22.0", {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
+    ],
+)
+def test_nemotron_parse_attention_backend_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+    capability: tuple[int, int],
+    vllm_version: str,
+    engine_kwargs: dict,
+    expected_backend: str | None,
+) -> None:
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.get_device_capability", lambda: capability)
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: vllm_version,
+    )
+
+    set_nemotron_parse_attention_backend(engine_kwargs)
+
+    assert engine_kwargs.get("attention_backend") == expected_backend
 
 
 class TestPDFPartitioningStage:
@@ -452,6 +483,7 @@ class TestNemotronParseInferenceStageMetrics:
         assert "vllm_inference_time" in stage._custom_metrics
 
     def test_setup_vllm_engine_kwargs_override_stage_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.metadata
         import sys
         import types
 
@@ -466,6 +498,13 @@ class TestNemotronParseInferenceStageMetrics:
 
         fake_vllm.SamplingParams = FakeSamplingParams
         monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+        package_version = importlib.metadata.version
+        monkeypatch.setattr(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+            lambda package: "0.22.0" if package == "vllm" else package_version(package),
+        )
+        monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+        monkeypatch.setattr("torch.cuda.get_device_capability", lambda: (10, 0))
 
         captured_kwargs: dict = {}
 
@@ -496,6 +535,7 @@ class TestNemotronParseInferenceStageMetrics:
         assert captured_kwargs["max_num_seqs"] == 8
         assert captured_kwargs["enforce_eager"] is True
         assert captured_kwargs["gpu_memory_utilization"] == 0.9
+        assert captured_kwargs["attention_backend"] == "TRITON_ATTN"
         assert stage._proc_size == (100, 100)
 
     def test_in_process_and_http_client_sampling_parameters_match(self) -> None:
