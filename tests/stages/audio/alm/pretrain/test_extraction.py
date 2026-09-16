@@ -35,10 +35,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
 from nemo_curator.stages.audio.alm.pretrain import SnippetExtractionStage
 from nemo_curator.stages.audio.alm.pretrain.utils import _PLAN_DATA_KEY
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage

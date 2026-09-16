@@ -25,9 +25,9 @@ from pathlib import Path
 
 import pytest
 from loguru import logger
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
 from nemo_curator.stages.audio.alm.pretrain import (
     PretrainMetricsAggregatorStage,
     ReadLongFormManifestStage,

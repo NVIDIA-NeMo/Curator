@@ -24,10 +24,10 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from tokenizers import Tokenizer, models, pre_tokenizers
-
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from tokenizers import Tokenizer, models, pre_tokenizers
+
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
     SnippetCutPlannerStage,
