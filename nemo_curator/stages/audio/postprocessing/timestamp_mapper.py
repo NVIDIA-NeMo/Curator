@@ -35,13 +35,22 @@ Output control uses two layers:
   always blocked, even if accidentally added to ``passthrough_keys``.
 """
 
+import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -76,9 +85,12 @@ def _segment_bounds(seg: Any) -> tuple[float, float] | None:  # noqa: ANN401 - s
         except (TypeError, IndexError, KeyError):
             return None
     try:
-        return float(start), float(end)
+        start_value, end_value = float(start), float(end)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(start_value) or not math.isfinite(end_value) or end_value <= start_value:
+        return None
+    return start_value, end_value
 
 
 def _ordered_segments(diar_segments: Any) -> list[tuple[Any, float, float]]:  # noqa: ANN401 - shape is the point
@@ -166,20 +178,24 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
 
     passthrough_keys: list[str] | None = field(default=None)
-    audio_filepath_key: str = "audio_filepath"
-    original_file_key: str = "original_file"
-    original_start_ms_key: str = "original_start_ms"
-    original_end_ms_key: str = "original_end_ms"
-    duration_ms_key: str = "duration_ms"
-    duration_key: str = "duration"
-    start_ms_key: str = "start_ms"
-    end_ms_key: str = "end_ms"
-    diar_segments_key: str = "diar_segments"
-    speaking_duration_key: str = "speaking_duration"
-    mappings_key: str = "segment_mappings"
     name: str = "TimestampMapper"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    audio_filepath_key: str = field(default="audio_filepath", kw_only=True)
+    original_file_key: str = field(default="original_file", kw_only=True)
+    original_start_ms_key: str = field(default="original_start_ms", kw_only=True)
+    original_end_ms_key: str = field(default="original_end_ms", kw_only=True)
+    duration_ms_key: str = field(default="duration_ms", kw_only=True)
+    duration_key: str = field(default="duration", kw_only=True)
+    start_ms_key: str = field(default="start_ms", kw_only=True)
+    end_ms_key: str = field(default="end_ms", kw_only=True)
+    diar_segments_key: str = field(default="diar_segments", kw_only=True)
+    speaking_duration_key: str = field(default="speaking_duration", kw_only=True)
+    mappings_key: str = field(default="segment_mappings", kw_only=True)
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        cardinality_options=["filter"],
+        gates=Gates(sanitizes_output=True, per_row_independent=True),
+    )
 
     def __post_init__(self):
         super().__init__()
@@ -222,33 +238,18 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
         conditional_writes = [
             ConditionalWrite(
-                writes=IOSpec(
-                    data_keys=[
-                        self.original_file_key,
-                        self.original_start_ms_key,
-                        self.original_end_ms_key,
-                        self.duration_ms_key,
-                        self.duration_key,
-                    ]
-                ),
-                condition=(
-                    "the mapper resolves a valid mapping/timing branch or its no-mapping fallback "
-                    "and successfully emits an output row"
-                ),
-            ),
-            ConditionalWrite(
                 writes=IOSpec(data_keys=[self.diar_segments_key]),
                 condition=(
-                    "mappings are absent or empty, no valid start/end branch takes priority, "
-                    "at least one readable diarization segment exists, and the mapper emits an output row"
+                    "no valid start/end branch takes priority, at least one readable diarization "
+                    "segment exists, and the mapper emits an output row"
                 ),
                 value_origin="transforms_upstream_same_key",
             ),
             ConditionalWrite(
                 writes=IOSpec(data_keys=[self.speaking_duration_key]),
                 condition=(
-                    "mappings are absent or empty, no valid start/end branch takes priority, "
-                    "at least one readable diarization segment exists, and speaking duration is assigned"
+                    "no valid start/end branch takes priority, at least one readable diarization "
+                    "segment exists, and speaking duration is assigned"
                 ),
             ),
         ]
@@ -265,14 +266,21 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 )
             )
         return StageContract(
-            # original_file is optional-with-fallback in every branch (process()
-            # falls back to audio_filepath / 'unknown'), so it must NOT gate
-            # composition — requiring it false-rejected runnable topologies.
-            reads_one_of=[
-                IOSpec(data_keys=[self.start_ms_key, self.end_ms_key]),
-                IOSpec(data_keys=[self.diar_segments_key]),
-                IOSpec(data_keys=[self.duration_key]),
-            ],
+            optional_reads=IOSpec(
+                data_keys=list(
+                    dict.fromkeys(
+                        [
+                            self.audio_filepath_key,
+                            self.original_file_key,
+                            self.start_ms_key,
+                            self.end_ms_key,
+                            self.diar_segments_key,
+                            self.duration_key,
+                            *passthrough_keys,
+                        ]
+                    )
+                )
+            ),
             writes=IOSpec(
                 data_keys=[
                     self.original_file_key,
@@ -280,15 +288,10 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     self.original_end_ms_key,
                     self.duration_ms_key,
                     self.duration_key,
-                    self.diar_segments_key,
-                    self.speaking_duration_key,
                 ]
             ),
-            # This stage builds its output from an allowlist (``passthrough_keys``) and hard-
-            # blocks _NEVER_PASS_KEYS, so no waveform or audio blob can leave it -- exactly what
-            # ``sanitizes_output`` means. Leaving it unset made the validator report
-            # ``tensor_into_sink`` against a JSON sink placed after this stage, i.e. it refused a
-            # pipeline that was already safe.
+            cardinality="filter",
+            cardinality_options=["filter"],
             gates=Gates(
                 sanitizes_output=True,
                 # The concat->original mappings are read from THIS task's ``_metadata``, so every
@@ -360,6 +363,11 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if key in _NEVER_PASS_KEYS:
                 continue
             if key in item and item[key] is not None and key not in result:
+                try:
+                    json.dumps(item[key])
+                except (TypeError, ValueError, OverflowError):
+                    logger.warning(f"[TimestampMapper] Dropping non-JSON passthrough key {key!r}")
+                    continue
                 result[key] = item[key]
 
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
@@ -379,17 +387,37 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         diar_segments: list,
         mappings: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        """Compose concat-time diar segments through concat->original mappings.
-
-        Each diar segment is ``[start_sec, end_sec]`` in concatenated time.
-        We translate every segment to original-file time and span the union.
-        Returns ``None`` if no segment overlaps any mapping.
-        """
-        ranges: list[dict[str, Any]] = []
-        for _seg, start_sec, end_sec in _ordered_segments(diar_segments):
-            ranges.extend(_translate_to_original(mappings, int(start_sec * 1000), int(end_sec * 1000)))
-        if not ranges:
+        """Translate every diarization interval without filling silent gaps."""
+        translated: list[tuple[Any, dict[str, Any]]] = []
+        for segment, start_sec, end_sec in _ordered_segments(diar_segments):
+            translated.extend(
+                (segment, translated_range)
+                for translated_range in _translate_to_original(
+                    mappings,
+                    int(start_sec * 1000),
+                    int(end_sec * 1000),
+                )
+            )
+        if not translated:
             return None
+        source_files = {translated_range["original_file"] for _segment, translated_range in translated}
+        if len(source_files) != 1:
+            logger.warning(
+                "[TimestampMapper] Rejecting diarization result that spans multiple original files: "
+                f"{sorted(source_files)!r}"
+            )
+            return None
+
+        translated_segments = []
+        for segment, translated_range in translated:
+            start_sec = translated_range["original_start_ms"] / 1000.0
+            end_sec = translated_range["original_end_ms"] / 1000.0
+            if isinstance(segment, Mapping):
+                translated_segments.append({**segment, "start": round(start_sec, 3), "end": round(end_sec, 3)})
+            else:
+                translated_segments.append([round(start_sec, 3), round(end_sec, 3)])
+
+        ranges = [translated_range for _segment, translated_range in translated]
         result: dict[str, Any] = {
             self.original_file_key: ranges[0]["original_file"],
             self.original_start_ms_key: min(r["original_start_ms"] for r in ranges),
@@ -397,6 +425,8 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         }
         result[self.duration_ms_key] = result[self.original_end_ms_key] - result[self.original_start_ms_key]
         result[self.duration_key] = result[self.duration_ms_key] / 1000.0
+        result[self.diar_segments_key] = translated_segments
+        result[self.speaking_duration_key] = round(sum(r["duration_ms"] for r in ranges) / 1000.0, 3)
         self._copy_passthrough(item, result)
         return result
 
