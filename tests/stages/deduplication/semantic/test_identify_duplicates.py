@@ -26,6 +26,7 @@ import pytest
 with suppress(ImportError):
     from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
     from nemo_curator.tasks import FileGroupTask
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 @pytest.mark.gpu
@@ -177,11 +178,17 @@ class TestIdentifyDuplicatesStage:
         )
 
         # Create tasks for each cluster
+        partitioning_perf = StagePerfStats(stage_name="pairwise_file_partitioning")
+        pairwise_perfs = [
+            StagePerfStats(stage_name="PairwiseCosineSimilarityStage", num_items_processed=i + 1)
+            for i in range(len(cluster_files))
+        ]
         tasks = []
-        for _i, file_path in enumerate(cluster_files):
+        for i, file_path in enumerate(cluster_files):
             task = FileGroupTask(
                 dataset_name="test",
                 data=[file_path],
+                _stage_perf=[partitioning_perf, pairwise_perfs[i]],
             )
             tasks.append(task)
 
@@ -198,6 +205,7 @@ class TestIdentifyDuplicatesStage:
         # Check metadata
         assert "num_removed" in result_tasks[0]._metadata
         assert result_tasks[0]._metadata["num_removed"] == 20
+        assert result_tasks[0]._stage_perf == [partitioning_perf, *pairwise_perfs]
 
     def test_identify_duplicates_stage_custom_row_groups(self, tmp_path: Path) -> None:
         """Test custom row group configuration."""

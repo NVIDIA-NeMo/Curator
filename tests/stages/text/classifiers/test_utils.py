@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import pandas as pd
+import pyarrow as pa
 
 from nemo_curator.stages.text.classifiers.utils import SortByLengthStage
 from nemo_curator.stages.text.models.utils import SEQ_ORDER_FIELD
@@ -42,3 +43,29 @@ class TestSortByLengthStage:
         result = stage.process(batch)
         # Check that the data is not modified
         assert result.data.equals(batch.data)
+
+    def test_process_pyarrow(self):
+        batch = DocumentBatch(
+            dataset_name="test",
+            data=pa.table({"attention_mask": [[1, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 0, 0]]}),
+        )
+
+        result = SortByLengthStage().process(batch)
+
+        assert isinstance(result.data, pd.DataFrame)
+        assert result.data[SEQ_ORDER_FIELD].tolist() == [2, 0, 1]
+
+    def test_process_pyarrow_no_op(self):
+        batch = DocumentBatch(
+            dataset_name="test",
+            data=pa.table(
+                {
+                    "attention_mask": [[1, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 0, 0]],
+                    SEQ_ORDER_FIELD: [1, 2, 0],
+                }
+            ),
+        )
+
+        result = SortByLengthStage().process(batch)
+
+        assert result is batch
