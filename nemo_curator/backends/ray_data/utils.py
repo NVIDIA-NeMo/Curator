@@ -12,25 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Mapping
-
-from loguru import logger
 from ray.data import ActorPoolStrategy
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
-
-ACTOR_POOL_SIZING_KEYS = (
-    RayStageSpecKeys.MIN_WORKERS,
-    RayStageSpecKeys.MAX_WORKERS,
-    RayStageSpecKeys.INITIAL_WORKERS,
-)
-
-
-def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) -> list[str]:
-    """Return actor-pool sizing keys configured in a ray stage spec."""
-    stage_spec_keys = {key.value if isinstance(key, RayStageSpecKeys) else key for key in ray_stage_spec}
-    return [key.value for key in ACTOR_POOL_SIZING_KEYS if key.value in stage_spec_keys]
 
 
 def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStrategy:
@@ -42,12 +27,6 @@ def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStr
     """
     num_workers = stage.num_workers()
     if num_workers is not None and num_workers > 0:
-        actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(stage.ray_stage_spec())
-        if actor_pool_sizing_keys:
-            logger.warning(
-                f"Stage {stage.name} uses num_workers={num_workers}; ignoring ray_stage_spec "
-                f"actor-pool sizing keys {actor_pool_sizing_keys}."
-            )
         return ActorPoolStrategy(size=num_workers)
 
     ray_stage_spec = stage.ray_stage_spec()
