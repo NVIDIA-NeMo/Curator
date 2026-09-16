@@ -13,6 +13,9 @@
 # limitations under the License.
 
 import json
+from datetime import datetime
+from decimal import Decimal
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -144,11 +147,42 @@ class TestAudioToDocumentSerializationBoundary:
         )
 
         with caplog.at_level("WARNING"):
-            row = AudioToDocumentStage().process_batch([task])[0].to_pandas().iloc[0].to_dict()
+            row = AudioToDocumentStage(strict_json=True).process_batch([task])[0].to_pandas().iloc[0].to_dict()
 
         assert row["custom"] == ["kept"]
         assert "custom[1]" in caplog.text
         json.dumps(row)
+
+    def test_default_preserves_legacy_dataframe_values(self) -> None:
+        values = {
+            "when": datetime(2026, 9, 16, 12, 30),
+            "amount": Decimal("1.25"),
+            "path": Path("relative/file.wav"),
+            "pair": ("left", "right"),
+        }
+
+        row = AudioToDocumentStage().process_batch([AudioTask(dataset_name="d", data=values)])[0].to_pandas().iloc[0]
+
+        assert row["when"] == values["when"]
+        assert row["amount"] == values["amount"]
+        assert row["path"] == values["path"]
+        assert row["pair"] == values["pair"]
+
+
+def test_legacy_instances_and_subclass_defaults_remain_usable() -> None:
+    old_instance = AudioToDocumentStage.__new__(AudioToDocumentStage)
+
+    class NoSuperInit(AudioToDocumentStage):
+        def __init__(self) -> None:
+            self.initialized = True
+
+    class LegacyBatchDefault(AudioToDocumentStage):
+        batch_size = 7
+
+    task = AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "kept"})
+    assert old_instance.process_batch([task])[0].to_pandas().iloc[0]["text"] == "kept"
+    assert NoSuperInit().process_batch([task])[0].to_pandas().iloc[0]["text"] == "kept"
+    assert LegacyBatchDefault().batch_size == 7
 
 
 def test_configured_projection_is_visible_to_planning_and_runtime() -> None:
@@ -197,3 +231,17 @@ def test_projection_that_keeps_nothing_is_rejected() -> None:
                 AudioTask(dataset_name="d", data={"audio_filepath": "/b.wav"}),
             ]
         )
+
+
+def test_custom_segments_key_is_removed_in_contract_and_runtime() -> None:
+    stage = AudioToDocumentStage(segments_key="chunks")
+    task = AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "chunks": [{"start": 0.0}]})
+
+    contract = build_contract(stage)
+    row = stage.process_batch([task])[0].to_pandas().iloc[0].to_dict()
+
+    assert "chunks" in contract.removes_keys
+    assert "chunks" not in row
+
+    report = validate_pipeline([stage], initial_keys={"audio_filepath", "chunks"})
+    assert "chunks" not in report.produced_keys

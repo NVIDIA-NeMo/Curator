@@ -307,13 +307,13 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     output_dir: str = ""
     output_format: str = DEFAULT_OUTPUT_FORMAT
-    output_key: str = "extracted_path"
     batch_size: int = 64
     # Output names use cross-row counters and metadata.csv is rewritten from
     # in-memory run state, so a partial source retry cannot reproduce the same
     # complete output safely.
     is_resumable = False
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    output_key: str = field(default="extracted_path", kw_only=True)
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -322,6 +322,9 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
         if self.output_format not in SOUNDFILE_FORMATS:
             msg = f"output_format must be one of {list(SOUNDFILE_FORMATS)}, got {self.output_format!r}"
+            raise ValueError(msg)
+        if not isinstance(self.output_key, str) or not self.output_key:
+            msg = "output_key must be a non-empty string"
             raise ValueError(msg)
         self._all_metadata_rows: list[dict] = []
         self._segment_counter: dict[str, int] = defaultdict(int)
@@ -373,7 +376,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             3: self._extract_speaker_diar,
             4: self._extract_speaker_timestamps,
         }
-        extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries)
+        extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](
+            entries,
+            record_output_paths=True,
+        )
 
         self._all_metadata_rows.extend(metadata_rows)
         _write_metadata_csv(self.output_dir, self._all_metadata_rows)
@@ -392,6 +398,8 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def _extract_by_timestamps(
         self,
         entries: list[dict],
+        *,
+        record_output_paths: bool = False,
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 2: extract by original_start_ms / original_end_ms."""
 
@@ -405,11 +413,14 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             sort_key=lambda x: x.get("original_start_ms", 0),
             get_intervals=_intervals_from_timestamps,
             make_filename=_make_filename,
+            record_output_paths=record_output_paths,
         )
 
     def _extract_speaker_diar(
         self,
         entries: list[dict],
+        *,
+        record_output_paths: bool = False,
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 3: extract each diar_segment per speaker."""
 
@@ -424,11 +435,14 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             sort_key=lambda x: x.get("speaker_id", ""),
             get_intervals=_intervals_from_diar_segments,
             make_filename=_make_filename,
+            record_output_paths=record_output_paths,
         )
 
     def _extract_speaker_timestamps(
         self,
         entries: list[dict],
+        *,
+        record_output_paths: bool = False,
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 4: extract speaker-segments by timestamps."""
 
@@ -443,6 +457,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             sort_key=lambda x: (x.get("speaker_id", ""), x.get("original_start_ms", 0)),
             get_intervals=_intervals_from_timestamps,
             make_filename=_make_filename,
+            record_output_paths=record_output_paths,
         )
 
     # ------------------------------------------------------------------
@@ -456,6 +471,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         sort_key: Callable[[dict], Any],
         get_intervals: Callable[[dict], list[Interval]],
         make_filename: Callable[[str, dict, int], str],
+        record_output_paths: bool = False,
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Group-by-file -> read -> write -> metadata loop."""
         by_file: dict[str, list] = defaultdict(list)
@@ -466,6 +482,13 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         total_dur = 0.0
         speaker_counts: dict[str, int] = defaultdict(int)
         metadata_rows: list[dict] = []
+        written_paths: dict[int, list[Any]] = {}
+        if record_output_paths:
+            for entry in entries:
+                existing = entry.get(self.output_key)
+                written_paths[id(entry)] = (
+                    list(existing) if isinstance(existing, list) else ([] if existing is None else [existing])
+                )
 
         for original_file, file_entries in by_file.items():
             if not os.path.exists(original_file):
@@ -486,16 +509,8 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     try:
                         audio = _read_segment(original_file, start_ms, end_ms, info.samplerate)
                         sf.write(output_path, audio, info.samplerate, subtype=SOUNDFILE_FORMATS[self.output_format])
-                        # collect ALL written paths — a scalar was last-write-wins
-                        # for multi-interval entries (only the final segment's
-                        # path survived, plus a stale path on later failures);
-                        # a pre-existing scalar (re-run on an augmented manifest)
-                        # is folded into the list instead of crashing .append
-                        written = entry.get(self.output_key)
-                        if not isinstance(written, list):
-                            written = [] if written is None else [written]
-                            entry[self.output_key] = written
-                        written.append(output_path)
+                        if record_output_paths:
+                            written_paths[id(entry)].append(output_path)
                         extracted += 1
                         total_dur += dur
 
@@ -512,12 +527,16 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                                 start_ms,
                                 end_ms,
                                 dur,
-                                exclude=frozenset({self.output_key}),
+                                exclude=frozenset({self.output_key}) if record_output_paths else frozenset(),
                             )
                         )
                         logger.debug(f"  {out_filename} ({start_ms}-{end_ms}ms, {dur:.2f}s)")
                     except Exception as e:  # noqa: BLE001
                         logger.error(f"  Failed to extract {out_filename}: {e}")
+
+        if record_output_paths:
+            for entry in entries:
+                entry[self.output_key] = written_paths[id(entry)]
 
         return extracted, total_dur, speaker_counts, metadata_rows
 
