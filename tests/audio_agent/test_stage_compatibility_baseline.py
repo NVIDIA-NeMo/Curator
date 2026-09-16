@@ -250,7 +250,10 @@ ADDITIVE_STAGE_NAMES = (
 # Regenerated again after the inference re-review corrections added strict opt-in
 # path fallback, disabled additive speaker-count outputs by default, and corrected
 # static disk/gpu gates for the three inference stages.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "593d1056a69285f15f1f605c8d7589004cad293f9bd49e32343c6c942cbc23f4"
+# Regenerated for the postprocessing safety corrections. TimestampMapper's
+# agent-added key knobs are keyword-only, preserving its four legacy positional
+# slots, while static discovery now reports its sanitizer and filter behavior.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "2172e59d36d2bf5cee459b736385a3484fedff49eda72cf30d94a1b8c2474187"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

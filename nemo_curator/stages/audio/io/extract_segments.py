@@ -52,8 +52,10 @@ from __future__ import annotations
 import csv
 import glob
 import json
+import math
 import os
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -150,7 +152,52 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
         speaker_id = entry.get("speaker_id", "unknown")
         logger.warning(f"  {speaker_id}: no diar_segments, skipping")
         return []
-    return [(int(s * 1000), int(e * 1000), e - s) for s, e in sorted(diar_segments, key=lambda x: x[0])]
+    intervals = []
+    for segment in diar_segments:
+        if isinstance(segment, Mapping):
+            start, end = segment.get("start"), segment.get("end")
+        else:
+            try:
+                start, end = segment[0], segment[1]
+            except (TypeError, IndexError, KeyError):
+                continue
+        try:
+            start_value, end_value = float(start), float(end)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(start_value) or not math.isfinite(end_value) or end_value <= start_value:
+            continue
+        intervals.append((int(start_value * 1000), int(end_value * 1000), end_value - start_value))
+    return sorted(intervals, key=lambda interval: interval[0])
+
+
+def _expand_nested_speaker_entries(entries: list[dict]) -> tuple[list[dict], list[tuple[dict, list[dict]]]]:
+    """Normalize dictionary diarization segments into canonical per-speaker rows."""
+    expanded = []
+    expanded_groups = []
+    for entry in entries:
+        segments = entry.get("diar_segments") or []
+        nested_speakers = {
+            str(segment["speaker"])
+            for segment in segments
+            if isinstance(segment, Mapping) and segment.get("speaker") is not None
+        }
+        if entry.get("speaker_id") is not None or not nested_speakers:
+            expanded.append(entry)
+            continue
+        speaker_entries = []
+        for speaker_id in sorted(nested_speakers):
+            speaker_entry = dict(entry)
+            speaker_entry["speaker_id"] = speaker_id
+            speaker_entry["diar_segments"] = [
+                segment
+                for segment in segments
+                if isinstance(segment, Mapping) and str(segment.get("speaker")) == speaker_id
+            ]
+            expanded.append(speaker_entry)
+            speaker_entries.append(speaker_entry)
+        expanded_groups.append((entry, speaker_entries))
+    return expanded, expanded_groups
 
 
 def _base_metadata(  # noqa: PLR0913
@@ -197,7 +244,11 @@ def detect_combo(entries: list) -> int:
         return 2
 
     first = entries[0]
-    has_speaker = "speaker_id" in first
+    has_nested_speaker = any(
+        isinstance(segment, Mapping) and segment.get("speaker") is not None
+        for segment in first.get("diar_segments", [])
+    )
+    has_speaker = "speaker_id" in first or has_nested_speaker
     has_diar = "diar_segments" in first
 
     if has_speaker and has_diar:
@@ -430,13 +481,23 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._speaker_segment_counter[name][speaker_id] += 1
             return f"{name}_speaker_{speaker_num}_segment_{idx:03d}.{self.output_format}"
 
-        return self._extract_file_segments(
-            entries,
+        expanded_entries, expanded_groups = _expand_nested_speaker_entries(entries)
+        result = self._extract_file_segments(
+            expanded_entries,
             sort_key=lambda x: x.get("speaker_id", ""),
             get_intervals=_intervals_from_diar_segments,
             make_filename=_make_filename,
             record_output_paths=record_output_paths,
         )
+        for parent, speaker_entries in expanded_groups:
+            output_paths = [
+                path
+                for speaker_entry in speaker_entries
+                for path in speaker_entry.get(self.output_key, [])
+            ]
+            if output_paths:
+                parent[self.output_key] = output_paths
+        return result
 
     def _extract_speaker_timestamps(
         self,

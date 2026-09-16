@@ -12,15 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
+import json
+from pathlib import Path
 from typing import ClassVar
 
+import pytest
 import torch
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
     _NEVER_PASS_KEYS,
     TimestampMapperStage,
     _translate_to_original,
 )
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -464,3 +472,214 @@ def test_timestamp_mapper_multispeaker_maps_distinct_windows() -> None:
         spans[speaker_id] = (out.data["original_start_ms"], out.data["original_end_ms"])
     # narrow refined windows; the removed guard would give (0,400) and (1000,1400)
     assert spans == {"speaker_0": (100, 300), "speaker_1": (1100, 1300)}
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        [float("nan"), 1.0],
+        [0.0, float("inf")],
+        [2.0, 1.0],
+        [1.0, 1.0],
+        {"start": 2.0, "end": 1.0, "speaker": "speaker_0"},
+    ],
+)
+def test_malformed_numeric_segments_are_skipped(segment: object) -> None:
+    result = TimestampMapperStage().process(
+        _make_task({"audio_filepath": "clip.wav", "diar_segments": [segment]})
+    )
+
+    assert isinstance(result, AudioTask)
+    assert result.data["duration"] == 0.0
+    assert "diar_segments" not in result.data
+
+
+def test_mapped_diarization_preserves_exact_intervals_and_speaker_metadata() -> None:
+    mappings = [
+        {
+            "concat_start_ms": 0,
+            "concat_end_ms": 1000,
+            "original_file": "a.wav",
+            "original_start_ms": 10000,
+        },
+        {
+            "concat_start_ms": 1500,
+            "concat_end_ms": 2500,
+            "original_file": "a.wav",
+            "original_start_ms": 30000,
+        },
+    ]
+    task = _make_task(
+        {
+            "diar_segments": [
+                {"start": 0.2, "end": 0.8, "speaker": "speaker_0"},
+                {"start": 1.6, "end": 2.2, "speaker": "speaker_1"},
+            ]
+        },
+        metadata={"segment_mappings": mappings},
+    )
+
+    result = TimestampMapperStage().process(task)
+
+    assert isinstance(result, AudioTask)
+    assert result.data["original_file"] == "a.wav"
+    assert result.data["original_start_ms"] == 10200
+    assert result.data["original_end_ms"] == 30700
+    assert result.data["duration_ms"] == 20500
+    assert result.data["speaking_duration"] == 1.2
+    assert result.data["diar_segments"] == [
+        {"start": 10.2, "end": 10.8, "speaker": "speaker_0"},
+        {"start": 30.1, "end": 30.7, "speaker": "speaker_1"},
+    ]
+
+
+def test_mapped_diarization_rejects_multiple_original_files() -> None:
+    mappings = [
+        {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": "a.wav", "original_start_ms": 0},
+        {
+            "concat_start_ms": 1000,
+            "concat_end_ms": 2000,
+            "original_file": "b.wav",
+            "original_start_ms": 0,
+        },
+    ]
+    task = _make_task(
+        {"diar_segments": [[0.2, 0.8], [1.2, 1.8]]},
+        metadata={"segment_mappings": mappings},
+    )
+
+    assert TimestampMapperStage().process(task) == []
+
+
+def test_custom_non_json_passthrough_is_removed_before_real_writer(tmp_path: Path) -> None:
+    mapper = TimestampMapperStage(passthrough_keys=["audio_tensor", "nested"])
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [mapper, writer],
+        initial_keys={"audio_filepath", "duration", "audio_tensor", "nested"},
+        initial_tensor_keys={"audio_tensor"},
+    )
+    assert report.ok
+
+    task = _make_task(
+        {
+            "audio_filepath": "clip.wav",
+            "duration": 1.0,
+            "audio_tensor": torch.ones(4),
+            "nested": {"tensor": torch.ones(2)},
+        }
+    )
+    mapped = mapper.process(task)
+    assert isinstance(mapped, AudioTask)
+    assert "audio_tensor" not in mapped.data
+    assert "nested" not in mapped.data
+
+    writer.setup()
+    writer.process(mapped)
+    assert json.loads((tmp_path / "out.jsonl").read_text()) == mapped.data
+
+
+def test_legacy_positional_signature_is_preserved() -> None:
+    signature = inspect.signature(TimestampMapperStage.__init__)
+    assert [
+        parameter.name
+        for parameter in signature.parameters.values()
+        if parameter.name != "self" and parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ] == ["passthrough_keys", "name", "batch_size", "resources"]
+
+    resources = Resources(cpus=2)
+    stage = TimestampMapperStage(None, "legacy-name", 7, resources)
+    assert stage.name == "legacy-name"
+    assert stage.batch_size == 7
+    assert stage.resources is resources
+
+
+def test_contract_matches_runtime_branches() -> None:
+    stage = TimestampMapperStage()
+    contract = stage.describe()
+    assert contract.cardinality == "filter"
+    assert contract.reads_one_of == []
+    assert set(contract.optional_reads.data_keys) >= {
+        "audio_filepath",
+        "original_file",
+        "start_ms",
+        "end_ms",
+        "diar_segments",
+        "duration",
+    }
+    assert contract.writes.data_keys == [
+        "original_file",
+        "original_start_ms",
+        "original_end_ms",
+        "duration_ms",
+        "duration",
+    ]
+    conditional_keys = {
+        key for conditional in contract.conditional_writes for key in conditional.writes.data_keys
+    }
+    assert {"diar_segments", "speaking_duration"} <= conditional_keys
+
+
+@pytest.mark.parametrize(
+    ("data", "metadata"),
+    [
+        ({"audio_filepath": "clip.wav"}, None),
+        ({"audio_filepath": "clip.wav", "duration": 1.0}, None),
+        ({"audio_filepath": "clip.wav", "start_ms": 100, "end_ms": 400}, None),
+        ({"audio_filepath": "clip.wav", "diar_segments": [[0.1, 0.4]]}, None),
+        (
+            {"start_ms": 100, "end_ms": 400},
+            {
+                "segment_mappings": [
+                    {
+                        "concat_start_ms": 0,
+                        "concat_end_ms": 1000,
+                        "original_file": "clip.wav",
+                        "original_start_ms": 0,
+                    }
+                ]
+            },
+        ),
+    ],
+)
+def test_agent_conformance_for_kept_branches(data: dict, metadata: dict | None) -> None:
+    stage = TimestampMapperStage()
+    assert_agent_ready(
+        stage,
+        lambda: _make_task(dict(data), metadata=dict(metadata) if metadata else None),
+        expected_cardinality="filter",
+        available_keys=set(data),
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "mappings"),
+    [
+        ({"start_ms": 500, "end_ms": 100}, [{"concat_start_ms": 0, "concat_end_ms": 1000}]),
+        ({"start_ms": 100, "end_ms": 900}, []),
+        ({}, [{"concat_start_ms": 0, "concat_end_ms": 1000}]),
+    ],
+)
+def test_agent_conformance_for_drop_branches(data: dict, mappings: list[dict]) -> None:
+    stage = TimestampMapperStage()
+    metadata = {"segment_mappings": mappings or [{"concat_start_ms": 2000, "concat_end_ms": 3000}]}
+    assert_agent_ready(
+        stage,
+        lambda: _make_task(dict(data), metadata=metadata),
+        expected_cardinality="filter",
+        available_keys=set(data),
+    )
+
+
+def test_audio_path_only_planner_matches_runtime() -> None:
+    stage = TimestampMapperStage()
+    report = validate_pipeline(
+        [stage],
+        initial_roles={"audio_filepath"},
+        initial_keys={"audio_filepath"},
+    )
+    assert report.ok
+
+    result = stage.process(_make_task({"audio_filepath": "clip.wav"}))
+    assert isinstance(result, AudioTask)
+    assert result.data["duration"] == 0.0
