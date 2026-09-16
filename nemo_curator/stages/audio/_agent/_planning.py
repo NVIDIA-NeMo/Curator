@@ -748,17 +748,20 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         ):
             walk.available.discard(role)
             walk.removed_roles.add(role)
-    if "tensor" in contract.writes.produces:
+    tensor_writes = written | segment_written
+    has_possible_tensor_write = "tensor" in contract.writes.produces
+    for conditional in contract.conditional_writes:
+        if "tensor" in conditional.writes.produces:
+            has_possible_tensor_write = True
+            tensor_writes.update(conditional.writes.data_keys)
+            tensor_writes.update(conditional.writes.segment_data_keys)
+    if has_possible_tensor_write:
         # The stage's OWN key_roles first, global names only as fallback. A custom
         # ``waveform_key`` still declares its role in the contract, but the global lookup
         # returned "unknown", so residency tracked ``_UNNAMED_TENSOR`` instead of the real
         # carrier -- and a downstream stage dropping that carrier still looked resident,
         # raising a spurious ``tensor_into_sink`` on a recipe that had cleaned up correctly.
-        carriers = {
-            key
-            for key in written | segment_written
-            if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE
-        }
+        carriers = {key for key in tensor_writes if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE}
         walk.tensor_keys |= carriers or {_UNNAMED_TENSOR}
     if contract.gates.sanitizes_output:
         walk.tensor_keys.clear()
