@@ -169,15 +169,34 @@ def _fanout_audio_slice(
     end: float,
 ) -> np.ndarray:
     """Clone one bounded channel-first segment from a parent waveform."""
+    segment, _start, _end = _fanout_audio_segment(waveform, sample_rate, start=start, end=end)
+    return segment
+
+
+def _fanout_audio_segment(
+    waveform: Any,  # noqa: ANN401
+    sample_rate: int,
+    *,
+    start: float,
+    end: float,
+) -> tuple[np.ndarray, float, float]:
+    """Return a cloned slice and sample-aligned normalized boundaries."""
     audio = _channel_first_waveform(waveform)
     rate = int(sample_rate)
     if rate <= 0:
         msg = f"sample rate must be > 0, got {rate}"
         raise ValueError(msg)
+    if not math.isfinite(start) or not math.isfinite(end):
+        msg = f"segment boundaries must be finite, got start={start}, end={end}"
+        raise ValueError(msg)
+    if end < start:
+        msg = f"segment end must be >= start, got start={start}, end={end}"
+        raise ValueError(msg)
     sample_count = audio.shape[1]
     start_sample = max(0, min(sample_count, int(max(0.0, start) * rate)))
-    end_sample = max(start_sample, min(sample_count, int(max(start, end) * rate)))
-    return np.array(audio[:, start_sample:end_sample], copy=True, order="C")
+    end_sample = max(start_sample, min(sample_count, int(max(0.0, end) * rate)))
+    segment = np.array(audio[:, start_sample:end_sample], copy=True, order="C")
+    return segment, start_sample / rate, end_sample / rate
 
 
 def _resident_audio_duration(waveform: np.ndarray, sample_rate: int) -> float:

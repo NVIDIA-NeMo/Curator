@@ -43,7 +43,7 @@ from nemo_curator.stages.audio._agent._residency import (
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.audio.inference.base import (
     _channel_first_waveform,
-    _fanout_audio_slice,
+    _fanout_audio_segment,
     _fanout_original_file,
     _fanout_path_keys,
     _inference_audio_input_spec,
@@ -141,6 +141,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     waveform_key: str = field(default="waveform", kw_only=True)
     sample_rate_key: str = field(default="sample_rate", kw_only=True)
     input_residency: InputResidency = field(default="file", kw_only=True)
+    allow_audio_filepath_fallback: bool = field(default=False, kw_only=True)
     fanout: bool = field(default=False, kw_only=True)
     start_key: str = field(default="start", kw_only=True)
     end_key: str = field(default="end", kw_only=True)
@@ -158,6 +159,8 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         cardinality_options=["1:1", "1:N fan-out"],
         gates=Gates(
+            writes_to_disk=True,
+            output_path_params=[],
             requires_gpu=True,
             requires_internet_first_run=True,
             per_row_independent=True,
@@ -166,6 +169,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
+        self.is_resumable = not self.fanout
         if self.fanout:
             _validate_fanout_key_contract(
                 stage_name=self.name,
@@ -197,7 +201,14 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             task,
             stage_name=self.name,
             residency=self.input_residency,
-            audio_filepath_keys=tuple(dict.fromkeys([self.audio_filepath_key, "audio_filepath"])),
+            audio_filepath_keys=tuple(
+                dict.fromkeys(
+                    [
+                        self.audio_filepath_key,
+                        *(["audio_filepath"] if self.allow_audio_filepath_fallback else []),
+                    ]
+                )
+            ),
             waveform_key=self.waveform_key,
             sample_rate_key=self.sample_rate_key,
         )
@@ -240,7 +251,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 audio_filepath_key=self.audio_filepath_key,
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
-                fallback_audio_filepath_keys=("audio_filepath",),
+                fallback_audio_filepath_keys=("audio_filepath",) if self.allow_audio_filepath_fallback else (),
             ),
             writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,
@@ -256,6 +267,8 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
                 requires_internet_first_run=True,
+                writes_to_disk=self.input_residency != "file",
+                output_path_params=[] if self.input_residency != "file" else None,
                 per_row_independent=True,
             ),
         )
@@ -281,14 +294,16 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             *_fanout_path_keys(self.audio_filepath_key),
         }
         child = {k: v for k, v in item.items() if k not in excluded}
-        start = float(segment.get("start", 0.0))
-        end = float(segment.get("end", start))
+        raw_start = float(segment.get("start", 0.0))
+        raw_end = float(segment.get("end", raw_start))
         # copy segment extras but never whisperx's raw internal keys: 'segments'
         # (a list of (start, end) tuples) collides with the semantic segments
         # role and crashes dict-shaped consumers; raw start/end are re-emitted
         # under the configured keys below.
         child.update({k: v for k, v in segment.items() if k not in {"start", "end", "segments", *excluded}})
-        child[self.waveform_key] = _fanout_audio_slice(waveform, sample_rate, start=start, end=end)
+        child[self.waveform_key], start, end = _fanout_audio_segment(
+            waveform, sample_rate, start=raw_start, end=raw_end
+        )
         child[self.sample_rate_key] = int(sample_rate)
         child[self.start_key] = start
         child[self.end_key] = end
@@ -357,12 +372,6 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not self.validate_input(task):
             msg = f"[{self.name}] task {task.task_id!r} has no valid {self.input_residency} audio input"
             raise ValueError(msg)
-        source_path = _stable_source_path(
-            data_entry,
-            self.audio_filepath_key,
-            "audio_filepath",
-            "resampled_audio_filepath",
-        )
         resident_waveform = (
             _channel_first_waveform(data_entry[self.waveform_key])
             if self.input_residency != "file"
@@ -371,6 +380,15 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             else None
         )
         resident_sample_rate = int(data_entry[self.sample_rate_key]) if resident_waveform is not None else None
+        source_path = (
+            None
+            if resident_waveform is not None
+            else _stable_source_path(
+                data_entry,
+                self.audio_filepath_key,
+                *(["audio_filepath"] if self.allow_audio_filepath_fallback else []),
+            )
+        )
         audio_input = data_entry if resident_waveform is None else {**data_entry, self.waveform_key: resident_waveform}
         temp_paths: list[str] = []
         file_path = resolve_audio_path(
@@ -381,7 +399,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             sample_rate_key=self.sample_rate_key,
             register_temp=temp_paths,
         )
-        if file_path is None and self.audio_filepath_key != "audio_filepath":
+        if file_path is None and self.allow_audio_filepath_fallback and self.audio_filepath_key != "audio_filepath":
             # Composability fallback: pipelines that did not run ResampleAudioStage
             # only have the original audio_filepath.
             file_path = resolve_audio_path(
