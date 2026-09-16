@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from runner.env_capture import dump_env
+from runner.environment import merge_subprocess_environment
 from runner.gpu_stats_recorder import GPUStatsRecorder
 from runner.path_resolver import set_path_mode
 from runner.process import run_command_with_timeout
@@ -67,9 +68,6 @@ if TYPE_CHECKING:
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
-
-# Benchmark runs always retain Ray Data scheduler diagnostics for post-run analysis.
-os.environ.setdefault("NEMO_CURATOR_RAY_DATA_DIAGNOSTICS", "1")
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -161,6 +159,21 @@ def check_requirements_update_results(  # noqa: C901, PLR0912
     return meets_requirements
 
 
+def build_subprocess_environment(
+    entry: Entry,
+    session_entry_path: Path,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+) -> tuple[dict[str, str], set[str]]:
+    """Return the full subprocess environment and the configured names safe to consider for value logging."""
+    entry_environment = {}
+    for name, value in entry.environment.items():
+        resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
+        resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
+        entry_environment[name] = resolved_value
+    return merge_subprocess_environment(entry_environment), set(entry_environment)
+
+
 def run_data_setup_entry(
     setup_entry: Entry,
     path_resolver: PathResolver,
@@ -186,10 +199,15 @@ def run_data_setup_entry(
         "logs_dir": logs_path,
     }
     try:
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            setup_entry, setup_path, path_resolver, dataset_resolver
+        )
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=setup_entry.timeout_s,
             stdouterr_path=stdouterr_path,
+            env=subprocess_env,
+            env_value_allowlist=configured_env_names,
             run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
@@ -320,11 +338,16 @@ def run_entry(  # noqa: PLR0913
             else nullcontext()
         )
         started_exec = time.time()
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            entry, session_entry_path, path_resolver, dataset_resolver
+        )
         with gpu_stats_recorder_ctx:
             run_data = run_command_with_timeout(
                 command=cmd,
                 timeout=entry.timeout_s,
                 stdouterr_path=stdouterr_path,
+                env=subprocess_env,
+                env_value_allowlist=configured_env_names,
                 run_id=run_id,
                 fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
             )

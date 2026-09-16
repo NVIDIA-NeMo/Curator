@@ -169,14 +169,17 @@ sinks:
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
   - name: slack
-    enabled: true
+    # Disabled by default so local/open-source runs do not require Slack
+    # credentials or post notifications. Managed orchestration can re-enable
+    # this sink with an override config while reusing the settings below.
+    enabled: false
     dependencies:
       - sinks
     live_updates: true
     thread_replies_for_failures_or_warnings_only: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
-    ping_users_on_failure: true
+    ping_users_on_failure: false
 #  - name: gdrive
 #    enabled: false
 #    dependencies:
@@ -621,8 +624,8 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
-      --kmeans-embedding-output-dtype=float32
-      --pairwise-compute-dtype=float32
+      --kmeans-embedding-output-dtype=float16
+      --pairwise-compute-dtype=float16
       --dataset-size-ratio=0.20
       --fit-data-fraction=1.0
     timeout_s: 1200
@@ -676,8 +679,8 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
-      --kmeans-embedding-output-dtype=float32
-      --pairwise-compute-dtype=float32
+      --kmeans-embedding-output-dtype=float16
+      --pairwise-compute-dtype=float16
       --fit-data-fraction=0.20
     timeout_s: 1800
     sink_data:
