@@ -342,17 +342,18 @@ class OverlapFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     name: str = "OverlapFilter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    segments_key: str = "segments"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=["segments"]),
-            writes=IOSpec(data_keys=["segments"]),
+            reads=IOSpec(data_keys=[self.segments_key]),
+            writes=IOSpec(data_keys=[self.segments_key]),
             metadata_writes=[_PRETRAIN_META_KEY],
             # Compares this row's segments with each other; the counters it parks in metadata
             # are per-row facts an aggregator sums later.
@@ -361,7 +362,7 @@ class OverlapFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        segments = list(task.data.get("segments") or [])
+        segments = list(task.data.get(self.segments_key) or [])
         original_count = len(segments)
         # Wall-clock span of the source recording: last segment's end minus
         # first segment's start. Comparable to `out_duration_sec` (which is
@@ -376,7 +377,7 @@ class OverlapFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         kept = [s for i, s in enumerate(kept_after_empty) if i not in bad]
         dropped_overlap = len(bad)
 
-        task.data["segments"] = kept
+        task.data[self.segments_key] = kept
 
         meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
         meta["original_seg_count"] = original_count
@@ -424,6 +425,9 @@ class SnippetCutPlannerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     name: str = "SnippetCutPlanner"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    segments_key: str = "segments"
+    snippet_plan_key: str = _PLAN_DATA_KEY
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_plan_key"})
 
     def __post_init__(self) -> None:
         if self.max_duration_sec <= 0:
@@ -440,29 +444,29 @@ class SnippetCutPlannerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [_PLAN_DATA_KEY]
+        return [], [self.snippet_plan_key]
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=["segments"]),
-            writes=IOSpec(data_keys=[_PLAN_DATA_KEY]),
+            reads=IOSpec(data_keys=[self.segments_key]),
+            writes=IOSpec(data_keys=[self.snippet_plan_key]),
             metadata_writes=[_PRETRAIN_META_KEY],
             gates=Gates(per_row_independent=True),
         )
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        segments = list(task.data.get("segments") or [])
+        segments = list(task.data.get(self.segments_key) or [])
         snippets, drop_counts = plan_snippets(
             segments,
             self.max_duration_sec,
             self.min_duration_sec,
             self.max_segment_gap_in_snippet,
         )
-        task.data[_PLAN_DATA_KEY] = snippets
+        task.data[self.snippet_plan_key] = snippets
 
         meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
         meta["dropped_too_long"] = drop_counts["too_long"]
@@ -530,6 +534,8 @@ class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioT
     name: str = "SnippetRepetitionFilter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    snippet_plan_key: str = _PLAN_DATA_KEY
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_plan_key"})
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(
             requires_internet_first_run=True,
@@ -547,15 +553,15 @@ class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioT
         self._tokenizer: Any = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [_PLAN_DATA_KEY]
+        return [], [self.snippet_plan_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [_PLAN_DATA_KEY]
+        return [], [self.snippet_plan_key]
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=[_PLAN_DATA_KEY]),
-            writes=IOSpec(data_keys=[_PLAN_DATA_KEY]),
+            reads=IOSpec(data_keys=[self.snippet_plan_key]),
+            writes=IOSpec(data_keys=[self.snippet_plan_key]),
             metadata_writes=[_PRETRAIN_META_KEY],
             gates=Gates(
                 requires_internet_first_run=not os.path.isdir(self.tokenizer_path),
@@ -613,7 +619,7 @@ class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioT
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        plan: list[dict] = list(task.data.get(_PLAN_DATA_KEY) or [])
+        plan: list[dict] = list(task.data.get(self.snippet_plan_key) or [])
         kept: list[dict] = []
         dropped_texts: list[str] = []
         for snippet in plan:
@@ -623,7 +629,7 @@ class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioT
             else:
                 kept.append(snippet)
 
-        task.data[_PLAN_DATA_KEY] = kept
+        task.data[self.snippet_plan_key] = kept
 
         meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
         meta["dropped_repetition"] = len(dropped_texts)

@@ -34,7 +34,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -58,25 +65,31 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------
 
 
-def _read_manifest_row_id(stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]) -> str | None:
+def _read_manifest_row_id(
+    stage_name: str,
+    lineno: int,
+    entry: dict[str, Any],
+    seen_ids: set[str],
+    *,
+    id_key: str,
+) -> str | None:
     # `id` is required by the pipeline contract: downstream snippet ids
     # embed it, the metrics aggregator keys per-source records on it, and
     # tar members are named with it. A row without a usable id can't be
     # safely processed, and a duplicate id silently collapses per-source
     # metrics and can produce colliding snippet/tar member names.
-    row_id = entry.get("id")
+    row_id = entry.get(id_key)
     if row_id is None or (isinstance(row_id, str) and not row_id.strip()):
-        logger.warning(f"[{stage_name}] line {lineno}: missing or empty 'id'; skipping")
+        logger.warning(f"[{stage_name}] line {lineno}: missing or empty {id_key!r}; skipping")
         return None
 
-    row_id = str(row_id)
-    if row_id in seen_ids:
-        logger.warning(f"[{stage_name}] line {lineno}: duplicate id {row_id!r}; skipping")
+    identity = str(row_id)
+    if identity in seen_ids:
+        logger.warning(f"[{stage_name}] line {lineno}: duplicate id {identity!r}; skipping")
         return None
 
-    seen_ids.add(row_id)
-    entry["id"] = row_id
-    return row_id
+    seen_ids.add(identity)
+    return identity
 
 
 def _check_duplicate_audio_basename(
@@ -100,15 +113,24 @@ def _check_duplicate_audio_basename(
     seen_basenames[basename] = row_id
 
 
-def _validate_manifest_row_shape(stage_name: str, lineno: int, entry: Any) -> dict[str, Any] | None:  # noqa: ANN401
+def _validate_manifest_row_shape(
+    stage_name: str,
+    lineno: int,
+    entry: Any,  # noqa: ANN401
+    *,
+    segments_key: str,
+    strict_schema: bool,
+) -> dict[str, Any] | None:
     if not isinstance(entry, dict):
         logger.warning(f"[{stage_name}] line {lineno}: JSON row is not an object; skipping")
         return None
-    if "segments" not in entry:
-        logger.warning(f"[{stage_name}] line {lineno}: missing 'segments' list; skipping")
+    if not strict_schema:
+        return entry
+    if segments_key not in entry:
+        logger.warning(f"[{stage_name}] line {lineno}: missing {segments_key!r} list; skipping")
         return None
-    if not isinstance(entry["segments"], list):
-        logger.warning(f"[{stage_name}] line {lineno}: 'segments' is not a list; skipping")
+    if not isinstance(entry[segments_key], list):
+        logger.warning(f"[{stage_name}] line {lineno}: {segments_key!r} is not a list; skipping")
         return None
     return entry
 
@@ -151,6 +173,12 @@ class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask
             (preserves subdirectories).  ``"as_is"`` uses the manifest's
             value unchanged.
         dataset_name: Optional dataset tag stamped on emitted tasks.
+        id_key: Manifest field used as the source identity.
+        segments_key: Manifest field containing the segment list.
+        strict_schema: If True, skip rows whose configured segment field
+            is missing or is not a list.  The standalone stage defaults to
+            the legacy permissive behavior; the standard pipeline enables
+            strict validation before the planning stages.
     """
 
     input_manifest: str
@@ -162,18 +190,37 @@ class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask
     name: str = "ReadLongFormManifest"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    id_key: str = "id"
+    segments_key: str = "segments"
+    strict_schema: bool = False
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "id", "segments"]
+        output_keys = [self.audio_filepath_key, self.id_key]
+        if self.strict_schema:
+            output_keys.append(self.segments_key)
+        return [], output_keys
 
     def describe(self) -> StageContract:
+        _, output_keys = self.outputs()
+        conditional_writes = []
+        if not self.strict_schema:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.segments_key]),
+                    condition=f"the manifest row contains '{self.segments_key}'",
+                    value_origin="upstream_same_key",
+                )
+            )
         return StageContract(
-            writes=IOSpec(data_keys=[self.audio_filepath_key, "id", "segments"]),
+            writes=IOSpec(data_keys=output_keys),
+            conditional_writes=conditional_writes,
             cardinality="1:N fan-out",
-            gates=Gates(per_row_independent=True),
+            gates=Gates(per_row_independent=False),
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
@@ -212,14 +259,20 @@ class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask
                     logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
                     continue
 
-                entry = _validate_manifest_row_shape(self.name, lineno, entry)
+                entry = _validate_manifest_row_shape(
+                    self.name,
+                    lineno,
+                    entry,
+                    segments_key=self.segments_key,
+                    strict_schema=self.strict_schema,
+                )
                 if entry is None:
                     continue
 
                 # Validate the row shape before reserving its id. A malformed
                 # first occurrence must not suppress a later valid row with
                 # the same id as a duplicate.
-                row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids)
+                row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids, id_key=self.id_key)
                 if row_id is None:
                     continue
 
@@ -287,7 +340,7 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         self._shard_path: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.snippet_id_key]
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -390,7 +443,7 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
         self._seen_ids: set[str] = set()
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
