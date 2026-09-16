@@ -23,11 +23,13 @@ import soundfile as sf
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
+_FASTER_WHISPER_ADAPTER_TARGET = "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
 _SR = 16000
 _RESAMPLED_AUDIO_PATH = "/data/resampled.wav"
 
@@ -403,6 +405,38 @@ def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> 
     stage._load_audio.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "waveform",
+    [np.zeros(0, dtype=np.float32), np.zeros((0, 32), dtype=np.float32)],
+)
+def test_faster_whisper_empty_8khz_audio_preserves_reference_output(waveform: np.ndarray) -> None:
+    stage = ASRStage(
+        adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
+        model_id="large-v3",
+        waveform_key="waveform",
+        sample_rate_key="sampling_rate",
+        supported_language_codes=["fil"],
+        pred_text_key="asr_prediction",
+        extras_key="asr_extras",
+    )
+    adapter = FasterWhisperASR()
+    adapter._model = MagicMock()
+    stage._adapter = adapter
+    task = _make_waveform_task(
+        waveform=waveform,
+        sample_rate=8000,
+        source_lang="fil",
+    )
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["asr_prediction"] == ""
+    assert result.data["asr_extras"] == {"language_code": "tl"}
+    assert "_skipme" not in result.data
+    assert "waveform" not in result.data
+    adapter._model.transcribe.assert_not_called()
+
+
 def test_in_memory_waveform_can_be_retained_for_recovery_inference() -> None:
     stage = _make_stage(waveform_key="waveform", keep_waveform=True)
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
@@ -496,6 +530,17 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     )
     stage.setup_on_node()
     mock_download.assert_called_once_with("mock/model", revision="abc123")
+
+
+@patch("nemo_curator.models.asr.faster_whisper._download_whisper_model")
+def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock) -> None:
+    stage = ASRStage(
+        adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
+        model_id="large-v3",
+        adapter_kwargs={"revision": "abc123"},
+    )
+    stage.setup_on_node()
+    mock_download.assert_called_once_with("large-v3", "abc123")
 
 
 @patch(
