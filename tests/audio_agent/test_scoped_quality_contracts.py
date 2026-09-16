@@ -14,13 +14,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from nemo_curator.audio_agent.recipe import Recipe, build_stages
 from nemo_curator.audio_agent.semantic_review import build_semantic_review
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.filtering.band import BandFilterStage
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _STAGE_CASES = [
     pytest.param(UTMOSFilterStage, "score_key", id="utmos"),
@@ -57,10 +64,13 @@ def test_task_mode_contract_exposes_only_task_residency_and_outputs(stage_cls: t
 
     assert contract.reads.data_keys == []
     assert contract.reads.segment_data_keys == []
-    assert _read_shapes(stage) == {
+    expected_reads = {
         (("samples", "rate"), (), ("waveform",)),
         (("path",), (), ("file",)),
     }
+    if stage_cls is BandFilterStage:
+        expected_reads.add((("samples", "path"), (), ("waveform",)))
+    assert _read_shapes(stage) == expected_reads
     assert contract.writes.data_keys == expected_outputs
     assert contract.writes.segment_data_keys == []
 
@@ -85,10 +95,13 @@ def test_segments_mode_contract_requires_container_and_segment_residency(
 
     assert contract.reads.data_keys == ["clips"]
     assert contract.reads.segment_data_keys == []
-    assert _read_shapes(stage) == {
+    expected_reads = {
         ((), ("samples", "rate"), ("waveform",)),
         ((), ("path",), ("file",)),
     }
+    if stage_cls is BandFilterStage:
+        expected_reads.add(((), ("samples", "path"), ("waveform",)))
+    assert _read_shapes(stage) == expected_reads
     assert contract.writes.data_keys == []
     assert contract.writes.segment_data_keys == expected_outputs
 
@@ -107,16 +120,216 @@ def test_auto_mode_contract_conservatively_exposes_both_scoped_branches(
     )
 
     contract = stage.describe()
-    expected_outputs = stage.outputs()[1]
-
     assert contract.reads.data_keys == []
     assert contract.reads.segment_data_keys == []
     assert _read_shapes(stage) == {
         (("path",), (), ("file",)),
         (("clips",), ("path",), ("file",)),
     }
-    assert contract.writes.data_keys == expected_outputs
-    assert contract.writes.segment_data_keys == expected_outputs
+    assert contract.writes.data_keys == []
+    assert contract.writes.segment_data_keys == []
+
+
+@pytest.mark.parametrize(("stage_cls", "output_key_param"), _STAGE_CASES)
+@pytest.mark.parametrize("mode", ["task", "segments"])
+def test_annotation_outputs_are_conditional_not_guaranteed(
+    stage_cls: type,
+    output_key_param: str,
+    mode: str,
+) -> None:
+    stage = stage_cls(mode=mode, action="annotate", **{output_key_param: "quality"})
+
+    contract = stage.describe()
+
+    assert contract.writes.data_keys == []
+    assert contract.writes.segment_data_keys == []
+    score_writes = [
+        conditional
+        for conditional in contract.conditional_writes
+        if "quality" in conditional.writes.data_keys or "quality" in conditional.writes.segment_data_keys
+    ]
+    assert len(score_writes) == 1
+
+
+@pytest.mark.parametrize(
+    ("stage_cls", "output_key_param", "input_residency"),
+    [
+        pytest.param(BandFilterStage, "prediction_key", "file", id="band-file"),
+        pytest.param(BandFilterStage, "prediction_key", "auto", id="band-auto"),
+        pytest.param(SIGMOSFilterStage, "noise_key", "auto", id="sigmos-auto-partial"),
+        pytest.param(UTMOSFilterStage, "score_key", "auto", id="utmos-auto-partial"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("mode", "expected_scopes"),
+    [
+        pytest.param("task", {"task"}, id="task"),
+        pytest.param("segments", {"segment"}, id="segments"),
+        pytest.param("auto", {"task", "segment"}, id="auto"),
+    ],
+)
+def test_possible_file_hydration_is_conditional_and_mode_scoped(
+    stage_cls: type,
+    output_key_param: str,
+    input_residency: str,
+    mode: str,
+    expected_scopes: set[str],
+) -> None:
+    contract = stage_cls(
+        mode=mode,
+        input_residency=input_residency,
+        waveform_key="samples",
+        sample_rate_key="rate",
+        segments_key="clips",
+        **{output_key_param: "quality"},
+    ).describe()
+
+    assert "samples" not in contract.writes.data_keys
+    assert "rate" not in contract.writes.data_keys
+    assert "samples" not in contract.writes.segment_data_keys
+    assert "rate" not in contract.writes.segment_data_keys
+
+    hydration = [
+        conditional
+        for conditional in contract.conditional_writes
+        if set(conditional.writes.data_keys or conditional.writes.segment_data_keys) == {"samples", "rate"}
+    ]
+    scopes = {"task" if conditional.writes.data_keys else "segment" for conditional in hydration}
+    assert scopes == expected_scopes
+    assert all(conditional.writes.produces == ["tensor"] for conditional in hydration)
+    assert all(conditional.value_origin == "stage_generated" for conditional in hydration)
+    assert all("decoded successfully" in conditional.condition for conditional in hydration)
+    assert all("assigned together" in conditional.condition for conditional in hydration)
+    if stage_cls in {SIGMOSFilterStage, UTMOSFilterStage}:
+        assert all("exactly one" in conditional.condition for conditional in hydration)
+
+
+@pytest.mark.parametrize(
+    ("stage_cls", "output_key_param"),
+    [
+        pytest.param(SIGMOSFilterStage, "noise_key", id="sigmos"),
+        pytest.param(UTMOSFilterStage, "score_key", id="utmos"),
+    ],
+)
+def test_explicit_file_residency_does_not_advertise_pair_hydration(
+    stage_cls: type,
+    output_key_param: str,
+) -> None:
+    contract = stage_cls(
+        mode="auto",
+        input_residency="file",
+        waveform_key="samples",
+        sample_rate_key="rate",
+        **{output_key_param: "quality"},
+    ).describe()
+
+    assert not any(
+        conditional.writes.produces == ["tensor"]
+        and {"samples", "rate"} <= set(conditional.writes.data_keys + conditional.writes.segment_data_keys)
+        for conditional in contract.conditional_writes
+    )
+
+
+@pytest.mark.parametrize(("stage_cls", "output_key_param"), _STAGE_CASES)
+def test_waveform_only_residency_does_not_advertise_file_hydration(stage_cls: type, output_key_param: str) -> None:
+    contract = stage_cls(
+        mode="auto",
+        input_residency="waveform",
+        waveform_key="samples",
+        sample_rate_key="rate",
+        **{output_key_param: "quality"},
+    ).describe()
+
+    assert not any(
+        conditional.writes.produces == ["tensor"]
+        and {"samples", "rate"} <= set(conditional.writes.data_keys + conditional.writes.segment_data_keys)
+        for conditional in contract.conditional_writes
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_scopes"),
+    [
+        pytest.param("task", {"task"}, id="task"),
+        pytest.param("segments", {"segment"}, id="segments"),
+        pytest.param("auto", {"task", "segment"}, id="auto"),
+    ],
+)
+def test_band_header_completion_is_a_separate_sample_rate_only_write(
+    mode: str,
+    expected_scopes: set[str],
+) -> None:
+    contract = BandFilterStage(
+        mode=mode,
+        input_residency="auto",
+        waveform_key="samples",
+        sample_rate_key="rate",
+        segments_key="clips",
+    ).describe()
+
+    header_writes = [
+        conditional for conditional in contract.conditional_writes if "file header" in conditional.condition
+    ]
+    scopes = {"task" if conditional.writes.data_keys else "segment" for conditional in header_writes}
+    assert scopes == expected_scopes
+    assert all(
+        (conditional.writes.data_keys or conditional.writes.segment_data_keys) == ["rate"]
+        for conditional in header_writes
+    )
+    assert all(conditional.writes.produces == [] for conditional in header_writes)
+    assert all("resident waveform is retained" in conditional.condition for conditional in header_writes)
+
+
+@pytest.mark.parametrize(("stage_cls", "output_key_param"), _STAGE_CASES)
+def test_conditional_hydration_does_not_mechanically_feed_waveform_consumer(
+    stage_cls: type,
+    output_key_param: str,
+) -> None:
+    producer = stage_cls(
+        mode="task",
+        action="annotate",
+        input_residency="auto",
+        **{output_key_param: "quality"},
+    )
+    consumer = UTMOSFilterStage(mode="task", input_residency="waveform")
+
+    report = validate_pipeline(
+        [producer, consumer],
+        initial_roles={"audio_filepath"},
+        initial_keys={"audio_filepath"},
+    )
+
+    assert not report.ok
+    assert "waveform" not in report.produced_keys
+    assert "sample_rate" not in report.produced_keys
+    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
+
+
+@pytest.mark.parametrize(("stage_cls", "output_key_param"), _STAGE_CASES)
+def test_possible_file_hydration_blocks_unsanitized_json_sink(
+    stage_cls: type,
+    output_key_param: str,
+    tmp_path: Path,
+) -> None:
+    stage = stage_cls(
+        mode="task",
+        action="annotate",
+        input_residency="auto",
+        **{output_key_param: "quality"},
+    )
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+
+    report = validate_pipeline(
+        [stage, writer],
+        initial_roles={"audio_filepath"},
+        initial_keys={"audio_filepath"},
+    )
+
+    # SIGMOS/UTMOS file-only rows do not hydrate at runtime, but the contract
+    # cannot express row-value nullability. Their possible one-field fallback
+    # must therefore retain the tensor hazard: a false-negative JSON crash is
+    # more costly than this conservative block.
+    assert any(issue.code == "tensor_into_sink" and issue.severity == "error" for issue in report.issues)
 
 
 @pytest.mark.parametrize(

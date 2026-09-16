@@ -21,6 +21,8 @@ composition:
 params_of_note:
   band_value: "'full_band' (keep hi-fi / wideband, default) or 'narrow_band' (keep telephony-style)"
   action: "'filter' drops items that fail the band check (default); 'annotate' keeps all and only writes band_prediction"
+  mode: "'task' classifies top-level audio, 'segments' classifies each nested segment, and 'auto' selects segments when segments_key is present or top-level audio otherwise."
+  input_residency: "'waveform' requires a complete resident waveform/rate pair; 'file' loads audio_filepath and hydrates that pair; 'auto' prefers a complete resident pair and otherwise loads and hydrates the file. Legacy Band behavior is preserved when only waveform is resident: the file header supplies sample_rate without replacing the resident samples."
   model_path: "local path to the .joblib classifier; overrides the HF download"
   cache_dir: "directory to cache the downloaded model"
 metrics:
@@ -44,5 +46,6 @@ notes:
   - "Sample rate: it does NOT resample; it computes band energies (0-24 kHz bins) on the audio's NATIVE spectrum to detect bandwidth. Do NOT put a ResampleAudioStage upstream -- resampling changes the very bandwidth it measures. Any input rate works; a source stored at a low rate is correctly read as narrower band (bands above Nyquist read as empty)."
   - "Model: sklearn RandomForest loaded via joblib from HF nvidia/nemocurator-speech-bandwidth-filter (file band_classifier_model_band_7000_samples.joblib); features are LUFS-normalized band energies. Trained/validated primarily on 16 kHz and 48 kHz audio."
   - "Downloads the .joblib on first run (needs network once) unless model_path is set."
+  - "Output scope follows mode. A valid prediction writes band_prediction in only the selected task or segment scope. In annotate mode, unresolvable audio, unavailable inference, or an invalid prediction retains the item without band_prediction; in filter mode it is dropped."
 verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: best_guess, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess}
-provenance: {model_card_url: "https://huggingface.co/nvidia/nemocurator-speech-bandwidth-filter", card_version: 3, last_validated: "2026-07-23"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/nemocurator-speech-bandwidth-filter", card_version: 4, last_validated: "2026-09-16"}

@@ -822,6 +822,15 @@ def _record_contract_writes(stage: AgentReady, available_keys: set[str]) -> None
     contract = stage.describe()
     available_keys.update(contract.writes.data_keys)
     available_keys.update(contract.writes.segment_data_keys)
+    for conditional in contract.conditional_writes:
+        available_keys.update(conditional.writes.data_keys)
+        available_keys.update(conditional.writes.segment_data_keys)
+
+
+def _declared_contract_outputs(stage: AgentReady) -> set[str]:
+    declared: set[str] = set()
+    _record_contract_writes(stage, declared)
+    return declared
 
 
 def _assert_no_duplicates(values: list[str], label: str) -> None:
@@ -2102,9 +2111,9 @@ def test_agent_planner_detects_missing_keys_and_collisions() -> None:
     produced: set[str] = {"waveform", "sample_rate"}
     _record_contract_writes(UTMOSFilterStage(score_key="utmos_mos"), produced)
     same_key = UTMOSFilterStage(score_key="utmos_mos")
-    assert set(same_key.describe().writes.data_keys) & produced, "duplicate score key should collide"
+    assert _declared_contract_outputs(same_key) & produced, "duplicate score key should collide"
     distinct_key = UTMOSFilterStage(score_key="utmos_mos_model_b")
-    assert not (set(distinct_key.describe().writes.data_keys) & produced), "renamed score key must not collide"
+    assert not (_declared_contract_outputs(distinct_key) & produced), "renamed score key must not collide"
 
 
 def test_agent_metadata_survives_multi_stage_pipeline() -> None:

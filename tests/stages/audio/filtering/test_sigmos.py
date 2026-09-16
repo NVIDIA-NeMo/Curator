@@ -21,9 +21,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
+
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
-
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask

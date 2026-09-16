@@ -1077,7 +1077,7 @@ def _normalize_decision_conditions(  # noqa: C901, PLR0911, PLR0912 - fail close
     return tuple(by_key[key] for key in declared if key in by_key), ""
 
 
-def _declared_compound_score_keys(  # noqa: PLR0911 - fail closed per declaration invariant
+def _declared_compound_score_keys(  # noqa: C901, PLR0911 - fail closed per declaration invariant
     recipe: Recipe,
     pair: DecisionPair,
 ) -> tuple[dict[str, dict[str, Any]], str]:
@@ -1106,12 +1106,32 @@ def _declared_compound_score_keys(  # noqa: PLR0911 - fail closed per declaratio
         declared[score_key] = dict(dimension)
 
     contract = foundation.build_contract(producer)
-    available = set(contract.writes.segment_data_keys) if pair.scope == "segments" else set(contract.writes.data_keys)
-    missing = set(declared) - available
-    if missing:
+    guaranteed = set(contract.writes.segment_data_keys) if pair.scope == "segments" else set(contract.writes.data_keys)
+    conditional_groups: list[set[str]] = []
+    for conditional in contract.conditional_writes:
+        if conditional.value_origin != "stage_generated":
+            continue
+        scoped = (
+            set(conditional.writes.segment_data_keys)
+            if pair.scope == "segments"
+            else set(conditional.writes.data_keys)
+        )
+        if scoped:
+            conditional_groups.append(scoped)
+    declared_keys = set(declared)
+    if not any(declared_keys <= guaranteed | conditional for conditional in conditional_groups) and not (
+        declared_keys <= guaranteed
+    ):
+        available = guaranteed | set().union(*conditional_groups)
+        missing = declared_keys - available
+        detail = (
+            f"missing {sorted(missing)!r}"
+            if missing
+            else "the scores are split across separate conditional write groups"
+        )
         return {}, (
-            "annotation producer contract does not write every declared compound score "
-            f"at {pair.scope} scope: missing {sorted(missing)!r}"
+            "annotation producer contract does not atomically write every declared compound score "
+            f"at {pair.scope} scope: {detail}"
         )
     return declared, ""
 

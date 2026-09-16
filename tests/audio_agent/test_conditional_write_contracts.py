@@ -90,6 +90,8 @@ def test_auto_quality_scope_writes_are_conditional(stage_cls: type, key_param: s
     stage = stage_cls(mode="auto", **{key_param: "quality"})
     contract = stage.describe()
 
+    assert contract.writes.data_keys == []
+    assert contract.writes.segment_data_keys == []
     assert {("task", "quality"), ("segment", "quality")} <= _scoped_keys(contract)
     assert all(item.value_origin == "stage_generated" for item in contract.conditional_writes)
     assert any("'segments' is absent" in item.condition for item in contract.conditional_writes)
@@ -99,10 +101,15 @@ def test_auto_quality_scope_writes_are_conditional(stage_cls: type, key_param: s
 @pytest.mark.parametrize("mode", ["task", "segments"])
 def test_explicit_quality_scope_still_labels_assignment_as_conditional(mode: str) -> None:
     contract = UTMOSFilterStage(mode=mode).describe()
-    assert len(contract.conditional_writes) == 1
+    score_writes = [
+        conditional
+        for conditional in contract.conditional_writes
+        if "utmos_mos" in conditional.writes.data_keys or "utmos_mos" in conditional.writes.segment_data_keys
+    ]
+    assert len(score_writes) == 1
     expected_scope = "task" if mode == "task" else "segment"
-    assert _scoped_keys(contract) == {(expected_scope, "utmos_mos")}
-    assert "numeric MOS" in contract.conditional_writes[0].condition
+    assert (expected_scope, "utmos_mos") in _scoped_keys(contract)
+    assert "numeric MOS" in score_writes[0].condition
 
 
 def test_wer_contracts_label_actual_data_dependent_writes() -> None:
@@ -157,7 +164,7 @@ def test_semantic_review_labels_auto_scope_writes_as_conditional() -> None:
         ("task", "conditional"),
         ("segment", "conditional"),
     }
-    assert all(write["legacy_mechanical_write"] is True for write in quality_writes)
+    assert all(write["legacy_mechanical_write"] is False for write in quality_writes)
     assert all(
         condition["value_origin"] == "stage_generated" for write in quality_writes for condition in write["conditions"]
     )

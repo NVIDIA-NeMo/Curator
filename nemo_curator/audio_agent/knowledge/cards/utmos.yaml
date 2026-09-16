@@ -30,8 +30,9 @@ composition:
   typical_downstream: [SIGMOSFilterStage, AudioToDocumentStage]
 params_of_note:
   mos_threshold: "Minimum MOS to KEEP (scale 0-5, higher = better; set None to disable gating). Recommended bars: >=4.0 highly-clean / TTS-reference; >=3.5 studio; >=3.0 good; >=2.5 usable (decent, minor noise). See metrics.utmos_mos.quality_bands for what a raw score means."
-  action: "'annotate' keeps every clip and only writes the utmos_mos score -- use this FIRST to audit the score distribution on your data, then pick a threshold. 'filter' drops clips below mos_threshold (and also drops clips that could not be scored). Default 'filter'."
+  action: "'annotate' keeps every clip and writes utmos_mos only when inference succeeds; an unscorable clip is retained without that key. Use this FIRST to audit scores. 'filter' drops unscorable clips and clips below mos_threshold. Default 'filter'."
   mode: "'task' (score the whole file), 'segments' (score each nested segment), or 'auto' (segments if a segments list is present, else task)."
+  input_residency: "'waveform' requires a complete resident waveform/rate pair and never falls back; 'file' loads audio_filepath without persisting resident fields; 'auto' prefers a complete resident pair and otherwise loads the file, atomically replacing both resident fields only when exactly one was present. Ordinary file-only auto rows remain file-only."
   sample_rate: "Internal UTMOS inference rate in Hz (default 16000). Input of ANY sample rate is resampled to this automatically, so this stage does NOT require an upstream ResampleAudioStage."
 metrics:
   utmos_mos:                                    # the score_key this stage writes
@@ -127,4 +128,4 @@ caveats:
   - "In 'filter' mode, clips that fail to score are dropped as well -- audit with 'annotate' first."
   - "Reusable decision separation is proven for explicit action='annotate' task mode with PreserveByValueStage, and explicit segment mode with one PreserveByValueConditionsStage condition over items_key=segments_key. Segment exactness explicitly requires condition_logic='and'; both forms require ge and missing-score drop. Generic OR remains valid outside this native-filter equivalence; mode='auto' remains native because its scope is data-dependent."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: best_guess, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess, decision: mechanical}
-provenance: {model_card_url: "https://github.com/tarepan/SpeechMOS", card_version: 7, last_validated: "2026-08-19"}
+provenance: {model_card_url: "https://github.com/tarepan/SpeechMOS", card_version: 9, last_validated: "2026-09-16"}

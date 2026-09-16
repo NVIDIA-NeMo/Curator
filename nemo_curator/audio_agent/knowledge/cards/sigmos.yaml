@@ -34,8 +34,9 @@ params_of_note:
   disc_threshold: "Optional min DISC (discontinuity, 0-5). WEAK dimension: only catches quantization/bit-crush + impulsive noise. Does NOT detect packet loss / dropouts / gaps / clicks (those keep DISC ~4.0) -- use SIG/OVRL for those. Default None (supplementary only)."
   loud_threshold: "Optional min LOUD (level, 0-5). NOT volume-robust -- loudness-normalize BEFORE scoring or it reports gain, not quality. Inverted-U (too-loud AND too-quiet both score low; optimum ~-6..-12 dB). Default None (calibrate; or handle level separately)."
   reverb_threshold: "Optional min REVERB (reverberation, 0-5, higher = drier): room / echo / far-field mic. Bands: >=4.3 dry, 2.8-3.5 small room, <2.8 roomy. Non-monotonic at RT60 >= ~1.6 s (reads back UP; confirm heavy reverb with low OVRL). Default None (calibrate)."
-  action: "'annotate' keeps every clip and writes all 7 scores -- use this FIRST to audit the distributions, then choose thresholds. 'filter' drops any clip that fails an active (non-None) threshold. Default 'filter'."
+  action: "'annotate' keeps every clip and writes all 7 scores only when inference succeeds; an unscorable clip is retained without those score keys. Use this FIRST to audit distributions. 'filter' drops unscorable clips and any clip that fails an active threshold. Default 'filter'."
   mode: "'task' (score the whole file), 'segments' (score each nested segment), or 'auto' (segments if a segments list is present, else task)."
+  input_residency: "'waveform' requires a complete resident waveform/rate pair and never falls back; 'file' loads audio_filepath without persisting resident fields; 'auto' prefers a complete resident pair and otherwise loads the file, atomically replacing both resident fields only when exactly one was present. Ordinary file-only auto rows remain file-only."
 metrics:
   sigmos_ovrl:                                  # overall aggregate MOS; the primary general-purpose gate
     scale: {min: 0.0, max: 5.0, direction: higher_better}
@@ -196,4 +197,4 @@ notes:
 caveats:
   - "Downloads the ONNX model on first run (needs network once)."
 verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: best_guess, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: measured, decision: mechanical}
-provenance: {model_card_url: "https://github.com/microsoft/SIG-Challenge", card_version: 7, last_validated: "2026-08-19"}
+provenance: {model_card_url: "https://github.com/microsoft/SIG-Challenge", card_version: 9, last_validated: "2026-09-16"}

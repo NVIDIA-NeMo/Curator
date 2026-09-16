@@ -220,7 +220,12 @@ ADDITIVE_STAGE_NAMES = (
 # Sortformer, and WhisperX expose conservative/default lifecycle gates and both
 # configured cardinalities. Constructor defaults, parameters, and the other
 # 42 stage entries remain unchanged.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "0d14da46ec81779bfd09d8bb4fb13b5cfa5f2e8c220a32bb734b3fb932e04d1f"
+# Regenerated for the filtering safety corrections. Exactly three entries moved:
+# Band, SIGMOS, and UTMOS now expose conservative static network/row-independence
+# gates. Their post-legacy knobs also became keyword-only to restore positional
+# compatibility, but parameter/default payload values did not change. Runtime
+# defaults and the other 43 stage entries remain unchanged.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "749e6aa3f4c1f626e7137b58560edcb977850b220f057587a9baa27d559b2f81"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

@@ -26,16 +26,19 @@ from __future__ import annotations
 
 import os
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 import soundfile as sf
 import torch
 
-from nemo_curator.stages.audio._agent._residency import cleanup_temp_files, resolve_audio, resolve_audio_path
-
-if TYPE_CHECKING:
-    import pytest
+from nemo_curator.stages.audio._agent._residency import (
+    cleanup_temp_files,
+    normalize_audio_waveform,
+    resolve_audio,
+    resolve_audio_path,
+)
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
 from nemo_curator.stages.audio.filtering.sigmos import _get_audio_numpy_sr
 from nemo_curator.stages.audio.filtering.utmos import _load_waveform_tensor
@@ -67,8 +70,20 @@ def test_utmos_waveform_numpy_1d_to_mono():  # noqa: ANN202
     assert torch.is_tensor(t) and t.shape == (1, 1600)  # noqa: PT018
 
 
-def test_utmos_waveform_present_no_sr_returns_none():  # noqa: ANN202
-    assert _load_waveform_tensor({"waveform": torch.ones(1, 1600)}, "t") is None
+def test_utmos_waveform_present_no_sr_returns_none_in_waveform_mode():  # noqa: ANN202
+    assert _load_waveform_tensor({"waveform": torch.ones(1, 1600)}, "t", input_residency="waveform") is None
+
+
+def test_utmos_incomplete_waveform_pair_falls_back_to_file_in_auto_mode(tmp_path: Path):  # noqa: ANN202
+    out = _load_waveform_tensor(
+        {"waveform": torch.ones(1, 7), "audio_filepath": _wav(tmp_path / "u-fallback.wav", n=1600)},
+        "t",
+    )
+
+    assert out is not None
+    waveform, sample_rate = out
+    assert waveform.shape == (1, 1600)
+    assert sample_rate == _SR
 
 
 def test_utmos_file_path_loads_mono(tmp_path: Path):  # noqa: ANN202
@@ -136,6 +151,147 @@ def test_resolve_audio_file_branch_applies_mono(tmp_path: Path):  # noqa: ANN202
     out = resolve_audio({"audio_filepath": _wav(tmp_path / "r.wav", channels=2)}, mono=True)
     t, _ = out
     assert t.shape[0] == 1
+
+
+def test_resolve_audio_can_infer_only_sample_rate_from_file_header(tmp_path: Path):  # noqa: ANN202
+    resident = torch.full((1, 13), 0.75)
+    item = {"waveform": resident, "audio_filepath": _wav(tmp_path / "header.wav", n=31)}
+
+    out = resolve_audio(item, infer_sample_rate_from_file=True)
+
+    assert out is not None
+    waveform, sample_rate = out
+    assert waveform.data_ptr() == resident.data_ptr()
+    assert waveform.shape == (1, 13)
+    assert sample_rate == _SR
+    assert item["sample_rate"] == _SR
+
+
+def test_resolve_audio_file_hydration_is_opt_in(tmp_path: Path):  # noqa: ANN202
+    path = _wav(tmp_path / "hydrate.wav", n=31)
+    default_item = {"audio_filepath": path}
+    hydrated_item = {"audio_filepath": path}
+
+    default_audio = resolve_audio(default_item, residency="file")
+    hydrated_audio = resolve_audio(hydrated_item, residency="file", file_audio_hydration="always")
+
+    assert default_audio is not None and hydrated_audio is not None  # noqa: PT018
+    assert "waveform" not in default_item
+    assert "sample_rate" not in default_item
+    assert hydrated_item["waveform"] is hydrated_audio[0]
+    assert hydrated_item["sample_rate"] == hydrated_audio[1] == _SR
+
+
+def test_resolve_audio_hydration_replaces_both_stale_fields_together(tmp_path: Path):  # noqa: ANN202
+    stale = torch.ones(1, 7)
+    item = {
+        "audio_filepath": _wav(tmp_path / "replace.wav", n=31),
+        "waveform": stale,
+        "sample_rate": 8000,
+    }
+
+    resolved = resolve_audio(item, residency="file", file_audio_hydration="always")
+
+    assert resolved is not None
+    assert item["waveform"] is resolved[0]
+    assert item["waveform"] is not stale
+    assert item["waveform"].shape == (1, 31)
+    assert item["sample_rate"] == resolved[1] == _SR
+
+
+def test_auto_partial_hydration_only_mutates_incomplete_auto_pairs(tmp_path: Path):  # noqa: ANN202
+    path = _wav(tmp_path / "auto-partial.wav", n=31)
+    file_only = {"audio_filepath": path}
+    explicit_file_partial = {"audio_filepath": path, "sample_rate": 8000}
+    waveform_partial = {"audio_filepath": path, "waveform": torch.ones(1, 7)}
+    rate_partial = {"audio_filepath": path, "sample_rate": 8000}
+
+    resolve_audio(file_only, residency="auto", file_audio_hydration="auto_partial")
+    resolve_audio(explicit_file_partial, residency="file", file_audio_hydration="auto_partial")
+    waveform_audio = resolve_audio(waveform_partial, residency="auto", file_audio_hydration="auto_partial")
+    rate_audio = resolve_audio(rate_partial, residency="auto", file_audio_hydration="auto_partial")
+
+    assert set(file_only) == {"audio_filepath"}
+    assert set(explicit_file_partial) == {"audio_filepath", "sample_rate"}
+    assert explicit_file_partial["sample_rate"] == 8000
+    assert waveform_audio is not None and rate_audio is not None  # noqa: PT018
+    assert waveform_partial["waveform"] is waveform_audio[0]
+    assert waveform_partial["sample_rate"] == waveform_audio[1] == _SR
+    assert rate_partial["waveform"] is rate_audio[0]
+    assert rate_partial["sample_rate"] == rate_audio[1] == _SR
+
+
+def test_failed_file_load_never_partially_hydrates_residency(tmp_path: Path):  # noqa: ANN202
+    stale = torch.ones(1, 7)
+    item = {
+        "audio_filepath": _wav(tmp_path / "loader-fails.wav"),
+        "waveform": stale,
+        "sample_rate": 8000,
+    }
+    loader = MagicMock(side_effect=OSError("decode failed"))
+
+    with pytest.raises(OSError, match="decode failed"):
+        resolve_audio(
+            item,
+            residency="file",
+            loader=loader,
+            file_audio_hydration="always",
+        )
+
+    assert item["waveform"] is stale
+    assert item["sample_rate"] == 8000
+
+
+@pytest.mark.parametrize("orphan_field", ["waveform", "sample_rate"])
+def test_failed_auto_partial_load_preserves_each_orphan_direction(
+    orphan_field: str,
+    tmp_path: Path,
+) -> None:
+    resident_value = torch.ones(1, 7) if orphan_field == "waveform" else 8000
+    item = {
+        "audio_filepath": _wav(tmp_path / f"{orphan_field}-fails.wav"),
+        orphan_field: resident_value,
+    }
+    loader = MagicMock(side_effect=OSError("decode failed"))
+
+    with pytest.raises(OSError, match="decode failed"):
+        resolve_audio(
+            item,
+            residency="auto",
+            loader=loader,
+            file_audio_hydration="auto_partial",
+        )
+
+    assert set(item) == {"audio_filepath", orphan_field}
+    if orphan_field == "waveform":
+        assert item[orphan_field] is resident_value
+    else:
+        assert item[orphan_field] == resident_value
+
+
+def test_explicit_waveform_mode_with_partial_pair_never_falls_back_or_mutates(tmp_path: Path):  # noqa: ANN202
+    resident = torch.ones(1, 7)
+    item = {"waveform": resident, "audio_filepath": _wav(tmp_path / "closed.wav")}
+
+    resolved = resolve_audio(
+        item,
+        residency="waveform",
+        file_audio_hydration="always",
+        infer_sample_rate_from_file=True,
+    )
+
+    assert resolved is None
+    assert item == {"waveform": resident, "audio_filepath": str(tmp_path / "closed.wav")}
+
+
+def test_normalize_audio_waveform_scales_integer_pcm_before_downmix():  # noqa: ANN202
+    resident = torch.tensor([[32767, -32768], [0, 16384]], dtype=torch.int16)
+
+    waveform = normalize_audio_waveform(resident, stage_name="test", mono=True)
+
+    assert waveform.dtype == torch.float32
+    assert waveform.shape == (1, 2)
+    assert torch.allclose(waveform, torch.tensor([[32767 / 65536, -0.25]]))
 
 
 # --------------------------------------------------------------------------- #

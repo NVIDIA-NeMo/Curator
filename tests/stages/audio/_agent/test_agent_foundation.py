@@ -476,16 +476,9 @@ class TestEveryStageSaysWhetherItsRowsStandAlone:
 
         assert corpus_dependent == self.EXPECTED_CORPUS_DEPENDENT
 
-    def test_the_gate_is_resolved_through_describe_and_not_the_instance_free_contract(self) -> None:
-        """The sweep above must not be rebuilt on ``static_contract``.
-
-        ``static_contract`` takes its gates straight from ``AGENT_STATIC`` and never calls
-        ``describe()``, so it reports ``None`` even for stages that do declare the gate. An
-        invariant asserted on that view would either fail for the whole catalog or, inverted,
-        pass forever while a real omission went on refusing deltas. ``delta.region`` resolves
-        through ``build_contract`` on live stages, so this test does too.
-        """
+    def test_static_hints_can_match_the_configured_row_independence_gate(self) -> None:
+        """Discovery may conservatively expose an invariant configured gate."""
         from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
 
-        assert static_contract(SIGMOSFilterStage).gates.per_row_independent is None
+        assert static_contract(SIGMOSFilterStage).gates.per_row_independent is True
         assert build_contract(SIGMOSFilterStage()).gates.per_row_independent is True
