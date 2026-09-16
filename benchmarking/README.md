@@ -599,9 +599,10 @@ For more details, refer to the `--help` output for `run.sh`
 
 Audio benchmarks that depend on external corpora use the same two-layer setup:
 
-1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
-   machine to populate persistent paths under `{datasets_path}` and, when
-   needed, `{model_weights_path}`.
+1. The benchmark runner executes each configured
+   `benchmarking/data_prep/prepare_*_data.py` entry before the benchmarks to
+   populate or reuse persistent paths under `{datasets_path}` and, when needed,
+   `{model_weights_path}`.
 2. Run nightly entries from the staged data and local model paths so the
    benchmark itself never downloads inputs during the scheduled run. Entries
    that support a standalone download fallback also pass `--no-auto-download`.
@@ -643,14 +644,19 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
 
 python benchmarking/data_prep/prepare_readspeech_data.py \
   --output-path {datasets_path}/read_speech \
-  --num-parts 3
+  --num-parts 3 \
+  --expected-wav-count 43354 \
+  --expected-wav-bytes 20011661694 \
+  --expected-inventory-sha256 ac097a3d4187d8e0e82fab14c8d0a59c0ab6f9de47f8784f2638054580232c20
 ```
 
 The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
-The ReadSpeech preparation command treats an existing WAV staging as complete,
-so replace an older staging before changing its part count.
+The ReadSpeech setup reuses staging only when its file count, byte count, and
+relative-path inventory match the configured cohort. It automatically stages,
+validates, and publishes a replacement when an older or incomplete cohort is
+present.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |

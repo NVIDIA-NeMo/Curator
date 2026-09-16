@@ -43,7 +43,10 @@ Example usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -86,14 +89,27 @@ def collect_all_wavs(base_dir: Path) -> list[str]:
     return wav_files
 
 
-def verify_dataset(output_path: Path) -> bool:
-    """Verify the dataset exists and report statistics by scanning all WAVs recursively."""
+def verify_dataset(
+    output_path: Path,
+    expected_wav_count: int | None = None,
+    expected_wav_bytes: int | None = None,
+    expected_inventory_sha256: str | None = None,
+) -> bool:
+    """Verify the dataset exists and optionally matches an exact WAV inventory."""
     all_wavs = collect_all_wavs(output_path)
     if not all_wavs:
         logger.error(f"No WAV files found under {output_path}")
         return False
 
-    total_size = sum(os.path.getsize(f) for f in all_wavs)
+    inventory_hasher = hashlib.sha256()
+    total_size = 0
+    for wav_path_string in sorted(all_wavs):
+        wav_path = Path(wav_path_string)
+        wav_size = wav_path.stat().st_size
+        total_size += wav_size
+        relative_path = wav_path.relative_to(output_path).as_posix()
+        inventory_hasher.update(f"{relative_path}\t{wav_size}\n".encode())
+    inventory_sha256 = inventory_hasher.hexdigest()
     total_size_gb = total_size / (1024**3)
 
     wav_dirs = sorted({os.path.dirname(f) for f in all_wavs})
@@ -104,14 +120,57 @@ def verify_dataset(output_path: Path) -> bool:
     logger.info(f"  Base path:      {output_path}")
     logger.info(f"  WAV files:      {len(all_wavs)}")
     logger.info(f"  Total size:     {total_size_gb:.2f} GB")
+    logger.info(f"  Inventory SHA:  {inventory_sha256}")
     logger.info(f"  Directories:    {len(wav_dirs)}")
     for d in wav_dirs:
         dir_count = sum(1 for f in all_wavs if os.path.dirname(f) == d)
         logger.info(f"    {d} ({dir_count} files)")
     logger.info("=" * 60)
 
-    logger.success(f"Dataset verified: {len(all_wavs)} WAV files ({total_size_gb:.2f} GB) across {len(wav_dirs)} directories")
+    is_valid = True
+    if expected_wav_count is not None and len(all_wavs) != expected_wav_count:
+        logger.error(f"Expected {expected_wav_count} WAV files, found {len(all_wavs)}")
+        is_valid = False
+    if expected_wav_bytes is not None and total_size != expected_wav_bytes:
+        logger.error(f"Expected {expected_wav_bytes} WAV bytes, found {total_size}")
+        is_valid = False
+    if expected_inventory_sha256 is not None and inventory_sha256 != expected_inventory_sha256.lower():
+        logger.error(f"Expected inventory SHA-256 {expected_inventory_sha256}, found {inventory_sha256}")
+        is_valid = False
+    if not is_valid:
+        return False
+
+    logger.success(
+        f"Dataset verified: {len(all_wavs)} WAV files ({total_size_gb:.2f} GB) across {len(wav_dirs)} directories"
+    )
     return True
+
+
+def _path_exists(path: Path) -> bool:
+    """Return whether a path or symlink exists, including a dangling symlink."""
+    return path.exists() or path.is_symlink()
+
+
+def _remove_path(path: Path) -> None:
+    """Remove a file, symlink, or directory tree."""
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def _recover_interrupted_publish(output_path: Path, staging_path: Path, backup_path: Path) -> None:
+    """Recover or clean the fixed sibling paths used for atomic publication."""
+    if _path_exists(backup_path):
+        if _path_exists(output_path):
+            logger.warning(f"Removing stale ReadSpeech backup after completed publication: {backup_path}")
+            _remove_path(backup_path)
+        else:
+            logger.warning(f"Restoring ReadSpeech staging interrupted during publication: {backup_path}")
+            os.replace(backup_path, output_path)
+    if _path_exists(staging_path):
+        logger.warning(f"Removing incomplete ReadSpeech staging: {staging_path}")
+        _remove_path(staging_path)
 
 
 def _download_single_part(output_path: Path) -> bool:
@@ -283,6 +342,91 @@ def download_dataset(output_path: Path, num_parts: int = 1) -> bool:
     return True
 
 
+def _publish_staging(staging_path: Path, output_path: Path, backup_path: Path) -> None:
+    """Atomically publish verified staging, restoring the prior tree on failure."""
+    had_existing_output = _path_exists(output_path)
+    if had_existing_output:
+        os.replace(output_path, backup_path)
+    try:
+        os.replace(staging_path, output_path)
+    except Exception:
+        if had_existing_output and _path_exists(backup_path) and not _path_exists(output_path):
+            os.replace(backup_path, output_path)
+        raise
+
+    if _path_exists(backup_path):
+        try:
+            _remove_path(backup_path)
+        except OSError as e:
+            logger.warning(f"Could not remove stale ReadSpeech backup {backup_path}: {e}")
+
+
+def _prepare_dataset_locked(
+    output_path: Path,
+    num_parts: int,
+    expected_wav_count: int | None = None,
+    expected_wav_bytes: int | None = None,
+    expected_inventory_sha256: str | None = None,
+) -> bool:
+    """Reuse an exact cohort or atomically replace stale staging."""
+    staging_path = output_path.with_name(f".{output_path.name}.staging")
+    backup_path = output_path.with_name(f".{output_path.name}.backup")
+    _recover_interrupted_publish(output_path, staging_path, backup_path)
+
+    verification_args = {
+        "expected_wav_count": expected_wav_count,
+        "expected_wav_bytes": expected_wav_bytes,
+        "expected_inventory_sha256": expected_inventory_sha256,
+    }
+    if verify_dataset(output_path, **verification_args):
+        logger.info("Existing ReadSpeech staging matches the requested cohort; reusing it")
+        return True
+
+    if _path_exists(output_path):
+        logger.warning("Existing ReadSpeech staging does not match the requested cohort; replacing it automatically")
+    staging_path.mkdir(parents=True)
+
+    try:
+        if not download_dataset(staging_path, num_parts=num_parts):
+            return False
+        if not verify_dataset(staging_path, **verification_args):
+            logger.error("Downloaded ReadSpeech staging does not match the requested cohort")
+            return False
+
+        _publish_staging(staging_path, output_path, backup_path)
+    except Exception:
+        logger.exception("Automatic ReadSpeech staging failed")
+        return False
+    else:
+        logger.success(f"Published verified ReadSpeech staging at {output_path}")
+        return True
+    finally:
+        if _path_exists(staging_path):
+            _remove_path(staging_path)
+
+
+def prepare_dataset(
+    output_path: Path,
+    num_parts: int,
+    expected_wav_count: int | None = None,
+    expected_wav_bytes: int | None = None,
+    expected_inventory_sha256: str | None = None,
+) -> bool:
+    """Serialize preparation of a shared dataset path."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = output_path.with_name(f".{output_path.name}.lock")
+    with lock_path.open("a") as lock_file:
+        logger.info(f"Waiting for exclusive ReadSpeech setup lock: {lock_path}")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        return _prepare_dataset_locked(
+            output_path,
+            num_parts,
+            expected_wav_count,
+            expected_wav_bytes,
+            expected_inventory_sha256,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Download DNS Challenge Read Speech dataset for benchmarking",
@@ -321,6 +465,20 @@ After running this script, reference the output path in your benchmark YAML:
         action="store_true",
         help="Only verify existing dataset without downloading",
     )
+    parser.add_argument(
+        "--expected-wav-count",
+        type=int,
+        help="Require this exact number of WAV files before reusing or publishing the dataset",
+    )
+    parser.add_argument(
+        "--expected-wav-bytes",
+        type=int,
+        help="Require this exact total WAV byte count before reusing or publishing the dataset",
+    )
+    parser.add_argument(
+        "--expected-inventory-sha256",
+        help="Require this SHA-256 of sorted relative WAV path and byte-size records",
+    )
 
     args = parser.parse_args()
     output_path = args.output_path.resolve()
@@ -330,21 +488,29 @@ After running this script, reference the output path in your benchmark YAML:
 
     if args.verify_only:
         logger.info(f"Verifying dataset at: {output_path}")
-        return 0 if verify_dataset(output_path) else 1
+        return (
+            0
+            if verify_dataset(
+                output_path,
+                expected_wav_count=args.expected_wav_count,
+                expected_wav_bytes=args.expected_wav_bytes,
+                expected_inventory_sha256=args.expected_inventory_sha256,
+            )
+            else 1
+        )
 
     logger.info(f"Preparing ReadSpeech dataset at: {output_path}")
-
-    existing_wavs = collect_all_wavs(output_path)
-    if existing_wavs:
-        wav_dirs = sorted({os.path.dirname(f) for f in existing_wavs})
-        logger.info(f"Dataset already exists: {len(existing_wavs)} WAV files across {len(wav_dirs)} directories")
-        logger.info("Use --verify-only to check, or delete the directory to re-download")
-        return 0
-
-    if not download_dataset(output_path, num_parts=args.num_parts):
-        return 1
-
-    return 0 if verify_dataset(output_path) else 1
+    return (
+        0
+        if prepare_dataset(
+            output_path,
+            num_parts=args.num_parts,
+            expected_wav_count=args.expected_wav_count,
+            expected_wav_bytes=args.expected_wav_bytes,
+            expected_inventory_sha256=args.expected_inventory_sha256,
+        )
+        else 1
+    )
 
 
 if __name__ == "__main__":
