@@ -16,19 +16,32 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
+import soundfile as sf
 from huggingface_hub import snapshot_download
 from loguru import logger
 from nemo.collections.asr.models import SortformerEncLabelModel
 
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     cleanup_temp_files,
-    residency_read_specs,
     resolve_audio_path,
+    validate_input_residency,
+)
+from nemo_curator.stages.audio.inference.base import (
+    _channel_first_waveform,
+    _fanout_audio_slice,
+    _fanout_original_file,
+    _fanout_path_keys,
+    _inference_audio_input_spec,
+    _inference_audio_read_specs,
+    _stable_audio_identity,
+    _stable_source_path,
+    _validate_fanout_key_contract,
+    _validate_inference_audio_input,
 )
 from nemo_curator.stages.base import ProcessingStage
 
@@ -132,20 +145,20 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     cache_dir: str | None = None
     diar_model: Any | None = None
     filepath_key: str = "audio_filepath"
-    waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
+    waveform_key: str = field(default="waveform", kw_only=True)
+    sample_rate_key: str = field(default="sample_rate", kw_only=True)
     diar_segments_key: str = "diar_segments"
-    num_speakers_key: str = "num_speakers"
-    input_residency: InputResidency = "file"
-    fanout: bool = False
-    start_key: str = "start"
-    end_key: str = "end"
-    start_ms_key: str = "start_ms"
-    end_ms_key: str = "end_ms"
-    duration_key: str = "duration"
-    segment_num_key: str = "segment_num"
-    speaker_key: str = "speaker"
-    original_file_key: str = "original_file"
+    num_speakers_key: str = field(default="num_speakers", kw_only=True)
+    input_residency: InputResidency = field(default="file", kw_only=True)
+    fanout: bool = field(default=False, kw_only=True)
+    start_key: str = field(default="start", kw_only=True)
+    end_key: str = field(default="end", kw_only=True)
+    start_ms_key: str = field(default="start_ms", kw_only=True)
+    end_ms_key: str = field(default="end_ms", kw_only=True)
+    duration_key: str = field(default="duration", kw_only=True)
+    segment_num_key: str = field(default="segment_num", kw_only=True)
+    speaker_key: str = field(default="speaker", kw_only=True)
+    original_file_key: str = field(default="original_file", kw_only=True)
     rttm_out_dir: str | None = None
     chunk_len: int = 340
     chunk_left_context: int = 1
@@ -158,11 +171,42 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=8.0))
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        cardinality_options=["1:1", "1:N fan-out"],
+        gates=Gates(
+            requires_gpu=True,
+            requires_internet_first_run=True,
+            output_path_params=["rttm_out_dir"],
+            per_row_independent=False,
+        ),
+    )
+
+    def __post_init__(self) -> None:
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        if self.fanout:
+            _validate_fanout_key_contract(
+                stage_name=self.name,
+                audio_filepath_key=self.filepath_key,
+                output_keys=[
+                    self.waveform_key,
+                    self.sample_rate_key,
+                    self.start_key,
+                    self.end_key,
+                    self.start_ms_key,
+                    self.end_ms_key,
+                    self.duration_key,
+                    self.segment_num_key,
+                    self.speaker_key,
+                    self.original_file_key,
+                ],
+                removed_container_keys=(self.diar_segments_key,),
+            )
+
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         """Pre-download model weights on the node so workers load from cache."""
-        if self.model_path is not None:
+        if self.model_path is not None or self.diar_model is not None:
             return
         snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
 
@@ -227,12 +271,28 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         sm.spkcache_len = self.spkcache_len
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filepath_key]
+        return _inference_audio_input_spec(
+            self.input_residency,
+            audio_filepath_key=self.filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
+
+    def validate_input(self, task: AudioTask) -> bool:
+        return _validate_inference_audio_input(
+            task,
+            stage_name=self.name,
+            residency=self.input_residency,
+            audio_filepath_keys=(self.filepath_key,),
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.fanout:
             return ["data"], [
-                self.filepath_key,
+                self.waveform_key,
+                self.sample_rate_key,
                 self.start_key,
                 self.end_key,
                 self.start_ms_key,
@@ -247,7 +307,8 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def describe(self) -> StageContract:
         if self.fanout:
             writes = [
-                self.filepath_key,
+                self.waveform_key,
+                self.sample_rate_key,
                 self.start_key,
                 self.end_key,
                 self.start_ms_key,
@@ -262,16 +323,21 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             writes = [self.filepath_key, self.diar_segments_key, self.num_speakers_key]
             cardinality = "1:1"
         return StageContract(
-            reads_one_of=residency_read_specs(
+            reads_one_of=_inference_audio_read_specs(
                 self.input_residency,
                 audio_filepath_key=self.filepath_key,
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
             ),
-            writes=IOSpec(data_keys=writes),
+            writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,
-            cardinality_options=["passthrough", "fan_out"],
+            cardinality_options=["1:1", "1:N fan-out"],
             iteration_key=self.diar_segments_key if self.fanout else None,
+            removes_keys=(
+                list(dict.fromkeys([*_fanout_path_keys(self.filepath_key), self.diar_segments_key]))
+                if self.fanout
+                else []
+            ),
             gates=Gates(
                 requires_gpu=True,
                 writes_to_disk=self.rttm_out_dir is not None,
@@ -282,7 +348,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 # different folders write the same ``utt1.rttm``. Drop the directory and the whole
                 # stage is safe to run over a subset.
                 per_row_independent=self.rttm_out_dir is None,
-                requires_internet_first_run=self.model_path is None,
+                requires_internet_first_run=self.model_path is None and self.diar_model is None,
                 output_path_params=["rttm_out_dir"],
             ),
         )
@@ -292,18 +358,27 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
         return {}
 
-    def _segment_child_data(
+    def _segment_child_data(  # noqa: PLR0913
         self,
         item: dict[str, Any],
         segment: dict[str, Any],
         segment_num: int,
-        file_path: str,
-        file_path_is_temp: bool = False,
+        waveform: Any,  # noqa: ANN401
+        sample_rate: int,
+        original_file: Any,  # noqa: ANN401
     ) -> dict[str, Any]:
-        child = {k: v for k, v in item.items() if k != self.diar_segments_key}
-        child.update({k: v for k, v in segment.items() if k not in {"start", "end", "speaker"}})
+        excluded = {
+            self.diar_segments_key,
+            self.waveform_key,
+            self.sample_rate_key,
+            *_fanout_path_keys(self.filepath_key),
+        }
+        child = {k: v for k, v in item.items() if k not in excluded}
+        child.update({k: v for k, v in segment.items() if k not in {"start", "end", "speaker", *excluded}})
         start = float(segment.get("start", 0.0))
         end = float(segment.get("end", start))
+        child[self.waveform_key] = _fanout_audio_slice(waveform, sample_rate, start=start, end=end)
+        child[self.sample_rate_key] = int(sample_rate)
         child[self.start_key] = start
         child[self.end_key] = end
         child[self.start_ms_key] = round(start * 1000)
@@ -312,34 +387,29 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         child[self.segment_num_key] = segment_num
         if "speaker" in segment:
             child[self.speaker_key] = segment["speaker"]
-        # Never pin a fan-out child to a materialized temp WAV: process()'s
-        # `finally` deletes it, which would leave every child referencing a
-        # missing file. Only carry a real (non-temp) source path forward; when
-        # only an in-memory waveform exists, children rely on the copied waveform.
-        if not file_path_is_temp:
-            child.setdefault(self.filepath_key, file_path)
-        original_file = (
-            item.get(self.original_file_key)
-            or item.get(self.filepath_key)
-            or item.get("audio_filepath")
-            or (None if file_path_is_temp else file_path)
-        )
-        if original_file is not None:
-            child.setdefault(self.original_file_key, original_file)
+        child[self.original_file_key] = original_file
         return child
 
     def _fanout_segments(
         self,
         task: AudioTask,
         segments: list[dict[str, Any]],
-        file_path: str,
-        file_path_is_temp: bool = False,
+        waveform: Any,  # noqa: ANN401
+        sample_rate: int,
+        original_file: Any,  # noqa: ANN401
     ) -> list[AudioTask]:
         return [
             AudioTask(
                 dataset_name=task.dataset_name,
                 filepath_key=task.filepath_key or self.filepath_key,
-                data=self._segment_child_data(task.data, segment, index, file_path, file_path_is_temp),
+                data=self._segment_child_data(
+                    task.data,
+                    segment,
+                    index,
+                    waveform,
+                    sample_rate,
+                    original_file,
+                ),
                 _metadata=dict(task._metadata or {}),
                 _stage_perf=list(task._stage_perf),
             )
@@ -359,15 +429,28 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """Run speaker diarization on the audio file in the task."""
-        has_file = self.filepath_key in task.data
-        has_waveform = self.waveform_key in task.data and self.sample_rate_key in task.data
-        if not (has_file or has_waveform):
-            msg = f"Task {task!s} failed validation for stage {self}"
+        if not self.validate_input(task):
+            msg = f"[{self.name}] task {task.task_id!r} has no valid {self.input_residency} audio input"
             raise ValueError(msg)
 
+        source_path = _stable_source_path(
+            task.data,
+            self.filepath_key,
+            "audio_filepath",
+            "resampled_audio_filepath",
+        )
+        resident_waveform = (
+            _channel_first_waveform(task.data[self.waveform_key])
+            if self.input_residency != "file"
+            and task.data.get(self.waveform_key) is not None
+            and task.data.get(self.sample_rate_key) is not None
+            else None
+        )
+        resident_sample_rate = int(task.data[self.sample_rate_key]) if resident_waveform is not None else None
+        audio_input = task.data if resident_waveform is None else {**task.data, self.waveform_key: resident_waveform}
         temp_paths: list[str] = []
         file_path = resolve_audio_path(
-            task.data,
+            audio_input,
             residency=self.input_residency,  # type: ignore[arg-type]
             audio_filepath_key=self.filepath_key,
             waveform_key=self.waveform_key,
@@ -378,19 +461,40 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             msg = f"Task {task!s} missing audio input for {self.filepath_key}"
             raise ValueError(msg)
         try:
-            sess_name = task.data.get("session_name")
-            resolved_sess_name = (
-                sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
+            identity_source_path = source_path or _stable_source_path(task.data, self.original_file_key)
+            stable_identity = _stable_audio_identity(
+                task.data,
+                resident_waveform,
+                resident_sample_rate or 0,
+                source_path=identity_source_path,
+                explicit_keys=("session_name",),
+                fallback_keys=("audio_item_id",),
+            )
+            original_file = _fanout_original_file(
+                task.data,
+                original_file_key=self.original_file_key,
+                source_path=source_path,
+                stable_identity=stable_identity,
             )
 
             all_segments = self.diarize([file_path])
             segments = all_segments[0]
 
             if self.rttm_out_dir is not None:
-                _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
+                _write_rttm(segments, stable_identity, self.rttm_out_dir)
 
             if self.fanout:
-                return self._fanout_segments(task, segments, file_path, file_path in temp_paths)
+                if resident_waveform is None:
+                    decoded, decoded_rate = sf.read(file_path, dtype="float32")
+                    resident_waveform = _channel_first_waveform(decoded if decoded.ndim == 1 else decoded.T)
+                    resident_sample_rate = int(decoded_rate)
+                return self._fanout_segments(
+                    task,
+                    segments,
+                    resident_waveform,
+                    resident_sample_rate,
+                    original_file,
+                )
 
             output_data = dict(task.data)
             output_data[self.diar_segments_key] = segments

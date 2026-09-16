@@ -22,7 +22,7 @@ predictions. The concrete adapter is resolved at runtime from
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 import torch
@@ -30,7 +30,14 @@ import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 
@@ -147,6 +154,13 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     notes_key: str = _NOTES_KEY
     BATCH_ONLY = True
     INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "extras_key", "skip_me_key", "notes_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            requires_gpu=True,
+            requires_internet_first_run=True,
+            per_row_independent=True,
+        )
+    )
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -228,6 +242,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             writes=IOSpec(data_keys=[self.pred_text_key]),
             conditional_writes=conditional_writes,
             cardinality="1:1",
+            removes_keys=([self.waveform_key] if self.waveform_key and not self.keep_waveform else []),
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
                 requires_internet_first_run=True,

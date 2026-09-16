@@ -16,17 +16,25 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
+import os
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 import hydra.utils
 import numpy as np
 import soundfile
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import IOSpec
+from nemo_curator.stages.audio._agent._residency import (
+    InputResidency,
+    accepts_for_residency,
+    residency_read_specs,
+)
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, Task
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -34,6 +42,249 @@ if TYPE_CHECKING:
 
 
 _CHANNEL_FIRST_DIMENSIONS = 2
+_CANONICAL_AUDIO_FILEPATH_KEY = "audio_filepath"
+_RESAMPLED_AUDIO_FILEPATH_KEY = "resampled_audio_filepath"
+
+
+def _inference_audio_input_spec(
+    residency: InputResidency,
+    *,
+    audio_filepath_key: str,
+    waveform_key: str,
+    sample_rate_key: str,
+) -> tuple[list[str], list[str]]:
+    """Return the legacy input tuple for one configured residency.
+
+    ``ProcessingStage.inputs`` cannot encode ``auto`` alternatives. The custom
+    validator below handles that mode; an empty tuple prevents the inherited
+    batch loop from incorrectly requiring both forms.
+    """
+    if residency == "waveform":
+        return [], [waveform_key, sample_rate_key]
+    if residency == "file":
+        return [], [audio_filepath_key]
+    return [], []
+
+
+def _inference_audio_read_specs(
+    residency: InputResidency,
+    *,
+    audio_filepath_key: str,
+    waveform_key: str,
+    sample_rate_key: str,
+    fallback_audio_filepath_keys: tuple[str, ...] = (),
+) -> list[IOSpec]:
+    """Build residency reads, including intentional canonical path fallbacks."""
+    specs = residency_read_specs(
+        residency,
+        audio_filepath_key=audio_filepath_key,
+        waveform_key=waveform_key,
+        sample_rate_key=sample_rate_key,
+    )
+    if "file" not in accepts_for_residency(residency):
+        return specs
+    declared_paths = {audio_filepath_key}
+    for key in fallback_audio_filepath_keys:
+        if key not in declared_paths:
+            specs.append(IOSpec(data_keys=[key], accepts=["file"]))
+            declared_paths.add(key)
+    return specs
+
+
+def _validate_inference_audio_input(  # noqa: PLR0913
+    task: Task,
+    *,
+    stage_name: str,
+    residency: InputResidency,
+    audio_filepath_keys: tuple[str, ...],
+    waveform_key: str,
+    sample_rate_key: str,
+) -> bool:
+    """Validate the configured audio source and complete-pair policy.
+
+    File mode ignores resident fields entirely. Waveform mode requires both
+    resident keys. Auto mode prefers a complete pair, but deliberately rejects
+    an orphaned resident key instead of falling back to a file and allowing
+    stale resident state to describe audio that was not consumed.
+    """
+    data = task.data
+    has_file = any(data.get(key) for key in audio_filepath_keys)
+    if residency == "file":
+        return has_file
+
+    waveform_present = data.get(waveform_key) is not None
+    sample_rate_present = data.get(sample_rate_key) is not None
+    if waveform_present != sample_rate_present:
+        present = waveform_key if waveform_present else sample_rate_key
+        missing = sample_rate_key if waveform_present else waveform_key
+        msg = (
+            f"[{stage_name}] incomplete resident audio for task {task.task_id!r}: "
+            f"found {present!r} but missing {missing!r}; "
+            f"{waveform_key!r} and {sample_rate_key!r} must be provided together"
+        )
+        raise ValueError(msg)
+
+    has_waveform = waveform_present and sample_rate_present
+    if residency == "waveform":
+        return has_waveform
+    return has_waveform or has_file
+
+
+def _channel_first_waveform(waveform: Any) -> np.ndarray:  # noqa: ANN401
+    """Return canonical channel-first float32 audio."""
+    if hasattr(waveform, "detach"):
+        waveform = waveform.detach()
+    if hasattr(waveform, "cpu"):
+        waveform = waveform.cpu()
+    if hasattr(waveform, "numpy"):
+        try:
+            waveform = waveform.numpy()
+        except (RuntimeError, TypeError) as exc:
+            dtype = getattr(waveform, "dtype", type(waveform).__name__)
+            msg = f"unsupported resident waveform dtype {dtype}"
+            raise ValueError(msg) from exc
+    array = np.asarray(waveform)
+    if array.ndim == 1:
+        array = array[np.newaxis, :]
+    if array.ndim != _CHANNEL_FIRST_DIMENSIONS:
+        msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {array.shape}"
+        raise ValueError(msg)
+    if array.dtype in {np.dtype(np.int16), np.dtype(np.int32)}:
+        scale = float(1 << (array.dtype.itemsize * 8 - 1))
+        return np.ascontiguousarray(array.astype(np.float32) / scale)
+    if np.issubdtype(array.dtype, np.integer):
+        msg = f"unsupported resident waveform integer dtype {array.dtype}; supported PCM dtypes are int16 and int32"
+        raise ValueError(msg)
+    if not np.issubdtype(array.dtype, np.floating):
+        msg = f"unsupported resident waveform dtype {array.dtype}; expected floating-point or signed PCM int16/int32"
+        raise ValueError(msg)
+    return np.ascontiguousarray(array, dtype=np.float32)
+
+
+def _fanout_audio_slice(
+    waveform: Any,  # noqa: ANN401
+    sample_rate: int,
+    *,
+    start: float,
+    end: float,
+) -> np.ndarray:
+    """Clone one bounded channel-first segment from a parent waveform."""
+    audio = _channel_first_waveform(waveform)
+    rate = int(sample_rate)
+    if rate <= 0:
+        msg = f"sample rate must be > 0, got {rate}"
+        raise ValueError(msg)
+    sample_count = audio.shape[1]
+    start_sample = max(0, min(sample_count, int(max(0.0, start) * rate)))
+    end_sample = max(start_sample, min(sample_count, int(max(start, end) * rate)))
+    return np.array(audio[:, start_sample:end_sample], copy=True, order="C")
+
+
+def _resident_audio_duration(waveform: np.ndarray, sample_rate: int) -> float:
+    """Derive duration from the selected resident waveform."""
+    rate = int(sample_rate)
+    if rate <= 0:
+        msg = f"sample rate must be > 0, got {rate}"
+        raise ValueError(msg)
+    return float(waveform.shape[-1]) / rate
+
+
+def _stable_source_path(item: dict[str, Any], *path_keys: str) -> str | None:
+    """Return source provenance from task data, never a materialized temp path."""
+    for key in path_keys:
+        value = item.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _fanout_original_file(
+    item: dict[str, Any],
+    *,
+    original_file_key: str,
+    source_path: str | None,
+    stable_identity: str,
+) -> Any:  # noqa: ANN401
+    """Preserve existing provenance before falling back to source identity."""
+    if original_file_key in item:
+        return item[original_file_key]
+    return source_path if source_path is not None else stable_identity
+
+
+def _stable_audio_identity(  # noqa: PLR0913
+    item: dict[str, Any],
+    waveform: Any,  # noqa: ANN401
+    sample_rate: int,
+    *,
+    source_path: str | None,
+    explicit_keys: tuple[str, ...] = ("audio_item_id", "session_name"),
+    fallback_keys: tuple[str, ...] = (),
+) -> str:
+    """Return a preferred explicit, path, fallback, or content identity."""
+    for key in explicit_keys:
+        value = item.get(key)
+        if value is not None and str(value):
+            return str(value)
+    if source_path:
+        source_name = source_path.rstrip("/").rsplit("/", 1)[-1]
+        stem, _suffix = os.path.splitext(source_name)
+        return stem or source_name
+    for key in fallback_keys:
+        value = item.get(key)
+        if value is not None and str(value):
+            return str(value)
+
+    audio = _channel_first_waveform(waveform)
+    digest = hashlib.sha256()
+    digest.update(memoryview(audio).cast("B"))
+    digest.update(f"|{audio.shape!r}|{audio.dtype.str}|{int(sample_rate)}".encode())
+    return f"audio_{digest.hexdigest()}"
+
+
+def _fanout_path_keys(audio_filepath_key: str) -> list[str]:
+    """All consumable recording paths forbidden on waveform-only children."""
+    return list(
+        dict.fromkeys(
+            [
+                audio_filepath_key,
+                _CANONICAL_AUDIO_FILEPATH_KEY,
+                _RESAMPLED_AUDIO_FILEPATH_KEY,
+            ]
+        )
+    )
+
+
+def _validate_fanout_key_contract(
+    *,
+    stage_name: str,
+    audio_filepath_key: str,
+    output_keys: list[str],
+    removed_container_keys: tuple[str, ...] = (),
+) -> None:
+    """Reject fan-out key aliases that contradict writes/removals."""
+    if not audio_filepath_key:
+        msg = f"[{stage_name}] audio filepath key must be non-empty when fanout=True"
+        raise ValueError(msg)
+    if any(not key for key in removed_container_keys):
+        msg = f"[{stage_name}] removed parent container keys must be non-empty"
+        raise ValueError(msg)
+    if any(not key for key in output_keys):
+        msg = f"[{stage_name}] fan-out output keys must be non-empty"
+        raise ValueError(msg)
+    if len(output_keys) != len(set(output_keys)):
+        msg = f"[{stage_name}] fan-out output keys must be distinct"
+        raise ValueError(msg)
+    collisions = set(output_keys) & set(_fanout_path_keys(audio_filepath_key))
+    if collisions:
+        msg = f"[{stage_name}] fan-out output keys {sorted(collisions)} collide with removed full-recording path keys"
+        raise ValueError(msg)
+    container_collisions = set(output_keys) & set(removed_container_keys)
+    if container_collisions:
+        msg = (
+            f"[{stage_name}] fan-out output keys {sorted(container_collisions)} "
+            "collide with removed parent container keys"
+        )
+        raise ValueError(msg)
 
 
 class InferenceAdapter(Protocol):
