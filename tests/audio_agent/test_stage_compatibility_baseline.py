@@ -225,7 +225,12 @@ ADDITIVE_STAGE_NAMES = (
 # gates. Their post-legacy knobs also became keyword-only to restore positional
 # compatibility, but parameter/default payload values did not change. Runtime
 # defaults and the other 43 stage entries remain unchanged.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "749e6aa3f4c1f626e7137b58560edcb977850b220f057587a9baa27d559b2f81"
+# Regenerated for the foundation positional corrections. Only MonoConversionStage's
+# param ORDER moved: its agent-added knobs became keyword-only so the legacy
+# positional slots (including strict_sample_rate) keep their historical meaning.
+# No constructor default, key, read/write, or gate changed, and the other 45
+# stage entries are byte-identical.
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "357101d266c900fa9fbefd43fd95205fd56f62e00589809b69dd8cbc6e6871f1"
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401
