@@ -51,3 +51,6 @@ data_setups:
     args: >-
       --output-path {datasets_path}/read_speech
       --num-parts 3
+      --expected-wav-count 43354
+      --expected-wav-bytes 20011661694
+      --expected-inventory-sha256 ac097a3d4187d8e0e82fab14c8d0a59c0ab6f9de47f8784f2638054580232c20
