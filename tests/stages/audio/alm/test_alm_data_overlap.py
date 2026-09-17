@@ -133,6 +133,7 @@ class TestALMDataOverlap:
         assert set(contract.writes.data_keys) == expected
         assert contract.reads.data_keys == ["windows"]
         assert "stats" not in contract.reads.data_keys
+        assert contract.optional_reads.data_keys == ["stats"]
 
     def test_fully_renamed_outputs_work_for_populated_and_empty_rows(self, entry_with_windows: dict) -> None:
         stage = ALMDataOverlapStage(

@@ -65,6 +65,9 @@ def finalize_audio_pretrain_outputs(
     metrics_path: str,
     output_audio_tar_path: str,
     audio_filepath_key: str = "audio_filepath",
+    id_key: str = "id",
+    segments_key: str = "segments",
+    duration_key: str = "duration",
 ) -> None:
     """Merge per-worker shards into the final manifest, metrics JSON, and audio tar.
 
@@ -100,7 +103,15 @@ def finalize_audio_pretrain_outputs(
     dropped_missing, dropped_unreadable = _reconcile_manifest_with_tar(
         output_manifest_path, output_audio_tar_path, audio_filepath_key
     )
-    _patch_metrics_post_reconcile(metrics_path, output_manifest_path, dropped_missing, dropped_unreadable)
+    _patch_metrics_post_reconcile(
+        metrics_path,
+        output_manifest_path,
+        dropped_missing,
+        dropped_unreadable,
+        id_key=id_key,
+        segments_key=segments_key,
+        duration_key=duration_key,
+    )
 
 
 def _merge_manifest_shards(output_path: str) -> None:
@@ -420,6 +431,10 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
 
 def _collect_reconciled_output_stats(
     manifest_path: str,
+    *,
+    id_key: str,
+    segments_key: str,
+    duration_key: str,
 ) -> tuple[dict[str, dict[str, Any]], list[float]]:
     out_per_id: dict[str, dict[str, Any]] = {}
     durations: list[float] = []
@@ -438,11 +453,11 @@ def _collect_reconciled_output_stats(
                 # stray line slips through, skip rather than crash the
                 # finalize step.
                 continue
-            pid = str(row.get("id") or "")
+            pid = str(row.get(id_key) or "")
             if not pid:
                 continue
-            dur = float(row.get("duration", 0.0))
-            seg_count = len(row.get("segments") or [])
+            dur = float(row.get(duration_key, 0.0))
+            seg_count = len(row.get(segments_key) or [])
             entry = out_per_id.setdefault(
                 pid,
                 {"out_snippets": 0, "out_segments": 0, "out_duration_sec": 0.0},
@@ -459,6 +474,10 @@ def _patch_metrics_post_reconcile(
     manifest_path: str,
     dropped_missing: int,
     dropped_unreadable: int,
+    *,
+    id_key: str,
+    segments_key: str,
+    duration_key: str,
 ) -> None:
     """Reconcile the merged metrics summary against the post-reconcile manifest.
 
@@ -504,7 +523,12 @@ def _patch_metrics_post_reconcile(
     # _reconcile_manifest_with_tar drops a row the worker-emitted shard
     # record for that snippet is still summed into the pre-reconcile
     # totals, so we recompute against what survived.
-    out_per_id, durations = _collect_reconciled_output_stats(manifest_path)
+    out_per_id, durations = _collect_reconciled_output_stats(
+        manifest_path,
+        id_key=id_key,
+        segments_key=segments_key,
+        duration_key=duration_key,
+    )
 
     total_snippets = sum(v["out_snippets"] for v in out_per_id.values())
     total_segments = sum(v["out_segments"] for v in out_per_id.values())

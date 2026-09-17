@@ -212,7 +212,6 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 dataset_name=dataset_name,
                 id_key=id_key,
                 segments_key=segments_key,
-                strict_schema=True,
             ),
             OverlapFilterStage(min_overlap_sec=min_overlap_sec, segments_key=segments_key),
             SnippetCutPlannerStage(

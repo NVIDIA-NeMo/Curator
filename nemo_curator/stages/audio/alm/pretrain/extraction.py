@@ -160,9 +160,6 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.snippet_plan_key in {self.audio_filepath_key, *stable_output_keys}:
             msg = "snippet_plan_key must be distinct from input and output keys"
             raise ValueError(msg)
-        if self.audio_filepath_key in set(stable_output_keys):
-            msg = "audio_filepath_key must be distinct from stable output keys"
-            raise ValueError(msg)
         self._tar_shard_path: str | None = None
         self._tar: Any = None  # tarfile.TarFile, opened lazily in setup()
 
@@ -170,10 +167,10 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, self.snippet_plan_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.id_key, self.snippet_id_key, self.duration_key, self.segments_key]
+        return [], [self.audio_filepath_key, "snippet_id", "duration", "segments"]
 
     def describe(self) -> StageContract:
-        _, output_keys = self.outputs()
+        output_keys = [self.snippet_id_key, self.duration_key, self.segments_key]
         removal_candidates = {
             self.alignment_key,
             self.snippet_plan_key,
@@ -189,26 +186,51 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.swift_audio_filepath_key,
             self.text_key,
         ]
+        conditional_writes = [
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.audio_filepath_key]),
+                condition="a snippet or origin stub is emitted",
+                value_origin="stage_generated",
+            )
+        ]
+        conditional_writes.extend(
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[key]),
+                condition=f"the source row contains '{key}' and a normal snippet is emitted",
+                value_origin="transforms_upstream_same_key",
+                requires_keys=[key],
+            )
+            for key in conditional_keys
+        )
+        if self.id_key != self.audio_filepath_key:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.id_key]),
+                    condition=f"the source row contains '{self.id_key}'",
+                    value_origin="upstream_same_key",
+                    requires_keys=[self.id_key],
+                )
+            )
+        required_keys = {self.audio_filepath_key, self.snippet_plan_key}
+        optional_keys = list(
+            dict.fromkeys(key for key in [self.id_key, *conditional_keys] if key not in required_keys)
+        )
         return StageContract(
-            reads=IOSpec(data_keys=[self.audio_filepath_key, self.snippet_plan_key, self.id_key], accepts=["file"]),
+            reads=IOSpec(data_keys=[self.audio_filepath_key, self.snippet_plan_key], accepts=["file"]),
+            optional_reads=IOSpec(data_keys=optional_keys),
             writes=IOSpec(
                 data_keys=output_keys,
                 # Disk output only happens when not dry-running; keep this consistent
                 # with the writes_to_disk gate below.
                 produces=[] if self.dry_run else ["disk"],
             ),
-            conditional_writes=[
-                ConditionalWrite(
-                    writes=IOSpec(data_keys=[key]),
-                    condition=f"the source row contains '{key}' and a normal snippet is emitted",
-                    value_origin="transforms_upstream_same_key",
-                )
-                for key in conditional_keys
-            ],
+            conditional_writes=conditional_writes,
             cardinality="1:N fan-out",
             iteration_key=self.snippet_plan_key,
             preserves_upstream_keys=False,
             removes_keys=sorted(removals),
+            invalidates_keys=[self.audio_filepath_key],
+            wrappable=self.audio_filepath_key != self.id_key,
             gates=Gates(
                 writes_to_disk=not self.dry_run,
                 lifecycle_side_effects=True,
