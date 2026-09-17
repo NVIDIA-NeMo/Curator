@@ -16,11 +16,11 @@ import pickle
 from pathlib import Path
 
 import pytest
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
     AudioDataFilterStage,
 )
-from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.config import (
     _deep_merge,
     _validate,
@@ -211,16 +211,6 @@ class TestDecomposeStageCount:
         assert isinstance(stages[0], MonoConversionStage)
         assert isinstance(stages[1], TimestampMapperStage)
 
-
-def test_static_contract_matches_configured_audio_data_filter_contract() -> None:
-    static = static_contract(AudioDataFilterStage)
-    configured = build_contract(AudioDataFilterStage())
-
-    assert static.wrappable is False
-    assert static.gates.per_row_independent is True
-    assert configured.wrappable == static.wrappable
-    assert configured.gates.per_row_independent == static.gates.per_row_independent
-
     def test_decompose_no_speaker_no_second_pass(self) -> None:
         stage = AudioDataFilterStage(
             config={
@@ -236,6 +226,16 @@ def test_static_contract_matches_configured_audio_data_filter_contract() -> None
         assert stage_types.count(SIGMOSFilterStage) == 1
         assert SegmentConcatenationStage not in stage_types
         assert SpeakerSeparationStage not in stage_types
+
+
+def test_static_contract_matches_configured_audio_data_filter_contract() -> None:
+    static = static_contract(AudioDataFilterStage)
+    configured = build_contract(AudioDataFilterStage())
+
+    assert static.wrappable is False
+    assert static.gates.per_row_independent is True
+    assert configured.wrappable == static.wrappable
+    assert configured.gates.per_row_independent == static.gates.per_row_independent
 
 
 # ---------------------------------------------------------------------------
