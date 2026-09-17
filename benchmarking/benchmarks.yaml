@@ -1559,756 +1559,12 @@ entries:
           - U022P8CDX40  # Sarah Yurick
     # TODO: Add requirements after establishing correctness and performance baselines.
 
-  - name: llm_judge_qwen_gemma_nw2_seqs16_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs16_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs16_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs16_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs16_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs16_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs24_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs24_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs24_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs24_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs24_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs24_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs32_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs32_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs32_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs32_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw2_seqs32_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw2_seqs32_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs16_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs16_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs16_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs16_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs16_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs16_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs24_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs24_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs24_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs24_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs24_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs24_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs32_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs32_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs32_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs32_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw4_seqs32_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw4_seqs32_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs16_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs16_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs16_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs16_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs16_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs16_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs24_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs24_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs24_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs24_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
   - name: llm_judge_qwen_gemma_nw6_seqs24_mpr256
     enabled: true
     script: llm_judge_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs24_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs32_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs32_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs32_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs32_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw6_seqs32_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw6_seqs32_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw8_seqs16_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs16_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw8_seqs16_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs16_mpr128.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw8_seqs16_mpr256
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs16_mpr256.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw8_seqs24_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs24_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
-  - name: llm_judge_qwen_gemma_nw8_seqs24_mpr128
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs24_mpr128.yaml
       --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
       --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
       --language=en
@@ -2351,30 +1607,6 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
-  - name: llm_judge_qwen_gemma_nw8_seqs32_mpr64
-    enabled: true
-    script: llm_judge_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs32_mpr64.yaml
-      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
-      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
-      --language=en
-      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
-      --input-path={dataset:llm_judge_cc_extract,jsonl}
-      --output-path={session_entry_dir}/scratch/output
-    ray:
-      num_cpus: 32
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - input_row_count
-          - output_row_count
-          - input_output_row_count_match
-          - throughput_rows_per_sec
-        ping_on_failure:
-          - U022P8CDX40  # Sarah Yurick
-
   - name: llm_judge_qwen_gemma_nw8_seqs32_mpr128
     enabled: true
     script: llm_judge_benchmark.py
@@ -2399,12 +1631,420 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
-  - name: llm_judge_qwen_gemma_nw8_seqs32_mpr256
+  - name: llm_judge_qwen_gemma_nw10_seqs16_mpr64
     enabled: true
     script: llm_judge_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs32_mpr256.yaml
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs16_mpr64.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs16_mpr128
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs16_mpr128.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs16_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs16_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs24_mpr64
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs24_mpr64.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs24_mpr128
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs24_mpr128.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs24_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs24_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs32_mpr64
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs32_mpr64.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs32_mpr128
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs32_mpr128.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw10_seqs32_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs32_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs16_mpr64
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs16_mpr64.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs16_mpr128
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs16_mpr128.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs16_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs16_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs24_mpr64
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs24_mpr64.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs24_mpr128
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs24_mpr128.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs24_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs24_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs32_mpr64
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs32_mpr64.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs32_mpr128
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs32_mpr128.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs32_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs32_mpr256.yaml
       --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
       --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
       --language=en
