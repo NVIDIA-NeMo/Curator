@@ -115,6 +115,13 @@ Audio pipelines can appear stuck for legitimate reasons. Before killing a run:
 4. **Worker startup**: Xenna and Ray may take 10–30 seconds to allocate workers before any processing begins. This is normal.
 5. **Large datasets**: Processing 10K+ files takes time. Refer to each tutorial's Performance section for expected durations.
 
+| Tutorial | Description | Files |
+|----------|-------------|-------|
+| **[ASR Data Processing](asr_data_pipeline/)** | Standardize downloaded ASR datasets into normalized train/dev/test manifests | `main.py`, `README.md`, `configs/indicvoices.yaml` |
+| **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
+| **[Audio Tagging](tagging/)** | Label raw audio for TTS/ASR via diarization, alignment, and quality metrics | `main.py`, `tts_pipeline.yaml`, `asr_pipeline.yaml` |
+| **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
+
 | Symptom | Likely cause | Action |
 |---|---|---|
 | No output for 2+ minutes at start | Model downloading | Wait; check `~/.cache/huggingface/` or `~/.cache/nemo/` for growing files |
