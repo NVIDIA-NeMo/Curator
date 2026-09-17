@@ -102,10 +102,6 @@ class InferenceIndicConformerHybridStage(ASRStage):
             self.adapter_kwargs["tensorrt_engine_dir"] = self.tensorrt_engine_dir
         super().__post_init__()
 
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Match the integration-stage output declaration."""
-        return [], [self.pred_text_key, self.language_key]
-
 
 __all__ = [
     "INDIC_CONFORMER_HYBRID_LANGS",
