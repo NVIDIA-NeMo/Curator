@@ -40,6 +40,7 @@ Based on [SemDeDup: Data-efficient learning at web-scale through semantic dedupl
 
 - GPU acceleration (required for embedding generation and clustering)
 - Stable document identifiers for removal (either existing IDs or IDs managed by the workflow and removal stages)
+- Access to the gated default model: accept the [EmbeddingGemma usage license](https://huggingface.co/google/embeddinggemma-300m), then authenticate with a Hugging Face read token through `HF_TOKEN` or the `hf_token` parameter
 
 <Note>
 **Running in Docker**: When running semantic deduplication inside the NeMo Curator container, ensure the container is started with `--gpus all` so that CUDA GPUs are available. Without this flag, you will see `RuntimeError: No CUDA GPUs are available`. Also activate the virtual environment with `source /opt/venv/env.sh` after entering the container.
@@ -144,6 +145,7 @@ Compare semantic deduplication with other methods:
 | `input_filetype` | str | `"parquet"` | Original text reader and removal format. Supported values are `"parquet"` and `"jsonl"`; generated embeddings are always Parquet. |
 | `input_file_extensions` | list[str] \| None | `None` | Extensions to discover. `None` or `[]` uses `[".parquet"]` for Parquet and `[".jsonl", ".json"]` for JSONL. A non-empty list replaces those defaults. |
 | `model_identifier` | str | `"google/embeddinggemma-300m"` | Pre-trained model for embedding generation (vLLM backend) |
+| `hf_token` | str \| None | `None` | Hugging Face read token for private or gated models |
 | `embedding_pretokenize` | bool | `False` | Whether to pre-tokenize input before passing to vLLM |
 | `embedding_vllm_init_kwargs` | dict | `None` | Additional keyword arguments passed to the vLLM `LLM` initializer |
 | `embedding_max_chars` | int | `None` | Maximum number of characters for text truncation |

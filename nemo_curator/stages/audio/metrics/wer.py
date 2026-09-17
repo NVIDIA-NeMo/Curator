@@ -40,7 +40,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         language: Language of the text. Defaults to "en".
         hypothesis_text_key: Key to the hypothesis text. Defaults to "text".
-        reference_text_key: Key to the reference text. Defaults to "text".
+        reference_text_key: Key to the reference text. Defaults to "text_ref".
         num_words_threshold: Number of words to use for normalization. Defaults to 200.
         num_words_look_back: Number of words to look back for normalization. Defaults to 5.
         compute_pnc_wer: Whether to compute PNC WER/CER. Defaults to False.
@@ -68,6 +68,9 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
+    _warned_missing_text_key_sets: set[tuple[str, ...]] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         if self.num_words_look_back >= self.num_words_threshold:
@@ -190,7 +193,22 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         end = audio_segment.get("end", audio_segment.get("duration", 0))
         duration = end - start
 
-        if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
+        missing_text_keys = [
+            f"{option_name}={key!r}"
+            for option_name, key in (
+                ("hypothesis_text_key", self.hypothesis_text_key),
+                ("reference_text_key", self.reference_text_key),
+            )
+            if key not in audio_segment
+        ]
+        if missing_text_keys:
+            missing_text_key_set = tuple(missing_text_keys)
+            if missing_text_key_set not in self._warned_missing_text_key_sets:
+                logger.warning(
+                    f"[{self.name}] skipping WER computation because configured text key(s) are missing: "
+                    f"{', '.join(missing_text_keys)}"
+                )
+                self._warned_missing_text_key_sets.add(missing_text_key_set)
             return
 
         metrics = audio_segment.get("metrics", {})
