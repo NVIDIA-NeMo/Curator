@@ -12,4 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Build-time vendored tutorial files used by selected benchmarks."""
+"""Build-time vendored tutorial files used by selected benchmarks.
+
+This package is intentionally almost empty in the source tree. During package
+builds, ``benchmarking/setup.py`` copies a small allowlist of tutorial files
+from the peer ``tutorials/`` directory into this package so non-editable
+``nemo-curator-benchmarking`` installs can run tutorial-backed benchmarks
+without requiring a full source checkout.
+"""
