@@ -46,9 +46,6 @@ nemotron_parse = [
     "opencv-python-headless",
 ]
 sinks = [
-    "mlflow",
-    "oauth2client",
-    "pydrive2",
     "slack-sdk",
 ]
 visual = [
@@ -59,11 +56,8 @@ video = [
 ]
 all = [
     "albumentations",
-    "mlflow",
-    "oauth2client",
     "opencv-python-headless",
     "pyloudnorm",
-    "pydrive2",
     "slack-sdk",
     "wget",
 ]

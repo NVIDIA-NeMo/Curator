@@ -503,6 +503,8 @@ class SlackMessage(SlackMessageBase):
 
 
 class SlackSink(Sink):
+    """Sink that posts benchmark session summaries and entry updates to Slack."""
+
     name: str = "slack"
 
     def __init__(self, sink_config: dict[str, Any]):

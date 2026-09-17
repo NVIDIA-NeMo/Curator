@@ -273,7 +273,6 @@ def test_dependency_helpers_use_explicit_yaml_dependency_groups() -> None:
         "dependencies": ["visual"],
         "sinks": [
             {"name": "slack", "enabled": True, "dependencies": ["sinks"]},
-            {"name": "gdrive", "enabled": False, "dependencies": ["sinks"]},
         ],
         "data_setups": [
             {"name": "audio_setup", "enabled": True, "dependencies": ["audio"]},

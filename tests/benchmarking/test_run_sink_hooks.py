@@ -23,6 +23,8 @@ from runner.sinks.sink import call_sink_hook, initialize_sinks
 
 
 class _Sink:
+    """Test sink that records hook calls and can simulate hook failures."""
+
     def __init__(self, fail_hooks: set[str] | None = None) -> None:
         self.fail_hooks = fail_hooks or set()
         self.calls: list[tuple[str, dict[str, object]]] = []

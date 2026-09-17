@@ -58,6 +58,8 @@ DEFAULT_BENCHMARK_CONFIG_ENV = "CURATOR_BENCHMARK_CONFIG"
 
 @dataclass
 class DockerTarget:
+    """Docker-backed execution target for curator-benchmark commands."""
+
     image: str | None = None
     container: str | None = None
     name: str | None = None
@@ -427,11 +429,8 @@ def _docker_env_args(target: DockerTarget, image_digest: str) -> list[str]:
     env_values = {
         "NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video",
         "IMAGE_DIGEST": image_digest,
-        "MLFLOW_TRACKING_URI": os.environ.get("MLFLOW_TRACKING_URI", ""),
         "SLACK_BOT_TOKEN": os.environ.get("SLACK_BOT_TOKEN", ""),
         "SLACK_CHANNEL_ID": os.environ.get("SLACK_CHANNEL_ID", ""),
-        "GDRIVE_FOLDER_ID": os.environ.get("GDRIVE_FOLDER_ID", ""),
-        "GDRIVE_SERVICE_ACCOUNT_FILE": os.environ.get("GDRIVE_SERVICE_ACCOUNT_FILE", ""),
         "CURATOR_BENCHMARKING_DEBUG": os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0"),
         BENCHMARK_SUITE_DIR_ENV: str(target.benchmark_suite_container_dir),
         DEFAULT_BENCHMARK_CONFIG_ENV: str(_default_benchmark_config_path(target)),

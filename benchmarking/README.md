@@ -574,24 +574,12 @@ delete_scratch: true
 
 # Optional: Configure sinks for result processing
 sinks:
-  - name: mlflow
-    enabled: true
-    dependencies:
-      - sinks
-    tracking_uri: ${MLFLOW_TRACKING_URI}
-    experiment: my-experiment
   - name: slack
     enabled: true
     dependencies:
       - sinks
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
-  - name: gdrive
-    enabled: false
-    dependencies:
-      - sinks
-    drive_folder_id: ${GDRIVE_FOLDER_ID}
-    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
 # Optional: Global Ray settings inherited by all entries; per-entry ray sections override these values
 ray:
@@ -777,8 +765,6 @@ paths:
 sinks:
   - name: slack
     channel_id: ${SLACK_CHANNEL_ID}
-  - name: mlflow
-    tracking_uri: ${MLFLOW_TRACKING_URI}
 ```
 
 ### Template Substitution and Path Resolution
@@ -965,8 +951,8 @@ Reference implementations:
 ## Reporting Sinks
 
 Sinks handle reporting and side effects for benchmark lifecycle events. Built-in
-sinks include Slack, MLflow, and Google Drive support. Sink failures are logged
-by the runner and should not cause a benchmark entry to fail.
+sinks include Slack support. Sink failures are logged by the runner and should
+not cause a benchmark entry to fail.
 
 Example Slack sink:
 
@@ -981,18 +967,6 @@ sinks:
 
 Slack reporting requires `SLACK_BOT_TOKEN` in the environment. `channel_id` may
 be provided in YAML or through the environment expected by the runner.
-
-Example MLflow sink:
-
-```yaml
-sinks:
-  - name: mlflow
-    tracking_uri: http://mlflow-server:5000
-    experiment: curator-benchmarks
-    enabled: true
-    dependencies:
-      - sinks
-```
 
 Entry-specific sink configuration belongs under `sink_data` on the entry. For
 example, Slack can be asked to display additional metrics for a specific

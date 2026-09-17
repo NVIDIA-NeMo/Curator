@@ -76,6 +76,8 @@ def normalize_environment(environment: dict[str, Any] | None, context: str) -> d
 
 @dataclass
 class Entry:
+    """Runtime representation of one benchmark or data-setup entry."""
+
     name: str
     script: str | None = None
     args: str | None = None
@@ -124,8 +126,6 @@ class Entry:
         # sink_data:
         #   - name: slack
         #     additional_metrics: ["num_documents_processed", "throughput_docs_per_sec"]
-        #   - name: gdrive
-        #     ...
         sink_data = {}
         # Will be a list of dicts if reading from YAML, in which case make it a dict of dicts with key
         # from "name" for easy lookup based on sink name.
