@@ -41,6 +41,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+import numpy as np
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -153,6 +154,25 @@ def _translate_to_original(
             logger.warning(f"[TimestampMapper] Skipping malformed mapping (missing key {e}): {m}")
             continue
     return results
+
+
+def _jsonable_passthrough(value: Any) -> Any:  # noqa: ANN401 - arbitrary passthrough value
+    """NumPy scalars/arrays as the JSON-equivalent Python values.
+
+    Before the serialization guard, passthrough values reached the pandas-backed writers
+    untouched and NumPy numbers serialized as plain numbers. Stdlib ``json`` rejects them, so
+    convert rather than drop: the written manifest stays byte-identical to the legacy output.
+    Nested containers are converted recursively; anything else is returned as-is for the probe.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, Mapping):
+        return {k: _jsonable_passthrough(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable_passthrough(v) for v in value]
+    return value
 
 
 @dataclass
@@ -363,12 +383,13 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if key in _NEVER_PASS_KEYS:
                 continue
             if key in item and item[key] is not None and key not in result:
+                value = _jsonable_passthrough(item[key])
                 try:
-                    json.dumps(item[key])
+                    json.dumps(value)
                 except (TypeError, ValueError, OverflowError):
                     logger.warning(f"[TimestampMapper] Dropping non-JSON passthrough key {key!r}")
                     continue
-                result[key] = item[key]
+                result[key] = value
 
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {
