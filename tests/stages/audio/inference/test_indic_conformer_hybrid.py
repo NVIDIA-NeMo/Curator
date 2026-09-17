@@ -47,7 +47,10 @@ def test_stage_exposes_integration_pipeline_contract() -> None:
     )
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
-    assert stage.outputs() == ([], ["asr_prediction", "asr_language"])
+    assert stage.outputs() == (
+        [],
+        ["asr_prediction", "_skipme", "additional_notes", "asr_language"],
+    )
     assert stage.name == "IndicConformerHybrid_inference"
     assert stage.batch_size == 128
     assert stage.num_workers() == 3
