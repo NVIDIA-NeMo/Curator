@@ -485,9 +485,7 @@ def test_timestamp_mapper_multispeaker_maps_distinct_windows() -> None:
     ],
 )
 def test_malformed_numeric_segments_are_skipped(segment: object) -> None:
-    result = TimestampMapperStage().process(
-        _make_task({"audio_filepath": "clip.wav", "diar_segments": [segment]})
-    )
+    result = TimestampMapperStage().process(_make_task({"audio_filepath": "clip.wav", "diar_segments": [segment]}))
 
     assert isinstance(result, AudioTask)
     assert result.data["duration"] == 0.0
@@ -607,9 +605,7 @@ def test_contract_matches_runtime_branches() -> None:
         "duration_ms",
         "duration",
     ]
-    conditional_keys = {
-        key for conditional in contract.conditional_writes for key in conditional.writes.data_keys
-    }
+    conditional_keys = {key for conditional in contract.conditional_writes for key in conditional.writes.data_keys}
     assert {"diar_segments", "speaking_duration"} <= conditional_keys
 
 
@@ -676,3 +672,29 @@ def test_audio_path_only_planner_matches_runtime() -> None:
     result = stage.process(_make_task({"audio_filepath": "clip.wav"}))
     assert isinstance(result, AudioTask)
     assert result.data["duration"] == 0.0
+
+
+def test_numpy_passthrough_values_are_kept_as_plain_numbers() -> None:
+    """Legacy manifests carried NumPy scores straight to the pandas writer; they must not be dropped."""
+    import numpy as np
+
+    mapper = TimestampMapperStage(passthrough_keys=["npf", "npi", "npa", "nested"])
+    mapped = mapper.process(
+        AudioTask(
+            dataset_name="d",
+            data={
+                "audio_filepath": "a.wav",
+                "duration": 1.0,
+                "npf": np.float32(1.5),
+                "npi": np.int64(3),
+                "npa": np.array([1.0, 2.0]),
+                "nested": {"score": np.float64(0.25), "ids": [np.int32(1)]},
+            },
+        )
+    )
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data["npf"] == 1.5
+    assert mapped.data["npi"] == 3
+    assert mapped.data["npa"] == [1.0, 2.0]
+    assert mapped.data["nested"] == {"score": 0.25, "ids": [1]}
+    json.dumps(mapped.data)
