@@ -48,7 +48,10 @@ def test_stage_exposes_parakeet_v3_defaults() -> None:
     stage = InferenceParakeetStage(num_workers_override=2)
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
-    assert stage.outputs() == ([], ["asr_prediction", "asr_language"])
+    assert stage.outputs() == (
+        [],
+        ["asr_prediction", "_skipme", "additional_notes", "asr_language"],
+    )
     assert stage.model_id == "nvidia/parakeet-tdt-0.6b-v3"
     assert stage.batch_size == 16
     assert set(stage.supported_language_codes) == set(PARAKEET_TDT_0_6B_V3_LANGS)

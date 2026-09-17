@@ -124,9 +124,5 @@ class InferenceParakeetStage(ASRStage):
             }
         super().__post_init__()
 
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Match the integration-stage output declaration."""
-        return [], [self.pred_text_key, self.language_key]
-
 
 __all__ = ["PARAKEET_TDT_0_6B_V3_LANGS", "InferenceParakeetStage", "NeMoASRAdapter"]

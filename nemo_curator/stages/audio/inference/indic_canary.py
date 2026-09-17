@@ -88,10 +88,6 @@ class InferenceIndicCanaryStage(ASRStage):
         }
         super().__post_init__()
 
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Match the integration-stage output declaration."""
-        return [], [self.pred_text_key, self.language_key]
-
     def _create_adapter(self) -> IndicCanaryTRTLLMASR:
         """Construct Canary through its reference-compatible ``engine_dir`` API."""
         return IndicCanaryTRTLLMASR(engine_dir=self.engine_dir, **self.adapter_kwargs)

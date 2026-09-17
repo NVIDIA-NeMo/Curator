@@ -6,28 +6,12 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-# ruff: noqa: INP001
-
 from argparse import Namespace
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
-
-def _load_encoder_utils() -> ModuleType:
-    module_path = Path(__file__).parents[2] / "scripts" / "tensorrt_encoder_utils.py"
-    spec = spec_from_file_location("curator_tensorrt_encoder_utils", module_path)
-    if spec is None or spec.loader is None:
-        msg = f"Could not load {module_path}"
-        raise RuntimeError(msg)
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-encoder_utils = _load_encoder_utils()
+from nemo_curator.stages.audio.inference.scripts import tensorrt_encoder_utils as encoder_utils
 
 
 def _args() -> Namespace:
