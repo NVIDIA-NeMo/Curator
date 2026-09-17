@@ -15,6 +15,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 
@@ -87,12 +89,53 @@ def test_custom_output_keys_are_used_everywhere(tmp_path: Path) -> None:
     assert build_contract(stage).writes.data_keys == ["path", "transcript", "rate", "book", "reader"]
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"sample_rate_key": ""},
+        {"sample_rate_key": "audio_filepath"},
+        {"book_id_key": "text"},
+        {"reader_id_key": "sample_rate"},
+        {"book_id_key": "identity", "reader_id_key": "identity"},
+    ],
+)
+def test_new_output_keys_reject_empty_names_and_collisions(tmp_path: Path, kwargs: dict) -> None:
+    with pytest.raises(ValueError):
+        CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False, **kwargs)
+
+
 def test_parse_filename_standard(tmp_path: Path) -> None:
     stage = CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False)
     result = stage.parse_filename("book_00025_chp_0019_reader_04069_0_seg_1_seg1.wav")
     assert result["book_id"] == "00025"
     assert result["chapter"] == "0019"
     assert result["reader_id"] == "04069"
+
+
+def test_filename_parsing_is_canonical_before_output_key_remapping(tmp_path: Path) -> None:
+    wav = tmp_path / "book_00025_chp_0019_reader_04069_0_seg_1_seg1.wav"
+    wav.write_bytes(b"\x00")
+    stage = CreateInitialManifestReadSpeechStage(
+        raw_data_dir=str(tmp_path),
+        auto_download=False,
+        book_id_key="chapter",
+        reader_id_key="speaker",
+    )
+
+    assert stage.parse_filename(wav.name) == {
+        "book_id": "00025",
+        "chapter": "0019",
+        "reader_id": "04069",
+    }
+    assert stage.collect_audio_files(str(tmp_path)) == [
+        {
+            "audio_filepath": str(wav.resolve()),
+            "text": "",
+            "sample_rate": 48000,
+            "chapter": "00025",
+            "speaker": "04069",
+        }
+    ]
 
 
 def test_parse_filename_short(tmp_path: Path) -> None:
