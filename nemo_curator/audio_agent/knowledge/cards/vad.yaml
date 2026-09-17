@@ -26,6 +26,8 @@ params_of_note:
   speech_pad_ms: "padding added before/after each speech segment in ms (default 300)"
   nested: "True = one task with all segments under segments_key; False (default) = fan-out one task per segment"
   keep_segment_waveform_in_task: "keep each segment's waveform in-task (default True); REQUIRED for SegmentConcatenationStage"
+  output_waveform_key: "key where segment waveforms are written (default waveform); separate from waveform_key so legacy custom input aliases keep canonical outputs"
+  output_sample_rate_key: "key where segment sample rates are written (default sample_rate); separate from sample_rate_key so legacy custom input aliases keep canonical outputs"
 semantic_facts:
   duration:
     meaning: "Length of ONE detected speech segment (fan-out mode) -- not the original file."
@@ -63,7 +65,7 @@ comparison:
 conflicts_with: [WhisperXVADStage]   # alternative VAD
 notes:
   - "Sample rate: accepts ANY input rate. Silero runs natively at 8/16/32/48/64/96 kHz; any other rate is internally resampled to 16 kHz for VAD and the segment timestamps are mapped back to the original rate (vad_segmentation.py:57,362-372). No upstream ResampleAudioStage is required."
-  - "Segment schema: each segment dict has start_ms, end_ms, segment_num, duration, original_file (times in MILLISECONDS, not start/end seconds). This is INCOMPATIBLE with SplitLongAudioStage, which reads start/end in seconds -- use diarization segments for splitting."
+  - "Segment schema: each segment dict has start_ms, end_ms, segment_num, duration, original_file, and retains the parent audio_filepath only as legacy provenance (times in MILLISECONDS, not start/end seconds). Fan-out invalidates that retained path as an audio carrier so file-only consumers cannot reopen the full parent recording. This is INCOMPATIBLE with SplitLongAudioStage, which reads start/end in seconds -- use diarization segments for splitting."
   - "For SegmentConcatenationStage, run with nested=True AND keep_segment_waveform_in_task=True (it needs per-segment waveforms)."
   - "(external) Silero VAD: enterprise-grade, ~2 MB, bundled with the pip package (no download), 8/16 kHz native (fixed 256/512-sample windows in v5). Source: https://github.com/snakers4/silero-vad"
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}

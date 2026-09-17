@@ -210,6 +210,12 @@ correctly run without. Optional reads are visible to discovery and semantic
 review, but they never make validation reject a fallback path. Do not put a
 fallback key in `reads` or legacy `inputs()` merely to advertise it.
 
+Use `invalidates_keys=[...]` when compatibility requires retaining a key in
+`task.data`, but its prior semantic role is no longer safe for downstream
+planning. This differs from `removes_keys`: the runtime value remains available
+as legacy provenance, while the planner treats it as unavailable until a later
+stage writes a current value for that role.
+
 When compatibility requires retaining a constructor default that runtime validation rejects,
 declare the field with `metadata={"agent_required": True}`. Discovery then requires an explicit
 value without changing the Python constructor or its default. Use this only for values that the

@@ -97,6 +97,22 @@ def test_optional_reads_are_visible_without_blocking_fallback_paths() -> None:
     assert validate_pipeline([stage], initial_keys={"text"}).ok
 
 
+def test_invalidated_provenance_key_is_retained_but_not_planner_available() -> None:
+    invalidator = _ConfiguredContractStage(StageContract(invalidates_keys=["audio_filepath"]))
+    consumer = _ConfiguredContractStage(StageContract(reads=IOSpec(data_keys=["audio_filepath"])))
+
+    contract = build_contract(invalidator)
+    report = validate_pipeline(
+        [invalidator, consumer],
+        initial_keys={"audio_filepath"},
+        initial_roles={"audio_filepath"},
+    )
+
+    assert contract.to_dict()["invalidates_keys"] == ["audio_filepath"]
+    assert not report.ok
+    assert any(issue.code == "key_removed_upstream" for issue in report.issues)
+
+
 def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None:
     producer_contract = StageContract(
         conditional_writes=[

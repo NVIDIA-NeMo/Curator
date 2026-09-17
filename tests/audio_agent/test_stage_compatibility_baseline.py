@@ -261,9 +261,11 @@ ADDITIVE_STAGE_NAMES = (
 # existing rows. FLEURS keeps its empty-string constructor defaults but marks
 # the three values rejected by __post_init__ as agent-required. Both sources
 # now expose conservative static download gates and configured no-download
-# contracts no longer claim writes. No existing runtime default changed.
+# contracts no longer claim writes. VAD exposes separate output key parameters
+# whose canonical defaults preserve its established output schema. No existing
+# runtime default changed.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "14b2ed51bfbfe777bd5be24f42865d4457b7c67971d521f1952c365ada5ca660"  # pragma: allowlist secret
+    "a2a6a15a9a4cdd1f9dda61eb7315f852a66c5731f775882228dc59406e3233ef"  # pragma: allowlist secret
 )
 
 

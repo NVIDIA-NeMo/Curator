@@ -14,6 +14,7 @@
 
 import os
 import pickle
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -457,6 +458,43 @@ def test_legacy_positional_constructor_order_is_preserved() -> None:
     assert stage.audio_filepath_key == "audio_filepath"
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"input_residency": "typo"},
+        {"speaker_id_key": ""},
+        {"speaker_id_key": "duration"},
+        {"speaker_id_key": "waveform"},
+        {"original_file_key": "audio_filepath"},
+    ],
+)
+def test_invalid_residency_and_destructive_key_collisions_are_rejected(kwargs: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="must"):
+        SpeakerSeparationStage(**kwargs)
+
+
+def test_default_children_retain_legacy_path_and_falsey_provenance() -> None:
+    stage = _stubbed_speaker_stage(input_residency="waveform")
+    task = _make_task(duration_sec=0.1, sample_rate=16000)
+    task.data.update({"audio_filepath": "/parent.wav", "original_file": ""})
+
+    child = stage.process(task)[0].data
+
+    assert child["audio_filepath"] == "/parent.wav"
+    assert child["original_file"] == ""
+
+
+def test_default_packaging_failure_retains_legacy_skip_policy() -> None:
+    stage = SpeakerSeparationStage(min_duration=0.1, resources=Resources(gpus=0.0))
+    stage._separator = SimpleNamespace(
+        get_speaker_audio_data=lambda *_args, **_kwargs: {
+            "spk_0": SimpleNamespace(audio=object(), duration=0.5, diar_segments=[(0.0, 0.5)])
+        }
+    )
+
+    assert stage.process(_make_task(duration_sec=0.1, sample_rate=16000)) == []
+
+
 def test_static_contract_reports_model_download() -> None:
     assert SpeakerSeparationStage.describe_static().gates.requires_internet_first_run is True
 
@@ -471,8 +509,9 @@ def test_contract_declares_residency_specific_audio_replacements(tmp_path) -> No
         separated_audio_dir=output_dir,
     ).describe()
 
-    assert "audio_filepath" in memory.removes_keys
+    assert "audio_filepath" in memory.invalidates_keys
     assert "waveform" not in memory.removes_keys
+    assert memory.removes_keys == ["audio", "num_samples"]
     assert not {"audio_filepath", "waveform"} & set(both.removes_keys)
     assert "waveform" in disk.removes_keys
     assert "audio_filepath" not in disk.removes_keys
@@ -595,7 +634,7 @@ def test_single_speaker_persistence_failure_propagates(tmp_path) -> None:  # noq
         stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
 
 
-def test_multi_speaker_publish_failure_cleans_only_new_outputs(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+def test_multi_speaker_publish_failure_retains_immutable_outputs(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     output_dir = tmp_path / "separated"
     initial = _stubbed_speaker_stage(write_to_disk=True, separated_audio_dir=str(output_dir))
     preexisting_path = initial.process(_make_task(duration_sec=0.1, sample_rate=16000))[0].data["audio_filepath"]
@@ -627,4 +666,70 @@ def test_multi_speaker_publish_failure_cleans_only_new_outputs(tmp_path, monkeyp
         stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
 
     assert Path(preexisting_path).read_bytes() == preexisting_bytes
-    assert sorted(str(path) for path in output_dir.glob("*.wav")) == [preexisting_path]
+    published = sorted(str(path) for path in output_dir.glob("*.wav"))
+    assert preexisting_path in published
+    assert len(published) == 2
+
+
+def test_concurrent_duplicate_publish_failure_never_deletes_successful_outputs(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    output_dir = tmp_path / "separated"
+
+    def make_stage() -> SpeakerSeparationStage:
+        stage = SpeakerSeparationStage(
+            min_duration=0.1,
+            resources=Resources(gpus=0.0),
+            write_to_disk=True,
+            separated_audio_dir=str(output_dir),
+        )
+        stage._separator = SimpleNamespace(
+            get_speaker_audio_data=lambda *_args, **_kwargs: {
+                "spk_0": SpeakerResult(_make_audio_segment(500, sample_rate=11025), 0.5, [(0.0, 0.5)]),
+                "spk_1": SpeakerResult(_make_audio_segment(600, sample_rate=11025), 0.6, [(0.0, 0.6)]),
+                "spk_2": SpeakerResult(_make_audio_segment(700, sample_rate=11025), 0.7, [(0.0, 0.7)]),
+            }
+        )
+        return stage
+
+    first_published = threading.Event()
+    successful_task_done = threading.Event()
+    real_link = os.link
+
+    def interleaved_link(source: str, destination: str) -> None:
+        if threading.current_thread().name == "task-a":
+            if "_spk_0_" in os.path.basename(destination) and not first_published.is_set():
+                real_link(source, destination)
+                first_published.set()
+                assert successful_task_done.wait(timeout=5)
+                return
+            if "_spk_2_" in os.path.basename(destination):
+                msg = "task A publish failed"
+                raise OSError(msg)
+        real_link(source, destination)
+
+    monkeypatch.setattr(os, "link", interleaved_link)
+    results: dict[str, list[AudioTask]] = {}
+    errors: dict[str, BaseException] = {}
+
+    def run(label: str, stage: SpeakerSeparationStage) -> None:
+        try:
+            results[label] = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
+        except BaseException as error:  # noqa: BLE001 - thread captures the exact stage failure
+            errors[label] = error
+        finally:
+            if label == "b":
+                successful_task_done.set()
+
+    task_a = threading.Thread(target=run, args=("a", make_stage()), name="task-a")
+    task_b = threading.Thread(target=run, args=("b", make_stage()), name="task-b")
+    task_a.start()
+    assert first_published.wait(timeout=5)
+    task_b.start()
+    task_a.join(timeout=5)
+    task_b.join(timeout=5)
+
+    assert not task_a.is_alive()
+    assert not task_b.is_alive()
+    assert isinstance(errors.get("a"), OSError)
+    assert "b" not in errors
+    assert len(results["b"]) == 3
+    assert all(Path(child.data["audio_filepath"]).exists() for child in results["b"])

@@ -1117,6 +1117,7 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                         "reads": [],
                         "writes": [],
                         "removes_keys": [],
+                        "invalidates_keys": [],
                         "semantic_material": material,
                     }
                 )
@@ -1162,6 +1163,7 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                 "reads": reads,
                 "writes": writes,
                 "removes_keys": [str(key) for key in (getattr(contract, "removes_keys", ()) or ())],
+                "invalidates_keys": [str(key) for key in (getattr(contract, "invalidates_keys", ()) or ())],
                 "semantic_material": material,
             }
             stage_packets.append(stage_info)
@@ -1222,6 +1224,8 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                 # future contract explicitly declares metadata removal.
                 active_writers = {slot: writer for slot, writer in active_writers.items() if slot[0] == "metadata"}
             for key in stage_info["removes_keys"]:
+                active_writers.pop(("task", key), None)
+            for key in stage_info["invalidates_keys"]:
                 active_writers.pop(("task", key), None)
             for write in writes:
                 slot = (write["scope"], write["key"])
