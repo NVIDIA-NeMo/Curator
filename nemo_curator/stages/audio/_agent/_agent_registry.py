@@ -341,6 +341,12 @@ def _contract_referenced_keys(contract: StageContract) -> set[str]:
         keys.update(conditional.writes.data_keys)
         keys.update(conditional.writes.segment_data_keys)
         keys.update(conditional.metadata_writes)
+    for conditional in contract.conditional_reads:
+        keys.update(conditional.requires_keys)
+        keys.update(conditional.forbids_keys)
+        for spec in conditional.reads_one_of:
+            keys.update(spec.data_keys)
+            keys.update(spec.segment_data_keys)
     keys.update(contract.invalidates_keys)
     return keys
 

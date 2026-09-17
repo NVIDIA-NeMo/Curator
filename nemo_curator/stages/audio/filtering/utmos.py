@@ -198,7 +198,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def describe(self) -> StageContract:
         guaranteed_output_keys = [] if self.action == "annotate" or self.mode == "auto" else [self.score_key]
-        reads, reads_one_of, writes = scoped_audio_io_specs(
+        reads, reads_one_of, writes, conditional_reads = scoped_audio_io_specs(
             self.input_residency,
             mode=self.mode,
             audio_filepath_key=self.audio_filepath_key,
@@ -210,6 +210,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return StageContract(
             reads=reads,
             reads_one_of=reads_one_of,
+            conditional_reads=conditional_reads,
             writes=writes,
             conditional_writes=[
                 *scoped_file_audio_hydration_writes(

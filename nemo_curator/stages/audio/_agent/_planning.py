@@ -153,6 +153,11 @@ def _requirement_str(contract: StageContract, available: set[str]) -> str:
         reqs.append(f"role(s) {sorted(missing)}")
     if contract.reads_one_of:
         reqs.append(f"one of {[sorted(_roles_of(o, contract)) for o in contract.reads_one_of]}")
+    for branch in contract.conditional_reads:
+        reqs.append(
+            f"when {branch.condition}: one of "
+            f"{[sorted(_roles_of(option, contract)) for option in branch.reads_one_of]}"
+        )
     return "; ".join(reqs) or f"role(s) {sorted(_required_roles(contract))}"
 
 
@@ -194,12 +199,41 @@ def _spec_satisfied_by_role(  # noqa: PLR0913 -- task and nested scopes each nee
     )
 
 
-def _reads_satisfied_by_role(
+def _reachable_conditional_reads(
+    contract: StageContract,
+    available_keys: set[str],
+    possible_keys: set[str] | None = None,
+) -> list[Any]:
+    """Read branches that runtime can select from the current top-level schema."""
+    possible = possible_keys or set()
+    reachable_keys = available_keys | possible
+    return [
+        branch
+        for branch in contract.conditional_reads
+        if set(branch.requires_keys).issubset(reachable_keys) and not (set(branch.forbids_keys) & available_keys)
+    ]
+
+
+def _read_option_groups(
+    contract: StageContract,
+    available_keys: set[str],
+    possible_keys: set[str] | None = None,
+) -> list[list[Any]]:
+    """Alternative groups whose runtime branch is reachable for this input."""
+    groups = [contract.reads_one_of] if contract.reads_one_of else []
+    groups.extend(
+        branch.reads_one_of for branch in _reachable_conditional_reads(contract, available_keys, possible_keys)
+    )
+    return groups
+
+
+def _reads_satisfied_by_role(  # noqa: PLR0913 -- task/segment roles and keys are distinct planner state
     contract: StageContract,
     available_roles: set[str],
     available_segment_roles: set[str],
     available_keys: set[str],
     available_segment_keys: set[str],
+    possible_keys: set[str] | None = None,
 ) -> bool:
     """Role-level read check with literal fallback for unknown roles."""
     if not _spec_satisfied_by_role(
@@ -211,16 +245,19 @@ def _reads_satisfied_by_role(
         available_segment_keys,
     ):
         return False
-    return not contract.reads_one_of or any(
-        _spec_satisfied_by_role(
-            option,
-            contract,
-            available_roles,
-            available_segment_roles,
-            available_keys,
-            available_segment_keys,
+    return all(
+        any(
+            _spec_satisfied_by_role(
+                option,
+                contract,
+                available_roles,
+                available_segment_roles,
+                available_keys,
+                available_segment_keys,
+            )
+            for option in group
         )
-        for option in contract.reads_one_of
+        for group in _read_option_groups(contract, available_keys, possible_keys)
     )
 
 
@@ -382,6 +419,7 @@ def _reads_satisfied_by_key(
     contract: StageContract,
     available_keys: set[str],
     available_segment_keys: set[str],
+    possible_keys: set[str] | None = None,
 ) -> bool:
     """Whether every read is met by the LITERAL key it names.
 
@@ -399,8 +437,9 @@ def _reads_satisfied_by_key(
     """
     if not _spec_satisfied_by_key(contract.reads, available_keys, available_segment_keys):
         return False
-    return not contract.reads_one_of or any(
-        _spec_satisfied_by_key(option, available_keys, available_segment_keys) for option in contract.reads_one_of
+    return all(
+        any(_spec_satisfied_by_key(option, available_keys, available_segment_keys) for option in group)
+        for group in _read_option_groups(contract, available_keys, possible_keys)
     )
 
 
@@ -486,6 +525,7 @@ def _dangling_read_keys(
     contract: StageContract,
     available_keys: set[str],
     available_segment_keys: set[str],
+    possible_keys: set[str] | None = None,
 ) -> set[str]:
     """Read key VALUES whose role is known but whose exact value was not
     produced upstream nor seeded — the renamed-producer dangle the role check misses.
@@ -502,14 +542,10 @@ def _dangling_read_keys(
     Role-bearing keys only (``unknown``/internal bookkeeping keys are excluded).
     """
     dangling = _missing_literal_role_keys(contract, contract.reads, available_keys, available_segment_keys)
-    options = contract.reads_one_of
-    if len(options) == 1:
-        dangling |= _missing_literal_role_keys(contract, options[0], available_keys, available_segment_keys)
-    elif len(options) > 1:
+    for options in _read_option_groups(contract, available_keys, possible_keys):
         per_option = [
             _missing_literal_role_keys(contract, option, available_keys, available_segment_keys) for option in options
         ]
-        # Clean iff at least one alternative is literally complete (no missing role-bearing key).
         if all(missing for missing in per_option):
             dangling |= set().union(*per_option)
     return dangling
@@ -558,8 +594,14 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
         walk.segment_available,
         walk.available_keys,
         walk.segment_available_keys,
+        walk.possible_keys,
     )
-    key_satisfied = _reads_satisfied_by_key(contract, walk.available_keys, walk.segment_available_keys)
+    key_satisfied = _reads_satisfied_by_key(
+        contract,
+        walk.available_keys,
+        walk.segment_available_keys,
+        walk.possible_keys,
+    )
     if not (role_satisfied or key_satisfied) and not walk.past_composite and site.composite is None:
         conditional = _conditional_read_issue(walk, site, contract)
         if conditional is not None:
@@ -568,7 +610,12 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
         if walk.past_composite:
             return []
         out: list[PipelineIssue] = []
-        dangling = _dangling_read_keys(contract, walk.available_keys, walk.segment_available_keys)
+        dangling = _dangling_read_keys(
+            contract,
+            walk.available_keys,
+            walk.segment_available_keys,
+            walk.possible_keys,
+        )
         if dangling:
             out.append(
                 PipelineIssue(
@@ -628,8 +675,9 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
             )
         ]
 
+    option_groups = _read_option_groups(contract, walk.available_keys, walk.possible_keys)
     needed = _roles_for_keys(contract, contract.reads.data_keys) | {
-        role for option in contract.reads_one_of for role in _roles_for_keys(contract, option.data_keys)
+        role for group in option_groups for option in group for role in _roles_for_keys(contract, option.data_keys)
     }
     removed_hit = (needed & walk.removed_roles) - walk.available
     if removed_hit:
@@ -679,7 +727,10 @@ def _reads_possibly_satisfied(walk: _Walk, contract: StageContract) -> bool:
 
     if not spec_ok(contract.reads):
         return False
-    return not contract.reads_one_of or any(spec_ok(option) for option in contract.reads_one_of)
+    return all(
+        any(spec_ok(option) for option in group)
+        for group in _read_option_groups(contract, walk.available_keys, walk.possible_keys)
+    )
 
 
 def _conditional_read_issue(walk: _Walk, site: _Site, contract: StageContract) -> PipelineIssue | None:
@@ -695,9 +746,13 @@ def _conditional_read_issue(walk: _Walk, site: _Site, contract: StageContract) -
     """
     if not _reads_possibly_satisfied(walk, contract):
         return None
+    option_groups = _read_option_groups(contract, walk.available_keys, walk.possible_keys)
     only_possible = sorted(
         (
-            {*contract.reads.data_keys, *(k for option in contract.reads_one_of for k in option.data_keys)}
+            {
+                *contract.reads.data_keys,
+                *(k for group in option_groups for option in group for k in option.data_keys),
+            }
             & walk.possible_keys
         )
         - walk.available_keys
@@ -705,7 +760,7 @@ def _conditional_read_issue(walk: _Walk, site: _Site, contract: StageContract) -
         (
             {
                 *contract.reads.segment_data_keys,
-                *(k for option in contract.reads_one_of for k in option.segment_data_keys),
+                *(k for group in option_groups for option in group for k in option.segment_data_keys),
             }
             & walk.possible_segment_keys
         )
@@ -800,7 +855,7 @@ def _task_type_issue(walk: _Walk, site: _Site, contract: StageContract) -> list[
     ]
 
 
-def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
+def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: PLR0915
     """Fold one stage's writes, removals and tensor residency into the running state."""
     produced = _roles_for_keys(contract, contract.writes.data_keys)
     segment_produced = _roles_for_keys(contract, contract.writes.segment_data_keys)
@@ -873,6 +928,8 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
             # top-level tensor residency; a nested (segment) carrier of the same name survives.
             walk.tensor_keys.discard(rk)
         role = contract.key_roles.get(rk, role_for_value(rk))
+        if role != "unknown" and not any(role_for_value(k) == role for k in walk.possible_keys):
+            walk.possible_roles.discard(role)
         if (
             role != "unknown"
             and role not in produced

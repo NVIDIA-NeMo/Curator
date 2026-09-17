@@ -30,7 +30,13 @@ import torch
 from nemo_curator.stages import audio
 from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent import _catalog
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalRead,
+    ConditionalWrite,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import unavailable_modules
 from nemo_curator.stages.audio._agent._composite import expand_composites
@@ -40,6 +46,7 @@ from nemo_curator.stages.audio._agent._residency import (
     cleanup_temp_files,
     resolve_audio,
     resolve_audio_path,
+    validate_audio_key_configuration,
     validate_input_residency,
     write_audio_stable,
 )
@@ -95,6 +102,53 @@ def test_optional_reads_are_visible_without_blocking_fallback_paths() -> None:
 
     assert build_contract(stage).to_dict()["optional_reads"]["data_keys"] == ["speaker_id"]
     assert validate_pipeline([stage], initial_keys={"text"}).ok
+
+
+def test_conditional_reads_follow_the_runtime_scope_selector() -> None:
+    contract = StageContract(
+        conditional_reads=[
+            ConditionalRead(
+                reads_one_of=[IOSpec(data_keys=["waveform", "sample_rate"])],
+                condition="'segments' is absent",
+                forbids_keys=["segments"],
+            ),
+            ConditionalRead(
+                reads_one_of=[IOSpec(segment_data_keys=["waveform", "sample_rate"])],
+                condition="'segments' is present",
+                requires_keys=["segments"],
+            ),
+        ],
+        key_roles={
+            "segments": "segments",
+            "waveform": "waveform",
+            "sample_rate": "sample_rate",
+        },
+    )
+    stage = _ConfiguredContractStage(contract)
+
+    task_report = validate_pipeline(
+        [stage],
+        initial_keys={"waveform", "sample_rate"},
+        initial_roles={"waveform", "sample_rate"},
+    )
+    incomplete_nested_report = validate_pipeline(
+        [stage],
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_segment_keys={"segment_num"},
+    )
+    complete_nested_report = validate_pipeline(
+        [stage],
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_segment_keys={"waveform", "sample_rate"},
+        initial_segment_roles={"waveform", "sample_rate"},
+    )
+
+    assert task_report.ok
+    assert not incomplete_nested_report.ok
+    assert complete_nested_report.ok
+    assert contract.to_dict()["conditional_reads"][1]["requires_keys"] == ["segments"]
 
 
 def test_invalidated_provenance_key_is_retained_but_not_planner_available() -> None:
@@ -237,6 +291,15 @@ def test_input_residency_validator_accepts_only_declared_modes(residency: str) -
 def test_input_residency_validator_rejects_unknown_mode() -> None:
     with pytest.raises(ValueError, match="input_residency must be one of"):
         validate_input_residency("wavefrom", stage_name="Fixture")
+
+
+def test_audio_key_validator_rejects_input_role_aliases() -> None:
+    with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+        validate_audio_key_configuration(
+            "Fixture",
+            input_keys={"waveform_key": "audio", "sample_rate_key": "audio"},
+            output_keys={"score_key": "score"},
+        )
 
 
 def test_file_audio_hydration_policies_are_opt_in_and_atomic(tmp_path: Path) -> None:

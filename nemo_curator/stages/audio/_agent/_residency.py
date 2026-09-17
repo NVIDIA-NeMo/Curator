@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import soundfile as sf
 import torch
 
-from nemo_curator.stages.audio._agent._agent_ready import AudioForm, ConditionalWrite, IOSpec
+from nemo_curator.stages.audio._agent._agent_ready import AudioForm, ConditionalRead, ConditionalWrite, IOSpec
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 
 if TYPE_CHECKING:
@@ -57,6 +57,12 @@ def validate_audio_key_configuration(
         if not isinstance(key, str) or not key.strip():
             msg = f"[{stage_name}] '{field_name}' must be a non-empty string"
             raise ValueError(msg)
+
+    input_values = list(input_keys.values())
+    if len(input_values) != len(set(input_values)):
+        duplicates = sorted({key for key in input_values if input_values.count(key) > 1})
+        msg = f"[{stage_name}] Audio input keys must be distinct; duplicate values: {duplicates}"
+        raise ValueError(msg)
 
     output_values = list(output_keys.values())
     if len(output_values) != len(set(output_values)):
@@ -157,7 +163,7 @@ def scoped_audio_io_specs(  # noqa: PLR0913
     segments_key: str,
     output_keys: list[str],
     infer_sample_rate_from_file: bool = False,
-) -> tuple[IOSpec, list[IOSpec], IOSpec]:
+) -> tuple[IOSpec, list[IOSpec], IOSpec, list[ConditionalRead]]:
     """Build mode-accurate reads/writes for task-or-nested audio stages.
 
     ``task`` exposes only top-level residency alternatives and outputs;
@@ -177,7 +183,6 @@ def scoped_audio_io_specs(  # noqa: PLR0913
     )
     segment_reads = [
         IOSpec(
-            data_keys=[segments_key] if mode == "auto" else [],
             segment_data_keys=list(spec.data_keys),
             accepts=list(spec.accepts),
         )
@@ -185,17 +190,30 @@ def scoped_audio_io_specs(  # noqa: PLR0913
     ]
 
     if mode == "task":
-        return IOSpec(), task_reads, IOSpec(data_keys=list(output_keys))
+        return IOSpec(), task_reads, IOSpec(data_keys=list(output_keys)), []
     if mode == "segments":
         return (
             IOSpec(data_keys=[segments_key]),
             segment_reads,
             IOSpec(segment_data_keys=list(output_keys)),
+            [],
         )
     return (
         IOSpec(),
-        [*task_reads, *segment_reads],
+        [],
         IOSpec(data_keys=list(output_keys), segment_data_keys=list(output_keys)),
+        [
+            ConditionalRead(
+                reads_one_of=task_reads,
+                condition=f"'{segments_key}' is absent, so the task-level branch runs",
+                forbids_keys=[segments_key],
+            ),
+            ConditionalRead(
+                reads_one_of=segment_reads,
+                condition=f"'{segments_key}' is present, so the per-segment branch runs",
+                requires_keys=[segments_key],
+            ),
+        ],
     )
 
 

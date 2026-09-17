@@ -122,6 +122,8 @@ def _get_audio_numpy_sr(  # noqa: PLR0913 (complexity accepted: keyword-only res
 
     try:
         waveform, sample_rate = resolved
+        if torch.is_tensor(waveform) and not waveform.is_floating_point():
+            waveform = waveform.to(dtype=torch.float32)
         mono = normalize_audio_waveform(waveform, stage_name="SIGMOSFilterStage", mono=True)
         audio = mono.squeeze(0).detach().cpu().numpy().astype(np.float32)
         return audio, int(sample_rate)
@@ -287,7 +289,7 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.reverb_key,
         ]
         guaranteed_output_keys = [] if self.action == "annotate" or self.mode == "auto" else score_keys
-        reads, reads_one_of, writes = scoped_audio_io_specs(
+        reads, reads_one_of, writes, conditional_reads = scoped_audio_io_specs(
             self.input_residency,
             mode=self.mode,
             audio_filepath_key=self.audio_filepath_key,
@@ -299,6 +301,7 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return StageContract(
             reads=reads,
             reads_one_of=reads_one_of,
+            conditional_reads=conditional_reads,
             writes=writes,
             conditional_writes=[
                 *scoped_file_audio_hydration_writes(

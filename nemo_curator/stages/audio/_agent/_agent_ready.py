@@ -145,6 +145,22 @@ class ConditionalWrite:
 
 
 @dataclass(frozen=True)
+class ConditionalRead:
+    """Alternative reads selected by literal top-level key presence.
+
+    ``requires_keys`` and ``forbids_keys`` describe the runtime branch selector.
+    Every reachable branch must have one complete ``reads_one_of`` alternative;
+    this prevents an unrelated task-level input from satisfying a branch that
+    runtime will execute against nested items instead.
+    """
+
+    reads_one_of: list[IOSpec] = field(default_factory=list)
+    condition: str = ""
+    requires_keys: list[str] = field(default_factory=list)
+    forbids_keys: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Gates:
     """Execution gates or side effects an agent should know before wrapping a stage."""
 
@@ -265,6 +281,10 @@ class StageContract:
     # role is no longer a valid downstream carrier. Unlike ``removes_keys``,
     # conformance does not require these keys to be physically absent.
     invalidates_keys: list[str] = field(default_factory=list)
+    # Mutually exclusive read groups selected by literal top-level key presence.
+    # Appended for positional compatibility; ordinary contracts continue using
+    # ``reads`` and ``reads_one_of`` exactly as before.
+    conditional_reads: list[ConditionalRead] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict of this contract (``json.dumps`` never raises)."""
@@ -294,6 +314,21 @@ class StageContract:
             "produces_task_type": self.produces_task_type,
             "removes_keys": list(self.removes_keys),
             **({"invalidates_keys": list(self.invalidates_keys)} if self.invalidates_keys else {}),
+            **(
+                {
+                    "conditional_reads": [
+                        {
+                            "reads_one_of": [asdict(spec) for spec in item.reads_one_of],
+                            "condition": item.condition,
+                            **({"requires_keys": list(item.requires_keys)} if item.requires_keys else {}),
+                            **({"forbids_keys": list(item.forbids_keys)} if item.forbids_keys else {}),
+                        }
+                        for item in self.conditional_reads
+                    ]
+                }
+                if self.conditional_reads
+                else {}
+            ),
             "conditional_writes": [
                 {
                     "writes": asdict(item.writes),
