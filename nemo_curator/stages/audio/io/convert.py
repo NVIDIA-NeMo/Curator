@@ -185,8 +185,10 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
             finally:
                 active.remove(identity)
 
-        if self.strict_json and type(value).__module__.startswith("numpy") and callable(
-            item := getattr(value, "item", None)
+        if (
+            self.strict_json
+            and type(value).__module__.startswith("numpy")
+            and callable(item := getattr(value, "item", None))
         ):
             try:
                 return self._sanitize_nested(item(), path=path, active=active)
@@ -289,13 +291,17 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
             raise ValueError(msg)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Truncate the output once on the driver before processing starts."""
+        """Prepare the filesystem handle for this worker.
+
+        Never truncates: ``setup()`` runs per worker actor, so a replacement actor after a
+        crash or a Ray Data/Xenna worker restart would otherwise erase every row the previous
+        actor had already committed. Truncation lives in :meth:`setup_on_node`, which every
+        executor runs once per node before any worker starts and does not repeat on restart.
+        """
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
-        with self._fs.open(self._path, "w", encoding="utf-8"):
-            pass
         logger.info(f"DocumentBatchJsonlWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -303,11 +309,13 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        """Ensure the parent exists on each node without truncating."""
+        """Create the parent directory and truncate the output once per run, before any worker writes."""
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
+        with self._fs.open(self._path, "w", encoding="utf-8"):
+            pass
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         dataframe = task.to_pandas()

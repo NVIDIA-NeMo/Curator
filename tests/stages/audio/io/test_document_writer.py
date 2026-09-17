@@ -59,25 +59,43 @@ def test_writes_one_jsonl_line_per_document_row_and_preserves_task(tmp_path) -> 
     assert returned._stage_perf == ["seed"]
 
 
-def test_setup_truncates_only_between_runs(tmp_path) -> None:  # noqa: ANN001
+def test_setup_on_node_truncates_only_between_runs(tmp_path) -> None:  # noqa: ANN001
     output = tmp_path / "curated.jsonl"
     stage = DocumentBatchJsonlWriterStage(output_path=str(output))
     batch = _batch([{"id": 1}])
 
+    stage.setup_on_node()
     stage.setup()
     stage.process(batch)
     stage.process(batch)
     assert len(output.read_text(encoding="utf-8").splitlines()) == 2
 
+    stage.setup_on_node()  # a new run
     stage.setup()
     stage.process(batch)
     assert len(output.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_worker_restart_does_not_truncate_committed_rows(tmp_path) -> None:  # noqa: ANN001
+    """``setup()`` is per worker actor; a replacement actor must append, not erase."""
+    output = tmp_path / "curated.jsonl"
+    stage = DocumentBatchJsonlWriterStage(output_path=str(output))
+    stage.setup_on_node()
+    stage.setup()
+    stage.process(_batch([{"id": 1}]))
+    stage.process(_batch([{"id": 2}]))
+
+    replacement = DocumentBatchJsonlWriterStage(output_path=str(output))
+    replacement.setup()
+    replacement.process(_batch([{"id": 3}]))
+    assert [json.loads(line)["id"] for line in output.read_text(encoding="utf-8").splitlines()] == [1, 2, 3]
 
 
 def test_supports_fsspec_cloud_paths(tmp_path) -> None:  # noqa: ANN001
     output = f"memory://document-writer/{tmp_path.parent.name}/{tmp_path.name}/curated.jsonl"
     stage = DocumentBatchJsonlWriterStage(output_path=output)
 
+    stage.setup_on_node()
     stage.setup()
     stage.process(_batch([{"id": 1, "text": "café"}, {"id": 2, "text": "茶"}]))
 
