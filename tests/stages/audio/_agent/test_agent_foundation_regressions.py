@@ -131,9 +131,16 @@ def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None
         initial_keys=set(),
     )
 
-    assert not report.ok
-    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
-    assert "potential_metrics" not in report.produced_keys
+    # Conditional outputs are discoverable and let the consumer compose, but only as a
+    # ``conditional_read`` warning: the key is never a guaranteed planner output.
+    assert report.ok
+    assert any(issue.code == "conditional_read" and issue.stage_index == 1 for issue in report.issues)
+    assert (
+        "potential_metrics"
+        not in validate_pipeline(
+            [_ConfiguredContractStage(producer_contract)], initial_roles=set(), initial_keys=set()
+        ).produced_keys
+    )
 
 
 def test_conditional_tensor_write_is_not_guaranteed_but_still_blocks_json_sink(tmp_path: Path) -> None:
@@ -179,8 +186,8 @@ def test_unknown_role_selector_requires_its_exact_conditional_key() -> None:
         initial_roles=set(),
         initial_keys=set(),
     )
-    assert not conditional_only.ok
-    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in conditional_only.issues)
+    assert conditional_only.ok
+    assert any(issue.code == "conditional_read" and issue.stage_index == 1 for issue in conditional_only.issues)
 
     seeded = validate_pipeline(
         [selector],
@@ -843,3 +850,115 @@ def test_conformance_requires_exact_literal_key_for_unknown_role_read(tmp_path: 
 
     # Present exactly, it passes.
     assert_agent_ready(selector, available_keys={"mos"}, run=False)
+
+
+class _ConditionalScoreProducer(AgentReady):
+    """Writes ``score`` only on rows where ``source`` is non-null (a data-dependent branch)."""
+
+    name = "ConditionalScoreProducer"
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=["audio_filepath"]),
+            conditional_writes=[
+                ConditionalWrite(writes=IOSpec(data_keys=["score"]), condition="'source' is non-null"),
+            ],
+        )
+
+    def process(self, task: object) -> object:
+        return task
+
+
+class _ReachabilityGatedTensorProducer(AgentReady):
+    """Hydrates a waveform only when a ``sample_rate`` column already exists upstream."""
+
+    name = "ReachabilityGatedTensorProducer"
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=["audio_filepath"]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=["waveform", "sample_rate"], produces=["tensor"]),
+                    condition="a resident sample_rate without a waveform is completed from the file",
+                    requires_keys=["sample_rate"],
+                ),
+            ],
+        )
+
+    def process(self, task: object) -> object:
+        return task
+
+
+def test_a_read_met_only_by_a_conditional_write_is_a_warning_not_an_error() -> None:
+    """Conditional outputs stay non-guaranteed, but their consumers still compose."""
+    report = validate_pipeline([_ConditionalScoreProducer(), PreserveByValueStage("score", 3.0, "ge")])
+
+    assert report.ok, report.summary()
+    producer_only = validate_pipeline([_ConditionalScoreProducer()])
+    assert "score" not in producer_only.produced_keys, "a conditional write must not become a guaranteed key"
+    assert [issue.code for issue in report.issues] == ["conditional_read"]
+    assert "score" in report.issues[0].message
+
+    # Nothing upstream even possibly writes the key: still a hard error.
+    missing = validate_pipeline([PreserveByValueStage("score", 3.0, "ge")])
+    assert not missing.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in missing.issues)
+
+
+def test_shipped_metric_then_selector_chain_composes() -> None:
+    """The fleurs recipe shape: pairwise WER followed by a threshold on its (conditional) output."""
+    from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+
+    report = validate_pipeline(
+        [GetPairwiseWerStage(), PreserveByValueStage("wer_pct", 25.0, "le")],
+        initial_keys={"audio_filepath", "text", "pred_text"},
+        initial_roles={"audio_filepath", "text", "pred_text"},
+    )
+    assert report.ok, report.summary()
+    assert report.keys_ok
+    assert any(issue.code == "conditional_read" for issue in report.issues)
+
+
+def test_conditional_tensor_writes_seed_residency_only_when_reachable(tmp_path: Path) -> None:
+    """``requires_keys`` decides whether a hydration branch can fire on the seeded input."""
+    sink = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+
+    # Plain manifest: the branch needs ``sample_rate`` upstream, which nothing provides.
+    plain = validate_pipeline([_ReachabilityGatedTensorProducer(), sink])
+    assert plain.ok, plain.summary()
+
+    # A ``sample_rate`` column makes the branch reachable, so the sink is (correctly) refused.
+    with_rate = validate_pipeline(
+        [_ReachabilityGatedTensorProducer(), sink],
+        initial_keys={"audio_filepath", "sample_rate"},
+        initial_roles={"audio_filepath", "sample_rate"},
+    )
+    assert not with_rate.ok
+    assert any(issue.code == "tensor_into_sink" for issue in with_rate.issues)
+
+    # A stage must not make its own branch reachable through the key that branch would write.
+    self_enabling = validate_pipeline(
+        [_ReachabilityGatedTensorProducer(), _ReachabilityGatedTensorProducer(), sink],
+    )
+    assert self_enabling.ok, self_enabling.summary()
+
+
+def test_default_auto_scorers_do_not_fear_a_tensor_on_a_file_manifest(tmp_path: Path) -> None:
+    """``auto_partial`` hydration only REPLACES an incomplete resident pair; a file-only row never gains one."""
+    from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
+    from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+
+    sink = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    for scorer in (UTMOSFilterStage(), SIGMOSFilterStage()):
+        report = validate_pipeline([scorer, sink])
+        assert report.ok, report.summary()
+
+    # With a resident sample_rate and no waveform the runtime DOES inject the decoded pair,
+    # so the refusal there is a true positive and must stay.
+    resident_rate = validate_pipeline(
+        [UTMOSFilterStage(), sink],
+        initial_keys={"audio_filepath", "sample_rate"},
+        initial_roles={"audio_filepath", "sample_rate"},
+    )
+    assert any(issue.code == "tensor_into_sink" for issue in resident_rate.issues)

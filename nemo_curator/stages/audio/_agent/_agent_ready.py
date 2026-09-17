@@ -121,9 +121,19 @@ class ConditionalWrite:
     task-data/audio-form inputs.
 
     This metadata is additive.  Mechanical planners continue to use
-    :attr:`StageContract.writes`; ``conditional_writes`` supplies the host
-    critic with possibility/provenance evidence and may also describe
-    conditional pass-through keys omitted from the legacy ``writes`` superset.
+    :attr:`StageContract.writes` for GUARANTEED keys; ``conditional_writes``
+    supplies the host critic with possibility/provenance evidence, lets the
+    planner credit a downstream read as *possibly* satisfied (reported as a
+    ``conditional_read`` warning rather than an ``unsatisfied_reads`` error), and
+    may also describe conditional pass-through keys omitted from the legacy
+    ``writes`` superset.
+
+    ``requires_keys`` is the one executable part of the condition: literal
+    task-data keys (in the same scope as ``writes``) that must already be present
+    upstream for this branch to be reachable at all.  Empty means "always
+    possible".  The planner uses it to avoid crediting -- or fearing, for tensor
+    writes -- a branch that cannot fire on the seeded input, e.g. file hydration
+    that only replaces an already-resident waveform/sample-rate pair.
     """
 
     writes: IOSpec = field(default_factory=IOSpec)
@@ -131,6 +141,7 @@ class ConditionalWrite:
     value_origin: WriteValueOrigin = "stage_generated"
     # Appended for positional compatibility with the original three fields.
     metadata_writes: list[str] = field(default_factory=list)
+    requires_keys: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -284,6 +295,9 @@ class StageContract:
                     "condition": item.condition,
                     "value_origin": item.value_origin,
                     "metadata_writes": list(item.metadata_writes),
+                    # Only emitted when set, so contracts without reachability hints
+                    # serialize exactly as before.
+                    **({"requires_keys": list(item.requires_keys)} if item.requires_keys else {}),
                 }
                 for item in self.conditional_writes
             ],

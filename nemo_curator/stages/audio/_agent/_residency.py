@@ -296,17 +296,31 @@ def scoped_file_audio_hydration_writes(  # noqa: PLR0913
             )
             rate_writes = IOSpec(segment_data_keys=[sample_rate_key])
 
-        if pair_hydration_possible:
-            partial_condition = (
-                f" exactly one of resident '{waveform_key}' and '{sample_rate_key}' is present, "
-                if hydration_policy == "auto_partial"
-                else " "
-            )
+        if pair_hydration_possible and hydration_policy == "auto_partial":
+            # ``auto_partial`` only fires on an INCOMPLETE resident pair, so the branch is
+            # reachable only when exactly one of the two keys already exists upstream. Declare
+            # the two halves separately with ``requires_keys`` so a planner seeded with a plain
+            # file manifest (neither key) does not fear a tensor this stage cannot introduce.
+            for present_key, absent_key in ((waveform_key, sample_rate_key), (sample_rate_key, waveform_key)):
+                conditional.append(
+                    ConditionalWrite(
+                        writes=pair_writes,
+                        condition=(
+                            f"{branch}; resident '{present_key}' is present without '{absent_key}', "
+                            f"file audio is selected and decoded successfully; "
+                            f"'{waveform_key}' and '{sample_rate_key}' are assigned together "
+                            "from the decoded file audio"
+                        ),
+                        value_origin="stage_generated",
+                        requires_keys=[present_key],
+                    )
+                )
+        elif pair_hydration_possible:
             conditional.append(
                 ConditionalWrite(
                     writes=pair_writes,
                     condition=(
-                        f"{branch};{partial_condition}file audio is selected and decoded successfully; "
+                        f"{branch}; file audio is selected and decoded successfully; "
                         f"'{waveform_key}' and '{sample_rate_key}' are assigned together "
                         "from the decoded file audio"
                     ),
@@ -323,6 +337,7 @@ def scoped_file_audio_hydration_writes(  # noqa: PLR0913
                         f"only '{sample_rate_key}' is assigned from the file header and the resident waveform is retained"
                     ),
                     value_origin="stage_generated",
+                    requires_keys=[waveform_key],
                 )
             )
     return conditional
