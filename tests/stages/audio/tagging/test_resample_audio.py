@@ -353,6 +353,22 @@ class TestResampleAudioStage:
         configured = build_contract(ResampleAudioStage(resampled_audio_dir=str(tmp_path / "configured")))
         assert static.gates == configured.gates
 
+    def test_rejects_colliding_resident_audio_keys_without_restricting_legacy_aliases(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+            ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path),
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+                waveform_key="resident",
+                sample_rate_key="resident",
+            )
+
+        ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path),
+            audio_filepath_key="shared_path",
+            resampled_audio_filepath_key="shared_path",
+        )
+
 
 def _fake_ffmpeg_copy(cmd: list[str], **_: Any) -> SimpleNamespace:  # noqa: ANN401
     """Stand in for the ffmpeg call by copying the source to the requested output."""

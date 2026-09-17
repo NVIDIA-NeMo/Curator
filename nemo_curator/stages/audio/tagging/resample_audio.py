@@ -52,6 +52,7 @@ from nemo_curator.stages.audio._agent._residency import (
     reject_sinkless_conversion,
     residency_read_specs,
     resolve_audio_path,
+    validate_audio_key_configuration,
     validate_input_residency,
 )
 from nemo_curator.stages.audio.common import get_audio_duration, load_audio_file
@@ -125,6 +126,14 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     _stem_owners: dict[str, str] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        validate_audio_key_configuration(
+            type(self).__name__,
+            input_keys={
+                "waveform_key": self.waveform_key,
+                "sample_rate_key": self.sample_rate_key,
+            },
+            output_keys={},
+        )
         validate_input_residency(self.input_residency, stage_name=type(self).__name__)
         reject_sinkless_conversion(
             stage=type(self).__name__,
