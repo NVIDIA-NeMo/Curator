@@ -283,8 +283,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,
             cardinality_options=["1:1", "1:N fan-out"],
-            # Fan-out children are one-per-diarization-segment, as Sortformer/WhisperX declare.
-            iteration_key=self.segments_key if self.fanout else None,
+            iteration_key=self.segment_num_key if self.fanout else None,
             removes_keys=(
                 list(
                     dict.fromkeys(

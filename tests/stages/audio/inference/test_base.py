@@ -143,7 +143,9 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
     }
     assert removed_containers[kind].issubset(contract.removes_keys)
     assert contract.cardinality == "1:N fan-out"
-    assert contract.iteration_key is None if kind == "pyannote" else contract.iteration_key is not None
+    assert contract.iteration_key == stage.segment_num_key
+    assert contract.iteration_key in contract.writes.data_keys
+    assert contract.iteration_key not in contract.removes_keys
     after_fanout = rh.validate_pipeline(
         [stage],
         initial_roles={"audio_filepath"},
