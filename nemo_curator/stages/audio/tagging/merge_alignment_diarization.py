@@ -28,6 +28,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     IOSpec,
     StageContract,
 )
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -67,6 +68,16 @@ class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, Audi
     _: KW_ONLY
     alignment_key: str = "alignment"
     segments_key: str = "segments"
+
+    def __post_init__(self) -> None:
+        validate_audio_key_configuration(
+            type(self).__name__,
+            input_keys={
+                "alignment_key": self.alignment_key,
+                "segments_key": self.segments_key,
+            },
+            output_keys={},
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.alignment_key, self.segments_key]

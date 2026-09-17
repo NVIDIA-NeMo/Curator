@@ -371,6 +371,10 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         assert configured_default.gates.per_row_independent is True
         assert configured_shared.gates.per_row_independent is False
 
+    def test_rejects_colliding_generated_split_keys(self) -> None:
+        with pytest.raises(ValueError, match="Output keys must be distinct"):
+            SplitLongAudioStage(split_filepaths_key="bundle", split_metadata_key="bundle")
+
 
 def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
     """Composite construction forwards both redirected and legacy defaults."""

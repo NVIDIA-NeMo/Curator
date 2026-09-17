@@ -42,6 +42,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -88,6 +89,18 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     # Additive agent-only routing knob.
     output_dir: str | None = None
+
+    def __post_init__(self) -> None:
+        validate_audio_key_configuration(
+            type(self).__name__,
+            input_keys={},
+            output_keys={
+                "split_filepaths_key": self.split_filepaths_key,
+                "split_metadata_key": self.split_metadata_key,
+                "split_offsets_key": self.split_offsets_key,
+                "split_timestamps_key": self.split_timestamps_key,
+            },
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.duration_key, self.segments_key, self.audio_filepath_key]

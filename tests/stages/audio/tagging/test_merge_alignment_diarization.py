@@ -83,6 +83,12 @@ class TestMergeAlignmentDiarizationAlignWordsToSegments:
 class TestMergeAlignmentDiarizationStage:
     """Tests for MergeAlignmentDiarizationStage process."""
 
+    def test_rejects_colliding_container_keys_without_restricting_legacy_aliases(self) -> None:
+        with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+            MergeAlignmentDiarizationStage(alignment_key="items", segments_key="items")
+
+        MergeAlignmentDiarizationStage(text_key="nested", words_key="nested")
+
     def test_process_merges_alignment_into_segments(self, audio_task: Callable[..., AudioTask]) -> None:
         """process adds text and words to segments from alignment."""
         stage = MergeAlignmentDiarizationStage(text_key="text", words_key="words")
