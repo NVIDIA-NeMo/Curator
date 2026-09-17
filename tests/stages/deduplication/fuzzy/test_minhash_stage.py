@@ -653,3 +653,92 @@ class TestMinHashStage:
             stage.process(task)
         assert stage.minhash_processor is not None
         stage.teardown()
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_process_batch_matches_per_task_processing(self, tmp_path: Path) -> None:
+        """Batching changes only how many files are written, never the signatures."""
+        frames = [
+            pd.DataFrame({"text": ["The quick brown fox", "A test string for deduplication"]}),
+            pd.DataFrame({"text": ["Another test string that is similar", "The quick brown fox"]}),
+        ]
+        tasks = []
+        for i, frame in enumerate(frames):
+            input_file = tmp_path / f"part-{i}.jsonl"
+            frame.to_json(input_file, orient="records", lines=True)
+            tasks.append(FileGroupTask(dataset_name="batched", data=[str(input_file)], _metadata={}))
+
+        kwargs = {"text_field": "text", "read_format": "jsonl", "num_hashes": 64, "char_ngrams": 3, "pool": False}
+
+        single_stage = MinHashStage(output_path=str(tmp_path / "single"), **kwargs)
+        single_stage.setup()
+        single_outputs = [single_stage.process(task) for task in tasks]
+        single_stage.teardown()
+
+        batched_stage = MinHashStage(output_path=str(tmp_path / "batched"), batch_size=2, **kwargs)
+        batched_stage.setup()
+        batched_outputs = batched_stage.process_batch(tasks)
+        batched_stage.teardown()
+
+        # One combined file instead of one per input task.
+        assert len(batched_outputs) == 1
+        assert len(batched_outputs[0].data) == 1
+        assert os.path.exists(batched_outputs[0].data[0])
+
+        expected = cudf.concat([cudf.read_parquet(out.data[0]) for out in single_outputs], ignore_index=True)
+        actual = cudf.read_parquet(batched_outputs[0].data[0])
+
+        expected = expected.sort_values(CURATOR_DEDUP_ID_STR, ignore_index=True)
+        actual = actual.sort_values(CURATOR_DEDUP_ID_STR, ignore_index=True)
+
+        assert len(actual) == sum(len(frame) for frame in frames)
+        assert actual[CURATOR_DEDUP_ID_STR].to_arrow() == expected[CURATOR_DEDUP_ID_STR].to_arrow()
+        assert actual["_minhash_signature"].to_arrow() == expected["_minhash_signature"].to_arrow()
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_process_batch_carries_metadata_and_stage_perf(self, tmp_path: Path) -> None:
+        """The combined task keeps the first input's metadata and every input's timings."""
+        tasks = []
+        for i in range(3):
+            input_file = tmp_path / f"meta-{i}.jsonl"
+            pd.DataFrame({"text": [f"document number {i}"]}).to_json(input_file, orient="records", lines=True)
+            tasks.append(
+                FileGroupTask(dataset_name="meta", data=[str(input_file)], _metadata={"source": f"shard-{i}"})
+            )
+
+        stage = MinHashStage(
+            output_path=str(tmp_path / "meta_out"),
+            text_field="text",
+            read_format="jsonl",
+            num_hashes=64,
+            char_ngrams=3,
+            pool=False,
+            batch_size=3,
+        )
+        stage.setup()
+        outputs = stage.process_batch(tasks)
+        stage.teardown()
+
+        assert len(outputs) == 1
+        assert outputs[0].dataset_name == "meta_minhash"
+        assert outputs[0]._metadata["source"] == "shard-0"
+        assert outputs[0]._metadata["num_hashes"] == 64
+        assert outputs[0]._metadata["minhash_field"] == "_minhash_signature"
+
+    def test_process_batch_empty_returns_empty_list(self, tmp_path: Path) -> None:
+        """An empty batch is a no-op and does not require a live processor."""
+        stage = MinHashStage(output_path=str(tmp_path / "empty_batch"), text_field="text", read_format="jsonl")
+
+        assert stage.process_batch([]) == []
+
+    def test_process_batch_without_setup(self, tmp_path: Path) -> None:
+        """process_batch raises the same clear error as process when setup was skipped."""
+        stage = MinHashStage(output_path=str(tmp_path / "no_setup"), text_field="text", read_format="jsonl")
+        task = FileGroupTask(dataset_name="test_dataset", data=["dummy.jsonl"], _metadata={})
+
+        with pytest.raises(RuntimeError, match="MinHash processor not initialized"):
+            stage.process_batch([task])
+
+    def test_batch_size_defaults_to_one_and_is_configurable(self, tmp_path: Path) -> None:
+        """batch_size is opt-in, so existing pipelines keep one-task-in/one-file-out."""
+        assert MinHashStage(output_path=str(tmp_path / "default"), text_field="text").batch_size == 1
+        assert MinHashStage(output_path=str(tmp_path / "sized"), text_field="text", batch_size=8).batch_size == 8

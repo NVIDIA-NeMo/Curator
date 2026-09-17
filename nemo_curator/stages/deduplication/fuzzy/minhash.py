@@ -31,6 +31,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.utils.text import normalize_text
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_fs
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -225,6 +226,11 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         ignored for DocumentBatch inputs.
     write_kwargs : dict[str, Any] | None, default=None
         Additional keyword arguments for writing output files
+    batch_size : int, default=1
+        Number of input tasks to coalesce into a single minhash computation. Inputs are still
+        read one at a time, but the concatenated frame is hashed and written as one block, which
+        keeps the GPU saturated when upstream read blocks are small. The default of 1 preserves
+        the previous one-task-in, one-file-out behavior.
 
     Examples
     --------
@@ -251,10 +257,12 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
         pool: bool = True,
+        batch_size: int = 1,
     ):
         # Set ProcessingStage attributes
         self.name = self.__class__.__name__
         self.resources = Resources(gpus=1.0)  # Requires 1 GPU
+        self.batch_size = batch_size
 
         self.text_field = text_field
         self.minhash_field = minhash_field
@@ -328,23 +336,78 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
             FileGroupTask containing paths to minhash output files
         """
 
+        self._check_setup()
+
+        df = self._read_task(task)
+        output_file = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
+        self._minhash_and_write(df, output_file)
+
+        return self._build_output_task(task, output_file, task._stage_perf)
+
+    def process_batch(self, tasks: list[FileGroupTask | DocumentBatch]) -> list[FileGroupTask]:
+        """
+        Process several tasks as a single minhash computation.
+
+        Inputs are read one at a time (the read is not saturated any more than it is in
+        :meth:`process`), but the concatenated frame is hashed and written as one block. This
+        lets a pipeline use a small read blocksize — which CPU stages prefer, and which avoids
+        host OOM — while still handing the GPU a batch large enough to saturate it.
+
+        Args:
+            tasks: FileGroupTasks and/or DocumentBatches to coalesce.
+
+        Returns:
+            A single-element list holding the FileGroupTask for the combined minhash file, or an
+            empty list when there is nothing to process.
+        """
+        if not tasks:
+            return []
+
+        self._check_setup()
+
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+
+        # Read the inputs one by one and concatenate, so peak memory is one input frame plus the
+        # combined frame rather than every input frame at once.
+        frames = []
+        for task in tasks:
+            frames.append(self._read_task(task))
+        df = frames[0] if len(frames) == 1 else cudf.concat(frames, ignore_index=True)
+        del frames
+
+        output_file = self.output_fs.sep.join(
+            [self.output_path, get_deterministic_hash([task.task_id for task in tasks], tasks[0].task_id) + ".parquet"]
+        )
+        self._minhash_and_write(df, output_file)
+
+        # Keep the shared history from the first task, plus each other input's final record, so
+        # this fan-in does not drop the upstream timings. Mirrors IdentifyDuplicatesStage.
+        stage_perf = list(tasks[0]._stage_perf)
+        stage_perf.extend(task._stage_perf[-1] for task in tasks[1:] if task._stage_perf)
+
+        return [self._build_output_task(tasks[0], output_file, stage_perf)]
+
+    def _check_setup(self) -> None:
         if self.minhash_processor is None:
             msg = "MinHash processor not initialized. Call setup() first."
             raise RuntimeError(msg)
 
-        # Read/convert the input into a cuDF DataFrame with the text and ID columns.
+    def _read_task(self, task: FileGroupTask | DocumentBatch) -> "cudf.DataFrame":
+        """Read/convert one input into a cuDF DataFrame with the text and ID columns."""
         if isinstance(task, DocumentBatch):
             if self.read_format is not None:
                 logger.warning(
                     f"read_format={self.read_format!r} is ignored for DocumentBatch inputs because their data is "
                     "already loaded."
                 )
-            df = self._read_document_batch(task)
-        else:
-            df = self._read_file_group(task)
+            return self._read_document_batch(task)
+        return self._read_file_group(task)
 
-        output_file = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
-
+    def _minhash_and_write(self, df: "cudf.DataFrame", output_file: str) -> None:
+        """Compute minhash signatures for ``df`` and write them to ``output_file``."""
         result_df = df[[CURATOR_DEDUP_ID_STR]]
         text_for_minhash = df[self.text_field]
 
@@ -359,17 +422,23 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         with self._time_metric("minhash_write_time"):
             self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
 
-        # Return FileGroupTask with output file
+    def _build_output_task(
+        self,
+        base_task: FileGroupTask | DocumentBatch,
+        output_file: str,
+        stage_perf: list,
+    ) -> FileGroupTask:
+        """Build the FileGroupTask describing a written minhash file."""
         return FileGroupTask(
-            dataset_name=f"{task.dataset_name}_minhash",
+            dataset_name=f"{base_task.dataset_name}_minhash",
             data=[output_file],
             _metadata={
-                **task._metadata,
+                **base_task._metadata,
                 "minhash_field": self.minhash_field,
                 "num_hashes": self.num_hashes,
                 "storage_options": self.write_kwargs.get("storage_options"),
             },
-            _stage_perf=task._stage_perf,
+            _stage_perf=stage_perf,
         )
 
     def _read_file_group(self, task: FileGroupTask) -> "cudf.DataFrame":
