@@ -419,6 +419,8 @@ class TestEveryStageSaysWhetherItsRowsStandAlone:
         "ManifestGroupExportStage",
         "PretrainMetricsAggregatorStage",
         "PyAnnoteDiarizationStage",
+        # Duplicate-id / duplicate-basename checks depend on which other rows are present.
+        "ReadLongFormManifestStage",
         "SegmentExtractionStage",
         "SnippetExtractionStage",
         "SnippetManifestWriterStage",
@@ -474,10 +476,14 @@ class TestEveryStageSaysWhetherItsRowsStandAlone:
                 and ((item.default is MISSING and item.default_factory is MISSING) or item.default == "")
             }
         else:
+            # ``inspect.signature(stage_cls)`` is ``(*args, **kwargs)`` because ``StageMeta``
+            # defines ``__call__``; the real parameters live on ``__init__``.
             demanded = {
                 name: placeholder(name)
-                for name, parameter in inspect.signature(stage_cls).parameters.items()
-                if parameter.default is inspect.Parameter.empty
+                for name, parameter in inspect.signature(stage_cls.__init__).parameters.items()
+                if name != "self"
+                and parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                and parameter.default is inspect.Parameter.empty
             }
         return stage_cls(**demanded)
 

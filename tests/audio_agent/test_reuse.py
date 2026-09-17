@@ -124,8 +124,8 @@ class TestContractShape:
         assert rec.acceptance_criteria == crit
         # Strict parsing validates a copy; it must never inject defaults into the
         # stored contract or invalidate existing confirmation/reuse identities.
-        assert rec.config_hash == "703a8bd92bc85509"
-        assert rec.contract_hash == "ce95ca83d63107b5"
+        assert rec.config_hash == "703a8bd92bc85509"  # pragma: allowlist secret
+        assert rec.contract_hash == "ce95ca83d63107b5"  # pragma: allowlist secret
 
     def test_an_unverifiable_contract_is_reported_not_swallowed(self) -> None:
         # Constructed past the door (a hand-built Recipe skips from_dict), so the run
@@ -2837,14 +2837,19 @@ class TestEveryWritingStageIsReusable:
         undeclared = []
         for name in list_agent_ready_stages():
             stage_cls = get_agent_ready_stage_class(name)
-            gates = None
+            contract = None
             with contextlib.suppress(Exception):  # contract shape is another test's business
-                gates = static_contract(stage_cls).gates
-            if (
-                gates is not None
-                and getattr(gates, "writes_to_disk", False)
-                and not (self._param_names(stage_cls) & set(artifacts._URI_PREFERENCE))
-            ):
+                contract = static_contract(stage_cls)
+            if contract is None or not getattr(contract.gates, "writes_to_disk", False):
+                continue
+            # Two kinds of disk write are deliberately NOT reuse points and say so in their
+            # contract: a stage whose only write is a temporary materialization of resident
+            # audio declares ``output_path_params=[]`` (nothing survives it to reuse), and a
+            # dataset source (accepts ``EmptyTask``) writes its download cache, whose location
+            # is an INPUT to the run rather than a deliverable of it.
+            if contract.gates.output_path_params == [] or contract.accepts_task_type == "EmptyTask":
+                continue
+            if not (self._param_names(stage_cls) & set(artifacts._URI_PREFERENCE)):
                 undeclared.append(name)
         assert not undeclared, (
             "these stages write to disk but name no output location reuse recognises, so their "

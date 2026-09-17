@@ -586,10 +586,10 @@ def test_unknown_failure_stays_unknown_and_redacts_secret() -> None:
 
 def test_diagnosis_evidence_redacts_transport_credentials() -> None:
     basic = "dXNlcjpwYXNzd29yZA=="
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"  # pragma: allowlist secret
 
     diagnosis = diagnose_failure(
-        f"TransportError Authorization: Basic {basic} url=https://alice:correct-horse@example.test/v2 assertion={jwt}",
+        f"TransportError Authorization: Basic {basic} url=https://alice:correct-horse@example.test/v2 assertion={jwt}",  # pragma: allowlist secret
         env=_healthy_env(),
     )
 
@@ -625,7 +625,7 @@ def test_public_smoke_failure_is_structured_and_redacted(
 def test_continuation_never_reintroduces_recipe_secrets_after_run_redaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    secret_value = "hf_continuation_secret_value"  # noqa: S105
+    secret_value = "hf_continuation_secret_value"  # noqa: S105  # pragma: allowlist secret
     materialized = Recipe.from_dict(
         {
             "stages": [

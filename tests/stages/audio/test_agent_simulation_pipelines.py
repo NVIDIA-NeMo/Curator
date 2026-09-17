@@ -1412,12 +1412,17 @@ def test_agent_speech_tagging_pipeline_with_fake_inference(tmp_path: Path) -> No
     audio_path = _write_wav(tmp_path / "speech.wav", duration_sec=1.0)
     task = _audio_task(audio_path)
 
-    whisperx = WhisperXVADStage(segments_key="agent_vad_segments", resources=Resources(gpus=0.0))
+    # WhisperX reads ``resampled_audio_filepath`` by default and no longer falls back to the
+    # canonical path silently, so point it at the key this fixture carries.
+    whisperx = WhisperXVADStage(
+        segments_key="agent_vad_segments", audio_filepath_key="audio_filepath", resources=Resources(gpus=0.0)
+    )
     whisperx._vad_model = _FakeVADModel()
     task = whisperx.process(task)
     assert task.data["agent_vad_segments"] == [{"start": 0.0, "end": 0.4}]
 
     pyannote = PyAnnoteDiarizationStage(
+        audio_filepath_key="audio_filepath",
         hf_token="fake",  # noqa: S106
         write_rttm=False,
         segments_key="agent_segments",
@@ -1510,6 +1515,7 @@ def test_agent_optional_fanout_for_vad_and_diarizers_with_custom_keys(tmp_path: 
     whisperx = WhisperXVADStage(
         resources=Resources(gpus=0.0),
         fanout=True,
+        audio_filepath_key="audio_filepath",
         segments_key="agent_vad_segments",
         start_key="agent_start",
         end_key="agent_end",
@@ -1544,6 +1550,7 @@ def test_agent_optional_fanout_for_vad_and_diarizers_with_custom_keys(tmp_path: 
     assert default_pyannote.ray_stage_spec() == {}
 
     pyannote = PyAnnoteDiarizationStage(
+        audio_filepath_key="audio_filepath",
         hf_token="fake",  # noqa: S106
         write_rttm=False,
         min_length=0.1,
@@ -1847,7 +1854,7 @@ def test_agent_transform_residency_controls_and_failure_edges(
     ).process(AudioTask(data={"agent_audio_path": str(audio_path)}))
     assert strict_mismatch == []
 
-    with pytest.raises(ValueError, match="At least one"):
+    with pytest.raises(ValueError, match="at least one of keep_waveform_in_task or write_to_disk"):
         ResampleAudioStage(
             resampled_audio_dir=str(tmp_path / "resample_bad"),
             keep_waveform_in_task=False,
@@ -2108,12 +2115,18 @@ def test_agent_planner_detects_missing_keys_and_collisions() -> None:
 
     # 3. Key collision: two scorers writing the same output key collide; distinct
     #    keys do not. This is exactly the A/B scoring case full key authority enables.
-    produced: set[str] = {"waveform", "sample_rate"}
+    # The scorers also declare conditional file-hydration writes of the shared audio carriers
+    # (waveform/sample_rate); those are the same pair for every scorer and are not a
+    # score-key collision, so the check is on the score outputs only.
+    audio_carriers = {"waveform", "sample_rate"}
+    produced: set[str] = set(audio_carriers)
     _record_contract_writes(UTMOSFilterStage(score_key="utmos_mos"), produced)
     same_key = UTMOSFilterStage(score_key="utmos_mos")
-    assert _declared_contract_outputs(same_key) & produced, "duplicate score key should collide"
+    assert _declared_contract_outputs(same_key) & (produced - audio_carriers), "duplicate score key should collide"
     distinct_key = UTMOSFilterStage(score_key="utmos_mos_model_b")
-    assert not (_declared_contract_outputs(distinct_key) & produced), "renamed score key must not collide"
+    assert not ((_declared_contract_outputs(distinct_key) - audio_carriers) & produced), (
+        "renamed score key must not collide"
+    )
 
 
 def test_agent_metadata_survives_multi_stage_pipeline() -> None:

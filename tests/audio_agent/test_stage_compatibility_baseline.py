@@ -262,7 +262,9 @@ ADDITIVE_STAGE_NAMES = (
 # the three values rejected by __post_init__ as agent-required. Both sources
 # now expose conservative static download gates and configured no-download
 # contracts no longer claim writes. No existing runtime default changed.
-EXPECTED_LEGACY_COMPATIBILITY_SHA256 = "14b2ed51bfbfe777bd5be24f42865d4457b7c67971d521f1952c365ada5ca660"
+EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
+    "14b2ed51bfbfe777bd5be24f42865d4457b7c67971d521f1952c365ada5ca660"  # pragma: allowlist secret
+)
 
 
 def _normalize(value: Any) -> Any:  # noqa: ANN401

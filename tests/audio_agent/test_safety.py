@@ -29,7 +29,7 @@ from nemo_curator.audio_agent.recipe import Recipe
 class TestRedact:
     def test_strips_secrets_and_transcripts(self) -> None:
         obj = {
-            "api_key": "sk-123",
+            "api_key": "sk-123",  # pragma: allowlist secret
             "hf_token": "hf_x",
             "text": "hello world",
             "score": 3.5,
@@ -92,9 +92,9 @@ class TestRedact:
 
     def test_strips_basic_auth_url_userinfo_and_jwt(self) -> None:
         basic = "dXNlcjpwYXNzd29yZA=="
-        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"  # pragma: allowlist secret
         redacted = _safety.redact_secret_text(
-            f"Authorization: Basic {basic}; registry=https://alice:correct-horse@example.test/v2; assertion {jwt}"
+            f"Authorization: Basic {basic}; registry=https://alice:correct-horse@example.test/v2; assertion {jwt}"  # pragma: allowlist secret
         )
         assert basic not in redacted
         assert "alice:correct-horse" not in redacted
@@ -109,9 +109,9 @@ class TestRedact:
         # redaction coverage is identical.
         secrets = (
             "sk-" + "proj-abcdefghijklmnopqrstuv",
-            "ghp" + "_abcdefghijklmnopqrstuvwxyz123456",
+            "ghp" + "_abcdefghijklmnopqrstuvwxyz123456",  # pragma: allowlist secret
             "AKIA" + "ABCDEFGHIJKLMNOP",
-            "xoxb" + "-123456789012-abcdefghijklmnop",
+            "xoxb" + "-123456789012-abcdefghijklmnop",  # pragma: allowlist secret
         )
         redacted = _safety.redact_secret_text(" ".join(secrets))
         assert all(secret not in redacted for secret in secrets)
@@ -317,7 +317,9 @@ class TestRedactionWalksEveryContainerNotJustTheTwoNoticedFirst:
         tuple, through the same rows -> ``redact`` sequence smoke and run use."""
         from nemo_curator.audio_agent import verbs
 
-        rows = [{"path": "/data/a.wav", "text": ("hello", "world"), "api_key": "9f3c1e-cred"}]
+        rows = [
+            {"path": "/data/a.wav", "text": ("hello", "world"), "api_key": "9f3c1e-cred"}
+        ]  # pragma: allowlist secret
         out = _safety.redact(verbs._examples_from_rows(rows, limit=1))
 
         payload = json.dumps(out, default=str)
@@ -328,7 +330,7 @@ class TestRedactionWalksEveryContainerNotJustTheTwoNoticedFirst:
 class TestSmokeToken:
     def test_not_derivable_from_public_config_hash(self) -> None:
         """H2: the token must not be a plain hash of the (public) config_hash."""
-        ch = "deadbeefcafe1234"
+        ch = "deadbeefcafe1234"  # pragma: allowlist secret
         plain = hashlib.sha256(f"audio_agent_smoke|{ch}".encode()).hexdigest()[:24]
         assert _safety.smoke_token(ch) != plain
 
