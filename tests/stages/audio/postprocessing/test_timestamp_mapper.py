@@ -14,6 +14,8 @@
 
 import inspect
 import json
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar
 
@@ -22,7 +24,7 @@ import torch
 
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
-from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.stages.audio.common import ManifestWriterStage, PreserveByValueStage
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
     _NEVER_PASS_KEYS,
     TimestampMapperStage,
@@ -409,11 +411,8 @@ class TestAcceptsEitherSegmentShape:
         data = self._run([{"start": 0.0, "end": 1.5, "speaker": "a"}, {"no": "bounds"}, "garbage"])
         assert data["original_end_ms"] == 1500
 
-    def test_the_contract_admits_that_it_sanitizes(self) -> None:
-        # It builds output from an allowlist and hard-blocks _NEVER_PASS_KEYS, so no waveform
-        # can leave it. Declaring otherwise made the validator report tensor_into_sink against
-        # a JSON sink placed after this stage -- refusing a pipeline that was already safe.
-        assert TimestampMapperStage().describe().gates.sanitizes_output is True
+    def test_default_contract_does_not_overclaim_sanitization(self) -> None:
+        assert TimestampMapperStage().describe().gates.sanitizes_output is False
 
     def test_no_waveform_key_can_escape(self) -> None:
         stage = TimestampMapperStage()
@@ -549,8 +548,8 @@ def test_mapped_diarization_rejects_multiple_original_files() -> None:
     assert TimestampMapperStage().process(task) == []
 
 
-def test_custom_non_json_passthrough_is_removed_before_real_writer(tmp_path: Path) -> None:
-    mapper = TimestampMapperStage(passthrough_keys=["audio_tensor", "nested"])
+def test_strict_sanitization_removes_non_json_values_before_real_writer(tmp_path: Path) -> None:
+    mapper = TimestampMapperStage(passthrough_keys=["audio_tensor", "nested"], sanitize_output=True)
     writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
     report = validate_pipeline(
         [mapper, writer],
@@ -681,27 +680,172 @@ def test_audio_path_only_planner_matches_runtime() -> None:
     assert result.data["duration"] == 0.0
 
 
-def test_numpy_passthrough_values_are_kept_as_plain_numbers() -> None:
-    """Legacy manifests carried NumPy scores straight to the pandas writer; they must not be dropped."""
+def test_default_passthrough_preserves_legacy_values_and_types() -> None:
     import numpy as np
 
-    mapper = TimestampMapperStage(passthrough_keys=["npf", "npi", "npa", "nested"])
+    timestamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    decimal = Decimal("1.25")
+    tuple_value = (1, 2)
+    array = np.array([1.0, 2.0])
+    mapper = TimestampMapperStage(passthrough_keys=["timestamp", "decimal", "tuple", "array"])
     mapped = mapper.process(
         AudioTask(
             dataset_name="d",
             data={
                 "audio_filepath": "a.wav",
                 "duration": 1.0,
-                "npf": np.float32(1.5),
-                "npi": np.int64(3),
-                "npa": np.array([1.0, 2.0]),
-                "nested": {"score": np.float64(0.25), "ids": [np.int32(1)]},
+                "timestamp": timestamp,
+                "decimal": decimal,
+                "tuple": tuple_value,
+                "array": array,
             },
         )
     )
     assert isinstance(mapped, AudioTask)
-    assert mapped.data["npf"] == 1.5
-    assert mapped.data["npi"] == 3
-    assert mapped.data["npa"] == [1.0, 2.0]
-    assert mapped.data["nested"] == {"score": 0.25, "ids": [1]}
+    assert mapped.data["timestamp"] is timestamp
+    assert mapped.data["decimal"] is decimal
+    assert mapped.data["tuple"] is tuple_value
+    assert mapped.data["array"] is array
+
+
+def test_strict_sanitization_covers_nested_core_values_and_cycles() -> None:
+    import numpy as np
+
+    cycle: dict = {}
+    cycle["self"] = cycle
+    mapper = TimestampMapperStage(passthrough_keys=["scores", "cycle"], sanitize_output=True)
+    mapped = mapper.process(
+        _make_task(
+            {
+                "audio_filepath": "a.wav",
+                "diar_segments": [
+                    {
+                        "start": np.float32(0.0),
+                        "end": np.float32(1.0),
+                        "speaker": "speaker_0",
+                        "embedding": torch.ones(2),
+                    }
+                ],
+                "scores": (np.float32(1.5), np.int64(3)),
+                "cycle": cycle,
+            }
+        )
+    )
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data["scores"] == [1.5, 3]
+    assert "cycle" not in mapped.data
+    assert "embedding" not in mapped.data["diar_segments"][0]
     json.dumps(mapped.data)
+
+
+def test_sanitization_contract_matches_configuration() -> None:
+    assert TimestampMapperStage().describe().gates.sanitizes_output is False
+    assert TimestampMapperStage(sanitize_output=True).describe().gates.sanitizes_output is True
+
+
+def test_mapped_end_only_range_keeps_legacy_zero_start() -> None:
+    task = _make_task(
+        {"end_ms": 500},
+        metadata={
+            "segment_mappings": [
+                {
+                    "concat_start_ms": 0,
+                    "concat_end_ms": 1000,
+                    "original_file": "a.wav",
+                    "original_start_ms": 2000,
+                }
+            ]
+        },
+    )
+
+    mapped = TimestampMapperStage().process(task)
+
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data["original_start_ms"] == 2000
+    assert mapped.data["original_end_ms"] == 2500
+
+
+def test_decimal_diar_bounds_are_not_rounded_through_float() -> None:
+    mapped = TimestampMapperStage().process(
+        _make_task({"audio_filepath": "a.wav", "diar_segments": [[Decimal("1.001"), Decimal("1.002")]]})
+    )
+
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data["original_start_ms"] == 1001
+    assert mapped.data["original_end_ms"] == 1002
+    assert mapped.data["diar_segments"] == [[Decimal("1.001"), Decimal("1.002")]]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"start_ms_key": "same", "end_ms_key": "same"},
+        {"original_file_key": "same", "duration_key": "same"},
+        {"original_start_ms_key": ""},
+    ],
+)
+def test_invalid_key_configuration_is_rejected(kwargs: dict) -> None:
+    with pytest.raises(ValueError, match="key names"):
+        TimestampMapperStage(**kwargs)
+
+
+def test_intentional_in_place_aliases_remain_supported() -> None:
+    stage = TimestampMapperStage(
+        audio_filepath_key="file",
+        original_file_key="file",
+        start_ms_key="start",
+        original_start_ms_key="start",
+        end_ms_key="end",
+        original_end_ms_key="end",
+    )
+    mapped = stage.process(_make_task({"file": "a.wav", "start": 100, "end": 300}))
+
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data == {"file": "a.wav", "start": 100, "end": 300, "duration_ms": 200, "duration": 0.2}
+
+
+def test_fully_renamed_configuration() -> None:
+    stage = TimestampMapperStage(
+        audio_filepath_key="source",
+        original_file_key="resolved_source",
+        original_start_ms_key="resolved_start",
+        original_end_ms_key="resolved_end",
+        duration_ms_key="length_ms",
+        duration_key="length",
+        start_ms_key="window_start",
+        end_ms_key="window_end",
+        diar_segments_key="turns",
+        speaking_duration_key="speech_length",
+        mappings_key="timeline",
+    )
+    mapped = stage.process(_make_task({"source": "a.wav", "window_start": 100, "window_end": 300}))
+
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data == {
+        "resolved_source": "a.wav",
+        "resolved_start": 100,
+        "resolved_end": 300,
+        "length_ms": 200,
+        "length": 0.2,
+    }
+
+
+def test_conditional_writes_require_their_source_keys() -> None:
+    contract = TimestampMapperStage(passthrough_keys=["score"]).describe()
+    requirements = {
+        conditional.writes.data_keys[0]: conditional.requires_keys for conditional in contract.conditional_writes
+    }
+
+    assert requirements["diar_segments"] == ["diar_segments"]
+    assert requirements["speaking_duration"] == ["diar_segments"]
+    assert requirements["score"] == ["score"]
+
+
+def test_duration_only_input_does_not_advertise_diarization_output() -> None:
+    report = validate_pipeline(
+        [TimestampMapperStage(), PreserveByValueStage("diar_segments", [])],
+        initial_keys={"audio_filepath", "duration"},
+    )
+
+    assert not report.ok
+    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
