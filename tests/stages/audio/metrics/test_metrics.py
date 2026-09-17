@@ -1128,8 +1128,12 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
         initial_roles={"audio_filepath", "duration", "text"},
         initial_keys={"audio_filepath", "duration", "text"},
     )
-    assert not top_report.ok
-    assert any(issue.code == "unsatisfied_reads" for issue in top_report.issues)
+    # Conditional outputs are never GUARANTEED planner writes: the key is absent from
+    # ``produced_keys`` and the consumer's read is flagged as ``conditional_read`` rather than
+    # silently accepted -- but the chain still composes, so ``ok`` holds.
+    assert top_report.ok
+    assert "metrics" not in top_report.produced_keys
+    assert any(issue.code == "conditional_read" for issue in top_report.issues)
 
     squim = TorchSquimQualityMetricsStage(input_residency="waveform")
     segment_task = AudioTask(
@@ -1147,8 +1151,8 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
         initial_roles={"waveform", "sample_rate", "segments"},
         initial_keys={"waveform", "sample_rate", "segments"},
     )
-    assert not segment_report.ok
-    assert any(issue.code == "unsatisfied_reads" for issue in segment_report.issues)
+    assert segment_report.ok
+    assert any(issue.code == "conditional_read" for issue in segment_report.issues)
 
     compute_wer = ComputeWERStage()
     compute_wer._normalizer = _IdentityNormalizer()
@@ -1179,8 +1183,8 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
         initial_segment_roles={"text", "reference_text"},
         initial_segment_keys={"text", "text_ref"},
     )
-    assert not wer_report.ok
-    assert any(issue.code == "unsatisfied_reads" for issue in wer_report.issues)
+    assert wer_report.ok
+    assert any(issue.code == "conditional_read" for issue in wer_report.issues)
 
     pairwise = GetPairwiseWerStage()
     pair_task = AudioTask(dataset_name="d", data={"text": "reference", "pred_text": None})
@@ -1192,8 +1196,14 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
         initial_roles={"text", "pred_text"},
         initial_keys={"text", "pred_text"},
     )
-    assert not pair_report.ok
-    assert any(issue.code == "unsatisfied_reads" for issue in pair_report.issues)
+    assert pair_report.ok
+    producer_only = validate_pipeline(
+        [pairwise], initial_roles={"text", "pred_text"}, initial_keys={"text", "pred_text"}
+    )
+    assert "wer_pct" not in producer_only.produced_keys
+    assert any(issue.code == "conditional_read" for issue in pair_report.issues)
+    # ...and the runtime consequence the warning describes: a row where the producing branch
+    # did not run lacks the key, so the selector's own validation rejects it.
     with pytest.raises(ValueError, match="failed validation"):
         selector.process_batch([pair_task])
 
