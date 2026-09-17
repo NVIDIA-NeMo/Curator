@@ -383,12 +383,14 @@ class TestSnippetExtractionStageAgentContract:
         )
         real_contract = build_contract(real)
         dry_contract = build_contract(dry)
-        expected_writes = {"id", "snippet_id", "duration", "segments"}
+        expected_legacy_outputs = {"audio_filepath", "snippet_id", "duration", "segments"}
+        expected_writes = {"snippet_id", "duration", "segments"}
         expected_removals = {"alignment", _PLAN_DATA_KEY, "audio_size", "resampled_audio_filepath"}
 
-        assert set(real.outputs()[1]) == expected_writes
+        assert set(real.outputs()[1]) == expected_legacy_outputs
         assert set(real_contract.writes.data_keys) == expected_writes
-        assert real.audio_filepath_key not in real_contract.writes.data_keys
+        assert real_contract.conditional_writes[0].writes.data_keys == [real.audio_filepath_key]
+        assert real_contract.invalidates_keys == [real.audio_filepath_key]
         assert real_contract.writes.produces == ["disk"]
         assert dry_contract.writes.produces == []
         assert real_contract.preserves_upstream_keys is False
@@ -403,6 +405,40 @@ class TestSnippetExtractionStageAgentContract:
         assert static.gates.output_path_params == ["output_dir", "output_audio_tar_path"]
         assert static.gates.requires_stable_task_id is True
         assert static.gates.per_row_independent is False
+
+    def test_optional_passthrough_writes_require_source_keys(self, tmp_path: Path) -> None:
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+        )
+        contract = build_contract(stage)
+        passthrough = {
+            write.writes.data_keys[0]: write.requires_keys
+            for write in contract.conditional_writes
+            if write.value_origin in {"upstream_same_key", "transforms_upstream_same_key"}
+        }
+
+        assert set(contract.optional_reads.data_keys) == {
+            "id",
+            "actual_duration",
+            "proposed_duration",
+            "audio_sample_rate",
+            "audio_num_channels",
+            "swift_audio_filepath",
+            "text",
+        }
+        assert all(required == [key] for key, required in passthrough.items())
+
+    def test_legacy_audio_path_id_alias_remains_constructible_but_not_wrappable(self, tmp_path: Path) -> None:
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            audio_filepath_key="id",
+            dry_run=True,
+        )
+
+        assert stage.outputs()[1] == ["id", "snippet_id", "duration", "segments"]
+        assert build_contract(stage).wrappable is False
 
     def test_normal_and_dry_agent_ready(self, tmp_path: Path) -> None:
         src = tmp_path / "src.wav"

@@ -216,6 +216,7 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         _, output_keys = self.outputs()
         return StageContract(
             reads=IOSpec(data_keys=[self.windows_key]),
+            optional_reads=IOSpec(data_keys=[self.stats_key]),
             writes=IOSpec(data_keys=output_keys),
             # Overlap is measured between windows of the same row.
             gates=Gates(per_row_independent=True),

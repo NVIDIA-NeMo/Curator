@@ -165,6 +165,9 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self.max_duration = self.target_window_duration + tol
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
+        if self.segments_key != "segments" and "segments" in self._drop_fields_top_level_set:
+            self._drop_fields_top_level_set.remove("segments")
+            self._drop_fields_top_level_set.add(self.segments_key)
         generated_keys = [self.windows_key, self.stats_key, self.truncation_events_key]
         protected_keys = [
             self.audio_filepath_key,
@@ -203,6 +206,7 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             )
         return StageContract(
             reads=IOSpec(data_keys=[self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]),
+            optional_reads=IOSpec(data_keys=[self.swift_audio_filepath_key]),
             writes=IOSpec(data_keys=output_keys),
             conditional_writes=conditional_writes,
             # process() rebuilds task.data selectively (words/segments stripped;

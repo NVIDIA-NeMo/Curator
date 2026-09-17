@@ -251,7 +251,7 @@ class TestReadLongFormManifestStage:
         assert len(out) == 1
         # ``id`` leaves the reader as a string exactly as it always has (snippet/tar names embed it).
         assert out[0].data == {"id": "7", "audio_filepath": "/data/a.wav"}
-        assert stage.outputs()[1] == ["audio_filepath", "id"]
+        assert stage.outputs()[1] == ["audio_filepath", "id", "segments"]
         assert build_contract(stage).gates.per_row_independent is False
         assert static_contract(ReadLongFormManifestStage).gates.per_row_independent is False
 
@@ -461,7 +461,8 @@ class TestPretrainMetricsAggregatorStage:
             available_keys=set(valid_data),
             setup=True,
         )
-        assert contract.reads.data_keys == ["source_id", "clip_id", "turns", "clip_duration"]
+        assert contract.reads.data_keys == []
+        assert contract.optional_reads.data_keys == ["source_id", "clip_id", "turns", "clip_duration"]
         assert contract.metadata_reads == [_PRETRAIN_META_KEY]
 
         static = static_contract(PretrainMetricsAggregatorStage)

@@ -204,15 +204,14 @@ class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        output_keys = [self.audio_filepath_key, self.id_key]
-        if self.strict_schema:
-            output_keys.append(self.segments_key)
-        return [], output_keys
+        return [], [self.audio_filepath_key, "id", "segments"]
 
     def describe(self) -> StageContract:
-        _, output_keys = self.outputs()
+        output_keys = [self.audio_filepath_key, self.id_key]
         conditional_writes = []
-        if not self.strict_schema:
+        if self.strict_schema:
+            output_keys.append(self.segments_key)
+        else:
             conditional_writes.append(
                 ConditionalWrite(
                     writes=IOSpec(data_keys=[self.segments_key]),
@@ -454,7 +453,9 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=[self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]),
+            optional_reads=IOSpec(
+                data_keys=[self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]
+            ),
             metadata_reads=[_PRETRAIN_META_KEY],
             gates=Gates(
                 writes_to_disk=True,

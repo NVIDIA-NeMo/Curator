@@ -183,6 +183,23 @@ class TestALMDataBuilder:
         result = stage.process(AudioTask(data=copy.deepcopy(sample_entry)))
         assert {"windows", "stats", "truncation_events"} <= set(result.data)
 
+    def test_renamed_segments_key_uses_legacy_default_drop(self, sample_entry: dict) -> None:
+        entry = copy.deepcopy(sample_entry)
+        entry["turns"] = entry.pop("segments")
+        stage = ALMDataBuilderStage(segments_key="turns")
+
+        result = stage.process(AudioTask(data=entry))
+        contract = build_contract(stage)
+
+        assert "turns" not in result.data
+        assert "turns" in contract.removes_keys
+        assert "segments" not in contract.removes_keys
+
+    def test_declares_optional_swift_path_read(self) -> None:
+        stage = ALMDataBuilderStage(swift_audio_filepath_key="remote_audio")
+
+        assert build_contract(stage).optional_reads.data_keys == ["remote_audio"]
+
     @pytest.mark.parametrize("kwargs", [{"windows_key": "stats"}, {"windows_key": "segments"}])
     def test_generated_output_key_collisions_are_rejected(self, kwargs: dict[str, str]) -> None:
         with pytest.raises(ValueError, match="generated output keys"):

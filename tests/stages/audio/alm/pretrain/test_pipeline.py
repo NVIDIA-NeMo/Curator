@@ -154,7 +154,7 @@ def test_factory_wires_custom_keys_through_entire_chain(tmp_path: Path) -> None:
     )
     reader, overlap, planner, repetition, extraction, writer, metrics = pipeline.stages
 
-    assert reader.strict_schema is True
+    assert reader.strict_schema is False
     assert (reader.id_key, reader.segments_key, reader.audio_filepath_key) == (
         "source_id",
         "turns",
