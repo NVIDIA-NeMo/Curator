@@ -110,6 +110,19 @@ The `upstream_same_key` origin is important for allowlist/rebuild stages: it
 keeps the original producer's meaning visible instead of falsely presenting the
 copier as a new metric producer.
 
+The planner does read `conditional_writes`, in two bounded ways. A downstream
+read that is met only by a conditional key is reported as a `conditional_read`
+*warning* (the pipeline composes, `report.ok` stays true, but the key is never
+added to `produced_keys`); a read nothing even possibly writes remains an
+`unsatisfied_reads` error. And a conditional write with `produces=["tensor"]`
+seeds tensor residency for the JSON-sink gate. Set `requires_keys` on a
+`ConditionalWrite` when its branch can only run if some literal key already
+exists upstream (in the write's own scope): the planner then ignores the branch
+-- for both purposes -- on inputs that cannot reach it. File hydration that only
+*replaces* an incomplete resident waveform/sample-rate pair is the canonical
+case: without the hint, `UTMOSFilterStage() -> ManifestWriterStage` on a plain
+file manifest would be refused for a tensor the runtime never introduces.
+
 Use `metadata_writes` for a conditional `task._metadata` output. Unconditional
 metadata inputs/outputs remain declared through
 `StageContract.metadata_reads`/`metadata_writes`; semantic review traces all

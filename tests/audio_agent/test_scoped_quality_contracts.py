@@ -201,7 +201,16 @@ def test_possible_file_hydration_is_conditional_and_mode_scoped(
     assert all("decoded successfully" in conditional.condition for conditional in hydration)
     assert all("assigned together" in conditional.condition for conditional in hydration)
     if stage_cls in {SIGMOSFilterStage, UTMOSFilterStage}:
-        assert all("exactly one" in conditional.condition for conditional in hydration)
+        # ``auto_partial`` only REPLACES an incomplete resident pair, so each scope declares the
+        # two reachable halves separately, each gated on the key that must already be present.
+        assert all("is present without" in conditional.condition for conditional in hydration)
+        for scope in expected_scopes:
+            in_scope = [
+                conditional for conditional in hydration if bool(conditional.writes.data_keys) == (scope == "task")
+            ]
+            assert sorted(tuple(conditional.requires_keys) for conditional in in_scope) == [("rate",), ("samples",)]
+    else:
+        assert all(conditional.requires_keys == [] for conditional in hydration)
 
 
 @pytest.mark.parametrize(
@@ -299,10 +308,19 @@ def test_conditional_hydration_does_not_mechanically_feed_waveform_consumer(
         initial_keys={"audio_filepath"},
     )
 
-    assert not report.ok
+    # Hydration is never a GUARANTEED write, so the pair is absent from produced_keys either way.
     assert "waveform" not in report.produced_keys
     assert "sample_rate" not in report.produced_keys
-    assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
+    if stage_cls is BandFilterStage:
+        # Band always hydrates from a decoded file, so the consumer's read is POSSIBLY met:
+        # a conditional_read warning, not a clean pass and not a hard refusal.
+        assert report.ok
+        assert any(issue.code == "conditional_read" and issue.stage_index == 1 for issue in report.issues)
+    else:
+        # SIGMOS/UTMOS ``auto_partial`` only replaces an incomplete resident pair; on a
+        # file-only manifest that branch is unreachable, so nothing can feed the consumer.
+        assert not report.ok
+        assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
 
 
 @pytest.mark.parametrize(("stage_cls", "output_key_param"), _STAGE_CASES)
@@ -319,17 +337,30 @@ def test_possible_file_hydration_blocks_unsanitized_json_sink(
     )
     writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
 
-    report = validate_pipeline(
+    file_only = validate_pipeline(
         [stage, writer],
         initial_roles={"audio_filepath"},
         initial_keys={"audio_filepath"},
     )
+    partial_pair = validate_pipeline(
+        [stage, writer],
+        initial_roles={"audio_filepath", "sample_rate"},
+        initial_keys={"audio_filepath", "sample_rate"},
+    )
 
-    # SIGMOS/UTMOS file-only rows do not hydrate at runtime, but the contract
-    # cannot express row-value nullability. Their possible one-field fallback
-    # must therefore retain the tensor hazard: a false-negative JSON crash is
-    # more costly than this conservative block.
-    assert any(issue.code == "tensor_into_sink" and issue.severity == "error" for issue in report.issues)
+    def blocked(report: object) -> bool:
+        return any(issue.code == "tensor_into_sink" and issue.severity == "error" for issue in report.issues)
+
+    # A resident sample_rate without a waveform is completed from the file at runtime, so the
+    # sink is (correctly) refused for every scorer.
+    assert blocked(partial_pair)
+    if stage_cls is BandFilterStage:
+        # Band hydrates from any decoded file: a file-only row DOES gain a tensor.
+        assert blocked(file_only)
+    else:
+        # SIGMOS/UTMOS ``auto_partial`` cannot fire without one half of the pair already
+        # resident (``requires_keys``), so the default scorer -> manifest chain composes.
+        assert file_only.ok, file_only.summary()
 
 
 @pytest.mark.parametrize(

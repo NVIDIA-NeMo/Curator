@@ -528,6 +528,13 @@ class _Walk:
     # the other. ``tensor_keys`` holds top-level carriers; ``segment_tensor_keys`` nested ones.
     tensor_keys: set[str] = field(default_factory=set)
     segment_tensor_keys: set[str] = field(default_factory=set)
+    # Keys/roles a stage MAY have written (``conditional_writes`` whose ``requires_keys`` were
+    # reachable). Never folded into the guaranteed sets above: a read met only from here is a
+    # ``conditional_read`` warning, not a satisfied read and not an ``unsatisfied_reads`` error.
+    possible_keys: set[str] = field(default_factory=set)
+    possible_segment_keys: set[str] = field(default_factory=set)
+    possible_roles: set[str] = field(default_factory=set)
+    possible_segment_roles: set[str] = field(default_factory=set)
     removed_roles: set[str] = field(default_factory=set)
     key_producer: dict[str, str] = field(default_factory=dict)
     segment_key_producer: dict[str, str] = field(default_factory=dict)
@@ -535,7 +542,7 @@ class _Walk:
     task_type: str | None = None  # task type the previous stage produces; None == not known
 
 
-def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:
+def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:  # noqa: PLR0911 - one return per verdict
     """Whether this stage's reads are met, and how loudly to say so if not.
 
     Severity is graded by how sure we are, because a wrong hard error is worse than a wrong
@@ -553,6 +560,10 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
         walk.segment_available_keys,
     )
     key_satisfied = _reads_satisfied_by_key(contract, walk.available_keys, walk.segment_available_keys)
+    if not (role_satisfied or key_satisfied) and not walk.past_composite and site.composite is None:
+        conditional = _conditional_read_issue(walk, site, contract)
+        if conditional is not None:
+            return [conditional]
     if role_satisfied or key_satisfied:
         if walk.past_composite:
             return []
@@ -644,6 +655,73 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
     ]
 
 
+def _reads_possibly_satisfied(walk: _Walk, contract: StageContract) -> bool:
+    """Whether every read is met once keys upstream MAY write are counted as present.
+
+    Possible keys are credited by LITERAL key only, never by role: a conditional pass-through of
+    some other key that happens to share the read's role is too weak a basis to compose on.
+    Guaranteed state keeps its normal role-or-literal tolerance.
+    """
+
+    def key_ok(key: str, keys: set[str], possible: set[str], roles: set[str]) -> bool:
+        if key in keys or key in possible:
+            return True
+        role = contract.key_roles.get(key, "unknown")
+        return role != "unknown" and role in roles
+
+    def spec_ok(spec: Any) -> bool:  # noqa: ANN401 - IOSpec
+        return all(
+            key_ok(key, walk.available_keys, walk.possible_keys, walk.available) for key in spec.data_keys
+        ) and all(
+            key_ok(key, walk.segment_available_keys, walk.possible_segment_keys, walk.segment_available)
+            for key in spec.segment_data_keys
+        )
+
+    if not spec_ok(contract.reads):
+        return False
+    return not contract.reads_one_of or any(spec_ok(option) for option in contract.reads_one_of)
+
+
+def _conditional_read_issue(walk: _Walk, site: _Site, contract: StageContract) -> PipelineIssue | None:
+    """A warning when a read is met only by keys an upstream stage MAY write.
+
+    Metric and hydration stages declare data-dependent outputs as ``conditional_writes`` so the
+    planner never advances them as guaranteed. Refusing every consumer of such a key outright
+    would make the ordinary ``ComputeWER -> PreserveByValue`` or ``ASR -> Join -> Merge`` chain
+    un-plannable, so a read satisfied by the union of guaranteed and possible keys is reported
+    as ``conditional_read`` (warning): the pipeline composes, but the consumer must tolerate the
+    key being absent on rows where the producing branch did not run. ``report.ok`` stays True;
+    callers wanting only guaranteed flow can check ``report.warnings`` for this code.
+    """
+    if not _reads_possibly_satisfied(walk, contract):
+        return None
+    only_possible = sorted(
+        (
+            {*contract.reads.data_keys, *(k for option in contract.reads_one_of for k in option.data_keys)}
+            & walk.possible_keys
+        )
+        - walk.available_keys
+    ) + sorted(
+        (
+            {
+                *contract.reads.segment_data_keys,
+                *(k for option in contract.reads_one_of for k in option.segment_data_keys),
+            }
+            & walk.possible_segment_keys
+        )
+        - walk.segment_available_keys
+    )
+    return PipelineIssue(
+        site.index,
+        site.name,
+        "warning",
+        "conditional_read",
+        f"reads key(s) {only_possible} that upstream stages write only conditionally "
+        f"(data-dependent branch); rows where that branch does not run will lack the key, so this "
+        f"stage must tolerate its absence. Guaranteed keys so far: {sorted(walk.available_keys)}",
+    )
+
+
 def _declared_produces(stage: Any) -> str | None:  # noqa: ANN401 - any recipe stage
     """The task type a stage says it produces, or None if it cannot say.
 
@@ -728,6 +806,17 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
     segment_produced = _roles_for_keys(contract, contract.writes.segment_data_keys)
     written = _write_key_values(contract)
     segment_written = _segment_write_key_values(contract)
+    # Judged against the INPUT state, before this stage's own possible writes are folded in:
+    # a branch must not be made reachable by the key it would itself write.
+    reachable_conditionals = _reachable_conditional_writes(walk, contract)
+    # Keys this stage drops on its main path. A conditional write of the same key (a branch that
+    # happens to keep it, or re-emits it with a different meaning such as a tar member name) must
+    # not resurrect it for planning: removal is the guarantee-level fact, the branch the exception.
+    blocked_keys = set(contract.removes_keys)
+    blocked_segment_keys: set[str] = set()
+    if not contract.preserves_upstream_keys:
+        blocked_keys |= walk.available_keys - written
+        blocked_segment_keys |= walk.segment_available_keys - segment_written
     if not contract.preserves_upstream_keys:
         # A stage that rebuilds the task rather than adding to it: whatever it does not write
         # is not downstream. Folding its writes into the inherited state would keep every
@@ -743,6 +832,10 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         walk.available -= dropped_roles
         walk.segment_available_keys -= dropped_segment_keys
         walk.segment_available -= dropped_segment_roles
+        walk.possible_keys -= dropped_keys
+        walk.possible_segment_keys -= dropped_segment_keys
+        walk.possible_roles -= dropped_roles
+        walk.possible_segment_roles -= dropped_segment_roles
         walk.removed_roles |= dropped_roles
         for key in dropped_keys:
             walk.key_producer.pop(key, None)
@@ -763,8 +856,18 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
     walk.available_keys |= written
     walk.segment_key_producer.update(dict.fromkeys(segment_written, name))
     walk.segment_available_keys |= segment_written
+    for reachable in reachable_conditionals:
+        # Possible, not guaranteed: kept in the ``possible_*`` sets so a downstream read met
+        # only from here surfaces as a ``conditional_read`` warning.
+        possible = set(reachable.writes.data_keys) - blocked_keys
+        possible_segment = set(reachable.writes.segment_data_keys) - blocked_segment_keys
+        walk.possible_keys |= possible
+        walk.possible_segment_keys |= possible_segment
+        walk.possible_roles |= _roles_for_keys(contract, possible)
+        walk.possible_segment_roles |= _roles_for_keys(contract, possible_segment)
     for rk in contract.removes_keys:
         walk.available_keys.discard(rk)
+        walk.possible_keys.discard(rk)
         # ``removes_keys`` names TOP-LEVEL task keys, so dropping the carrier ends only the
         # top-level tensor residency; a nested (segment) carrier of the same name survives.
         walk.tensor_keys.discard(rk)
@@ -776,7 +879,34 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         ):
             walk.available.discard(role)
             walk.removed_roles.add(role)
-    _advance_tensor_residency(walk, contract, written, segment_written)
+    _advance_tensor_residency(walk, contract, written, segment_written, reachable_conditionals)
+
+
+def _reachable_conditional_writes(walk: _Walk, contract: StageContract) -> list[Any]:
+    """The ``conditional_writes`` whose ``requires_keys`` the input so far can actually meet.
+
+    ``requires_keys`` names literal keys, in the write's own scope, that must already exist for
+    the branch to run. A file-hydration branch that only REPLACES an incomplete resident pair
+    cannot fire on a plain manifest, so its tensor write must neither seed residency (a
+    spurious ``tensor_into_sink`` on ``UTMOSFilterStage() -> ManifestWriterStage``) nor be
+    credited as a possible output. A write with no ``requires_keys`` is always reachable.
+    Reachability is judged against guaranteed AND possible keys -- a possible key can enable a
+    possible branch -- which is the conservative direction for the tensor gate.
+    """
+    task_keys = walk.available_keys | walk.possible_keys
+    segment_keys = walk.segment_available_keys | walk.possible_segment_keys
+    reachable = []
+    for conditional in contract.conditional_writes:
+        required = set(getattr(conditional, "requires_keys", ()) or ())
+        if not required:
+            reachable.append(conditional)
+            continue
+        scope_keys = (
+            segment_keys if conditional.writes.segment_data_keys and not conditional.writes.data_keys else task_keys
+        )
+        if required <= scope_keys:
+            reachable.append(conditional)
+    return reachable
 
 
 def _advance_tensor_residency(
@@ -784,12 +914,15 @@ def _advance_tensor_residency(
     contract: StageContract,
     written: set[str],
     segment_written: set[str],
+    reachable_conditionals: list[Any] | None = None,
 ) -> None:
     """Fold one stage's tensor writes/sanitization into the per-scope residency sets."""
     task_tensor_writes = set(written)
     segment_tensor_writes = set(segment_written)
     has_possible_tensor_write = "tensor" in contract.writes.produces
-    for conditional in contract.conditional_writes:
+    if reachable_conditionals is None:
+        reachable_conditionals = _reachable_conditional_writes(walk, contract)
+    for conditional in reachable_conditionals:
         if "tensor" in conditional.writes.produces:
             has_possible_tensor_write = True
             task_tensor_writes.update(conditional.writes.data_keys)
