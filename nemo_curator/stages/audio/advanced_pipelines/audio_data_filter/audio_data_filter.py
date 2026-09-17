@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
@@ -79,6 +79,8 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
             When both are given, *config* values override the YAML file.
         name: Name for this composite stage instance.
     """
+
+    AGENT_STATIC = StaticHints(gates=Gates(per_row_independent=True))
 
     def __init__(
         self,
