@@ -26,15 +26,18 @@ from .features import AudioFeatureExtractor
 class BandPredictor:
     """Class to predict band label (full_band/narrow_band) for audio waveforms."""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, feature_cache_size: int = 100):
         """
         Initialize the band predictor.
 
         Args:
             model_path: Path to the trained model file
+            feature_cache_size: Retained for backward compatibility; feature caching is disabled
         """
         self.model_path = model_path
+        self.feature_cache_size = feature_cache_size
         self.model = None
+        self.feature_cache: dict = {}
 
         self._load_model()
 

@@ -25,6 +25,7 @@ import soundfile as sf
 import torch
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
 from nemo_curator.stages.resources import Resources
@@ -96,6 +97,17 @@ class TestUTMOSFilterStage:
 
         load_model.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "params",
+        [
+            pytest.param({"segments_key": "audio_filepath"}, id="segments-aliases-filepath"),
+            pytest.param({"waveform_key": "sample_rate"}, id="waveform-aliases-rate"),
+        ],
+    )
+    def test_audio_input_role_collisions_are_rejected(self, params: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+            UTMOSFilterStage(**params)
+
     def test_static_contract_conservatively_reports_download_and_row_independence(self) -> None:
         contract = static_contract(UTMOSFilterStage)
 
@@ -108,6 +120,17 @@ class TestUTMOSFilterStage:
         assert stage.action == "filter"
         assert stage.mode == "auto"
         assert stage.mos_threshold == 3.5
+
+    def test_auto_contract_rejects_parent_audio_for_unhydrated_segments(self) -> None:
+        report = validate_pipeline(
+            [UTMOSFilterStage(action="annotate")],
+            initial_keys={"waveform", "sample_rate", "segments"},
+            initial_roles={"waveform", "sample_rate", "segments"},
+            initial_segment_keys={"segment_num"},
+        )
+
+        assert not report.ok
+        assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_process_passes_above_threshold(self, mock_ensure: MagicMock) -> None:

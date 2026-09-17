@@ -23,6 +23,7 @@ import soundfile as sf
 import torch
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
 from nemo_curator.stages.resources import Resources
@@ -123,6 +124,17 @@ class TestSIGMOSFilterStage:
         build_model.assert_not_called()
         download.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "params",
+        [
+            pytest.param({"segments_key": "audio_filepath"}, id="segments-aliases-filepath"),
+            pytest.param({"waveform_key": "sample_rate"}, id="waveform-aliases-rate"),
+        ],
+    )
+    def test_audio_input_role_collisions_are_rejected(self, params: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+            SIGMOSFilterStage(**params)
+
     def test_explicit_valid_model_path_returns_without_download(self, tmp_path: Path) -> None:
         model_path = tmp_path / "model.onnx"
         model_path.write_bytes(b"model")
@@ -215,11 +227,27 @@ class TestSIGMOSFilterStage:
         assert result.data["sigmos_noise"] == 4.5
         assert result.data["sigmos_ovrl"] == 4.0
 
+    @pytest.mark.parametrize(
+        "resident",
+        [
+            pytest.param(
+                torch.tensor([[32767, -32768], [16384, -16384]], dtype=torch.int16),
+                id="torch",
+            ),
+            pytest.param(
+                np.array([[32767, -32768], [16384, -16384]], dtype=np.int16),
+                id="numpy",
+            ),
+        ],
+    )
     @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_stereo_integer_pcm_is_scaled_and_downmixed_before_inference(self, mock_init: MagicMock) -> None:
+    def test_stereo_integer_pcm_preserves_legacy_amplitude_and_decision(
+        self,
+        mock_init: MagicMock,
+        resident: torch.Tensor | np.ndarray,
+    ) -> None:
         stage = SIGMOSFilterStage(action="annotate", input_residency="waveform")
         stage._model = _make_mock_model(_GOOD_SCORES)
-        resident = torch.tensor([[32767, -32768], [0, 16384]], dtype=torch.int16)
         task = AudioTask(dataset_name="test", data={"waveform": resident, "sample_rate": 16000})
 
         result = stage.process(task)
@@ -228,7 +256,18 @@ class TestSIGMOSFilterStage:
         audio = stage._model.run.call_args.kwargs["audio"]
         assert audio.dtype == np.float32
         assert audio.shape == (2,)
-        assert audio == pytest.approx([32767 / 65536, -0.25])
+        assert audio == pytest.approx([24575.5, -24576.0])
+
+    def test_auto_contract_rejects_parent_audio_for_unhydrated_segments(self) -> None:
+        report = validate_pipeline(
+            [SIGMOSFilterStage(action="annotate")],
+            initial_keys={"waveform", "sample_rate", "segments"},
+            initial_roles={"waveform", "sample_rate", "segments"},
+            initial_segment_keys={"segment_num"},
+        )
+
+        assert not report.ok
+        assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
     @pytest.mark.parametrize(
         "orphan",

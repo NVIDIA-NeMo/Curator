@@ -23,6 +23,7 @@ import soundfile as sf
 import torch
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.filtering.band import BandFilterStage
 from nemo_curator.stages.resources import Resources
@@ -82,6 +83,17 @@ class TestBandFilterStage:
 
         predictor.assert_not_called()
         download.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            pytest.param({"segments_key": "audio_filepath"}, id="segments-aliases-filepath"),
+            pytest.param({"waveform_key": "sample_rate"}, id="waveform-aliases-rate"),
+        ],
+    )
+    def test_audio_input_role_collisions_are_rejected(self, params: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+            BandFilterStage(**params)
 
     def test_explicit_valid_model_path_returns_without_download(self, tmp_path: Path) -> None:
         model_path = tmp_path / "model.joblib"
@@ -426,6 +438,18 @@ def test_band_auto_runtime_outputs_match_selected_scope(nested: bool, scorable: 
         assert "band_prediction" not in task.data
     else:
         assert "segments" not in task.data
+
+
+def test_band_auto_contract_rejects_parent_audio_for_unhydrated_segments() -> None:
+    report = validate_pipeline(
+        [BandFilterStage(action="annotate")],
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_segment_keys={"segment_num"},
+    )
+
+    assert not report.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
 
 def test_band_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
