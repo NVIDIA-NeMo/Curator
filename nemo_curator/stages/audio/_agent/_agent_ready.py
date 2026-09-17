@@ -261,6 +261,10 @@ class StageContract:
     # positional compatibility and kept outside ``reads``/``reads_one_of`` so
     # planning never blocks a valid fallback path on their absence.
     optional_reads: IOSpec = field(default_factory=IOSpec)
+    # Task-data keys retained for compatibility/provenance whose prior semantic
+    # role is no longer a valid downstream carrier. Unlike ``removes_keys``,
+    # conformance does not require these keys to be physically absent.
+    invalidates_keys: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict of this contract (``json.dumps`` never raises)."""
@@ -289,6 +293,7 @@ class StageContract:
             "accepts_task_type": self.accepts_task_type,
             "produces_task_type": self.produces_task_type,
             "removes_keys": list(self.removes_keys),
+            **({"invalidates_keys": list(self.invalidates_keys)} if self.invalidates_keys else {}),
             "conditional_writes": [
                 {
                     "writes": asdict(item.writes),

@@ -341,6 +341,7 @@ def _contract_referenced_keys(contract: StageContract) -> set[str]:
         keys.update(conditional.writes.data_keys)
         keys.update(conditional.writes.segment_data_keys)
         keys.update(conditional.metadata_writes)
+    keys.update(contract.invalidates_keys)
     return keys
 
 

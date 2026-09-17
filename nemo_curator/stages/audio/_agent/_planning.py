@@ -865,13 +865,16 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:
         walk.possible_segment_keys |= possible_segment
         walk.possible_roles |= _roles_for_keys(contract, possible)
         walk.possible_segment_roles |= _roles_for_keys(contract, possible_segment)
-    for rk in contract.removes_keys:
+    for rk in [*contract.removes_keys, *contract.invalidates_keys]:
         walk.available_keys.discard(rk)
         walk.possible_keys.discard(rk)
-        # ``removes_keys`` names TOP-LEVEL task keys, so dropping the carrier ends only the
-        # top-level tensor residency; a nested (segment) carrier of the same name survives.
-        walk.tensor_keys.discard(rk)
+        if rk in contract.removes_keys:
+            # ``removes_keys`` names TOP-LEVEL task keys, so dropping the carrier ends only the
+            # top-level tensor residency; a nested (segment) carrier of the same name survives.
+            walk.tensor_keys.discard(rk)
         role = contract.key_roles.get(rk, role_for_value(rk))
+        if role != "unknown" and not any(role_for_value(k) == role for k in walk.possible_keys):
+            walk.possible_roles.discard(role)
         if (
             role != "unknown"
             and role not in produced
