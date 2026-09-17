@@ -19,7 +19,6 @@ import pytest
 
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
-
 from nemo_curator.stages.audio.datasets.readspeech.create_initial_manifest import (
     CreateInitialManifestReadSpeechStage,
 )
@@ -100,7 +99,7 @@ def test_custom_output_keys_are_used_everywhere(tmp_path: Path) -> None:
     ],
 )
 def test_new_output_keys_reject_empty_names_and_collisions(tmp_path: Path, kwargs: dict) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be a non-empty string|conflicts with"):
         CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False, **kwargs)
 
 
