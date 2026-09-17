@@ -211,7 +211,7 @@ def create_ocr_argparser() -> argparse.ArgumentParser:
         "--run-scoring-qa",
         action="store_true",
         default=False,
-        help=("Run verifier bbox scoring + QA generation after OCR. Requires NVINFERENCE_API_KEY to be set."),
+        help=("Run verifier bbox scoring + QA generation after OCR. Requires NVIDIA_API_KEY to be set."),
     )
     parser.add_argument(
         "--scoring-qa-model-id",

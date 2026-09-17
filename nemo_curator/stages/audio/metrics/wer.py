@@ -77,6 +77,9 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
+    _warned_missing_text_key_sets: set[tuple[str, ...]] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         validate_metric_keys(
@@ -258,7 +261,22 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         end = audio_segment.get(self.end_key, audio_segment.get(self.duration_key, 0))
         duration = end - start
 
-        if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
+        missing_text_keys = [
+            f"{option_name}={key!r}"
+            for option_name, key in (
+                ("hypothesis_text_key", self.hypothesis_text_key),
+                ("reference_text_key", self.reference_text_key),
+            )
+            if key not in audio_segment
+        ]
+        if missing_text_keys:
+            missing_text_key_set = tuple(missing_text_keys)
+            if missing_text_key_set not in self._warned_missing_text_key_sets:
+                logger.warning(
+                    f"[{self.name}] skipping WER computation because configured text key(s) are missing: "
+                    f"{', '.join(missing_text_keys)}"
+                )
+                self._warned_missing_text_key_sets.add(missing_text_key_set)
             return
 
         metrics = metrics_mapping(audio_segment, metrics_key=self.metrics_key, stage_name=self.name)
