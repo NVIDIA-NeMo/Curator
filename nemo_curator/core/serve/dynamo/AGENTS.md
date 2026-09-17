@@ -28,6 +28,14 @@ pins or CUDA wheel indexes from an older image.
 
 ### Preinstall a serving venv to avoid startup installs
 
+First check the model's architecture, upstream serving recipe and Dynamo's
+backend compatibility. A model can require an unreleased backend even when
+its weights are cached. The helper below follows the driver's Dynamo release;
+it does not discover the newest backend that supports a model. For a different
+release, align the base image, Python, Torch/CUDA wheels and backend together.
+Check `torch.version.cuda` and import the backend with a GPU visible: dependency
+resolution and CPU-only imports can both pass with incompatible CUDA libraries.
+
 Install **Curator without extras** together with `ai-dynamo[vllm]` and the
 model's additional packages. Curator's base dependencies supply Ray, Xenna,
 pandas and PyArrow; a bare Dynamo venv misses Curator's bootstrap imports.
@@ -91,6 +99,14 @@ This skips automatic package additions for workers and the shared frontend.
 Do not combine it with `uv`, `pip`, or `conda` installation settings. All models
 sharing a frontend must select the same interpreter, available at the same
 path on every participating node.
+
+For multi-model serving, pass multiple model configs to one `InferenceServer`.
+They share an HTTP endpoint; the request's `model` selects the corresponding
+workers. GPU allocations remain separate. The frontend merges their runtime
+environments, not their model engines: packages must resolve together, and
+preinstalled configs must use one interpreter containing their combined
+dependencies. Separate incompatible environments need separate server endpoints
+or an explicit frontend-environment design; merging dicts cannot combine venvs.
 
 ### Persist compilation caches across server starts
 
