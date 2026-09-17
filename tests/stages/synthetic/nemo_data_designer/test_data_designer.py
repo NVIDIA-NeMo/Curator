@@ -38,7 +38,9 @@ from data_designer.interface import DataDesigner
 
 def _minimal_config_builder() -> dd.DataDesignerConfigBuilder:
     """Real minimal DataDesignerConfigBuilder (avoids 'model configs required' where no local defaults)."""
-    return dd.DataDesignerConfigBuilder(model_configs=[dd.ModelConfig(alias="test_model", model="test/model")])
+    return dd.DataDesignerConfigBuilder(
+        model_configs=[dd.ModelConfig(alias="test_model", model="test/model", provider="openai")]
+    )
 
 
 class TestBaseDataDesignerStage:
@@ -207,20 +209,23 @@ class TestBaseDataDesignerStage:
         assert result._stage_perf == original_stage_perf
 
     def test_process_empty_batch(self) -> None:
-        """process handles empty dataframe."""
+        """process short-circuits an empty dataframe without calling preview().
+
+        NDD's preview() raises for num_records=0, so an upstream filter stage
+        that removes every row in a partition must not reach preview() at all.
+        """
         real_builder = _minimal_config_builder()
         stage = DataDesignerStage(config_builder=real_builder, verbose=False)
         stage.setup()
 
-        output_df = pd.DataFrame()
         stage.data_designer.preview = MagicMock(
-            return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
+            side_effect=AssertionError("preview() must not be called for an empty batch")
         )
 
         batch = DocumentBatch(data=pd.DataFrame(), dataset_name="ds")
         out_batch = stage.process(batch)
 
-        stage.data_designer.preview.assert_called_once_with(real_builder, num_records=0)
+        stage.data_designer.preview.assert_not_called()
         assert len(out_batch.data) == 0
 
     def test_process_logs_metrics(self) -> None:

@@ -189,7 +189,7 @@ class TestKMeansStage:
 
         assert stages[0].file_extensions == [".pq"]
 
-    def test_unsupported_input_filetype_raises(self, tmp_path: Path) -> None:
+    def test_unsupported_configuration_raises(self, tmp_path: Path) -> None:
         stage = KMeansStage(
             id_field="id",
             embedding_field="embeddings",
@@ -201,6 +201,15 @@ class TestKMeansStage:
 
         with pytest.raises(ValueError, match="Unsupported filetype: csv"):
             stage.decompose()
+        with pytest.raises(ValueError, match="embedding_output_dtype"):
+            KMeansStage(
+                id_field="id",
+                embedding_field="embeddings",
+                n_clusters=2,
+                input_path=str(tmp_path / "input"),
+                output_path=str(tmp_path / "output"),
+                embedding_output_dtype="float64",
+            )
 
 
 @pytest.mark.gpu
@@ -298,6 +307,7 @@ class TestKMeansStageIntegration:
         cosine_dtype = output_df["cosine_dist_to_cent"].dtype
         assert l2_dtype == np.float32, f"L2 distance should be float, got {l2_dtype}"
         assert cosine_dtype == np.float32, f"Cosine distance should be float, got {cosine_dtype}"
+        assert get_array_from_df(output_df, "embeddings").dtype == cp.float32
 
     def test_output_filenames_and_structure(self) -> None:
         """Output files are written with deterministic, input-derived names and
@@ -335,8 +345,8 @@ class TestKMeansStageIntegration:
             f"Expected exactly {N_CLUSTERS} centroid partitions, got {len(centroid_dirs)}"
         )
 
-    @pytest.mark.parametrize("fit_data_fraction", [0.5, 1.0])
-    def test_parquet_fit_fraction_predicts_all_rows(self, tmp_path: Path, fit_data_fraction: float) -> None:
+    @pytest.mark.parametrize("fit_data_fraction", [None, 0.5, 1.0])
+    def test_parquet_fit_fraction_predicts_all_rows(self, tmp_path: Path, fit_data_fraction: float | None) -> None:
         """Partial and full Parquet fits label every row and cluster well end-to-end."""
         input_dir, true_labels = create_clustered_dataset(tmp_path)
         output_dir = tmp_path / "output"
@@ -368,7 +378,7 @@ class TestKMeansStageIntegration:
         assert np.load(npy).shape == (N_CLUSTERS, EMBEDDING_DIM)
 
         df = cudf.read_parquet(output_dir).sort_values("id", ignore_index=True)
-        # A partial fit predicts the unread files; a full fit reuses labels already produced by fit.
+        # Both paths reread and predict every input row after releasing the fit matrix.
         assert len(df) == len(true_labels)
         ari = adjusted_rand_score(df["centroid"].to_numpy(), true_labels)
         assert ari > 0.95, f"ARI too low at fit_data_fraction={fit_data_fraction}: {ari:.3f}"
@@ -464,7 +474,8 @@ class TestKMeansReadFitWriteStage:
         centroids = cp.array([[1, 0], [0, 1]])
 
         # Call _assign_distances
-        df_with_distances = KMeansReadFitWriteStage._assign_distances(df, "embedding", centroids)
+        embeddings = get_array_from_df(df, "embedding")
+        df_with_distances = KMeansReadFitWriteStage._assign_distances(df, embeddings, centroids)
 
         # Assert the distances match the expected values
         np.testing.assert_almost_equal(
@@ -496,6 +507,31 @@ class TestKMeansReadFitWriteStage:
 
         cp.testing.assert_allclose(embeddings, expected_normalized, rtol=1e-5, atol=1e-5)
 
+    @pytest.mark.parametrize("embedding_output_dtype", ["float16", "float32"])
+    def test_write_output_frame_uses_configured_embedding_dtype(
+        self,
+        make_stage: "KMeansReadFitWriteStage",
+        embedding_output_dtype: str,
+    ) -> None:
+        stage = make_stage(embedding_output_dtype=embedding_output_dtype)
+        embeddings = cp.asarray([[1.0, 0.0], [0.6, 0.8]], dtype=cp.float32)
+
+        stage._write_output_frame(
+            "output.parquet",
+            cudf.DataFrame({"id": [1, 2]}),
+            embeddings,
+            cp.asarray([0, 1], dtype=cp.int32),
+            stage.kmeans.cluster_centers_,
+        )
+
+        output = cudf.read_parquet(stage.output_path)
+        stored_embeddings = get_array_from_df(output, "embeddings")
+        stored_dtype = cp.uint16 if embedding_output_dtype == "float16" else cp.float32
+        assert stored_embeddings.dtype == stored_dtype
+        decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
+        cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
+        cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
+
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:
         """Both KMeansStage and KMeansReadFitWriteStage reject out-of-range values at construction."""
@@ -523,39 +559,36 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=0.5)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", i + 1, 10) for i in range(5)]
 
-        fit, prediction_only = stage._sample_fit_files(file_info)
+        fit = stage._sample_fit_files(file_info)
 
         assert len(fit) == 2
-        assert {info.path for info in fit}.isdisjoint(info.path for info in prediction_only)
-        assert {info.path for info in [*fit, *prediction_only]} == {info.path for info in file_info}
+        assert {info.path for info in fit}.issubset(info.path for info in file_info)
 
     def test_full_fit_samples_every_file(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """A fraction of one is the explicit full-fit path used by the scale benchmark."""
         stage = make_stage(fit_data_fraction=1.0)
         file_info = [ParquetFileInfo(f"file-{i}.parquet", 1, 0) for i in range(5)]
 
-        fit, prediction_only = stage._sample_fit_files(file_info)
+        fit = stage._sample_fit_files(file_info)
 
         assert {info.path for info in fit} == {info.path for info in file_info}
-        assert prediction_only == []
 
-    def test_auto_fit_budget_includes_metadata(self, make_stage: "KMeansReadFitWriteStage") -> None:
-        """Auto-fit budgets retained metadata as well as the preallocated embedding buffer."""
+    def test_auto_fit_budget_uses_only_persistent_fp32_embeddings(self, make_stage: "KMeansReadFitWriteStage") -> None:
         stage = make_stage(fit_data_fraction=None)
         file_info = [
             ParquetFileInfo("metadata-heavy.parquet", 1, 1_000, embedding_elements=2),
-            ParquetFileInfo("fits.parquet", 10, 0, embedding_elements=20),
+            ParquetFileInfo("float64.parquet", 10, 0, embedding_elements=20),
+            ParquetFileInfo("float32.parquet", 10, 0, embedding_elements=20),
         ]
 
         with (
-            patch("cupy.cuda.runtime.memGetInfo", return_value=(200, 1_000)),
+            patch("cupy.cuda.runtime.memGetInfo", return_value=(1_300, 2_000)),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
-            fit, prediction_only = stage._sample_fit_files(file_info)
+            fit = stage._sample_fit_files(file_info)
 
-        assert [info.path for info in fit] == ["fits.parquet"]
-        assert [info.path for info in prediction_only] == ["metadata-heavy.parquet"]
-        assert "fit_data_fraction=1.0" in mock_logger.warning.call_args.args[0]
+        assert [info.path for info in fit] == ["float32.parquet", "metadata-heavy.parquet", "float64.parquet"]
+        mock_logger.warning.assert_not_called()
 
     @pytest.mark.parametrize(
         ("files", "fraction", "expected_count"),

@@ -12,13 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+import os
+import random
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from itertools import chain
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
+import cudf
 import cupy as cp
 import numpy as np
+import pylibcudf as plc
+from cudf.utils import ioutils
+from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -36,20 +43,17 @@ from .utils import (
     read_parquet_file_info,
 )
 
-if TYPE_CHECKING:
-    import cudf
-
-import gc
-import os
-import random
-import time
-
-from loguru import logger
-
 # Column names
 L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
-_AUTO_FIT_MEMORY_FRACTION = 0.6
+_AUTO_FIT_MEMORY_FRACTION = 0.9
+KMeansEmbeddingOutputDtype = Literal["float16", "float32"]
+
+
+def validate_embedding_output_dtype(embedding_output_dtype: object) -> None:
+    if embedding_output_dtype not in {"float16", "float32"}:
+        msg = f"embedding_output_dtype must be 'float16' or 'float32', got {embedding_output_dtype!r}"
+        raise ValueError(msg)
 
 
 class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], DeduplicationIO):
@@ -77,6 +81,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         cache_path: str | None = None,
         read_kwargs: dict[dict] | None = None,
         write_kwargs: dict[dict] | None = None,
+        embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32",
     ):
         """KMeans clustering stage that requires RAFT for distributed processing.
 
@@ -100,6 +105,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
+            embedding_output_dtype: Precision used to store embeddings in KMeans output files.
         """
         self.id_field = id_field
         self.embedding_field = embedding_field
@@ -123,6 +129,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             raise ValueError(msg)
         self.fit_data_fraction = fit_data_fraction
         self.cache_path = cache_path
+        validate_embedding_output_dtype(embedding_output_dtype)
+        self.embedding_output_dtype = embedding_output_dtype
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs.copy() if write_kwargs is not None else {}
 
@@ -156,7 +164,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             return self._process_jsonl_two_pass(tasks, all_files)
         return self._process_jsonl_single_pass(tasks, all_files)
 
-    def _process_parquet(self, tasks: list[FileGroupTask], files: list[str]) -> list[EmptyTask]:  # noqa: PLR0915
+    def _process_parquet(self, tasks: list[FileGroupTask], files: list[str]) -> list[EmptyTask]:
+        """Fit embeddings, release fit memory, then reread all files to predict and write."""
         columns = list(dict.fromkeys([self.id_field, self.embedding_field, *self.metadata_fields]))
         footer_start = time.perf_counter()
         file_info = read_parquet_file_info(
@@ -168,103 +177,18 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         footer_time = time.perf_counter() - footer_start
         self._log_metric("kmeans_footer_scan_time", footer_time)
 
-        fit_info, prediction_only_info = self._sample_fit_files(file_info)
         total_rows = sum(info.num_rows for info in file_info)
-        fit_rows = sum(info.num_rows for info in fit_info)
-        if fit_rows < self.n_clusters:
-            msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
-            raise ValueError(msg)
-
-        fit_frames = iter(self._iter_parquet_frames(fit_info, columns))
-        read_start = time.perf_counter()
-        first_fit_frame = next(fit_frames)
-        embedding_width = get_array_from_df(first_fit_frame, self.embedding_field).shape[1]
-        fit_embeddings = cp.empty((fit_rows, embedding_width), dtype=cp.float32)
-        sampled_chunks: list[tuple[cudf.DataFrame, int, int]] = []
-        offset = 0
-        for df in chain([first_fit_frame], fit_frames):
-            stop = offset + len(df)
-            embeddings = fit_embeddings[offset:stop]
-            embeddings[...] = get_array_from_df(df, self.embedding_field)
-            self._normalize_embeddings_in_place(embeddings)
-            del df[self.embedding_field]
-            sampled_chunks.append((df, offset, stop))
-            offset = stop
-        read_time = time.perf_counter() - read_start
-        if offset != fit_rows:
-            msg = f"Parquet footers reported {fit_rows} fit rows but the reader returned {offset}"
-            raise RuntimeError(msg)
-        del df, embeddings, first_fit_frame, fit_frames
-
-        fit_start = time.perf_counter()
-        self.kmeans.fit(fit_embeddings, sample_weight=None)
-        fit_labels = cp.asarray(self.kmeans.labels_).astype(cp.int32, copy=False)
-        fit_time = time.perf_counter() - fit_start
-        self._log_metrics(
-            {
-                "kmeans_fit_time": fit_time,
-                "kmeans_fit_rows": fit_rows,
-                "kmeans_fit_files": len(fit_info),
-                "kmeans_input_files": len(file_info),
-                "kmeans_fit_data_fraction": fit_rows / total_rows,
-                "kmeans_fit_file_fraction": len(fit_info) / len(file_info),
-            }
-        )
-        centroids = cp.ascontiguousarray(cp.asarray(self.kmeans.cluster_centers_).copy())
-        self._save_centroids(centroids)
-        gc.collect()
-        cp.get_default_memory_pool().free_all_blocks()
-
-        predict_time = 0.0
-        write_time = 0.0
-        predicted_rows = 0
-        output_index = 0
-        for metadata, start, stop in sampled_chunks:
-            write_start = time.perf_counter()
-            self._write_output_frame(
-                f"{tasks[0].task_id}_{output_index}.parquet",
-                metadata,
-                fit_embeddings[start:stop],
-                fit_labels[start:stop],
-                centroids,
-            )
-            write_time += time.perf_counter() - write_start
-            predicted_rows += len(metadata)
-            output_index += 1
-
-        sampled_chunks.clear()
-        del fit_embeddings, fit_labels
-        gc.collect()
-        cp.get_default_memory_pool().free_all_blocks()
-
-        if prediction_only_info:
-            read_start = time.perf_counter()
-            for df in self._iter_parquet_frames(prediction_only_info, columns):
-                read_time += time.perf_counter() - read_start
-                embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
-                self._normalize_embeddings_in_place(embeddings)
-                predict_start = time.perf_counter()
-                labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
-                predict_time += time.perf_counter() - predict_start
-                del df[self.embedding_field]
-                write_start = time.perf_counter()
-                self._write_output_frame(
-                    f"{tasks[0].task_id}_{output_index}.parquet", df, embeddings, labels, centroids
-                )
-                write_time += time.perf_counter() - write_start
-                predicted_rows += len(df)
-                output_index += 1
-                read_start = time.perf_counter()
-            read_time += time.perf_counter() - read_start
+        centroids, fit_read_time = self._fit_parquet(file_info)
+        predicted_rows, phase_times = self._predict_write_parquet(file_info, columns, tasks[0].task_id, centroids)
 
         if predicted_rows != total_rows:
             msg = f"Parquet footers reported {total_rows} rows but prediction processed {predicted_rows}"
             raise RuntimeError(msg)
         self._log_metrics(
             {
-                "kmeans_read_time": read_time,
-                "kmeans_predict_time": predict_time,
-                "kmeans_write_time": write_time,
+                "kmeans_read_time": fit_read_time + phase_times["read"],
+                "kmeans_predict_time": phase_times["predict"],
+                "kmeans_write_time": phase_times["write"],
                 "num_rows": total_rows,
             }
         )
@@ -278,9 +202,85 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             )
         ]
 
-    def _sample_fit_files(
-        self, file_info: list[ParquetFileInfo]
-    ) -> tuple[list[ParquetFileInfo], list[ParquetFileInfo]]:
+    def _fit_parquet(self, file_info: list[ParquetFileInfo]) -> tuple["cp.ndarray", float]:
+        """Fit selected embeddings and release the fit buffer before prediction, even for a full fit."""
+        fit_info = self._sample_fit_files(file_info)
+        fit_rows = sum(info.num_rows for info in fit_info)
+        if fit_rows < self.n_clusters:
+            msg = f"KMeans fit sample has {fit_rows} rows but requires at least {self.n_clusters}"
+            raise ValueError(msg)
+
+        fit_elements = sum(info.embedding_elements for info in fit_info)
+        embedding_width, remainder = divmod(fit_elements, fit_rows)
+        if remainder:
+            msg = f"KMeans fit sample has {fit_elements} embedding values across {fit_rows} rows"
+            raise ValueError(msg)
+        fit_embeddings = cp.empty((fit_rows, embedding_width), dtype=cp.float32)
+        fit_frames = self._iter_chunked_fit_frames(fit_info, cp.cuda.runtime.memGetInfo()[0])
+        read_start = time.perf_counter()
+        offset = 0
+        for df in fit_frames:
+            stop = offset + len(df)
+            embeddings = fit_embeddings[offset:stop]
+            embeddings[...] = get_array_from_df(df, self.embedding_field)
+            self._normalize_embeddings_in_place(embeddings)
+            offset = stop
+            del df
+        read_time = time.perf_counter() - read_start
+        if offset != fit_rows:
+            msg = f"Parquet footers reported {fit_rows} fit rows but the reader returned {offset}"
+            raise RuntimeError(msg)
+        del embeddings
+
+        fit_start = time.perf_counter()
+        self.kmeans.fit(fit_embeddings, sample_weight=None)
+        fit_time = time.perf_counter() - fit_start
+        self._log_metrics(
+            {
+                "kmeans_fit_time": fit_time,
+                "kmeans_fit_rows": fit_rows,
+                "kmeans_fit_files": len(fit_info),
+                "kmeans_input_files": len(file_info),
+                "kmeans_fit_data_fraction": fit_rows / sum(info.num_rows for info in file_info),
+                "kmeans_fit_file_fraction": len(fit_info) / len(file_info),
+            }
+        )
+        centroids = cp.ascontiguousarray(cp.asarray(self.kmeans.cluster_centers_).copy())
+        self._save_centroids(centroids)
+        del fit_embeddings
+        gc.collect()
+        cp.get_default_memory_pool().free_all_blocks()
+
+        return centroids, read_time
+
+    def _predict_write_parquet(
+        self, file_info: list[ParquetFileInfo], columns: list[str], task_id: str, centroids: "cp.ndarray"
+    ) -> tuple[int, dict[str, float]]:
+        """Reread every file in groups, predict labels, and write centroid partitions."""
+        read_time = 0.0
+        predict_time = 0.0
+        write_time = 0.0
+        predicted_rows = 0
+        read_start = time.perf_counter()
+        for output_index, df in enumerate(self._iter_parquet_frames(file_info, columns)):
+            read_time += time.perf_counter() - read_start
+            embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+            self._normalize_embeddings_in_place(embeddings)
+            predict_start = time.perf_counter()
+            labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
+            predict_time += time.perf_counter() - predict_start
+            del df[self.embedding_field]
+            write_start = time.perf_counter()
+            self._write_output_frame(f"{task_id}_{output_index}.parquet", df, embeddings, labels, centroids)
+            write_time += time.perf_counter() - write_start
+            predicted_rows += len(df)
+            del df, embeddings, labels
+            read_start = time.perf_counter()
+        read_time += time.perf_counter() - read_start
+
+        return predicted_rows, {"read": read_time, "predict": predict_time, "write": write_time}
+
+    def _sample_fit_files(self, file_info: list[ParquetFileInfo]) -> list[ParquetFileInfo]:
         rng = random.Random(self.random_state)  # noqa: S311
         shuffled = rng.sample(file_info, k=len(file_info))
         if self.fit_data_fraction is not None:
@@ -292,18 +292,15 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             fit = []
             estimated_bytes = 0
             for info in shuffled:
-                file_bytes = info.embedding_elements * cp.dtype(cp.float32).itemsize
-                file_bytes += info.metadata_bytes
-                if estimated_bytes + file_bytes > budget:
+                fit_embedding_bytes = info.embedding_elements * cp.dtype(cp.float32).itemsize
+                if estimated_bytes + fit_embedding_bytes > budget:
                     continue
                 fit.append(info)
-                estimated_bytes += file_bytes
+                estimated_bytes += fit_embedding_bytes
             if not fit:
                 msg = f"No complete Parquet file fits the automatic KMeans budget of {budget} bytes"
                 raise MemoryError(msg)
-        fit_paths = {info.path for info in fit}
-        prediction_only = [info for info in file_info if info.path not in fit_paths]
-        if self.fit_data_fraction is None and prediction_only:
+        if self.fit_data_fraction is None and len(fit) < len(file_info):
             fit_rows = sum(info.num_rows for info in fit)
             total_rows = sum(info.num_rows for info in file_info)
             logger.warning(
@@ -312,11 +309,36 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             )
         else:
             logger.info(f"Selected {len(fit)}/{len(file_info)} complete files for KMeans fit")
-        return fit, prediction_only
+        return fit
 
-    def _iter_parquet_frames(self, file_info: list[ParquetFileInfo], columns: list[str]) -> Iterator["cudf.DataFrame"]:
+    def _iter_parquet_frames(
+        self,
+        file_info: list[ParquetFileInfo],
+        columns: list[str],
+    ) -> Iterator["cudf.DataFrame"]:
         for group in break_parquet_partition_into_groups(file_info):
             yield self._read_group(group, columns)
+
+    def _iter_chunked_fit_frames(
+        self, fit_info: list[ParquetFileInfo], free_memory: int
+    ) -> Iterator["cudf.DataFrame"]:
+        read_limit = free_memory // 2
+        sources = ioutils.get_reader_filepath_or_buffer(
+            [info.path for info in fit_info], storage_options=self.input_storage_options
+        )
+        options = (
+            plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo(sources))
+            .allow_mismatched_pq_schemas(True)
+            .build()
+        )
+        options.set_column_names([self.embedding_field])
+        reader = plc.io.parquet.ChunkedParquetReader(
+            options,
+            chunk_read_limit=free_memory - read_limit,
+            pass_read_limit=read_limit,
+        )
+        while reader.has_next():
+            yield cudf.DataFrame.from_pylibcudf(reader.read_chunk())
 
     def _write_output_frame(
         self,
@@ -329,9 +351,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         if not len(metadata):
             return
         frame = metadata.copy(deep=False)
-        frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
         frame["centroid"] = labels
-        frame = self._assign_distances(frame, self.embedding_field, centroids)
+        frame = self._assign_distances(frame, embeddings, centroids)
+        self._set_output_embeddings(frame, embeddings)
         self.write_parquet(
             frame,
             self.output_path,
@@ -341,6 +363,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             storage_options=self.output_storage_options,
             **self.write_kwargs,
         )
+
+    def _set_output_embeddings(self, frame: "cudf.DataFrame", embeddings: "cp.ndarray") -> None:
+        """Materialize embeddings, carrying FP16 as uint16 until cuDF supports it."""
+        if self.embedding_output_dtype == "float16":
+            embeddings = embeddings.astype(cp.float16).view(cp.uint16)
+        frame[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=frame.index)
 
     def _save_centroids(self, centroids: "cp.ndarray") -> None:
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
@@ -375,7 +403,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         df = self._read_group(files, [self.id_field, self.embedding_field, *self.metadata_fields])
         embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
         self._normalize_embeddings_in_place(embeddings)
-        df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=df.index)
 
         t1 = time.perf_counter()
         self._log_metrics({"kmeans_read_time": t1 - t0, "num_rows": len(df)})
@@ -389,7 +416,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         self._log_metric("kmeans_fit_predict_time", t2 - t1)
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
 
-        df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
+        df = self._assign_distances(df, embeddings, self.kmeans.cluster_centers_)
+        self._set_output_embeddings(df, embeddings)
         self.write_parquet(
             df,
             self.output_path,
@@ -490,13 +518,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         df = self._read_group(files, [self.id_field, self.embedding_field, *self.metadata_fields])
         embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
         self._normalize_embeddings_in_place(embeddings)
-        df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(embeddings, index=df.index)
         pass2_read_time = time.perf_counter() - t_start
         total_rows = len(df)
 
         labels = self.kmeans.predict(embeddings).astype(cp.int32)
         df["centroid"] = labels
-        df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
+        df = self._assign_distances(df, embeddings, self.kmeans.cluster_centers_)
+        self._set_output_embeddings(df, embeddings)
         self.write_parquet(
             df,
             self.output_path,
@@ -546,12 +574,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         embeddings /= cp.linalg.norm(embeddings, axis=1, keepdims=True)
 
     @staticmethod
-    def _assign_distances(df: "cudf.DataFrame", embedding_col: str, centroids: "cp.ndarray") -> "cudf.DataFrame":
+    def _assign_distances(
+        df: "cudf.DataFrame", normalized_embeddings: "cp.ndarray", centroids: "cp.ndarray"
+    ) -> "cudf.DataFrame":
         """
         Computes the L2 distance to nearest centroid to each embedding in the DataFrame.
         Embeddings are normalized. For cosine we'll need to normalize the centroids as well.
         """
-        normalized_embeddings = get_array_from_df(df, embedding_col)
         # We normalize the centroids as well for cosine distance
         normalized_centroids = centroids / cp.linalg.norm(centroids, axis=1, keepdims=True)
 
@@ -598,6 +627,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
     max_samples_per_batch: int = 1 << 15
     fit_data_fraction: float | None = None
     cache_path: str | None = None
+    embedding_output_dtype: KMeansEmbeddingOutputDtype = "float32"
     """KMeans clustering stage that requires RAFT for distributed processing.
 
     Args:
@@ -622,6 +652,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
             sizes the sample automatically from free GPU memory, while JSONL fits all input files in
             one pass.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
+        embedding_output_dtype: Precision used to store embeddings in KMeans output files.
     """
 
     def __post_init__(self):
@@ -640,6 +671,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
                 "fit_data_fraction=None fits all JSONL input in one pass; automatic GPU-memory sizing is only "
                 "available for Parquet input"
             )
+        validate_embedding_output_dtype(self.embedding_output_dtype)
 
     def decompose(self) -> list[ProcessingStage]:
         # Set default file extensions based on input_filetype if not provided
@@ -671,5 +703,6 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
                 cache_path=self.cache_path,
+                embedding_output_dtype=self.embedding_output_dtype,
             ),
         ]

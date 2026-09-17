@@ -47,6 +47,11 @@ the NVIDIA package index.
 
 Local GPU serving through this extra supports **x86_64 Linux** and **aarch64
 Linux**. The vLLM, ai-dynamo, and NIXL dependencies are not installed on macOS.
+The NeMo Curator container also includes the `etcd` and `nats-server` binaries
+that Dynamo starts. When using a source environment outside the container,
+install them with
+[`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh),
+or configure existing endpoints.
 
 The stack uses:
 
@@ -314,7 +319,6 @@ backend = DynamoServerConfig(
     router=DynamoRouterConfig(
         mode="kv",
         kv_events=False,
-        router_kwargs={"dyn_chat_processor": "vllm"},
     ),
 )
 ```
@@ -331,15 +335,13 @@ backend = DynamoServerConfig(
 
 Additional `router_kwargs` are forwarded to the Dynamo frontend. Do not put `router_mode` or `router_kv_events` in that dictionary; use the typed fields instead. Boolean false values are emitted as `--no-*` flags.
 
-For multimodal OpenAI content arrays, the Dynamo frontend can require:
+Multimodal workers need their model-specific settings, such as
+`limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in
+`dynamo_kwargs`. Use Dynamo's default frontend processing path.
 
-```python
-DynamoRouterConfig(
-    router_kwargs={"dyn_chat_processor": "vllm"},
-)
-```
-
-The worker also needs its model-specific multimodal settings, such as `limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in `dynamo_kwargs`.
+<Note>
+The default frontend path avoids the slower compatibility processor used by older examples.
+</Note>
 
 ## Runtime Environments and Subprocess Variables
 
@@ -436,6 +438,18 @@ with InferenceServer(models=[model]) as server:
 ```
 
 CPU-only pipelines can use any executor while the server is active.
+
+<Tip>
+For Nemotron-Parse PDF pipelines, use the Dynamo backend with
+`NemotronParseHTTPClientStage`. Start with one model replica per GPU, a fixed
+HTTP stage pool of `4 * num_gpus` workers, and 32 concurrent requests per HTTP
+worker. This starting point was validated on 8 H100 GPUs. Because request
+concurrency is hardware- and corpus-dependent, benchmark 64 on the target
+workload and keep it only if throughput improves without request failures or
+out-of-memory errors. The
+[Nemotron-Parse PDF guide](/curate-text/load-data/nemotron-parse-pdf) provides
+the exact install and run commands.
+</Tip>
 
 ## Migrate from `InferenceModelConfig`
 
