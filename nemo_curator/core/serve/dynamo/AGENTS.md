@@ -28,11 +28,11 @@ pins or CUDA wheel indexes from an older image.
 
 ### Preinstall a serving venv to avoid startup installs
 
-A bare `ai-dynamo[vllm]` venv cannot bootstrap Curator actors: importing
-`nemo_curator` imports `cosmos_xenna`, and the serving import path also needs
-`pandas` and `pyarrow`. Install those dependencies explicitly, keep Ray and
-Python aligned with the driver, and expose Curator's source with a `.pth`
-file. This avoids copying the driver's entire environment.
+Install **Curator without extras** together with `ai-dynamo[vllm]` and the
+model's additional packages. Curator's base dependencies supply Ray, Xenna,
+pandas and PyArrow; a bare Dynamo venv misses Curator's bootstrap imports.
+Let Curator's package metadata maintain that dependency list. A normal
+installation also makes its source importable without a custom `.pth` file.
 
 Add this build step to a Curator Docker image with its driver environment
 at `/opt/venv` and Curator checkout at `/opt/Curator` (adjust paths to match
@@ -44,7 +44,6 @@ RUN /opt/venv/bin/python - <<'PY'
 import subprocess
 import sys
 from importlib.metadata import version
-from pathlib import Path
 
 from nemo_curator.core.serve import DynamoVLLMModelConfig
 from nemo_curator.core.serve.dynamo import vllm
@@ -58,17 +57,12 @@ python = "/opt/dynamo/bin/python"
 subprocess.run(["uv", "venv", "--python", sys.executable, "/opt/dynamo"], check=True)
 overrides = vllm._ACTOR_VENV_OVERRIDES_PATH
 overrides.write_text(f"ray=={version('ray')}\n{vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n")
-bootstrap = [f"{name}=={version(name)}" for name in ("ray", "cosmos-xenna", "pandas", "pyarrow")]
 subprocess.run(
     ["uv", "pip", "install", "--python", python,
-     *uv["uv_pip_install_options"], *uv["packages"], *bootstrap],
+     *uv["uv_pip_install_options"], "/opt/Curator", *uv["packages"]],
     cwd="/tmp", check=True,
 )
 overrides.unlink()
-site_packages = subprocess.check_output(
-    [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True,
-).strip()
-(Path(site_packages) / "curator.pth").write_text("/opt/Curator\n")
 subprocess.run(
     [python, "-I", "-c", "import cosmos_xenna; import nemo_curator.core.serve.subprocess_mgr"],
     check=True,
@@ -76,11 +70,13 @@ subprocess.run(
 PY
 ```
 
-The `.pth` file makes the checkout importable even outside its working
-directory; it does not install dependencies. Keep that checkout in the final
-image. Build the venv separately for each CPU architecture. The import check
-covers actor bootstrap; validate model-specific dependencies with one replica
-and a real request before scaling up.
+`/opt/Curator` installs the image's Curator revision with no extras. Resolve it
+and the serving packages in one install so their shared dependencies agree;
+the override keeps Ray matched to the driver. Avoid Curator's `vllm` or
+`inference_server` extras here: Dynamo selects its own vLLM dependencies.
+Build the venv separately for each CPU architecture. The import check covers
+actor bootstrap; validate model-specific dependencies with one replica and
+a real request before scaling up.
 
 Select the preinstalled venv with:
 
