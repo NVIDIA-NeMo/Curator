@@ -19,4 +19,8 @@ builds, ``benchmarking/setup.py`` copies a small allowlist of tutorial files
 from the peer ``tutorials/`` directory into this package so non-editable
 ``nemo-curator-benchmarking`` installs can run tutorial-backed benchmarks
 without requiring a full source checkout.
+
+Vendoring selected tutorial files is intended to be temporary. Future benchmark
+refactors should avoid importing code from tutorials directly, likely by moving
+shared helpers into a reusable module.
 """
