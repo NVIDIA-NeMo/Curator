@@ -19,7 +19,8 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from numbers import Integral
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -236,6 +237,7 @@ class TensorRTRunner:
                 f"engine={actual_profile}, sidecar={expected_profile!r}"
             )
             raise RuntimeError(msg)
+        self.max_input_frames = int(actual_profile["max"][2])
 
     def _bind_inputs(self, inputs: Mapping[str, torch.Tensor]) -> torch.device:
         missing = set(self._input_names) - set(inputs)
@@ -330,6 +332,11 @@ class TensorRTSed:
         self.logmel = model.logmel_extractor.to("cuda").eval()
         self.runner = TensorRTRunner(engine_path, expected_metadata=expected_metadata)
 
+    @property
+    def max_input_frames(self) -> int:
+        """Maximum log-mel frame count accepted by the engine profile."""
+        return self.runner.max_input_frames
+
     @torch.inference_mode()
     def __call__(self, waveforms: torch.Tensor) -> torch.Tensor:
         """Return framewise probabilities for padded ``[batch, samples]`` input."""
@@ -355,6 +362,8 @@ class TensorRTPANNsSEDAdapter(PANNsSEDAdapter):
     """
 
     tensorrt_engine_path: str | None = None
+    max_duration_sec: float | None = None
+    _max_input_samples: int | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -364,6 +373,19 @@ class TensorRTPANNsSEDAdapter(PANNsSEDAdapter):
         if self.model_type != _TENSORRT_MODEL_TYPE:
             msg = f"The TensorRT PANNs SED adapter supports only {_TENSORRT_MODEL_TYPE}"
             raise ValueError(msg)
+        if self.max_duration_sec is not None:
+            if isinstance(self.max_duration_sec, bool):
+                msg = "max_duration_sec must be a positive finite number or None"
+                raise ValueError(msg)
+            try:
+                max_duration_sec = float(self.max_duration_sec)
+            except (TypeError, ValueError) as error:
+                msg = "max_duration_sec must be a positive finite number or None"
+                raise ValueError(msg) from error
+            if not math.isfinite(max_duration_sec) or max_duration_sec <= 0:
+                msg = "max_duration_sec must be a positive finite number or None"
+                raise ValueError(msg)
+            self.max_duration_sec = max_duration_sec
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load the PyTorch frontend and TensorRT runtime on one CUDA device."""
@@ -404,11 +426,32 @@ class TensorRTPANNsSEDAdapter(PANNsSEDAdapter):
                 "classes_num": self.classes_num,
             },
         }
-        self._model = TensorRTSed(
+        runtime = TensorRTSed(
             model,
             self.tensorrt_engine_path,
             expected_metadata=expected_metadata,
         )
+        engine_max_samples = runtime.max_input_frames * self.hop_size - 1
+        configured_max_samples = (
+            engine_max_samples if self.max_duration_sec is None else int(self.max_duration_sec * self.sample_rate)
+        )
+        if configured_max_samples < 1:
+            runtime.close()
+            self._device = None
+            msg = "max_duration_sec resolves to fewer than one audio sample"
+            raise ValueError(msg)
+        if configured_max_samples > engine_max_samples:
+            runtime.close()
+            self._device = None
+            engine_duration = engine_max_samples / self.sample_rate
+            msg = (
+                f"max_duration_sec={self.max_duration_sec} exceeds the TensorRT engine profile limit "
+                f"of {engine_duration:.6f}s ({engine_max_samples} samples, "
+                f"{runtime.max_input_frames} log-mel frames)"
+            )
+            raise ValueError(msg)
+        self._max_input_samples = configured_max_samples
+        self._model = runtime
         logger.info(
             "Loaded {} from {} with TensorRT engine {}",
             self.model_type,
@@ -421,6 +464,7 @@ class TensorRTPANNsSEDAdapter(PANNsSEDAdapter):
         runtime = self._model
         self._model = None
         self._device = None
+        self._max_input_samples = None
         if runtime is not None:
             runtime.close()
         gc.collect()
@@ -436,6 +480,21 @@ class TensorRTPANNsSEDAdapter(PANNsSEDAdapter):
             raise RuntimeError(msg)
 
         waveforms = [np.asarray(item["waveform"], dtype=np.float32) for item in items]
+        max_input_samples = self._max_input_samples
+        if max_input_samples is None:
+            msg = "TensorRT SED input limit is unavailable; call load_model() before inference"
+            raise RuntimeError(msg)
+        oversized = [
+            (index, waveform.size) for index, waveform in enumerate(waveforms) if waveform.size > max_input_samples
+        ]
+        if oversized:
+            details = ", ".join(f"item {index}: {samples} samples" for index, samples in oversized)
+            msg = (
+                f"TensorRT SED audio exceeds the configured engine input limit of {max_input_samples} samples "
+                f"({max_input_samples / self.sample_rate:.6f}s): {details}. "
+                "Split the audio or build an engine with a larger --max-frames profile."
+            )
+            raise ValueError(msg)
         padded = self._pad_to_rectangle(waveforms)
         tensor = torch.from_numpy(padded)
         framewise = self._model(tensor).cpu().numpy()

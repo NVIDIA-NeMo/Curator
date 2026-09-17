@@ -394,16 +394,26 @@ class IndicConformerHybridASR:
     def _offline() -> bool:
         return os.environ.get("HF_HUB_OFFLINE", "0").strip().lower() not in {"0", "", "false", "no"}
 
+    @staticmethod
+    def _existing_local_checkpoint(model_id: str) -> str | None:
+        """Return an existing checkpoint file and reject local non-files."""
+        candidate = Path(model_id)
+        if not candidate.exists():
+            return None
+        if not candidate.is_file():
+            msg = f"Local NeMo checkpoint must be a file, got: {model_id}"
+            raise IsADirectoryError(msg)
+        return model_id
+
     @classmethod
     def _resolve_nemo_path(cls, model_id: str) -> str:
         """Resolve a local checkpoint or an already-cached Hugging Face repo ID."""
+        local_checkpoint = cls._existing_local_checkpoint(model_id)
+        if local_checkpoint is not None:
+            return local_checkpoint
         if model_id.endswith(".nemo"):
-            if not Path(model_id).is_file():
-                msg = f"Local NeMo checkpoint not found: {model_id}"
-                raise FileNotFoundError(msg)
-            return model_id
-        if os.path.exists(model_id):
-            return model_id
+            msg = f"Local NeMo checkpoint not found: {model_id}"
+            raise FileNotFoundError(msg)
 
         from huggingface_hub import snapshot_download
 
@@ -429,13 +439,12 @@ class IndicConformerHybridASR:
         if self.tensorrt_engine_dir is not None:
             self._resolve_tensorrt_bundle()
             return
+        local_checkpoint = self._existing_local_checkpoint(self.model_id)
+        if local_checkpoint is not None:
+            return
         if self.model_id.endswith(".nemo"):
-            if not Path(self.model_id).is_file():
-                msg = f"Local NeMo checkpoint not found: {self.model_id}"
-                raise FileNotFoundError(msg)
-            return
-        if os.path.exists(self.model_id):
-            return
+            msg = f"Local NeMo checkpoint not found: {self.model_id}"
+            raise FileNotFoundError(msg)
         if self._offline():
             self._resolve_nemo_path(self.model_id)
             return
