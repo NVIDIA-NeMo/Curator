@@ -137,7 +137,11 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         if not shutil.which("ffmpeg"):
-            msg = "ResampleAudioStage requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+            msg = (
+                "ResampleAudioStage requires 'ffmpeg' on PATH on every executor node. "
+                "Without root access, install it with 'conda install -c conda-forge ffmpeg' "
+                "and activate that environment before starting workers."
+            )
             raise RuntimeError(msg)
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
