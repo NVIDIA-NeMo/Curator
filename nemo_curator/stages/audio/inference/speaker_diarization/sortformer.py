@@ -345,7 +345,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,
             cardinality_options=["1:1", "1:N fan-out"],
-            iteration_key=self.diar_segments_key if self.fanout else None,
+            iteration_key=self.segment_num_key if self.fanout else None,
             removes_keys=(
                 list(dict.fromkeys([*_fanout_path_keys(self.filepath_key), self.diar_segments_key]))
                 if self.fanout
