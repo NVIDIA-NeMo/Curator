@@ -154,6 +154,22 @@ def test_stage_adds_long_audio_truncation_note() -> None:
     assert "45.00s exceeds 40s encoder window" in result.data["additional_notes"][stage.name]
 
 
+def test_stage_does_not_mark_exact_encoder_window_as_truncated() -> None:
+    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", max_duration_sec=40.0)
+    adapter = MagicMock()
+    adapter.transcribe_batch.return_value = [
+        ASRResult(
+            text="complete",
+            extras={"language_code": "hi", "truncated": False, "audio_duration_sec": 40.0},
+        )
+    ]
+    stage._adapter = adapter
+
+    result = stage.process_batch([_task("hi")])[0]
+
+    assert "additional_notes" not in result.data
+
+
 def test_setup_on_node_only_validates_engine_artifacts(tmp_path: Path) -> None:
     _write_engine_files(tmp_path)
     stage = InferenceIndicCanaryStage(engine_dir=str(tmp_path))

@@ -152,6 +152,39 @@ class IndicCanaryTRTLLMASR:
             "diarize": False,
         }
 
+    def _transcribe_prepared(
+        self,
+        padded: list[Any],
+        durations: list[int],
+        prompts: list[dict[str, object]],
+    ) -> list[str]:
+        """Run engine-sized sub-batches without exposing a second batch control."""
+        runtime_batch_size = getattr(self._model, "max_batch_size", len(padded))
+        if (
+            isinstance(runtime_batch_size, bool)
+            or not isinstance(runtime_batch_size, Integral)
+            or runtime_batch_size < 1
+        ):
+            msg = f"Indic Canary runtime reported an invalid max_batch_size: {runtime_batch_size!r}"
+            raise RuntimeError(msg)
+
+        predictions: list[str] = []
+        for start in range(0, len(padded), runtime_batch_size):
+            stop = start + runtime_batch_size
+            batch_predictions = self._model.process_batch(
+                padded[start:stop],
+                durations[start:stop],
+                prompts[start:stop],
+                num_beams=self.num_beams,
+                max_new_tokens=self.max_new_tokens,
+            )
+            expected_count = len(padded[start:stop])
+            if len(batch_predictions) != expected_count:
+                msg = f"Indic Canary returned {len(batch_predictions)} transcriptions for {expected_count} inputs"
+                raise RuntimeError(msg)
+            predictions.extend(batch_predictions)
+        return predictions
+
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe supported rows and preserve their original positions."""
         if not items:
@@ -206,16 +239,9 @@ class IndicCanaryTRTLLMASR:
 
         pad_length = max([self.min_samples, *[int(waveform.shape[0]) for waveform in prepared]])
         padded = [pad_or_trim(waveform, pad_length) for waveform in prepared]
-        predictions = self._model.process_batch(
-            padded,
-            [min(duration, pad_length) for duration in durations],
-            [self._prompt_config(language) for language in normalized_languages],
-            num_beams=self.num_beams,
-            max_new_tokens=self.max_new_tokens,
-        )
-        if len(predictions) != len(prepared):
-            msg = f"Indic Canary returned {len(predictions)} transcriptions for {len(prepared)} inputs"
-            raise RuntimeError(msg)
+        bounded_durations = [min(duration, pad_length) for duration in durations]
+        prompts = [self._prompt_config(language) for language in normalized_languages]
+        predictions = self._transcribe_prepared(padded, bounded_durations, prompts)
         for valid_position, prediction in enumerate(predictions):
             item_index = valid_indices[valid_position]
             results[item_index] = ASRResult(

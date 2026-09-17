@@ -82,6 +82,19 @@ def test_read_config_preserves_encoder_config(tmp_path: Path) -> None:
     assert config == {"max_batch_size": 4, "precision": "fp16"}
 
 
+def test_engine_max_batch_size_uses_the_smaller_static_engine_limit() -> None:
+    assert runtime.engine_max_batch_size({"max_batch_size": 8}, {"max_batch_size": 2}) == 2
+
+
+@pytest.mark.parametrize(("encoder_limit", "decoder_limit"), [(0, 2), (8, 0), (-1, 2)])
+def test_engine_max_batch_size_rejects_nonpositive_limits(encoder_limit: int, decoder_limit: int) -> None:
+    with pytest.raises(ValueError, match="must both be positive"):
+        runtime.engine_max_batch_size(
+            {"max_batch_size": encoder_limit},
+            {"max_batch_size": decoder_limit},
+        )
+
+
 def test_missing_optional_runtime_is_reported_at_construction(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

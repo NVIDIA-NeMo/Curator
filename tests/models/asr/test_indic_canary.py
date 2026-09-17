@@ -58,13 +58,20 @@ def _item(
 
 
 class _RecordingRuntime:
-    def __init__(self, *, languages: tuple[str, ...] = ("hi", "ta")) -> None:
+    def __init__(
+        self,
+        *,
+        languages: tuple[str, ...] = ("hi", "ta"),
+        max_batch_size: int | None = None,
+    ) -> None:
         language_set = set(languages)
         self.tokenizer = SimpleNamespace(
             langs=list(languages),
             supports_prompt_language=lambda language: language in language_set,
         )
         self.calls: list[dict[str, object]] = []
+        if max_batch_size is not None:
+            self.max_batch_size = max_batch_size
 
     def process_batch(
         self,
@@ -213,6 +220,24 @@ def test_transcribe_batch_preserves_order_in_one_engine_call() -> None:
     assert runtime.calls[0]["durations"] == [400, 2 * _SAMPLE_RATE, 40 * _SAMPLE_RATE]
     assert runtime.calls[0]["num_beams"] == 3
     assert runtime.calls[0]["max_new_tokens"] == 77
+
+
+def test_transcribe_batch_splits_to_the_engine_batch_limit_and_preserves_order() -> None:
+    runtime = _RecordingRuntime(max_batch_size=2)
+    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter._model = runtime
+
+    results = adapter.transcribe_batch([_item("hi"), _item("ta"), _item("zz"), _item("hi"), _item("ta"), _item("hi")])
+
+    assert [result.text for result in results] == ["text-hi", "text-ta", "", "text-hi", "text-ta", "text-hi"]
+    assert [len(call["padded"]) for call in runtime.calls] == [2, 2, 1]
+    assert [prompt["source_language"] for call in runtime.calls for prompt in call["prompts"]] == [
+        "hi",
+        "ta",
+        "hi",
+        "ta",
+        "hi",
+    ]
 
 
 def test_transcribe_batch_does_not_call_engine_when_all_languages_are_unsupported() -> None:

@@ -132,7 +132,7 @@ class InferenceIndicCanaryStage(ASRStage):
                 else:
                     task.data[self.skip_me_key] = f"lang_not_supported:{self.name}"
             duration = float(result.extras.get("audio_duration_sec") or 0.0)
-            if duration >= self.max_duration_sec:
+            if result.extras.get("truncated"):
                 _set_note(
                     task.data,
                     self.name,
