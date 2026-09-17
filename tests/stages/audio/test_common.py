@@ -805,14 +805,33 @@ class TestManifestWriterStage:
         assert len(lines) == 3
         assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
 
-    def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
+    def test_setup_on_node_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         out.write_text('{"old": "data"}\n')
 
         writer = ManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         assert out.read_text() == ""
+
+    def test_worker_setup_never_truncates_committed_rows(self, tmp_path: Path) -> None:
+        """``setup()`` runs per worker actor; a replacement actor must not erase earlier rows."""
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(output_path=str(out))
+        writer.setup_on_node()
+        writer.setup()
+        writer.process(AudioTask(data={"audio_filepath": "a.wav"}, dataset_name="ds"))
+        writer.process(AudioTask(data={"audio_filepath": "b.wav"}, dataset_name="ds"))
+
+        replacement = ManifestWriterStage(output_path=str(out))
+        replacement.setup()  # a restarted worker: no setup_on_node, no truncation
+        replacement.process(AudioTask(data={"audio_filepath": "c.wav"}, dataset_name="ds"))
+
+        assert [json.loads(line)["audio_filepath"] for line in out.read_text().splitlines()] == [
+            "a.wav",
+            "b.wav",
+            "c.wav",
+        ]
 
     def test_setup_on_node_creates_parent_directories(self, tmp_path: Path) -> None:
         out = tmp_path / "nested" / "deep" / "output.jsonl"
@@ -1064,17 +1083,19 @@ def test_resolve_model_path(tmp_path: Path) -> None:
 
 # Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: ManifestWriterStage
 # lives in common.py, and this was its only truncate-on-rerun coverage.
-def test_agent_manifest_writer_truncates_on_setup(tmp_path: Path) -> None:
-    """A fresh run (setup) truncates the output so reruns do not accumulate duplicates."""
+def test_agent_manifest_writer_truncates_on_setup_on_node(tmp_path: Path) -> None:
+    """A fresh run (setup_on_node) truncates the output so reruns do not accumulate duplicates."""
     out_path = tmp_path / "manifest.jsonl"
     writer = ManifestWriterStage(output_path=str(out_path))
     task = AudioTask(dataset_name="t", data={"audio_filepath": "src.wav", "text": "row"})
 
+    writer.setup_on_node()
     writer.setup()
     writer.process(task)
     writer.process(task)
     assert len(out_path.read_text(encoding="utf-8").strip().splitlines()) == 2  # appends within a run
 
-    writer.setup()  # new run truncates
+    writer.setup_on_node()  # new run truncates
+    writer.setup()
     writer.process(task)
     assert len(out_path.read_text(encoding="utf-8").strip().splitlines()) == 1

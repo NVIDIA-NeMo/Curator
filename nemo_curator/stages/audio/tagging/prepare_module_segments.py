@@ -368,12 +368,14 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
     def add_new_segments_to_metadata(self, metadata: dict[str, Any], new_segments: list[dict[str, Any]]) -> None:
         """Write new segment list into metadata with text, words, and metrics keys.
 
-        An empty ``new_segments`` never overwrites a non-empty input segment list: a word-less
-        or unaligned row (e.g. a renamed ``alignment_key`` that carried no words) would
-        otherwise silently blank out segments the row already had. Keep the original instead.
+        The prepared list always REPLACES the input list, including when it is empty: rows
+        whose segments were all rejected (too long for ``max_duration``, no punctuation split,
+        no aligned words) must leave with ``[]`` exactly as before the agent-ready conversion.
+        Keeping the raw diarization turns instead would hand un-split, un-scored segments --
+        including the synthetic ``no-speaker`` turn -- downstream as if they were training-ready.
+        Renamed-key rows are protected by reading ``alignment_key``/``overlap_segments_key`` in
+        :meth:`get_words_list_from_all_segments`, not by suppressing this write.
         """
-        if not new_segments and metadata.get(self.segments_key):
-            return
         segments = []
         for new_segment in new_segments:
             if self.module == "tts":

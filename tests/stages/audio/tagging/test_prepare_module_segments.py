@@ -259,18 +259,50 @@ class TestPerEntryRandomSeed:
 class TestPrepareModuleSegmentsReviewFixes:
     """Regressions for the PR #2339 re-review safety fixes."""
 
-    def test_non_default_alignment_key_wordless_segments_are_not_emptied(self) -> None:
-        stage = PrepareModuleSegmentsStage(
-            module="tts",
-            alignment_key="my_alignment",
-            overlap_segments_key="my_overlap",
+    def test_renamed_alignment_key_is_read_and_wordless_rows_match_default_keys(self) -> None:
+        # The renamed-key chain must produce exactly what the default-key chain produces:
+        # words under ``my_alignment`` are consumed, and a row with no aligned words leaves
+        # with ``segments == []`` (the pre-conversion behaviour) rather than keeping the raw
+        # diarization turns, which are neither split nor scored.
+        words = [
+            {"word": "hello", "start": 0.2, "end": 0.6},
+            {"word": "world.", "start": 0.7, "end": 1.1},
+        ]
+        renamed = PrepareModuleSegmentsStage(
+            module="tts", alignment_key="my_alignment", overlap_segments_key="my_overlap"
         )
-        data_entry = {
+        default = PrepareModuleSegmentsStage(module="tts")
+        renamed_entry = {
             "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
             "duration": 3.0,
+            "my_alignment": words,
         }
-        result = stage.process(AudioTask(data=data_entry))
-        assert result.data["segments"], "an empty result must not erase a non-empty input segment list"
+        default_entry = {
+            "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
+            "duration": 3.0,
+            "alignment": words,
+        }
+        renamed_result = renamed.process(AudioTask(data=renamed_entry)).data["segments"]
+        default_result = default.process(AudioTask(data=default_entry)).data["segments"]
+        assert renamed_result, "words under the configured alignment_key must be consumed"
+        assert renamed_result == default_result
+
+        wordless = renamed.process(
+            AudioTask(data={"segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}], "duration": 3.0})
+        )
+        assert wordless.data["segments"] == [], "a row with no aligned words leaves with an empty prepared list"
+
+    def test_all_rejected_segments_yield_an_empty_list_not_the_raw_input(self) -> None:
+        # One 25 s word with max_duration=20: nothing survives preparation, so the output must
+        # be ``[]`` -- the raw diarization turn (and the synthetic no-speaker turn) must not
+        # pass through as if it were a prepared segment.
+        stage = PrepareModuleSegmentsStage(module="tts", max_duration=20.0)
+        entry = {
+            "segments": [{"speaker": "spk0", "start": 0.0, "end": 25.0}],
+            "duration": 25.0,
+            "alignment": [{"word": "loooong.", "start": 0.0, "end": 25.0}],
+        }
+        assert stage.process(AudioTask(data=entry)).data["segments"] == []
 
     def test_renamed_identity_key_yields_distinct_seeds(self) -> None:
         stage = PrepareModuleSegmentsStage(module="asr", audio_filepath_key="my_path")

@@ -28,11 +28,12 @@ import subprocess
 import tempfile
 import time
 import uuid
-from dataclasses import KW_ONLY, dataclass
+from dataclasses import KW_ONLY, dataclass, field
 from typing import ClassVar
 
 import soundfile
 from fsspec.core import url_to_fs
+from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -119,6 +120,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     keep_waveform_in_task: bool = False
     write_to_disk: bool = True
     update_audio_filepath: bool = False
+
+    # Per-worker record of which source each inherited-id output name belongs to; see process().
+    _stem_owners: dict[str, str] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=type(self).__name__)
@@ -248,20 +252,40 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         stem = os.path.splitext(os.path.basename(str(source)))[0] if source else "clip"
         return f"{stem}_{self._audio_digest(local_audio_path)}"
 
-    def _matches_target(self, path: str) -> bool:
+    # Resampling may land a handful of frames off the exact ratio; anything beyond this is a
+    # different recording or a truncated one, never a rounding artefact.
+    _FRAME_TOLERANCE_FLOOR = 64
+    _FRAME_TOLERANCE_RATIO = 0.01
+
+    def _matches_target(self, path: str, input_audio_path: str | None = None) -> bool:
         """Whether the file at the output path really holds the conversion asked for.
 
         The file-route name carries the source path, never the settings, so a name hit is not
         evidence the work is done: a second run at a different ``target_sample_rate`` used to skip
         and serve the old rate, with the duration measured off the stale file. Reading the header
-        is free beside spawning ffmpeg. A header-valid but truncated file still passes this, which
-        is why the conversion below writes to a temp name and renames.
+        is free beside spawning ffmpeg.
+
+        The header alone is not enough either: a WAV truncated by a killed writer -- or one that
+        is a complete conversion of a DIFFERENT recording that happened to claim the same output
+        name -- keeps a valid header at the right rate and channel count. So when the source is
+        readable, the frame count must also agree with the source's length at the target rate
+        (within resampling tolerance); otherwise the file is converted again.
         """
         try:
             info = soundfile.info(path)
         except Exception:  # noqa: BLE001 - unreadable or not-audio -> convert it again
             return False
-        return info.samplerate == self.target_sample_rate and info.channels == self.target_nchannels
+        if info.samplerate != self.target_sample_rate or info.channels != self.target_nchannels:
+            return False
+        if input_audio_path is None:
+            return True
+        try:
+            source = soundfile.info(input_audio_path)
+        except Exception:  # noqa: BLE001 - a source libsndfile cannot read (e.g. mp3): header check only
+            return True
+        expected_frames = round(source.frames * self.target_sample_rate / source.samplerate)
+        tolerance = max(self._FRAME_TOLERANCE_FLOOR, int(expected_frames * self._FRAME_TOLERANCE_RATIO))
+        return abs(info.frames - expected_frames) <= tolerance
 
     def process(self, task: AudioTask) -> AudioTask:
         """
@@ -305,6 +329,21 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # the survivor. The FILE takes a digest; the row keeps the id its producer gave it,
             # which downstream stages read as the shared ``item_id`` role.
             output_stem = f"{output_stem}_{self._audio_digest(local_audio_path)}"
+        elif inherited_id and self.write_to_disk:
+            # The legacy file route names the output after the inherited id, which keeps every
+            # tutorial's output names stable -- but two DIFFERENT recordings carrying the same id
+            # would then share one output path, and the second would either overwrite the first
+            # or (if the lengths agree) be served the first recording as a finished conversion.
+            # Keep the legacy name for the first source seen under an id in this worker; a later
+            # source with the same id gets a path digest so it can never alias the first.
+            owner = self._stem_owners.setdefault(str(output_stem), local_audio_path)
+            if owner != local_audio_path:
+                digest = hashlib.sha256(local_audio_path.encode()).hexdigest()[:16]
+                logger.warning(
+                    f"[{self.name}] {self.audio_item_id_key}={output_stem!r} names both {owner!r} and "
+                    f"{local_audio_path!r}; writing the latter as {output_stem}_{digest} so it cannot alias the first"
+                )
+                output_stem = f"{output_stem}_{digest}"
 
         if self.write_to_disk:
             output_audio_path = os.path.join(
@@ -346,7 +385,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         # Convert audio file if not already done
         fs, output_path = url_to_fs(output_audio_path)
-        skipped_conversion = self.write_to_disk and fs.exists(output_path) and self._matches_target(output_path)
+        skipped_conversion = (
+            self.write_to_disk and fs.exists(output_path) and self._matches_target(output_path, input_audio_path)
+        )
         if not skipped_conversion:
             # ffmpeg used to write straight to the deliverable. That was survivable while every
             # run picked a new output name, but the name is stable now, so a run killed mid-write

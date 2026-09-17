@@ -718,9 +718,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
                     # Reserve ``~`` for the underscore escape below.
                     encoded.append("~~")
                 elif char == "_" and (
-                    index in (0, last)
-                    or component[index - 1] == "_"
-                    or component[index + 1] == "_"
+                    index in (0, last) or component[index - 1] == "_" or component[index + 1] == "_"
                 ):
                     # Encoded components must neither contain ``__`` nor touch a
                     # separator with ``_``; otherwise two different component
@@ -790,15 +788,21 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
 class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Append a single AudioTask to a JSONL manifest file.
 
-    The output file is truncated once in ``setup()`` (called on the driver)
-    so repeated pipeline runs produce a clean output.  ``setup_on_node()``
-    only creates the parent directory -- it never truncates, so multi-node
-    deployments do not erase each other's data.
+    The output file is truncated in ``setup_on_node()`` so repeated pipeline
+    runs produce a clean output. Every executor runs ``setup_on_node()`` on each
+    node BEFORE any worker starts processing, and does not run it again when a
+    worker actor is replaced -- whereas ``setup()`` runs per worker actor, so a
+    replacement actor after a crash or a Ray Data/Xenna worker restart would
+    re-run it and erase every row the previous actor had already committed.
+    ``setup()`` therefore only prepares the filesystem handle and never
+    truncates.
 
     .. note::
        Because all nodes append to the same path, callers in multi-node
        setups should either use a shared filesystem or provide a
-       node-unique ``output_path``.
+       node-unique ``output_path``. On a shared filesystem every node's
+       ``setup_on_node()`` truncation completes before the single writer
+       worker (``num_workers() == 1``) appends its first row.
 
     Supports local and cloud paths via fsspec.
 
@@ -828,13 +832,11 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Truncate the output file once on the driver before processing starts."""
+        """Prepare the filesystem handle for this worker. Never truncates (see class docstring)."""
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
-        with self._fs.open(self._path, "w", encoding="utf-8"):
-            pass
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -842,11 +844,13 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        """Ensure parent directory exists on each node (no truncation)."""
+        """Create the parent directory and truncate the output once per run, before any worker writes."""
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
+        with self._fs.open(self._path, "w", encoding="utf-8"):
+            pass
 
     def process(self, task: AudioTask) -> AudioTask:
         with self._fs.open(self._path, "a", encoding="utf-8") as f:

@@ -520,3 +520,53 @@ class TestResampleReviewFixes:
         assert stage.duration_key == "dur_key"
         assert stage.audio_item_id_key == "item_key"
         assert stage.name == "LegacyName"
+
+
+class TestExistingOutputIsVerifiedBeforeReuse:
+    """A name hit plus a valid header is not proof the conversion is complete or even the same audio."""
+
+    def test_a_truncated_target_is_converted_again(self, tmp_path: Path) -> None:
+        source = tmp_path / "src.wav"
+        sf.write(source, np.sin(np.arange(32000) * 0.01).astype(np.float32), 16000)  # 2.0 s
+        out = tmp_path / "out"
+        stage = ResampleAudioStage(resampled_audio_dir=str(out), write_to_disk=True)
+        stage.setup_on_node()
+        stage.setup()
+
+        first = stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(source)}))
+        written = Path(first.data["resampled_audio_filepath"])
+        assert first.data["duration"] == pytest.approx(2.0, abs=0.01)
+
+        # A writer killed mid-copy leaves a header-valid stump at the advertised name.
+        written.write_bytes(written.read_bytes()[:1000])
+        assert sf.info(written).samplerate == 16000
+
+        second = stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(source)}))
+        assert second.data["duration"] == pytest.approx(2.0, abs=0.01), "the stump was served as a finished conversion"
+        assert sf.info(written).frames == pytest.approx(32000, abs=64)
+
+    def test_two_recordings_sharing_an_inherited_id_do_not_alias(self, tmp_path: Path) -> None:
+        one_second = tmp_path / "one.wav"
+        two_seconds = tmp_path / "two.wav"
+        sf.write(one_second, np.zeros(16000, dtype=np.float32), 16000)
+        sf.write(two_seconds, np.zeros(32000, dtype=np.float32), 16000)
+        out = tmp_path / "out"
+        stage = ResampleAudioStage(resampled_audio_dir=str(out), write_to_disk=True)
+        stage.setup_on_node()
+        stage.setup()
+
+        first = stage.process(
+            AudioTask(task_id="a", dataset_name="d", data={"audio_filepath": str(one_second), "audio_item_id": "utt"})
+        )
+        second = stage.process(
+            AudioTask(task_id="b", dataset_name="d", data={"audio_filepath": str(two_seconds), "audio_item_id": "utt"})
+        )
+
+        # The first keeps the legacy name; the second cannot take it over or be served the first.
+        assert Path(first.data["resampled_audio_filepath"]).name == "utt.wav"
+        assert first.data["resampled_audio_filepath"] != second.data["resampled_audio_filepath"]
+        assert first.data["duration"] == pytest.approx(1.0, abs=0.01)
+        assert second.data["duration"] == pytest.approx(2.0, abs=0.01)
+        assert sf.info(first.data["resampled_audio_filepath"]).frames == pytest.approx(16000, abs=64)
+        # The row keeps the id its producer gave it.
+        assert second.data["audio_item_id"] == "utt"

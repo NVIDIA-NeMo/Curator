@@ -522,7 +522,7 @@ def sinks(
 ) -> tuple[list[Sink], str]:
     """Every manifest the delta's stages would rewrite, or why the delta cannot be run.
 
-    Only manifests: ``ManifestWriterStage.setup()`` truncates its file, so a run over three
+    Only manifests: ``ManifestWriterStage.setup_on_node()`` truncates its file, so a run over three
     files would leave a three-row manifest where a thousand rows used to be, and every one of
     them has to be merged back. Directory outputs are the opposite -- a resampled copy or a
     split chunk is written per file, so the new files simply add theirs beside the existing
