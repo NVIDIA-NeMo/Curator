@@ -22,7 +22,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tensorrt_encoder_utils import build_encoder_bundle
+if __package__:
+    from .tensorrt_encoder_utils import build_encoder_bundle
+else:
+    from tensorrt_encoder_utils import build_encoder_bundle
 
 if TYPE_CHECKING:
     import torch

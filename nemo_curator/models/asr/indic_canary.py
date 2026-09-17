@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import gc
+import math
 from numbers import Integral
 from pathlib import Path
 from typing import Any
@@ -62,8 +63,22 @@ class IndicCanaryTRTLLMASR:
         if num_beams < 1 or max_new_tokens < 1:
             msg = "num_beams and max_new_tokens must both be at least 1"
             raise ValueError(msg)
-        if max_duration_sec <= 0 or min_duration_sec <= 0:
-            msg = "max_duration_sec and min_duration_sec must both be positive"
+        try:
+            max_duration_sec = float(max_duration_sec)
+            min_duration_sec = float(min_duration_sec)
+        except (TypeError, ValueError) as exc:
+            msg = "max_duration_sec and min_duration_sec must both be finite positive numbers"
+            raise ValueError(msg) from exc
+        if (
+            not math.isfinite(max_duration_sec)
+            or not math.isfinite(min_duration_sec)
+            or max_duration_sec <= 0
+            or min_duration_sec <= 0
+        ):
+            msg = "max_duration_sec and min_duration_sec must both be finite and positive"
+            raise ValueError(msg)
+        if max_duration_sec > _DEFAULT_MAX_DURATION_SEC:
+            msg = f"max_duration_sec cannot exceed the {_DEFAULT_MAX_DURATION_SEC:.0f}-second TensorRT encoder window"
             raise ValueError(msg)
         if not 0 < kv_cache_free_gpu_memory_fraction < 1:
             msg = "kv_cache_free_gpu_memory_fraction must be between 0 and 1"
@@ -77,8 +92,8 @@ class IndicCanaryTRTLLMASR:
         self.num_beams = int(num_beams)
         self.max_new_tokens = int(max_new_tokens)
         self.pnc = bool(pnc)
-        self.max_duration_sec = float(max_duration_sec)
-        self.min_duration_sec = min(float(min_duration_sec), self.max_duration_sec)
+        self.max_duration_sec = max_duration_sec
+        self.min_duration_sec = min(min_duration_sec, self.max_duration_sec)
         self.max_samples = int(self.max_duration_sec * _TARGET_SAMPLE_RATE)
         self.min_samples = int(self.min_duration_sec * _TARGET_SAMPLE_RATE)
         self.kv_cache_free_gpu_memory_fraction = float(kv_cache_free_gpu_memory_fraction)

@@ -139,11 +139,8 @@ audio_cuda12 = [
     # Do not use qwen-asr[vllm], whose vLLM 0.14.0 pin conflicts with Curator's shared vLLM version.
     "qwen-asr==0.0.6; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "qwen-omni-utils>=0.0.9",
-    "torchlibrosa>=0.1.0",
-]
-audio_tensorrt = [
-    "nemo_curator[audio_cuda12]",
     "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchlibrosa>=0.1.0",
 ]
 
 audio_tensorrt = [
@@ -306,7 +303,7 @@ sdg_cuda12 = [
 
 # All dependencies
 all = [
-    "nemo_curator[audio_tensorrt]",
+    "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
