@@ -116,6 +116,18 @@ CHUNK_LENGTH = 40
 N_SAMPLES = CHUNK_LENGTH * SAMPLE_RATE  # 640000 samples in a 40-second chunk
 
 
+def engine_max_batch_size(encoder_config: dict[str, Any], decoder_config: dict[str, Any]) -> int:
+    """Return the largest batch supported by both static engine components."""
+    encoder_limit = int(encoder_config["max_batch_size"])
+    decoder_limit = int(decoder_config["max_batch_size"])
+    if encoder_limit < 1 or decoder_limit < 1:
+        msg = (
+            f"Indic Canary engine batch limits must both be positive; encoder={encoder_limit}, decoder={decoder_limit}"
+        )
+        raise ValueError(msg)
+    return min(encoder_limit, decoder_limit)
+
+
 def pad_or_trim(array: Any, length: int = N_SAMPLES, *, axis: int = -1) -> Any:
     """Pad or trim an audio array/tensor to ``length`` along ``axis``."""
     if torch.is_tensor(array):
@@ -640,7 +652,9 @@ class CanaryTRTLLM:
         self.decoder_config = read_config("decoder", engine_dir)
         self.max_seq_len = self.decoder_config["max_seq_len"]
         self.max_input_len = self.decoder_config["max_input_len"]
-        self.max_batch_size = self.encoder_config["max_batch_size"]
+        self.encoder_max_batch_size = int(self.encoder_config["max_batch_size"])
+        self.decoder_max_batch_size = int(self.decoder_config["max_batch_size"])
+        self.max_batch_size = engine_max_batch_size(self.encoder_config, self.decoder_config)
 
         self.num_feats = preprocessor_config["features"]
         self.n_fft = preprocessor_config["n_fft"]

@@ -176,20 +176,25 @@ def build_encoder_bundle(  # noqa: PLR0913
     parity_message: str,
     tolerances: tuple[float, float] = (5e-2, 5e-2),
 ) -> None:
-    """Build and validate a bundle before publishing any final artifacts."""
-    output_dir.mkdir(parents=True, exist_ok=True)
+    """Build, validate, and atomically publish one complete bundle directory."""
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
     artifact_names = ("encoder.plan", "model.nemo", "metadata.json")
-    destinations = [output_dir / name for name in artifact_names]
-    existing = [str(path) for path in destinations if path.exists()]
-    if existing:
-        msg = f"Refusing to overwrite existing bundle artifacts: {existing}"
-        raise FileExistsError(msg)
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            msg = f"TensorRT bundle destination exists and is not a directory: {output_dir}"
+            raise FileExistsError(msg)
+        existing = sorted(str(path) for path in output_dir.iterdir())
+        if existing:
+            msg = f"TensorRT bundle destination must be empty: {existing}"
+            raise FileExistsError(msg)
 
     feature_count = int(metadata["feature_count"])
-    with tempfile.TemporaryDirectory(prefix=temporary_prefix, dir=output_dir) as temporary_dir:
-        staging_dir = Path(temporary_dir)
-        onnx_path = staging_dir / "encoder.onnx"
-        engine_path = staging_dir / "encoder.plan"
+    with tempfile.TemporaryDirectory(prefix=temporary_prefix, dir=output_dir.parent) as temporary_dir:
+        temporary_root = Path(temporary_dir)
+        bundle_dir = temporary_root / "bundle"
+        bundle_dir.mkdir()
+        onnx_path = temporary_root / "encoder.onnx"
+        engine_path = bundle_dir / "encoder.plan"
         export_encoder(
             model,
             onnx_path,
@@ -212,7 +217,7 @@ def build_encoder_bundle(  # noqa: PLR0913
             tolerances=tolerances,
         )
 
-        shutil.copy2(model_path, staging_dir / "model.nemo")
+        shutil.copy2(model_path, bundle_dir / "model.nemo")
         metadata.update(
             {
                 "schema_version": 1,
@@ -231,10 +236,12 @@ def build_encoder_bundle(  # noqa: PLR0913
                 "tensorrt_version": tensorrt_version,
             }
         )
-        (staging_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+        (bundle_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+        if sorted(path.name for path in bundle_dir.iterdir()) != sorted(artifact_names):
+            msg = f"Staged TensorRT bundle has unexpected contents: {sorted(bundle_dir.iterdir())}"
+            raise RuntimeError(msg)
 
-        for name in artifact_names:
-            (staging_dir / name).replace(output_dir / name)
+        bundle_dir.replace(output_dir)
 
     logger.info(parity_message)
     logger.info("Wrote TensorRT encoder bundle to %s", output_dir)
