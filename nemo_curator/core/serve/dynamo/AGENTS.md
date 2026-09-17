@@ -28,51 +28,107 @@ pins or CUDA wheel indexes from an older image.
 
 ### Preinstall a serving venv to avoid startup installs
 
-1. In the Docker build, create a separate venv with the base image's Python:
-   `uv venv --python /opt/venv/bin/python /opt/dynamo`. Build it for each
-   target CPU architecture; do not copy a venv between architectures.
-2. Construct the intended model config **before** setting `py_executable`.
-   Resolve its packages and installer options with `dynamo_runtime_env(model)`
-   (for PDFs, get the model from `create_nemotron_parse_inference_server()`).
-   Install that `uv["packages"]` list into `/opt/dynamo/bin/python` using
-   `uv pip install --python ...` and the returned `uv_pip_install_options`.
-   Materialize the referenced overrides file during the build using the
-   driver's Ray version and the exclusions in `vllm.py`; the runtime helper
-   normally creates this file on Ray nodes. Match the driver's Ray version
-   and Python minor version.
-3. Make Curator's source importable and install its actor-bootstrap imports
-   as well as model dependencies. A `.pth` file can expose the image's Curator
-   checkout without installing all its processing extras. Check
-   `import nemo_curator.core.serve.subprocess_mgr` under the new interpreter
-   and add any missing dependencies. `ai-dynamo[vllm]` alone is insufficient;
-   cloning the entire base venv or enabling system site packages is unnecessary.
-4. Select the venv on `DynamoVLLMModelConfig`, or pass this dict to
-   `create_nemotron_parse_inference_server(runtime_env=...)`:
+A bare `ai-dynamo[vllm]` venv cannot bootstrap Curator actors: importing
+`nemo_curator` imports `cosmos_xenna`, and the serving import path also needs
+`pandas` and `pyarrow`. Install those dependencies explicitly, keep Ray and
+Python aligned with the driver, and expose Curator's source with a `.pth`
+file. This avoids copying the driver's entire environment.
 
-   ```python
-   runtime_env = {
-       "py_executable": "/opt/dynamo/bin/python",
-       "env_vars": {
-           "CUDA_CACHE_PATH": "/cache/cuda",
-           "TRITON_CACHE_DIR": "/cache/triton",
-           "VLLM_CACHE_ROOT": "/cache/vllm",
-           "HF_HOME": "/cache/huggingface",
-       },
-   }
-   ```
+Add this build step to a Curator Docker image with its driver environment
+at `/opt/venv` and Curator checkout at `/opt/Curator` (adjust paths to match
+the image). Add the model's extra packages to the config before resolving
+its runtime environment; do not set `py_executable` until after the build.
 
-   This bypasses Curator's automatic package additions for workers and the
-   shared frontend. Do not combine it with `uv`, `pip`, or `conda` installation
-   settings. All models sharing a frontend must select the same interpreter,
-   present at the same path on every participating node.
-5. Mount writable, persistent node-local caches at those paths. CUDA caches
-   driver JIT output, Triton caches compiled kernels, and vLLM caches its
-   compilation artifacts. Use caches appropriate to the image/GPU/driver
-   stack, and point `HF_HOME` at the existing model cache. Only enable offline
-   model loading when all required files are cached. Validate the actual Ray
-   actor/subprocess path with one replica and a real request, then measure
-   cold and warm startup separately. A baked venv removes installation;
-   model loading, compilation and graph capture still take time.
+```dockerfile
+RUN /opt/venv/bin/python - <<'PY'
+import subprocess
+import sys
+from importlib.metadata import version
+from pathlib import Path
+
+from nemo_curator.core.serve import DynamoVLLMModelConfig
+from nemo_curator.core.serve.dynamo import vllm
+
+model = DynamoVLLMModelConfig(
+    model_identifier="your-model",
+    runtime_env={"uv": {"packages": []}},  # Add model-specific dependencies here.
+)
+uv = vllm.dynamo_runtime_env(model)["uv"]
+python = "/opt/dynamo/bin/python"
+subprocess.run(["uv", "venv", "--python", sys.executable, "/opt/dynamo"], check=True)
+overrides = vllm._ACTOR_VENV_OVERRIDES_PATH
+overrides.write_text(f"ray=={version('ray')}\n{vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n")
+bootstrap = [f"{name}=={version(name)}" for name in ("ray", "cosmos-xenna", "pandas", "pyarrow")]
+subprocess.run(
+    ["uv", "pip", "install", "--python", python,
+     *uv["uv_pip_install_options"], *uv["packages"], *bootstrap],
+    cwd="/tmp", check=True,
+)
+overrides.unlink()
+site_packages = subprocess.check_output(
+    [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True,
+).strip()
+(Path(site_packages) / "curator.pth").write_text("/opt/Curator\n")
+subprocess.run(
+    [python, "-I", "-c", "import cosmos_xenna; import nemo_curator.core.serve.subprocess_mgr"],
+    check=True,
+)
+PY
+```
+
+The `.pth` file makes the checkout importable even outside its working
+directory; it does not install dependencies. Keep that checkout in the final
+image. Build the venv separately for each CPU architecture. The import check
+covers actor bootstrap; validate model-specific dependencies with one replica
+and a real request before scaling up.
+
+Select the preinstalled venv with:
+
+```python
+DynamoVLLMModelConfig(
+    model_identifier="your-model",
+    runtime_env={"py_executable": "/opt/dynamo/bin/python"},
+)
+```
+
+This skips automatic package additions for workers and the shared frontend.
+Do not combine it with `uv`, `pip`, or `conda` installation settings. All models
+sharing a frontend must select the same interpreter, available at the same
+path on every participating node.
+
+### Persist compilation caches across server starts
+
+Cache configuration is independent of whether the venv is managed or baked
+into the image. Set these variables on all serving subprocesses:
+
+```python
+DynamoServerConfig(subprocess_env={
+    "CUDA_CACHE_PATH": "/cache/cuda",
+    "TRITON_CACHE_DIR": "/cache/triton",
+    "VLLM_CACHE_ROOT": "/cache/vllm",
+})
+```
+
+| Variable | Reusable artifacts |
+|---|---|
+| `CUDA_CACHE_PATH` | CUDA driver JIT compilation output |
+| `TRITON_CACHE_DIR` | Compiled Triton kernels |
+| `VLLM_CACHE_ROOT` | vLLM compilation artifacts and other cached data |
+
+With Docker, mount writable host/shared storage **outside the container** at
+`/cache` so the cache survives container deletion and subsequent runs can
+reuse compiled artifacts:
+
+```bash
+mkdir -p /shared/curator-cache/stack-id/{cuda,triton,vllm}
+docker run --mount type=bind,src=/shared/curator-cache/stack-id,dst=/cache IMAGE ...
+```
+
+Use a separate `stack-id` directory for each image/GPU/driver combination.
+The first run populates the caches; measure warm startup separately. These
+caches do not contain model weights: mount the existing model cache and set
+`HF_HOME` to its container path too. They reduce repeated compilation, but
+model loading and CUDA graph capture can still contribute to startup time.
 
 ## Two separate environments, two separate mechanisms
 
