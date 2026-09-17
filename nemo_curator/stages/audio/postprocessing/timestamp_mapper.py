@@ -164,7 +164,7 @@ def _translate_to_original(
 _DROP_VALUE = object()
 
 
-def _jsonable_value(value: Any, active_containers: set[int]) -> Any:  # noqa: ANN401 - arbitrary value
+def _jsonable_value(value: Any, active_containers: set[int]) -> Any:  # noqa: ANN401, C901, PLR0911, PLR0912
     """Return a JSON-compatible value, dropping unsupported leaves and cycles."""
     if isinstance(value, np.generic):
         return _jsonable_value(value.item(), active_containers)

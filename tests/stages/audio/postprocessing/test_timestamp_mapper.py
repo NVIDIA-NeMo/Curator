@@ -14,7 +14,7 @@
 
 import inspect
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar
@@ -676,7 +676,7 @@ def test_audio_path_only_planner_matches_runtime() -> None:
 def test_default_passthrough_preserves_legacy_values_and_types() -> None:
     import numpy as np
 
-    timestamp = datetime(2026, 1, 2, 3, 4, 5)
+    timestamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     decimal = Decimal("1.25")
     tuple_value = (1, 2)
     array = np.array([1.0, 2.0])
@@ -778,7 +778,7 @@ def test_decimal_diar_bounds_are_not_rounded_through_float() -> None:
     ],
 )
 def test_invalid_key_configuration_is_rejected(kwargs: dict) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="key names"):
         TimestampMapperStage(**kwargs)
 
 
