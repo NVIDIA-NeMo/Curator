@@ -98,7 +98,7 @@ _CSV_STRUCTURAL_KEYS = frozenset(
     }
 )
 
-Interval = tuple[int, int, float]  # (start_ms, end_ms, duration_sec)
+Interval = tuple[int, int, Any]  # (start_ms, end_ms, duration_sec)
 
 
 # ------------------------------------------------------------------
@@ -145,7 +145,7 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
         speaker_id = entry.get("speaker_id", "unknown")
         logger.warning(f"  {speaker_id}: no diar_segments, skipping")
         return []
-    intervals = []
+    valid_segments = []
     for segment in diar_segments:
         if isinstance(segment, Mapping):
             start, end = segment.get("start"), segment.get("end")
@@ -160,8 +160,14 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
             continue
         if not math.isfinite(start_value) or not math.isfinite(end_value) or end_value <= start_value:
             continue
-        intervals.append((int(start_value * 1000), int(end_value * 1000), end_value - start_value))
-    return sorted(intervals, key=lambda interval: interval[0])
+        try:
+            if end - start <= 0:
+                continue
+        except TypeError:
+            start, end = start_value, end_value
+        valid_segments.append((start, end))
+    valid_segments.sort(key=lambda bounds: bounds[0])
+    return [(int(start * 1000), int(end * 1000), end - start) for start, end in valid_segments]
 
 
 def _expand_nested_speaker_entries(entries: list[dict]) -> list[dict]:
@@ -174,7 +180,7 @@ def _expand_nested_speaker_entries(entries: list[dict]) -> list[dict]:
             for segment in segments
             if isinstance(segment, Mapping) and segment.get("speaker") is not None
         }
-        if entry.get("speaker_id") is not None or not nested_speakers:
+        if not nested_speakers:
             expanded.append(entry)
             continue
         for speaker_id in sorted(nested_speakers):
@@ -234,7 +240,7 @@ def detect_combo(entries: list) -> int:
     first = entries[0]
     has_nested_speaker = any(
         isinstance(segment, Mapping) and segment.get("speaker") is not None
-        for segment in first.get("diar_segments", [])
+        for segment in (first.get("diar_segments") or [])
     )
     has_speaker = "speaker_id" in first or has_nested_speaker
     has_diar = "diar_segments" in first
@@ -329,9 +335,9 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     stage reads the audio slice from the original file and writes it as
     a standalone segment file.
 
-    The pipeline combo is auto-detected from the first entry in each
-    batch.  Entries are grouped by ``original_file`` so each source is
-    opened only once per batch.
+    Each entry's pipeline combo is detected independently. Entries are
+    grouped by combo and ``original_file`` so heterogeneous batches are
+    handled without making behavior depend on row order.
 
     This is an IO stage: ``process()`` raises ``NotImplementedError``
     and all work is done in ``process_batch()``, following the same
@@ -380,14 +386,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         os.makedirs(self.output_dir, exist_ok=True)
 
         entries = [t.data for t in tasks]
-        combo = detect_combo(entries)
-
-        extractors = {
-            2: self._extract_by_timestamps,
-            3: self._extract_speaker_diar,
-            4: self._extract_speaker_timestamps,
-        }
-        extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries)
+        extracted, total_dur, speaker_counts, metadata_rows = self._extract_entries(entries)
 
         self._all_metadata_rows.extend(metadata_rows)
         _write_metadata_csv(self.output_dir, self._all_metadata_rows)
@@ -398,6 +397,31 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
                 logger.debug(f"  {speaker}: {count} segments")
 
         return tasks
+
+    def _extract_entries(self, entries: list[dict]) -> tuple[int, float, dict[str, int], list[dict]]:
+        extractors = {
+            2: self._extract_by_timestamps,
+            3: self._extract_speaker_diar,
+            4: self._extract_speaker_timestamps,
+        }
+        entries_by_combo: dict[int, list[dict]] = defaultdict(list)
+        for entry in entries:
+            entries_by_combo[detect_combo([entry])].append(entry)
+
+        total_extracted = 0
+        total_duration = 0.0
+        total_speaker_counts: dict[str, int] = defaultdict(int)
+        all_metadata_rows: list[dict] = []
+        for combo in (2, 3, 4):
+            if not entries_by_combo[combo]:
+                continue
+            extracted, duration, speaker_counts, metadata_rows = extractors[combo](entries_by_combo[combo])
+            total_extracted += extracted
+            total_duration += duration
+            all_metadata_rows.extend(metadata_rows)
+            for speaker, count in speaker_counts.items():
+                total_speaker_counts[speaker] += count
+        return total_extracted, total_duration, total_speaker_counts, all_metadata_rows
 
     # ------------------------------------------------------------------
     # Combo extractors (instance methods using self.output_dir/format)
@@ -501,7 +525,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
                         audio = _read_segment(original_file, start_ms, end_ms, info.samplerate)
                         sf.write(output_path, audio, info.samplerate, subtype=SOUNDFILE_FORMATS[self.output_format])
                         extracted += 1
-                        total_dur += dur
+                        total_dur += float(dur)
 
                         speaker_id = entry.get("speaker_id")
                         if speaker_id:
@@ -538,20 +562,15 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             logger.error("No entries found in manifest")
             return
 
-        combo = detect_combo(entries)
         combo_names = {
             2: "Segments by timestamps",
             3: "Speaker diarization segments",
             4: "Speaker-segments by timestamps",
         }
-        logger.info(f"Detected: {combo_names[combo]}")
+        detected_combos = sorted({detect_combo([entry]) for entry in entries})
+        logger.info(f"Detected: {', '.join(combo_names[combo] for combo in detected_combos)}")
 
-        extractors = {
-            2: self._extract_by_timestamps,
-            3: self._extract_speaker_diar,
-            4: self._extract_speaker_timestamps,
-        }
-        total_extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries)
+        total_extracted, total_dur, speaker_counts, metadata_rows = self._extract_entries(entries)
 
         csv_path = _write_metadata_csv(self.output_dir, metadata_rows)
 
@@ -572,7 +591,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"\n{'=' * 60}")
         logger.info("EXTRACTION COMPLETE")
         logger.info(f"{'=' * 60}")
-        logger.info(f"  Combo: {combo_names[combo]}")
+        logger.info(f"  Combo: {', '.join(combo_names[combo] for combo in detected_combos)}")
         logger.info(f"  Total segments: {total_extracted}")
         logger.info(f"  Total duration: {total_dur:.2f}s ({total_dur / 60:.1f} min)")
         logger.info(f"  Output: {self.output_dir}")

@@ -35,10 +35,10 @@ Output control uses two layers:
   always blocked, even if accidentally added to ``passthrough_keys``.
 """
 
-import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, ClassVar
 
 import numpy as np
@@ -67,7 +67,7 @@ _NEVER_PASS_KEYS = frozenset(
 )
 
 
-def _segment_bounds(seg: Any) -> tuple[float, float] | None:  # noqa: ANN401 - shape is the point
+def _segment_bounds(seg: Any) -> tuple[Any, Any] | None:  # noqa: ANN401 - shape is the point
     """``(start_sec, end_sec)`` from either segment shape, or ``None`` if unreadable.
 
     Two producers, two shapes. VAD and SpeakerSep emit ``[start, end]`` pairs; the diarizers
@@ -91,10 +91,15 @@ def _segment_bounds(seg: Any) -> tuple[float, float] | None:  # noqa: ANN401 - s
         return None
     if not math.isfinite(start_value) or not math.isfinite(end_value) or end_value <= start_value:
         return None
-    return start_value, end_value
+    try:
+        if end - start <= 0:
+            return None
+    except TypeError:
+        return start_value, end_value
+    return start, end
 
 
-def _ordered_segments(diar_segments: Any) -> list[tuple[Any, float, float]]:  # noqa: ANN401 - shape is the point
+def _ordered_segments(diar_segments: Any) -> list[tuple[Any, Any, Any]]:  # noqa: ANN401 - shape is the point
     """``(original_segment, start, end)`` for each readable segment, earliest first.
 
     The original is carried alongside its bounds so the output can echo the shape it was
@@ -156,23 +161,50 @@ def _translate_to_original(
     return results
 
 
-def _jsonable_passthrough(value: Any) -> Any:  # noqa: ANN401 - arbitrary passthrough value
-    """NumPy scalars/arrays as the JSON-equivalent Python values.
+_DROP_VALUE = object()
 
-    Before the serialization guard, passthrough values reached the pandas-backed writers
-    untouched and NumPy numbers serialized as plain numbers. Stdlib ``json`` rejects them, so
-    convert rather than drop: the written manifest stays byte-identical to the legacy output.
-    Nested containers are converted recursively; anything else is returned as-is for the probe.
-    """
+
+def _jsonable_value(value: Any, active_containers: set[int]) -> Any:  # noqa: ANN401 - arbitrary value
+    """Return a JSON-compatible value, dropping unsupported leaves and cycles."""
     if isinstance(value, np.generic):
-        return value.item()
+        return _jsonable_value(value.item(), active_containers)
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return _jsonable_value(value.tolist(), active_containers)
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return _DROP_VALUE
+        return int(value) if value == value.to_integral_value() else float(value)
     if isinstance(value, Mapping):
-        return {k: _jsonable_passthrough(v) for k, v in value.items()}
+        container_id = id(value)
+        if container_id in active_containers:
+            return _DROP_VALUE
+        active_containers.add(container_id)
+        result = {}
+        for key, nested_value in value.items():
+            if not isinstance(key, (str, int, float, bool)) and key is not None:
+                continue
+            sanitized = _jsonable_value(nested_value, active_containers)
+            if sanitized is not _DROP_VALUE:
+                result[key] = sanitized
+        active_containers.remove(container_id)
+        return result if result or not value else _DROP_VALUE
     if isinstance(value, (list, tuple)):
-        return [_jsonable_passthrough(v) for v in value]
-    return value
+        container_id = id(value)
+        if container_id in active_containers:
+            return _DROP_VALUE
+        active_containers.add(container_id)
+        result = []
+        for nested_value in value:
+            sanitized = _jsonable_value(nested_value, active_containers)
+            if sanitized is not _DROP_VALUE:
+                result.append(sanitized)
+        active_containers.remove(container_id)
+        return result if result or not value else _DROP_VALUE
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    return _DROP_VALUE
 
 
 @dataclass
@@ -195,6 +227,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             Defaults to all built-in quality filter and speaker
             metadata keys.  Override to include custom fields or
             restrict the output schema.
+        sanitize_output: Convert the complete output to JSON-compatible
+            values and drop unsupported nested values. Disabled by default
+            to preserve legacy passthrough values and types.
     """
 
     passthrough_keys: list[str] | None = field(default=None)
@@ -212,15 +247,17 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     diar_segments_key: str = field(default="diar_segments", kw_only=True)
     speaking_duration_key: str = field(default="speaking_duration", kw_only=True)
     mappings_key: str = field(default="segment_mappings", kw_only=True)
+    sanitize_output: bool = field(default=False, kw_only=True)
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         cardinality_options=["filter"],
-        gates=Gates(sanitizes_output=True, per_row_independent=True),
+        gates=Gates(sanitizes_output=False, per_row_independent=True),
     )
 
     def __post_init__(self):
         super().__init__()
         if self.passthrough_keys is None:
             self.passthrough_keys = list(_DEFAULT_PASSTHROUGH_KEYS)
+        self._validate_key_configuration()
         blocked = set(self.passthrough_keys) & _NEVER_PASS_KEYS
         if blocked:
             logger.warning(
@@ -228,6 +265,43 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 f"keys that will be blocked: {sorted(blocked)}. "
                 f"These keys are never included in output."
             )
+
+    def _validate_key_configuration(self) -> None:
+        key_fields = {
+            "audio_filepath_key": self.audio_filepath_key,
+            "original_file_key": self.original_file_key,
+            "original_start_ms_key": self.original_start_ms_key,
+            "original_end_ms_key": self.original_end_ms_key,
+            "duration_ms_key": self.duration_ms_key,
+            "duration_key": self.duration_key,
+            "start_ms_key": self.start_ms_key,
+            "end_ms_key": self.end_ms_key,
+            "diar_segments_key": self.diar_segments_key,
+            "speaking_duration_key": self.speaking_duration_key,
+            "mappings_key": self.mappings_key,
+        }
+        empty_fields = [name for name, value in key_fields.items() if not isinstance(value, str) or not value]
+        if empty_fields:
+            msg = f"TimestampMapperStage key names must be non-empty strings: {empty_fields}"
+            raise ValueError(msg)
+
+        task_key_fields = {name: value for name, value in key_fields.items() if name != "mappings_key"}
+        fields_by_key: dict[str, set[str]] = {}
+        for name, value in task_key_fields.items():
+            fields_by_key.setdefault(value, set()).add(name)
+        allowed_aliases = {
+            frozenset({"audio_filepath_key", "original_file_key"}),
+            frozenset({"start_ms_key", "original_start_ms_key"}),
+            frozenset({"end_ms_key", "original_end_ms_key"}),
+        }
+        collisions = {
+            key: sorted(names)
+            for key, names in fields_by_key.items()
+            if len(names) > 1 and frozenset(names) not in allowed_aliases
+        }
+        if collisions:
+            msg = f"TimestampMapperStage key names collide: {collisions}"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -259,6 +333,7 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         conditional_writes = [
             ConditionalWrite(
                 writes=IOSpec(data_keys=[self.diar_segments_key]),
+                requires_keys=[self.diar_segments_key],
                 condition=(
                     "no valid start/end branch takes priority, at least one readable diarization "
                     "segment exists, and the mapper emits an output row"
@@ -267,16 +342,18 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             ),
             ConditionalWrite(
                 writes=IOSpec(data_keys=[self.speaking_duration_key]),
+                requires_keys=[self.diar_segments_key],
                 condition=(
                     "no valid start/end branch takes priority, at least one readable diarization "
                     "segment exists, and speaking duration is assigned"
                 ),
             ),
         ]
-        if passthrough_keys:
-            conditional_writes.append(
+        conditional_writes.extend(
+            [
                 ConditionalWrite(
-                    writes=IOSpec(data_keys=passthrough_keys),
+                    writes=IOSpec(data_keys=[key]),
+                    requires_keys=[key],
                     condition=(
                         "the same input key is present, non-null, allowed by passthrough_keys, "
                         "not safety-blocked, not already constructed as a core output, "
@@ -284,7 +361,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     ),
                     value_origin="upstream_same_key",
                 )
-            )
+                for key in passthrough_keys
+            ]
+        )
         return StageContract(
             optional_reads=IOSpec(
                 data_keys=list(
@@ -313,7 +392,7 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             cardinality="filter",
             cardinality_options=["filter"],
             gates=Gates(
-                sanitizes_output=True,
+                sanitizes_output=self.sanitize_output,
                 # The concat->original mappings are read from THIS task's ``_metadata``, so every
                 # position it resolves comes from the row it was handed.
                 per_row_independent=True,
@@ -336,7 +415,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             start_ms = item.get(self.start_ms_key)
             end_ms = item.get(self.end_ms_key)
             diar_segments = item.get(self.diar_segments_key)
-            if start_ms is not None and end_ms is not None:
+            if start_ms is not None or end_ms is not None:
+                start_ms = 0 if start_ms is None else start_ms
+                end_ms = 0 if end_ms is None else end_ms
                 if end_ms <= start_ms:
                     logger.warning(
                         f"[TimestampMapper] Skipping task with invalid range: start_ms={start_ms}, end_ms={end_ms}"
@@ -374,6 +455,10 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         else:
             result = self._build_output_item_no_mapping(item)
 
+        if self.sanitize_output:
+            sanitized = _jsonable_value(result, set())
+            result = sanitized if isinstance(sanitized, dict) else {}
+
         task.data.clear()
         task.data.update(result)
         return task
@@ -383,13 +468,7 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if key in _NEVER_PASS_KEYS:
                 continue
             if key in item and item[key] is not None and key not in result:
-                value = _jsonable_passthrough(item[key])
-                try:
-                    json.dumps(value)
-                except (TypeError, ValueError, OverflowError):
-                    logger.warning(f"[TimestampMapper] Dropping non-JSON passthrough key {key!r}")
-                    continue
-                result[key] = value
+                result[key] = item[key]
 
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {
