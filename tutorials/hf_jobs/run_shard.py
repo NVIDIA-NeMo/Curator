@@ -65,7 +65,7 @@ SHARE = Path(os.environ.get("TUTORIAL_SHARE", "/mnt/tutorial"))
 
 def fetch_upstream_pipeline(dest_dir: Path) -> Path:
     dest = dest_dir / "array_pipeline.py"
-    with urllib.request.urlopen(ARRAY_PIPELINE_URL, timeout=60) as r:
+    with urllib.request.urlopen(ARRAY_PIPELINE_URL, timeout=60) as r:  # noqa: S310
         data = r.read()
     digest = hashlib.sha256(data).hexdigest()
     if digest != ARRAY_PIPELINE_SHA256:
