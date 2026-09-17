@@ -166,12 +166,15 @@ def catalog_as_json(*, include_dynamic_defaults: bool = False, indent: int | Non
 # Role -> producer/consumer index (composition + repair)
 # --------------------------------------------------------------------------- #
 def _consumed_roles(contract: StageContract) -> set[str]:
-    """Semantic roles a stage requires (primary reads + every reads_one_of option)."""
+    """Semantic roles a stage requires across unconditional and conditional reads."""
     roles = {
         contract.key_roles.get(k, "unknown") for k in [*contract.reads.data_keys, *contract.reads.segment_data_keys]
     }
     for opt in contract.reads_one_of:
         roles |= {contract.key_roles.get(k, "unknown") for k in [*opt.data_keys, *opt.segment_data_keys]}
+    for branch in contract.conditional_reads:
+        for opt in branch.reads_one_of:
+            roles |= {contract.key_roles.get(k, "unknown") for k in [*opt.data_keys, *opt.segment_data_keys]}
     return roles - {"unknown"}
 
 

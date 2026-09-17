@@ -92,18 +92,24 @@ def reads_satisfied_by_role(consumer: StageContract, available_roles: set[str]) 
     reads_keys = [*consumer.reads.data_keys, *consumer.reads.segment_data_keys]
     if reads_keys and not _spec_roles(consumer, reads_keys).issubset(avail):
         return False
-    if consumer.reads_one_of:
-        return any(
+    if consumer.reads_one_of and not any(
+        _spec_roles(consumer, [*opt.data_keys, *opt.segment_data_keys]).issubset(avail)
+        for opt in consumer.reads_one_of
+    ):
+        return False
+    return all(
+        any(
             _spec_roles(consumer, [*opt.data_keys, *opt.segment_data_keys]).issubset(avail)
-            for opt in consumer.reads_one_of
+            for opt in branch.reads_one_of
         )
-    return True
+        for branch in consumer.conditional_reads
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Static checks (no execution)
 # --------------------------------------------------------------------------- #
-def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901
+def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901, PLR0912
     assert c.cardinality in _VALID_CARDINALITY, f"{name}: invalid cardinality {c.cardinality!r}"
     for opt in c.cardinality_options:
         # cardinality_options are short flag names (e.g. "fan_out","nested") OR full cardinalities
@@ -122,6 +128,12 @@ def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901
         for spec in [c.reads, c.writes, c.optional_reads, *c.reads_one_of]:
             contract_keys.update(spec.data_keys)
             contract_keys.update(spec.segment_data_keys)
+        for conditional in c.conditional_reads:
+            contract_keys.update(conditional.requires_keys)
+            contract_keys.update(conditional.forbids_keys)
+            for spec in conditional.reads_one_of:
+                contract_keys.update(spec.data_keys)
+                contract_keys.update(spec.segment_data_keys)
         assert c.iteration_key in contract_keys or c.iteration_key in c.key_roles, (
             f"{name}: iteration_key {c.iteration_key!r} is neither a contract read/write "
             f"key nor a role-resolvable key value — it names nothing an agent can find"
@@ -161,6 +173,18 @@ def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901
         assert all(isinstance(key, str) and key for key in conditional.metadata_writes), (
             f"{name}: {label}.metadata_writes must contain non-empty strings"
         )
+    for index, conditional in enumerate(c.conditional_reads):
+        label = f"conditional_reads[{index}]"
+        assert conditional.condition.strip(), f"{name}: {label}.condition must be non-empty"
+        assert conditional.reads_one_of, f"{name}: {label}.reads_one_of must not be empty"
+        assert not (set(conditional.requires_keys) & set(conditional.forbids_keys)), (
+            f"{name}: {label} cannot require and forbid the same selector key"
+        )
+        for spec in conditional.reads_one_of:
+            for a in spec.accepts:
+                assert a in _VALID_ACCEPTS, f"{name}: {label}.accepts has invalid form {a!r}"
+            for p in spec.produces:
+                assert p in _VALID_PRODUCES, f"{name}: {label}.produces has invalid form {p!r}"
     # no duplicate keys within a single spec list
     for spec, label in [(c.reads, "reads"), (c.writes, "writes")]:
         assert len(spec.data_keys) == len(set(spec.data_keys)), f"{name}: duplicate {label}.data_keys"
@@ -238,7 +262,11 @@ def _check_residency_accepts(stage: Any, c: StageContract, name: str) -> None:  
     residency = getattr(stage, "input_residency", None)
     if residency is None:
         return
-    declared = set(c.reads.accepts) | {a for opt in c.reads_one_of for a in opt.accepts}
+    declared = (
+        set(c.reads.accepts)
+        | {a for opt in c.reads_one_of for a in opt.accepts}
+        | {a for branch in c.conditional_reads for opt in branch.reads_one_of for a in opt.accepts}
+    )
     if not declared:
         return
     expected = set(accepts_for_residency(residency))

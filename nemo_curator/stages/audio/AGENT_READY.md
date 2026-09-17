@@ -72,6 +72,13 @@ class MyStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
   `requires_stable_task_id=True`; metadata-manifest resume boundaries cannot restore that identity
   and will reject the suffix.
 
+Use `conditional_reads` when runtime selects a mutually exclusive read scope
+from literal top-level key presence. Each `ConditionalRead` supplies one
+`reads_one_of` group plus `requires_keys` and/or `forbids_keys` matching that
+branch selector. The planner validates every reachable branch independently;
+an unrelated task-level waveform therefore cannot satisfy a nested-audio branch
+selected by the presence of `segments_key`.
+
 ### Conditional/data-dependent writes
 
 Keep `writes` as the existing mechanical output declaration. When a listed
