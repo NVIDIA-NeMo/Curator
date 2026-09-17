@@ -59,7 +59,10 @@ def test_stage_exposes_integration_pipeline_contract() -> None:
     stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", num_workers_override=4)
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
-    assert stage.outputs() == ([], ["asr_prediction", "asr_language"])
+    assert stage.outputs() == (
+        [],
+        ["asr_prediction", "_skipme", "additional_notes", "asr_language"],
+    )
     assert stage.model_id == "/models/indic-canary"
     assert stage.name == "IndicCanary_inference"
     assert stage.num_workers() == 4
