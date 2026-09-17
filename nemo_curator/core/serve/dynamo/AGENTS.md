@@ -18,39 +18,66 @@ configuration.
 
 ## Base venv vs. actor venv
 
-Curator's `pyproject.toml` pins `vllm[flashinfer,runai,otel]==0.22.0+cu129`
-(the `vllm` extra) and constrains `transformers>=4.56.0,<5.0`. `ai-dynamo>=1.3.1`
-is a separate optional dependency via `inference_server` (pulled in by
-`sdg_cuda12`, not `text_cuda12`) — so the driver/base venv can already have
-both Dynamo and vLLM installed, but never as `ai-dynamo[vllm]`:
-`inference_server` lists plain `ai-dynamo` and Curator's own `vllm` extra
-independently, and `ai-dynamo`'s own `vllm` requirement sits behind its
-`[vllm]` extra marker, which the driver venv never requests.
+By default, Ray's `uv` runtime environment clones the driver's virtualenv
+and installs additional packages for the actor. `dynamo_runtime_env()` pins
+`ai-dynamo[vllm]` to the driver's installed Dynamo version and merges model
+extras with the required wheel indexes and overrides. The driver's own vLLM
+version need not match the one resolved by Dynamo's extra. Inspect installed
+package metadata and the current helpers in `vllm.py`; do not copy version
+pins or CUDA wheel indexes from an older image.
 
-That still isn't automatic per-model, though. Ray's `pip`/`uv` `runtime_env`
-**clones the driver venv** for the actor, then installs requested packages
-*additively* on top (general Ray/Curator behavior, not Dynamo-specific) —
-already-cloned packages stay importable unless the additive install replaces
-them. `_dynamo_runtime_packages()` reads the driver's installed `ai-dynamo`
-version and has the actor install that exact `ai-dynamo[vllm]==<version>` on
-top of the clone, keeping it pinned to the driver instead of drifting. A
-model needing more (a newer `transformers`, an extra loader package) adds it
-through the same `runtime_env`, merged via `merge_runtime_envs()`.
+### Preinstall a serving venv to avoid startup installs
 
-**This stack targets CUDA 12.x, not CUDA 13.x, everywhere.** `vllm` is
-pinned to `==0.22.0+cu129`; `_ACTOR_VENV_CUDA_TAG` builds the actor venv
-against that same `cu129` wheel index; `nixl-cu13` is explicitly excluded
-(`_ACTOR_VENV_NIXL_CU13_EXCLUSION`) because it has previously been pulled in
-transitively. A `cu13`-tagged wheel landing anywhere in this stack is one
-checkable cause of a startup/kernel-warmup failure — check the CUDA tag on
-any newly-resolved wheel before assuming a model/prompt/config issue. If
-tags check out, the installed CUTLASS/QuACK build may just be too old for
-the GPU architecture, independent of CUDA tagging.
+1. In the Docker build, create a separate venv with the base image's Python:
+   `uv venv --python /opt/venv/bin/python /opt/dynamo`. Build it for each
+   target CPU architecture; do not copy a venv between architectures.
+2. Construct the intended model config **before** setting `py_executable`.
+   Resolve its packages and installer options with `dynamo_runtime_env(model)`
+   (for PDFs, get the model from `create_nemotron_parse_inference_server()`).
+   Install that `uv["packages"]` list into `/opt/dynamo/bin/python` using
+   `uv pip install --python ...` and the returned `uv_pip_install_options`.
+   Materialize the referenced overrides file during the build using the
+   driver's Ray version and the exclusions in `vllm.py`; the runtime helper
+   normally creates this file on Ray nodes. Match the driver's Ray version
+   and Python minor version.
+3. Make Curator's source importable and install its actor-bootstrap imports
+   as well as model dependencies. A `.pth` file can expose the image's Curator
+   checkout without installing all its processing extras. Check
+   `import nemo_curator.core.serve.subprocess_mgr` under the new interpreter
+   and add any missing dependencies. `ai-dynamo[vllm]` alone is insufficient;
+   cloning the entire base venv or enabling system site packages is unnecessary.
+4. Select the venv on `DynamoVLLMModelConfig`, or pass this dict to
+   `create_nemotron_parse_inference_server(runtime_env=...)`:
+
+   ```python
+   runtime_env = {
+       "py_executable": "/opt/dynamo/bin/python",
+       "env_vars": {
+           "CUDA_CACHE_PATH": "/cache/cuda",
+           "TRITON_CACHE_DIR": "/cache/triton",
+           "VLLM_CACHE_ROOT": "/cache/vllm",
+           "HF_HOME": "/cache/huggingface",
+       },
+   }
+   ```
+
+   This bypasses Curator's automatic package additions for workers and the
+   shared frontend. Do not combine it with `uv`, `pip`, or `conda` installation
+   settings. All models sharing a frontend must select the same interpreter,
+   present at the same path on every participating node.
+5. Mount writable, persistent node-local caches at those paths. CUDA caches
+   driver JIT output, Triton caches compiled kernels, and vLLM caches its
+   compilation artifacts. Use caches appropriate to the image/GPU/driver
+   stack, and point `HF_HOME` at the existing model cache. Only enable offline
+   model loading when all required files are cached. Validate the actual Ray
+   actor/subprocess path with one replica and a real request, then measure
+   cold and warm startup separately. A baked venv removes installation;
+   model loading, compilation and graph capture still take time.
 
 ## Two separate environments, two separate mechanisms
 
-Every Dynamo model runs as a Ray actor with its own **isolated Python
-venv**, which launches a **worker subprocess** (`python -m dynamo.vllm ...`).
+Every Dynamo model runs as a Ray actor in a managed or preinstalled Python
+venv, which launches a **worker subprocess** (`python -m dynamo.vllm ...`).
 A dependency or environment-variable problem belongs to exactly one of
 these, and the fix mechanism differs:
 
@@ -60,7 +87,7 @@ these, and the fix mechanism differs:
 | Set an env var scoped to **one model's worker** (an engine feature flag, a per-model cache path) | `runtime_env["env_vars"]` on that model | That model's worker actor's `os.environ`, inherited by its worker subprocess | Same `runtime_env` field as above; `merge_runtime_envs()` unions `env_vars` too, not just packages |
 | Set an env var that should reach **every model's** worker plus the frontend (a transport timeout, a compatibility shim path) | `subprocess_env` on the server | `base_env` folded into every worker/frontend subprocess's OS environment, not just one actor's | `DynamoServerConfig.subprocess_env`, applied in `backend.py` (`_deploy_and_healthcheck`) |
 
-A package install always needs `runtime_env` — no `subprocess_env`
+A per-actor package install needs `runtime_env` — no `subprocess_env`
 equivalent exists. For a plain env var, the choice is **scope**, not
 whether a package is involved: `runtime_env["env_vars"]` on one model
 doesn't reach other models' workers (right for a model-specific flag);
@@ -127,8 +154,8 @@ def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[s
     return {**base_env, "FLASHINFER_WORKSPACE_BASE": f"{runtime_dir}/flashinfer"}
 ```
 
-This applies to every worker regardless of model, so it belongs on
-`DynamoServerConfig.subprocess_env` rather than a per-model `runtime_env`.
+This internal per-run setting overrides `FLASHINFER_WORKSPACE_BASE` from
+user configuration; the persistent cache paths above do not change it.
 
 A compatibility shim every worker needs importable before it imports
 vLLM/QuACK/CUTLASS is the same case — server-wide — so it also goes through
@@ -153,9 +180,9 @@ and error:
    creation (before any `dynamo.vllm` subprocess log) is a `runtime_env`/
    actor-venv problem; one inside worker subprocess logs (actor already
    exists) is a `subprocess_env`/installed-package problem.
-2. **Check the CUDA tag on every newly-resolved wheel** against the `cu129`
-   baseline — see "Base venv vs. actor venv" above for what this class of
-   failure looks like and its two causes.
+2. **Check the CUDA tag on every newly-resolved wheel** against the current actor wheel-index
+   configuration. Also check whether kernel libraries support the target
+   GPU architecture; a matching CUDA tag alone does not guarantee that.
 3. **The additive `runtime_env` install can disturb a pin already cloned
    into the actor venv** (silently upgrade `ray`, or introduce `nixl-cu13`)
    unless something pins or excludes it. `_ACTOR_VENV_OVERRIDES_PATH` is
