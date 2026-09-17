@@ -232,8 +232,11 @@ class TestNeMoASRAlignerStage:
             initial_keys={"duration", "segments", "split_filepaths", "split_metadata"},
             initial_task_type="AudioTask",
         )
-        assert not report.ok
-        assert any(issue.stage_index == 1 and issue.code == "unsatisfied_reads" for issue in report.issues)
+        # The top-level alignment is only a data-dependent fallback (empty split), so the merger
+        # composes with a ``conditional_read`` warning rather than a guaranteed top-level read.
+        assert report.ok
+        assert "alignment" not in report.produced_keys
+        assert any(issue.stage_index == 1 and issue.code == "conditional_read" for issue in report.issues)
 
         _stub_asr(aligner)
         task = AudioTask(
@@ -274,10 +277,12 @@ class TestNeMoASRAlignerStage:
         )
 
         # Honest contract: the aligner and the join both produce top-level text/alignment ONLY
-        # conditionally (they are data-dependent), so mechanical planning no longer GUARANTEES a
-        # top-level alignment for the merger -- it flags the read rather than silently assuming it.
-        assert not report.ok
-        assert any(issue.stage_index == 2 and issue.code == "unsatisfied_reads" for issue in report.issues)
+        # conditionally (they are data-dependent), so mechanical planning does not GUARANTEE a
+        # top-level alignment for the merger. The tutorial chain still composes (``ok``), but
+        # the merger's read is flagged ``conditional_read`` rather than silently assumed.
+        assert report.ok
+        assert any(issue.stage_index == 2 and issue.code == "conditional_read" for issue in report.issues)
+        assert "alignment" not in report.produced_keys
         assert "split_filepaths" not in report.produced_keys
 
         _stub_asr(aligner)
