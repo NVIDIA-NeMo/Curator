@@ -330,7 +330,7 @@ class TestPrepareAndFinalize:
         ms = _make_shard_path(manifest, "jsonl")
         rows = [
             {
-                "source_id": "X",
+                "source_id": 0,
                 "snippet_id": sid,
                 "audio_filepath": f"{sid}.flac",
                 "clip_duration": 1.25,
@@ -348,7 +348,7 @@ class TestPrepareAndFinalize:
         metric_shard = _make_shard_path(metrics, "jsonl")
         metric_rows = [
             {
-                "id": "X",
+                "id": 0,
                 "in_segments": 1,
                 "in_duration_sec": 1.25,
                 "dropped": {},
@@ -390,7 +390,7 @@ class TestPrepareAndFinalize:
         assert summary["num_output_snippets"] == 1
         assert summary["output_total_segments"] == 1
         assert summary["output_total_duration_sec"] == 1.25
-        assert next(entry for entry in summary["per_original"] if entry["id"] == "X")["out_snippets"] == 1
+        assert next(entry for entry in summary["per_original"] if entry["id"] == "0")["out_snippets"] == 1
         assert next(entry for entry in summary["per_original"] if entry["id"] == "Y")["out_snippets"] == 0
 
     def test_finalize_drops_manifest_rows_with_unreadable_audio(self, tmp_path: Path) -> None:

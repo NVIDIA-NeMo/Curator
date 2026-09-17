@@ -60,7 +60,7 @@ def prepare_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str,
         )
 
 
-def finalize_audio_pretrain_outputs(
+def finalize_audio_pretrain_outputs(  # noqa: PLR0913
     output_manifest_path: str,
     metrics_path: str,
     output_audio_tar_path: str,
@@ -453,9 +453,9 @@ def _collect_reconciled_output_stats(
                 # stray line slips through, skip rather than crash the
                 # finalize step.
                 continue
-            pid = str(row.get(id_key) or "")
-            if not pid:
+            if id_key not in row or row[id_key] is None:
                 continue
+            pid = str(row[id_key])
             dur = float(row.get(duration_key, 0.0))
             seg_count = len(row.get(segments_key) or [])
             entry = out_per_id.setdefault(
@@ -469,7 +469,7 @@ def _collect_reconciled_output_stats(
     return out_per_id, durations
 
 
-def _patch_metrics_post_reconcile(
+def _patch_metrics_post_reconcile(  # noqa: PLR0913
     metrics_path: str,
     manifest_path: str,
     dropped_missing: int,
