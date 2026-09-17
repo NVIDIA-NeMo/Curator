@@ -268,9 +268,7 @@ def _stubbed_vad_stage(
 ) -> VADSegmentationStage:
     stage = VADSegmentationStage(resources=Resources(cpus=1.0, gpus=0.0), **kwargs)
     stage._vad_model = object()
-    stage._get_vad_segments = MagicMock(
-        return_value=[{"start": 0.1, "end": 0.3}] if segments is None else segments
-    )
+    stage._get_vad_segments = MagicMock(return_value=[{"start": 0.1, "end": 0.3}] if segments is None else segments)
     return stage
 
 
@@ -302,6 +300,88 @@ def test_legacy_positional_constructor_order_is_preserved() -> None:
     assert stage.batch_size == 3
     assert stage.resources is resources
     assert stage.audio_filepath_key == "audio_filepath"
+
+
+def test_custom_input_keys_preserve_legacy_canonical_output_schema() -> None:
+    waveform = torch.arange(16000).reshape(1, -1)
+    stage = _stubbed_vad_stage(
+        input_residency="waveform",
+        waveform_key="samples",
+        sample_rate_key="hz",
+    )
+
+    child = stage.process(AudioTask(dataset_name="t", data={"samples": waveform, "hz": 16000}))[0].data
+
+    assert stage.outputs()[1] == ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration"]
+    assert "samples" not in child
+    assert "hz" not in child
+    torch.testing.assert_close(child["waveform"], waveform[:, 1600:4800])
+    assert child["sample_rate"] == 16000
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"input_residency": "typo"},
+        {"segments_key": ""},
+        {"segments_key": "start_ms"},
+        {"start_ms_key": "waveform"},
+        {"output_waveform_key": "duration"},
+    ],
+)
+def test_invalid_residency_and_destructive_key_collisions_are_rejected(kwargs: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="must"):
+        VADSegmentationStage(**kwargs)
+
+
+def test_resident_waveform_without_sample_rate_does_not_fall_back_to_file(tmp_path) -> None:  # noqa: ANN001
+    path = tmp_path / "different.wav"
+    sf.write(path, torch.ones(1600).numpy(), 16000)
+    stage = _stubbed_vad_stage(input_residency="auto")
+    resident = torch.zeros(1, 3200)
+
+    result = stage.process(AudioTask(dataset_name="t", data={"waveform": resident, "audio_filepath": str(path)}))
+
+    assert result == []
+    stage._get_vad_segments.assert_not_called()
+
+
+def test_empty_nested_result_preserves_default_parent_waveform() -> None:
+    waveform = torch.zeros(1, 1600)
+    stage = _stubbed_vad_stage(segments=[], nested=True, input_residency="waveform")
+
+    result = stage.process(AudioTask(dataset_name="t", data={"waveform": waveform, "sample_rate": 16000}))
+
+    assert result.data["waveform"] is waveform
+    assert result.data["segments"] == []
+
+
+def test_file_only_nested_result_retains_discovered_sample_rate(tmp_path) -> None:  # noqa: ANN001
+    path = tmp_path / "source.wav"
+    sf.write(path, torch.zeros(1600).numpy(), 8000)
+    stage = _stubbed_vad_stage(nested=True, input_residency="auto")
+
+    result = stage.process(AudioTask(dataset_name="t", data={"audio_filepath": str(path)}))
+
+    assert result.data["sample_rate"] == 8000
+
+
+def test_falsey_original_file_is_preserved() -> None:
+    stage = _stubbed_vad_stage(input_residency="waveform")
+    task = AudioTask(
+        dataset_name="t",
+        data={
+            "waveform": torch.zeros(1, 1600),
+            "sample_rate": 16000,
+            "audio_filepath": "/parent.wav",
+            "original_file": "",
+        },
+    )
+
+    child = stage.process(task)[0].data
+
+    assert child["original_file"] == ""
+    assert child["audio_filepath"] == "/parent.wav"
 
 
 @pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
@@ -355,13 +435,16 @@ def test_nested_agent_ready_empty_and_populated_cleanup(
     )
     result = stage.process(fixture())
     assert isinstance(result, AudioTask)
-    assert "waveform" not in result.data
+    if segments or not keep_segment_waveform:
+        assert "waveform" not in result.data
+    else:
+        assert "waveform" in result.data
     assert len(result.data["segments"]) == len(segments)
     if not keep_segment_waveform:
         json.dumps(result.data)
 
 
-def test_fanout_children_drop_parent_paths_and_preserve_custom_provenance() -> None:
+def test_fanout_children_retain_parent_paths_as_provenance() -> None:
     waveform = torch.arange(16000).reshape(1, -1)
     task = AudioTask(
         dataset_name="t",
@@ -392,17 +475,20 @@ def test_fanout_children_drop_parent_paths_and_preserve_custom_provenance() -> N
 
     assert contract.iteration_key == stage.segment_num_key
     assert contract.preserves_upstream_keys is True
-    assert {"recording_path", "audio_filepath", "num_samples"}.issubset(contract.removes_keys)
+    assert {"recording_path", "audio_filepath"}.issubset(contract.invalidates_keys)
+    assert "num_samples" in contract.removes_keys
     assert child["source_path"] == "/archive/original.flac"
     assert child["label"] == "kept"
-    assert "recording_path" not in child
-    assert "audio_filepath" not in child
+    assert child["recording_path"] == "/inputs/parent.wav"
     assert "num_samples" not in child
-    torch.testing.assert_close(child["samples"], waveform[:, 1600:4800])
+    assert "samples" not in child
+    assert "hz" not in child
+    torch.testing.assert_close(child["waveform"], waveform[:, 1600:4800])
+    assert child["sample_rate"] == 16000
     assert (child["start_ms"], child["end_ms"]) == (100, 300)
 
 
-def test_nested_segments_drop_parent_paths_but_top_level_keeps_them() -> None:
+def test_nested_segments_retain_parent_paths_as_provenance() -> None:
     task = AudioTask(
         dataset_name="t",
         data={
@@ -420,7 +506,7 @@ def test_nested_segments_drop_parent_paths_but_top_level_keeps_them() -> None:
     assert result.data["audio_filepath"] == "/inputs/parent.wav"
     assert result.data["num_samples"] == 16000
     assert segment["original_file"] == "/inputs/parent.wav"
-    assert "audio_filepath" not in segment
+    assert segment["audio_filepath"] == "/inputs/parent.wav"
     assert "num_samples" not in segment
 
 
@@ -449,10 +535,12 @@ def test_contract_declares_mode_specific_parent_carrier_removals() -> None:
         keep_segment_waveform_in_task=False,
     ).describe()
 
-    assert nested.removes_keys == ["waveform"]
-    assert {"audio_filepath", "num_samples"}.issubset(fanout_memory.removes_keys)
+    assert nested.removes_keys == []
+    assert {"audio_filepath"}.issubset(fanout_memory.invalidates_keys)
+    assert "num_samples" in fanout_memory.removes_keys
     assert "waveform" not in fanout_memory.removes_keys
-    assert {"audio_filepath", "num_samples", "waveform"}.issubset(fanout_metadata.removes_keys)
+    assert "audio_filepath" in fanout_metadata.invalidates_keys
+    assert {"num_samples", "waveform"}.issubset(fanout_metadata.removes_keys)
 
 
 @pytest.mark.parametrize(
