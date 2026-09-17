@@ -249,7 +249,8 @@ class TestReadLongFormManifestStage:
         out = stage.process(EmptyTask(dataset_name="empty", data=None))
 
         assert len(out) == 1
-        assert out[0].data == {"id": 7, "audio_filepath": "/data/a.wav"}
+        # ``id`` leaves the reader as a string exactly as it always has (snippet/tar names embed it).
+        assert out[0].data == {"id": "7", "audio_filepath": "/data/a.wav"}
         assert stage.outputs()[1] == ["audio_filepath", "id"]
         assert build_contract(stage).gates.per_row_independent is False
         assert static_contract(ReadLongFormManifestStage).gates.per_row_independent is False

@@ -89,6 +89,10 @@ def _read_manifest_row_id(
         return None
 
     seen_ids.add(identity)
+    # Backward compatibility: the pre-agent reader always emitted ``id`` as a string (snippet
+    # ids embed it, tar members are named with it, metrics key on it), so a numeric manifest
+    # id must keep leaving this stage as ``"7"``, not ``7``.
+    entry[id_key] = identity
     return identity
 
 
@@ -354,7 +358,7 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
                 lifecycle_side_effects=True,
                 requires_serializable_input=True,
                 per_row_independent=False,
-            )
+            ),
         )
 
     def setup_on_node(
