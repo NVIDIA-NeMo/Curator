@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import time
 from pathlib import Path
 
 import torch
 
 from nemo_curator.models.sed.tensorrt import SedCore, extract_features, postprocess
+from nemo_curator.utils.atomic_io import write_json_atomically
 
 _MEL_BINS = 64
 _SAMPLE_RATE = 32000
@@ -40,6 +40,11 @@ _FRONTEND = {
     "fmax": 14000,
     "classes_num": 527,
 }
+
+
+def _write_metadata_sidecar(path: Path, metadata: dict[str, object]) -> None:
+    """Publish a complete provenance sidecar with one atomic replacement."""
+    write_json_atomically(path, metadata, indent=2, sort_keys=True)
 
 
 def _sha256(path: Path) -> str:
@@ -243,7 +248,7 @@ def main() -> None:
         "workspace_gb": args.workspace_gb,
     }
     metadata_path = args.output.with_suffix(args.output.suffix + ".json")
-    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    _write_metadata_sidecar(metadata_path, metadata)
     print(f"Built {args.output} in {build_seconds:.1f}s; split_max_abs={split_max_abs:.3g}")
 
 

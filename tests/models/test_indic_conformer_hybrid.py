@@ -74,6 +74,14 @@ def test_missing_local_nemo_path_fails_during_resolution(tmp_path: Path) -> None
         IndicConformerHybridASR._resolve_nemo_path(str(checkpoint))
 
 
+def test_local_directory_is_rejected_during_resolution(tmp_path: Path) -> None:
+    checkpoint_dir = tmp_path / "indic.nemo"
+    checkpoint_dir.mkdir()
+
+    with pytest.raises(IsADirectoryError, match="must be a file"):
+        IndicConformerHybridASR._resolve_nemo_path(str(checkpoint_dir))
+
+
 def test_existing_local_nemo_prefetch_does_not_use_huggingface(tmp_path: Path) -> None:
     checkpoint = tmp_path / "indic.nemo"
     checkpoint.touch()
@@ -95,6 +103,22 @@ def test_missing_local_nemo_path_fails_during_prefetch(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match=f"Local NeMo checkpoint not found: {checkpoint}"):
         adapter.download_weights_on_node()
+
+
+def test_local_directory_is_rejected_during_prefetch_without_huggingface(tmp_path: Path) -> None:
+    checkpoint_dir = tmp_path / "checkpoint-directory"
+    checkpoint_dir.mkdir()
+    adapter = IndicConformerHybridASR(str(checkpoint_dir))
+
+    with (
+        patch("huggingface_hub.HfApi") as api,
+        patch("huggingface_hub.hf_hub_download") as download,
+        pytest.raises(IsADirectoryError, match="must be a file"),
+    ):
+        adapter.download_weights_on_node()
+
+    api.assert_not_called()
+    download.assert_not_called()
 
 
 def test_repo_id_resolves_from_local_snapshot_before_network(tmp_path: Path) -> None:

@@ -41,6 +41,7 @@ class _FakeTensorRTRuntime:
     def __init__(self) -> None:
         self.calls: list[tuple[int, int]] = []
         self.closed = False
+        self.max_input_frames = 4001
 
     def __call__(self, waveforms: torch.Tensor) -> torch.Tensor:
         batch, samples = waveforms.shape
@@ -64,6 +65,7 @@ def _adapter(**kwargs: object) -> tuple[TensorRTPANNsSEDAdapter, _FakeTensorRTRu
     runtime = _FakeTensorRTRuntime()
     adapter._model = runtime
     adapter._device = torch.device("cuda")
+    adapter._max_input_samples = runtime.max_input_frames * adapter.hop_size - 1
     return adapter, runtime
 
 
@@ -91,6 +93,16 @@ def test_adapter_rejects_unsupported_cnn14_variants() -> None:
             checkpoint_path=_CHECKPOINT,
             tensorrt_engine_path=_ENGINE,
             model_type="Cnn14_DecisionLevelAvg",
+        )
+
+
+@pytest.mark.parametrize("max_duration_sec", [0.0, -1.0, float("inf"), float("nan"), True, "invalid"])
+def test_adapter_rejects_invalid_duration_limits(max_duration_sec: object) -> None:
+    with pytest.raises(ValueError, match="positive finite number"):
+        TensorRTPANNsSEDAdapter(
+            checkpoint_path=_CHECKPOINT,
+            tensorrt_engine_path=_ENGINE,
+            max_duration_sec=max_duration_sec,  # type: ignore[arg-type]
         )
 
 
@@ -153,6 +165,7 @@ def test_load_model_uses_the_checkpoint_frontend_and_tensorrt_runtime(tmp_path: 
     model = MagicMock()
     model_cls = MagicMock(return_value=model)
     runtime = MagicMock()
+    runtime.max_input_frames = 4001
 
     with (
         patch("torch.cuda.is_available", return_value=True),
@@ -195,6 +208,34 @@ def test_load_model_uses_the_checkpoint_frontend_and_tensorrt_runtime(tmp_path: 
     )
     assert adapter._model is runtime
     assert adapter._device == torch.device("cuda")
+    assert adapter._max_input_samples == 4001 * 512 - 1
+
+
+def test_load_model_rejects_duration_limit_above_engine_profile(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "cnn14.pth"
+    checkpoint_path.touch()
+    runtime = MagicMock()
+    runtime.max_input_frames = 4001
+    adapter = TensorRTPANNsSEDAdapter(
+        checkpoint_path=str(checkpoint_path),
+        tensorrt_engine_path=str(tmp_path / "cnn14.plan"),
+        max_duration_sec=41.0,
+    )
+    model = MagicMock()
+
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        patch("nemo_curator.models.sed.tensorrt.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("torch.load", return_value={"model": {}}),
+        patch("nemo_curator.models.sed.tensorrt.TensorRTSed", return_value=runtime),
+        pytest.raises(ValueError, match="exceeds the TensorRT engine profile limit"),
+    ):
+        adapter.load_model(num_gpus=1)
+
+    runtime.close.assert_called_once_with()
+    assert adapter._model is None
+    assert adapter._device is None
+    assert adapter._max_input_samples is None
 
 
 def test_ragged_batch_preserves_the_panns_result_contract() -> None:
@@ -209,6 +250,34 @@ def test_ragged_batch_preserves_the_panns_result_contract() -> None:
     assert long.valid_frames == 3 * _SR / _HOP
     assert short.original_num_samples == _SR
     assert short.fps == _SR / _HOP
+
+
+def test_inference_accepts_40_seconds_and_rejects_first_out_of_profile_sample() -> None:
+    sample_rate = 32_000
+    adapter = TensorRTPANNsSEDAdapter(
+        checkpoint_path=_CHECKPOINT,
+        tensorrt_engine_path=_ENGINE,
+        sample_rate=sample_rate,
+        hop_size=_HOP,
+        classes_num=_CLASSES,
+    )
+    runtime = _FakeTensorRTRuntime()
+    adapter._model = runtime
+    adapter._device = torch.device("cuda")
+    adapter._max_input_samples = runtime.max_input_frames * adapter.hop_size - 1
+    exact_40_seconds = 40 * sample_rate
+
+    result = adapter.infer_batch([{"waveform": np.zeros(exact_40_seconds, dtype=np.float32)}])
+
+    assert len(result) == 1
+    assert runtime.calls == [(1, exact_40_seconds)]
+
+    first_out_of_profile_sample = 4001 * _HOP
+    with pytest.raises(ValueError, match="exceeds the configured engine input limit"):
+        adapter.infer_batch([{"waveform": np.zeros(first_out_of_profile_sample, dtype=np.float32)}])
+
+    assert first_out_of_profile_sample / sample_rate == pytest.approx(40.01)
+    assert runtime.calls == [(1, exact_40_seconds)]
 
 
 def test_inference_requires_a_loaded_runtime() -> None:
