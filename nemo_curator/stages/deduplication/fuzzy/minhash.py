@@ -28,6 +28,7 @@ from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHAS
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.utils.text import normalize_text
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
@@ -213,6 +214,9 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         Random seed for reproducible minhash generation
     use_64bit_hash : bool, default=False
         Whether to use 64-bit hash functions (vs 32-bit)
+    normalize_text : bool, default=False
+        Whether to normalize text before computing minhashes
+        Current normalization is limited to lowercase and trim whitespace
     read_format : Literal["jsonl", "parquet"] | None, default=None
         Format of input files. Only applies to FileGroupTask inputs; ignored for DocumentBatch
         inputs (which are already in memory). May be None when only DocumentBatch inputs are used.
@@ -242,6 +246,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         num_hashes: int = 260,
         seed: int = 42,
         use_64bit_hash: bool = False,
+        normalize_text: bool = False,
         read_format: Literal["jsonl", "parquet"] | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
@@ -257,6 +262,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         self.num_hashes = num_hashes
         self.seed = seed
         self.use_64bit_hash = use_64bit_hash
+        self.normalize_text = normalize_text
         self.read_format = read_format
         self.read_kwargs = read_kwargs or {}
         self.write_kwargs = write_kwargs or {}
@@ -340,8 +346,14 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         output_file = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
 
         result_df = df[[CURATOR_DEDUP_ID_STR]]
+        text_for_minhash = df[self.text_field]
+
+        if self.normalize_text:
+            with self._time_metric("normalize_text_time"):
+                text_for_minhash = normalize_text(text_for_minhash)
+
         with self._time_metric("minhash_compute_time"):
-            result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
+            result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(text_for_minhash)
 
         # Write output file
         with self._time_metric("minhash_write_time"):

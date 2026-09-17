@@ -27,6 +27,7 @@ from nemo_curator.backends.utils import (
     RayStageSpecKeys,
     check_total_gpu_capacity,
     execute_setup_on_node,
+    get_num_workers_for_nodes,
     merge_executor_configs,
 )
 from nemo_curator.stages.base import ProcessingStage
@@ -36,6 +37,11 @@ from nemo_curator.utils.ray_utils import get_head_node_id
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import Task
+
+
+def test_get_num_workers_for_nodes_rejects_overflow() -> None:
+    with pytest.raises(ValueError, match="too large"):
+        get_num_workers_for_nodes(1e308, 2, "stage")
 
 
 class TestMergeExecutorConfig:

@@ -23,13 +23,23 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    execute_setup_on_node,
+    get_stage_num_workers_per_node,
+    register_loguru_serializer,
+)
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayActorPoolStageAdapter
 from .raft_adapter import RayActorPoolRAFTAdapter
 from .shuffle_adapter import ShuffleStageAdapter
-from .utils import calculate_optimal_actors_for_stage, create_named_ray_actor_pool_stage_adapter
+from .utils import (
+    calculate_optimal_actors_for_stage_with_wait,
+    create_named_ray_actor_pool_stage_adapter,
+    get_available_actor_pool_resources,
+    update_resource_baseline,
+)
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -47,6 +57,16 @@ def _parse_runtime_env(runtime_env: dict) -> dict:
         )
     env_vars["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] = ""
     return user_runtime_env
+
+
+def _get_actor_options(stage: "ProcessingStage") -> dict:
+    options = {
+        "num_cpus": stage.resources.cpus,
+        "num_gpus": stage.resources.gpus,
+    }
+    if get_stage_num_workers_per_node(stage) is not None:
+        options["scheduling_strategy"] = "SPREAD"
+    return options
 
 
 class RayActorPoolExecutor(BaseExecutor):
@@ -69,7 +89,9 @@ class RayActorPoolExecutor(BaseExecutor):
         """Initialize the Ray Actor Pool executor.
 
         Args:
-            config: Configuration dictionary for the executor.
+            config: Configuration dictionary for the executor. ``resource_wait_timeout_s``
+                controls how long to wait for the intended actor pool before failing, and
+                ``resource_wait_interval_s`` controls the polling interval.
             ignore_head_node: If True, don't schedule tasks on the head node.
             show_progress: If True, display tqdm progress bars during execution.
             progress_interval: Minimum interval in seconds between progress bar updates.
@@ -78,7 +100,9 @@ class RayActorPoolExecutor(BaseExecutor):
         self.show_progress = show_progress
         self.progress_interval = progress_interval
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
+    def execute(  # noqa: PLR0912, PLR0915
+        self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None
+    ) -> list[Task]:
         """Execute the pipeline stages using ActorPool.
 
         Args:
@@ -103,6 +127,15 @@ class RayActorPoolExecutor(BaseExecutor):
             logger.info(
                 f"Setup on node complete for all stages. Starting Ray Actor Pool pipeline with {len(stages)} stages"
             )
+            reserved_cpus = self.config.get("reserved_cpus", 0.0)
+            reserved_gpus = self.config.get("reserved_gpus", 0.0)
+            resource_wait_timeout = float(self.config.get("resource_wait_timeout_s", 5.0))
+            resource_wait_interval = float(self.config.get("resource_wait_interval_s", 0.2))
+            resource_baseline = get_available_actor_pool_resources(
+                reserved_cpus,
+                reserved_gpus,
+                self.ignore_head_node,
+            )
             # Initialize with initial tasks
             current_tasks = initial_tasks or [EmptyTask()]
             # Process through each stage with ActorPool
@@ -114,16 +147,34 @@ class RayActorPoolExecutor(BaseExecutor):
                     msg = f"{stage} - No tasks to process, can't continue"
                     raise ValueError(msg)  # noqa: TRY301
 
+                resource_baseline = update_resource_baseline(
+                    resource_baseline,
+                    reserved_cpus,
+                    reserved_gpus,
+                    self.ignore_head_node,
+                )
+
                 if stage.ray_stage_spec().get(RayStageSpecKeys.IS_LSH_STAGE, False):
-                    current_tasks = self._execute_lsh_stage(stage, current_tasks)
+                    current_tasks = self._execute_lsh_stage(
+                        stage,
+                        current_tasks,
+                        resource_baseline,
+                        reserved_cpus,
+                        reserved_gpus,
+                        resource_wait_timeout,
+                        resource_wait_interval,
+                    )
                 else:
                     # Create actor pool for this stage
-                    num_actors = calculate_optimal_actors_for_stage(
+                    num_actors = calculate_optimal_actors_for_stage_with_wait(
                         stage,
                         len(current_tasks),
-                        reserved_cpus=self.config.get("reserved_cpus", 0.0),
-                        reserved_gpus=self.config.get("reserved_gpus", 0.0),
+                        resource_baseline,
+                        reserved_cpus=reserved_cpus,
+                        reserved_gpus=reserved_gpus,
                         ignore_head_node=self.ignore_head_node,
+                        timeout=resource_wait_timeout,
+                        interval=resource_wait_interval,
                     )
                     logger.info(
                         f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
@@ -167,10 +218,7 @@ class RayActorPoolExecutor(BaseExecutor):
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
         """Create an ActorPool for a specific stage."""
         actors = []
-        actor_options: dict = {
-            "num_cpus": stage.resources.cpus,
-            "num_gpus": stage.resources.gpus,
-        }
+        actor_options = _get_actor_options(stage)
         if stage.runtime_env:
             actor_options["runtime_env"] = stage.runtime_env
         for i in range(num_actors):
@@ -193,8 +241,7 @@ class RayActorPoolExecutor(BaseExecutor):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolRAFTAdapter)
                 .options(
-                    num_cpus=stage.resources.cpus,
-                    num_gpus=stage.resources.gpus,
+                    **_get_actor_options(stage),
                     name=f"{stage.name}Actor-{actor_idx}",
                 )
                 .remote(
@@ -232,8 +279,7 @@ class RayActorPoolExecutor(BaseExecutor):
         actors = []
         for actor_idx in range(num_actors):
             actor = ShuffleStageAdapter.options(
-                num_cpus=stage.resources.cpus,
-                num_gpus=stage.resources.gpus,
+                **_get_actor_options(stage),
                 name=f"{stage.name}-Worker_{actor_idx}",
             ).remote(stage=stage, rank=actor_idx, nranks=num_actors, num_input_tasks=num_tasks)
             actors.append(actor)
@@ -382,7 +428,16 @@ class RayActorPoolExecutor(BaseExecutor):
 
         self._cleanup_actors(all_actors)
 
-    def _execute_lsh_stage(self, stage: "LSHStage", input_tasks: list[Task]) -> list[Task]:
+    def _execute_lsh_stage(  # noqa: PLR0913
+        self,
+        stage: "LSHStage",
+        input_tasks: list[Task],
+        resource_baseline: tuple[float, float],
+        reserved_cpus: float,
+        reserved_gpus: float,
+        resource_wait_timeout: float,
+        resource_wait_interval: float,
+    ) -> list[Task]:
         """Execute an LSH stage with band iteration.
 
         Args:
@@ -401,12 +456,15 @@ class RayActorPoolExecutor(BaseExecutor):
             output_path = stage.output_paths[i]
             stage.actor_kwargs["output_path"] = output_path
 
-            num_actors = calculate_optimal_actors_for_stage(
+            num_actors = calculate_optimal_actors_for_stage_with_wait(
                 stage,
                 len(original_input),
-                reserved_cpus=self.config.get("reserved_cpus", 0.0),
-                reserved_gpus=self.config.get("reserved_gpus", 0.0),
+                resource_baseline,
+                reserved_cpus=reserved_cpus,
+                reserved_gpus=reserved_gpus,
                 ignore_head_node=self.ignore_head_node,
+                timeout=resource_wait_timeout,
+                interval=resource_wait_interval,
             )
             logger.info(
                 f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
