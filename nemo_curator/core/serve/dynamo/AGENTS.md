@@ -66,7 +66,7 @@ subprocess.run(["uv", "venv", "--python", sys.executable, "/opt/dynamo"], check=
 overrides = vllm._ACTOR_VENV_OVERRIDES_PATH
 overrides.write_text(f"ray=={version('ray')}\n{vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n")
 subprocess.run(
-    ["uv", "pip", "install", "--python", python,
+    ["uv", "pip", "install", "--python", python, "--no-sources",
      *uv["uv_pip_install_options"], "/opt/Curator", *uv["packages"]],
     cwd="/tmp", check=True,
 )
@@ -80,7 +80,9 @@ PY
 
 `/opt/Curator` installs the image's Curator revision with no extras. Resolve it
 and the serving packages in one install so their shared dependencies agree;
-the override keeps Ray matched to the driver. Avoid Curator's `vllm` or
+the override keeps Ray matched to the driver. `--no-sources` prevents the
+checkout's `tool.uv.sources` from silently selecting development wheel indexes
+instead of the serving stack's indexes. Avoid Curator's `vllm` or
 `inference_server` extras here: Dynamo selects its own vLLM dependencies.
 Build the venv separately for each CPU architecture. The import check covers
 actor bootstrap; validate model-specific dependencies with one replica and
