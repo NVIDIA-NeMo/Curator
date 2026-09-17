@@ -14,6 +14,11 @@
 
 from dataclasses import dataclass
 
+# Smallest fractional GPU a memory-based request may resolve to. Matches the
+# one-decimal rounding used below so a positive gpu_memory_gb never collapses to
+# a zero-GPU (CPU-only) reservation on very large devices.
+MIN_GPU_FRACTION = 0.1
+
 
 def _get_gpu_memory_gb() -> float:
     """Get GPU memory in GB for the current device."""
@@ -55,9 +60,16 @@ class Resources:
         if self.gpu_memory_gb > 0:
             # Get actual GPU memory for current device
             gpu_memory_per_device = _get_gpu_memory_gb()
-            # Calculate required GPUs and round to 1 decimal place
+            # Calculate required GPUs and round to 1 decimal place. Floor the
+            # result at 0.1: on large devices (e.g. GB300, ~250 GB) a small
+            # request such as gpu_memory_gb=10 rounds to 0.0, which makes the
+            # scheduler treat the stage as CPU-only and clear
+            # CUDA_VISIBLE_DEVICES, so the stage later fails with
+            # "RuntimeError: No CUDA GPUs are available" even though
+            # requires_gpu is True. A memory request must always reserve a
+            # non-zero GPU fraction.
             required_gpus = self.gpu_memory_gb / gpu_memory_per_device
-            self.gpus = round(required_gpus, 1)
+            self.gpus = max(MIN_GPU_FRACTION, round(required_gpus, 1))
             if self.gpus > 1:
                 error_message = "gpu_memory_gb is too large for a single GPU. "
                 error_message += "Please use gpus for multi-GPU stages."
