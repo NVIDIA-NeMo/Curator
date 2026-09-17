@@ -28,12 +28,13 @@ pins or CUDA wheel indexes from an older image.
 
 ### Preinstall a serving venv to avoid startup installs
 
-Keep the full Curator image and its pipeline environment as the final image's
-base. Add a separate serving venv: readers, API clients and writers run in the
-pipeline environment, while `runtime_env` selects the serving actors' interpreter.
-Installing Curator without extras is sufficient for serving bootstrap; it does
-not replace the pipeline's feature dependencies. Match the serving venv's Python
-minor version and Ray version to the driver, even when its backend stack differs.
+Keep the pipeline's required dependencies available in the final image. When
+extending a full Curator image, preserve its driver environment and add a
+separate serving venv. A smaller backend-based image can also host a CPU pipeline
+with Curator's base and client dependencies installed; validate the complete
+read → inference → write flow, not just server startup. Use separate environments
+when dependencies conflict, matching the serving actors' Python minor version
+and Ray version to the driver even when their backend stacks differ.
 
 First check the model's architecture, upstream serving recipe and Dynamo's
 backend compatibility. A model can require an unreleased backend even when
