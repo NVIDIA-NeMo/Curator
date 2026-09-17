@@ -283,7 +283,8 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,
             cardinality_options=["1:1", "1:N fan-out"],
-            iteration_key=None,
+            # Fan-out children are one-per-diarization-segment, as Sortformer/WhisperX declare.
+            iteration_key=self.segments_key if self.fanout else None,
             removes_keys=(
                 list(
                     dict.fromkeys(
@@ -304,9 +305,10 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 # Even a local diarization pipeline constructs WhisperXVADModel,
                 # whose weights are downloaded on first use.
                 requires_internet_first_run=True,
+                # An empty token cannot authenticate, so ``""`` is as missing as ``None``.
                 runtime_secrets=(
                     ["HF_TOKEN"]
-                    if self.hf_token is None and not os.path.exists(os.path.expanduser(self.model_name))
+                    if not self.hf_token and not os.path.exists(os.path.expanduser(self.model_name))
                     else []
                 ),
                 # ``add_vad_segments`` draws from one unseeded ``random.Random()`` built in
