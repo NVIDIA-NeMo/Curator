@@ -254,13 +254,12 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         audio instead, which is the identity the path was standing in for -- and folding in the
         settings makes the "already converted, skip it" check below correct, not merely fast.
 
-        The path branch is unchanged, so pipelines reading real files keep their output names.
+        The path branch preserves the legacy eight-character suffix, so pipelines reading real
+        files keep their output names.
         """
         if not from_scratch_file:
             stem = os.path.splitext(os.path.basename(local_audio_path))[0]
-            # 16 hex (64 bits) matches _audio_digest: an 8-hex (32-bit) suffix made two distinct
-            # paths sharing a basename stem collide far too readily onto one output stem.
-            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:16]}"
+            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:8]}"
         # Keep the source name on the front so a clip stays traceable by eye.
         stem = os.path.splitext(os.path.basename(str(source)))[0] if source else "clip"
         return f"{stem}_{self._audio_digest(local_audio_path)}"

@@ -210,22 +210,13 @@ class TestNarrowingIsNotInvisible:
             contract = assert_contract_wellformed(cls)
             assert contract.gates.per_row_independent is not None, cls.__name__
 
-    def test_a_bounded_source_is_still_declared_narrowable_by_an_accepted_decision(self) -> None:
-        """A bounded ``max_samples`` does not stop the region, by decision rather than by proof.
-
-        ``max_samples`` truncates the SORTED listing, so which files are selected is a fact about
-        the whole folder: a delta enumerating only the changed files takes the first N of its own
-        listing and can admit files a full run would never have selected, silently. This stage
-        declared ``False`` while bounded for exactly that reason, and the region stopped at it --
-        which for a SOURCE means a full run every time anyone sets the parameter. That cost was
-        weighed against the unsoundness and reuse was chosen, so the declaration is now a flat
-        ``True``. The assertion is inverted deliberately; it is not that the hazard went away.
-        """
+    def test_a_bounded_source_stops_the_narrowable_region(self) -> None:
+        """A sorted top-N folder selection cannot be reproduced from changed files alone."""
         from nemo_curator.stages.audio._agent._conformance import assert_contract_wellformed
         from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage as Folder
 
         bounded = assert_contract_wellformed(Folder(data_dir="/tmp/x", max_samples=10))  # noqa: S108
-        assert bounded.gates.per_row_independent is True
+        assert bounded.gates.per_row_independent is False
         assert assert_contract_wellformed(Folder(data_dir="/tmp/x")).gates.per_row_independent is True  # noqa: S108
 
         rec = Recipe.from_dict(
@@ -239,7 +230,10 @@ class TestNarrowingIsNotInvisible:
                 ]
             }
         ).freeze()
-        assert delta.region(rec, upto=2) == (2, "")
+        depth, reason = delta.region(rec, upto=2)
+        assert depth == 0
+        assert "CreateInitialManifestAudioFolderStage" in reason
+        assert "depends on the other rows" in reason
 
 
 class TestInventory:

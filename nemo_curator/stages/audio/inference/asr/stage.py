@@ -113,6 +113,16 @@ def _set_note(task_data: dict[str, Any], notes_key: str, stage_name: str, value:
     notes[stage_name] = value
 
 
+def _validate_control_keys(skip_me_key: object, notes_key: object) -> None:
+    for field_name, key in (("skip_me_key", skip_me_key), ("notes_key", notes_key)):
+        if not isinstance(key, str) or not key.strip():
+            msg = f"ASRStage.{field_name} must be a non-empty string"
+            raise ValueError(msg)
+    if skip_me_key == notes_key:
+        msg = "ASRStage.skip_me_key and notes_key must be distinct"
+        raise ValueError(msg)
+
+
 @dataclass
 class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     """Audio speech-recognition stage with a pluggable adapter.
@@ -164,6 +174,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        _validate_control_keys(self.skip_me_key, self.notes_key)
         if not self.pred_text_key:
             msg = "ASRStage.pred_text_key must be non-empty"
             raise ValueError(msg)

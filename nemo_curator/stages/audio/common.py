@@ -691,12 +691,10 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
             # (unlike the dataset CreateInitialManifest*Stage sources, which download and write).
             writes=IOSpec(data_keys=[self.audio_filepath_key, self.audio_item_id_key]),
             cardinality="1:N fan-out",
-            # Scans existing files; one task per file, and a row says nothing about its
-            # neighbours. Declared True unconditionally BY DECISION: under a bounded
-            # ``max_samples`` the SORTED listing is truncated, so a delta can admit files a full
-            # run would not have. Accepted rather than cost every bounded run its reuse -- not
-            # an oversight to "fix" back.
-            gates=Gates(per_row_independent=True),
+            # A bounded sorted listing depends on the whole folder: adding an earlier path can
+            # change which existing rows belong to the first N. Unbounded scans remain safely
+            # narrowable one file at a time.
+            gates=Gates(per_row_independent=self.max_samples is None or self.max_samples < 0),
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:

@@ -493,6 +493,26 @@ def test_empty_extras_key_is_rejected() -> None:
         )
 
 
+@pytest.mark.parametrize("field_name", ["skip_me_key", "notes_key"])
+def test_empty_control_key_is_rejected(field_name: str) -> None:
+    with pytest.raises(ValueError, match=rf"{field_name} must be a non-empty string"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            **{field_name: " "},
+        )
+
+
+def test_control_keys_must_be_distinct() -> None:
+    with pytest.raises(ValueError, match="skip_me_key and notes_key must be distinct"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            skip_me_key="control",
+            notes_key="control",
+        )
+
+
 @pytest.mark.parametrize("extras_key", ["pred_text", "_skipme", "additional_notes"])
 def test_extras_key_cannot_collide_with_another_output(extras_key: str) -> None:
     with pytest.raises(ValueError, match="extras_key cannot collide"):

@@ -452,12 +452,6 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             msg = f"[{self.name}] task {task.task_id!r} has no valid {self.input_residency} audio input"
             raise ValueError(msg)
 
-        source_path = _stable_source_path(
-            task.data,
-            self.filepath_key,
-            "audio_filepath",
-            "resampled_audio_filepath",
-        )
         resident_waveform = (
             _channel_first_waveform(task.data[self.waveform_key])
             if self.input_residency != "file"
@@ -466,6 +460,16 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             else None
         )
         resident_sample_rate = int(task.data[self.sample_rate_key]) if resident_waveform is not None else None
+        source_path = (
+            None
+            if resident_waveform is not None
+            else _stable_source_path(
+                task.data,
+                self.filepath_key,
+                "audio_filepath",
+                "resampled_audio_filepath",
+            )
+        )
         audio_input = task.data if resident_waveform is None else {**task.data, self.waveform_key: resident_waveform}
         temp_paths: list[str] = []
         file_path = resolve_audio_path(

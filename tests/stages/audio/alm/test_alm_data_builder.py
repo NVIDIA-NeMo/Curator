@@ -205,6 +205,18 @@ class TestALMDataBuilder:
         with pytest.raises(ValueError, match="generated output keys"):
             ALMDataBuilderStage(**kwargs)
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"audio_filepath_key": "input", "segments_key": "input"},
+            {"segments_key": "input", "audio_sample_rate_key": "input"},
+            {"audio_filepath_key": "input", "audio_sample_rate_key": "input"},
+        ],
+    )
+    def test_required_input_key_collisions_are_rejected(self, kwargs: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="required input keys must be distinct"):
+            ALMDataBuilderStage(**kwargs)
+
     def test_agent_ready_default_custom_and_explicit_drop(self, sample_entry: dict) -> None:
         def default_fixture() -> AudioTask:
             return AudioTask(data=copy.deepcopy(sample_entry))

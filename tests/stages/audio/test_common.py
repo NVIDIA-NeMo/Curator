@@ -28,6 +28,7 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
+    CreateInitialManifestAudioFolderStage,
     GetAudioDurationStage,
     ManifestCheckpointStage,
     ManifestReader,
@@ -437,6 +438,14 @@ def test_compound_preserve_nested_contract_uses_only_top_level_container_key() -
         condition_logic="or",
     ).describe()
     assert "OR" in or_contract.description
+
+
+def test_bounded_audio_folder_source_is_not_row_independent() -> None:
+    bounded = CreateInitialManifestAudioFolderStage(data_dir="/tmp/x", max_samples=10)  # noqa: S108
+    unbounded = CreateInitialManifestAudioFolderStage(data_dir="/tmp/x")  # noqa: S108
+
+    assert bounded.describe().gates.per_row_independent is False
+    assert unbounded.describe().gates.per_row_independent is True
 
 
 # ---------------------------------------------------------------------------

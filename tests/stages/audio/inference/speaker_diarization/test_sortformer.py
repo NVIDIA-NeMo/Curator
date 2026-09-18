@@ -18,6 +18,8 @@ from pathlib import Path  # noqa: TC003
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import (
     InferenceSortformerStage,
     _parse_sortformer_segments,
@@ -187,6 +189,36 @@ class TestInferenceSortformerStage:
         )
         stage.process(task)
         assert (tmp_path / "sess_42.rttm").exists()
+
+    def test_resident_waveform_ignores_stale_file_path_for_identity(self, tmp_path: Path) -> None:
+        mock_model = self._make_mock_model([["0.00 0.50 speaker_0"]])
+        stage = InferenceSortformerStage(
+            diar_model=mock_model,
+            input_residency="waveform",
+            fanout=True,
+            rttm_out_dir=str(tmp_path),
+        )
+        stale_path = "/stale/unrelated.wav"
+        task = AudioTask(
+            data={
+                "audio_filepath": stale_path,
+                "waveform": np.zeros(16000, dtype=np.float32),
+                "sample_rate": 16000,
+            },
+        )
+
+        with patch(
+            "nemo_curator.stages.audio.inference.speaker_diarization.sortformer.resolve_audio_path",
+            return_value="/tmp/materialized-resident.wav",  # noqa: S108
+        ):
+            result = stage.process(task)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        identity = result[0].data["original_file"]
+        assert identity != stale_path
+        assert identity.startswith("audio_")
+        assert [path.stem for path in tmp_path.glob("*.rttm")] == [identity]
 
 
 def test_cpu_injected_sortformer_does_not_claim_gpu_requirement() -> None:

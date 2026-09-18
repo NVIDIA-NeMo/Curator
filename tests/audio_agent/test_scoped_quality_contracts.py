@@ -122,10 +122,21 @@ def test_auto_mode_contract_conservatively_exposes_both_scoped_branches(
     contract = stage.describe()
     assert contract.reads.data_keys == []
     assert contract.reads.segment_data_keys == []
-    assert _read_shapes(stage) == {
-        (("path",), (), ("file",)),
-        (("clips",), ("path",), ("file",)),
-    }
+    assert contract.reads_one_of == []
+    assert len(contract.conditional_reads) == 2
+    task_branch, segment_branch = contract.conditional_reads
+    assert task_branch.forbids_keys == ["clips"]
+    assert task_branch.requires_keys == []
+    assert {
+        (tuple(spec.data_keys), tuple(spec.segment_data_keys), tuple(spec.accepts))
+        for spec in task_branch.reads_one_of
+    } == {(("path",), (), ("file",))}
+    assert segment_branch.requires_keys == ["clips"]
+    assert segment_branch.forbids_keys == []
+    assert {
+        (tuple(spec.data_keys), tuple(spec.segment_data_keys), tuple(spec.accepts))
+        for spec in segment_branch.reads_one_of
+    } == {((), ("path",), ("file",))}
     assert contract.writes.data_keys == []
     assert contract.writes.segment_data_keys == []
 
