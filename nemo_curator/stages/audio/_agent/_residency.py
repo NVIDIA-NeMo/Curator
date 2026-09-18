@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import math
 import os
 import tempfile
+from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 import soundfile as sf
 import torch
 
@@ -44,6 +47,35 @@ def validate_input_residency(residency: str, *, stage_name: str) -> None:
     if residency not in {"file", "waveform", "auto"}:
         msg = f"[{stage_name}] input_residency must be one of 'file', 'waveform', or 'auto'; got {residency!r}"
         raise ValueError(msg)
+
+
+def resident_sample_rate(value: Any, *, sample_rate_key: str, stage_name: str) -> int:  # noqa: ANN401
+    """Return a positive integral resident sample rate without lossy coercion."""
+    if torch.is_tensor(value) and value.ndim == 0:
+        value = value.item()
+
+    rate: int | None = None
+    if isinstance(value, (bool, np.bool_)):
+        rate = None
+    elif isinstance(value, str):
+        try:
+            rate = int(value)
+        except ValueError:
+            rate = None
+    elif isinstance(value, Integral):
+        rate = int(value)
+    elif isinstance(value, Real):
+        numeric = float(value)
+        if math.isfinite(numeric) and numeric.is_integer():
+            rate = int(numeric)
+
+    if rate is None or rate <= 0:
+        msg = (
+            f"[{stage_name}] Resident sample rate '{sample_rate_key}' must be a positive, "
+            f"losslessly integral, non-boolean value; got {value!r}"
+        )
+        raise ValueError(msg)
+    return rate
 
 
 def validate_audio_key_configuration(
@@ -399,7 +431,12 @@ def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches 
     sample_rate = item.get(sample_rate_key)
     if residency != "file" and waveform is not None:
         if sample_rate is not None:
-            return ensure_waveform_2d(waveform), int(sample_rate)
+            sample_rate = resident_sample_rate(
+                sample_rate,
+                sample_rate_key=sample_rate_key,
+                stage_name="resolve_audio",
+            )
+            return ensure_waveform_2d(waveform), sample_rate
         if residency == "auto" and infer_sample_rate_from_file:
             path = item.get(audio_filepath_key)
             if path:

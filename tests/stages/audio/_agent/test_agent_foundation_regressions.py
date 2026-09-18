@@ -305,6 +305,43 @@ def test_input_residency_validator_rejects_unknown_mode() -> None:
         validate_input_residency("wavefrom", stage_name="Fixture")
 
 
+@pytest.mark.parametrize(
+    "sample_rate",
+    [
+        pytest.param(True, id="bool"),
+        pytest.param(np.bool_(True), id="numpy-bool"),
+        pytest.param(0, id="zero"),
+        pytest.param(-1, id="negative"),
+        pytest.param(16000.5, id="fractional-float"),
+        pytest.param("16000.5", id="fractional-string"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="infinity"),
+        pytest.param(torch.tensor([16000]), id="non-scalar-tensor"),
+    ],
+)
+def test_resolve_audio_rejects_invalid_resident_sample_rates(sample_rate: object) -> None:
+    with pytest.raises(ValueError, match="positive, losslessly integral, non-boolean"):
+        resolve_audio({"waveform": torch.zeros(8), "sample_rate": sample_rate})
+
+
+@pytest.mark.parametrize(
+    "sample_rate",
+    [
+        pytest.param(16000, id="int"),
+        pytest.param(np.int64(16000), id="numpy-int"),
+        pytest.param(16000.0, id="integral-float"),
+        pytest.param("16000", id="numeric-string"),
+        pytest.param(torch.tensor(16000), id="scalar-tensor"),
+    ],
+)
+def test_resolve_audio_preserves_lossless_sample_rate_coercions(sample_rate: object) -> None:
+    resolved = resolve_audio({"waveform": torch.zeros(8), "sample_rate": sample_rate})
+
+    assert resolved is not None
+    assert resolved[1] == 16000
+    assert isinstance(resolved[1], int)
+
+
 def test_audio_key_validator_rejects_input_role_aliases() -> None:
     with pytest.raises(ValueError, match="Audio input keys must be distinct"):
         validate_audio_key_configuration(
