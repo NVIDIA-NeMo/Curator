@@ -14,12 +14,16 @@
 
 # ruff: noqa: ARG001
 
+import glob
 import os
+import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
+from nemo_curator.core import client as client_module
 from nemo_curator.core.client import RayClient
 
 
@@ -144,3 +148,103 @@ def test_get_ray_client_single_start_with_stdouterr_capture(clean_env: pytest.fi
     finally:
         if client:
             client.stop()
+
+
+def test_ray_client_stop_removes_only_its_own_session_dir(clean_env: pytest.fixture):
+    kept = None
+    client = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="ray_test_session_") as ray_tmp:
+
+            def sessions() -> list[str]:
+                return sorted(glob.glob(os.path.join(ray_tmp, "session_2*")))
+
+            # By default the session dir is kept, as before.
+            kept = RayClient(ray_temp_dir=ray_tmp)
+            kept.start()
+            _assert_ray_cluster_started(kept)
+            kept.stop()
+            older = sessions()
+            assert len(older) == 1
+
+            client = RayClient(ray_temp_dir=ray_tmp, cleanup_ray_session_dir=True)
+            latest = os.path.join(ray_tmp, "session_latest")
+            # Stand-in for the session dir of another cluster sharing the temp dir.
+            concurrent = os.path.join(ray_tmp, "session_2099-01-01_00-00-00_000000_1")
+            for _ in range(2):  # the same client is started and stopped twice
+                client.start()
+                _assert_ray_cluster_started(client)
+                own = glob.glob(os.path.join(ray_tmp, f"session_*_{client.ray_process.pid}"))
+                assert len(own) == 1
+                assert os.path.realpath(latest) == os.path.realpath(own[0])
+                os.makedirs(concurrent, exist_ok=True)
+                client.stop()
+                client.stop()  # a second stop() is a no-op
+                assert sessions() == sorted([*older, concurrent])
+                assert not os.path.lexists(latest)
+            time.sleep(15)  # no leftover Ray process recreates the dir
+            assert sessions() == sorted([*older, concurrent])
+    finally:
+        for c in (kept, client):
+            if c:
+                c.stop()
+
+
+def test_ray_client_stop_keeps_sessions_of_external_cluster(
+    clean_env: pytest.fixture, monkeypatch: pytest.MonkeyPatch
+):
+    with tempfile.TemporaryDirectory(prefix="ray_test_external_") as ray_tmp:
+        external = os.path.join(ray_tmp, "session_x_1")
+        os.makedirs(external)
+        monkeypatch.setenv("RAY_ADDRESS", "127.0.0.1:6379")
+        client = RayClient(ray_temp_dir=ray_tmp, cleanup_ray_session_dir=True)
+        client.start()
+        assert client.ray_process is None
+        client.stop()
+        assert os.path.isdir(external)
+
+
+def _fake_ray_start(monkeypatch: pytest.MonkeyPatch, session_roots: list[Path], on_sigterm: str = ":") -> None:
+    """Stand in for `ray start`: a process that makes session_*_<its pid> under each root, runs `on_sigterm` on SIGTERM."""
+
+    def fake_init_cluster(**kwargs) -> subprocess.Popen:
+        roots = " ".join(f"'{r}'" for r in session_roots)
+        script = (
+            f"trap '{on_sigterm}; exit 0' TERM; for r in {roots}; do mkdir -p \"$r/session_2099-01-01_$$\"; done; "
+        )
+        script += "while :; do sleep 0.1; done"
+        proc = subprocess.Popen(["bash", "-c", script], start_new_session=True)  # noqa: S603, S607
+        for root in session_roots:
+            while not (root / f"session_2099-01-01_{proc.pid}").is_dir():
+                time.sleep(0.05)
+        return proc
+
+    monkeypatch.setattr(client_module, "init_cluster", fake_init_cluster)
+    monkeypatch.setattr(client_module, "check_ray_responsive", lambda: True)
+
+
+@pytest.mark.parametrize("temp_dir_name", ["ray[1]", "ray*", "ray?"])
+def test_ray_client_stop_never_touches_sibling_of_temp_dir_with_glob_characters(
+    clean_env: pytest.fixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, temp_dir_name: str
+):
+    ray_tmp, sibling = tmp_path / temp_dir_name, tmp_path / "ray1"
+    _fake_ray_start(monkeypatch, [ray_tmp, sibling])
+    client = RayClient(ray_temp_dir=str(ray_tmp), include_dashboard=False, cleanup_ray_session_dir=True)
+    client.start()
+    pid = client.ray_process.pid
+    client.stop()
+    assert not (ray_tmp / f"session_2099-01-01_{pid}").exists()
+    assert (sibling / f"session_2099-01-01_{pid}").is_dir()
+
+
+def test_ray_client_stop_keeps_session_dir_that_appears_after_stop_begins(
+    clean_env: pytest.fixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # Once the process is reaped its pid can be reused, so a dir showing up after the kill is not provably ours.
+    _fake_ray_start(monkeypatch, [tmp_path], on_sigterm=f'mkdir "{tmp_path}/session_late_$$"')
+    client = RayClient(ray_temp_dir=str(tmp_path), include_dashboard=False, cleanup_ray_session_dir=True)
+    client.start()
+    pid = client.ray_process.pid
+    client.stop()
+    assert not (tmp_path / f"session_2099-01-01_{pid}").exists()
+    assert (tmp_path / f"session_late_{pid}").is_dir()
