@@ -167,7 +167,7 @@ def main() -> None:
         "not calibrated fuzzy-dedup accuracy. Read a sample of disagreements before drawing conclusions."
     )
     with pd.option_context("display.max_columns", None, "display.width", 200):
-        print(summary.to_string(index=False))  # noqa: T201
+        print(summary.to_string(index=False))
 
     if args.disagreements_output:
         num_written = write_disagreements(df, args.disagreements_output)

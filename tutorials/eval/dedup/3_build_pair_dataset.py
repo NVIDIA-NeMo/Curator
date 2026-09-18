@@ -46,12 +46,12 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import DUPLICATE_IDS_SUBDIR
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
+from nemo_curator.stages.deduplication.fuzzy.workflow import ID_GENERATOR_OUTPUT_FILENAME
 from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
     create_id_generator_actor,
     kill_id_generator_actor,
 )
-from nemo_curator.stages.deduplication.fuzzy.workflow import ID_GENERATOR_OUTPUT_FILENAME
 
 PairStrategy = Literal["keeper_removed", "all_pairwise", "cross_group_sample"]
 _VALID_STRATEGIES = ("keeper_removed", "all_pairwise", "cross_group_sample")
@@ -121,7 +121,9 @@ def _reassign_ids_to_parquet(
         ray_client.stop()
 
     if not any(corpus_dir.glob("*.parquet")):
-        msg = f"No documents were read back from {input_path!r}; check --input-path/--input-filetype/--input-blocksize."
+        msg = (
+            f"No documents were read back from {input_path!r}; check --input-path/--input-filetype/--input-blocksize."
+        )
         raise RuntimeError(msg)
     metadata_file.write_text(json.dumps(metadata), encoding="utf-8")
     return corpus_dir
@@ -213,7 +215,9 @@ def _build_cross_group_pairs(all_docs: pd.DataFrame, num_samples: int, rng: rand
         seen.add(key)
         pairs.append(_make_pair_row(doc_a, doc_b, pair_type="cross_group_sample", expected_duplicate=False))
     if len(pairs) < num_samples:
-        logger.warning(f"Could only sample {len(pairs)}/{num_samples} cross-group pairs from {len(records)} documents.")
+        logger.warning(
+            f"Could only sample {len(pairs)}/{num_samples} cross-group pairs from {len(records)} documents."
+        )
     return pairs
 
 
@@ -239,7 +243,7 @@ def _make_pair_row(doc_a: dict, doc_b: dict, *, pair_type: str, expected_duplica
     }
 
 
-def build_pairs(
+def build_pairs(  # noqa: PLR0913
     *,
     documents_df: pd.DataFrame,
     group_labels_df: pd.DataFrame,
@@ -253,11 +257,13 @@ def build_pairs(
     # assigns; normalize before merging so pandas doesn't silently produce an all-NaN join.
     group_labels_df = group_labels_df.astype({CURATOR_DEDUP_ID_STR: documents_df[CURATOR_DEDUP_ID_STR].dtype})
     merged = documents_df.merge(group_labels_df, on=CURATOR_DEDUP_ID_STR, how="left")
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311
     pairs: list[dict] = []
 
     if strategy in ("keeper_removed", "all_pairwise"):
-        grouped = merged[merged[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD].notna()].groupby(CURATOR_FUZZY_DUPLICATE_GROUP_FIELD)
+        grouped = merged[merged[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD].notna()].groupby(
+            CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
+        )
         if strategy == "keeper_removed":
             for _, group in grouped:
                 pairs.extend(_build_keeper_removed_pairs(group, removed_ids))
@@ -328,7 +334,9 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="The --output-dir used by run_fuzzy_dedup.py (holds FuzzyDuplicateIds/ and fuzzy_id_generator.json).",
     )
-    parser.add_argument("--output-path", required=True, help="Directory to write the sharded pairs JSONL part files to.")
+    parser.add_argument(
+        "--output-path", required=True, help="Directory to write the sharded pairs JSONL part files to."
+    )
     parser.add_argument(
         "--pair-strategy",
         choices=_VALID_STRATEGIES,
