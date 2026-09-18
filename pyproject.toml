@@ -232,7 +232,7 @@ text_cuda12 = [
 
 # Video Curation Dependencies
 video_cpu = [
-    "av==18.1.0",  # Wheel bundles FFmpeg 8.1.2.
+    "av==17.1.0",  # ffmpeg 8.1.1 (CVE: was 7.0.2)
     "torchvision",
     "einops",
     "easydict",
