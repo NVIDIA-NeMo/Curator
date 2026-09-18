@@ -10,20 +10,20 @@ modality: "text-only"
 
 # Process Data for Text Curation
 
-Process text data you've loaded through NeMo Curator's [pipeline architecture ](/about/concepts/text/data/loading).
+Process text data that you loaded through NeMo Curator's [pipeline architecture](/about/concepts/text/data/loading).
 
-NeMo Curator provides a comprehensive suite of tools for processing text data as part of the AI training pipeline. These tools help you analyze, transform, and filter your text datasets to ensure high-quality input for language model training.
+NeMo Curator provides tools for processing text data as part of a model training pipeline. These tools help you analyze, transform, and filter datasets to create high-quality training input.
 
-## How it Works
+## How It Works
 
 NeMo Curator's text processing capabilities are organized into six main categories:
 
-1. **Language Management**: Handle multilingual content, translation, and language-specific processing
-2. **Content Processing & Cleaning**: Clean, normalize, and transform text content
-3. **Deduplication**: Remove duplicate and near-duplicate documents efficiently
-4. **Quality Assessment & Filtering**: Score and remove low-quality content using heuristics and ML classifiers
-5. **Specialized Processing**: Domain-specific processing for code and advanced curation tasks
-6. **Interleaved Datasets**: Read, write, and filter MINT-1T-style image-text datasets
+1. **Language Management**: Handle multilingual content, translation, and language-specific processing.
+2. **Content Processing and Cleaning**: Clean, normalize, and transform text content.
+3. **Deduplication**: Remove duplicate and near-duplicate documents efficiently.
+4. **Quality Assessment and Filtering**: Score and remove low-quality content using heuristics and machine learning classifiers.
+5. **Specialized Processing**: Apply domain-specific processing for code and advanced curation tasks.
+6. **Interleaved Datasets**: Read, write, and filter MINT-1T-style image-text datasets.
 
 Each category provides specific implementations optimized for different curation needs. The result is a cleaned and filtered dataset ready for model training.
 
@@ -59,7 +59,7 @@ faith
 
 </Cards>
 
-## Content Processing & Cleaning
+## Content Processing and Cleaning
 
 Clean, normalize, and transform text content for high-quality training data.
 
@@ -103,9 +103,9 @@ gpu-accelerated
 
 </Cards>
 
-## Quality Assessment & Filtering
+## Quality Assessment and Filtering
 
-Score and remove low-quality content using heuristics and ML classifiers.
+Score and remove low-quality content using heuristics and machine learning classifiers.
 
 <Cards>
 
@@ -124,10 +124,17 @@ scoring
 </Card>
 
 <Card title="Distributed Classification" href="/curate-text/process-data/quality-assessment/distributed-classifier">
-GPU-accelerated classification with pre-trained models
+GPU-accelerated classification with pretrained models
 gpu
 distributed
 scalable
+</Card>
+
+<Card title="LLM Judge Workflow" href="/main/curate-text/process-data/quality-assessment/llm-judge">
+Evaluate and filter records with config-driven large language model (LLM) judges and structured rubrics
+llm
+evaluation
+structured-scoring
 </Card>
 
 </Cards>
