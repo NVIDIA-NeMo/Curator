@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import json
 import math
 import os
@@ -118,13 +119,31 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def validate_input(self, task: AudioTask) -> bool:
         """Require the audio source implied by ``input_residency`` (default: file)."""
         data = task.data
-        has_waveform = data.get(self.waveform_key) is not None and data.get(self.sample_rate_key) is not None
         has_file = self.audio_filepath_key in data
-        if self.input_residency == "waveform":
-            return has_waveform
         if self.input_residency == "file":
             return has_file
+        try:
+            has_waveform = self._resident_rate(data) is not None
+        except ValueError:
+            has_waveform = False
+        if self.input_residency == "waveform":
+            return has_waveform
         return has_waveform or has_file  # auto
+
+    def _resident_rate(self, data: dict[str, Any]) -> int | None:
+        waveform = data.get(self.waveform_key)
+        sample_rate = data.get(self.sample_rate_key)
+        if waveform is None or sample_rate is None:
+            return None
+
+        # Lazy import avoids the module-level cycle (_residency imports helpers below).
+        from nemo_curator.stages.audio._agent._residency import resident_sample_rate
+
+        return resident_sample_rate(
+            sample_rate,
+            sample_rate_key=self.sample_rate_key,
+            stage_name=self.name,
+        )
 
     def _resolve_duration(self, data: dict[str, Any]) -> float:
         """Duration from an in-memory waveform (samples / sample_rate) or the file.
@@ -133,9 +152,14 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         """
         if self.input_residency != "file":
             waveform = data.get(self.waveform_key)
-            sr = data.get(self.sample_rate_key)
-            if waveform is not None and sr is not None and int(sr) > 0:
-                return ensure_waveform_2d(waveform).shape[-1] / float(sr)
+            try:
+                sample_rate = self._resident_rate(data)
+            except ValueError:
+                if self.input_residency == "waveform" or self.audio_filepath_key not in data:
+                    raise
+            else:
+                if sample_rate is not None:
+                    return ensure_waveform_2d(waveform).shape[-1] / sample_rate
             if self.input_residency == "waveform":
                 logger.warning(f"Missing '{self.waveform_key}'+'{self.sample_rate_key}' (input_residency='waveform')")
                 return -1.0
@@ -1094,8 +1118,51 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         self._reset_retry_state()
 
     def release_retry_reservation(self) -> None:
-        """Remove this run's ownership sidecar after successful execution."""
+        """Publish completion, then remove this run's retry ownership sidecar."""
         self._resolve_output()
+        owner = self._read_retry_owner()
+        if owner is None or owner.get("token") != self._reservation_token:
+            msg = (
+                "ManifestCheckpointStage cannot publish completion for a checkpoint "
+                f"it does not own at {self.output_path!r}"
+            )
+            raise RuntimeError(msg)
+        if not self._fs.exists(self._path):
+            msg = f"ManifestCheckpointStage cannot publish completion for missing checkpoint {self.output_path!r}"
+            raise RuntimeError(msg)
+
+        stat = os.stat(self._path)
+        identity = (stat.st_dev, stat.st_ino, stat.st_ctime_ns)
+        recorded_identity = (
+            owner.get("st_dev"),
+            owner.get("st_ino"),
+            owner.get("st_ctime_ns"),
+        )
+        if identity != recorded_identity or stat.st_size != owner.get("st_size"):
+            msg = (
+                "ManifestCheckpointStage cannot publish completion because the checkpoint "
+                f"at {self.output_path!r} is no longer its exact reservation"
+            )
+            raise FileExistsError(msg)
+
+        marker_path = f"{self._path}._COMPLETE"
+        marker = {
+            "st_dev": stat.st_dev,
+            "st_ino": stat.st_ino,
+            "st_ctime_ns": stat.st_ctime_ns,
+            "st_size": stat.st_size,
+        }
+        try:
+            with self._fs.open(marker_path, "xb") as complete:
+                complete.write(json.dumps(marker, sort_keys=True).encode("utf-8"))
+        except FileExistsError as exc:
+            msg = f"ManifestCheckpointStage refuses to replace completion marker at {self.output_path!r}"
+            raise FileExistsError(msg) from exc
+        except OSError:
+            with contextlib.suppress(OSError):
+                self._fs.rm(marker_path)
+            raise
+
         try:
             self._remove_retry_owner_if_owned()
         except OSError as exc:

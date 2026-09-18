@@ -512,17 +512,49 @@ def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
 
 def test_get_audio_duration_waveform_residency() -> None:
     """input_residency='waveform' computes duration from samples/sample_rate (no file)."""
-    import torch
-
     stage = GetAudioDurationStage(input_residency="waveform")
     stage.setup()
     result = stage.process(AudioTask(data={"waveform": torch.zeros(1, 16000 * 3), "sample_rate": 16000}))
     assert result.data["duration"] == 3.0
 
 
-def test_get_audio_duration_auto_prefers_waveform() -> None:
-    import torch
+@pytest.mark.parametrize("sample_rate", [True, 0, -1, 16000.5, torch.tensor([16000])])
+def test_get_audio_duration_rejects_invalid_resident_rates(sample_rate: object) -> None:
+    stage = GetAudioDurationStage(input_residency="waveform")
+    task = AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": sample_rate})
 
+    assert not stage.validate_input(task)
+    with pytest.raises(ValueError, match="positive, losslessly integral, non-boolean"):
+        stage.process(task)
+
+
+def test_get_audio_duration_auto_falls_back_from_invalid_resident_rate(tmp_path: Path) -> None:
+    path = tmp_path / "valid.wav"
+    with mock.patch("soundfile.info", return_value=mock.Mock(frames=32000, samplerate=16000)):
+        stage = GetAudioDurationStage(input_residency="auto")
+        stage.setup()
+        task = AudioTask(
+            data={
+                "audio_filepath": str(path),
+                "waveform": torch.zeros(1, 8000),
+                "sample_rate": True,
+            }
+        )
+
+        assert stage.validate_input(task)
+        assert stage.process(task).data["duration"] == 2.0
+
+
+@pytest.mark.parametrize("sample_rate", [16000, np.int64(16000), 16000.0, "16000", torch.tensor(16000)])
+def test_get_audio_duration_accepts_lossless_resident_rates(sample_rate: object) -> None:
+    stage = GetAudioDurationStage(input_residency="waveform")
+    task = AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": sample_rate})
+
+    assert stage.validate_input(task)
+    assert stage.process(task).data["duration"] == 1.0
+
+
+def test_get_audio_duration_auto_prefers_waveform() -> None:
     stage = GetAudioDurationStage(input_residency="auto")
     stage.setup()
     result = stage.process(AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": 16000}))
@@ -960,6 +992,39 @@ class TestManifestCheckpointStage:
             checkpoint.reset_for_retry()
 
         assert out.read_bytes() == before
+
+    def test_successful_release_publishes_completion_before_removing_retry_owner(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        owner_path = Path(f"{out}._RETRY_OWNER")
+        marker_path = Path(f"{out}._COMPLETE")
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+        checkpoint.setup()
+        checkpoint.process(AudioTask(data={"retained": True}))
+
+        checkpoint.release_retry_reservation()
+
+        assert out.read_text(encoding="utf-8") == '{"retained": true}\n'
+        assert marker_path.exists()
+        assert not owner_path.exists()
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        assert marker["st_size"] == out.stat().st_size
+        with pytest.raises(FileExistsError, match="completion marker"):
+            checkpoint.reset_for_retry()
+
+    def test_successful_release_refuses_to_complete_a_replaced_checkpoint(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+        checkpoint.setup()
+        checkpoint.process(AudioTask(data={"attempt": 1}))
+        out.unlink()
+        out.write_text("replacement\n", encoding="utf-8")
+
+        with pytest.raises(FileExistsError, match="no longer its exact reservation"):
+            checkpoint.release_retry_reservation()
+
+        assert out.read_text(encoding="utf-8") == "replacement\n"
+        assert not Path(f"{out}._COMPLETE").exists()
+        assert Path(f"{out}._RETRY_OWNER").exists()
 
     def test_retry_reset_refuses_preexisting_unowned_checkpoint(
         self,

@@ -145,6 +145,30 @@ class TestMonoOutputGatingAndResidency:
         assert result.data["agent_waveform"].shape[0] == 1, "the stereo tensor was mixed down in memory"
         assert "agent_mono_path" not in result.data, "disk-path key must be absent when write_to_disk=False"
 
+    @pytest.mark.parametrize("sample_rate", [True, 0, -1, 16000.5, torch.tensor([16000])])
+    def test_auto_residency_uses_the_file_when_the_resident_rate_is_invalid(
+        self, tmp_path: Path, sample_rate: object
+    ) -> None:
+        path = tmp_path / "valid.wav"
+        path.touch()
+        loaded = torch.ones(1, 16000)
+        stage = MonoConversionStage(output_sample_rate=16000, input_residency="auto")
+        task = AudioTask(
+            data={
+                "audio_filepath": str(path),
+                "waveform": torch.zeros(1, 8000),
+                "sample_rate": sample_rate,
+            }
+        )
+
+        with patch(MOCK_TARGET, return_value=(loaded, 16000)) as loader:
+            result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert loader.call_count == 1
+        assert result.data["waveform"] is loaded
+        assert result.data["sample_rate"] == 16000
+
     def test_disk_only_output_omits_the_waveform_key(self, tmp_path: Path) -> None:
         """``keep_waveform_in_task=False`` must drop the tensor rather than leave it stale."""
         stage = MonoConversionStage(

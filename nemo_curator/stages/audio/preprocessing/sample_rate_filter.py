@@ -43,7 +43,7 @@ import soundfile as sf
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+from nemo_curator.stages.audio._agent._residency import resident_sample_rate, validate_audio_key_configuration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -167,8 +167,19 @@ class SampleRateFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         16 kHz-only corpus AND re-stamped with the wrong rate. The header read is cheap enough
         that guessing is never worth it.
         """
-        declared = task.data.get(self.sample_rate_key)
-        declared = int(declared) if isinstance(declared, (int, float)) and int(declared) > 0 else None
+        declared_value = task.data.get(self.sample_rate_key)
+        try:
+            declared = (
+                resident_sample_rate(
+                    declared_value,
+                    sample_rate_key=self.sample_rate_key,
+                    stage_name=self.name,
+                )
+                if declared_value is not None
+                else None
+            )
+        except ValueError:
+            declared = None
         # The VALUE has to be there, not just the column: a row carrying ``waveform=None``
         # is no more resident than one with no waveform column at all, and believing it
         # authenticates exactly the stale metadata this guard exists to distrust.

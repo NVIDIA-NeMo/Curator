@@ -393,7 +393,7 @@ def scoped_file_audio_hydration_writes(  # noqa: PLR0913
     return conditional
 
 
-def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches and keyword-only stage knobs)
+def resolve_audio(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: policy branches and keyword-only stage knobs)
     item: dict[str, Any],
     *,
     residency: InputResidency = "auto",
@@ -414,8 +414,8 @@ def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches 
     that is missing its sample rate.
 
     ``file_audio_hydration="always"`` replaces both resident audio fields after
-    any selected file load. ``"auto_partial"`` does so only when ``auto`` falls
-    back with exactly one resident field present. ``"never"`` is the default,
+    any selected file load. ``"auto_partial"`` does so when ``auto`` falls back
+    from an incomplete or unusable resident pair. ``"never"`` is the default,
     preserving file-only and explicit-file consumers. Every update happens only
     after the loader succeeds, so failures cannot leave a partial pair.
 
@@ -429,14 +429,21 @@ def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches 
 
     waveform = item.get(waveform_key)
     sample_rate = item.get(sample_rate_key)
+    resident_rate_error: ValueError | None = None
     if residency != "file" and waveform is not None:
         if sample_rate is not None:
-            sample_rate = resident_sample_rate(
-                sample_rate,
-                sample_rate_key=sample_rate_key,
-                stage_name="resolve_audio",
-            )
-            return ensure_waveform_2d(waveform), sample_rate
+            try:
+                sample_rate = resident_sample_rate(
+                    sample_rate,
+                    sample_rate_key=sample_rate_key,
+                    stage_name="resolve_audio",
+                )
+            except ValueError as ex:
+                if residency == "waveform":
+                    raise
+                resident_rate_error = ex
+            else:
+                return ensure_waveform_2d(waveform), sample_rate
         if residency == "auto" and infer_sample_rate_from_file:
             path = item.get(audio_filepath_key)
             if path:
@@ -454,9 +461,9 @@ def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches 
         expanded = os.path.expanduser(str(path))
         if os.path.exists(expanded):
             loaded_waveform, loaded_sample_rate = (loader or load_audio_file)(expanded, mono=mono)
-            has_partial_pair = (waveform is None) != (sample_rate is None)
+            has_unusable_pair = (waveform is None) != (sample_rate is None) or resident_rate_error is not None
             if file_audio_hydration == "always" or (
-                file_audio_hydration == "auto_partial" and residency == "auto" and has_partial_pair
+                file_audio_hydration == "auto_partial" and residency == "auto" and has_unusable_pair
             ):
                 item.update(
                     {
@@ -465,6 +472,8 @@ def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches 
                     }
                 )
             return loaded_waveform, loaded_sample_rate
+    if resident_rate_error is not None:
+        raise resident_rate_error
     return None
 
 
@@ -585,7 +594,7 @@ def write_audio_stable(
     return path
 
 
-def resolve_audio_path(  # noqa: C901, PLR0913 (keyword-only residency/key knobs mirror stage fields)
+def resolve_audio_path(  # noqa: C901, PLR0912, PLR0913 (keyword-only residency/key knobs mirror stage fields)
     item: dict[str, Any],
     *,
     residency: InputResidency = "auto",
@@ -605,21 +614,33 @@ def resolve_audio_path(  # noqa: C901, PLR0913 (keyword-only residency/key knobs
     caller can delete it after use (see :func:`cleanup_temp_files`). Without
     ``register_temp`` the caller is responsible for cleanup itself.
     """
+    resident_rate_error: ValueError | None = None
     if residency != "file":
         waveform = item.get(waveform_key)
         sample_rate = item.get(sample_rate_key)
         if waveform is not None and sample_rate is not None:
-            fd, tmp = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
-            os.close(fd)
             try:
-                sf.write(tmp, _as_soundfile_array(waveform), int(sample_rate), subtype="FLOAT")
-            except BaseException:
-                with contextlib.suppress(OSError):
-                    os.remove(tmp)
-                raise
-            if register_temp is not None:
-                register_temp.append(tmp)
-            return tmp
+                sample_rate = resident_sample_rate(
+                    sample_rate,
+                    sample_rate_key=sample_rate_key,
+                    stage_name="resolve_audio_path",
+                )
+            except ValueError as ex:
+                if residency == "waveform":
+                    raise
+                resident_rate_error = ex
+            else:
+                fd, tmp = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
+                os.close(fd)
+                try:
+                    sf.write(tmp, _as_soundfile_array(waveform), sample_rate, subtype="FLOAT")
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        os.remove(tmp)
+                    raise
+                if register_temp is not None:
+                    register_temp.append(tmp)
+                return tmp
         if residency == "waveform":
             return None
 
@@ -648,6 +669,8 @@ def resolve_audio_path(  # noqa: C901, PLR0913 (keyword-only residency/key knobs
         # failure; keep that contract instead of gating on os.path.exists.
         return local_path
 
+    if local_path is None and resident_rate_error is not None:
+        raise resident_rate_error
     return local_path
 
 

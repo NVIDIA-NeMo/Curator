@@ -27,6 +27,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import soundfile as sf
+import torch
 
 from nemo_curator.stages.audio.preprocessing import ChannelCountStage, SampleRateFilterStage
 from nemo_curator.stages.audio.preprocessing import channel_count as cc
@@ -394,6 +395,40 @@ class TestSampleRateFilter:
         )
 
         result = stage.process(task)
+
+        assert result != []
+        assert result.data["sample_rate"] == 16000
+
+    @pytest.mark.parametrize("sample_rate", [True, 0, -1, 16000.5, torch.tensor([16000])])
+    def test_an_invalid_resident_rate_falls_back_to_the_file(self, tmp_path: Path, sample_rate: object) -> None:
+        path = _wav(tmp_path, rate=48000)
+        task = AudioTask(
+            task_id="t",
+            dataset_name="d",
+            data={
+                "audio_filepath": path,
+                "sample_rate": sample_rate,
+                "waveform": np.zeros((1, 16000), dtype="float32"),
+            },
+        )
+
+        result = SampleRateFilterStage(allowed_sample_rates=[48000]).process(task)
+
+        assert result != []
+        assert result.data["sample_rate"] == 48000
+
+    @pytest.mark.parametrize("sample_rate", [16000, np.int64(16000), 16000.0, "16000", torch.tensor(16000)])
+    def test_lossless_resident_rate_representations_are_preserved(self, sample_rate: object) -> None:
+        task = AudioTask(
+            task_id="t",
+            dataset_name="d",
+            data={
+                "sample_rate": sample_rate,
+                "waveform": np.zeros((1, 16000), dtype="float32"),
+            },
+        )
+
+        result = SampleRateFilterStage(allowed_sample_rates=[16000]).process(task)
 
         assert result != []
         assert result.data["sample_rate"] == 16000

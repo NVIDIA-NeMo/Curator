@@ -327,6 +327,58 @@ def test_resolve_audio_rejects_invalid_resident_sample_rates(sample_rate: object
 @pytest.mark.parametrize(
     "sample_rate",
     [
+        pytest.param(True, id="bool"),
+        pytest.param(0, id="zero"),
+        pytest.param(-1, id="negative"),
+        pytest.param(16000.5, id="fractional"),
+        pytest.param(torch.tensor([16000]), id="non-scalar-tensor"),
+    ],
+)
+def test_auto_resolvers_fall_back_from_invalid_resident_rates(tmp_path: Path, sample_rate: object) -> None:
+    file_path = tmp_path / "valid.wav"
+    sf.write(file_path, torch.ones(16000).numpy(), 16000)
+    loaded = torch.ones(1, 16000)
+
+    def loader(_path: str, *, mono: bool) -> tuple[torch.Tensor, int]:
+        assert mono
+        return loaded, 16000
+
+    item = {
+        "audio_filepath": str(file_path),
+        "waveform": torch.zeros(1, 8000),
+        "sample_rate": sample_rate,
+    }
+    resolved = resolve_audio(
+        item,
+        residency="auto",
+        loader=loader,
+        file_audio_hydration="auto_partial",
+    )
+
+    assert resolved is not None
+    assert resolved[0] is loaded
+    assert resolved[1] == 16000
+    assert item["waveform"] is loaded
+    assert item["sample_rate"] == 16000
+
+    temporary_paths: list[str] = []
+    resolved_path = resolve_audio_path(
+        {
+            "audio_filepath": str(file_path),
+            "waveform": torch.zeros(1, 8000),
+            "sample_rate": sample_rate,
+        },
+        residency="auto",
+        temp_dir=str(tmp_path),
+        register_temp=temporary_paths,
+    )
+    assert resolved_path == str(file_path)
+    assert temporary_paths == []
+
+
+@pytest.mark.parametrize(
+    "sample_rate",
+    [
         pytest.param(16000, id="int"),
         pytest.param(np.int64(16000), id="numpy-int"),
         pytest.param(16000.0, id="integral-float"),
