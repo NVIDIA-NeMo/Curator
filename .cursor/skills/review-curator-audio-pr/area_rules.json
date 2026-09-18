@@ -1,0 +1,8 @@
+[
+  {"pattern": "^nemo_curator/stages/audio/([^/]+)", "label": "stages/audio/{0}"},
+  {"pattern": "^nemo_curator/tasks/", "label": "tasks"},
+  {"pattern": "^tutorials/audio/([^/]+)", "label": "tutorials/audio/{0}"},
+  {"pattern": "^tests/", "label": "tests"},
+  {"pattern": "^benchmarking/", "label": "benchmarking"},
+  {"pattern": "^fern/", "label": "docs (fern)"}
+]
