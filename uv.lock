@@ -56,6 +56,7 @@ resolution-markers = [
 constraints = [
     { name = "aiohttp", specifier = ">=3.13.3" },
     { name = "cryptography", specifier = ">=46.0.6" },
+    { name = "lxml-html-clean", specifier = ">=0.4.5" },
     { name = "nbconvert", specifier = ">=7.17.0" },
     { name = "pillow", specifier = ">=12.1.1" },
     { name = "protobuf", specifier = ">=5.29.6" },
@@ -65,7 +66,7 @@ constraints = [
     { name = "starlette", specifier = ">=0.49.1" },
     { name = "transformers", specifier = ">=4.56.0,<5.0" },
     { name = "urllib3", specifier = ">=2.6.3" },
-    { name = "wandb", specifier = ">=0.28.0" },
+    { name = "wandb", specifier = ">=0.30.0" },
     { name = "wheel", specifier = ">=0.46.2" },
 ]
 overrides = [
@@ -4828,14 +4829,14 @@ html-clean = [
 
 [[package]]
 name = "lxml-html-clean"
-version = "0.4.4"
+version = "0.4.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lxml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/a4/5c62acfacd69ff4f5db395100f5cfb9b54e7ac8c69a235e4e939fd13f021/lxml_html_clean-0.4.4.tar.gz", hash = "sha256:58f39a9d632711202ed1d6d0b9b47a904e306c85de5761543b90e3e3f736acfb", size = 23899, upload-time = "2026-02-27T09:35:52.911Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/63/195dfdde380a84df309e3bccf4384b034b745dba43426886f7ae623b4fba/lxml_html_clean-0.4.5.tar.gz", hash = "sha256:e2a4c7d5beedd17cd7b484d848a0571e54baa239a4f9df5546e3acba7f990560", size = 24142, upload-time = "2026-05-20T12:17:53.574Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/76/7ffc1d3005cf7749123bc47cb3ea343cd97b0ac2211bab40f57283577d0e/lxml_html_clean-0.4.4-py3-none-any.whl", hash = "sha256:ce2ef506614ecb85ee1c5fe0a2aa45b06a19514ec7949e9c8f34f06925cfabcb", size = 14565, upload-time = "2026-02-27T09:35:51.86Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/bd/6e2b76a6c5dee10397db9c929f0c5066766ec1036046f0335b7ca7ca08b8/lxml_html_clean-0.4.5-py3-none-any.whl", hash = "sha256:c76fcadd1e5bfb9b8bafc2200d51e4e78eb0dad67f56881c21dfb6484c7e7746", size = 14573, upload-time = "2026-05-20T12:17:52.215Z" },
 ]
 
 [[package]]
@@ -8078,18 +8079,18 @@ resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform == 'win32'",
     "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform == 'emscripten'",
     "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
-    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'darwin'",
-    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
     "python_full_version >= '3.13' and platform_machine != 'aarch64' and platform_machine != 's390x' and platform_machine != 'x86_64' and sys_platform == 'win32'",
     "python_full_version >= '3.13' and platform_machine != 'aarch64' and platform_machine != 's390x' and platform_machine != 'x86_64' and sys_platform == 'emscripten'",
     "python_full_version >= '3.13' and platform_machine != 'aarch64' and platform_machine != 's390x' and platform_machine != 'x86_64' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.13' and platform_machine == 's390x' and sys_platform == 'win32'",
     "python_full_version >= '3.13' and platform_machine == 's390x' and sys_platform == 'emscripten'",
     "python_full_version >= '3.13' and platform_machine == 's390x' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'emscripten'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
     "python_full_version == '3.12.*' and platform_machine != 'aarch64' and platform_machine != 's390x' and platform_machine != 'x86_64' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and platform_machine != 'aarch64' and platform_machine != 's390x' and platform_machine != 'x86_64' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and platform_machine != 'aarch64' and platform_machine != 's390x' and platform_machine != 'x86_64' and sys_platform != 'emscripten' and sys_platform != 'win32'",
@@ -8125,16 +8126,16 @@ resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'win32'",
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'emscripten'",
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'win32'",
     "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'emscripten'",
     "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
-    "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "python_full_version < '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
 ]
 dependencies = [
@@ -12111,25 +12112,27 @@ runai = [
 
 [[package]]
 name = "wandb"
-version = "0.28.0"
+version = "0.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
-    { name = "gitpython" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
     { name = "packaging" },
     { name = "platformdirs" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
-    { name = "sentry-sdk" },
     { name = "typing-extensions" },
+    { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/a7/683bfbd6cbade3012bc90d3e9c4cfc72dd62566195bf4c30321946d64b77/wandb-0.28.0.tar.gz", hash = "sha256:b20e5af0fe80e2e2a466b0466a1d60cedcc578dce0f036eca04f4a0adcad95b6", size = 40558332, upload-time = "2026-06-23T00:38:50.115Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/10/c4481d12b26f57606d1ef7c8d56825ad6af769cbb8cd29ee501ac6bbbc2d/wandb-0.30.0.tar.gz", hash = "sha256:f2d7de3c2019204f493f3f9e9166071c2be36f74140af2e1409b4de0fd84c454", size = 40862616, upload-time = "2026-09-09T00:16:41.551Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/5d/1385ce3c219cb5bd30d4027687e3f8d25969c7dfd09adad1cbd5080e1a72/wandb-0.28.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:325b2d0bd88be6eda5db10542499bad3710927f2569c81a84dc5eeaffc76825c", size = 26764727, upload-time = "2026-06-23T00:38:33.775Z" },
-    { url = "https://files.pythonhosted.org/packages/89/67/9be00fb2db2281063af24a148636d2dd363d337317642ab5d8e93572c794/wandb-0.28.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:9fec6c908554c2dad33110c1312bc3028cc2e430f0679f16b84f82c8ea801e3b", size = 27074113, upload-time = "2026-06-23T00:38:38.737Z" },
-    { url = "https://files.pythonhosted.org/packages/c6/c4/c7bed5e981679c74e9fbb22c03ff31c42e95f266199d03d8d325f4d0e6df/wandb-0.28.0-py3-none-win_amd64.whl", hash = "sha256:ac1f82292e2da4f98297b78c3a46726b3a6c5734ecb75fc39b8db2c8a4989159", size = 24525214, upload-time = "2026-06-23T00:38:44.549Z" },
+    { url = "https://files.pythonhosted.org/packages/26/13/775a4c7d87fb771a2ddb104ce7c5c5d393e48720e448b4e8c43aac7cd4ce/wandb-0.30.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:bad9412f137d02303bf178513e0109f4fed37a6c817604085a1a4151047d8790", size = 26105520, upload-time = "2026-09-09T00:16:28.146Z" },
+    { url = "https://files.pythonhosted.org/packages/05/77/5eddd97f33f581f4d167f41bbf4736f2a51ad7271b9c9ed5dceb6994cbd6/wandb-0.30.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:e7dc3b0b1567f6a121d8f7a58131b5d085861139a653ef8bed1569c9be796721", size = 26320243, upload-time = "2026-09-09T00:16:32.878Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/e7/821c363f0a74aa9826ca058d3f6f8f8e41697001a0a869b5ccc7eca5b0e4/wandb-0.30.0-py3-none-win_amd64.whl", hash = "sha256:217bde0a7c49482f26166a1a7bee760bb9e2658135b2d45a33aacabffec68817", size = 24083356, upload-time = "2026-09-09T00:16:36.766Z" },
 ]
 
 [[package]]
