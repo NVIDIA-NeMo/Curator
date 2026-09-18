@@ -40,10 +40,6 @@ def test_unsafe_io_stages_reject_checkpointing_before_touching_outputs(tmp_path:
             ManifestGroupExportStage(output_dir=str(tmp_path / "groups")),
             tmp_path / "groups",
         ),
-        (
-            SegmentExtractionStage(output_dir=str(tmp_path / "segments")),
-            tmp_path / "segments",
-        ),
     ]
 
     for stage, output in cases:
@@ -53,3 +49,12 @@ def test_unsafe_io_stages_reject_checkpointing_before_touching_outputs(tmp_path:
         assert not output.exists()
 
     assert not checkpoint.exists()
+
+
+def test_segment_extraction_allows_checkpointing(tmp_path: Path) -> None:
+    stage = SegmentExtractionStage(output_dir=str(tmp_path / "segments"))
+    gates = stage.describe().gates
+
+    assert stage.is_resumable is True
+    assert gates.requires_stable_task_id is True
+    assert gates.per_row_independent is False
