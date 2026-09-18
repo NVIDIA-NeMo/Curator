@@ -221,10 +221,10 @@ def _check_per_row_independence(c: StageContract, name: str) -> None:
     says so per instance and ``delta.region`` stops there. Requiring ``True`` would force such a
     source to lie or to drop the parameter. Silence is what is forbidden.
 
-    The case that first motivated this -- ``CreateInitialManifestAudioFolderStage`` under a
-    bounded ``max_samples``, which truncates the sorted listing -- now declares ``True`` anyway
-    by an explicit product decision recorded at that declaration. The rule is unchanged: it was
-    never "must be False when narrowing is lossy", only "must not be silent".
+    ``CreateInitialManifestAudioFolderStage`` is the conditional reference case: a bounded
+    ``max_samples`` truncates the sorted listing and is not independent, while the default
+    unbounded scan is. Its static hint is conservatively ``False`` because discovery cannot
+    resolve constructor values; its configured contract reports the precise per-instance answer.
 
     A companion rule ("``True`` contradicts ``N:1``") was removed as wrong: cardinality counts
     TASKS, this is about row VALUES, and ``AudioToDocumentStage`` repacks tasks while leaving

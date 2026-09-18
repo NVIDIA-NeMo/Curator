@@ -68,6 +68,25 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     sample_rate_key: str = "sample_rate"
     input_residency: Literal["file", "waveform", "auto"] = "file"
 
+    def __post_init__(self) -> None:
+        super().__init__()
+        # Lazy import avoids the module-level cycle (_residency imports helpers below).
+        from nemo_curator.stages.audio._agent._residency import (
+            validate_audio_key_configuration,
+            validate_input_residency,
+        )
+
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "waveform_key": self.waveform_key,
+                "sample_rate_key": self.sample_rate_key,
+            },
+            output_keys={"duration_key": self.duration_key},
+        )
+
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         import soundfile
 
@@ -670,14 +689,26 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
     audio_item_id_key: str = "audio_item_id"
     name: str = "CreateInitialManifestAudioFolder"
     batch_size: int = 1
-    # See ManifestReaderStage: the narrowing claim has to survive being read off the class.
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
+    # Static discovery cannot resolve max_samples. Be conservative there; configured
+    # contracts below recover True for the default unbounded scan.
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
 
     def __post_init__(self) -> None:
         super().__init__()
         if not self.data_dir:
             msg = "data_dir is required for CreateInitialManifestAudioFolderStage"
             raise ValueError(msg)
+        # Lazy import avoids the module-level cycle (_residency imports helpers above).
+        from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={},
+            output_keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "audio_item_id_key": self.audio_item_id_key,
+            },
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -754,7 +785,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
                 )
         return sorted(found)
 
-    def process(self, _: EmptyTask) -> list[AudioTask]:
+    def process(self, task: EmptyTask | None) -> list[AudioTask]:
         """Emit one AudioTask per audio file found under ``data_dir``."""
         paths = self._collect_audio_files()
         if self.max_samples is not None and self.max_samples >= 0:
@@ -776,6 +807,8 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
                     dataset_name="local-audio-folder",
                     data={self.audio_filepath_key: abspath, self.audio_item_id_key: item_id},
                     filepath_key=self.audio_filepath_key,
+                    _metadata={} if task is None else task._metadata,
+                    _stage_perf=[] if task is None else list(task._stage_perf),
                 )
             )
         logger.info(f"[{self.name}] created {len(tasks)} AudioTask(s) from {self.data_dir}")

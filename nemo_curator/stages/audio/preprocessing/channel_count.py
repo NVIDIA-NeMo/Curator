@@ -51,6 +51,8 @@ from nemo_curator.stages.audio._agent._residency import (
     reject_sinkless_conversion,
     residency_read_specs,
     resolve_audio,
+    validate_audio_key_configuration,
+    validate_input_residency,
     write_audio_stable,
 )
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
@@ -191,6 +193,24 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             msg = f"action must be one of ('annotate', 'filter', 'convert'), got {self.action!r}"
             raise ValueError(msg)
         self._reject_other_actions_params()
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        input_keys = {
+            "audio_filepath_key": self.audio_filepath_key,
+            "waveform_key": self.waveform_key,
+            "sample_rate_key": self.sample_rate_key,
+        }
+        output_keys = {"num_channels_key": self.num_channels_key}
+        if self.action == "convert":
+            output_keys["duration_key"] = self.duration_key
+            if self.write_to_disk:
+                output_keys["output_audio_filepath_key"] = self.output_audio_filepath_key
+            if self.update_audio_filepath:
+                output_keys["original_audio_filepath_key"] = self.original_audio_filepath_key
+        validate_audio_key_configuration(
+            self.name,
+            input_keys=input_keys,
+            output_keys=output_keys,
+        )
         if self.action == "filter":
             self._validate_filter()
         if self.action == "convert":

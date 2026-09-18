@@ -441,9 +441,12 @@ def test_compound_preserve_nested_contract_uses_only_top_level_container_key() -
 
 
 def test_bounded_audio_folder_source_is_not_row_independent() -> None:
+    from nemo_curator.stages.audio._agent._agent_registry import static_contract
+
     bounded = CreateInitialManifestAudioFolderStage(data_dir="/tmp/x", max_samples=10)  # noqa: S108
     unbounded = CreateInitialManifestAudioFolderStage(data_dir="/tmp/x")  # noqa: S108
 
+    assert static_contract(CreateInitialManifestAudioFolderStage).gates.per_row_independent is False
     assert bounded.describe().gates.per_row_independent is False
     assert unbounded.describe().gates.per_row_independent is True
 
@@ -461,6 +464,18 @@ def test_get_audio_duration_validate_input_valid() -> None:
 def test_get_audio_duration_validate_input_missing_column() -> None:
     stage = GetAudioDurationStage()
     assert stage.validate_input(AudioTask(data={"text": "hello"})) is False
+
+
+@pytest.mark.parametrize("residency", ["disk", "wavefrom", ""])
+def test_get_audio_duration_rejects_unknown_residency(residency: str) -> None:
+    with pytest.raises(ValueError, match="input_residency"):
+        GetAudioDurationStage(input_residency=residency)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("duration_key", ["audio_filepath", "waveform", "sample_rate"])
+def test_get_audio_duration_output_cannot_overwrite_an_audio_input(duration_key: str) -> None:
+    with pytest.raises(ValueError, match="must not collide"):
+        GetAudioDurationStage(duration_key=duration_key)
 
 
 def test_get_audio_duration_process_batch_raises_on_missing_column() -> None:

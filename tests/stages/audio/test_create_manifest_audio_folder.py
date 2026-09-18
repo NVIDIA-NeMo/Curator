@@ -19,6 +19,7 @@ import os
 import pytest
 
 from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
+from nemo_curator.tasks import EmptyTask
 
 
 def _touch(root: str, rel: str) -> None:
@@ -94,6 +95,25 @@ class TestCreateInitialManifestAudioFolderStage:
     def test_requires_data_dir(self) -> None:
         with pytest.raises(ValueError):  # noqa: PT011
             CreateInitialManifestAudioFolderStage(data_dir="")
+
+    def test_output_keys_must_be_distinct(self, tmp_path) -> None:  # noqa: ANN001
+        with pytest.raises(ValueError, match="Output keys must be distinct"):
+            CreateInitialManifestAudioFolderStage(
+                data_dir=str(tmp_path),
+                audio_filepath_key="audio",
+                audio_item_id_key="audio",
+            )
+
+    def test_fanout_preserves_parent_provenance(self, tmp_path) -> None:  # noqa: ANN001
+        root = str(tmp_path)
+        _touch(root, "a.wav")
+        parent = EmptyTask(_metadata={"trace": "seed"}, _stage_perf=["upstream"])
+
+        [child] = CreateInitialManifestAudioFolderStage(data_dir=root).process(parent)
+
+        assert child._metadata == parent._metadata
+        assert child._stage_perf == parent._stage_perf
+        assert child._stage_perf is not parent._stage_perf
 
     def test_contract_writes_filepath_and_no_disk_write(self) -> None:
         c = CreateInitialManifestAudioFolderStage(data_dir="/tmp").describe()  # noqa: S108

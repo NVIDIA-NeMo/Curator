@@ -43,6 +43,7 @@ import soundfile as sf
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -94,6 +95,18 @@ class SampleRateFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "sample_rate_key": self.sample_rate_key,
+                "waveform_key": self.waveform_key,
+            },
+            # sample_rate_key is an intentional in-place observation: validate it as an
+            # input so it cannot alias either audio carrier, rather than treating the
+            # legitimate read/write of that same key as a collision.
+            output_keys={},
+        )
         if self.allowed_sample_rates is not None and not self.allowed_sample_rates:
             msg = "allowed_sample_rates must name at least one rate, or be None for no constraint"
             raise ValueError(msg)

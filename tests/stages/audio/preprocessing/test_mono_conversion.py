@@ -15,6 +15,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import torch
 
 from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
@@ -165,6 +166,24 @@ class TestMonoOutputGatingAndResidency:
         assert "agent_mono_path" in result.data, "disk-path key must be present when write_to_disk=True"
         assert "agent_waveform" not in result.data, "tensor must be omitted when keep_waveform_in_task=False"
 
+    @pytest.mark.parametrize("residency", ["disk", "wavefrom", ""])
+    def test_unknown_residency_is_rejected_at_construction(self, residency: str) -> None:
+        with pytest.raises(ValueError, match="input_residency"):
+            MonoConversionStage(input_residency=residency)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"duration_key": "waveform"},
+            {"is_mono_key": "sample_rate"},
+            {"num_samples_key": "audio_filepath"},
+            {"write_to_disk": True, "output_audio_filepath_key": "audio_filepath"},
+        ],
+    )
+    def test_metadata_and_path_outputs_cannot_overwrite_audio_inputs(self, kwargs: dict[str, object]) -> None:
+        with pytest.raises(ValueError, match="must not collide"):
+            MonoConversionStage(**kwargs)
+
 
 class TestMonoConversionPositionalCompatibility:
     def test_legacy_positional_call_keeps_strict_sample_rate_third(self) -> None:
@@ -179,8 +198,6 @@ class TestMonoConversionPositionalCompatibility:
 
     def test_agent_added_fields_are_keyword_only(self) -> None:
         """A former agent field cannot be reached positionally past the legacy slots."""
-        import pytest
-
         from nemo_curator.stages.resources import Resources
 
         # The six legacy positional slots still accept positionals in their original order.

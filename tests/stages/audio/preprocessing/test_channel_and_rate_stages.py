@@ -305,6 +305,21 @@ class TestSelectingAndConvertingAreNotTheSameKnob:
         with pytest.raises(ValueError, match="action must be one of"):
             ChannelCountStage(action="downmix")
 
+    @pytest.mark.parametrize("residency", ["disk", "wavefrom", ""])
+    def test_an_unknown_residency_is_rejected_at_construction(self, residency: str) -> None:
+        with pytest.raises(ValueError, match="input_residency"):
+            ChannelCountStage(input_residency=residency)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("action", ["annotate", "filter", "convert"])
+    @pytest.mark.parametrize("carrier_key", ["audio_filepath", "waveform", "sample_rate"])
+    def test_the_count_key_cannot_overwrite_an_audio_carrier(self, action: str, carrier_key: str) -> None:
+        with pytest.raises(ValueError, match="must not collide"):
+            ChannelCountStage(action=action, num_channels_key=carrier_key)  # type: ignore[arg-type]
+
+    def test_conversion_metadata_cannot_overwrite_resident_audio(self) -> None:
+        with pytest.raises(ValueError, match="must not collide"):
+            _convert(duration_key="sample_rate")
+
     def test_converting_keeps_the_rows_selection_would_have_dropped(self, tmp_path: Path) -> None:
         """Same corpus, same "mono" intent, opposite outcomes -- which is why they cannot share
         a parameter."""
@@ -441,6 +456,17 @@ class TestSampleRateFilter:
     def test_an_inverted_range_is_rejected_at_construction(self) -> None:
         with pytest.raises(ValueError, match="nothing can pass"):
             SampleRateFilterStage(min_sample_rate=48000, max_sample_rate=16000)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"audio_filepath_key": "audio", "sample_rate_key": "audio"},
+            {"sample_rate_key": "resident", "waveform_key": "resident"},
+        ],
+    )
+    def test_audio_input_keys_must_be_distinct(self, kwargs: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="must be distinct"):
+            SampleRateFilterStage(**kwargs)
 
 
 class TestRowDroppingIsDeclared:
