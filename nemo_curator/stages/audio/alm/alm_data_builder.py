@@ -175,6 +175,10 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.audio_sample_rate_key,
             self.swift_audio_filepath_key,
         ]
+        required_input_keys = [self.audio_filepath_key, self.segments_key, self.audio_sample_rate_key]
+        if len(set(required_input_keys)) != len(required_input_keys):
+            msg = "required input keys must be distinct"
+            raise ValueError(msg)
         if len(set(generated_keys)) != len(generated_keys) or set(generated_keys) & set(protected_keys):
             msg = "generated output keys must be distinct from each other and from input keys"
             raise ValueError(msg)
