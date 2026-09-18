@@ -299,6 +299,8 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             )
             if audio is not None:
                 waveform, sample_rate = audio
+                if torch.is_tensor(waveform) and not waveform.is_floating_point():
+                    waveform = waveform.to(dtype=torch.float32)
                 audio = (
                     normalize_audio_waveform(waveform, stage_name=self.name, mono=True),
                     sample_rate,

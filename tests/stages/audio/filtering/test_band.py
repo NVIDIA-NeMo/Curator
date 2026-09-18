@@ -303,6 +303,33 @@ class TestBandFilterStage:
 
         assert result == []
 
+    @pytest.mark.parametrize(
+        "resident",
+        [
+            pytest.param(torch.tensor([32767, -32768], dtype=torch.int16), id="torch"),
+            pytest.param(np.array([32767, -32768], dtype=np.int16), id="numpy"),
+        ],
+    )
+    def test_integer_pcm_preserves_legacy_amplitude_and_decision(
+        self,
+        resident: torch.Tensor | np.ndarray,
+    ) -> None:
+        predictor = MagicMock()
+        predictor.predict_audio.side_effect = (
+            lambda waveform, _sample_rate: "full_band" if waveform.abs().max().item() > 100 else "narrow_band"
+        )
+        stage = BandFilterStage(band_value="full_band", mode="task", input_residency="waveform")
+        stage._predictor = predictor
+        task = AudioTask(dataset_name="test", data={"waveform": resident, "sample_rate": 16000})
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        inferred_waveform = predictor.predict_audio.call_args.args[0]
+        assert inferred_waveform.dtype == torch.float32
+        assert torch.equal(inferred_waveform, torch.tensor([[32767.0, -32768.0]]))
+        assert task.data[stage.prediction_key] == "full_band"
+
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
     def test_annotate_keeps_non_target_band(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="full_band", action="annotate")
