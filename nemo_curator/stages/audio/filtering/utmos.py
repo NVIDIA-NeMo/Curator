@@ -101,6 +101,8 @@ def _load_waveform_tensor(  # noqa: PLR0913 (complexity accepted: keyword-only r
 
     try:
         waveform, sample_rate = resolved
+        if torch.is_tensor(waveform) and not waveform.is_floating_point():
+            waveform = waveform.to(dtype=torch.float32)
         return normalize_audio_waveform(waveform, stage_name="UTMOSFilterStage", mono=True), int(sample_rate)
     except (RuntimeError, TypeError, ValueError) as e:
         logger.error(f"[{task_id}] Failed to normalize resident audio: {e}")

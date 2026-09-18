@@ -135,6 +135,27 @@ class TestSIGMOSFilterStage:
         with pytest.raises(ValueError, match="Audio input keys must be distinct"):
             SIGMOSFilterStage(**params)
 
+    @pytest.mark.parametrize("mode", ["task", "segments"])
+    def test_invalid_resident_sample_rate_is_unscorable_without_inference(self, mode: str) -> None:
+        stage = _stage(mode=mode, input_residency="waveform")
+        audio = {"waveform": torch.zeros(8), "sample_rate": 16000.5}
+        task = AudioTask(dataset_name="test", data=audio if mode == "task" else {"segments": [audio]})
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        stage._model.run.assert_not_called()
+        score_keys = {
+            stage.noise_key,
+            stage.ovrl_key,
+            stage.sig_key,
+            stage.col_key,
+            stage.disc_key,
+            stage.loud_key,
+            stage.reverb_key,
+        }
+        assert not score_keys & audio.keys()
+
     def test_explicit_valid_model_path_returns_without_download(self, tmp_path: Path) -> None:
         model_path = tmp_path / "model.onnx"
         model_path.write_bytes(b"model")

@@ -108,6 +108,18 @@ class TestUTMOSFilterStage:
         with pytest.raises(ValueError, match="Audio input keys must be distinct"):
             UTMOSFilterStage(**params)
 
+    @pytest.mark.parametrize("mode", ["task", "segments"])
+    def test_invalid_resident_sample_rate_is_unscorable_without_inference(self, mode: str) -> None:
+        stage = _stage(mode=mode, input_residency="waveform")
+        audio = {"waveform": torch.zeros(8), "sample_rate": 16000.5}
+        task = AudioTask(dataset_name="test", data=audio if mode == "task" else {"segments": [audio]})
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        stage._model.assert_not_called()
+        assert stage.score_key not in audio
+
     def test_static_contract_conservatively_reports_download_and_row_independence(self) -> None:
         contract = static_contract(UTMOSFilterStage)
 
@@ -141,6 +153,34 @@ class TestUTMOSFilterStage:
 
         assert isinstance(result, AudioTask)
         assert abs(result.data["utmos_mos"] - 4.5) < 1e-3
+
+    @pytest.mark.parametrize(
+        "resident",
+        [
+            pytest.param(torch.tensor([32767, -32768], dtype=torch.int16), id="torch"),
+            pytest.param(np.array([32767, -32768], dtype=np.int16), id="numpy"),
+        ],
+    )
+    def test_integer_pcm_preserves_legacy_amplitude_and_decision(
+        self,
+        resident: torch.Tensor | np.ndarray,
+    ) -> None:
+        model = MagicMock()
+        model.side_effect = lambda waveform, **_kwargs: torch.tensor(
+            [4.0 if waveform.abs().max().item() > 100 else 2.0]
+        )
+        model.parameters = lambda: iter([torch.tensor([0.0])])
+        stage = UTMOSFilterStage(mos_threshold=3.5, mode="task", input_residency="waveform")
+        stage._model = model
+        task = AudioTask(dataset_name="test", data={"waveform": resident, "sample_rate": 16000})
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        inferred_waveform = model.call_args.args[0]
+        assert inferred_waveform.dtype == torch.float32
+        assert torch.equal(inferred_waveform, torch.tensor([[32767.0, -32768.0]]))
+        assert task.data[stage.score_key] == 4.0
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_auto_incomplete_waveform_pair_falls_back_to_file(self, mock_ensure: MagicMock, tmp_path: Path) -> None:
