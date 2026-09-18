@@ -15,6 +15,7 @@
 import inspect
 from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -244,7 +245,7 @@ class TestComputeWERStage:
         assert result.data["metrics"]["word_rate"] == 0.2
 
     def test_process_computes_wer_cer_for_segments(self, audio_task: Callable[..., AudioTask]) -> None:
-        """Segments with hypothesis and reference get WER/CER metrics."""
+        """Segments using the documented default keys get WER/CER metrics."""
         stage = ComputeWERStage(language="en")
         task = audio_task(
             segments=[
@@ -252,17 +253,16 @@ class TestComputeWERStage:
                     "start": 0.0,
                     "end": 2.0,
                     "text": "hello world",
-                    "reference": "hello world",
+                    "text_ref": "hello world",
                 },
                 {
                     "start": 2.0,
                     "end": 4.0,
                     "text": "the cat",
-                    "reference": "the dog",
+                    "text_ref": "the dog",
                 },
             ],
         )
-        stage = ComputeWERStage(language="en", hypothesis_text_key="text", reference_text_key="reference")
         stage.setup()
         result = stage.process(task)
         out = result.data
@@ -407,7 +407,7 @@ class TestLoopContainment:
     """Tests that per-segment errors don't abort remaining segments."""
 
     def test_wer_skips_segment_missing_keys(self, audio_task: Callable[..., AudioTask]) -> None:
-        """ComputeWERStage skips segments missing text keys without aborting the loop."""
+        """ComputeWERStage warns once per missing-key set and continues after missing keys."""
         stage = ComputeWERStage(
             language="en",
             hypothesis_text_key="text",
@@ -418,14 +418,26 @@ class TestLoopContainment:
             segments=[
                 {"start": 0.0, "end": 1.0, "text": "hello world", "text_2": "hello world"},
                 {"start": 1.0, "end": 2.0, "speaker": "A"},
-                {"start": 2.0, "end": 3.0, "text": "foo bar", "text_2": "foo baz"},
+                {"start": 2.0, "end": 3.0, "speaker": "B"},
+                {"start": 3.0, "end": 4.0, "text": "missing reference"},
+                {"start": 4.0, "end": 5.0, "text": "still missing reference"},
+                {"start": 5.0, "end": 6.0, "text": "foo bar", "text_2": "foo baz"},
             ]
         )
-        result = stage.process(task)
+        with mock.patch("nemo_curator.stages.audio.metrics.wer.logger.warning") as warning:
+            result = stage.process(task)
+
+        assert warning.call_count == 2
+        warning_messages = [call.args[0] for call in warning.call_args_list]
+        assert "hypothesis_text_key='text'" in warning_messages[0]
+        assert "reference_text_key='text_2'" in warning_messages[0]
+        assert "hypothesis_text_key='text'" not in warning_messages[1]
+        assert "reference_text_key='text_2'" in warning_messages[1]
         segs = result.data["segments"]
         assert "wer" in segs[0].get("metrics", {})
-        assert "metrics" not in segs[1] or "wer" not in segs[1].get("metrics", {})
-        assert "wer" in segs[2].get("metrics", {})
+        for segment in segs[1:5]:
+            assert "metrics" not in segment or "wer" not in segment.get("metrics", {})
+        assert "wer" in segs[5].get("metrics", {})
 
     def test_bandwidth_skips_zero_duration_segment(self, audio_task: Callable[..., AudioTask], tmp_path: Path) -> None:
         """BandwidthEstimation tags zero-duration segments without aborting."""
