@@ -18,6 +18,7 @@ from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
     InterleavedAspectRatioFilterStage,
+    MarkdownToInterleavedStage,
 )
 
 _LAZY = {
@@ -31,6 +32,7 @@ __all__ = [
     "InterleavedAspectRatioFilterStage",
     "InterleavedLanceReader",
     "InterleavedLanceReaderStage",
+    "MarkdownToInterleavedStage",
 ]
 
 
