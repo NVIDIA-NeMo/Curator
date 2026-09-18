@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import pandas as pd
+import pytest
 
 from nemo_curator.stages.text.modules.joiner import DocumentJoiner
 from nemo_curator.stages.text.modules.splitter import DocumentSplitter
@@ -262,54 +263,18 @@ class TestDocumentSplitter:
         reconstructed_doc2 = "\n\n".join(doc2_segments["text"].tolist())
         assert reconstructed_doc2 == "Foo\n\nBar"
 
-    def test_separator_is_treated_as_literal_string(self):
-        """Test that multi-character separators containing regex metacharacters
-        are treated as literal strings instead of regular expressions."""
-        df = pd.DataFrame(
-            {
-                "id": [1],
-                "text": ["Hello..World..Again"],
-            }
-        )
-        batch = DocumentBatch(
-            dataset_name="test_dataset",
-            data=df,
-        )
-
-        splitter = DocumentSplitter(separator="..")
-        result = splitter.process(batch)
-
-        result_df = result.to_pandas()
-        assert len(result_df) == 3
-        assert list(result_df["text"]) == ["Hello", "World", "Again"]
-        assert list(result_df["segment_id"]) == [0, 1, 2]
-
-    def test_separator_with_invalid_regex_does_not_raise(self):
-        """Test that separators which are invalid regular expressions (e.g.
-        "++") do not crash the stage with a re.error."""
-        df = pd.DataFrame(
-            {
-                "id": [1],
-                "text": ["Hello++World"],
-            }
-        )
-        batch = DocumentBatch(
-            dataset_name="test_dataset",
-            data=df,
-        )
-
-        splitter = DocumentSplitter(separator="++")
-        result = splitter.process(batch)
-
-        result_df = result.to_pandas()
-        assert len(result_df) == 2
-        assert list(result_df["text"]) == ["Hello", "World"]
-
-    def test_roundtrip_with_joiner_for_regex_metacharacter_separator(self):
-        """Test that splitting and re-joining with a separator containing
-        regex metacharacters restores the original document."""
-        separator = "(sep)"
-        original_text = f"Hello{separator}World{separator}Again"
+    @pytest.mark.parametrize(
+        ("separator", "segments"),
+        [
+            ("..", ["Hello", "World", "Again"]),
+            ("++", ["Hello", "World"]),
+            ("(sep)", ["Hello", "World", "Again"]),
+        ],
+    )
+    def test_literal_separator_and_joiner_roundtrip(self, separator: str, segments: list[str]):
+        """Test that separators containing regex metacharacters or invalid regexes
+        are treated as literal strings and roundtrip correctly with DocumentJoiner."""
+        original_text = separator.join(segments)
         df = pd.DataFrame(
             {
                 "id": [1],
@@ -321,11 +286,17 @@ class TestDocumentSplitter:
             data=df,
         )
 
-        split_batch = DocumentSplitter(separator=separator).process(batch)
+        splitter = DocumentSplitter(separator=separator)
+        split_batch = splitter.process(batch)
+
+        result_df = split_batch.to_pandas()
+        assert len(result_df) == len(segments)
+        assert list(result_df["text"]) == segments
+        assert list(result_df["segment_id"]) == list(range(len(segments)))
+
         joined_batch = DocumentJoiner(separator=separator, text_field="text", document_id_field="id").process(
             split_batch
         )
-
         joined_df = joined_batch.to_pandas()
         assert len(joined_df) == 1
         assert joined_df.loc[0, "text"] == original_text
