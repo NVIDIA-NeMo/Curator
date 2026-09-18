@@ -374,6 +374,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Override this method to perform any cleanup.
         """
 
+    def finalize(self) -> None:
+        """Finalize driver-owned state after the whole pipeline succeeds.
+
+        Unlike ``teardown()``, which runs on backend workers and may also run
+        during failure cleanup, this hook is called once by ``Pipeline.run``
+        only after the executor has returned successfully.
+        """
+
     def supports_batch_processing(self) -> bool:
         """Whether this stage supports vectorized batch processing.
         This is automatically determined by checking if the stage has

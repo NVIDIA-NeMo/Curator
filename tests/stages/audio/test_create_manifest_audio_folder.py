@@ -73,6 +73,19 @@ class TestCreateInitialManifestAudioFolderStage:
 
         assert sorted(t.data["audio_item_id"] for t in tasks) == ["a", "b"]
 
+    def test_same_stem_with_different_extensions_gets_two_ids(self, tmp_path) -> None:  # noqa: ANN001
+        root = str(tmp_path)
+        for rel in ["a.wav", "a.flac"]:
+            _touch(root, rel)
+
+        tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
+        ids_by_name = {
+            os.path.basename(task.data["audio_filepath"]): task.data["audio_item_id"] for task in tasks
+        }
+
+        assert ids_by_name == {"a.flac": "a~eflac", "a.wav": "a~ewav"}
+        assert len(set(ids_by_name.values())) == 2
+
     def test_non_recursive_and_max_samples(self, tmp_path) -> None:  # noqa: ANN001
         root = str(tmp_path)
         for rel in ["a.wav", "b.wav", "sub/c.wav"]:

@@ -18,6 +18,7 @@ import math
 import os
 import time
 import uuid
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
@@ -759,11 +760,10 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
         return 1
 
     @staticmethod
-    def _item_id(relative_path: str) -> str:
-        """Flatten a relative stem without confusing separators with filename text."""
-        stem = os.path.splitext(relative_path)[0]
+    def _encode_item_id_path(relative_path: str) -> str:
+        """Flatten a relative path without confusing separators with filename text."""
         encoded_components: list[str] = []
-        for component in stem.split(os.sep):
+        for component in relative_path.split(os.sep):
             encoded: list[str] = []
             last = len(component) - 1
             for index, char in enumerate(component):
@@ -781,6 +781,15 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
                     encoded.append(char)
             encoded_components.append("".join(encoded))
         return "__".join(encoded_components)
+
+    @classmethod
+    def _item_id(cls, relative_path: str, *, include_extension: bool = False) -> str:
+        """Return the legacy stem id, adding a reserved extension suffix on collisions."""
+        stem, extension = os.path.splitext(relative_path)
+        item_id = cls._encode_item_id_path(stem)
+        if include_extension:
+            item_id = f"{item_id}~e{cls._encode_item_id_path(extension[1:])}"
+        return item_id
 
     def _collect_audio_files(self) -> list[str]:
         exts = tuple((e if e.startswith(".") else f".{e}").lower() for e in self.extensions)
@@ -817,15 +826,18 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
         if not paths:
             logger.warning(f"[{self.name}] no audio files {self.extensions} under {self.data_dir}")
             return []
+        root = os.path.abspath(self.data_dir)
+        relative_paths = [os.path.relpath(os.path.abspath(path), root) for path in paths]
+        legacy_ids = [self._item_id(relative_path) for relative_path in relative_paths]
+        id_counts = Counter(legacy_ids)
         tasks: list[AudioTask] = []
-        for path in paths:
+        for path, rel, legacy_id in zip(paths, relative_paths, legacy_ids, strict=True):
             abspath = os.path.abspath(path)
             # Relpath, not basename: ``recursive`` defaults True and speaker-per-folder is the
             # standard layout, so a basename id gives spk1/utt1.wav and spk2/utt1.wav the same
             # id -- and downstream that id becomes an output filename. A flat corpus is
             # unaffected unless its name needs escaping to remain distinct from a path separator.
-            rel = os.path.relpath(abspath, os.path.abspath(self.data_dir))
-            item_id = self._item_id(rel)
+            item_id = self._item_id(rel, include_extension=id_counts[legacy_id] > 1)
             tasks.append(
                 AudioTask(
                     dataset_name="local-audio-folder",
@@ -1172,6 +1184,16 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
             )
         self._reservation_owned = False
         self._reservation_identity = None
+
+    def finalize(self) -> None:
+        """Publish the completion marker after successful pipeline execution."""
+        self._resolve_output()
+        if self._read_retry_owner() is None and not self._fs.exists(self._path):
+            # A backend may never construct a worker when the upstream dataset
+            # is empty. A successful empty checkpoint is still a complete,
+            # reusable artifact, so reserve it on the driver before publishing.
+            self.setup()
+        self.release_retry_reservation()
 
     def _retry_owner_path(self) -> str:
         return f"{self._path}._RETRY_OWNER"

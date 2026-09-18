@@ -1074,14 +1074,12 @@ def test_a_read_met_only_by_a_conditional_write_is_a_warning_not_an_error() -> N
     assert any(issue.code == "unsatisfied_reads" for issue in missing.issues)
 
 
-def test_shipped_metric_then_selector_chain_composes() -> None:
-    """The fleurs recipe shape: pairwise WER followed by a threshold on its (conditional) output."""
-    from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
-
+def test_conditional_metric_then_selector_chain_composes() -> None:
+    """A metric followed by a threshold composes when the metric output is conditional."""
     report = validate_pipeline(
-        [GetPairwiseWerStage(), PreserveByValueStage("wer_pct", 25.0, "le")],
-        initial_keys={"audio_filepath", "text", "pred_text"},
-        initial_roles={"audio_filepath", "text", "pred_text"},
+        [_ConditionalScoreProducer(), PreserveByValueStage("score", 25.0, "le")],
+        initial_keys={"audio_filepath"},
+        initial_roles={"audio_filepath"},
     )
     assert report.ok, report.summary()
     assert report.keys_ok
@@ -1110,23 +1108,3 @@ def test_conditional_tensor_writes_seed_residency_only_when_reachable(tmp_path: 
         [_ReachabilityGatedTensorProducer(), _ReachabilityGatedTensorProducer(), sink],
     )
     assert self_enabling.ok, self_enabling.summary()
-
-
-def test_default_auto_scorers_do_not_fear_a_tensor_on_a_file_manifest(tmp_path: Path) -> None:
-    """``auto_partial`` hydration only REPLACES an incomplete resident pair; a file-only row never gains one."""
-    from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
-    from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
-
-    sink = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
-    for scorer in (UTMOSFilterStage(), SIGMOSFilterStage()):
-        report = validate_pipeline([scorer, sink])
-        assert report.ok, report.summary()
-
-    # With a resident sample_rate and no waveform the runtime DOES inject the decoded pair,
-    # so the refusal there is a true positive and must stay.
-    resident_rate = validate_pipeline(
-        [UTMOSFilterStage(), sink],
-        initial_keys={"audio_filepath", "sample_rate"},
-        initial_roles={"audio_filepath", "sample_rate"},
-    )
-    assert any(issue.code == "tensor_into_sink" for issue in resident_rate.issues)

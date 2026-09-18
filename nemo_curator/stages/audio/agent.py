@@ -31,8 +31,8 @@ The intended loop::
     agent.find_consumers("pred_text")          # [] from find_producers => unproducible
 
     # 3. CONFIGURE + BUILD
-    cls = agent.get_agent_ready_stage_class("UTMOSFilterStage")
-    stage = cls(mos_threshold=3.5)             # params_schema documents the knobs
+    cls = agent.get_agent_ready_stage_class("SampleRateFilterStage")
+    stage = cls(min_sample_rate=16_000)        # params_schema documents the knobs
 
     # 4. VALIDATE (before ever running)
     report = agent.validate_pipeline([stage, ...], initial_keys={"audio_filepath", "text"})
@@ -44,7 +44,7 @@ The intended loop::
 ``static_params_and_hints``; pass an instance to ``build_contract`` for the
 configured dynamic contract with resolved I/O/key values.
 ``StageContract.to_dict()`` is JSON-safe by construction. Open-ended intent fit
-is reviewed by the host LLM over ``audio_agent.validate(...).semantic_review``.
+remains a review decision for the host using the returned contracts and report.
 """
 
 from __future__ import annotations

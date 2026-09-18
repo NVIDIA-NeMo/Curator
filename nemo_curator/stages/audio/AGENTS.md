@@ -10,18 +10,15 @@ Two different jobs happen in this directory, and they have opposite rules about 
 
 Stage source is shared library code. Never change a stage, a threshold, a filter or
 windowing logic to make one user's dataset produce the output they hoped for — diagnose
-from the data instead. The full guardrail, and what to do when output comes back empty,
-is in `nemo_curator/audio_agent/AGENTS.md`. Drive the work through the
-`nemo_curator.audio_agent` verbs rather than reading stage source to answer what a stage
-reads or writes: `describe <Stage> --params '{...}'` is the sanctioned answer, and
-`producers <key>` says who wrote a key.
+from the data instead. Inspect stage contracts through the public
+`nemo_curator.stages.audio.agent` facade rather than reading stage source to answer what
+a stage reads or writes: `agent.describe_stage("MyStage")` is the sanctioned answer, and
+`agent.find_producers("role")` says which stages can produce a semantic role.
 
 ## If you are authoring or fixing a stage, start here
 
 Read `AGENT_READY.md` in this directory. It is the authoritative checklist and it is
-maintained with the framework; work from it rather than from memory. The
-`audio-stage-authoring` skill (`nemo_curator/audio_agent/skills/audio-stage-authoring/SKILL.md`)
-is the procedure that drives it.
+maintained with the framework; work from it rather than from memory.
 
 **Golden rule: every new knob defaults to today's behavior.** Agent-readiness is a
 declaration layer over working code. If a change alters what an existing pipeline
@@ -35,12 +32,9 @@ The mechanical contract is three things, each detailed in `AGENT_READY.md`:
    literals in `process()`, or the key is invisible to the agent and cannot be remapped.
 3. Add `assert_agent_ready(MyStage(...), fixture_factory=...)` as a test.
 
-Then give the stage a capability card under
-`nemo_curator/audio_agent/knowledge/cards/`, documenting what each externally consumed
-output *means* — roles prove two stages can connect, only the card lets the host judge
-whether connecting them serves the user's intent. Schema:
-`nemo_curator/audio_agent/knowledge/CARD_SCHEMA.md`. `card_conformance.audit()` must come
-back with zero violations.
+Document what each externally consumed output means in the stage docstring and tests.
+Roles prove that two stages can connect; clear semantic documentation lets reviewers
+judge whether connecting them serves the user's intent.
 
 Follow the repo's existing stage conventions while you do it:
 `.cursor/rules/processing-stage-patterns.mdc` and
@@ -56,7 +50,7 @@ planner treats it as ground truth.
 
 ```bash
 .venv/bin/python -m pytest tests/stages/audio -m "not gpu" -q
-.venv/bin/python -m nemo_curator.audio_agent describe MyStage --params '{...}'
+.venv/bin/python -c 'from nemo_curator.stages.audio import agent; print(agent.describe_stage("MyStage").to_dict())'
 ```
 
 If `describe` does not match what the code actually touches for those params, the contract

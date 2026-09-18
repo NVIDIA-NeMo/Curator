@@ -993,7 +993,7 @@ class TestManifestCheckpointStage:
 
         assert out.read_bytes() == before
 
-    def test_successful_release_publishes_completion_before_removing_retry_owner(self, tmp_path: Path) -> None:
+    def test_successful_finalize_publishes_completion_before_removing_retry_owner(self, tmp_path: Path) -> None:
         out = tmp_path / "checkpoint.jsonl"
         owner_path = Path(f"{out}._RETRY_OWNER")
         marker_path = Path(f"{out}._COMPLETE")
@@ -1001,7 +1001,7 @@ class TestManifestCheckpointStage:
         checkpoint.setup()
         checkpoint.process(AudioTask(data={"retained": True}))
 
-        checkpoint.release_retry_reservation()
+        checkpoint.finalize()
 
         assert out.read_text(encoding="utf-8") == '{"retained": true}\n'
         assert marker_path.exists()
@@ -1010,6 +1010,16 @@ class TestManifestCheckpointStage:
         assert marker["st_size"] == out.stat().st_size
         with pytest.raises(FileExistsError, match="completion marker"):
             checkpoint.reset_for_retry()
+
+    def test_successful_finalize_publishes_an_empty_checkpoint(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        checkpoint = ManifestCheckpointStage(output_path=str(out))
+
+        checkpoint.finalize()
+
+        assert out.read_bytes() == b""
+        assert Path(f"{out}._COMPLETE").exists()
+        assert not Path(f"{out}._RETRY_OWNER").exists()
 
     def test_successful_release_refuses_to_complete_a_replaced_checkpoint(self, tmp_path: Path) -> None:
         out = tmp_path / "checkpoint.jsonl"
