@@ -557,7 +557,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return
         name = Path(original_file).stem
         speaker_id = record.get("speaker_id")
-        if speaker_id:
+        if speaker_id is not None:
             speaker_key = str(speaker_id)
             self._speaker_segment_counter[name][speaker_key] = max(
                 self._speaker_segment_counter[name][speaker_key], index
@@ -585,9 +585,12 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         start_ms: int,
         end_ms: int,
         segment_index: int,
-    ) -> str:
+    ) -> str | None:
+        task_id = self._task_ids_by_entry.get(id(entry))
+        if not task_id:
+            return None
         identity = {
-            "task_id": self._task_ids_by_entry.get(id(entry), ""),
+            "task_id": task_id,
             "original_file": os.path.abspath(original_file),
             "speaker_id": entry.get("speaker_id"),
             "start_ms": start_ms,
@@ -668,7 +671,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             record_output_paths=record_output_paths,
         )
 
-    def _extract_speaker_diar(
+    def _extract_speaker_diar(  # noqa: C901
         self,
         entries: list[dict],
         *,
@@ -683,11 +686,19 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return f"{name}_speaker_{speaker_num}_segment_{idx:03d}.{self.output_format}"
 
         expanded_entries, expanded_groups = _expand_nested_speaker_entries(entries)
+        inherited_paths: dict[int, list[Any]] = {}
         for parent, speaker_entries in expanded_groups:
             parent_task_id = self._task_ids_by_entry.get(id(parent))
             if parent_task_id is not None:
                 for speaker_entry in speaker_entries:
                     self._task_ids_by_entry[id(speaker_entry)] = parent_task_id
+            if record_output_paths:
+                existing = parent.get(self.output_key)
+                inherited_paths[id(parent)] = (
+                    list(existing) if isinstance(existing, list) else ([] if existing is None else [existing])
+                )
+                for speaker_entry in speaker_entries:
+                    speaker_entry.pop(self.output_key, None)
         result = self._extract_file_segments(
             expanded_entries,
             sort_key=lambda x: x.get("speaker_id", ""),
@@ -695,13 +706,13 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             make_filename=_make_filename,
             record_output_paths=record_output_paths,
         )
-        for parent, speaker_entries in expanded_groups:
-            output_paths = [
-                path
-                for speaker_entry in speaker_entries
-                for path in speaker_entry.get(self.output_key, [])
-            ]
-            if output_paths:
+        if record_output_paths:
+            for parent, speaker_entries in expanded_groups:
+                output_paths = inherited_paths[id(parent)]
+                for speaker_entry in speaker_entries:
+                    for path in speaker_entry.get(self.output_key, []):
+                        if path not in output_paths:
+                            output_paths.append(path)
                 parent[self.output_key] = output_paths
         return result
 
@@ -772,12 +783,18 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 for seg_idx, (start_ms, end_ms, dur) in enumerate(intervals):
                     if record_output_paths:
                         resume_key = self._segment_resume_key(entry, original_file, start_ms, end_ms, seg_idx)
-                        out_filename, is_retry = self._reserved_filename(
-                            resume_key,
-                            original_file,
-                            entry,
-                            lambda name=original_name, item=entry, index=seg_idx: make_filename(name, item, index),
-                        )
+                        if resume_key is None:
+                            out_filename = make_filename(original_name, entry, seg_idx)
+                            is_retry = False
+                        else:
+                            out_filename, is_retry = self._reserved_filename(
+                                resume_key,
+                                original_file,
+                                entry,
+                                lambda name=original_name, item=entry, index=seg_idx: make_filename(
+                                    name, item, index
+                                ),
+                            )
                     else:
                         out_filename = make_filename(original_name, entry, seg_idx)
                         is_retry = False

@@ -732,6 +732,76 @@ class TestSegmentExtractionStageProcessBatch:
             "file_a_speaker_0_segment_001.wav",
         }
 
+    def test_empty_speaker_id_restores_the_speaker_counter(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        first = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "speaker_id": "",
+                "original_start_ms": 0,
+                "original_end_ms": 500,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        first._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first])
+
+        second = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "speaker_id": "",
+                "original_start_ms": 500,
+                "original_end_ms": 1000,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        second._set_task_id("source", 1)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([second])
+
+        assert sorted(path.name for path in output_dir.glob("*.wav")) == [
+            "file_a_speaker__segment_000.wav",
+            "file_a_speaker__segment_001.wav",
+        ]
+
+    def test_unassigned_duplicate_tasks_keep_distinct_legacy_outputs(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        tasks = [AudioTask(data=data.copy()), AudioTask(data=data.copy())]
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch(tasks)
+
+        assert sorted(path.name for path in output_dir.glob("*.wav")) == [
+            "file_a_segment_000.wav",
+            "file_a_segment_001.wav",
+        ]
+
+    def test_reprocessing_nested_speakers_does_not_duplicate_paths(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "diar_segments": [
+                    {"start": 0.0, "end": 0.5, "speaker": "speaker_0"},
+                    {"start": 0.5, "end": 1.0, "speaker": "speaker_1"},
+                ],
+            }
+        )
+        task._set_task_id("source", 0)
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+        first_paths = task.data["extracted_path"].copy()
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+
+        assert task.data["extracted_path"] == first_paths
+        assert len(task.data["extracted_path"]) == 2
+
     def test_audio_content_matches_source(self, wav_dir: Path, tmp_path: Path) -> None:
         original, sr = sf.read(_wav_path(wav_dir))
         expected_slice = original[int(1.0 * sr) : int(2.0 * sr)]
