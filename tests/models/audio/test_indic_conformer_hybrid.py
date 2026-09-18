@@ -22,10 +22,10 @@ import pytest
 import torch
 
 from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.indic_conformer_hybrid import IndicConformerHybridASR
+from nemo_curator.models.audio.indic_conformer_hybrid import IndicConformerHybridASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
-_ADAPTER_TARGET = "nemo_curator.models.indic_conformer_hybrid.IndicConformerHybridASR"
+_ADAPTER_TARGET = "nemo_curator.models.audio.indic_conformer_hybrid.IndicConformerHybridASR"
 
 
 def _tensorrt_metadata() -> dict[str, object]:
@@ -200,7 +200,7 @@ def test_tensorrt_backend_requires_exactly_one_stage_owned_gpu(tmp_path: Path, n
     adapter = IndicConformerHybridASR("unused", tensorrt_engine_dir=str(_tensorrt_bundle(tmp_path)))
 
     with (
-        patch("nemo_curator.models.indic_conformer_hybrid._apply_multisoftmax_patches"),
+        patch("nemo_curator.models.audio.indic_conformer_hybrid._apply_multisoftmax_patches"),
         pytest.raises(ValueError, match="requires exactly one GPU"),
     ):
         adapter.load_model(num_gpus=num_gpus)
@@ -268,7 +268,7 @@ def test_tensorrt_load_failure_releases_partial_model_state(tmp_path: Path) -> N
     with (
         patch("torch.cuda.is_available", return_value=True),
         patch("torch.cuda.empty_cache"),
-        patch("nemo_curator.models.indic_conformer_hybrid._apply_multisoftmax_patches"),
+        patch("nemo_curator.models.audio.indic_conformer_hybrid._apply_multisoftmax_patches"),
         patch("nemo.collections.asr.models.ASRModel.restore_from", return_value=model),
         patch.object(adapter, "_enable_tensorrt_encoder", side_effect=RuntimeError("engine load failed")),
         pytest.raises(RuntimeError, match="engine load failed"),

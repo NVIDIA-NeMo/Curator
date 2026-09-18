@@ -19,14 +19,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from nemo_curator.models.indic_conformer_hybrid import (
+from nemo_curator.models.audio.indic_conformer_hybrid import (
     INDIC_CONFORMER_HYBRID_LANGS,
     IndicConformerHybridASR,
 )
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
-_ADAPTER_TARGET = "nemo_curator.models.indic_conformer_hybrid.IndicConformerHybridASR"
+_ADAPTER_TARGET = "nemo_curator.models.audio.indic_conformer_hybrid.IndicConformerHybridASR"
 
 
 @dataclass
