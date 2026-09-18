@@ -38,6 +38,8 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 
 class EmbeddingModelVariation(Enum):
+    """Supported embedding backend variants for the embedding benchmark."""
+
     SENTENCE_TRANSFORMER = "sentence_transformer"
     PYTORCH_MODEL = "pytorch_model"
     VLLM_TEXT = "vllm_text"

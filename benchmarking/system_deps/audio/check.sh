@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#!/usr/bin/env bash
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
+set -euo pipefail
 
-from curator_benchmarking.cli import main
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+command -v ffmpeg >/dev/null 2>&1
+command -v ffprobe >/dev/null 2>&1
