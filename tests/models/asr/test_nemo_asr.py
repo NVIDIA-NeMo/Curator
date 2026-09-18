@@ -29,6 +29,8 @@ from omegaconf import OmegaConf
 from nemo_curator.models.asr import nemo_asr
 from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.tasks import AudioTask
 
 _MODEL_ID = "nvidia/stt_en_fastconformer_ctc_large"
 _SAMPLE_RATE = 16_000
@@ -137,6 +139,40 @@ def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     assert kwargs["batch_size"] == 2
     assert kwargs["num_workers"] == 2
     assert len(kwargs["audio"]) == 2
+
+
+def test_asr_stage_drives_nemo_adapter_with_exact_local_batches() -> None:
+    model = _mock_model([])
+    model.transcribe.side_effect = [
+        ["short-a", "short-b"],
+        ["long"],
+    ]
+    adapter = NeMoASRAdapter()
+    adapter._model = model
+    stage = ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id=_MODEL_ID,
+        max_audio_sec_per_actor=4.0,
+        max_inference_duration_s=4.0,
+        local_bucketing=True,
+        waveform_key="waveform",
+        sample_rate_key="sampling_rate",
+        keep_waveform=True,
+    )
+    stage._adapter = adapter
+    tasks = [
+        AudioTask(data={"waveform": np.zeros(_SAMPLE_RATE, dtype=np.float32), "sampling_rate": _SAMPLE_RATE}),
+        AudioTask(data={"waveform": np.zeros(4 * _SAMPLE_RATE, dtype=np.float32), "sampling_rate": _SAMPLE_RATE}),
+        AudioTask(
+            data={"waveform": np.zeros(int(1.5 * _SAMPLE_RATE), dtype=np.float32), "sampling_rate": _SAMPLE_RATE}
+        ),
+    ]
+
+    results = stage.process_batch(tasks)
+
+    assert [call.kwargs["batch_size"] for call in model.transcribe.call_args_list] == [2, 1]
+    assert [len(call.kwargs["audio"]) for call in model.transcribe.call_args_list] == [2, 1]
+    assert [task.data["pred_text"] for task in results] == ["short-a", "long", "short-b"]
 
 
 def test_transcribe_batch_preserves_empty_positions() -> None:
