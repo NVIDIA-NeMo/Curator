@@ -33,6 +33,7 @@ with suppress(ImportError):
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 @pytest.fixture
@@ -701,9 +702,14 @@ class TestMinHashStage:
         for i in range(3):
             input_file = tmp_path / f"meta-{i}.jsonl"
             pd.DataFrame({"text": [f"document number {i}"]}).to_json(input_file, orient="records", lines=True)
-            tasks.append(
-                FileGroupTask(dataset_name="meta", data=[str(input_file)], _metadata={"source": f"shard-{i}"})
-            )
+            task = FileGroupTask(dataset_name="meta", data=[str(input_file)], _metadata={"source": f"shard-{i}"})
+            # Two records each, so the assertion below distinguishes "kept the whole history"
+            # (first task) from "kept only the final record" (the rest).
+            task._stage_perf = [
+                StagePerfStats(stage_name=f"upstream-{i}-a"),
+                StagePerfStats(stage_name=f"upstream-{i}-b"),
+            ]
+            tasks.append(task)
 
         stage = MinHashStage(
             output_path=str(tmp_path / "meta_out"),
@@ -724,6 +730,14 @@ class TestMinHashStage:
         assert outputs[0]._metadata["num_hashes"] == 64
         assert outputs[0]._metadata["minhash_field"] == "_minhash_signature"
 
+        # First task's full history, then each remaining input's final record only.
+        assert [perf.stage_name for perf in outputs[0]._stage_perf] == [
+            "upstream-0-a",
+            "upstream-0-b",
+            "upstream-1-b",
+            "upstream-2-b",
+        ]
+
     def test_process_batch_empty_returns_empty_list(self, tmp_path: Path) -> None:
         """An empty batch is a no-op and does not require a live processor."""
         stage = MinHashStage(output_path=str(tmp_path / "empty_batch"), text_field="text", read_format="jsonl")
@@ -742,3 +756,15 @@ class TestMinHashStage:
         """batch_size is opt-in, so existing pipelines keep one-task-in/one-file-out."""
         assert MinHashStage(output_path=str(tmp_path / "default"), text_field="text").batch_size == 1
         assert MinHashStage(output_path=str(tmp_path / "sized"), text_field="text", batch_size=8).batch_size == 8
+
+    @pytest.mark.parametrize("batch_size", [0, -1])
+    def test_invalid_batch_size_rejected(self, tmp_path: Path, batch_size: int) -> None:
+        """A non-positive batch_size fails fast instead of silently dropping tasks."""
+        with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+            MinHashStage(output_path=str(tmp_path / "bad_bs"), text_field="text", batch_size=batch_size)
+
+    def test_is_resumable_tracks_batch_size(self, tmp_path: Path) -> None:
+        """Batching fans in, so it is not source-attributable and must not claim resumability."""
+        assert MinHashStage(output_path=str(tmp_path / "r1"), text_field="text").is_resumable is True
+        assert MinHashStage(output_path=str(tmp_path / "r2"), text_field="text", batch_size=1).is_resumable is True
+        assert MinHashStage(output_path=str(tmp_path / "r4"), text_field="text", batch_size=4).is_resumable is False

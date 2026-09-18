@@ -230,7 +230,10 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         Number of input tasks to coalesce into a single minhash computation. Inputs are still
         read one at a time, but the concatenated frame is hashed and written as one block, which
         keeps the GPU saturated when upstream read blocks are small. The default of 1 preserves
-        the previous one-task-in, one-file-out behavior.
+        the previous one-task-in, one-file-out behavior. Must be positive. Values above 1 make the
+        stage a fan-in, which is not source-attributable, so the stage is then not resumable and
+        cannot be used with ``Pipeline.run(checkpoint_path=...)``. Peak device memory is roughly
+        twice the combined size of one batch's inputs, so size it against free GPU memory.
 
     Examples
     --------
@@ -262,7 +265,16 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         # Set ProcessingStage attributes
         self.name = self.__class__.__name__
         self.resources = Resources(gpus=1.0)  # Requires 1 GPU
+
+        if batch_size < 1:
+            msg = f"batch_size must be a positive integer, got {batch_size}"
+            raise ValueError(msg)
         self.batch_size = batch_size
+        # batch_size > 1 fans several inputs into one output, so the input->output mapping is no
+        # longer source-attributable and resumability accounting cannot credit the sources. Same
+        # reasoning as ConnectedComponentsStage / LSH. batch_size == 1 stays 1:1, so it stays
+        # resumable and existing checkpointed pipelines are unaffected.
+        self.is_resumable = batch_size == 1
 
         self.text_field = text_field
         self.minhash_field = minhash_field
@@ -370,8 +382,11 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
                 msg = f"Task {task!s} failed validation for stage {self}"
                 raise ValueError(msg)
 
-        # Read the inputs one by one and concatenate, so peak memory is one input frame plus the
-        # combined frame rather than every input frame at once.
+        # Read one at a time, then concatenate once. cudf.concat needs the inputs and the combined
+        # copy resident together, so peak device memory is roughly twice the combined input size --
+        # inherent to the concat, and the reason batch_size should be sized against free GPU memory.
+        # Concatenating incrementally would not lower that peak and would recopy the accumulator on
+        # every step, so a single concat is both the cheaper and the simpler option.
         frames = []
         for task in tasks:
             frames.append(self._read_task(task))
