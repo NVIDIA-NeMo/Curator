@@ -16,8 +16,8 @@ import pickle
 from pathlib import Path
 
 import pytest
-from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
     AudioDataFilterStage,
 )

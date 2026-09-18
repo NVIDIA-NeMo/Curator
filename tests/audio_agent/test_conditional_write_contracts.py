@@ -144,12 +144,13 @@ def test_timestamp_mapper_declares_conditional_same_key_passthrough() -> None:
     contract = TimestampMapperStage(
         passthrough_keys=["quality", "sample_rate", "waveform", "original_file"],
     ).describe()
-    passthrough = next(item for item in contract.conditional_writes if item.value_origin == "upstream_same_key")
+    passthrough = [item for item in contract.conditional_writes if item.value_origin == "upstream_same_key"]
 
-    assert passthrough.writes.data_keys == ["quality", "sample_rate"]
-    assert "present, non-null" in passthrough.condition
-    assert "waveform" not in passthrough.writes.data_keys
-    assert "original_file" not in passthrough.writes.data_keys
+    assert [item.writes.data_keys for item in passthrough] == [["quality"], ["sample_rate"]]
+    assert [item.requires_keys for item in passthrough] == [["quality"], ["sample_rate"]]
+    assert all("present, non-null" in item.condition for item in passthrough)
+    assert all("waveform" not in item.writes.data_keys for item in passthrough)
+    assert all("original_file" not in item.writes.data_keys for item in passthrough)
     assert contract.preserves_upstream_keys is False
 
 

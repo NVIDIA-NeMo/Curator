@@ -256,16 +256,11 @@ ADDITIVE_STAGE_NAMES = (
 # Regenerated for the segmentation safety corrections. Speaker separation now
 # advertises its first-run network requirement, while new segmentation knobs are
 # keyword-only so the legacy positional constructor surface remains unchanged.
-# Regenerated for the dataset source contract corrections. ReadSpeech gained
-# additive sample-rate/book/reader key parameters whose defaults reproduce its
-# existing rows. FLEURS keeps its empty-string constructor defaults but marks
-# the three values rejected by __post_init__ as agent-required. Both sources
-# now expose conservative static download gates and configured no-download
-# contracts no longer claim writes. VAD exposes separate output key parameters
-# whose canonical defaults preserve its established output schema. No existing
-# runtime default changed.
+# Regenerated after the reviewed cross-PR compatibility corrections. The
+# changes are additive keyword-only key parameters, conservative static gates,
+# and restored legacy defaults; existing positional constructors remain stable.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "a2a6a15a9a4cdd1f9dda61eb7315f852a66c5731f775882228dc59406e3233ef"  # pragma: allowlist secret
+    "e2d0b9c17b2a2aa9ab289bc8839f7d2a5352f65727caa0facbfb0f28655f3cb6"  # pragma: allowlist secret
 )
 
 
