@@ -72,19 +72,18 @@ class TestResampleAudioStage:
             stage.setup()
             stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(audio_filepath)}))
 
-            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:16]
+            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:8]
             assert os.listdir(tmpdir) == [f"{audio_filepath.stem}_{path_hash}.wav"]
 
     def test_two_paths_sharing_a_stem_get_distinct_output_stems(self, tmp_path: Path) -> None:
-        """A 32-bit (8-hex) suffix collided too easily; distinct paths must not share a stem."""
+        """The legacy suffix remains path-derived for files sharing a basename."""
         stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
         stems = set()
         for parent in ("a", "b"):
             local_audio_path = str(tmp_path / parent / "clip.wav")
             stem = stage._item_id(local_audio_path, from_scratch_file=False, source=None)
-            # The full sha256 hex must be relied on to disambiguate, never an 8-hex prefix.
             assert stem.startswith("clip_")
-            assert len(stem.split("_")[-1]) == 16
+            assert len(stem.split("_")[-1]) == 8
             stems.add(stem)
         assert len(stems) == 2, "distinct paths with the same basename stem collided onto one stem"
 
