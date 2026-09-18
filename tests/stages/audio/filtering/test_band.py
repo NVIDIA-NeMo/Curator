@@ -95,6 +95,18 @@ class TestBandFilterStage:
         with pytest.raises(ValueError, match="Audio input keys must be distinct"):
             BandFilterStage(**params)
 
+    @pytest.mark.parametrize("mode", ["task", "segments"])
+    def test_invalid_resident_sample_rate_is_unscorable_without_inference(self, mode: str) -> None:
+        stage = _stage(mode=mode, input_residency="waveform")
+        audio = {"waveform": torch.zeros(8), "sample_rate": 16000.5}
+        task = AudioTask(dataset_name="test", data=audio if mode == "task" else {"segments": [audio]})
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        stage._predictor.predict_audio.assert_not_called()
+        assert stage.prediction_key not in audio
+
     def test_explicit_valid_model_path_returns_without_download(self, tmp_path: Path) -> None:
         model_path = tmp_path / "model.joblib"
         model_path.write_bytes(b"model")

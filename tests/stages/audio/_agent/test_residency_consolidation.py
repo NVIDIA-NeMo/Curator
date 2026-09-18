@@ -12,15 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Characterization tests pinning the exact behavior of the audio-resolution
-helpers BEFORE consolidating them onto ``_residency.resolve_audio``.
-
-These lock the current return shapes/types/values so the refactor of
-``utmos._load_waveform_tensor`` and ``sigmos._get_audio_numpy_sr`` into thin
-wrappers around ``resolve_audio`` is provably byte-identical (no behavior change).
-``common.resolve_waveform_from_item`` is included to document its unique
-sample-rate-from-header behavior (kept as-is for now).
-"""
+"""Regression tests for shared audio-resolution helpers and filtering wrappers."""
 
 from __future__ import annotations
 
@@ -138,8 +130,45 @@ def test_sigmos_missing_returns_none():  # noqa: ANN202
 
 
 # --------------------------------------------------------------------------- #
-# resolve_audio (unchanged) — pin its current contract for reference
+# resolve_audio — shared resident/file resolution contract
 # --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "sample_rate",
+    [
+        pytest.param(True, id="bool"),
+        pytest.param(np.bool_(True), id="numpy-bool"),
+        pytest.param(0, id="zero"),
+        pytest.param(-1, id="negative"),
+        pytest.param(16000.5, id="fractional-float"),
+        pytest.param("16000.5", id="fractional-string"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="infinity"),
+        pytest.param(torch.tensor([16000]), id="non-scalar-tensor"),
+    ],
+)
+def test_resolve_audio_rejects_invalid_resident_sample_rates(sample_rate: object) -> None:
+    with pytest.raises(ValueError, match="positive, losslessly integral, non-boolean"):
+        resolve_audio({"waveform": torch.zeros(8), "sample_rate": sample_rate})
+
+
+@pytest.mark.parametrize(
+    "sample_rate",
+    [
+        pytest.param(16000, id="int"),
+        pytest.param(np.int64(16000), id="numpy-int"),
+        pytest.param(16000.0, id="integral-float"),
+        pytest.param("16000", id="numeric-string"),
+        pytest.param(torch.tensor(16000), id="scalar-tensor"),
+    ],
+)
+def test_resolve_audio_preserves_lossless_sample_rate_coercions(sample_rate: object) -> None:
+    resolved = resolve_audio({"waveform": torch.zeros(8), "sample_rate": sample_rate})
+
+    assert resolved is not None
+    assert resolved[1] == 16000
+    assert isinstance(resolved[1], int)
+
+
 def test_resolve_audio_waveform_branch_does_not_force_mono():  # noqa: ANN202
     # resolve_audio keeps channels on the in-memory branch (mono only applies on file load).
     out = resolve_audio({"waveform": torch.ones(2, 1600), "sample_rate": _SR})
