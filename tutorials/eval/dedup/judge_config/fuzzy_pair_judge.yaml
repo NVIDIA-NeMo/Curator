@@ -1,0 +1,190 @@
+# User-owned evaluation semantics: replace the model, prompts, and rubric for another task.
+#
+# Judges whether text_a/text_b (produced by build_pair_dataset.py, step 3 of this example)
+# are actually duplicates, independent of what fuzzy dedup decided about them.
+#
+# The rubric is a semantic-retention judgment: rather than one yes/no "duplicate" score, it asks
+# the model to work through what each document retains (content profile, shared basis, per-side
+# delta, hard conflicts, translation status), then derive a replacement direction, relation type,
+# materiality, and primary difference from that analysis -- see system.jinja/pair.jinja for the
+# full reasoning the model is asked to follow.
+#
+# As bundled, this uses 1 GPU (num_replicas: 1 x tensor_parallel_size: 1). Edit num_replicas
+# and/or tensor_parallel_size to match your hardware, and set models[0].model below before running.
+models:
+  - alias: judge
+    model: /path/to/your/hf_cache/Qwen3.8-27B
+    # Keep the Hugging Face identifier as the API name while serving local weights.
+    served_model_name: Qwen/Qwen3.8-27B
+    dynamo_model:
+      num_replicas: 1
+      mode: aggregated
+      engine_kwargs:
+        tensor_parallel_size: 1
+        max_model_len: 32768  # size prompt truncation (pair.jinja) to fit this
+        max_num_seqs: 8
+        gpu_memory_utilization: 0.85
+    inference_parameters:
+      temperature: 0.0
+      # Structured judging needs the final JSON, not Qwen's private deliberation.
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+      # 15 scores + reasoning per call needs more room than a single-score rubric.
+      max_tokens: 3072
+      timeout: 600
+      max_parallel_requests: 64
+
+execution:
+  stages:
+    - name: pair_semantic_judgment
+      judges:
+        - name: pair_semantic_judgment
+          model_alias: judge
+          system_prompt_path: system.jinja
+          prompt_path: pair.jinja
+          scores:
+            - name: span_content_profile_a
+              description: Classify A by retained meaning. A service target, product heading, or specific record is not generic chrome; ordinary buttons/navigation alone do not establish a page role.
+              options:
+                substantive_main: A contains retainable page-specific meaning.
+                non_main_only: A contains only reusable cookie, legal, auth, error, paywall, navigation, or platform messaging.
+                unreadable: A cannot be judged safely.
+            - name: span_content_profile_b
+              description: Classify B by retained meaning. A service target, product heading, or specific record is not generic chrome; ordinary buttons/navigation alone do not establish a page role.
+              options:
+                substantive_main: B contains retainable page-specific meaning.
+                non_main_only: B contains only reusable cookie, legal, auth, error, paywall, navigation, or platform messaging.
+                unreadable: B cannot be judged safely.
+            - name: span_shared_basis
+              description: Verify the identical substantive record or identical complete non-main message from the visible text of both documents; template/topic/local overlap alone is none.
+              options:
+                verified_substantive_record: The visible text in both documents establishes the identical page-specific substantive record.
+                verified_equivalent_non_main_message: The visible text in both documents establishes the same complete non-main message, function, identity, target, role, and state.
+                none: No qualifying same-record or complete-message basis exists.
+                unresolved: Visible evidence is insufficient.
+            - name: span_a_delta
+              description: Classify everything in A that is absent from B. Choose the most material uncovered class.
+              options:
+                none: No A-only content exists.
+                semantically_covered: Every A-only passage is formatting, faithful paraphrase, or translation already preserved by B.
+                universal_ui_or_repetition: Every A-only passage is harmless UI, redundant heading/byline, parser noise, or repetition, with no new subject, service target, state, or role.
+                same_record_content_extension: A alone adds retained content to the verified same substantive record.
+                record_identity_role_or_state_change: A-only identity, target, title, SKU, date, count, list, state, or page-role content changes the record.
+                material_non_main_message_change: A-only cookie, legal, auth, error, paywall, or platform meaning changes the complete message.
+                other_substantive_content: A has another uncovered retained proposition.
+                unresolved: The full A-only delta cannot be classified safely.
+            - name: span_b_delta
+              description: Classify everything in B that is absent from A. Choose the most material uncovered class.
+              options:
+                none: No B-only content exists.
+                semantically_covered: Every B-only passage is formatting, faithful paraphrase, or translation already preserved by A.
+                universal_ui_or_repetition: Every B-only passage is harmless UI, redundant heading/byline, parser noise, or repetition, with no new subject, service target, state, or role.
+                same_record_content_extension: B alone adds retained content to the verified same substantive record.
+                record_identity_role_or_state_change: B-only identity, target, title, SKU, date, count, list, state, or page-role content changes the record.
+                material_non_main_message_change: B-only cookie, legal, auth, error, paywall, or platform meaning changes the complete message.
+                other_substantive_content: B has another uncovered retained proposition.
+                unresolved: The full B-only delta cannot be classified safely.
+            - name: span_hard_conflict
+              description: Point to concrete incompatible values in A and B. Absence alone is not a conflict after same-record identity is proved.
+              options:
+                none: No conflicting material value or role is visible.
+                identity_or_slot: Record identity, title, SKU, entity, target, or defining slot conflicts.
+                state_or_version: Date, count, price, version, availability, status, or result conflicts.
+                page_role: Page functions conflict.
+                list_membership: List members, rankings, results, or snapshot contents conflict.
+                legal_context: Controller, obligation, jurisdiction, permission, or legal meaning conflicts.
+                other_material: Another explicit material conflict exists.
+                unresolved: Visible evidence is insufficient.
+            - name: span_translation_status
+              description: Identify complete faithful translation of the same substantive record or equivalent complete non-main message. Every unique part of one side must be covered by the other or be harmless UI; language alone is not identity, role, or state.
+              options:
+                complete_faithful: Both sides express the same complete substantive record OR equivalent complete non-main message in different languages; no retained delta remains.
+                partial_or_additive: Translation is incomplete, additive, or changes retained meaning.
+                not_translation: Translation is not the relationship.
+                unresolved: Visible evidence is insufficient.
+            - name: a_can_replace_b
+              description: A is yes only when A preserves every retained fact, identity, state, and role in B. Derive this yourself from the ledger fields above using the deterministic policy in the system prompt.
+              options:
+                "yes": A safely replaces B.
+                "no": B has conflicting or uncovered retained meaning.
+                unresolved: The ledger is unresolved.
+            - name: b_can_replace_a
+              description: B is yes only when B preserves every retained fact, identity, state, and role in A. Derive this yourself from the ledger fields above using the deterministic policy in the system prompt.
+              options:
+                "yes": B safely replaces A.
+                "no": A has conflicting or uncovered retained meaning.
+                unresolved: The ledger is unresolved.
+            - name: relation_type
+              description: Containment is only a verified one-sided same-record extension. Complete translation and benign equivalence are near-surface.
+              options:
+                exact: Complete visible document texts are identical.
+                canonical_exact: Only normalization, whitespace, punctuation, encoding, or formatting differs.
+                near_surface: Meaning is bidirectionally replaceable after benign surface, paraphrase, or translation differences.
+                containment: Exactly one side adds retained content to the same verified substantive record.
+                version_related: The same evolving record has a conflicting state or version.
+                related_non_duplicate: Related records or template siblings must remain separate.
+                unrelated: No meaningful main-content relationship exists.
+                unresolved: The ledger is unresolved.
+            - name: material_difference
+              description: Containment and no/no are major; faithful translation is none; harmless non-core UI can be minor.
+              options:
+                none: No materially relevant meaning or identity differs.
+                minor: Only a genuine harmless non-core difference remains.
+                major: Retained identity, state, role, list, legal meaning, content, or addition differs.
+                unresolved: The ledger is unresolved.
+            - name: primary_material_difference
+              description: Select the single decisive retained-content difference, consistent with the ledger fields above.
+              options:
+                none: No material difference exists.
+                main_content_addition_deletion: Retained content is present on only one side of the same record.
+                entity_slot_change: A person, organization, product, service, site, brand, controller, or location conflicts.
+                document_identity_change: A title, SKU, record, page, image, profile, target, or category identity conflicts.
+                number_change: A material number, price, quantity, count, or measurement conflicts.
+                date_time_change: A material date or time conflicts.
+                product_version_change: A product version conflicts.
+                result_set_change: List members, rankings, search results, or outcomes differ.
+                page_role_change: Page functions differ.
+                legal_context_change: Controller, obligation, jurisdiction, permission, or legal meaning differs.
+                negation_change: Negation changes meaning.
+                code_literal_change: Code literals, commands, identifiers, or parameters differ.
+                code_output_change: Code outputs or execution results differ.
+                other_material: A material difference exists and no specific option fits.
+                unresolved: The ledger is unresolved.
+            - name: dominant_overlap_source
+              description: Report the largest visible similarity source; it cannot establish identity by itself.
+              options:
+                main_content: Shared substantive content dominates.
+                shared_page_template: Reusable page template dominates.
+                site_chrome: Navigation, headers, footers, or platform chrome dominates.
+                cookie_consent: Cookie or consent text dominates.
+                legal_policy_template: Generic legal or policy wording dominates.
+                error_auth_paywall: Error, authentication, login, or paywall text dominates.
+                local_passage: A local matching passage is not representative.
+                parser_artifact: Extraction artifacts dominate.
+                none: No meaningful overlap is visible.
+                unresolved: The ledger is unresolved.
+            - name: primary_risk_factor
+              description: Select the most specific observable deduplication trap.
+              options:
+                none: No distinct trap is visible.
+                boilerplate_dominated_similarity: Non-main text dominates apparent similarity.
+                template_slot_collision: Shared template masks different records or slots.
+                identifier_underweighting: A short identifier or defining value decides identity.
+                topic_only_similarity: Related topic could be mistaken for interchangeable content.
+                list_snapshot_collision: Similar list shells contain different members or snapshots.
+                page_role_collision: Similar wording appears in different page functions.
+                legal_context_collision: Generic legal text masks different meaning or identity.
+                long_document_local_overlap: A local match is not representative.
+                translation_equivalence: Equivalent meaning is expressed in another language.
+                paraphrase_equivalence: Equivalent meaning has low literal overlap.
+                containment_asymmetry: One-way preservation could be mistaken for equivalence or separation.
+                extraction_or_payload_limit: Missing or truncated content prevents a reliable decision.
+                parser_artifact_dominance: Parser artifacts dominate.
+                other: Another distinct risk exists.
+            - name: confidence_tier
+              description: Containment, translation, boilerplate, non-main, UI, parser, and other boundary judgments cannot be high; unresolved is low.
+              options:
+                high: Complete direct evidence is unambiguous and no boundary rule is involved.
+                medium: Resolved but a semantic boundary requires judgment.
+                low: Material uncertainty remains or the result is unresolved.

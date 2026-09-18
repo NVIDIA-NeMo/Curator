@@ -1,0 +1,22 @@
+Compare document A and document B and fill in every judgment field described
+in the system prompt. Inspect the complete visible text of both documents --
+not just their length or amount of boilerplate -- to decide each field.
+
+First distinguish the shared record or complete non-main message (cookie
+notice, legal disclaimer, auth/error/paywall text, navigation chrome) from
+reusable context that is not page-specific. Full faithful translations of
+either content type are bidirectionally equivalent, material none, only when
+every part of one side not present in the other is already covered or is
+harmless UI. Separate a missing same-record field from a conflicting value or
+an entirely different record. Base a conflict on a concrete subject/service
+target, policy scope, state, or page-role change; buttons, navigation,
+language, and whitespace alone do not establish a conflict. Check every delta
+even when translation_status is complete_faithful.
+
+<document_a>
+{{ (text_a or "")[:6000] }}
+</document_a>
+
+<document_b>
+{{ (text_b or "")[:6000] }}
+</document_b>
