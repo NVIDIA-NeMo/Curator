@@ -38,9 +38,12 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 
+_QWEN_LM_TEXT_ONLY_MULTIMODAL_VARIANTS: Final = frozenset({"qwen3.5"})
+
 _QWEN_LM_VARIANTS_INFO: Final = {
     "qwen2.5": ("Qwen/Qwen2.5-14B-Instruct", "cf98f3b"),
     "qwen3": ("Qwen/Qwen3-14B", "f8c293d"),
+    "qwen3.5": ("Qwen/Qwen3.5-27B", "fc05dae"),
 }
 
 
@@ -90,10 +93,13 @@ class QwenLM(ModelInterface):
 
         model_id, _ = _QWEN_LM_VARIANTS_INFO[self.model_variant]
         self.weight_file = str(Path(self.model_dir) / model_id)
+        vllm_kwargs = dict(self.vllm_kwargs)
+        if self.model_variant in _QWEN_LM_TEXT_ONLY_MULTIMODAL_VARIANTS:
+            vllm_kwargs.setdefault("limit_mm_per_prompt", {"image": 0, "video": 0})
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
-            **self.vllm_kwargs,
+            **vllm_kwargs,
         )
         self.sampling_params = SamplingParams(
             temperature=0.1,
@@ -105,7 +111,12 @@ class QwenLM(ModelInterface):
         self.tokenizer = AutoTokenizer.from_pretrained(self.weight_file)
 
     def generate(self, inputs: list[dict[str, Any]]) -> list[str]:
-        formatted_inputs = self.tokenizer.apply_chat_template(inputs, tokenize=False, add_generation_prompt=True)
+        template_kwargs: dict[str, Any] = {}
+        if self.model_variant == "qwen3.5":
+            template_kwargs["enable_thinking"] = False
+        formatted_inputs = self.tokenizer.apply_chat_template(
+            inputs, tokenize=False, add_generation_prompt=True, **template_kwargs
+        )
         results = self.llm.generate(formatted_inputs, sampling_params=self.sampling_params)
         return [result.outputs[0].text for result in results]
 

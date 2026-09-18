@@ -118,6 +118,31 @@ class TestCaptionEnhancementStage:
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
 
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.QwenLM")
+    def test_setup_qwen3_5_variant(self, mock_qwen_lm: Mock):
+        """Test setup method routes qwen3.5 to QwenLM with the variant forwarded."""
+        mock_model = Mock()
+        mock_qwen_lm.return_value = mock_model
+
+        stage = CaptionEnhancementStage(
+            model_dir="test/models",
+            model_variant="qwen3.5",
+            model_batch_size=2,
+            fp8=False,
+            max_output_tokens=256,
+        )
+        stage.setup()
+
+        mock_qwen_lm.assert_called_once_with(
+            model_dir="test/models",
+            model_variant="qwen3.5",
+            caption_batch_size=2,
+            fp8=False,
+            max_output_tokens=256,
+        )
+        mock_model.setup.assert_called_once()
+        assert stage.model == mock_model
+
     def test_setup_unsupported_variant(self):
         """Test setup method with unsupported model variant."""
         stage = CaptionEnhancementStage(model_variant="unsupported")
