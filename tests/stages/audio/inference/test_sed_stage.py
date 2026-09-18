@@ -27,7 +27,7 @@ import torch
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import _instantiate_stage
-from nemo_curator.models.sed.base import SEDResult
+from nemo_curator.models.audio.sed.base import SEDResult
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -35,7 +35,7 @@ from nemo_curator.tasks import AudioTask
 _SR = 16000
 _HOP = 320
 _CLASSES = 527
-_ADAPTER_TARGET = "nemo_curator.models.sed.panns.PANNsSEDAdapter"
+_ADAPTER_TARGET = "nemo_curator.models.audio.sed.panns.PANNsSEDAdapter"
 _CHECKPOINT = "/weights/Cnn14.pth"
 _PIPELINE_YAML = Path(__file__).parents[4] / "tutorials" / "audio" / "sed" / "pipeline.yaml"
 
