@@ -599,6 +599,139 @@ class TestSegmentExtractionStageProcessBatch:
         assert len(rows) == 1
         assert float(rows[0]["utmos_mos"]) == 4.2
 
+    def test_retry_reuses_reserved_path_and_preserves_prior_metadata(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        first = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 500,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        second = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 500,
+                "original_end_ms": 1000,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        first._set_task_id("source", 0)
+        second._set_task_id("source", 1)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first, second])
+        original_path = second.data["extracted_path"]
+
+        retried = AudioTask(
+            data={key: value for key, value in second.data.items() if key != "extracted_path"},
+            dataset_name="test",
+        )
+        retried._set_task_id("source", 1)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert retried.data["extracted_path"] == original_path
+        with open(output_dir / "metadata.csv") as metadata_file:
+            rows = list(csv.DictReader(metadata_file))
+        assert [row["filename"] for row in rows] == ["file_a_segment_000.wav", "file_a_segment_001.wav"]
+
+    def test_retry_recovers_after_failure_following_filename_reservation(
+        self, monkeypatch: pytest.MonkeyPatch, wav_dir: Path, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "extracted"
+        task_data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        failed = AudioTask(data=task_data.copy(), dataset_name="test")
+        failed._set_task_id("source", 0)
+        original_write = sf.write
+
+        def fail_write(*_args, **_kwargs) -> None:
+            message = "boom"
+            raise RuntimeError(message)
+
+        monkeypatch.setattr(sf, "write", fail_write)
+        with pytest.raises(RuntimeError, match="boom"):
+            SegmentExtractionStage(output_dir=str(output_dir)).process_batch([failed])
+        monkeypatch.setattr(sf, "write", original_write)
+
+        retried = AudioTask(data=task_data.copy(), dataset_name="test")
+        retried._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert [Path(path).name for path in retried.data["extracted_path"]] == ["file_a_segment_000.wav"]
+        assert (output_dir / "file_a_segment_000.wav").exists()
+        assert not (output_dir / "file_a_segment_001.wav").exists()
+
+    def test_retry_replaces_corrupted_reserved_output(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task_data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        first = AudioTask(data=task_data.copy(), dataset_name="test")
+        first._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first])
+        output_path = Path(first.data["extracted_path"][0])
+        output_path.write_bytes(b"truncated")
+
+        retried = AudioTask(data=task_data.copy(), dataset_name="test")
+        retried._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert retried.data["extracted_path"] == [str(output_path)]
+        assert sf.info(output_path).frames == SAMPLE_RATE // 2
+        assert not (output_dir / "file_a_segment_001.wav").exists()
+
+    def test_corrupt_resume_state_fails_without_writing_duplicates(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 500,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        task._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+        (output_dir / ".segment_extraction_state.json").write_text("not json")
+
+        retried = AudioTask(data={key: value for key, value in task.data.items() if key != "extracted_path"})
+        retried._set_task_id("source", 0)
+        with pytest.raises(RuntimeError, match="Cannot safely resume"):
+            SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert sorted(path.name for path in output_dir.glob("*.wav")) == ["file_a_segment_000.wav"]
+
+    def test_nested_speaker_reservations_keep_parent_task_identity(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task_data = {
+            "original_file": _wav_path(wav_dir),
+            "diar_segments": [{"start": 0.0, "end": 0.5, "speaker": "speaker_0"}],
+        }
+        first = AudioTask(data=task_data.copy(), dataset_name="test")
+        second = AudioTask(data=task_data.copy(), dataset_name="test")
+        first._set_task_id("source", 0)
+        second._set_task_id("source", 1)
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first, second])
+
+        first_paths = first.data["extracted_path"]
+        second_paths = second.data["extracted_path"]
+        assert first_paths != second_paths
+        assert {Path(path).name for path in [*first_paths, *second_paths]} == {
+            "file_a_speaker_0_segment_000.wav",
+            "file_a_speaker_0_segment_001.wav",
+        }
+
     def test_audio_content_matches_source(self, wav_dir: Path, tmp_path: Path) -> None:
         original, sr = sf.read(_wav_path(wav_dir))
         expected_slice = original[int(1.0 * sr) : int(2.0 * sr)]
