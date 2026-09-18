@@ -14,13 +14,13 @@
 
 """Benchmark the two-model Common Crawl extraction LLM judge example.
 
-Prepare the 32,000-record input dataset as 32 shards from the Curator repository root with::
+Prepare the 32,000-record input dataset as 64 shards from the Curator repository root with::
 
     python tutorials/eval/llm_judge/cc_extract_example/prepare_cc_extraction_dataset.py \
         --start-snapshot 2026-30 --end-snapshot 2026-30 \
         --download-dir {datasets_path}/llm_judge/cc_warcs \
         --output-path {datasets_path}/llm_judge/cc_extractions \
-        --url-limit 32 --record-limit 1000
+        --url-limit 64 --record-limit 500
 """
 
 from __future__ import annotations

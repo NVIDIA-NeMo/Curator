@@ -1396,7 +1396,7 @@ entries:
       --model-id=openai/gpt-oss-20b
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
-      --max-parallel-requests=512
+      --max-parallel-requests=256
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
     timeout_s: 2100
@@ -1461,8 +1461,10 @@ entries:
   - name: ndd_ray_serve_20b
     enabled: true
     script: ndd_benchmark.py
-    # Ray Serve has a RuntimeError with max-parallel-requests=512
-    # while Dynamo can handle it with 100% row retention
+    # Ray Serve fails at max-parallel-requests=512 (RuntimeError, Serve-replica
+    # stall) and also at 256 (throughput-threshold miss or full entry timeout,
+    # confirmed 2026-09-17 — do not treat 256 as a fix). Now testing 128, the
+    # remaining untested/stable-default value.
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
@@ -1472,7 +1474,7 @@ entries:
       --model-id=openai/gpt-oss-20b
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
-      --max-parallel-requests=256
+      --max-parallel-requests=128
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
     timeout_s: 2100
