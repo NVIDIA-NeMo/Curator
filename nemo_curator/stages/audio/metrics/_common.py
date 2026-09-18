@@ -54,6 +54,11 @@ def validate_metric_keys(
             msg = f"[{stage_name}] '{field_name}' must be a non-empty string"
             raise ValueError(msg)
 
+    strict_values = [keys[field_name] for field_name in strict_fields]
+    if len(strict_values) != len(set(strict_values)):
+        duplicates = sorted({key for key in strict_values if strict_values.count(key) > 1})
+        msg = f"[{stage_name}] Newly configurable keys must be distinct; duplicate values: {duplicates}"
+        raise ValueError(msg)
 
 
 def resident_sample_rate(value: Any, *, sample_rate_key: str, stage_name: str) -> int:  # noqa: ANN401

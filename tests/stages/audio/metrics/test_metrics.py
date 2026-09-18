@@ -634,6 +634,19 @@ def test_metrics_stages_reject_empty_new_keys(stage_cls: type, field_name: str) 
         stage_cls(**{field_name: ""})
 
 
+@pytest.mark.parametrize(
+    ("stage_cls", "kwargs"),
+    [
+        (BandwidthEstimationStage, {"waveform_key": "audio", "sample_rate_key": "audio"}),
+        (TorchSquimQualityMetricsStage, {"waveform_key": "audio", "sample_rate_key": "audio"}),
+        (ComputeWERStage, {"start_key": "timestamp", "end_key": "timestamp"}),
+    ],
+)
+def test_metrics_stages_reject_colliding_new_keys(stage_cls: type, kwargs: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="Newly configurable keys must be distinct"):
+        stage_cls(**kwargs)
+
+
 def test_pairwise_wer_allows_legacy_in_place_output() -> None:
     task = AudioTask(dataset_name="d", data={"text": "same text", "pred": "same text"})
 
