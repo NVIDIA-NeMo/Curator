@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.indic_conformer_hybrid import IndicConformerHybridASR
+from nemo_curator.models.audio.indic_conformer_hybrid import IndicConformerHybridASR
 from nemo_curator.stages.audio.inference.indic_conformer_hybrid import (
     INDIC_CONFORMER_HYBRID_LANGS,
     InferenceIndicConformerHybridStage,

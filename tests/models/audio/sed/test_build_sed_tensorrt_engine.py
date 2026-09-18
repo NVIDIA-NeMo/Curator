@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.models.sed.build_sed_tensorrt_engine import _write_metadata_sidecar
+from nemo_curator.models.audio.sed.build_sed_tensorrt_engine import _write_metadata_sidecar
 from nemo_curator.utils import atomic_io
 
 

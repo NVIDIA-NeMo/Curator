@@ -24,8 +24,9 @@ from pathlib import Path
 
 import torch
 
-from nemo_curator.models.sed.tensorrt import SedCore, extract_features, postprocess
 from nemo_curator.utils.atomic_io import write_json_atomically
+
+from .tensorrt import SedCore, extract_features, postprocess
 
 _MEL_BINS = 64
 _SAMPLE_RATE = 32000
@@ -56,7 +57,7 @@ def _sha256(path: Path) -> str:
 
 
 def _load_model(checkpoint_path: Path):  # noqa: ANN202
-    from nemo_curator.models.sed.cnn14 import Cnn14DecisionLevelMax
+    from .cnn14 import Cnn14DecisionLevelMax
 
     model = Cnn14DecisionLevelMax(sample_rate=_SAMPLE_RATE)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)

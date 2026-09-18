@@ -21,8 +21,8 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.sed.base import SEDAdapter
-from nemo_curator.models.sed.tensorrt import (
+from nemo_curator.models.audio.sed.base import SEDAdapter
+from nemo_curator.models.audio.sed.tensorrt import (
     TensorRTPANNsSEDAdapter,
     _trt_dtype_to_torch,
     _validate_engine_metadata,
@@ -108,7 +108,7 @@ def test_adapter_rejects_invalid_duration_limits(max_duration_sec: object) -> No
 
 def test_generic_stage_selects_the_tensorrt_adapter() -> None:
     stage = SEDInferenceStage(
-        adapter_target="nemo_curator.models.sed.tensorrt.TensorRTPANNsSEDAdapter",
+        adapter_target="nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter",
         checkpoint_path=_CHECKPOINT,
         adapter_kwargs={"tensorrt_engine_path": _ENGINE},
     )
@@ -126,7 +126,7 @@ def test_load_model_requires_a_positive_integer_gpu_count(num_gpus: object) -> N
         tensorrt_engine_path=_ENGINE,
     )
     with (
-        patch("nemo_curator.models.sed.tensorrt.get_model_class") as model_resolver,
+        patch("nemo_curator.models.audio.sed.tensorrt.get_model_class") as model_resolver,
         pytest.raises(ValueError, match="requires a positive integer num_gpus"),
     ):
         adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]
@@ -140,7 +140,7 @@ def test_load_model_requires_cuda() -> None:
     )
     with (
         patch("torch.cuda.is_available", return_value=False),
-        patch("nemo_curator.models.sed.tensorrt.get_model_class") as model_resolver,
+        patch("nemo_curator.models.audio.sed.tensorrt.get_model_class") as model_resolver,
         pytest.raises(RuntimeError, match="CUDA is not available"),
     ):
         adapter.load_model(num_gpus=1)
@@ -169,9 +169,9 @@ def test_load_model_uses_the_checkpoint_frontend_and_tensorrt_runtime(tmp_path: 
 
     with (
         patch("torch.cuda.is_available", return_value=True),
-        patch("nemo_curator.models.sed.tensorrt.get_model_class", return_value=model_cls) as resolver,
+        patch("nemo_curator.models.audio.sed.tensorrt.get_model_class", return_value=model_cls) as resolver,
         patch("torch.load", return_value={"model": {"weight": "value"}}) as torch_load,
-        patch("nemo_curator.models.sed.tensorrt.TensorRTSed", return_value=runtime) as runtime_cls,
+        patch("nemo_curator.models.audio.sed.tensorrt.TensorRTSed", return_value=runtime) as runtime_cls,
     ):
         adapter.load_model(num_gpus=1)
 
@@ -225,9 +225,9 @@ def test_load_model_rejects_duration_limit_above_engine_profile(tmp_path: Path) 
 
     with (
         patch("torch.cuda.is_available", return_value=True),
-        patch("nemo_curator.models.sed.tensorrt.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("nemo_curator.models.audio.sed.tensorrt.get_model_class", return_value=MagicMock(return_value=model)),
         patch("torch.load", return_value={"model": {}}),
-        patch("nemo_curator.models.sed.tensorrt.TensorRTSed", return_value=runtime),
+        patch("nemo_curator.models.audio.sed.tensorrt.TensorRTSed", return_value=runtime),
         pytest.raises(ValueError, match="exceeds the TensorRT engine profile limit"),
     ):
         adapter.load_model(num_gpus=1)

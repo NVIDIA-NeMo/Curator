@@ -31,9 +31,9 @@ from loguru import logger
 from torch import nn
 from torch.nn import functional
 
-from nemo_curator.models.sed import get_model_class
-from nemo_curator.models.sed.base import SEDResult
-from nemo_curator.models.sed.panns import PANNsSEDAdapter
+from . import get_model_class
+from .base import SEDResult
+from .panns import PANNsSEDAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

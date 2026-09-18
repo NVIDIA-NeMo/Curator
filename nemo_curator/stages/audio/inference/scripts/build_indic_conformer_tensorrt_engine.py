@@ -35,7 +35,7 @@ def _load_model(model_path: Path) -> torch.nn.Module:
     import nemo.collections.asr as nemo_asr
     import torch
 
-    from nemo_curator.models.indic_conformer_hybrid import _apply_multisoftmax_patches
+    from nemo_curator.models.audio.indic_conformer_hybrid import _apply_multisoftmax_patches
 
     if not torch.cuda.is_available():
         msg = "Building an IndicConformer TensorRT engine requires CUDA"
