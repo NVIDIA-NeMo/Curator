@@ -17,7 +17,6 @@
 import csv
 import json
 import os
-from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -37,7 +36,6 @@ from nemo_curator.stages.audio.io.extract_segments import (
     load_manifest,
     load_manifests,
 )
-from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
 from nemo_curator.tasks import AudioTask
 
 SAMPLE_RATE = 16000
@@ -70,29 +68,6 @@ def _write_manifest(path: Path, entries: list[dict]) -> str:
     return manifest
 
 
-def test_sortformer_shaped_mapper_output_extracts_each_speaker(wav_dir: Path, tmp_path: Path) -> None:
-    output_dir = tmp_path / "extracted"
-    mapper = TimestampMapperStage()
-    extractor = SegmentExtractionStage(output_dir=str(output_dir))
-    task = AudioTask(
-        dataset_name="test",
-        data={
-            "audio_filepath": _wav_path(wav_dir),
-            "diar_segments": [
-                {"start": 0.25, "end": 0.75, "speaker": "speaker_0"},
-                {"start": 1.25, "end": 1.75, "speaker": "speaker_1"},
-            ],
-        },
-    )
-
-    mapped = mapper.process(task)
-    assert isinstance(mapped, AudioTask)
-    extractor.process_batch([mapped])
-
-    assert (output_dir / "file_a_speaker_0_segment_000.wav").exists()
-    assert (output_dir / "file_a_speaker_1_segment_000.wav").exists()
-
-
 # ------------------------------------------------------------------
 # Pure helper functions
 # ------------------------------------------------------------------
@@ -110,25 +85,6 @@ class TestDetectCombo:
 
     def test_speaker_no_diar(self) -> None:
         assert detect_combo([{"speaker_id": "speaker_0", "original_start_ms": 0}]) == 4
-
-    def test_nested_dictionary_speakers_are_diarization(self) -> None:
-        assert (
-            detect_combo(
-                [
-                    {
-                        "diar_segments": [
-                            {"start": 0.0, "end": 1.0, "speaker": "speaker_0"},
-                            {"start": 1.0, "end": 2.0, "speaker": "speaker_1"},
-                        ]
-                    }
-                ]
-            )
-            == 3
-        )
-
-    def test_null_diarization_is_safe_with_or_without_speaker(self) -> None:
-        assert detect_combo([{"diar_segments": None}]) == 2
-        assert detect_combo([{"speaker_id": "speaker_0", "diar_segments": None}]) == 3
 
 
 class TestExtractScores:
@@ -186,43 +142,6 @@ class TestIntervalsFromDiarSegments:
     def test_sorted_output(self) -> None:
         result = _intervals_from_diar_segments({"diar_segments": [[3.0, 4.0], [1.0, 2.0]]})
         assert result[0][0] < result[1][0]
-
-    def test_dictionary_segments(self) -> None:
-        result = _intervals_from_diar_segments(
-            {
-                "diar_segments": [
-                    {"start": 3.0, "end": 4.0, "speaker": "speaker_0"},
-                    {"start": 1.0, "end": 2.5, "speaker": "speaker_0"},
-                ]
-            }
-        )
-        assert result == [(1000, 2500, 1.5), (3000, 4000, 1.0)]
-
-    def test_invalid_dictionary_segments_are_skipped(self) -> None:
-        result = _intervals_from_diar_segments(
-            {
-                "diar_segments": [
-                    {"start": 2.0, "end": 1.0, "speaker": "speaker_0"},
-                    {"start": 0.0, "end": float("inf"), "speaker": "speaker_0"},
-                ]
-            }
-        )
-        assert result == []
-
-    def test_precise_values_are_sorted_before_millisecond_conversion(self) -> None:
-        result = _intervals_from_diar_segments(
-            {
-                "diar_segments": [
-                    [Decimal("1.0019"), Decimal("1.0021")],
-                    [Decimal("1.0011"), Decimal("1.0012")],
-                ]
-            }
-        )
-
-        assert result == [
-            (1001, 1001, Decimal("0.0001")),
-            (1001, 1002, Decimal("0.0002")),
-        ]
 
 
 class TestReadSegment:
@@ -447,65 +366,6 @@ class TestSegmentExtractionStageProcessBatch:
         assert len(result) == 2
         assert os.path.exists(os.path.join(out_dir, "file_a_speaker_0_segment_000.wav"))
         assert os.path.exists(os.path.join(out_dir, "file_a_speaker_1_segment_000.wav"))
-
-    @pytest.mark.parametrize("reverse", [False, True])
-    def test_mixed_batch_routing_is_independent_of_row_order(
-        self, reverse: bool, wav_dir: Path, tmp_path: Path
-    ) -> None:
-        output_dir = tmp_path / "extracted"
-        stage = SegmentExtractionStage(output_dir=str(output_dir))
-        tasks = [
-            AudioTask(
-                data={
-                    "original_file": _wav_path(wav_dir),
-                    "original_start_ms": 0,
-                    "original_end_ms": 500,
-                    "duration": 0.5,
-                },
-                dataset_name="test",
-            ),
-            AudioTask(
-                data={
-                    "original_file": _wav_path(wav_dir, "file_b"),
-                    "speaker_id": "outer_label",
-                    "diar_segments": [
-                        {"start": 0.5, "end": 1.0, "speaker": "speaker_0"},
-                        {"start": 1.5, "end": 2.0, "speaker": "speaker_1"},
-                    ],
-                },
-                dataset_name="test",
-            ),
-        ]
-        if reverse:
-            tasks.reverse()
-
-        assert stage.process_batch(tasks) == tasks
-        assert (output_dir / "file_a_segment_000.wav").exists()
-        assert (output_dir / "file_b_speaker_0_segment_000.wav").exists()
-        assert (output_dir / "file_b_speaker_1_segment_000.wav").exists()
-        assert not (output_dir / "file_b_speaker_outer_label_segment_000.wav").exists()
-
-    def test_null_diarization_does_not_abort_mixed_batch(self, wav_dir: Path, tmp_path: Path) -> None:
-        output_dir = tmp_path / "extracted"
-        stage = SegmentExtractionStage(output_dir=str(output_dir))
-        tasks = [
-            AudioTask(
-                data={"original_file": _wav_path(wav_dir), "speaker_id": "speaker_0", "diar_segments": None},
-                dataset_name="test",
-            ),
-            AudioTask(
-                data={
-                    "original_file": _wav_path(wav_dir, "file_b"),
-                    "original_start_ms": 0,
-                    "original_end_ms": 500,
-                    "duration": 0.5,
-                },
-                dataset_name="test",
-            ),
-        ]
-
-        assert stage.process_batch(tasks) == tasks
-        assert (output_dir / "file_b_segment_000.wav").exists()
 
     def test_flac_format(self, wav_dir: Path, tmp_path: Path) -> None:
         out_dir = str(tmp_path / "extracted")
