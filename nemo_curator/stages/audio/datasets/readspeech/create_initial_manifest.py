@@ -79,6 +79,27 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
 
     def __post_init__(self):
         super().__init__()
+        output_key_fields = {
+            "filepath_key": self.filepath_key,
+            "text_key": self.text_key,
+            "sample_rate_key": self.sample_rate_key,
+            "book_id_key": self.book_id_key,
+            "reader_id_key": self.reader_id_key,
+        }
+        new_key_fields = ("sample_rate_key", "book_id_key", "reader_id_key")
+        for field_name in new_key_fields:
+            key = output_key_fields[field_name]
+            if not isinstance(key, str) or not key:
+                msg = f"{field_name} must be a non-empty string"
+                raise ValueError(msg)
+            conflicting_fields = sorted(
+                other_name
+                for other_name, other_key in output_key_fields.items()
+                if other_name != field_name and other_key == key
+            )
+            if conflicting_fields:
+                msg = f"{field_name}={key!r} conflicts with {', '.join(conflicting_fields)}"
+                raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -255,9 +276,9 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
 
     def parse_filename(self, filename: str) -> dict:
         metadata = {
-            self.book_id_key: "",
+            "book_id": "",
             "chapter": "",
-            self.reader_id_key: "",
+            "reader_id": "",
         }
 
         basename = os.path.splitext(filename)[0]
@@ -268,7 +289,7 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
                 if "book" in parts:
                     book_idx = parts.index("book")
                     if book_idx + 1 < len(parts):
-                        metadata[self.book_id_key] = parts[book_idx + 1]
+                        metadata["book_id"] = parts[book_idx + 1]
 
                 if "chp" in parts:
                     chp_idx = parts.index("chp")
@@ -278,7 +299,7 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
                 if "reader" in parts:
                     reader_idx = parts.index("reader")
                     if reader_idx + 1 < len(parts):
-                        metadata[self.reader_id_key] = parts[reader_idx + 1]
+                        metadata["reader_id"] = parts[reader_idx + 1]
         except (ValueError, IndexError):
             pass
 
@@ -302,8 +323,8 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
                 self.filepath_key: os.path.abspath(wav_path),
                 self.text_key: "",
                 self.sample_rate_key: SAMPLE_RATE_48KHZ,
-                self.book_id_key: metadata.get(self.book_id_key, ""),
-                self.reader_id_key: metadata.get(self.reader_id_key, ""),
+                self.book_id_key: metadata.get("book_id", ""),
+                self.reader_id_key: metadata.get("reader_id", ""),
             }
             entries.append(entry)
 
