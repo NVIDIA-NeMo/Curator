@@ -195,6 +195,15 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.target_duration <= 0:
             msg = "target_duration must be positive"
             raise ValueError(msg)
+        output_keys = self.outputs()[1]
+        for key in output_keys:
+            if not isinstance(key, str) or not key.strip():
+                msg = "ALMDataOverlapStage output keys must be non-empty strings"
+                raise ValueError(msg)
+        duplicates = sorted({key for key in output_keys if output_keys.count(key) > 1})
+        if duplicates:
+            msg = f"ALMDataOverlapStage output keys must be distinct: {duplicates}"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.windows_key]

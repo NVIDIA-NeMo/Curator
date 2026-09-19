@@ -103,6 +103,18 @@ class TestALMDataOverlap:
         with pytest.raises(ValueError, match="target_duration must be positive"):
             ALMDataOverlapStage(target_duration=-1)
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"filtered_windows_key": "filtered_dur"},
+            {"filtered_key": "filtered_dur_list"},
+            {"manifest_filepath_key": "swift_filepath"},
+        ],
+    )
+    def test_generated_output_key_collisions_are_rejected(self, kwargs: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="output keys must be distinct"):
+            ALMDataOverlapStage(**kwargs)
+
     def test_calculates_duration(self, entry_with_windows: dict) -> None:
         stage = ALMDataOverlapStage(
             overlap_percentage=100,
