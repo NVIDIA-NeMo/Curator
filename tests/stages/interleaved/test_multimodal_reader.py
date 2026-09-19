@@ -255,13 +255,8 @@ def test_reader_image_tokens_with_frame_index(tmp_path: Path) -> None:
     assert image_rows.iloc[0]["position"] == 1, "First non-None image at interleaved position 1"
     assert image_rows.iloc[1]["position"] == 2, "Second non-None image at interleaved position 2"
 
-    refs = [InterleavedBatch.parse_source_ref(v) for v in image_rows["source_ref"].tolist()]
-
-    assert refs[0]["member"] == "doc.pdf.tiff", "Non-matching string should resolve to default TIFF"
-    assert refs[0]["frame_index"] == 0, "First non-None token gets frame_index=0"
-
-    assert refs[1]["member"] == "doc.pdf.tiff"
-    assert refs[1]["frame_index"] == 1, "Second non-None token gets frame_index=1"
+    assert image_rows["source_member"].tolist() == ["doc.pdf.tiff", "doc.pdf.tiff"]
+    assert image_rows["source_frame_index"].tolist() == [0, 1]
 
     text_rows = df[df["modality"] == "text"]
     assert len(text_rows) == 3
@@ -598,15 +593,8 @@ def test_reader_frame_counter_resets_per_content_key(tmp_path: Path) -> None:
     image_rows = df[df["modality"] == "image"].sort_values("position")
     assert len(image_rows) == 4
 
-    refs = [InterleavedBatch.parse_source_ref(v) for v in image_rows["source_ref"].tolist()]
-    assert refs[0]["member"] == "a.tiff"
-    assert refs[0]["frame_index"] == 0
-    assert refs[1]["member"] == "a.tiff"
-    assert refs[1]["frame_index"] == 1
-    assert refs[2]["member"] == "b.tiff"
-    assert refs[2]["frame_index"] == 0, "frame_index must reset to 0 for a different TIFF file"
-    assert refs[3]["member"] == "b.tiff"
-    assert refs[3]["frame_index"] == 1
+    assert image_rows["source_member"].tolist() == ["a.tiff", "a.tiff", "b.tiff", "b.tiff"]
+    assert image_rows["source_frame_index"].tolist() == [0, 1, 0, 1]
 
 
 def test_reader_materialize_preserves_raw_bytes_on_frame_extraction_failure(tmp_path: Path) -> None:
@@ -700,8 +688,7 @@ def test_reader_materialize_on_read_jpeg_png_bytes_preserved(
     assert row["binary_content"] == image_bytes, f"{fmt} bytes must be preserved verbatim"
     assert pd.isna(row["materialize_error"]) or row["materialize_error"] is None
 
-    ref = InterleavedBatch.parse_source_ref(row["source_ref"])
-    assert ref["frame_index"] is None, f"{fmt} must not have a frame_index in source_ref"
+    assert pd.isna(row["source_frame_index"]), f"{fmt} must not have a source_frame_index"
 
     # Confirm PIL can decode the round-tripped bytes
     decoded = Image.open(BytesIO(row["binary_content"]))

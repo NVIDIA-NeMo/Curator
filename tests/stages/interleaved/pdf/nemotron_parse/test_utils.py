@@ -158,6 +158,9 @@ class TestBuildInterleavedRows:
         text_rows = [r for r in rows if r["modality"] == "text"]
         assert len(text_rows) == 1
         assert text_rows[0]["text_content"] == "Hello"
+        assert text_rows[0]["source_ref"] is None
+        assert text_rows[0]["page_number"] == 0
+        assert text_rows[0]["source_bbox"] == [0.0, 0.0, 1.0, 1.0]
 
     def test_empty_pages(self):
         rows = build_interleaved_rows("s1", "http://example.com", "test.pdf", [], [])

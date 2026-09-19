@@ -35,6 +35,7 @@ from nemo_curator.stages.interleaved.utils import (
 from nemo_curator.stages.interleaved.utils.materialization import _extract_tiff_frame
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
+from nemo_curator.utils.storage_utils import FILE_REFERENCE_TYPE
 
 from .base import BaseInterleavedReader
 
@@ -92,24 +93,19 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
         self,
         ctx: _SampleContext,
         content_key: str | None,
-        *,
-        frame_index: int | None = None,
-    ) -> str:
+    ) -> pa.StructScalar | None:
         if content_key is None:
-            return InterleavedBatch.build_source_ref(path=None, member=None)
-        byte_offset = None
-        byte_size = None
-        if ctx.member_info and content_key in ctx.member_info:
+            return None
+        offset = size = None
+        if (
+            ctx.member_info
+            and content_key in ctx.member_info
+            and not ctx.tar_path.lower().split("?", 1)[0].endswith((".tar.gz", ".tgz"))
+        ):
             info = ctx.member_info[content_key]
-            byte_offset = info.offset_data
-            byte_size = info.size
-        return InterleavedBatch.build_source_ref(
-            path=ctx.tar_path,
-            member=content_key,
-            byte_offset=byte_offset,
-            byte_size=byte_size,
-            frame_index=frame_index,
-        )
+            offset, size = info.offset_data, info.size
+        value = InterleavedBatch.build_source_ref(ctx.tar_path, offset, size)
+        return pa.scalar(value, type=FILE_REFERENCE_TYPE)
 
     # -- row builders (override in subclasses for custom formats) --
 
@@ -123,6 +119,8 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
             "text_content": row_fields.get("text_content"),
             "binary_content": row_fields.get("binary_content"),
             "source_ref": row_fields.get("source_ref"),
+            "source_member": row_fields.get("source_member"),
+            "source_frame_index": row_fields.get("source_frame_index"),
             "materialize_error": None,
         }
 
@@ -135,6 +133,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                     "modality": "metadata",
                     "content_type": "application/json",
                     "source_ref": self._build_source_ref(ctx, ctx.json_member_name),
+                    "source_member": ctx.json_member_name,
                 },
             ),
             **ctx.passthrough,
@@ -188,6 +187,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                     "content_type": "text/plain",
                     "text_content": str(text_value),
                     "source_ref": source_ref,
+                    "source_member": ctx.json_member_name,
                 },
             )
             self._apply_per_modality_fields(row, ctx.per_text_passthrough, non_none_counter)
@@ -225,7 +225,9 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                     "position": idx,
                     "modality": "image",
                     "content_type": content_type or ("application/octet-stream" if image_member_name else None),
-                    "source_ref": self._build_source_ref(ctx, content_key, frame_index=frame_index),
+                    "source_ref": self._build_source_ref(ctx, content_key),
+                    "source_member": content_key,
+                    "source_frame_index": frame_index,
                 },
             )
             self._apply_per_modality_fields(row, ctx.per_image_passthrough, non_none_counter)
@@ -380,15 +382,14 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
             for row in sample_rows:
                 if row["modality"] != "image" or row["position"] < 0:
                     continue
-                parsed_ref = InterleavedBatch.parse_source_ref(row["source_ref"])
-                content_key = parsed_ref.get("member")
+                content_key = row.get("source_member")
                 if not content_key:
                     continue
                 raw_bytes = self._extract_tar_member(tf, content_key, read_ctx.byte_cache)
                 if raw_bytes is None:
                     row["materialize_error"] = f"missing member '{content_key}'"
                 else:
-                    frame_index = parsed_ref.get("frame_index")
+                    frame_index = row.get("source_frame_index")
                     if frame_index is not None:
                         tiff_frame = _extract_tiff_frame(raw_bytes, frame_index)
                         if tiff_frame is None:

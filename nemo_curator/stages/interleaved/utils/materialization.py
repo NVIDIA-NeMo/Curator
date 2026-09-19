@@ -31,13 +31,12 @@ from .validation_utils import resolve_storage_options
 _TAR_EXTENSIONS = (".tar", ".tar.gz", ".tgz")
 # Exact columns added by InterleavedBatch.with_parsed_source_ref_columns(prefix="_src_").
 # Drop only these — not everything starting with "_src_" — to preserve user passthrough columns.
-_SRC_PARSE_COLS = ("_src_path", "_src_member", "_src_byte_offset", "_src_byte_size", "_src_frame_index")
+_SRC_PARSE_COLS = ("_src_uri", "_src_member", "_src_offset", "_src_size", "_src_frame_index")
 
 
 class _ClassifiedRows(NamedTuple):
     tar_extract: dict[str, list[tuple[int, str, int | None]]]
-    range_read: dict[str, list[tuple[int, str, int, int, int | None]]]
-    direct_read: dict[str, list[int]]
+    range_read: dict[str, list[tuple[int, str, int, int | None, int | None]]]
     missing: list[int]
 
 
@@ -45,7 +44,7 @@ def _get_frame_index(df: pd.DataFrame, idx: int) -> int | None:
     if "_src_frame_index" not in df.columns:
         return None
     val = df.loc[idx, "_src_frame_index"]
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+    if pd.isna(val):
         return None
     return int(val)
 
@@ -54,44 +53,38 @@ def _classify_rows(
     df: pd.DataFrame,
     image_mask: pd.Series,
 ) -> _ClassifiedRows:
-    """Partition pending image rows into three I/O strategy groups.
+    """Partition pending image rows into two I/O strategy groups.
 
-    - tar_extract: has member name but no byte_offset (must open tar and extractfile)
-    - range_read: has member + byte_offset + byte_size (can use fs.cat_ranges)
-    - direct_read: no member (path is the file itself)
-    - missing: path is None/NaN
+    - tar_extract: has adjacent member metadata but no FILE range
+    - range_read: external FILE reference (whole file or byte range)
+    - missing: FILE uri is absent
     """
     tar_extract: dict[str, list[tuple[int, str, int | None]]] = {}
-    range_read: dict[str, list[tuple[int, str, int, int, int | None]]] = {}
-    direct_read: dict[str, list[int]] = {}
+    range_read: dict[str, list[tuple[int, str, int, int | None, int | None]]] = {}
     missing: list[int] = []
 
     for idx in df[image_mask].index:
-        path = df.loc[idx, "_src_path"]
-        if path is None or (isinstance(path, float) and pd.isna(path)) or path == "":
+        uri = df.loc[idx, "_src_uri"]
+        if uri is None or (isinstance(uri, float) and pd.isna(uri)) or uri == "":
             missing.append(idx)
             continue
 
-        path_str = str(path)
+        path_str = str(uri)
         raw_member = df.loc[idx, "_src_member"]
-        has_member = raw_member not in (None, "") and pd.notna(raw_member)
-
-        if not has_member:
-            direct_read.setdefault(path_str, []).append(idx)
-            continue
-
-        member_str = str(raw_member)
+        has_member = pd.notna(raw_member) and raw_member != ""
         frame_idx = _get_frame_index(df, idx)
-        raw_offset = df.loc[idx, "_src_byte_offset"]
-        raw_size = df.loc[idx, "_src_byte_size"]
-        has_range = raw_offset is not None and raw_size is not None and pd.notna(raw_offset) and pd.notna(raw_size)
+        raw_offset = df.loc[idx, "_src_offset"]
+        raw_size = df.loc[idx, "_src_size"]
+        offset = 0 if pd.isna(raw_offset) else int(raw_offset)
+        size = None if pd.isna(raw_size) else int(raw_size)
 
-        if has_range and int(raw_size) > 0:
-            range_read.setdefault(path_str, []).append((idx, member_str, int(raw_offset), int(raw_size), frame_idx))
-        else:
-            tar_extract.setdefault(path_str, []).append((idx, member_str, frame_idx))
+        if size is not None or not has_member:
+            label = str(raw_member) if has_member else path_str
+            range_read.setdefault(path_str, []).append((idx, label, offset, size, frame_idx))
+        elif has_member:
+            tar_extract.setdefault(path_str, []).append((idx, str(raw_member), frame_idx))
 
-    return _ClassifiedRows(tar_extract=tar_extract, range_read=range_read, direct_read=direct_read, missing=missing)
+    return _ClassifiedRows(tar_extract=tar_extract, range_read=range_read, missing=missing)
 
 
 def _extract_tiff_frame(tiff_bytes: bytes, frame_index: int) -> bytes | None:
@@ -156,8 +149,8 @@ def _fill_tar_extract_rows(
 
 def _scatter_range_blobs(
     blobs: list[object],
-    range_keys: list[tuple[str, int, int]],
-    unique_ranges: dict[tuple[str, int, int], list[tuple[int, str, int | None]]],
+    range_keys: list[tuple[str, int, int | None]],
+    unique_ranges: dict[tuple[str, int, int | None], list[tuple[int, str, int | None]]],
     binary_values: list[object],
     error_values: list[str | None],
 ) -> None:
@@ -166,7 +159,7 @@ def _scatter_range_blobs(
         if isinstance(blob, Exception):
             for idx, member, _fi in unique_ranges[key]:
                 error_values[idx] = f"range read error for member '{member}'"
-        elif blob is None or len(blob) == 0:
+        elif blob is None:
             for idx, member, _fi in unique_ranges[key]:
                 error_values[idx] = f"empty range read for member '{member}'"
         else:
@@ -181,10 +174,10 @@ def _scatter_range_blobs(
 
 
 def _build_global_range_index(
-    groups: dict[str, list[tuple[int, str, int, int, int | None]]],
+    groups: dict[str, list[tuple[int, str, int, int | None, int | None]]],
     storage_options: dict[str, object],
     error_values: list[str | None],
-) -> list[tuple[object, dict[tuple[str, int, int], list[tuple[int, str, int | None]]]]]:
+) -> list[tuple[object, dict[tuple[str, int, int | None], list[tuple[int, str, int | None]]]]]:
     """Resolve filesystem paths and build per-filesystem deduplicated range indices.
 
     Returns a list of ``(fs, unique_ranges)`` pairs — one entry per distinct
@@ -201,12 +194,12 @@ def _build_global_range_index(
 
     # id(fs) -> (fs, unique_ranges); fsspec caches fs instances so same-backend
     # paths naturally share the same id.
-    fs_groups: dict[int, tuple[object, dict[tuple[str, int, int], list[tuple[int, str, int | None]]]]] = {}
+    fs_groups: dict[int, tuple[object, dict[tuple[str, int, int | None], list[tuple[int, str, int | None]]]]] = {}
 
     for path, entries in groups.items():
         try:
             fs, fs_path = url_to_fs(path, **storage_options)
-        except (ValueError, OSError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             logger.warning("Failed to resolve filesystem for path {!r}: {}", path, exc)
             for idx, *_ in entries:
                 error_values[idx] = "failed to resolve filesystem"
@@ -224,7 +217,7 @@ def _build_global_range_index(
 
 
 def _fill_range_read_rows(
-    groups: dict[str, list[tuple[int, str, int, int, int | None]]],
+    groups: dict[str, list[tuple[int, str, int, int | None, int | None]]],
     storage_options: dict[str, object],
     binary_values: list[object],
     error_values: list[str | None],
@@ -243,7 +236,7 @@ def _fill_range_read_rows(
         range_keys = list(unique_ranges.keys())
         cat_paths = [fp for fp, _, _ in range_keys]
         cat_starts = [off for _, off, _ in range_keys]
-        cat_ends = [off + sz for _, off, sz in range_keys]
+        cat_ends = [None if sz is None else off + sz for _, off, sz in range_keys]
 
         try:
             blobs = fs.cat_ranges(cat_paths, cat_starts, cat_ends)
@@ -255,31 +248,6 @@ def _fill_range_read_rows(
             continue
 
         _scatter_range_blobs(blobs, range_keys, unique_ranges, binary_values, error_values)
-
-
-def _fill_direct_read_rows(
-    groups: dict[str, list[int]],
-    storage_options: dict[str, object],
-    binary_values: list[object],
-    error_values: list[str | None],
-) -> None:
-    """Read each direct file once, share bytes across all rows referencing it."""
-    for path, row_idxs in groups.items():
-        payload = _read_direct_file(path, storage_options)
-        for idx in row_idxs:
-            if payload is not None:
-                binary_values[idx] = payload
-                error_values[idx] = None
-            else:
-                error_values[idx] = "failed to read path"
-
-
-def _read_direct_file(path: str, storage_options: dict[str, object]) -> bytes | None:
-    try:
-        with fsspec.open(path, mode="rb", **storage_options) as fobj:
-            return fobj.read()
-    except (OSError, RuntimeError, ValueError):
-        return None
 
 
 def _fill_materialized_bytes(
@@ -297,7 +265,6 @@ def _fill_materialized_bytes(
 
     _fill_tar_extract_rows(classified.tar_extract, storage_options, binary_values, error_values)
     _fill_range_read_rows(classified.range_read, storage_options, binary_values, error_values)
-    _fill_direct_read_rows(classified.direct_read, storage_options, binary_values, error_values)
 
 
 def _init_materialization_buffers(df: pd.DataFrame) -> tuple[list[object], list[str | None]]:
@@ -344,10 +311,9 @@ def materialize_task_binary_content(
 ) -> InterleavedBatch:
     """Return a task with image-row binary content materialized from source_ref.
 
-    Dispatches to three I/O strategies based on source_ref contents:
-    - range_read: byte_offset + byte_size present -> batched fs.cat_ranges()
-    - tar_extract: member present, no byte range -> open tar + extractfile
-    - direct_read: no member -> read file directly
+    Dispatches to two I/O strategies based on source_ref contents:
+    - range_read: external FILE reference -> deduplicated fs.cat_ranges()
+    - tar_extract: adjacent member present, no byte range -> open tar + extractfile
     """
     df = task.with_parsed_source_ref_columns(prefix="_src_").reset_index(drop=True)
     if df.empty:
