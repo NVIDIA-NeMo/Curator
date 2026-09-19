@@ -646,6 +646,35 @@ class TestSegmentExtractionStageProcessBatch:
         assert (output_dir / "file_a_segment_000.wav").exists()
         assert not (output_dir / "file_a_segment_001.wav").exists()
 
+    def test_reservation_state_appends_one_record_per_segment(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        first_batch = []
+        second_batch = []
+        for index in range(12):
+            task = AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": index * 100,
+                    "original_end_ms": (index + 1) * 100,
+                    "duration": 0.1,
+                },
+                dataset_name="test",
+            )
+            task._set_task_id("source", index)
+            (first_batch if index < 6 else second_batch).append(task)
+
+        stage = SegmentExtractionStage(output_dir=str(output_dir))
+        stage.process_batch(first_batch)
+        state_path = output_dir / ".segment_extraction_state.json"
+        first_size = state_path.stat().st_size
+        stage.process_batch(second_batch)
+        second_size = state_path.stat().st_size
+
+        records = [json.loads(line) for line in state_path.read_text().splitlines()]
+        assert len(records) == 12
+        assert all(record["version"] == 2 for record in records)
+        assert second_size <= first_size * 2 + 512
+
     def test_retry_replaces_corrupted_reserved_output(self, wav_dir: Path, tmp_path: Path) -> None:
         output_dir = tmp_path / "extracted"
         task_data = {

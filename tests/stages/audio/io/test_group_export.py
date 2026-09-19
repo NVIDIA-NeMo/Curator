@@ -99,6 +99,30 @@ class TestGroupExport:
         integer_name = next(name for name, content in mappings[0].items() if content.strip() == "integer group")
         assert (isolated / integer_name).read_text().strip() == "integer group"
 
+    @pytest.mark.parametrize("format_name", ["txt", "json", "csv"])
+    def test_long_group_names_fit_filesystem_component_limit(self, tmp_path: Path, format_name: str) -> None:
+        value = "speaker_" + "x" * 300
+        rows = [{"speaker_id": value, "text": "kept"}]
+        out = tmp_path / format_name
+
+        _run(ManifestGroupExportStage(output_dir=str(out), format=format_name), rows)
+
+        files = list(out.iterdir())
+        assert len(files) == 1
+        assert len(files[0].name.encode("utf-8")) <= 255
+        assert "~" in files[0].stem
+
+    def test_long_group_names_are_stable_across_arrival_order(self, tmp_path: Path) -> None:
+        groups = ["speaker_" + "a" * 300, "speaker_" + "b" * 300]
+        mappings = []
+        for directory, order in ((tmp_path / "a", groups), (tmp_path / "b", list(reversed(groups)))):
+            _run(
+                ManifestGroupExportStage(output_dir=str(directory), include_timestamps=False),
+                [{"speaker_id": group, "text": group[-1]} for group in order],
+            )
+            mappings.append({path.name: path.read_text() for path in directory.glob("*.txt")})
+        assert mappings[0] == mappings[1]
+
     def test_colliding_timeline_labels_do_not_depend_on_arrival_order(self, tmp_path: Path) -> None:
         rows = [
             {"speaker_id": 1, "text": "integer", "start": 0.0, "end": 1.0},

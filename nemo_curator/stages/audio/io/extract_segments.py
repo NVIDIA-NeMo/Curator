@@ -408,6 +408,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
         self._metadata_by_filename: dict[str, dict] = {}
         self._segment_reservations: dict[str, dict[str, Any]] = {}
+        self._state_is_wal = True
         self._task_ids_by_entry: dict[int, str] = {}
         self._segment_counter: dict[str, int] = defaultdict(int)
         self._speaker_segment_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -516,6 +517,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._segment_reservations = {}
         self._segment_counter = defaultdict(int)
         self._speaker_segment_counter = defaultdict(lambda: defaultdict(int))
+        self._state_is_wal = True
 
         metadata_path = os.path.join(self.output_dir, "metadata.csv")
         if os.path.exists(metadata_path):
@@ -530,14 +532,35 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return
         try:
             with open(self._state_path, encoding="utf-8") as state_file:
-                state = json.load(state_file)
+                content = state_file.read()
+            try:
+                state = json.loads(content)
+            except json.JSONDecodeError:
+                state = None
+            if isinstance(state, dict) and state.get("version") == 1:
+                segments = state.get("segments", {})
+                if not isinstance(segments, dict):
+                    message = f"[{self.name}] Cannot safely resume from malformed extraction state"
+                    raise TypeError(message)
+                self._state_is_wal = False
+            else:
+                segments = {}
+                for line in content.splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if not isinstance(payload, dict) or payload.get("version") != 2:
+                        message = f"[{self.name}] Cannot safely resume from malformed extraction state"
+                        raise TypeError(message)
+                    resume_key = payload.get("resume_key")
+                    record = payload.get("record")
+                    if not isinstance(resume_key, str) or not isinstance(record, dict):
+                        message = f"[{self.name}] Cannot safely resume from malformed extraction reservation"
+                        raise TypeError(message)
+                    segments[resume_key] = record
         except (OSError, json.JSONDecodeError, TypeError) as error:
             message = f"[{self.name}] Cannot safely resume from unreadable extraction state: {error}"
             raise RuntimeError(message) from error
-        segments = state.get("segments", {}) if isinstance(state, dict) else {}
-        if not isinstance(segments, dict):
-            message = f"[{self.name}] Cannot safely resume from malformed extraction state"
-            raise TypeError(message)
         for resume_key, record in segments.items():
             if (
                 not isinstance(resume_key, str)
@@ -572,18 +595,32 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         else:
             self._segment_counter[name] = max(self._segment_counter[name], index)
 
-    def _persist_output_state(self) -> None:
+    def _rewrite_output_state_as_wal(self) -> None:
         fd, temp_path = tempfile.mkstemp(prefix=".segment_extraction_state.", suffix=".json.tmp", dir=self.output_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as state_file:
-                json.dump({"version": 1, "segments": self._segment_reservations}, state_file, sort_keys=True)
+                for resume_key, record in self._segment_reservations.items():
+                    payload = {"version": 2, "resume_key": resume_key, "record": record}
+                    state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
                 state_file.flush()
                 os.fsync(state_file.fileno())
             os.replace(temp_path, self._state_path)
+            self._state_is_wal = True
         except Exception:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             raise
+
+    def _persist_output_state(self, resume_key: str, record: dict[str, Any]) -> None:
+        """Durably append one reservation instead of rewriting all prior reservations."""
+        if not self._state_is_wal:
+            self._rewrite_output_state_as_wal()
+            return
+        payload = {"version": 2, "resume_key": resume_key, "record": record}
+        with open(self._state_path, "a", encoding="utf-8") as state_file:
+            state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+            state_file.flush()
+            os.fsync(state_file.fileno())
 
     def _segment_resume_key(
         self,
@@ -623,7 +660,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if entry.get("speaker_id") is not None:
             record["speaker_id"] = entry["speaker_id"]
         self._segment_reservations[resume_key] = record
-        self._persist_output_state()
+        self._persist_output_state(resume_key, record)
         return filename, False
 
     def _write_audio_atomically(

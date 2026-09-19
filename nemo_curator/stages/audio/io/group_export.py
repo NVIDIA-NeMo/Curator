@@ -42,6 +42,7 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _EXT = {"txt": "txt", "json": "jsonl", "csv": "csv"}
 _TIMELINE = "timeline.txt"
 _MISSING_IDENTITY = "<missing-group>"
+_NAME_MAX_BYTES = 255
 
 
 def _safe_name(value: Any) -> str:  # noqa: ANN401
@@ -56,14 +57,31 @@ def _group_name(
     *,
     canonical: bool,
     reserved: set[str] | None = None,
+    max_bytes: int | None = None,
 ) -> str:
     """Return a name determined only by a group's value and typed identity."""
     raw = str(value)
     safe = _safe_name(value)
-    if canonical and raw == safe and safe not in (reserved or set()):
+    if canonical and raw == safe and safe not in (reserved or set()) and (
+        max_bytes is None or len(safe.encode("utf-8")) <= max_bytes
+    ):
         return safe
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-    return f"{safe}~{digest}"
+    suffix = f"~{digest}"
+    if max_bytes is not None:
+        budget = max_bytes - len(suffix.encode("utf-8"))
+        if budget < 1:
+            msg = f"Filename byte budget {max_bytes} is too small for a stable group name"
+            raise ValueError(msg)
+        encoded = safe.encode("utf-8")[:budget]
+        while True:
+            try:
+                safe = encoded.decode("utf-8")
+                break
+            except UnicodeDecodeError:
+                encoded = encoded[:-1]
+        safe = safe or "g"
+    return f"{safe}{suffix}"
 
 
 def _group_identity(value: Any, *, missing: bool = False) -> str:  # noqa: ANN401
@@ -236,6 +254,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 identity,
                 canonical=missing or isinstance(group_value, str),
                 reserved=reserved,
+                max_bytes=_NAME_MAX_BYTES - len(f".{_EXT[self.format]}".encode("utf-8")),
             ),
         )
         self._append(stem, row)
