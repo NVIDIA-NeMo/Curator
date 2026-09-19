@@ -62,6 +62,28 @@ def test_pipeline_uses_xenna_executor_by_default():
         mock_xenna_instance.execute.assert_called_once()
 
 
+def test_pipeline_finalizes_stages_only_after_successful_execution() -> None:
+    stage = _NoopStage()
+    stage.finalize = Mock()
+    executor = Mock()
+
+    Pipeline(name="test", stages=[stage]).run(executor=executor)
+
+    stage.finalize.assert_called_once_with()
+
+
+def test_pipeline_does_not_finalize_stages_after_failed_execution() -> None:
+    stage = _NoopStage()
+    stage.finalize = Mock()
+    executor = Mock()
+    executor.execute.side_effect = RuntimeError("failed")
+
+    with pytest.raises(RuntimeError, match="failed"):
+        Pipeline(name="test", stages=[stage]).run(executor=executor)
+
+    stage.finalize.assert_not_called()
+
+
 def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
     """Non-Xenna executors log an info message when Serve is active with GPU stages."""
     gpu_stage = Mock(spec=ProcessingStage)
