@@ -166,6 +166,17 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "output_sample_rate_key": self.output_sample_rate_key,
             },
         )
+        cross_role_collisions = []
+        if self.output_waveform_key in {self.audio_filepath_key, self.sample_rate_key}:
+            cross_role_collisions.append("output_waveform_key")
+        if self.output_sample_rate_key in {self.audio_filepath_key, self.waveform_key}:
+            cross_role_collisions.append("output_sample_rate_key")
+        if cross_role_collisions:
+            msg = (
+                f"[{self.name}] Output audio keys must not collide with a different input role: "
+                f"{cross_role_collisions}"
+            )
+            raise ValueError(msg)
         if self.nested and not self.keep_segment_waveform_in_task:
             logger.warning(
                 "[VADSegmentation] nested=True with keep_segment_waveform_in_task=False: "
@@ -177,14 +188,16 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [
-            self.output_waveform_key,
+        outputs = [
             self.output_sample_rate_key,
             self.start_ms_key,
             self.end_ms_key,
             self.segment_num_key,
             self.duration_key,
         ]
+        if self.keep_segment_waveform_in_task:
+            outputs.insert(0, self.output_waveform_key)
+        return [], outputs
 
     def describe(self) -> StageContract:
         segment_writes = [

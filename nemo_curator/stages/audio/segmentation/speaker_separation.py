@@ -31,6 +31,7 @@ Example:
 """
 
 import contextlib
+import hashlib
 import os
 import shutil
 import tempfile
@@ -72,6 +73,25 @@ def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
     if seg.channels > 1:
         samples = samples.reshape((-1, seg.channels)).mean(axis=1)
     return torch.from_numpy(samples).unsqueeze(0), seg.frame_rate
+
+
+def _bounded_speaker_stem(stem: str, speaker_id: str) -> str:
+    """Fit the content-addressed WAV name within a POSIX NAME_MAX component."""
+    suffix = f"_{speaker_id}_{'0' * 16}.wav"
+    budget = 255 - len(suffix.encode("utf-8"))
+    encoded = stem.encode("utf-8")
+    if len(encoded) <= budget:
+        return stem
+    digest = hashlib.sha256(encoded).hexdigest()[:12]
+    marker = f"~{digest}"
+    encoded = encoded[: budget - len(marker)]
+    while True:
+        try:
+            prefix = encoded.decode("utf-8")
+            break
+        except UnicodeDecodeError:
+            encoded = encoded[:-1]
+    return f"{prefix}{marker}"
 
 
 @dataclass
@@ -327,6 +347,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     ) -> str:
         """Write one per-speaker waveform to ``separated_audio_dir`` and return the path."""
         stem = os.path.splitext(os.path.basename(str(original_file)))[0] or "audio"
+        stem = _bounded_speaker_stem(stem, str(speaker_id))
         return write_audio_stable(
             waveform,
             sr,

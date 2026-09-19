@@ -634,6 +634,25 @@ def test_single_speaker_persistence_failure_propagates(tmp_path) -> None:  # noq
         stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
 
 
+def test_long_source_stem_fits_filesystem_component_limit(tmp_path: Path) -> None:
+    stage = SpeakerSeparationStage(
+        write_to_disk=True,
+        separated_audio_dir=str(tmp_path),
+        resources=Resources(gpus=0.0),
+    )
+
+    output = stage._write_speaker_wav(
+        torch.zeros(1, 16),
+        16000,
+        f"/{'a' * 240}.wav",
+        "speaker_0",
+    )
+
+    assert Path(output).exists()
+    assert len(Path(output).name.encode("utf-8")) <= 255
+    assert "~" in Path(output).stem
+
+
 def test_multi_speaker_publish_failure_retains_immutable_outputs(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     output_dir = tmp_path / "separated"
     initial = _stubbed_speaker_stage(write_to_disk=True, separated_audio_dir=str(output_dir))

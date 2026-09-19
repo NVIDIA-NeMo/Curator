@@ -327,6 +327,10 @@ def test_custom_input_keys_preserve_legacy_canonical_output_schema() -> None:
         {"segments_key": "start_ms"},
         {"start_ms_key": "waveform"},
         {"output_waveform_key": "duration"},
+        {"output_waveform_key": "sample_rate"},
+        {"output_waveform_key": "audio_filepath"},
+        {"output_sample_rate_key": "waveform"},
+        {"output_sample_rate_key": "audio_filepath"},
     ],
 )
 def test_invalid_residency_and_destructive_key_collisions_are_rejected(kwargs: dict[str, str]) -> None:
@@ -525,6 +529,13 @@ def test_nested_contract_declares_container_and_segment_fields() -> None:
         "waveform",
     ]
     assert contract.iteration_key == "speech_chunks"
+
+
+def test_outputs_omit_waveform_when_segment_waveforms_are_disabled() -> None:
+    stage = VADSegmentationStage(keep_segment_waveform_in_task=False)
+
+    assert stage.output_waveform_key not in stage.outputs()[1]
+    assert stage.output_waveform_key not in stage.describe().writes.data_keys
 
 
 def test_contract_declares_mode_specific_parent_carrier_removals() -> None:
