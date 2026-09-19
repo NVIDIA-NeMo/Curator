@@ -59,6 +59,27 @@ from nemo_curator.stages.audio.common import get_audio_duration, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
+_NAME_MAX_BYTES = 255
+
+
+def _bounded_output_stem(stem: str, extension: str) -> str:
+    """Keep a deterministic output component within the common POSIX NAME_MAX."""
+    extension_suffix = f".{extension.lstrip('.')}"
+    budget = _NAME_MAX_BYTES - len(extension_suffix.encode("utf-8"))
+    encoded = str(stem).encode("utf-8")
+    if len(encoded) <= budget:
+        return str(stem)
+    digest = hashlib.sha256(encoded).hexdigest()[:16]
+    marker = f"~{digest}"
+    encoded = encoded[: budget - len(marker)]
+    while True:
+        try:
+            prefix = encoded.decode("utf-8")
+            break
+        except UnicodeDecodeError:
+            encoded = encoded[:-1]
+    return f"{prefix}{marker}"
+
 
 def _is_usable_sample_rate(value: object) -> bool:
     """Whether a resident ``sample_rate`` can actually time a waveform.
@@ -121,9 +142,6 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     keep_waveform_in_task: bool = False
     write_to_disk: bool = True
     update_audio_filepath: bool = False
-
-    # Per-worker record of which source each inherited-id output name belongs to; see process().
-    _stem_owners: dict[str, str] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         validate_audio_key_configuration(
@@ -259,10 +277,47 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         """
         if not from_scratch_file:
             stem = os.path.splitext(os.path.basename(local_audio_path))[0]
-            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:32]}"
+            item_id = f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:32]}"
+            return _bounded_output_stem(item_id, self.target_format)
         # Keep the source name on the front so a clip stays traceable by eye.
         stem = os.path.splitext(os.path.basename(str(source)))[0] if source else "clip"
-        return f"{stem}_{self._audio_digest(local_audio_path)}"
+        return _bounded_output_stem(f"{stem}_{self._audio_digest(local_audio_path)}", self.target_format)
+
+    def _claim_inherited_stem(self, output_stem: str, local_audio_path: str) -> str:
+        """Claim the legacy stem durably, suffixing it when another source owns it."""
+        os.makedirs(self.resampled_audio_dir, exist_ok=True)
+        output_stem = _bounded_output_stem(output_stem, self.target_format)
+        owner_name = hashlib.sha256(output_stem.encode("utf-8")).hexdigest()
+        owner_path = os.path.join(self.resampled_audio_dir, f".resample-owner-{owner_name}")
+        legacy_path = os.path.join(self.resampled_audio_dir, f"{output_stem}.{self.target_format}")
+        source_token = hashlib.sha256(os.path.abspath(local_audio_path).encode("utf-8")).hexdigest()
+
+        if os.path.exists(legacy_path) and not os.path.exists(owner_path):
+            owner = None
+        else:
+            try:
+                fd = os.open(owner_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                try:
+                    with open(owner_path, encoding="utf-8") as owner_file:
+                        owner = owner_file.read().strip()
+                except OSError:
+                    owner = None
+            else:
+                with os.fdopen(fd, "w", encoding="utf-8") as owner_file:
+                    owner_file.write(source_token + "\n")
+                    owner_file.flush()
+                    os.fsync(owner_file.fileno())
+                owner = source_token
+
+        if owner == source_token:
+            return output_stem
+        digest = hashlib.sha256(local_audio_path.encode()).hexdigest()[:16]
+        logger.warning(
+            f"[{self.name}] {self.audio_item_id_key}={output_stem!r} is already owned by another "
+            f"source; writing {local_audio_path!r} with source suffix {digest}"
+        )
+        return _bounded_output_stem(f"{output_stem}_{digest}", self.target_format)
 
     # Resampling may land a handful of frames off the exact ratio; anything beyond this is a
     # different recording or a truncated one, never a rounding artefact.
@@ -356,20 +411,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # which downstream stages read as the shared ``item_id`` role.
             output_stem = f"{output_stem}_{self._audio_digest(local_audio_path)}"
         elif inherited_id and self.write_to_disk:
-            # The legacy file route names the output after the inherited id, which keeps every
-            # tutorial's output names stable -- but two DIFFERENT recordings carrying the same id
-            # would then share one output path, and the second would either overwrite the first
-            # or (if the lengths agree) be served the first recording as a finished conversion.
-            # Keep the legacy name for the first source seen under an id in this worker; a later
-            # source with the same id gets a path digest so it can never alias the first.
-            owner = self._stem_owners.setdefault(str(output_stem), local_audio_path)
-            if owner != local_audio_path:
-                digest = hashlib.sha256(local_audio_path.encode()).hexdigest()[:16]
-                logger.warning(
-                    f"[{self.name}] {self.audio_item_id_key}={output_stem!r} names both {owner!r} and "
-                    f"{local_audio_path!r}; writing the latter as {output_stem}_{digest} so it cannot alias the first"
-                )
-                output_stem = f"{output_stem}_{digest}"
+            output_stem = self._claim_inherited_stem(str(output_stem), local_audio_path)
+
+        output_stem = _bounded_output_stem(str(output_stem), self.target_format)
 
         if self.write_to_disk:
             output_audio_path = os.path.join(

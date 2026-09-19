@@ -598,6 +598,37 @@ class TestExistingOutputIsVerifiedBeforeReuse:
         # The row keeps the id its producer gave it.
         assert second.data["audio_item_id"] == "utt"
 
+    def test_independent_workers_do_not_reuse_equal_length_audio_for_shared_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_copy)
+        first_source = tmp_path / "first.wav"
+        second_source = tmp_path / "second.wav"
+        sf.write(first_source, np.full(16000, 0.1, dtype=np.float32), 16000)
+        sf.write(second_source, np.full(16000, -0.1, dtype=np.float32), 16000)
+        output_dir = tmp_path / "out"
+        first_stage = ResampleAudioStage(resampled_audio_dir=str(output_dir), write_to_disk=True)
+        second_stage = ResampleAudioStage(resampled_audio_dir=str(output_dir), write_to_disk=True)
+
+        first = first_stage.process(
+            AudioTask(data={"audio_filepath": str(first_source), "audio_item_id": "shared"})
+        )
+        second = second_stage.process(
+            AudioTask(data={"audio_filepath": str(second_source), "audio_item_id": "shared"})
+        )
+
+        assert first.data["resampled_audio_filepath"] != second.data["resampled_audio_filepath"]
+        first_audio, _ = sf.read(first.data["resampled_audio_filepath"])
+        second_audio, _ = sf.read(second.data["resampled_audio_filepath"])
+        assert np.sign(first_audio.mean()) != np.sign(second_audio.mean())
+
+    def test_long_source_stem_is_bounded_before_extension(self, tmp_path: Path) -> None:
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path), target_format="wav")
+        item_id = stage._item_id(f"/dataset/{'a' * 240}.wav", from_scratch_file=False, source=None)
+
+        assert len(f"{item_id}.wav".encode("utf-8")) <= 255
+        assert "~" in item_id
+
     def test_known_legacy_path_digest_collision_gets_distinct_ids(self, tmp_path: Path) -> None:
         first = "/dataset/spk25433/utt.wav"
         second = "/dataset/spk158142/utt.wav"

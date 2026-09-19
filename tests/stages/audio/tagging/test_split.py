@@ -431,6 +431,19 @@ def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"split_filepaths_key": "text"},
+            {"split_metadata_key": "alignment"},
+            {"split_metadata_key": "split_filepaths"},
+            {"split_offsets_key": "split_timestamps"},
+        ],
+    )
+    def test_temporary_and_output_key_collisions_are_rejected(self, kwargs: dict[str, str]) -> None:
+        with pytest.raises(ValueError, match="must be distinct"):
+            JoinSplitAudioMetadataStage(**kwargs)
+
     def test_contract_declares_conditional_outputs_and_removes_only_the_sentinel(self) -> None:
         stage = JoinSplitAudioMetadataStage(
             text_key="transcript",

@@ -394,6 +394,26 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
     split_timestamps_key: str = "split_timestamps"
     alignment_key: str = "alignment"
 
+    def __post_init__(self) -> None:
+        super().__init__()
+        configured_keys = {
+            "split_filepaths_key": self.split_filepaths_key,
+            "split_metadata_key": self.split_metadata_key,
+            "split_offsets_key": self.split_offsets_key,
+            "split_timestamps_key": self.split_timestamps_key,
+            "text_key": self.text_key,
+            "alignment_key": self.alignment_key,
+        }
+        for field_name, key in configured_keys.items():
+            if not isinstance(key, str) or not key.strip():
+                msg = f"{field_name} must be a non-empty string"
+                raise ValueError(msg)
+        values = list(configured_keys.values())
+        duplicates = sorted({key for key in values if values.count(key) > 1})
+        if duplicates:
+            msg = f"JoinSplitAudioMetadataStage temporary and output keys must be distinct: {duplicates}"
+            raise ValueError(msg)
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [
             self.split_filepaths_key,
