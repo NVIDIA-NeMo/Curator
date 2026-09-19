@@ -28,6 +28,7 @@ from torchaudio.pipelines import SQUIM_OBJECTIVE
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
+    ConditionalRead,
     ConditionalWrite,
     Gates,
     IOSpec,
@@ -126,13 +127,54 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
     def describe(self) -> StageContract:
         # An audio source (file or in-memory waveform, per input_residency) is required;
         # segments only refine WHERE metrics are attached (optional, read at runtime).
-        return StageContract(
-            reads_one_of=residency_read_specs(
-                self.input_residency,
+        reads_one_of = residency_read_specs(
+            self.input_residency,
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
+        conditional_reads = []
+        if self.input_residency == "auto":
+            resident_options = residency_read_specs(
+                "waveform",
                 audio_filepath_key=self.audio_filepath_key,
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
-            ),
+            )
+            file_options = residency_read_specs(
+                "file",
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            )
+            reads_one_of = []
+            conditional_reads = [
+                ConditionalRead(
+                    reads_one_of=resident_options,
+                    condition="a complete resident waveform/sample-rate pair is present",
+                    requires_keys=[self.waveform_key, self.sample_rate_key],
+                ),
+                ConditionalRead(
+                    reads_one_of=file_options,
+                    condition="neither resident audio key is present, so file fallback is allowed",
+                    forbids_keys=[self.waveform_key, self.sample_rate_key],
+                ),
+                ConditionalRead(
+                    reads_one_of=resident_options,
+                    condition="a waveform without its sample rate is invalid",
+                    requires_keys=[self.waveform_key],
+                    forbids_keys=[self.sample_rate_key],
+                ),
+                ConditionalRead(
+                    reads_one_of=resident_options,
+                    condition="a sample rate without its waveform is invalid",
+                    requires_keys=[self.sample_rate_key],
+                    forbids_keys=[self.waveform_key],
+                ),
+            ]
+        return StageContract(
+            reads_one_of=reads_one_of,
+            conditional_reads=conditional_reads,
             writes=IOSpec(),
             conditional_writes=[
                 ConditionalWrite(

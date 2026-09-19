@@ -21,7 +21,14 @@ import librosa
 import numpy as np
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalRead,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     residency_read_specs,
@@ -110,17 +117,67 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def describe(self) -> StageContract:
         # An audio source (file or in-memory waveform, per input_residency) AND
         # (segments OR duration). Each audio-source shape is paired with both refinements.
-        reads_one_of = []
-        for spec in residency_read_specs(
-            self.input_residency,
-            audio_filepath_key=self.audio_filepath_key,
-            waveform_key=self.waveform_key,
-            sample_rate_key=self.sample_rate_key,
-        ):
-            reads_one_of.append(IOSpec(data_keys=[*spec.data_keys, self.segments_key], accepts=list(spec.accepts)))
-            reads_one_of.append(IOSpec(data_keys=[*spec.data_keys, self.duration_key], accepts=list(spec.accepts)))
+        def with_refinements(specs: list[IOSpec]) -> list[IOSpec]:
+            options = []
+            for spec in specs:
+                options.append(IOSpec(data_keys=[*spec.data_keys, self.segments_key], accepts=list(spec.accepts)))
+                options.append(IOSpec(data_keys=[*spec.data_keys, self.duration_key], accepts=list(spec.accepts)))
+            return options
+
+        reads_one_of = with_refinements(
+            residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            )
+        )
+        conditional_reads = []
+        if self.input_residency == "auto":
+            resident_options = with_refinements(
+                residency_read_specs(
+                    "waveform",
+                    audio_filepath_key=self.audio_filepath_key,
+                    waveform_key=self.waveform_key,
+                    sample_rate_key=self.sample_rate_key,
+                )
+            )
+            file_options = with_refinements(
+                residency_read_specs(
+                    "file",
+                    audio_filepath_key=self.audio_filepath_key,
+                    waveform_key=self.waveform_key,
+                    sample_rate_key=self.sample_rate_key,
+                )
+            )
+            reads_one_of = []
+            conditional_reads = [
+                ConditionalRead(
+                    reads_one_of=resident_options,
+                    condition="a complete resident waveform/sample-rate pair is present",
+                    requires_keys=[self.waveform_key, self.sample_rate_key],
+                ),
+                ConditionalRead(
+                    reads_one_of=file_options,
+                    condition="neither resident audio key is present, so file fallback is allowed",
+                    forbids_keys=[self.waveform_key, self.sample_rate_key],
+                ),
+                ConditionalRead(
+                    reads_one_of=resident_options,
+                    condition="a waveform without its sample rate is invalid",
+                    requires_keys=[self.waveform_key],
+                    forbids_keys=[self.sample_rate_key],
+                ),
+                ConditionalRead(
+                    reads_one_of=resident_options,
+                    condition="a sample rate without its waveform is invalid",
+                    requires_keys=[self.sample_rate_key],
+                    forbids_keys=[self.waveform_key],
+                ),
+            ]
         return StageContract(
             reads_one_of=reads_one_of,
+            conditional_reads=conditional_reads,
             writes=IOSpec(),
             conditional_writes=[
                 ConditionalWrite(
