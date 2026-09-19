@@ -273,41 +273,47 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # source and effective split plan because either can otherwise overwrite another row.
             stem = self._shared_output_stem(stem, audio_path, splits, sr, len(audio[0]))
 
-        split_start = 0
-        split_filepaths, actual_splits, split_durations = [], [], []
+        split_start, split_filepaths, actual_splits, split_durations = 0, [], [], []
+        # fsspec transactions stage every remote key and publish them together on
+        # successful exit. A failed upload or later chunk therefore exposes no
+        # partial final key and rolls back earlier chunks from this row.
+        with (
+            output_fs.transaction
+            if output_fs is not None and not isinstance(output_fs, LocalFileSystem)
+            else contextlib.nullcontext()
+        ):
+            for k, split in enumerate(splits):
+                split_name = f"{stem}.{k + 1}_of_{1 + len(splits)}.wav"
+                split_filepath, split_resolved = self._split_paths(
+                    split_name,
+                    parent_url,
+                    resolved_parent,
+                    resolved_output_dir,
+                )
+                split_end = math.ceil(split * sr)
 
-        for k, split in enumerate(splits):
-            split_name = f"{stem}.{k + 1}_of_{1 + len(splits)}.wav"
+                if split_end - split_start > self.min_len * sr:
+                    self._save_split(split_resolved, audio[:, split_start:split_end], sr, output_fs)
+                    split_filepaths.append(split_filepath)
+                    actual_splits.append(split_start / sr)
+                    split_durations.append((split_end - split_start) / sr)
+                    split_start = split_end
+
+            split_name = f"{stem}.{1 + len(splits)}_of_{1 + len(splits)}.wav"
             split_filepath, split_resolved = self._split_paths(
                 split_name,
                 parent_url,
                 resolved_parent,
                 resolved_output_dir,
             )
-            split_end = math.ceil(split * sr)
+            last_frame = len(audio[0])
+            remaining_frames = last_frame - split_start
 
-            if split_end - split_start > self.min_len * sr:
-                self._save_split(split_resolved, audio[:, split_start:split_end], sr, output_fs)
+            if remaining_frames > self.min_len * sr:
+                self._save_split(split_resolved, audio[:, split_start:], sr, output_fs)
                 split_filepaths.append(split_filepath)
+                split_durations.append(remaining_frames / sr)
                 actual_splits.append(split_start / sr)
-                split_durations.append((split_end - split_start) / sr)
-                split_start = split_end
-
-        split_name = f"{stem}.{1 + len(splits)}_of_{1 + len(splits)}.wav"
-        split_filepath, split_resolved = self._split_paths(
-            split_name,
-            parent_url,
-            resolved_parent,
-            resolved_output_dir,
-        )
-        last_frame = len(audio[0])
-        remaining_frames = last_frame - split_start
-
-        if remaining_frames > self.min_len * sr:
-            self._save_split(split_resolved, audio[:, split_start:], sr, output_fs)
-            split_filepaths.append(split_filepath)
-            split_durations.append(remaining_frames / sr)
-            actual_splits.append(split_start / sr)
 
         audio_item_id, split_filepaths_before = (
             data_entry.get(self.audio_item_id_key, "unknown"),

@@ -360,6 +360,46 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         assert len(local_writes) == 1
         assert not Path(local_writes[0]).exists()
 
+    def test_remote_output_rolls_back_earlier_chunks_when_a_later_save_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        local_writes: list[str] = []
+        _patch_audio_io(monkeypatch, local_writes)
+        output_dir = f"memory://split-rollback-{tmp_path.name}"
+        stage = SplitLongAudioStage(
+            suggested_max_len=5.0,
+            min_len=0.5,
+            output_dir=output_dir,
+        )
+        real_save = stage._save_split
+        calls = 0
+
+        def fail_second(*args: object, **kwargs: object) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                message = "second split failed"
+                raise OSError(message)
+            real_save(*args, **kwargs)
+
+        monkeypatch.setattr(stage, "_save_split", fail_second)
+
+        with pytest.raises(OSError, match="second split failed"):
+            stage.process(
+                audio_task(
+                    duration=8.0,
+                    audio_item_id="remote",
+                    resampled_audio_filepath=str(tmp_path / "source.wav"),
+                    segments=[{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}],
+                )
+            )
+
+        fs, path = url_to_fs(output_dir)
+        assert fs.find(path) == []
+
     def test_static_contract_exposes_conservative_split_gates(self, tmp_path: Path) -> None:
         static = static_contract(SplitLongAudioStage)
         configured_default = build_contract(SplitLongAudioStage())

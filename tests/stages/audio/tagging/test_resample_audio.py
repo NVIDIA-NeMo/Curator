@@ -65,25 +65,24 @@ class TestResampleAudioStage:
             assert out.get("resampled_audio_filepath") == f"{tmpdir}/id_1.wav"
             assert out.get("duration") == 60.0
 
-    def test_a_file_input_keeps_the_name_it_has_always_had(self, audio_filepath: Path) -> None:
-        """Every tutorial reads real files off disk; their output names must not move."""
+    def test_a_file_input_uses_a_collision_resistant_path_derived_name(self, audio_filepath: Path) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             stage = ResampleAudioStage(resampled_audio_dir=tmpdir)
             stage.setup()
             stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(audio_filepath)}))
 
-            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:8]
+            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:32]
             assert os.listdir(tmpdir) == [f"{audio_filepath.stem}_{path_hash}.wav"]
 
     def test_two_paths_sharing_a_stem_get_distinct_output_stems(self, tmp_path: Path) -> None:
-        """The legacy suffix remains path-derived for files sharing a basename."""
+        """The collision-resistant suffix remains path-derived for files sharing a basename."""
         stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
         stems = set()
         for parent in ("a", "b"):
             local_audio_path = str(tmp_path / parent / "clip.wav")
             stem = stage._item_id(local_audio_path, from_scratch_file=False, source=None)
             assert stem.startswith("clip_")
-            assert len(stem.split("_")[-1]) == 8
+            assert len(stem.split("_")[-1]) == 32
             stems.add(stem)
         assert len(stems) == 2, "distinct paths with the same basename stem collided onto one stem"
 
@@ -598,3 +597,43 @@ class TestExistingOutputIsVerifiedBeforeReuse:
         assert sf.info(first.data["resampled_audio_filepath"]).frames == pytest.approx(16000, abs=64)
         # The row keeps the id its producer gave it.
         assert second.data["audio_item_id"] == "utt"
+
+    def test_known_legacy_path_digest_collision_gets_distinct_ids(self, tmp_path: Path) -> None:
+        first = "/dataset/spk25433/utt.wav"
+        second = "/dataset/spk158142/utt.wav"
+        assert hashlib.sha256(first.encode()).hexdigest()[:8] == hashlib.sha256(second.encode()).hexdigest()[:8]
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+
+        first_id = stage._item_id(first, from_scratch_file=False, source=first)
+        second_id = stage._item_id(second, from_scratch_file=False, source=second)
+
+        assert first_id != second_id
+
+    def test_resident_scratch_is_cleaned_when_naming_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        created: list[str] = []
+        real_resolve = resample_audio_module.resolve_audio_path
+
+        def tracked_resolve(*args: object, **kwargs: object) -> str | None:
+            result = real_resolve(*args, **kwargs)
+            created.extend(kwargs["register_temp"])  # type: ignore[arg-type]
+            return result
+
+        monkeypatch.setattr(resample_audio_module, "resolve_audio_path", tracked_resolve)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="waveform",
+        )
+        monkeypatch.setattr(stage, "_audio_digest", lambda _path: (_ for _ in ()).throw(RuntimeError("digest")))
+
+        with pytest.raises(RuntimeError, match="digest"):
+            stage.process(
+                AudioTask(
+                    dataset_name="d",
+                    data={"waveform": torch.zeros(1, 8), "sample_rate": 8000},
+                )
+            )
+
+        assert created
+        assert all(not Path(path).exists() for path in created)

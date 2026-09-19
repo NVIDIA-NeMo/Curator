@@ -254,12 +254,12 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         audio instead, which is the identity the path was standing in for -- and folding in the
         settings makes the "already converted, skip it" check below correct, not merely fast.
 
-        The path branch preserves the legacy eight-character suffix, so pipelines reading real
-        files keep their output names.
+        The path branch uses a 128-bit suffix. The former eight-character suffix had known
+        collisions, allowing two same-length recordings to share and reuse one output.
         """
         if not from_scratch_file:
             stem = os.path.splitext(os.path.basename(local_audio_path))[0]
-            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:8]}"
+            return f"{stem}_{hashlib.sha256(local_audio_path.encode()).hexdigest()[:32]}"
         # Keep the source name on the front so a clip stays traceable by eye.
         stem = os.path.splitext(os.path.basename(str(source)))[0] if source else "clip"
         return f"{stem}_{self._audio_digest(local_audio_path)}"
@@ -310,9 +310,23 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             AudioTask with updated metadata
         """
         t0 = time.perf_counter()
-        data_entry = task.data
-
         temp_paths: list[str] = []
+        try:
+            return self._process_with_resolved_audio(task, temp_paths=temp_paths, started_at=t0)
+        finally:
+            # Resolution may materialize a resident waveform before any later
+            # validation, hashing, or output-path operation raises.
+            cleanup_temp_files(temp_paths)
+
+    def _process_with_resolved_audio(
+        self,
+        task: AudioTask,
+        *,
+        temp_paths: list[str],
+        started_at: float,
+    ) -> AudioTask:
+        """Resolve, name, and convert one row while ``process`` owns scratch cleanup."""
+        data_entry = task.data
         input_audio_path = resolve_audio_path(
             data_entry,
             residency=self.input_residency,  # type: ignore[arg-type]
@@ -366,7 +380,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             fd, output_audio_path = tempfile.mkstemp(suffix=f".{self.target_format}")
             os.close(fd)
 
-        try:
+        if self.write_to_disk:
             return self._convert_and_update(
                 task,
                 input_audio_path=input_audio_path,
@@ -375,12 +389,20 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 # A materialized temp path means the source was a resident waveform, so the
                 # resident pair is now stale and must be dropped. The file route never is.
                 used_resident_source=bool(temp_paths),
-                started_at=t0,
+                started_at=started_at,
+            )
+
+        try:
+            return self._convert_and_update(
+                task,
+                input_audio_path=input_audio_path,
+                output_audio_path=output_audio_path,
+                original_audio_filepath=original_audio_filepath,
+                used_resident_source=bool(temp_paths),
+                started_at=started_at,
             )
         finally:
-            cleanup_temp_files(temp_paths)
-            if not self.write_to_disk:
-                cleanup_temp_files([output_audio_path])
+            cleanup_temp_files([output_audio_path])
 
     def _convert_and_update(  # noqa: PLR0913 - keyword-only per-conversion inputs, not unrelated knobs
         self,
