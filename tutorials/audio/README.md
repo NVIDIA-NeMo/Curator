@@ -56,6 +56,9 @@ python nemo_curator/config/run.py \
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
+| Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
+| Produce word-level forced alignment (TextGrid, RTTM, CTM) with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio + text manifest |
+| Generate synthetic multi-speaker conversation audio end-to-end (LLM -> TTS -> alignment -> merge) | [**data-generation/**](data-generation/) | Yes (GPU for LLM/TTS phase) | Bring your own topic manifest + reference voices |
 
 ## Data availability
 
@@ -71,6 +74,9 @@ python nemo_curator/config/run.py \
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
+| `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
+| `alignment/` | No | Varies | Bring your own audio + text JSONL manifest; requires separately-installed MFA models |
+| `data-generation/` | No | Varies | Bring your own topic manifest + reference voices dataset |
 
 ## System dependencies
 
@@ -98,6 +104,9 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
+| `tts/` | `ffmpeg` | `audio_cuda12` |
+| `alignment/` | none (MFA installed separately via conda/micromamba) | `audio_cpu` or `audio_cuda12` |
+| `data-generation/` | `ffmpeg`, Montreal Forced Aligner (installed separately) | `audio_cuda12`, `vllm` |
 
 Install pip extras from the repo root:
 

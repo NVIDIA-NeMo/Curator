@@ -747,6 +747,45 @@ def test_faster_whisper_tutorial_yaml_matches_reference_contract():
     assert executor.config == {}
 
 
+def test_audio_data_generation_yaml_uses_executor_backed_grouped_phases():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "data-generation"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "output_dir=/data/conversations",
+                "reference_voices_dataset=/data/reference_voices",
+                "prompt_file=tutorials/audio/data-generation/prompts/dialog_prompt.yaml",
+            ],
+        )
+
+    phase1 = create_pipeline_from_yaml(cfg.phase1, log_config=False)
+    phase2 = create_pipeline_from_yaml(cfg.phase2, log_config=False)
+    with patch("nemo_curator.config.run.hydra.utils.get_class") as get_class:
+        executor_class = MagicMock()
+        get_class.return_value = executor_class
+        phase1_executor = create_executor_from_yaml(cfg.phase1)
+        phase2_executor = create_executor_from_yaml(cfg.phase2)
+
+    assert [stage.__class__.__name__ for stage in phase1.stages] == [
+        "ManifestReader",
+        "vLLMInference",
+        "ChatterboxTTSStage",
+        "MFAAlignmentStage",
+    ]
+    assert phase1.stages[1].resources.gpus == 1
+    assert phase1.stages[1]._vllm_model.tensor_parallel_size == 1
+    assert phase1.stages[3].batch_size == 256
+    assert phase2.stages[0].__class__.__name__ == "MergeConversationSDPStage"
+    assert phase2.stages[0].is_resumable is False
+    assert phase2.stages[0].sample_rate == 24000
+    assert phase2.stages[1].__class__.__name__ == "ManifestWriterStage"
+    assert phase1_executor is executor_class.return_value
+    assert phase2_executor is executor_class.return_value
+    assert get_class.call_count == 2
+
+
 def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
