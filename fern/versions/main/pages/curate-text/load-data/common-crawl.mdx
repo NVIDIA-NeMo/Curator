@@ -25,6 +25,8 @@ Curator's Common Crawl processing pipeline consists of four sequential stages:
 
 The pipeline outputs structured data that you can write to JSONL or Parquet files for further processing.
 
+`CommonCrawlWarcIterator` reads WARC files from local paths or fsspec-compatible remote paths such as `s3://`. Pass credentials and other filesystem settings through `storage_options`; install the filesystem backend required by the path, such as `s3fs` for S3.
+
 ### WARC Record Reader
 
 For pipelines that already have WARC metadata (such as `warc_filename`, `warc_record_offset`, and `warc_record_length` columns from a CC Index lookup), use `CommonCrawlWARCReader` to fetch individual WARC records directly via byte-range requests — without downloading full WARC files.
