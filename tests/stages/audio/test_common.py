@@ -22,6 +22,7 @@ from unittest import mock
 import numpy as np
 import pytest
 import torch
+from fsspec.core import url_to_fs
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
@@ -39,7 +40,9 @@ from nemo_curator.stages.audio.common import (
     resolve_waveform_from_item,
 )
 from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 from tests import FIXTURES_DIR
+from tests.utils.performance_record_store import make_performance_record_store
 
 ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
 
@@ -366,6 +369,16 @@ class TestManifestReaderIntegration:
 # ---------------------------------------------------------------------------
 
 
+def _performance_report_context(*, slurm_array: dict[str, int] | None = None) -> dict[str, object]:
+    return {
+        "pipeline_name": "audio",
+        "run_id": "run-1",
+        "executor": "RayDataExecutor",
+        "pipeline": {"pipeline_name": "audio", "stages": [{"stage_id": "002:ASR"}]},
+        "slurm_array": slurm_array,
+    }
+
+
 class TestManifestWriterStage:
     """Unit tests for ManifestWriterStage."""
 
@@ -487,6 +500,74 @@ class TestManifestWriterStage:
     def test_xenna_stage_spec(self, tmp_path: Path) -> None:
         writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
         assert writer.xenna_stage_spec() == {}
+
+    def test_performance_report_configuration(self, tmp_path: Path) -> None:
+        output_path = tmp_path / "manifest.jsonl"
+        assert ManifestWriterStage(output_path=str(output_path)).requests_performance_records() is False
+        assert (
+            ManifestWriterStage(
+                output_path=str(output_path),
+                performance_report_path=str(tmp_path / "performance.json"),
+            ).requests_performance_records()
+            is True
+        )
+
+        with pytest.raises(ValueError, match="performance_report_path must not be blank"):
+            ManifestWriterStage(output_path=str(output_path), performance_report_path=" ")
+        with pytest.raises(ValueError, match="must not resolve to the manifest output_path"):
+            ManifestWriterStage(output_path=str(output_path), performance_report_path=output_path.as_uri())
+
+    def test_writes_raw_performance_records_through_fsspec(self) -> None:
+        report_url = "memory://pr2296-performance/report.json"
+        writer = ManifestWriterStage(
+            output_path="memory://pr2296-performance/manifest.jsonl",
+            performance_report_path=report_url,
+        )
+        record = {
+            "stage_name": "unknown",
+            "stage_id": "999:unknown",
+            "invocation_id": "invocation-1",
+            "process_time": 1.5,
+            "actor_idle_time": 0.25,
+            "num_items_processed": 8,
+            "custom_metrics": {"audio_duration_s": 12.0},
+            "window_start_s": 10.0,
+            "window_end_s": 11.5,
+            "future_field": {"nested": [1, 2]},
+        }
+        record_store = make_performance_record_store([record])
+        try:
+            writer.finalize_performance_report(
+                performance_records=record_store,
+                wall_time_s=2.0,
+                report_context=_performance_report_context(),
+            )
+            fs, report_path = url_to_fs(report_url)
+            report = json.loads(fs.read_text(report_path, encoding="utf-8"))
+        finally:
+            record_store.cleanup()
+
+        assert report["schema_version"] == 1
+        assert report["record_count"] == 1
+        assert report["records"] == [record]
+        assert "stage_performance" not in report
+
+    def test_slurm_report_collision_preserves_manifest(self, tmp_path: Path) -> None:
+        output_path = tmp_path / "performance.shard-00007-of-00020.json"
+        output_path.write_text("manifest-data", encoding="utf-8")
+        writer = ManifestWriterStage(
+            output_path=str(output_path),
+            performance_report_path=str(tmp_path / "performance.json"),
+        )
+
+        with pytest.raises(ValueError, match="effective performance report path"):
+            writer.finalize_performance_report(
+                performance_records=PerformanceRecordStore(),
+                wall_time_s=1.0,
+                report_context=_performance_report_context(slurm_array={"shard_index": 7, "total_shards": 20}),
+            )
+
+        assert output_path.read_text(encoding="utf-8") == "manifest-data"
 
 
 class TestManifestWriterRoundTrip:

@@ -11,6 +11,12 @@ tutorial-specific Python runner is needed. The YAML selects the executor
 backend and, for Xenna, its execution mode; the generic runner constructs that
 executor and passes it to `Pipeline.run()`.
 
+Performance reporting is opt-in. Set `performance_report_path` to write a raw,
+run-scoped performance report with the supported Ray Data or Xenna executor.
+The report keeps one record for each successful generic stage-adapter attempt,
+including attempts that emit no output. A fan-out attempt is recorded once
+rather than once per output task.
+
 ## Requirements
 
 - x86_64 Linux with CUDA
@@ -81,6 +87,70 @@ under `adapter_kwargs.vllm_kwargs`, and sampling settings live under
 shared vLLM construction path, and vLLM's `SamplingParams`, respectively.
 Do not put `tensor_parallel_size` in `vllm_kwargs`: `gpus_per_actor` is the
 single GPU-count setting and the stage derives tensor parallelism from it.
+
+## Stage performance report
+
+The YAML default is `performance_report_path: null`, so a normal tutorial run
+does not create a collector or report. Set a non-empty path on the terminal
+manifest writer to start one run-scoped collector for the whole pipeline:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/qwen_omni_inprocess \
+  --config-name pipeline \
+  manifest_path=/data/input.jsonl \
+  output_path=/output/qwen_omni_results.jsonl \
+  performance_report_path=/output/qwen_omni_performance.json
+```
+
+A blank string is invalid. `performance_report_path` and `output_path` must
+resolve to different destinations.
+
+The schema-version-1 report contains:
+
+- pipeline and executor metadata, a Curator-owned run ID, optional Slurm-array
+  identity, executor wall time, and the total record count;
+- ordered metadata for every concrete built stage under `pipeline.stages`; and
+- a raw top-level `records` array containing one dictionary per successful
+  `BaseStageAdapter.process_batch()` attempt.
+
+Each core record contains `stage_name`, stable plan-order `stage_id`, a unique
+attempt-level `invocation_id`, `process_time`, `actor_idle_time`,
+`num_items_processed`, `custom_metrics`, and the epoch
+`window_start_s`/`window_end_s`. Records stay in collector arrival order, not
+pipeline-plan order. A planned stage with no successful published attempt still
+appears in `pipeline.stages`, but it has no item in `records`.
+
+The writer preserves additional JSON-serializable fields added by later
+producers. This pull request does not itself add input byte size, output
+cardinality, grouped summaries, GPU or hardware telemetry, or actor/worker
+identity. Records describe attempts and do not guarantee logical exactly-once
+accounting across backend retries. See the [schema, accounting behavior, and
+historical parity evidence](../performance/README.md).
+
+Use a configured fsspec URL if the corresponding filesystem implementation and
+credentials are already installed:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/qwen_omni_inprocess \
+  --config-name pipeline \
+  manifest_path=/data/input.jsonl \
+  performance_report_path=s3://bucket/runs/qwen/performance.json
+```
+
+`ManifestWriterStage` streams the report through Curator's fsspec-aware JSON
+utility. Local output uses a temporary file and atomic replacement. Remote
+filesystems stream directly and do not have a universal atomic-replace
+guarantee. This tutorial does not install a general cloud-filesystem extra;
+install the fsspec backend required by the URL separately.
+
+The worker waits for the run-scoped collector to acknowledge each required
+record before the adapter call completes. This prevents backend completion
+from overtaking an unacknowledged record, but it adds an actor round trip to
+each enabled adapter attempt. When reporting is disabled, Curator preserves
+the existing task-attached `StagePerfStats` behavior and does not create the
+collector or spool.
 
 ## Select the executor
 
