@@ -488,6 +488,22 @@ def test_band_auto_contract_rejects_parent_audio_for_unhydrated_segments() -> No
     )
 
     assert not report.ok
+
+
+@pytest.mark.parametrize("action", ["filter", "annotate"])
+@pytest.mark.parametrize("segments", [None, "not-a-list", ["not-a-mapping"]])
+def test_malformed_nested_carriers_follow_action_policy(action: str, segments: object) -> None:
+    stage = BandFilterStage(mode="auto", action=action)
+    task = AudioTask(dataset_name="d", data={"segments": segments})
+
+    result = stage.process(task)
+
+    if action == "filter":
+        assert result == []
+    else:
+        assert result is task
+        if segments is None:
+            assert task.data["segments"] == []
     assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
 

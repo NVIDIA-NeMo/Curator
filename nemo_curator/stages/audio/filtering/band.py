@@ -268,8 +268,19 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         """
         use_segments = self.mode == "segments" or (self.mode == "auto" and self.segments_key in task.data)
         if use_segments:
+            segments = task.data.get(self.segments_key)
+            if segments is None:
+                segments = []
+            elif not isinstance(segments, list):
+                logger.error(f"Expected {self.segments_key!r} to be a list, got {type(segments).__name__}")
+                return task if self.action == "annotate" else []
             survivors = []
-            for seg in task.data.get(self.segments_key, []):
+            for seg in segments:
+                if not isinstance(seg, dict):
+                    logger.error(f"Expected each {self.segments_key!r} item to be a mapping")
+                    if self.action == "annotate":
+                        survivors.append(seg)
+                    continue
                 temp = AudioTask(data=seg)
                 result = self._process_single(temp)
                 if result is not None or self.action == "annotate":

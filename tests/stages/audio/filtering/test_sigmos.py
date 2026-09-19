@@ -548,6 +548,22 @@ def test_sigmos_auto_runtime_outputs_match_selected_scope(nested: bool, scorable
         assert "segments" not in task.data
 
 
+@pytest.mark.parametrize("action", ["filter", "annotate"])
+@pytest.mark.parametrize("segments", [None, "not-a-list", ["not-a-mapping"]])
+def test_malformed_nested_carriers_follow_action_policy(action: str, segments: object) -> None:
+    stage = SIGMOSFilterStage(mode="auto", action=action)
+    task = AudioTask(dataset_name="d", data={"segments": segments})
+
+    result = stage.process(task)
+
+    if action == "filter":
+        assert result == []
+    else:
+        assert result is task
+        if segments is None:
+            assert task.data["segments"] == []
+
+
 def test_sigmos_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
     path = _write_wav(tmp_path / "sigmos.wav")
 
