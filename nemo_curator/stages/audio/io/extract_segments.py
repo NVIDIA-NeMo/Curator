@@ -422,7 +422,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return StageContract(
             reads_one_of=[
                 IOSpec(data_keys=["original_file", "original_start_ms", "original_end_ms"], accepts=["file"]),
-                IOSpec(data_keys=["original_file", "diar_segments", "speaker_id"], accepts=["file"]),
+                # ``speaker_id`` may be present on the row or inside each
+                # diarization mapping. The contract can express the carrier,
+                # while runtime validates the nested mapping shape.
+                IOSpec(data_keys=["original_file", "diar_segments"], accepts=["file"]),
             ],
             writes=IOSpec(data_keys=[self.output_key], produces=["disk"]),
             gates=Gates(
@@ -536,7 +539,11 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             message = f"[{self.name}] Cannot safely resume from malformed extraction state"
             raise TypeError(message)
         for resume_key, record in segments.items():
-            if not isinstance(resume_key, str) or not isinstance(record, dict) or not isinstance(record.get("filename"), str):
+            if (
+                not isinstance(resume_key, str)
+                or not isinstance(record, dict)
+                or not isinstance(record.get("filename"), str)
+            ):
                 message = f"[{self.name}] Cannot safely resume from malformed extraction reservation"
                 raise TypeError(message)
             self._segment_reservations[resume_key] = record
@@ -791,9 +798,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                                 resume_key,
                                 original_file,
                                 entry,
-                                lambda name=original_name, item=entry, index=seg_idx: make_filename(
-                                    name, item, index
-                                ),
+                                lambda name=original_name, item=entry, index=seg_idx: make_filename(name, item, index),
                             )
                     else:
                         out_filename = make_filename(original_name, entry, seg_idx)

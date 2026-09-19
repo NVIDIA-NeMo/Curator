@@ -50,13 +50,19 @@ def _safe_name(value: Any) -> str:  # noqa: ANN401
     return name or "unknown"
 
 
-def _group_file_stem(value: Any, *, reserved: set[str] | None = None) -> str:  # noqa: ANN401
-    """Return a stable filename stem without merging distinct sanitized values."""
+def _group_name(
+    value: Any,  # noqa: ANN401
+    identity: str,
+    *,
+    canonical: bool,
+    reserved: set[str] | None = None,
+) -> str:
+    """Return a name determined only by a group's value and typed identity."""
     raw = str(value)
     safe = _safe_name(value)
-    if raw == safe and safe not in (reserved or set()):
+    if canonical and raw == safe and safe not in (reserved or set()):
         return safe
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"{safe}~{digest}"
 
 
@@ -70,31 +76,6 @@ def _group_identity(value: Any, *, missing: bool = False) -> str:  # noqa: ANN40
     except (TypeError, ValueError):
         payload = repr(value)
     return f"{type_name}:{payload}"
-
-
-def _claim_name(
-    candidate: str,
-    identity: str,
-    *,
-    assigned: dict[str, str],
-    owners: dict[str, str],
-) -> str:
-    """Assign one filename or label per identity without changing unique legacy names."""
-    if identity in assigned:
-        return assigned[identity]
-
-    owner = owners.get(candidate)
-    if owner is not None and owner != identity:
-        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-        candidate = f"{candidate}~{digest}"
-        owner = owners.get(candidate)
-        if owner is not None and owner != identity:
-            msg = f"Unable to derive a distinct group name for identity {identity!r}"
-            raise ValueError(msg)
-
-    owners[candidate] = identity
-    assigned[identity] = candidate
-    return candidate
 
 
 def _jsonable(value: Any) -> bool:  # noqa: ANN401
@@ -161,7 +142,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             lifecycle_side_effects=True,
             per_row_independent=False,
         ),
-        error_policy="annotate",
+        error_policy="fail",
         description="Group manifest rows by a column and write one txt/json/csv file per group",
     )
     _written: set[str] = field(default_factory=set, init=False, repr=False)
@@ -171,9 +152,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     _timeline: list[tuple[float, str]] = field(default_factory=list, init=False, repr=False)
     _pending: int = field(default=0, init=False, repr=False)
     _group_stems: dict[str, str] = field(default_factory=dict, init=False, repr=False)
-    _stem_owners: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _group_labels: dict[str, str] = field(default_factory=dict, init=False, repr=False)
-    _label_owners: dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -197,9 +176,6 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         self._pending = 0
         self._group_stems = {}
         self._group_labels = {}
-        reserved = {"timeline"} if self.format == "txt" and self.write_timeline else set()
-        self._stem_owners = {_group_file_stem(self.missing_group, reserved=reserved): _MISSING_IDENTITY}
-        self._label_owners = {_safe_name(self.missing_group): _MISSING_IDENTITY}
         logger.info(f"[{self.name}] exporting groups of {self.group_by!r} to {self.output_dir}")
 
     def teardown(self) -> None:
@@ -251,19 +227,28 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         group_value = self.missing_group if missing else raw
         identity = _group_identity(group_value, missing=missing)
         reserved = {"timeline"} if self.format == "txt" and self.write_timeline else set()
-        stem = _claim_name(
-            _group_file_stem(group_value, reserved=reserved),
+        if not missing:
+            reserved.add(_safe_name(self.missing_group))
+        stem = self._group_stems.setdefault(
             identity,
-            assigned=self._group_stems,
-            owners=self._stem_owners,
+            _group_name(
+                group_value,
+                identity,
+                canonical=missing or isinstance(group_value, str),
+                reserved=reserved,
+            ),
         )
         self._append(stem, row)
         if self.write_timeline:
-            label = _claim_name(
-                _safe_name(group_value),
+            label_reserved = {_safe_name(self.missing_group)} if not missing else set()
+            label = self._group_labels.setdefault(
                 identity,
-                assigned=self._group_labels,
-                owners=self._label_owners,
+                _group_name(
+                    group_value,
+                    identity,
+                    canonical=missing or isinstance(group_value, str),
+                    reserved=label_reserved,
+                ),
             )
             self._record_timeline(label, row)
         return task

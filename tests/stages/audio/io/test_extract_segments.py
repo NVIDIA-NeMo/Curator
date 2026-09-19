@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.io.extract_segments import (
     SegmentExtractionStage,
@@ -333,6 +334,17 @@ class TestSegmentExtractionStageInit:
         stage = SegmentExtractionStage(output_dir=str(tmp_path))
         assert stage.inputs() == ([], ["original_file"])
         assert stage.outputs() == ([], ["extracted_path"])
+
+    def test_nested_diarization_shape_is_accepted_by_the_planner(self, tmp_path: Path) -> None:
+        stage = SegmentExtractionStage(output_dir=str(tmp_path))
+
+        report = validate_pipeline(
+            [stage],
+            initial_keys={"original_file", "diar_segments"},
+            initial_roles={"original_file", "diar_segments"},
+        )
+
+        assert report.ok
 
     def test_worker_defaults(self, tmp_path: Path) -> None:
         stage = SegmentExtractionStage(output_dir=str(tmp_path))

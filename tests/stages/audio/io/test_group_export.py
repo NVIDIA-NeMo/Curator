@@ -81,6 +81,37 @@ class TestGroupExport:
         outputs = {path.read_text().strip() for path in out.glob("1*.txt")}
         assert outputs == {"integer group", "string group"}
 
+    def test_colliding_group_names_are_stable_across_order_and_partial_reruns(self, tmp_path: Path) -> None:
+        rows = [
+            {"speaker_id": 1, "text": "integer group"},
+            {"speaker_id": "1", "text": "string group"},
+        ]
+
+        mappings = []
+        for directory, ordered_rows in ((tmp_path / "a", rows), (tmp_path / "b", list(reversed(rows)))):
+            _run(ManifestGroupExportStage(output_dir=str(directory), include_timestamps=False), ordered_rows)
+            mappings.append({path.name: path.read_text() for path in directory.glob("*.txt")})
+
+        assert mappings[0] == mappings[1]
+
+        isolated = tmp_path / "isolated"
+        _run(ManifestGroupExportStage(output_dir=str(isolated), include_timestamps=False), [rows[0]])
+        integer_name = next(name for name, content in mappings[0].items() if content.strip() == "integer group")
+        assert (isolated / integer_name).read_text().strip() == "integer group"
+
+    def test_colliding_timeline_labels_do_not_depend_on_arrival_order(self, tmp_path: Path) -> None:
+        rows = [
+            {"speaker_id": 1, "text": "integer", "start": 0.0, "end": 1.0},
+            {"speaker_id": "1", "text": "string", "start": 1.0, "end": 2.0},
+        ]
+
+        timelines = []
+        for directory, ordered_rows in ((tmp_path / "a", rows), (tmp_path / "b", list(reversed(rows)))):
+            _run(ManifestGroupExportStage(output_dir=str(directory), write_timeline=True), ordered_rows)
+            timelines.append((directory / "timeline.txt").read_text())
+
+        assert timelines[0] == timelines[1]
+
     def test_missing_group_and_real_fallback_value_get_distinct_files(self, tmp_path: Path) -> None:
         out = tmp_path / "g"
         rows = [
@@ -94,6 +125,25 @@ class TestGroupExport:
         colliding = list(out.glob("unknown~*.txt"))
         assert len(colliding) == 1
         assert colliding[0].read_text().strip() == "real unknown group"
+
+    def test_unsafe_missing_group_and_real_fallback_value_get_distinct_files(self, tmp_path: Path) -> None:
+        out = tmp_path / "g"
+        rows = [
+            {"text": "missing group"},
+            {"speaker_id": "not known", "text": "real fallback group"},
+        ]
+
+        _run(
+            ManifestGroupExportStage(
+                output_dir=str(out),
+                include_timestamps=False,
+                missing_group="not known",
+            ),
+            rows,
+        )
+
+        outputs = {path.read_text().strip() for path in out.glob("not_known~*.txt")}
+        assert outputs == {"missing group", "real fallback group"}
 
     def test_timeline_group_cannot_replace_the_combined_timeline(self, tmp_path: Path) -> None:
         out = tmp_path / "g"
@@ -133,8 +183,7 @@ class TestGroupExport:
         out = str(tmp_path / "g")
         _run(ManifestGroupExportStage(output_dir=out, format="json", columns=["text", "start"]), _ROWS)
         rows = [
-            json.loads(line)
-            for line in _unsafe_group_file(tmp_path / "g", "spk_0", "jsonl").read_text().splitlines()
+            json.loads(line) for line in _unsafe_group_file(tmp_path / "g", "spk_0", "jsonl").read_text().splitlines()
         ]
         assert rows == [{"text": "hello there", "start": 0.0}, {"text": "you are a bold one", "start": 3.0}]
 
@@ -159,8 +208,8 @@ class TestGroupExport:
             {"text": "this one really has none"},
         ]
         _run(ManifestGroupExportStage(output_dir=out, include_timestamps=False), rows)
-        assert sorted(os.listdir(out)) == ["0.txt", "1.txt", "unknown.txt"]
-        assert (tmp_path / "g" / "0.txt").read_text().strip() == "zero is a speaker"
+        assert len(os.listdir(out)) == 3
+        assert next(path for path in (tmp_path / "g").glob("0~*.txt")).read_text().strip() == "zero is a speaker"
         assert (tmp_path / "g" / "unknown.txt").read_text().strip() == "this one really has none"
 
     def test_csv_columns_stay_under_the_header_they_were_written_for(self, tmp_path: Path) -> None:
@@ -180,9 +229,7 @@ class TestGroupExport:
             {"duration": 3.0, "text": "reordered", "speaker_id": "spk 0"},  # different key order
         ]
         _run(ManifestGroupExportStage(output_dir=out, format="csv"), rows)
-        parsed = list(
-            csv.DictReader(_unsafe_group_file(tmp_path / "g", "spk_0", "csv").read_text().splitlines())
-        )
+        parsed = list(csv.DictReader(_unsafe_group_file(tmp_path / "g", "spk_0", "csv").read_text().splitlines()))
         assert [r["duration"] for r in parsed] == ["1.0", "2.0", "3.0"]
         assert [r["text"] for r in parsed] == ["hello", "", "reordered"]
         assert {r["speaker_id"] for r in parsed} == {"spk 0"}
@@ -198,9 +245,7 @@ class TestGroupExport:
         ]
         with caplog.at_level("WARNING"):
             _run(ManifestGroupExportStage(output_dir=out, format="csv"), rows)
-        parsed = list(
-            csv.DictReader(_unsafe_group_file(tmp_path / "g", "spk_0", "csv").read_text().splitlines())
-        )
+        parsed = list(csv.DictReader(_unsafe_group_file(tmp_path / "g", "spk_0", "csv").read_text().splitlines()))
         assert [r["text"] for r in parsed] == ["hello", "world"]
         assert "lang" not in parsed[0]
 
@@ -218,7 +263,10 @@ class TestGroupExport:
         out = str(tmp_path / "g")
         _run(ManifestGroupExportStage(output_dir=out, write_timeline=True), list(reversed(_ROWS)))
         lines = (tmp_path / "g" / "timeline.txt").read_text().splitlines()
-        assert [line.split("] ")[1].split(":")[0] for line in lines] == ["spk_0", "spk_1", "spk_0"]
+        labels = [line.split("] ")[1].split(":")[0] for line in lines]
+        assert labels[0] == labels[2]
+        assert labels[0].startswith("spk_0~")
+        assert labels[1].startswith("spk_1~")
 
     def test_missing_group_and_unserializable_values(self, tmp_path) -> None:  # noqa: ANN001
         out = str(tmp_path / "g")
@@ -289,3 +337,4 @@ class TestGroupExport:
         # that this stage writes to disk.
         gates = ManifestGroupExportStage.describe_static().gates
         assert gates.writes_to_disk and gates.lifecycle_side_effects  # noqa: PT018
+        assert ManifestGroupExportStage.describe_static().error_policy == "fail"

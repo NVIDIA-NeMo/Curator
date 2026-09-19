@@ -41,6 +41,13 @@ _NON_SERIALIZABLE_KEYS = frozenset(
 _DROP_VALUE = object()
 
 
+class _DefaultBatchSize(int):
+    """Sentinel that remains an ordinary integer to signature/card consumers."""
+
+
+_DEFAULT_BATCH_SIZE = _DefaultBatchSize(64)
+
+
 def _is_tensor(v: object) -> bool:
     """Check if a value is a torch.Tensor without importing torch at module level."""
     return type(v).__name__ == "Tensor" and type(v).__module__.startswith("torch")
@@ -81,14 +88,14 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
 
     def __init__(  # noqa: PLR0913
         self,
-        batch_size: int = 64,
+        batch_size: int = _DEFAULT_BATCH_SIZE,
         keep_keys: list[str] | None = None,
         drop_keys: tuple[str, ...] = (),
         serialize_segments: bool = False,
         segments_key: str = "segments",
         strict_json: bool = False,
     ) -> None:
-        if batch_size != AudioToDocumentStage.batch_size or "batch_size" not in type(self).__dict__:
+        if batch_size is not _DEFAULT_BATCH_SIZE:
             self.batch_size = batch_size
         self.keep_keys = keep_keys
         self.drop_keys = drop_keys
@@ -123,12 +130,11 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
             preserves_upstream_keys=self.keep_keys is None,
             removes_keys=sorted(self._removed_keys()),
             cardinality="N:1",
-            # Strips tensors/audio blobs while building the DataFrame, so its
-            # output is serialization-safe — the sanctioned sink to place before
-            # a JSON writer when a resident tensor may be present.
-            # Packs rows into one batch for downstream throughput. Legacy scalar/container
-            # values are preserved unless strict_json=True; tensors and cycles are removed.
-            gates=Gates(sanitizes_output=True, per_row_independent=True),
+            # Tensor/audio carriers are always stripped, but legacy scalar and
+            # container values are intentionally preserved unless strict mode is
+            # enabled. Only strict mode therefore establishes the general JSON
+            # serialization boundary advertised to downstream sinks.
+            gates=Gates(sanitizes_output=self.strict_json, per_row_independent=True),
             description="Aggregate AudioTasks into a DocumentBatch while stripping tensors/audio blobs.",
         )
 

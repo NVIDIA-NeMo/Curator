@@ -183,6 +183,12 @@ def test_legacy_instances_and_subclass_defaults_remain_usable() -> None:
     assert old_instance.process_batch([task])[0].to_pandas().iloc[0]["text"] == "kept"
     assert NoSuperInit().process_batch([task])[0].to_pandas().iloc[0]["text"] == "kept"
     assert LegacyBatchDefault().batch_size == 7
+    assert LegacyBatchDefault(batch_size=64).batch_size == 64
+
+
+def test_only_strict_conversion_advertises_a_json_serialization_boundary() -> None:
+    assert AudioToDocumentStage().describe().gates.sanitizes_output is False
+    assert AudioToDocumentStage(strict_json=True).describe().gates.sanitizes_output is True
 
 
 def test_configured_projection_is_visible_to_planning_and_runtime() -> None:
@@ -200,9 +206,7 @@ def test_configured_projection_is_visible_to_planning_and_runtime() -> None:
     )
     assert "text" not in report.produced_keys
 
-    batch = stage.process_batch(
-        [AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "hi"})]
-    )[0]
+    batch = stage.process_batch([AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "hi"})])[0]
     assert list(batch.to_pandas().columns) == ["audio_filepath"]
 
 
@@ -213,9 +217,7 @@ def test_drop_keys_override_keep_keys_in_contract_and_runtime() -> None:
     )
 
     contract = stage.describe()
-    batch = stage.process_batch(
-        [AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "hi"})]
-    )[0]
+    batch = stage.process_batch([AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "hi"})])[0]
 
     assert contract.writes.data_keys == ["audio_filepath"]
     assert list(batch.to_pandas().columns) == ["audio_filepath"]
