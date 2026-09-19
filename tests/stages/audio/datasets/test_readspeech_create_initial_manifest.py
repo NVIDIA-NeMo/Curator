@@ -60,6 +60,21 @@ def test_contract_declares_all_outputs_and_conditional_download_gate(tmp_path: P
     assert static.gates.writes_to_disk is True
     assert static.gates.requires_internet_first_run is True
     assert static.gates.output_path_params == ["raw_data_dir"]
+    assert static.gates.per_row_independent is False
+
+
+@pytest.mark.parametrize(
+    ("max_samples", "expected"),
+    [(5000, False), (1, False), (0, True), (-1, True)],
+)
+def test_row_independence_tracks_global_sample_limit(tmp_path: Path, max_samples: int, expected: bool) -> None:
+    stage = CreateInitialManifestReadSpeechStage(
+        raw_data_dir=str(tmp_path),
+        auto_download=False,
+        max_samples=max_samples,
+    )
+
+    assert build_contract(stage).gates.per_row_independent is expected
 
 
 def test_custom_output_keys_are_used_everywhere(tmp_path: Path) -> None:

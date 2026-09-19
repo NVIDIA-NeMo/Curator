@@ -61,7 +61,7 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
             writes_to_disk=True,
             output_path_params=["raw_data_dir"],
             requires_internet_first_run=True,
-            per_row_independent=True,
+            per_row_independent=False,
         )
     )
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"book_id_key", "reader_id_key"})
@@ -130,12 +130,9 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
                 writes_to_disk=self.auto_download,
                 requires_internet_first_run=self.auto_download,
                 output_path_params=["raw_data_dir"] if self.auto_download else [],
-                # Each row is parsed from its own filename. Declared True unconditionally BY
-                # DECISION: ``max_samples`` (default 5000 of ~14k) truncates the SORTED listing,
-                # so a delta enumerating only changed files can admit files a full run would not
-                # have. Accepted rather than deny reuse to the default configuration -- not an
-                # oversight to "fix" back. Same call as CreateInitialManifestAudioFolderStage.
-                per_row_independent=True,
+                # A positive max_samples selects a prefix of the globally sorted corpus, so a
+                # delta containing only changed files can admit rows a full run would exclude.
+                per_row_independent=self.max_samples <= 0,
             ),
         )
 
