@@ -1,0 +1,55 @@
+stage_id: ResampleAudioStage
+category: preprocess
+summary: "Resample/convert audio to a target sample rate (and format) via ffmpeg."
+tags: [needs_ffmpeg, writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU + ffmpeg"
+  disk_expansion: null   # TODO(fill): depends on source vs target format/rate/channels
+use_cases:
+  good_for: ["normalizing a mixed-sample-rate corpus to a model's expected rate (e.g. 16 kHz for ASR)"]
+  avoid_for: ["data already at the target rate (skip to save I/O)"]
+composition:
+  typical_upstream: [ManifestReader, CreateInitialManifestFleursStage]
+  typical_downstream: [ASRStage, VADSegmentationStage, InferenceSortformerStage]
+params_of_note:
+  target_sample_rate: "target rate in Hz (default 16000)"
+  target_format: "output container/codec (e.g. wav)"
+  target_nchannels: "output channel count (1 = mono)"
+  resampled_audio_dir: "(REQUIRED, no default) directory for the converted files -- the stage has no default and creates it at setup. Give each SETTING its own directory (e.g. resampled_16k/, resampled_22k/): a file already present here is reused as-is, and the name is built from the source path only, so a directory shared between two target rates silently serves the first rate's audio to the second recipe."
+semantic_facts:
+  resampled_audio_filepath:
+    meaning: "Path to a NEW file written at target_sample_rate/target_format -- a transformed copy, not the original."
+    unit: "file path (string)"
+    provenance: "ffmpeg-converted output written to resampled_audio_dir; the original file is left untouched."
+    scope: "the converted copy for this task; a genuinely new artifact on disk"
+    propagation: "Written each run; file-based downstream stages should read this key (not the original audio_filepath) to consume the resampled audio."
+    counterexamples:
+      - "This stage TRANSFORMS the audio (rate/format/channels) -- do not use it when the intent is to keep the original samples unchanged; it is not a filter."
+  sample_rate:
+    meaning: "The TARGET rate the audio was converted to (present only with keep_waveform_in_task)."
+    unit: "Hz (integer)"
+    provenance: "Equals target_sample_rate (default 16000) -- the rate produced, not a measurement of the input."
+    scope: "the resampled output"
+    propagation: "Only present when keep_waveform_in_task=True."
+    counterexamples:
+      - "It reflects the configured target, so a sample_rate == 16000 check verifies the resample target, not the source rate."
+param_dependencies:
+  resampled_audio_dir: "required: the stage writes converted files here (needs write_to_disk, the default). Not optional. Must not be shared across different target_sample_rate/target_nchannels/target_format values, and must be a fresh directory when the SOURCE files may have been edited in place: an existing output is reused without checking either, so the row's duration and audio come from the earlier conversion."
+comparison:
+  SampleRateFilterStage: "SELECTS rows by the rate they already are; this stage CONVERTS the rate. Filtering discards a corpus you could have converted, so reach for it only when a rate is genuinely unacceptable rather than merely wrong."
+  MonoConversionStage: "verifies a single rate and drops mismatches, and downmixes to mono. Whenever the answer to a mismatch is 'convert it', put this stage upstream of it instead."
+  ChannelCountStage: "records, selects on, or changes the channel count without touching the rate (its action='convert' refuses surround downmixes). This stage handles both rate and channels via ffmpeg, and does know channel layouts."
+notes:
+  - "Requires ffmpeg on PATH. Placing resample once, upstream, avoids each model stage re-resampling."
+  - "ORDERING TRAP: the converted audio lands in `resampled_audio_filepath` and `audio_filepath` still points at the ORIGINAL file. Anything downstream reading `audio_filepath` therefore reads the un-resampled audio, and does so silently -- there is no error, just the old rate. Put a rate gate (MonoConversionStage, SampleRateFilterStage) UPSTREAM of this stage, or point the downstream stage's path key at `resampled_audio_filepath`. Placed downstream while still reading `audio_filepath`, a rate gate sees the source rate and rejects the whole corpus this stage just converted for it."
+caveats:
+  - "Writes converted files to disk."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-07-30"}

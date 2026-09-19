@@ -1,0 +1,35 @@
+stage_id: ManifestCheckpointStage
+category: export
+summary: "Persist a complete metadata checkpoint for reuse while passing AudioTask rows downstream."
+tags: [writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "single-worker UTF-8 JSONL append"
+  disk_expansion: 1.0
+use_cases:
+  good_for:
+    - "a reusable metadata boundary after expensive annotation and before a tunable downstream gate"
+  avoid_for:
+    - "terminal user deliverables (use ManifestWriterStage)"
+    - "task.data containing waveform tensors or any other non-JSON value"
+    - "DocumentBatch input (this stage accepts AudioTask only)"
+composition:
+  typical_upstream: [ComputeWERStage, GetAudioDurationStage, UTMOSFilterStage, SIGMOSFilterStage]
+  typical_downstream: [PreserveByValueStage, PreserveByValueConditionsStage]
+params_of_note:
+  output_path: "required local checkpoint JSONL path; collision and workspace safety are checked by the strategy layer"
+  retention_sec: "non-negative advisory retention; 0 means user-managed with no automatic expiry"
+  owner: "retention owner: user (default) or project; neither enables automatic deletion"
+  planning_provenance: "internal reusable-pipeline marker binding the recipe to authoritative smoke and exact-hash approval"
+notes:
+  - "This is a pass-through persistence boundary, not a sink: every complete task.data row is serialized and the AudioTask continues downstream."
+  - "Waveform tensors are illegal because task.data must be JSON-serializable. Place the checkpoint only after waveform residency has ended."
+  - "setup() exclusively creates a new local file and never truncates retained work. The single-worker contract keeps JSONL appends ordered and authoritative."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-19"}

@@ -1,0 +1,41 @@
+stage_id: InverseTextNormalizationStage
+category: text_norm
+summary: "Inverse text normalization (WFST): spoken form -> written form (e.g. 'forty two' -> '42'), per segment."
+tags: []
+model_id: null
+domain: {language: "configurable (default en); see supported list in notes", style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; WFST/Pynini grammar (NeMo text processing)"
+use_cases:
+  good_for: ["producing written-form transcripts (numbers, dates, currency, measures) from SPOKEN-form ASR output"]
+  avoid_for:
+    - "languages not in the ITN grammar set (see notes)"
+    - "ASR output that is already written-form + punctuated (e.g. NVIDIA Parakeet) -- ITN is redundant/harmful there"
+    - "manifests with only a top-level `text` and no `segments` (rejected)"
+composition:
+  typical_upstream: [ASRStage, NeMoASRAlignerStage]
+  typical_downstream: [ComputeWERStage, AudioToDocumentStage]
+params_of_note:
+  language: "language code for the ITN grammar (default 'en'); must be a supported language (see notes)"
+  text_key: "the PER-SEGMENT text field to normalize -- segments[].text (default text). NOT a top-level manifest key: this stage only reads/writes text inside each segment."
+  segments_key: "key holding the segments list (default 'segments')"
+  output_suffix: "suffix for the written per-segment key (default _ITN)"
+param_dependencies:
+  text_key: "requires a `segments` list on each entry (operates on segments[].text) -- produce it upstream with VAD / ASR-align / diarization. A manifest with only a top-level `text` and no `segments` is rejected (missing required attributes: ['segments'])."
+comparison:
+  language_support: "en, es, es_en, fr, de, ar, ru, sv, vi, pt, zh, hy, mr, hi, ja (NeMo ITN WFST grammar set). (external)"
+  config_complexity: "low (pick language)"
+  choose_when: "your ASR emits SPOKEN-form text (numbers/dates spelled out) and you want written form. Skip it for models that already output written-form text (e.g. Parakeet)."
+  known_limitations: "language-dependent grammar coverage; operates on segments[].text only; nemo_text_processing is x86_64 / non-Darwin only"
+notes:
+  - "WFST/Pynini grammar via NeMo `nemo_text_processing.InverseNormalizer` (not a neural model). Empty-text segments are skipped (no output key written)."
+  - "Supported ITN languages (external, NeMo Text Processing): en, es, es_en, fr, de, ar, ru, sv, vi, pt, zh, hy, mr, hi, ja. Source: https://github.com/NVIDIA/NeMo-text-processing"
+  - "Interaction: NVIDIA Parakeet ASR already outputs written-form punctuated text, so running ITN on Parakeet output is usually redundant. ITN targets spoken-form ASR output."
+  - "Writes normalized text to segments[].{text_key}{output_suffix}; entries without a `segments` list are rejected (top-level `text` is ignored)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess}
+provenance: {model_card_url: "https://github.com/NVIDIA/NeMo-text-processing", card_version: 3, last_validated: "2026-07-23"}

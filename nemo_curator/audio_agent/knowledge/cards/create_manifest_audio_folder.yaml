@@ -1,0 +1,45 @@
+stage_id: CreateInitialManifestAudioFolderStage
+category: ingest
+summary: "The DEFAULT source for a corpus handed over as a folder of audio files -- including a folder of mixed or unrelated audio: recursive scan, one AudioTask per file. Generic and dataset-agnostic -- no download, no transcripts, no dataset-specific filename parsing."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "CPU/IO; directory walk only, no audio decode"
+use_cases:
+  good_for:
+    - "starting a pipeline from a plain local folder of WAV/FLAC/MP3/etc. with NO JSONL manifest (any dataset)"
+    - "a folder of mixed or unrelated audio -- differing rates, channel counts, durations, formats, speakers or provenance. It asserts nothing about the contents, so heterogeneity is not a reason to reach for a dataset-specific source."
+    - "the default when the corpus is only known as 'the audio in this folder': prefer this over a dataset-specific CreateInitialManifest*Stage unless the data's PROVENANCE is that dataset"
+    - "the generic alternative to CreateInitialManifestReadSpeechStage / CreateInitialManifestFleursStage when the data isn't one of those specific datasets"
+  avoid_for:
+    - "data that already has a JSONL manifest -- use ManifestReader"
+    - "downloading a known public dataset -- use that dataset's CreateInitialManifest*Stage"
+composition:
+  typical_upstream: []
+  typical_downstream: [GetAudioDurationStage, MonoConversionStage, ResampleAudioStage, VADSegmentationStage]
+comparison:
+  CreateInitialManifestReadSpeechStage: "a corpus-SPECIFIC source for DNS Challenge 5 Read Speech, not a folder reader, and the one most easily picked by mistake for a plain folder: 'read speech', 'clean speech' or 48 kHz WAV describe what a corpus sounds like, whereas that stage requires the corpus to BE that dataset. Choosing it for an ordinary folder fails silently -- it walks `.wav` case-sensitively (dropping .WAV/.flac/.mp3/...), caps at max_samples=5000, labels every row dataset_name='DNS-ReadSpeech', and writes a constant sample_rate=48000 with an empty text. Prefer this stage unless the data's provenance is that dataset."
+  CreateInitialManifestFleursStage: "a corpus-specific source for FLEURS that needs `lang`/`split` and a transcript+audio layout, and raises when it is absent. Use it only for FLEURS; this stage is the source for a folder that merely holds audio."
+  ManifestReader: "reads an existing JSONL manifest rather than discovering files. It is the better source whenever a manifest already exists -- it preserves the keys the manifest carries, where this stage derives only a path and an id. This stage is for the case where no manifest exists yet."
+params_of_note:
+  data_dir: "(REQUIRED, no default) local folder to scan for audio files"
+  extensions: "audio file extensions to include (default: .wav/.flac/.mp3/.ogg/.opus/.m4a; case-insensitive)"
+  recursive: "recurse into subfolders (default True)"
+  max_samples: "cap the number of files (-1 = all, the default)"
+  include_files: "restrict the scan to these absolute paths (default None = the whole folder); files named but not found are warned about, not silently dropped"
+param_dependencies:
+  data_dir: "required: the stage scans this folder for audio files; there is no download step."
+conflicts_with: [ManifestReader, CreateInitialManifestReadSpeechStage, CreateInitialManifestFleursStage]
+notes:
+  - "Generic, dataset-agnostic source. Emits one AudioTask per file with audio_filepath + a filename-derived audio_item_id; no transcripts (add an ASR stage if you need text)."
+  - "References existing files on disk -- it does not download or write audio, so the card carries no writes_disk tag (see the tag<->gate conformance check)."
+  - "Asserts nothing about the audio it lists: no rate, channel count or transcript is claimed, so anything downstream that needs those must measure them. That is the property that makes it the safe default for an unknown corpus."
+  - "Choosing a source is not a free choice: it seeds the content-addressed reuse chain, so the same corpus ingested through a different source stage produces a different step-key chain and reuses nothing from the earlier run. Decide the source from the corpus's provenance, and decide it the same way every session."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-08-17"}

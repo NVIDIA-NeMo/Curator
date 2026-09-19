@@ -1,0 +1,1031 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Regressions for foundation behavior exposed to audio-pipeline agents."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+import numpy as np
+import pandas as pd
+import pytest
+import soundfile as sf
+import torch
+
+from nemo_curator.stages import audio
+from nemo_curator.stages.audio import agent
+from nemo_curator.stages.audio._agent import _catalog
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalRead,
+    ConditionalWrite,
+    IOSpec,
+    StageContract,
+)
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
+from nemo_curator.stages.audio._agent._catalog import unavailable_modules
+from nemo_curator.stages.audio._agent._composite import expand_composites
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, produced_roles
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from nemo_curator.stages.audio._agent._residency import (
+    cleanup_temp_files,
+    resolve_audio,
+    resolve_audio_path,
+    validate_audio_key_configuration,
+    validate_input_residency,
+    write_audio_stable,
+)
+from nemo_curator.stages.audio.common import (
+    CreateInitialManifestAudioFolderStage,
+    ManifestCheckpointStage,
+    ManifestReader,
+    ManifestReaderStage,
+    ManifestWriterStage,
+    PreserveByValueStage,
+    ensure_waveform_2d,
+)
+from nemo_curator.stages.audio.preprocessing import (
+    ChannelCountStage,
+    MonoConversionStage,
+    SampleRateFilterStage,
+    SegmentConcatenationStage,
+)
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@dataclass
+class _AgentParamMetadataFixture:
+    visible: str = "public"
+    runtime_only: object | None = field(default=None, metadata={"agent_param": False})
+
+
+class _ConfiguredContractStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+    def __init__(self, contract: StageContract) -> None:
+        self.contract = contract
+
+    def describe(self) -> StageContract:
+        return self.contract
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+
+def test_stage_params_respects_field_level_agent_exclusion() -> None:
+    assert [param.name for param in stage_params(_AgentParamMetadataFixture)] == ["visible"]
+
+
+def test_optional_reads_are_visible_without_blocking_fallback_paths() -> None:
+    contract = StageContract(
+        reads=IOSpec(data_keys=["text"]),
+        optional_reads=IOSpec(data_keys=["speaker_id"]),
+    )
+    stage = _ConfiguredContractStage(contract)
+
+    assert build_contract(stage).to_dict()["optional_reads"]["data_keys"] == ["speaker_id"]
+    assert validate_pipeline([stage], initial_keys={"text"}).ok
+
+
+def test_conditional_reads_follow_the_runtime_scope_selector() -> None:
+    contract = StageContract(
+        conditional_reads=[
+            ConditionalRead(
+                reads_one_of=[IOSpec(data_keys=["waveform", "sample_rate"])],
+                condition="'segments' is absent",
+                forbids_keys=["segments"],
+            ),
+            ConditionalRead(
+                reads_one_of=[IOSpec(segment_data_keys=["waveform", "sample_rate"])],
+                condition="'segments' is present",
+                requires_keys=["segments"],
+            ),
+        ],
+        key_roles={
+            "segments": "segments",
+            "waveform": "waveform",
+            "sample_rate": "sample_rate",
+        },
+    )
+    stage = _ConfiguredContractStage(contract)
+
+    task_report = validate_pipeline(
+        [stage],
+        initial_keys={"waveform", "sample_rate"},
+        initial_roles={"waveform", "sample_rate"},
+    )
+    incomplete_nested_report = validate_pipeline(
+        [stage],
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_segment_keys={"segment_num"},
+    )
+    complete_nested_report = validate_pipeline(
+        [stage],
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_segment_keys={"waveform", "sample_rate"},
+        initial_segment_roles={"waveform", "sample_rate"},
+    )
+
+    assert task_report.ok
+    assert not incomplete_nested_report.ok
+    assert complete_nested_report.ok
+    assert contract.to_dict()["conditional_reads"][1]["requires_keys"] == ["segments"]
+
+
+def test_invalidated_provenance_key_is_retained_but_not_planner_available() -> None:
+    invalidator = _ConfiguredContractStage(StageContract(invalidates_keys=["audio_filepath"]))
+    consumer = _ConfiguredContractStage(StageContract(reads=IOSpec(data_keys=["audio_filepath"])))
+
+    contract = build_contract(invalidator)
+    report = validate_pipeline(
+        [invalidator, consumer],
+        initial_keys={"audio_filepath"},
+        initial_roles={"audio_filepath"},
+    )
+
+    assert contract.to_dict()["invalidates_keys"] == ["audio_filepath"]
+    assert not report.ok
+    assert any(issue.code == "key_removed_upstream" for issue in report.issues)
+
+
+def test_conditional_roles_are_discoverable_but_not_planner_guaranteed() -> None:
+    producer_contract = StageContract(
+        conditional_writes=[
+            ConditionalWrite(
+                writes=IOSpec(data_keys=["potential_metrics"]),
+                condition="valid runtime data causes metric assignment",
+            )
+        ],
+        key_roles={"potential_metrics": "metrics"},
+    )
+    assert produced_roles(producer_contract) == {"metrics"}
+
+    consumer_contract = StageContract(
+        reads=IOSpec(data_keys=["potential_metrics"]),
+        key_roles={"potential_metrics": "metrics"},
+    )
+    report = validate_pipeline(
+        [_ConfiguredContractStage(producer_contract), _ConfiguredContractStage(consumer_contract)],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+
+    # Conditional outputs are discoverable and let the consumer compose, but only as a
+    # ``conditional_read`` warning: the key is never a guaranteed planner output.
+    assert report.ok
+    assert any(issue.code == "conditional_read" and issue.stage_index == 1 for issue in report.issues)
+    assert (
+        "potential_metrics"
+        not in validate_pipeline(
+            [_ConfiguredContractStage(producer_contract)], initial_roles=set(), initial_keys=set()
+        ).produced_keys
+    )
+
+
+def test_conditional_tensor_write_is_not_guaranteed_but_still_blocks_json_sink(tmp_path: Path) -> None:
+    producer = _ConfiguredContractStage(
+        StageContract(
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=["resident_audio"], produces=["tensor"]),
+                    condition="file decoding succeeds and resident audio is assigned",
+                )
+            ],
+            key_roles={"resident_audio": "waveform"},
+        )
+    )
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+
+    report = validate_pipeline(
+        [producer, writer],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+
+    assert "resident_audio" not in report.produced_keys
+    assert any(issue.code == "tensor_into_sink" and issue.severity == "error" for issue in report.issues)
+
+
+def test_unknown_role_selector_requires_its_exact_conditional_key() -> None:
+    producer = _ConfiguredContractStage(
+        StageContract(
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=["row_score"]),
+                    condition="valid runtime data causes score assignment",
+                )
+            ],
+            key_roles={"row_score": "score"},
+        )
+    )
+    selector = PreserveByValueStage("row_score", 1.0, "le")
+
+    conditional_only = validate_pipeline(
+        [producer, selector],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    assert conditional_only.ok
+    assert any(issue.code == "conditional_read" and issue.stage_index == 1 for issue in conditional_only.issues)
+
+    seeded = validate_pipeline(
+        [selector],
+        initial_roles=set(),
+        initial_keys={"row_score"},
+    )
+    assert seeded.ok
+    assert seeded.keys_ok
+
+
+def test_nested_input_requires_explicit_segment_seeds_and_accepts_remapped_key() -> None:
+    nested_reader = _ConfiguredContractStage(
+        StageContract(
+            reads=IOSpec(data_keys=["segments"], segment_data_keys=["custom_text"]),
+            key_roles={"segments": "segments", "custom_text": "text"},
+        )
+    )
+
+    unseeded = validate_pipeline(
+        [nested_reader],
+        initial_roles={"segments", "text"},
+        initial_keys={"segments", "custom_text"},
+    )
+    assert not unseeded.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in unseeded.issues)
+
+    seeded = validate_pipeline(
+        [nested_reader],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"text"},
+        initial_segment_keys={"custom_text"},
+    )
+    assert seeded.ok
+    assert seeded.keys_ok
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_input_residency_validator_accepts_only_declared_modes(residency: str) -> None:
+    validate_input_residency(residency, stage_name="Fixture")
+
+
+def test_input_residency_validator_rejects_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="input_residency must be one of"):
+        validate_input_residency("wavefrom", stage_name="Fixture")
+
+
+def test_audio_key_validator_rejects_input_role_aliases() -> None:
+    with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+        validate_audio_key_configuration(
+            "Fixture",
+            input_keys={"waveform_key": "audio", "sample_rate_key": "audio"},
+            output_keys={"score_key": "score"},
+        )
+
+
+def test_file_audio_hydration_policies_are_opt_in_and_atomic(tmp_path: Path) -> None:
+    path = tmp_path / "audio.wav"
+    path.touch()
+    loaded = torch.arange(8, dtype=torch.float32).unsqueeze(0)
+
+    def loader(_path: str, *, mono: bool) -> tuple[torch.Tensor, int]:
+        assert mono
+        return loaded, 16000
+
+    untouched = {"audio_filepath": str(path)}
+    resolve_audio(untouched, residency="file", loader=loader)
+    assert set(untouched) == {"audio_filepath"}
+
+    always = {"audio_filepath": str(path)}
+    resolve_audio(always, residency="file", loader=loader, file_audio_hydration="always")
+    assert always["waveform"] is loaded
+    assert always["sample_rate"] == 16000
+
+    partial = {"audio_filepath": str(path), "sample_rate": 8000}
+    resolve_audio(partial, residency="auto", loader=loader, file_audio_hydration="auto_partial")
+    assert partial["waveform"] is loaded
+    assert partial["sample_rate"] == 16000
+
+    ordinary_auto = {"audio_filepath": str(path)}
+    resolve_audio(ordinary_auto, residency="auto", loader=loader, file_audio_hydration="auto_partial")
+    assert set(ordinary_auto) == {"audio_filepath"}
+
+
+def test_failed_file_hydration_preserves_the_existing_pair(tmp_path: Path) -> None:
+    path = tmp_path / "audio.wav"
+    path.touch()
+    stale = torch.ones(1, 4)
+    item = {"audio_filepath": str(path), "waveform": stale, "sample_rate": 8000}
+
+    def failing_loader(_path: str, *, mono: bool) -> tuple[torch.Tensor, int]:
+        assert mono
+        msg = "decode failed"
+        raise OSError(msg)
+
+    with pytest.raises(OSError, match="decode failed"):
+        resolve_audio(
+            item,
+            residency="file",
+            loader=failing_loader,
+            file_audio_hydration="always",
+        )
+
+    assert item["waveform"] is stale
+    assert item["sample_rate"] == 8000
+
+
+def test_resolve_audio_path_auto_prefers_complete_resident_audio(tmp_path: Path) -> None:
+    """Auto residency must not silently choose a stale file over a complete waveform."""
+    file_path = tmp_path / "one_second.wav"
+    sf.write(file_path, torch.zeros(16000).numpy(), 16000)
+    resident = torch.ones(1, 32000)
+    item = {
+        "audio_filepath": str(file_path),
+        "waveform": resident,
+        "sample_rate": 16000,
+    }
+    temporary_paths: list[str] = []
+
+    resolved = resolve_audio_path(item, residency="auto", temp_dir=str(tmp_path), register_temp=temporary_paths)
+
+    assert resolved is not None
+    assert resolved != str(file_path)
+    assert temporary_paths == [resolved]
+    loaded, sample_rate = sf.read(resolved)
+    assert sample_rate == 16000
+    assert len(loaded) == 32000
+    assert loaded.mean() > 0.9
+    assert resolve_audio_path(item, residency="file") == str(file_path)
+
+    cleanup_temp_files(temporary_paths)
+    assert not os.path.exists(resolved)
+
+
+def test_resolve_audio_path_preserves_float_waveform_samples(tmp_path: Path) -> None:
+    waveform = np.array([[1e-5, -1e-5, 1.25, -1.25]], dtype=np.float32)
+    temporary_paths: list[str] = []
+
+    resolved = resolve_audio_path(
+        {"waveform": waveform, "sample_rate": 16000},
+        residency="waveform",
+        temp_dir=str(tmp_path),
+        register_temp=temporary_paths,
+    )
+
+    observed, sample_rate = sf.read(resolved, dtype="float32", always_2d=True)
+    assert sample_rate == 16000
+    assert sf.info(resolved).subtype == "FLOAT"
+    np.testing.assert_array_equal(observed[:, 0], waveform[0])
+    cleanup_temp_files(temporary_paths)
+
+
+def test_stable_audio_names_include_layout_and_written_short_stereo_shape(tmp_path: Path) -> None:
+    """Different channel layouts with identical samples need distinct artifacts."""
+    output_dir = str(tmp_path)
+    mono = torch.zeros(1, 32000)
+    stereo = torch.zeros(2, 16000)
+
+    mono_path = write_audio_stable(mono, 16000, output_dir=output_dir, stem="audio")
+    stereo_path = write_audio_stable(stereo, 16000, output_dir=output_dir, stem="audio")
+
+    assert mono_path != stereo_path
+    assert sf.info(mono_path).channels == 1
+    assert sf.info(stereo_path).channels == 2
+
+    short_stereo_path = write_audio_stable(
+        torch.tensor([[0.25], [0.75]]),
+        16000,
+        output_dir=output_dir,
+        stem="short",
+    )
+    short_info = sf.info(short_stereo_path)
+    assert (short_info.frames, short_info.channels) == (1, 2)
+
+
+def test_nested_composite_is_reported_as_unrunnable(monkeypatch) -> None:  # noqa: ANN001
+    """A shape rejected by Pipeline must not be downgraded to opaque."""
+    stage = ManifestReader("manifest.jsonl")
+    nested_children = [ManifestReader("one.jsonl"), ManifestReader("two.jsonl")]
+    monkeypatch.setattr(stage, "decompose_and_apply_with", lambda: nested_children)
+
+    expansion = expand_composites([stage])
+    assert expansion.stages == []
+    assert 0 not in expansion.opaque
+    assert "nested composition" in expansion.unrunnable[0]
+
+    report = validate_pipeline([stage])
+    assert not report.ok
+    assert any(issue.code == "composite_unrunnable" for issue in report.issues)
+
+
+def test_manifest_writer_static_contract_exposes_invariant_sink_gates(tmp_path: Path) -> None:
+    """Static discovery must not describe a required-path JSONL sink as pure."""
+    static = static_contract(ManifestWriterStage)
+    configured = build_contract(ManifestWriterStage(output_path=str(tmp_path / "out.jsonl")))
+
+    assert static.gates == configured.gates
+
+
+def test_public_facade_exposes_unavailable_modules_and_folder_source() -> None:
+    """The documented public layer must expose foundation discovery features."""
+    from nemo_curator.stages.audio import CreateInitialManifestAudioFolderStage
+    from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage as FolderSource
+
+    assert agent.unavailable_modules is unavailable_modules
+    assert CreateInitialManifestAudioFolderStage is FolderSource
+    assert "CreateInitialManifestAudioFolderStage" in audio.__all__
+
+
+def test_public_discovery_reports_an_optional_import_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A partial install exposes skipped modules through the public facade."""
+    missing_module = "nemo_curator.stages.audio.optional_missing"
+    monkeypatch.setattr(_catalog, "_IMPORTED", False)
+    monkeypatch.setattr(_catalog, "_SKIPPED", [])
+    monkeypatch.setattr(
+        _catalog.pkgutil,
+        "walk_packages",
+        lambda *_args, **_kwargs: [SimpleNamespace(name=missing_module)],
+    )
+
+    def fail_optional_import(name: str) -> None:
+        assert name == missing_module
+        message = "optional dependency is not installed"
+        raise ModuleNotFoundError(message)
+
+    monkeypatch.setattr(_catalog.importlib, "import_module", fail_optional_import)
+    with pytest.warns(UserWarning, match="optional_missing"):
+        missing = agent.unavailable_modules()
+
+    assert missing == [
+        {
+            "module": missing_module,
+            "error": "ModuleNotFoundError: optional dependency is not installed",
+        }
+    ]
+
+
+def _stereo_task(tmp_path: Path, sample_rate: int = 16000) -> tuple[AudioTask, str]:
+    """A row carrying BOTH a resident stereo waveform and the file it came from."""
+    path = str(tmp_path / "stereo.wav")
+    waveform = torch.stack([torch.zeros(sample_rate), torch.ones(sample_rate) * 0.5])
+    sf.write(path, waveform.T.numpy(), sample_rate)
+    task = AudioTask(
+        dataset_name="resident",
+        data={"audio_filepath": path, "waveform": waveform, "sample_rate": sample_rate},
+    )
+    return task, path
+
+
+@pytest.mark.parametrize(
+    ("factory", "channels_key"),
+    [
+        (
+            lambda out: MonoConversionStage(
+                output_sample_rate=16000,
+                input_residency="waveform",
+                keep_waveform_in_task=False,
+                write_to_disk=True,
+                update_audio_filepath=True,
+                output_dir=out,
+            ),
+            "is_mono",
+        ),
+        (
+            lambda out: ChannelCountStage(
+                action="convert",
+                target_channels=1,
+                input_residency="waveform",
+                keep_waveform_in_task=False,
+                write_to_disk=True,
+                update_audio_filepath=True,
+                output_dir=out,
+            ),
+            "num_channels",
+        ),
+    ],
+    ids=["mono_conversion", "channel_count"],
+)
+def test_disk_only_conversion_does_not_leave_the_pre_conversion_waveform(
+    tmp_path: Path,
+    factory,  # noqa: ANN001
+    channels_key: str,
+) -> None:
+    """Resident input -> disk-only conversion -> auto-residency consumer must not read stale audio."""
+    task, original = _stereo_task(tmp_path)
+    stage = factory(str(tmp_path / "out"))
+
+    result = stage.process(task)
+    assert result is not None
+    assert not isinstance(result, list)
+
+    # The converted metadata and the audio a downstream stage can reach have to agree.
+    assert result.data[channels_key] in (True, 1)
+    assert "waveform" not in result.data
+    assert "sample_rate" not in result.data
+
+    consumed = resolve_audio(result.data, residency="auto")
+    assert consumed is not None
+    assert ensure_waveform_2d(consumed[0]).shape[0] == 1
+    assert result.data["audio_filepath"] != original
+
+    # And validation knows, so a downstream waveform reader is caught before the run.
+    assert set(build_contract(stage).removes_keys) == {"waveform", "sample_rate"}
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [MonoConversionStage, ChannelCountStage],
+    ids=["mono_conversion", "channel_count"],
+)
+def test_conversion_without_an_output_sink_is_rejected(cls) -> None:  # noqa: ANN001
+    """Converting into neither the task nor disk keeps the original audio under converted metadata."""
+    extra = {"action": "convert", "target_channels": 1} if cls is ChannelCountStage else {}
+    with pytest.raises(ValueError, match="keep_waveform_in_task or write_to_disk"):
+        cls(keep_waveform_in_task=False, write_to_disk=False, **extra)
+    with pytest.raises(ValueError, match="update_audio_filepath"):
+        cls(write_to_disk=False, update_audio_filepath=True, **extra)
+
+
+def test_task_type_mismatch_is_an_error_not_a_clean_report(tmp_path: Path) -> None:
+    """A folder source feeding a FileGroupTask reader is a runtime FileNotFoundError."""
+    chain = [
+        CreateInitialManifestAudioFolderStage(data_dir=str(tmp_path)),
+        ManifestReaderStage(),
+    ]
+    report = validate_pipeline(chain, initial_task_type="EmptyTask")
+    assert not report.ok
+    mismatches = [i for i in report.issues if i.code == "task_type_mismatch"]
+    assert [i.stage_index for i in mismatches] == [1]
+    assert "AudioTask" in mismatches[0].message
+    assert "FileGroupTask" in mismatches[0].message
+
+    # Two readers in a row is the same fault: the first consumes the FileGroupTask and the
+    # second is handed the AudioTask it produced.
+    doubled = validate_pipeline([ManifestReaderStage(), ManifestReaderStage()], initial_task_type="FileGroupTask")
+    assert [i.stage_index for i in doubled.issues if i.code == "task_type_mismatch"] == [1]
+
+    # The composite that exists to get this right stays clean -- the check must not fire on
+    # the pipeline the caller is being steered towards.
+    good = validate_pipeline([ManifestReader("manifest.jsonl")], initial_task_type="EmptyTask")
+    assert not [i for i in good.issues if i.code == "task_type_mismatch"]
+
+
+def test_concatenation_does_not_promise_upstream_keys_it_drops() -> None:
+    """N:1 concatenation rebuilds the task, so a downstream text read must fail validation."""
+    concat = SegmentConcatenationStage()
+    assert build_contract(concat).preserves_upstream_keys is False
+
+    report = validate_pipeline(
+        [concat, PreserveByValueStage(input_value_key="text", target_value="keep")],
+        initial_roles={"audio_filepath", "segments", "transcript"},
+        initial_keys={"audio_filepath", "segments", "text"},
+    )
+    assert not report.ok
+    assert any(i.code in {"unsatisfied_reads", "dangling_key"} and i.stage_index == 1 for i in report.issues)
+
+    # The state the walk carries past the stage, rather than the report's union: the filter
+    # above re-declares ``text`` as its own write (it passes the column through), so only the
+    # concatenation's own output shows what survived it.
+    after_concat = validate_pipeline(
+        [concat],
+        initial_roles={"audio_filepath", "segments", "transcript"},
+        initial_keys={"audio_filepath", "segments", "text"},
+    )
+    assert "text" not in after_concat.produced_keys
+    assert "segments" not in after_concat.produced_keys
+
+
+@pytest.mark.parametrize("sink", [ManifestWriterStage, ManifestCheckpointStage])
+def test_an_input_that_arrives_with_a_waveform_is_blocked_from_a_json_sink(sink: type, tmp_path: Path) -> None:
+    """validate_pipeline advertises a resident-waveform input; the sink gate must see it."""
+    stage = sink(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [stage],
+        initial_roles={"waveform", "sample_rate"},
+        initial_keys={"waveform", "sample_rate"},
+    )
+    assert not report.ok
+    assert any(i.code == "tensor_into_sink" and i.severity == "error" for i in report.issues)
+
+    # The runtime failure the gate stands in for.
+    stage.setup()
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        stage.process(AudioTask(dataset_name="d", data={"waveform": torch.zeros(1, 16), "sample_rate": 16000}))
+
+
+def test_nested_waveform_seed_is_inferred_as_tensor_resident(tmp_path: Path) -> None:
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [writer],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"waveform"},
+        initial_segment_keys={"waveform"},
+    )
+
+    assert not report.ok
+    assert any(issue.code == "tensor_into_sink" for issue in report.issues)
+
+
+def test_a_tensor_under_an_uninferable_name_can_be_declared_resident(tmp_path: Path) -> None:
+    """A custom carrier has no role to infer from, so the seed has to be sayable outright."""
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    assert validate_pipeline([writer], initial_keys={"audio_tensor"}).ok
+    assert not validate_pipeline([writer], initial_keys={"audio_tensor"}, initial_tensor_keys={"audio_tensor"}).ok
+
+
+def test_an_explicit_empty_tensor_seed_overrides_waveform_name_inference(tmp_path: Path) -> None:
+    """A nullable waveform-named manifest column is not automatically a resident tensor."""
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [writer],
+        initial_keys={"waveform"},
+        initial_tensor_keys=set(),
+    )
+    assert report.ok
+    assert not any(issue.code == "tensor_into_sink" for issue in report.issues)
+
+
+def test_a_plain_manifest_input_still_reaches_a_json_sink(tmp_path: Path) -> None:
+    """The seeding must not make every pipeline look tensor-resident."""
+    report = validate_pipeline([ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))])
+    assert report.ok
+    assert not any(i.code == "tensor_into_sink" for i in report.issues)
+
+
+def test_a_custom_manifest_path_column_is_what_the_reader_declares(tmp_path: Path) -> None:
+    """The reader emits the row verbatim, so its contract must name the column it was pointed at."""
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text('{"recording_path": "/tmp/a.wav", "text": "hi"}\n')
+    reader = ManifestReaderStage(include_files_key="recording_path")
+
+    assert build_contract(reader).writes.data_keys == ["recording_path"]
+    emitted = reader.process(FileGroupTask(dataset_name="d", data=[str(manifest)]))
+    assert "recording_path" in emitted[0].data
+    assert "audio_filepath" not in emitted[0].data
+    assert_agent_ready(
+        reader,
+        lambda: FileGroupTask(dataset_name="d", data=[str(manifest)]),
+        expected_cardinality="1:N fan-out",
+        available_keys=set(),
+    )
+
+    # Seeded empty because the input is a FileGroupTask of manifest PATHS: it carries no
+    # audio columns, and the default seed would otherwise supply the very ``audio_filepath``
+    # whose absence is the point.
+    seed = {"initial_keys": set(), "initial_roles": set(), "initial_task_type": "FileGroupTask"}
+
+    # A default consumer reads ``audio_filepath``, which this manifest does not carry.
+    assert not validate_pipeline([reader, MonoConversionStage()], **seed).keys_ok
+
+    # Pointed at the same column, it validates.
+    assert validate_pipeline([reader, MonoConversionStage(audio_filepath_key="recording_path")], **seed).keys_ok
+
+    # And the ordinary manifest still pairs with the ordinary consumer.
+    assert validate_pipeline([ManifestReaderStage(), MonoConversionStage()], **seed).keys_ok
+
+
+def test_fanout_conformance_checks_every_emitted_result(tmp_path: Path) -> None:
+    """A later fan-out row cannot omit a write that only the first row carries."""
+    manifest = tmp_path / "mixed.jsonl"
+    manifest.write_text(
+        '{"recording_path": "/tmp/a.wav"}\n{"text": "missing the declared recording_path"}\n',
+        encoding="utf-8",
+    )
+    reader = ManifestReaderStage(include_files_key="recording_path")
+
+    with pytest.raises(AssertionError, match="missing from result 1"):
+        assert_agent_ready(
+            reader,
+            lambda: FileGroupTask(dataset_name="d", data=[str(manifest)]),
+            expected_cardinality="1:N fan-out",
+            available_keys=set(),
+        )
+
+
+class _DataFrameFanInStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]):
+    """Small stand-in for the full agent branch's AudioToDocumentStage."""
+
+    BATCH_ONLY = True
+    name = "dataframe_fan_in"
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=["text"]),
+            cardinality="N:1",
+        )
+
+    def process(self, _task: AudioTask) -> DocumentBatch:
+        raise NotImplementedError
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[DocumentBatch]:
+        return [
+            DocumentBatch(
+                dataset_name=tasks[0].dataset_name,
+                data=pd.DataFrame([{"text": task.data["text"]} for task in tasks]),
+            )
+        ]
+
+
+def test_n_to_one_conformance_reads_document_batch_columns() -> None:
+    """Declared N:1 writes are DataFrame columns in a DocumentBatch, not dict keys."""
+    assert_agent_ready(
+        _DataFrameFanInStage(),
+        lambda: [
+            AudioTask(dataset_name="d", data={"text": "one"}),
+            AudioTask(dataset_name="d", data={"text": "two"}),
+        ],
+        expected_cardinality="N:1",
+        available_keys={"text"},
+    )
+
+
+def test_a_null_waveform_does_not_authenticate_a_stale_sample_rate(tmp_path: Path) -> None:
+    """Residency is about the VALUE; a present-but-empty column must not vouch for metadata."""
+    path = tmp_path / "a.wav"
+    sf.write(path, torch.zeros(48000).numpy(), 48000)  # really 48 kHz
+    stage = SampleRateFilterStage(allowed_sample_rates=[16000])
+
+    for data in (
+        {"audio_filepath": str(path), "sample_rate": 16000},  # no waveform column
+        {"audio_filepath": str(path), "sample_rate": 16000, "waveform": None},  # column, no value
+    ):
+        task = AudioTask(dataset_name="d", data=dict(data))
+        assert stage._observed_rate(task) == 48000, "the file header must win over stale metadata"
+        assert not stage.process(task), "a 48 kHz file must not pass a 16 kHz-only filter"
+
+    # A genuinely resident waveform still authenticates its own rate without a header read.
+    resident = AudioTask(
+        dataset_name="d",
+        data={"audio_filepath": str(path), "sample_rate": 16000, "waveform": torch.zeros(1, 16000)},
+    )
+    assert stage._observed_rate(resident) == 16000
+
+
+def test_concatenation_reads_require_nested_segment_audio_keys() -> None:
+    """SegmentConcatenation reads waveform+sample_rate from EACH child, not just the container."""
+    concat = SegmentConcatenationStage()
+
+    # Only the top-level segments container is present; the per-child audio the runtime reads
+    # is missing, so the stage must not validate clean.
+    top_only = validate_pipeline(
+        [concat],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+    )
+    assert not top_only.ok
+    assert any(i.code == "unsatisfied_reads" and i.stage_index == 0 for i in top_only.issues)
+
+    # Seeding the nested waveform/sample_rate the child carries makes it compose.
+    with_nested = validate_pipeline(
+        [concat],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"waveform", "sample_rate"},
+        initial_segment_keys={"waveform", "sample_rate"},
+    )
+    assert with_nested.ok
+    assert with_nested.keys_ok
+
+    # Remapped child keys chain by role: pointed at the names the seed carries, it stays clean.
+    remapped = SegmentConcatenationStage(waveform_key="seg_wav", sample_rate_key="seg_sr")
+    report = validate_pipeline(
+        [remapped],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_roles={"waveform", "sample_rate"},
+        initial_segment_keys={"seg_wav", "seg_sr"},
+    )
+    assert report.ok
+    assert report.keys_ok
+
+
+@pytest.mark.parametrize("sink", [ManifestWriterStage, ManifestCheckpointStage])
+def test_same_name_nested_tensor_survives_top_level_drop_into_sink(sink: type, tmp_path: Path) -> None:
+    """A disk-only conversion drops the TOP-LEVEL waveform; a same-named nested one still blocks a sink."""
+    mono = MonoConversionStage(
+        output_sample_rate=16000,
+        input_residency="waveform",
+        keep_waveform_in_task=False,
+        write_to_disk=True,
+        output_dir=str(tmp_path / "out"),
+    )
+    assert set(build_contract(mono).removes_keys) == {"waveform", "sample_rate"}
+    writer = sink(output_path=str(tmp_path / "out.jsonl"))
+
+    # Task-level AND segment-level waveforms share the key name "waveform". The conversion
+    # removes only the task-level carrier; the nested one reaches the JSON sink.
+    report = validate_pipeline(
+        [mono, writer],
+        initial_roles={"waveform", "sample_rate", "segments"},
+        initial_keys={"waveform", "sample_rate", "segments"},
+        initial_segment_roles={"waveform", "sample_rate"},
+        initial_segment_keys={"waveform", "sample_rate"},
+    )
+    assert not report.ok
+    assert any(i.code == "tensor_into_sink" and i.severity == "error" for i in report.issues)
+
+    # Single-scope behavior is unchanged: with no nested carrier, dropping the top-level one
+    # clears residency and the sink is clean (no false positive from the scope split).
+    clean = validate_pipeline(
+        [mono, writer],
+        initial_roles={"waveform", "sample_rate"},
+        initial_keys={"waveform", "sample_rate"},
+    )
+    assert not any(i.code == "tensor_into_sink" for i in clean.issues)
+
+
+def test_multi_alternative_read_dangles_when_no_literal_branch_is_complete() -> None:
+    """An auto consumer whose role is met only by a renamed producer key has no complete branch."""
+    renamed_role_only = _ConfiguredContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["resampled_audio_filepath"]),
+            key_roles={"resampled_audio_filepath": "audio_filepath"},
+        )
+    )
+    auto_consumer = MonoConversionStage(input_residency="auto")
+
+    dangling = validate_pipeline(
+        [renamed_role_only, auto_consumer],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    # Role-level composability holds, but no reads_one_of branch is literally complete.
+    assert dangling.ok
+    assert not dangling.keys_ok
+    assert any(i.code == "dangling_key" and i.stage_index == 1 for i in dangling.issues)
+
+    # A complete FILE branch (literal audio_filepath) stays clean.
+    file_producer = _ConfiguredContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["audio_filepath"]),
+            key_roles={"audio_filepath": "audio_filepath"},
+        )
+    )
+    clean_file = validate_pipeline(
+        [file_producer, MonoConversionStage(input_residency="auto")],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    assert clean_file.ok
+    assert clean_file.keys_ok
+
+    # A complete WAVEFORM-PAIR branch stays clean too.
+    waveform_producer = _ConfiguredContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["waveform", "sample_rate"], produces=["tensor"]),
+            key_roles={"waveform": "waveform", "sample_rate": "sample_rate"},
+        )
+    )
+    clean_waveform = validate_pipeline(
+        [waveform_producer, MonoConversionStage(input_residency="auto")],
+        initial_roles=set(),
+        initial_keys=set(),
+    )
+    assert clean_waveform.ok
+    assert clean_waveform.keys_ok
+
+
+def test_conformance_requires_exact_literal_key_for_unknown_role_read(tmp_path: Path) -> None:
+    """A custom (unknown-role) read must be satisfied by its exact key, not waved through."""
+    wav = tmp_path / "a.wav"
+    sf.write(wav, torch.zeros(48000).numpy(), 48000)
+    selector = PreserveByValueStage("mos", 3.0, "ge")  # input_value_key='mos' -> unknown role
+
+    # 'mos' is not among the available keys, so the unknown-role read is unsatisfied.
+    with pytest.raises(AssertionError, match="not satisfied"):
+        assert_agent_ready(selector, available_keys={"audio_filepath"}, run=False)
+
+    # Present exactly, it passes.
+    assert_agent_ready(selector, available_keys={"mos"}, run=False)
+
+
+class _ConditionalScoreProducer(AgentReady):
+    """Writes ``score`` only on rows where ``source`` is non-null (a data-dependent branch)."""
+
+    name = "ConditionalScoreProducer"
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=["audio_filepath"]),
+            conditional_writes=[
+                ConditionalWrite(writes=IOSpec(data_keys=["score"]), condition="'source' is non-null"),
+            ],
+        )
+
+    def process(self, task: object) -> object:
+        return task
+
+
+class _ReachabilityGatedTensorProducer(AgentReady):
+    """Hydrates a waveform only when a ``sample_rate`` column already exists upstream."""
+
+    name = "ReachabilityGatedTensorProducer"
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=["audio_filepath"]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=["waveform", "sample_rate"], produces=["tensor"]),
+                    condition="a resident sample_rate without a waveform is completed from the file",
+                    requires_keys=["sample_rate"],
+                ),
+            ],
+        )
+
+    def process(self, task: object) -> object:
+        return task
+
+
+def test_a_read_met_only_by_a_conditional_write_is_a_warning_not_an_error() -> None:
+    """Conditional outputs stay non-guaranteed, but their consumers still compose."""
+    report = validate_pipeline([_ConditionalScoreProducer(), PreserveByValueStage("score", 3.0, "ge")])
+
+    assert report.ok, report.summary()
+    producer_only = validate_pipeline([_ConditionalScoreProducer()])
+    assert "score" not in producer_only.produced_keys, "a conditional write must not become a guaranteed key"
+    assert [issue.code for issue in report.issues] == ["conditional_read"]
+    assert "score" in report.issues[0].message
+
+    # Nothing upstream even possibly writes the key: still a hard error.
+    missing = validate_pipeline([PreserveByValueStage("score", 3.0, "ge")])
+    assert not missing.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in missing.issues)
+
+
+def test_shipped_metric_then_selector_chain_composes() -> None:
+    """The fleurs recipe shape: pairwise WER followed by a threshold on its (conditional) output."""
+    from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+
+    report = validate_pipeline(
+        [GetPairwiseWerStage(), PreserveByValueStage("wer_pct", 25.0, "le")],
+        initial_keys={"audio_filepath", "text", "pred_text"},
+        initial_roles={"audio_filepath", "text", "pred_text"},
+    )
+    assert report.ok, report.summary()
+    assert report.keys_ok
+    assert any(issue.code == "conditional_read" for issue in report.issues)
+
+
+def test_conditional_tensor_writes_seed_residency_only_when_reachable(tmp_path: Path) -> None:
+    """``requires_keys`` decides whether a hydration branch can fire on the seeded input."""
+    sink = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+
+    # Plain manifest: the branch needs ``sample_rate`` upstream, which nothing provides.
+    plain = validate_pipeline([_ReachabilityGatedTensorProducer(), sink])
+    assert plain.ok, plain.summary()
+
+    # A ``sample_rate`` column makes the branch reachable, so the sink is (correctly) refused.
+    with_rate = validate_pipeline(
+        [_ReachabilityGatedTensorProducer(), sink],
+        initial_keys={"audio_filepath", "sample_rate"},
+        initial_roles={"audio_filepath", "sample_rate"},
+    )
+    assert not with_rate.ok
+    assert any(issue.code == "tensor_into_sink" for issue in with_rate.issues)
+
+    # A stage must not make its own branch reachable through the key that branch would write.
+    self_enabling = validate_pipeline(
+        [_ReachabilityGatedTensorProducer(), _ReachabilityGatedTensorProducer(), sink],
+    )
+    assert self_enabling.ok, self_enabling.summary()
+
+
+def test_default_auto_scorers_do_not_fear_a_tensor_on_a_file_manifest(tmp_path: Path) -> None:
+    """``auto_partial`` hydration only REPLACES an incomplete resident pair; a file-only row never gains one."""
+    from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
+    from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+
+    sink = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    for scorer in (UTMOSFilterStage(), SIGMOSFilterStage()):
+        report = validate_pipeline([scorer, sink])
+        assert report.ok, report.summary()
+
+    # With a resident sample_rate and no waveform the runtime DOES inject the decoded pair,
+    # so the refusal there is a true positive and must stay.
+    resident_rate = validate_pipeline(
+        [UTMOSFilterStage(), sink],
+        initial_keys={"audio_filepath", "sample_rate"},
+        initial_roles={"audio_filepath", "sample_rate"},
+    )
+    assert any(issue.code == "tensor_into_sink" for issue in resident_rate.issues)

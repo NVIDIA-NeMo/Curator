@@ -14,15 +14,18 @@
 
 """Tests for nemo_curator.stages.audio.io.extract_segments."""
 
+import copy
 import csv
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
 
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.io.extract_segments import (
     SegmentExtractionStage,
     _base_metadata,
@@ -33,9 +36,12 @@ from nemo_curator.stages.audio.io.extract_segments import (
     _read_segment,
     _write_metadata_csv,
     detect_combo,
+    extract_segments_by_timestamps,
     load_manifest,
     load_manifests,
 )
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 SAMPLE_RATE = 16000
@@ -68,6 +74,37 @@ def _write_manifest(path: Path, entries: list[dict]) -> str:
     return manifest
 
 
+def test_sortformer_shaped_mapper_output_extracts_each_speaker(wav_dir: Path, tmp_path: Path) -> None:
+    output_dir = tmp_path / "extracted"
+    mapper = TimestampMapperStage()
+    extractor = SegmentExtractionStage(output_dir=str(output_dir))
+    report = validate_pipeline(
+        [mapper, extractor],
+        initial_roles={"audio_filepath", "diar_segments"},
+        initial_keys={"audio_filepath", "diar_segments"},
+    )
+    assert report.ok
+
+    task = AudioTask(
+        dataset_name="test",
+        data={
+            "audio_filepath": _wav_path(wav_dir),
+            "diar_segments": [
+                {"start": 0.25, "end": 0.75, "speaker": "speaker_0"},
+                {"start": 1.25, "end": 1.75, "speaker": "speaker_1"},
+            ],
+        },
+    )
+    mapped = mapper.process(task)
+    assert isinstance(mapped, AudioTask)
+
+    extractor.process_batch([mapped])
+
+    assert (output_dir / "file_a_speaker_0_segment_000.wav").exists()
+    assert (output_dir / "file_a_speaker_1_segment_000.wav").exists()
+    assert len(mapped.data["extracted_path"]) == 2
+
+
 # ------------------------------------------------------------------
 # Pure helper functions
 # ------------------------------------------------------------------
@@ -85,6 +122,25 @@ class TestDetectCombo:
 
     def test_speaker_no_diar(self) -> None:
         assert detect_combo([{"speaker_id": "speaker_0", "original_start_ms": 0}]) == 4
+
+    def test_nested_dictionary_speakers_are_diarization(self) -> None:
+        assert (
+            detect_combo(
+                [
+                    {
+                        "diar_segments": [
+                            {"start": 0.0, "end": 1.0, "speaker": "speaker_0"},
+                            {"start": 1.0, "end": 2.0, "speaker": "speaker_1"},
+                        ]
+                    }
+                ]
+            )
+            == 3
+        )
+
+    def test_null_diarization_is_safe_with_or_without_speaker(self) -> None:
+        assert detect_combo([{"diar_segments": None}]) == 2
+        assert detect_combo([{"speaker_id": "speaker_0", "diar_segments": None}]) == 3
 
 
 class TestExtractScores:
@@ -142,6 +198,43 @@ class TestIntervalsFromDiarSegments:
     def test_sorted_output(self) -> None:
         result = _intervals_from_diar_segments({"diar_segments": [[3.0, 4.0], [1.0, 2.0]]})
         assert result[0][0] < result[1][0]
+
+    def test_dictionary_segments(self) -> None:
+        result = _intervals_from_diar_segments(
+            {
+                "diar_segments": [
+                    {"start": 3.0, "end": 4.0, "speaker": "speaker_0"},
+                    {"start": 1.0, "end": 2.5, "speaker": "speaker_0"},
+                ]
+            }
+        )
+        assert result == [(1000, 2500, 1.5), (3000, 4000, 1.0)]
+
+    def test_invalid_dictionary_segments_are_skipped(self) -> None:
+        result = _intervals_from_diar_segments(
+            {
+                "diar_segments": [
+                    {"start": 2.0, "end": 1.0, "speaker": "speaker_0"},
+                    {"start": 0.0, "end": float("inf"), "speaker": "speaker_0"},
+                ]
+            }
+        )
+        assert result == []
+
+    def test_precise_values_are_sorted_before_millisecond_conversion(self) -> None:
+        result = _intervals_from_diar_segments(
+            {
+                "diar_segments": [
+                    [Decimal("1.0019"), Decimal("1.0021")],
+                    [Decimal("1.0011"), Decimal("1.0012")],
+                ]
+            }
+        )
+
+        assert result == [
+            (1001, 1001, Decimal("0.0001")),
+            (1001, 1002, Decimal("0.0002")),
+        ]
 
 
 class TestReadSegment:
@@ -279,6 +372,28 @@ class TestSegmentExtractionStageInit:
         assert stage.num_workers() == 1
         assert stage.xenna_stage_spec() == {}
 
+    def test_legacy_positional_layout_and_match_args_are_unchanged(self) -> None:
+        resources = Resources(cpus=2)
+        stage = SegmentExtractionStage("legacy", "/tmp/out", "flac", 17, resources)  # noqa: S108
+
+        assert stage.name == "legacy"
+        assert stage.output_dir == "/tmp/out"  # noqa: S108
+        assert stage.output_format == "flac"
+        assert stage.batch_size == 17
+        assert stage.resources is resources
+        assert stage.output_key == "extracted_path"
+        assert SegmentExtractionStage.__match_args__[:5] == (
+            "name",
+            "output_dir",
+            "output_format",
+            "batch_size",
+            "resources",
+        )
+
+    def test_output_key_must_be_a_nonempty_string(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="output_key must be a non-empty string"):
+            SegmentExtractionStage(output_dir=str(tmp_path), output_key="")
+
 
 # ------------------------------------------------------------------
 # SegmentExtractionStage — process_batch
@@ -367,6 +482,67 @@ class TestSegmentExtractionStageProcessBatch:
         assert os.path.exists(os.path.join(out_dir, "file_a_speaker_0_segment_000.wav"))
         assert os.path.exists(os.path.join(out_dir, "file_a_speaker_1_segment_000.wav"))
 
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_mixed_batch_routing_is_independent_of_row_order(
+        self, reverse: bool, wav_dir: Path, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "extracted"
+        stage = SegmentExtractionStage(output_dir=str(output_dir))
+        tasks = [
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": 0,
+                    "original_end_ms": 500,
+                    "duration": 0.5,
+                },
+                dataset_name="test",
+            ),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir, "file_b"),
+                    "speaker_id": "outer_label",
+                    "diar_segments": [
+                        {"start": 0.5, "end": 1.0, "speaker": "speaker_0"},
+                        {"start": 1.5, "end": 2.0, "speaker": "speaker_1"},
+                    ],
+                },
+                dataset_name="test",
+            ),
+        ]
+        if reverse:
+            tasks.reverse()
+
+        assert stage.process_batch(tasks) == tasks
+        assert (output_dir / "file_a_segment_000.wav").exists()
+        assert (output_dir / "file_b_speaker_0_segment_000.wav").exists()
+        assert (output_dir / "file_b_speaker_1_segment_000.wav").exists()
+        assert not (output_dir / "file_b_speaker_outer_label_segment_000.wav").exists()
+        speaker_task = next(task for task in tasks if task.data["original_file"].endswith("file_b.wav"))
+        assert len(speaker_task.data["extracted_path"]) == 2
+
+    def test_null_diarization_does_not_abort_mixed_batch(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        stage = SegmentExtractionStage(output_dir=str(output_dir))
+        tasks = [
+            AudioTask(
+                data={"original_file": _wav_path(wav_dir), "speaker_id": "speaker_0", "diar_segments": None},
+                dataset_name="test",
+            ),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir, "file_b"),
+                    "original_start_ms": 0,
+                    "original_end_ms": 500,
+                    "duration": 0.5,
+                },
+                dataset_name="test",
+            ),
+        ]
+
+        assert stage.process_batch(tasks) == tasks
+        assert (output_dir / "file_b_segment_000.wav").exists()
+
     def test_flac_format(self, wav_dir: Path, tmp_path: Path) -> None:
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir, output_format="flac")
@@ -422,6 +598,209 @@ class TestSegmentExtractionStageProcessBatch:
             rows = list(csv.DictReader(f))
         assert len(rows) == 1
         assert float(rows[0]["utmos_mos"]) == 4.2
+
+    def test_retry_reuses_reserved_path_and_preserves_prior_metadata(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        first = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 500,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        second = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 500,
+                "original_end_ms": 1000,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        first._set_task_id("source", 0)
+        second._set_task_id("source", 1)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first, second])
+        original_path = second.data["extracted_path"]
+
+        retried = AudioTask(
+            data={key: value for key, value in second.data.items() if key != "extracted_path"},
+            dataset_name="test",
+        )
+        retried._set_task_id("source", 1)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert retried.data["extracted_path"] == original_path
+        with open(output_dir / "metadata.csv") as metadata_file:
+            rows = list(csv.DictReader(metadata_file))
+        assert [row["filename"] for row in rows] == ["file_a_segment_000.wav", "file_a_segment_001.wav"]
+
+    def test_retry_recovers_after_failure_following_filename_reservation(
+        self, monkeypatch: pytest.MonkeyPatch, wav_dir: Path, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "extracted"
+        task_data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        failed = AudioTask(data=task_data.copy(), dataset_name="test")
+        failed._set_task_id("source", 0)
+        original_write = sf.write
+
+        def fail_write(*_args, **_kwargs) -> None:
+            message = "boom"
+            raise RuntimeError(message)
+
+        monkeypatch.setattr(sf, "write", fail_write)
+        with pytest.raises(RuntimeError, match="boom"):
+            SegmentExtractionStage(output_dir=str(output_dir)).process_batch([failed])
+        monkeypatch.setattr(sf, "write", original_write)
+
+        retried = AudioTask(data=task_data.copy(), dataset_name="test")
+        retried._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert [Path(path).name for path in retried.data["extracted_path"]] == ["file_a_segment_000.wav"]
+        assert (output_dir / "file_a_segment_000.wav").exists()
+        assert not (output_dir / "file_a_segment_001.wav").exists()
+
+    def test_retry_replaces_corrupted_reserved_output(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task_data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        first = AudioTask(data=task_data.copy(), dataset_name="test")
+        first._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first])
+        output_path = Path(first.data["extracted_path"][0])
+        output_path.write_bytes(b"truncated")
+
+        retried = AudioTask(data=task_data.copy(), dataset_name="test")
+        retried._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert retried.data["extracted_path"] == [str(output_path)]
+        assert sf.info(output_path).frames == SAMPLE_RATE // 2
+        assert not (output_dir / "file_a_segment_001.wav").exists()
+
+    def test_corrupt_resume_state_fails_without_writing_duplicates(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 500,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        task._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+        (output_dir / ".segment_extraction_state.json").write_text("not json")
+
+        retried = AudioTask(data={key: value for key, value in task.data.items() if key != "extracted_path"})
+        retried._set_task_id("source", 0)
+        with pytest.raises(RuntimeError, match="Cannot safely resume"):
+            SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+        assert sorted(path.name for path in output_dir.glob("*.wav")) == ["file_a_segment_000.wav"]
+
+    def test_nested_speaker_reservations_keep_parent_task_identity(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task_data = {
+            "original_file": _wav_path(wav_dir),
+            "diar_segments": [{"start": 0.0, "end": 0.5, "speaker": "speaker_0"}],
+        }
+        first = AudioTask(data=task_data.copy(), dataset_name="test")
+        second = AudioTask(data=task_data.copy(), dataset_name="test")
+        first._set_task_id("source", 0)
+        second._set_task_id("source", 1)
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first, second])
+
+        first_paths = first.data["extracted_path"]
+        second_paths = second.data["extracted_path"]
+        assert first_paths != second_paths
+        assert {Path(path).name for path in [*first_paths, *second_paths]} == {
+            "file_a_speaker_0_segment_000.wav",
+            "file_a_speaker_0_segment_001.wav",
+        }
+
+    def test_empty_speaker_id_restores_the_speaker_counter(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        first = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "speaker_id": "",
+                "original_start_ms": 0,
+                "original_end_ms": 500,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        first._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first])
+
+        second = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "speaker_id": "",
+                "original_start_ms": 500,
+                "original_end_ms": 1000,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        second._set_task_id("source", 1)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([second])
+
+        assert sorted(path.name for path in output_dir.glob("*.wav")) == [
+            "file_a_speaker__segment_000.wav",
+            "file_a_speaker__segment_001.wav",
+        ]
+
+    def test_unassigned_duplicate_tasks_keep_distinct_legacy_outputs(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        tasks = [AudioTask(data=data.copy()), AudioTask(data=data.copy())]
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch(tasks)
+
+        assert sorted(path.name for path in output_dir.glob("*.wav")) == [
+            "file_a_segment_000.wav",
+            "file_a_segment_001.wav",
+        ]
+
+    def test_reprocessing_nested_speakers_does_not_duplicate_paths(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "diar_segments": [
+                    {"start": 0.0, "end": 0.5, "speaker": "speaker_0"},
+                    {"start": 0.5, "end": 1.0, "speaker": "speaker_1"},
+                ],
+            }
+        )
+        task._set_task_id("source", 0)
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+        first_paths = task.data["extracted_path"].copy()
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+
+        assert task.data["extracted_path"] == first_paths
+        assert len(task.data["extracted_path"]) == 2
 
     def test_audio_content_matches_source(self, wav_dir: Path, tmp_path: Path) -> None:
         original, sr = sf.read(_wav_path(wav_dir))
@@ -510,3 +889,109 @@ class TestExtractFromManifest:
         assert os.path.exists(os.path.join(out_dir, "manifest.jsonl"))
         with open(os.path.join(out_dir, "extraction_summary.json")) as f:
             assert json.load(f)["total_segments"] == 2
+
+
+# ------------------------------------------------------------------
+# output_key bookkeeping (agent-facing) vs CSV schema (tutorial-facing)
+# ------------------------------------------------------------------
+
+
+class TestOutputKeyBookkeeping:
+    def test_metadata_csv_never_contains_output_key(self, wav_dir: Path, tmp_path: Path) -> None:
+        out_dir = str(tmp_path / "extracted")
+        stage = SegmentExtractionStage(output_dir=out_dir)
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+                "duration": 1.0,
+                "wer": 7.5,
+            },
+            dataset_name="test",
+        )
+        result = stage.process_batch([task])
+        with open(os.path.join(out_dir, "metadata.csv")) as f:
+            reader = csv.DictReader(f)
+            assert "extracted_path" not in reader.fieldnames
+            assert len(list(reader)) == 1
+        # the entry itself still records every written path for downstream stages
+        paths = result[0].data["extracted_path"]
+        assert isinstance(paths, list)
+        assert len(paths) == 1
+        assert os.path.exists(paths[0])
+
+    def test_legacy_free_function_does_not_mutate_entries_or_hide_existing_field(
+        self,
+        wav_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        entries = [
+            {
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+                "duration": 1.0,
+                "extracted_path": "legacy-token",
+            }
+        ]
+        before = copy.deepcopy(entries)
+        output_dir = tmp_path / "legacy"
+        output_dir.mkdir()
+
+        _count, _duration, _speakers, metadata = extract_segments_by_timestamps(
+            entries,
+            str(output_dir),
+            "wav",
+        )
+
+        assert entries == before
+        assert metadata[0]["extracted_path"] == "legacy-token"
+
+    def test_multi_interval_entry_collects_all_paths(self, wav_dir: Path, tmp_path: Path) -> None:
+        out_dir = str(tmp_path / "extracted")
+        manifest = _write_manifest(
+            tmp_path,
+            [
+                {
+                    "original_file": _wav_path(wav_dir),
+                    "speaker_id": "speaker_0",
+                    "num_speakers": 1,
+                    "diar_segments": [[0.0, 1.0], [2.0, 3.0]],
+                }
+            ],
+        )
+        stage = SegmentExtractionStage(output_dir=out_dir)
+        stage.extract_from_manifest(manifest)
+        with open(os.path.join(out_dir, "extraction_summary.json")) as f:
+            assert json.load(f)["total_segments"] == 2
+        with open(os.path.join(out_dir, "metadata.csv")) as f:
+            reader = csv.DictReader(f)
+            assert "extracted_path" not in reader.fieldnames
+            assert len(list(reader)) == 2
+
+    def test_preexisting_scalar_output_key_folded_into_list(self, wav_dir: Path, tmp_path: Path) -> None:
+        # re-running extraction on a previously augmented manifest must not
+        # crash (.append on a scalar) or silently drop the segment
+        out_dir = str(tmp_path / "extracted")
+        stage = SegmentExtractionStage(output_dir=out_dir)
+        task = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+                "duration": 1.0,
+                "extracted_path": "stale/from_previous_run.wav",
+            },
+            dataset_name="test",
+        )
+        result = stage.process_batch([task])
+        paths = result[0].data["extracted_path"]
+        assert isinstance(paths, list)
+        assert paths[0] == "stale/from_previous_run.wav"
+        assert len(paths) == 2
+        assert os.path.exists(paths[1])
+        with open(os.path.join(out_dir, "metadata.csv")) as f:
+            reader = csv.DictReader(f)
+            assert "extracted_path" not in reader.fieldnames
+            assert len(list(reader)) == 1
