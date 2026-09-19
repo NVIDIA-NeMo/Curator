@@ -882,6 +882,55 @@ def test_a_null_waveform_does_not_authenticate_a_stale_sample_rate(tmp_path: Pat
     assert stage._observed_rate(resident) == 16000
 
 
+@pytest.mark.parametrize(
+    "waveform",
+    [
+        torch.tensor([[32767, -32768], [0, 16384]], dtype=torch.int16),
+        np.array([[2147483647, -2147483648], [0, 1073741824]], dtype=np.int32),
+    ],
+    ids=["torch_pcm16", "numpy_pcm32"],
+)
+@pytest.mark.parametrize("stage_kind", ["mono", "channel_count"])
+def test_resident_pcm_stereo_is_normalized_before_downmix(waveform: object, stage_kind: str) -> None:
+    if stage_kind == "mono":
+        stage = MonoConversionStage(
+            output_sample_rate=16000,
+            input_residency="waveform",
+            strict_sample_rate=True,
+        )
+    else:
+        stage = ChannelCountStage(
+            action="convert",
+            target_channels=1,
+            input_residency="waveform",
+        )
+    task = AudioTask(dataset_name="d", data={"waveform": waveform, "sample_rate": 16000})
+
+    result = stage.process(task)
+
+    assert isinstance(result, AudioTask)
+    assert result.data["waveform"].dtype == torch.float32
+    assert result.data["waveform"].shape == (1, 2)
+    assert torch.isfinite(result.data["waveform"]).all()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "error_type"),
+    [
+        ("allowed_sample_rates", "16000", TypeError),
+        ("allowed_sample_rates", [16000, True], ValueError),
+        ("allowed_sample_rates", [16000.5], ValueError),
+        ("allowed_sample_rates", [0], ValueError),
+        ("min_sample_rate", True, ValueError),
+        ("min_sample_rate", -1, ValueError),
+        ("max_sample_rate", 48000.0, ValueError),
+    ],
+)
+def test_sample_rate_filter_rejects_invalid_config(field_name: str, value: object, error_type: type[Exception]) -> None:
+    with pytest.raises(error_type, match=field_name):
+        SampleRateFilterStage(**{field_name: value})
+
+
 def test_concatenation_reads_require_nested_segment_audio_keys() -> None:
     """SegmentConcatenation reads waveform+sample_rate from EACH child, not just the container."""
     concat = SegmentConcatenationStage()

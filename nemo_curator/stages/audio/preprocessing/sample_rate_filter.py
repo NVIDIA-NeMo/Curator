@@ -107,9 +107,21 @@ class SampleRateFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # legitimate read/write of that same key as a collision.
             output_keys={},
         )
+        if self.allowed_sample_rates is not None and not isinstance(self.allowed_sample_rates, list):
+            msg = "allowed_sample_rates must be a list of positive whole-number rates, or None"
+            raise TypeError(msg)
         if self.allowed_sample_rates is not None and not self.allowed_sample_rates:
             msg = "allowed_sample_rates must name at least one rate, or be None for no constraint"
             raise ValueError(msg)
+        for name in ("allowed_sample_rates", "min_sample_rate", "max_sample_rate"):
+            value = getattr(self, name)
+            rates = value if isinstance(value, list) else [value]
+            for rate in rates:
+                if rate is None:
+                    continue
+                if isinstance(rate, bool) or not isinstance(rate, int) or rate <= 0:
+                    msg = f"{name} must contain positive whole-number rates, got {value!r}"
+                    raise ValueError(msg)
         low, high = self.min_sample_rate, self.max_sample_rate
         if low is not None and high is not None and low > high:
             msg = f"min_sample_rate ({low}) is above max_sample_rate ({high}), so nothing can pass"

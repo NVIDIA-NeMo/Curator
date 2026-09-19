@@ -36,6 +36,7 @@ from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOS
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     drop_resident_audio,
+    normalize_audio_waveform,
     produce_audio_filepath,
     reject_sinkless_conversion,
     residency_read_specs,
@@ -44,7 +45,7 @@ from nemo_curator.stages.audio._agent._residency import (
     validate_input_residency,
     write_audio_stable,
 )
-from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -241,7 +242,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         try:
             waveform, sample_rate = resolved
-            waveform = ensure_waveform_2d(waveform)
+            waveform = normalize_audio_waveform(waveform, stage_name=self.name, mono=False)
 
             if sample_rate <= 0:
                 logger.error(f"Invalid sample rate ({sample_rate}) in audio input")
@@ -286,7 +287,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         sample_rate_key=self.sample_rate_key,
                     )
 
-        except (OSError, RuntimeError) as e:
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.error(f"Error processing audio input: {e}")
             return []
         else:

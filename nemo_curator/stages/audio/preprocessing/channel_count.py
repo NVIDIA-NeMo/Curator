@@ -47,6 +47,7 @@ from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
     drop_resident_audio,
+    normalize_audio_waveform,
     produce_audio_filepath,
     reject_sinkless_conversion,
     residency_read_specs,
@@ -520,7 +521,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         try:
             waveform, sample_rate = resolved
-            waveform = ensure_waveform_2d(waveform)
+            waveform = normalize_audio_waveform(waveform, stage_name=self.name, mono=False)
 
             if sample_rate <= 0:
                 logger.error(f"Invalid sample rate ({sample_rate}) in audio input")
@@ -556,7 +557,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         sample_rate_key=self.sample_rate_key,
                     )
 
-        except (OSError, RuntimeError) as e:
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.error(f"Error processing audio input: {e}")
             return []
         else:
