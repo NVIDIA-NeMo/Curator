@@ -21,12 +21,63 @@ import json
 import os
 import sqlite3
 from collections.abc import Iterator  # noqa: TC003
+from types import SimpleNamespace
 
 import pytest
 
-from nemo_curator.audio_agent import artifacts, run_index, run_store
+from nemo_curator.audio_agent import artifacts, run_index, run_store, verbs
 from nemo_curator.audio_agent.artifacts import Artifact
 from nemo_curator.audio_agent.contracts import RunRecord
+from nemo_curator.audio_agent.recipe import Recipe
+
+
+def test_cloud_credentials_are_masked_in_display_history_and_kept_only_in_the_exact_recipe(
+    tmp_path,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run history is returned to the host, while the exact recipe is private execution state."""
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path))
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {
+                    "ref": "ManifestReader",
+                    "params": {
+                        "manifest_path": "s3://bucket/input.jsonl",
+                        "storage_options": {
+                            "account_key": "opaque-account-key",
+                            "headers": {"Authorization": "opaque-authorization"},
+                        },
+                    },
+                }
+            ]
+        }
+    ).freeze()
+    run_id = "run-cloud-credential-redaction"
+
+    verbs._record_run(
+        recipe,
+        run_id=run_id,
+        data="s3://bucket/input.jsonl",
+        data_fp=None,
+        dataset_key="",
+        fingerprint_tier="",
+        report=SimpleNamespace(),
+        failed=True,
+        acceptance_result={},
+    )
+
+    display_record = run_store.load(run_id)
+    exact_recipe = run_store.load_exact_recipe(run_id)
+    assert display_record is not None
+    assert exact_recipe is not None
+    displayed = json.dumps(display_record.recipe)
+    exact = json.dumps(exact_recipe)
+    assert "opaque-account-key" not in displayed
+    assert "opaque-authorization" not in displayed
+    assert displayed.count("<redacted-secret>") == 2
+    assert "opaque-account-key" in exact
+    assert "opaque-authorization" in exact
 
 
 def test_publish_does_not_register_an_artifact_when_marker_write_fails(

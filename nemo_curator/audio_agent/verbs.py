@@ -35,6 +35,7 @@ import json
 import math
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -4037,6 +4038,48 @@ def _carry_approval(
     return carried, _safety.smoke_token(derived.config_hash), ""
 
 
+def _owned_path_identity(path: str) -> tuple[int, int]:
+    """Filesystem identity used to prove a temporary path is still the one we created."""
+    info = os.stat(path, follow_symlinks=False)
+    return info.st_dev, info.st_ino
+
+
+def _remove_owned_temporary(path: str, identity: tuple[int, int]) -> bool:
+    """Remove ``path`` only while it is still the exact temporary entry we created.
+
+    A unique name prevents ordinary collisions, but it does not make a later cleanup safe by
+    itself: another process can rename that entry and put something else at the same path. The
+    device/inode check turns that race into a leaked scratch path rather than deleting the
+    replacement. Symlinks and special files are never followed.
+    """
+    try:
+        info = os.stat(path, follow_symlinks=False)
+        if (info.st_dev, info.st_ino) != identity:
+            return False
+        if stat.S_ISDIR(info.st_mode):
+            shutil.rmtree(path)
+        elif stat.S_ISREG(info.st_mode):
+            os.unlink(path)
+        else:
+            return False
+    except OSError:
+        return False
+    return True
+
+
+def _create_delta_sandbox(uri: str) -> tuple[str, tuple[int, int]]:
+    """Create one invocation-owned delta directory beside the output."""
+    parent = os.path.abspath(os.path.dirname(os.path.expanduser(uri)) or ".")
+    os.makedirs(parent, exist_ok=True)
+    sandbox = tempfile.mkdtemp(prefix=".audio_agent_delta-", dir=parent)
+    try:
+        return sandbox, _owned_path_identity(sandbox)
+    except OSError:
+        with contextlib.suppress(OSError):
+            shutil.rmtree(sandbox)
+        raise
+
+
 def _execute_delta(  # noqa: PLR0913 - forwards run()'s knobs and the plan it executes
     rec: Recipe,
     decision: Any,  # noqa: ANN401 - delta.Delta without an eager import
@@ -4051,9 +4094,61 @@ def _execute_delta(  # noqa: PLR0913 - forwards run()'s knobs and the plan it ex
     goal: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Run the changed files, merge, republish. Any failure leaves the prior result untouched."""
+    # Verify the caller's evidence before creating even an ephemeral output-side directory.
+    # ``_carry_approval`` repeats this at the derived-recipe boundary; this first check keeps a
+    # refused operation free of filesystem writes.
+    if _safety.require_smoke() and not _safety.verify_smoke_token(smoke_token, rec.config_hash):
+        return {
+            **card,
+            "status": "refused",
+            "reason": (
+                "run requires smoke evidence (AUDIO_AGENT_REQUIRE_SMOKE is set): run smoke on this "
+                "recipe and pass its 'smoke_token'"
+            ),
+        }
+    try:
+        sandbox, sandbox_identity = _create_delta_sandbox(str(decision.uri))
+    except OSError as exc:
+        return {
+            **card,
+            "status": "error",
+            "reason": f"the delta's working directory could not be created: {exc}",
+        }
+    try:
+        return _execute_delta_in_sandbox(
+            rec,
+            decision,
+            dp=dp,
+            data=data,
+            card=card,
+            executor=executor,
+            bootstrap_ray=bootstrap_ray,
+            smoke_token=smoke_token,
+            calibration=calibration,
+            goal=goal,
+            sandbox=sandbox,
+        )
+    finally:
+        _remove_owned_temporary(sandbox, sandbox_identity)
+
+
+def _execute_delta_in_sandbox(  # noqa: PLR0913 - split out so scratch ownership has one boundary
+    rec: Recipe,
+    decision: Any,  # noqa: ANN401 - delta.Delta without an eager import
+    *,
+    dp: Any,  # noqa: ANN401 - DataProfile
+    data: str | None,
+    card: dict[str, Any],
+    executor: Any,  # noqa: ANN401
+    bootstrap_ray: bool,
+    smoke_token: str | None,
+    calibration: dict[str, Any] | None,
+    goal: dict[str, Any] | None,
+    sandbox: str,
+) -> dict[str, Any]:
+    """Execute one delta inside a unique directory owned by the caller."""
     from nemo_curator.audio_agent import delta as _delta
 
-    sandbox = os.path.join(os.path.dirname(os.path.expanduser(decision.uri)), ".audio_agent_delta")
     prefix_rec, redirect, err = _delta.prefix_recipe(
         rec,
         prefix=decision.prefix,
@@ -4065,18 +4160,13 @@ def _execute_delta(  # noqa: PLR0913 - forwards run()'s knobs and the plan it ex
     if prefix_rec is None:
         return {**card, "status": "no_delta", "reason": err}
     # ``delta_run`` already held the caller's ``confirm`` to this recipe, so the approval is
-    # established; what remains is to re-anchor it onto the prefix recipe that executes. Done
-    # BEFORE the sandbox exists, so a refusal leaves nothing behind to clean up.
+    # established; what remains is to re-anchor it onto the prefix recipe that executes. A
+    # refusal leaves no durable output; the invocation-owned sandbox is cleaned by the caller.
     inner_confirm, inner_token, refusal = _carry_approval(
         rec, prefix_rec, confirm=rec.config_hash, smoke_token=smoke_token
     )
     if refusal:
         return {**card, "status": "refused", "reason": refusal}
-    try:
-        os.makedirs(sandbox, exist_ok=True)
-    except OSError as exc:
-        return {**card, "status": "error", "reason": f"the delta's working directory could not be created: {exc}"}
-
     started = time.perf_counter()
     inner: dict[str, Any] = {"status": "completed", "note": "nothing to run: every changed file was removed"}
     if decision.files:
@@ -4125,8 +4215,6 @@ def _execute_delta(  # noqa: PLR0913 - forwards run()'s knobs and the plan it ex
         run_id=str(inner.get("run_id") or ""),
         added_sec=elapsed,
     )
-    with contextlib.suppress(OSError):
-        shutil.rmtree(sandbox)
     remaining = len(rec.stages) - decision.prefix
     result = {
         **card,
@@ -4518,7 +4606,12 @@ def _declared_output(rec: Recipe) -> str:
     return outs[-1] if outs else ""
 
 
-def _deliver_to_declared_path(rec: Recipe, uri: str) -> tuple[str, bool | None]:
+def _deliver_to_declared_path(
+    rec: Recipe,
+    uri: str,
+    *,
+    expected_digest: str | None = None,
+) -> tuple[str, bool | None]:
     """Put the reused output where the recipe asked for it.
 
     Returns ``(path, delivered)``: ``None`` when no copy was needed, ``True`` when the artifact
@@ -4532,14 +4625,54 @@ def _deliver_to_declared_path(rec: Recipe, uri: str) -> tuple[str, bool | None]:
     if not want or os.path.abspath(os.path.expanduser(want)) == os.path.abspath(os.path.expanduser(uri)):
         return uri, None
     src, dst = os.path.expanduser(uri), os.path.expanduser(want)
+    from nemo_curator.audio_agent.artifacts import content_digest
+
+    source_digest = content_digest(src)
+    if source_digest is None or (expected_digest is not None and source_digest != expected_digest):
+        return uri, False
+
+    # Reuse is evidence about the source artifact's exact bytes. Merging those bytes into a
+    # pre-existing destination would produce a third artifact that was never verified. An
+    # already-identical destination needs no write; any other existing target remains the
+    # user's and is refused rather than overwritten.
+    if os.path.lexists(dst):
+        if content_digest(dst) == source_digest:
+            return want, None
+        return uri, False
+
+    staged = ""
+    staged_identity: tuple[int, int] | None = None
     try:
-        os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+        parent = os.path.abspath(os.path.dirname(dst) or ".")
+        os.makedirs(parent, exist_ok=True)
         if os.path.isdir(src):
-            shutil.copytree(src, dst, dirs_exist_ok=True)
+            staged = tempfile.mkdtemp(prefix=f".{os.path.basename(dst)}.audio-agent-", dir=parent)
+            staged_identity = _owned_path_identity(staged)
+            shutil.copytree(src, staged, dirs_exist_ok=True)
+            if content_digest(staged) != source_digest:
+                return uri, False
+            # Atomic when ``dst`` is absent. If another writer created a non-empty directory
+            # after the check above, rename refuses instead of combining the two trees.
+            os.rename(staged, dst)
+            staged = ""
+            staged_identity = None
+        elif os.path.isfile(src):
+            fd, staged = tempfile.mkstemp(prefix=f".{os.path.basename(dst)}.audio-agent-", dir=parent)
+            os.close(fd)
+            staged_identity = _owned_path_identity(staged)
+            shutil.copy2(src, staged)
+            if content_digest(staged) != source_digest:
+                return uri, False
+            # A sibling hard link publishes the complete file without a replace race: link(2)
+            # fails if another writer created ``dst`` after the existence check.
+            os.link(staged, dst)
         else:
-            shutil.copyfile(src, dst)
+            return uri, False
     except OSError:
         return uri, False
+    finally:
+        if staged and staged_identity is not None:
+            _remove_owned_temporary(staged, staged_identity)
     return want, True
 
 
@@ -4555,7 +4688,7 @@ def _as_is_evidence(
     plan: dict[str, Any],
     parent: Any,  # noqa: ANN401
     uri: str,
-) -> tuple[str, list[str], int | None]:
+) -> tuple[str, list[str], int | None, str | None]:
     """How well the bytes about to be served are proven to be a complete result.
 
     Two engines can propose an ``as_is`` path and only one of them carries an artifact, so this is
@@ -4586,14 +4719,16 @@ def _as_is_evidence(
                 )
                 else None
             )
-            return "artifact", [], expected_rows
-        return "", reasons or ["the recorded artifact is no longer reusable"], None
+            expected_digest = str(getattr(art, "content_digest", "") or "") or None
+            return "artifact", [], expected_rows, expected_digest
+        return "", reasons or ["the recorded artifact is no longer reusable"], None, None
     status = str(getattr(parent, "status", "") or "")
     if status and status != "completed":
-        return "", [f"the run that produced it ended {status!r}, so its output is not a complete result"], None
+        reason = f"the run that produced it ended {status!r}, so its output is not a complete result"
+        return "", [reason], None, None
     if not _has_content(uri):
-        return "", [f"{uri!r} does not exist or is empty, so there is nothing to serve"], None
-    return "run_record", [], None
+        return "", [f"{uri!r} does not exist or is empty, so there is nothing to serve"], None, None
+    return "run_record", [], None, None
 
 
 def _serve_as_is(rec: Recipe, plan: dict[str, Any], *, parent: Any, lineage: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN401, C901
@@ -4619,14 +4754,14 @@ def _serve_as_is(rec: Recipe, plan: dict[str, Any], *, parent: Any, lineage: dic
             "plan": plan,
         }
     # Checked BEFORE delivery: a refusal must not leave a copy behind.
-    trust, why_not, expected_output_rows = _as_is_evidence(plan, parent, uri)
+    trust, why_not, expected_output_rows, expected_digest = _as_is_evidence(plan, parent, uri)
     if not trust:
         return {
             "status": "refused",
             "reason": f"the previous output cannot be served: {'; '.join(why_not)}; choose 'fresh'",
             "plan": plan,
         }
-    uri, delivered_to = _deliver_to_declared_path(rec, uri)
+    uri, delivered_to = _deliver_to_declared_path(rec, uri, expected_digest=expected_digest)
     if delivered_to is False:
         return {
             "status": "refused",

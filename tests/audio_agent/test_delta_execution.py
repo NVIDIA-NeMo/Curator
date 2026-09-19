@@ -25,16 +25,14 @@ import math
 import os
 import struct
 import wave
+from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from nemo_curator.audio_agent import artifacts, cli, delta, verbs
 from nemo_curator.audio_agent.recipe import Recipe
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 @pytest.fixture(autouse=True)
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -465,6 +463,82 @@ class TestTheCardOffersIt:
 @pytest.mark.usefixtures("store")
 class TestMergeSafety:
     """The merge refuses rather than producing a manifest no run could have produced."""
+
+    def test_bad_smoke_evidence_is_refused_before_creating_the_sandbox(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("AUDIO_AGENT_REQUIRE_SMOKE", "1")
+        parent = tmp_path / "does-not-exist"
+        decision = SimpleNamespace(uri=str(parent / "manifest.jsonl"))
+
+        result = verbs._execute_delta(
+            SimpleNamespace(config_hash="expected-hash"),
+            decision,
+            dp=SimpleNamespace(),
+            data=None,
+            card={},
+            executor=None,
+            bootstrap_ray=False,
+            smoke_token="wrong-token",
+            calibration=None,
+            goal=None,
+        )
+
+        assert result["status"] == "refused"
+        assert not parent.exists(), "refused execution must not create scratch state"
+
+    def test_each_delta_owns_a_unique_sandbox_and_never_deletes_the_legacy_name(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        parent = tmp_path / "out"
+        legacy = parent / ".audio_agent_delta"
+        legacy.mkdir(parents=True)
+        user_file = legacy / "user-owned.txt"
+        user_file.write_text("keep me")
+        used: list[str] = []
+
+        def execute_in_sandbox(*_args: object, sandbox: str, **_kwargs: object) -> dict[str, str]:
+            used.append(sandbox)
+            assert sandbox != str(legacy)
+            assert os.path.isdir(sandbox)
+            (Path(sandbox) / "scratch.txt").write_text("temporary")
+            return {"status": "completed"}
+
+        monkeypatch.setattr(verbs, "_execute_delta_in_sandbox", execute_in_sandbox)
+        decision = SimpleNamespace(uri=str(parent / "manifest.jsonl"))
+        kwargs = {
+            "dp": SimpleNamespace(),
+            "data": None,
+            "card": {},
+            "executor": None,
+            "bootstrap_ray": False,
+            "smoke_token": None,
+            "calibration": None,
+            "goal": None,
+        }
+
+        assert verbs._execute_delta(SimpleNamespace(), decision, **kwargs)["status"] == "completed"
+        assert verbs._execute_delta(SimpleNamespace(), decision, **kwargs)["status"] == "completed"
+
+        assert len(set(used)) == 2, "concurrent/repeated deltas must never share scratch state"
+        assert all(not os.path.exists(path) for path in used), "each invocation cleans only its own scratch"
+        assert user_file.read_text() == "keep me", "the pre-existing legacy directory remains user-owned"
+
+    def test_delta_cleanup_refuses_a_path_that_was_replaced_after_creation(self, tmp_path: Path) -> None:
+        output = tmp_path / "out" / "manifest.jsonl"
+        sandbox, identity = verbs._create_delta_sandbox(str(output))
+        moved = f"{sandbox}.moved"
+        os.rename(sandbox, moved)
+        os.mkdir(sandbox)
+        replacement = Path(sandbox) / "replacement.txt"
+        replacement.write_text("not ours")
+
+        assert verbs._remove_owned_temporary(sandbox, identity) is False
+        assert replacement.read_text() == "not ours"
 
     def test_rows_with_different_columns_are_not_merged(self, tmp_path: Path) -> None:
         prior, produced = tmp_path / "prior.jsonl", tmp_path / "new.jsonl"

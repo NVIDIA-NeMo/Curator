@@ -1835,6 +1835,55 @@ class TestReuseHonorsTheRequestedPath:
         assert out["output"] == str(stored)
         assert "copied to" not in out["note"]
 
+    def test_a_reused_directory_is_materialized_exactly_at_an_absent_destination(self, tmp_path: Path) -> None:
+        stored = tmp_path / "stored"
+        stored.mkdir()
+        (stored / "fresh.jsonl").write_text('{"duration": 1.0}\n', encoding="utf-8")
+        wanted = tmp_path / "wanted"
+        rec = _frozen([{"ref": "ManifestGroupExportStage", "params": {"output_dir": str(wanted)}}])
+
+        output, delivered = verbs._deliver_to_declared_path(rec, str(stored))
+
+        assert (output, delivered) == (str(wanted), True)
+        assert sorted(path.name for path in wanted.iterdir()) == ["fresh.jsonl"]
+
+    def test_delivery_refuses_when_the_validated_artifact_has_changed(self, tmp_path: Path) -> None:
+        stored = tmp_path / "stored.jsonl"
+        stored.write_text('{"duration": 2.0}\n', encoding="utf-8")
+        wanted = tmp_path / "wanted.jsonl"
+        rec = _frozen([_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(wanted)}}])
+
+        output, delivered = verbs._deliver_to_declared_path(
+            rec,
+            str(stored),
+            expected_digest="sha256:the-digest-recorded-before-the-source-changed",
+        )
+
+        assert (output, delivered) == (str(stored), False)
+        assert not wanted.exists()
+
+    def test_a_reused_directory_never_merges_with_an_existing_destination(self, tmp_path: Path) -> None:
+        stored = tmp_path / "stored"
+        stored.mkdir()
+        (stored / "fresh.jsonl").write_text('{"duration": 1.0}\n', encoding="utf-8")
+        wanted = tmp_path / "wanted"
+        wanted.mkdir()
+        stale = wanted / "stale.jsonl"
+        stale.write_text('{"duration": 99.0}\n', encoding="utf-8")
+        rec = _frozen([{"ref": "ManifestGroupExportStage", "params": {"output_dir": str(wanted)}}])
+
+        result = verbs._serve_as_is(
+            rec,
+            {"reuse_point": {"uri": str(stored), "rows": 1}},
+            parent=None,
+            lineage={},
+        )
+
+        assert result["status"] == "refused"
+        assert "could not be copied" in result["reason"]
+        assert stale.read_text(encoding="utf-8") == '{"duration": 99.0}\n'
+        assert not (wanted / "fresh.jsonl").exists(), "a verified artifact must not be merged with stale bytes"
+
     def test_an_undeliverable_path_is_refused_not_silently_redirected(self, tmp_path: Path) -> None:
         stored = tmp_path / "old.jsonl"
         stored.write_text('{"duration": 1.0}\n', encoding="utf-8")

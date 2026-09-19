@@ -71,13 +71,23 @@ _SECRET_WORDS = frozenset(
         "apikey",
         "credential",
         "credentials",
+        "authorization",
+        "cookie",
     }
 )
 # Secret names that span a separator, so they survive the word split as adjacent pairs
 # (``api_key`` -> ``api`` + ``key``). ``key`` alone is deliberately NOT a secret word: it
 # ends most semantic field names in this codebase (``audio_filepath_key``, ``score_key``).
 _SECRET_WORD_PAIRS = frozenset(
-    {("api", "key"), ("access", "key"), ("secret", "key"), ("private", "key"), ("auth", "key")}
+    {
+        ("api", "key"),
+        ("access", "key"),
+        ("account", "key"),
+        ("secret", "key"),
+        ("private", "key"),
+        ("auth", "key"),
+        ("connection", "string"),
+    }
 )
 # The same pairs written without a separator. ``secretkey`` has no boundary of any kind to
 # split on, so the pair rule cannot see it and it would otherwise read as one unknown word.
@@ -98,12 +108,19 @@ _SECRET_ASSIGNMENT = re.compile(
     (?P<prefix>
         ["']?
         [a-z0-9_-]*
-        (?:token|api[_-]?key|access[_-]?key|password|secret|credential)
+        (?:
+            token|api[_-]?key|access[_-]?key|account[_-]?key|password|secret|
+            credential|connection[_-]?string|authorization|cookie
+        )
         [a-z0-9_-]*
         ["']?
         \s*[:=]\s*
     )
     (?P<value>
+        basic\s+[A-Za-z0-9+/]{4,}={0,2}
+        |
+        bearer\s+[A-Za-z0-9._~+/=-]+
+        |
         "(?:\\.|[^"\\])*"
         |
         '(?:\\.|[^'\\])*'
@@ -112,6 +129,11 @@ _SECRET_ASSIGNMENT = re.compile(
     )
     """
 )
+# Some fsspec backends use a bare ``key`` for the access-key id. Globally treating that
+# name as a credential would destroy ordinary Curator fields such as ``score_key`` and
+# dictionaries whose literal key is part of the data contract, so this exception applies
+# only while walking a stage's ``storage_options`` subtree.
+_STORAGE_OPTION_SECRET_KEYS = frozenset({"key"})
 _HF_TOKEN_VALUE = re.compile(r"\bhf_[A-Za-z0-9]{8,}\b")
 _BEARER_VALUE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
 _BASIC_VALUE = re.compile(r"(?i)(?P<prefix>\bbasic\s+)(?P<value>[A-Za-z0-9+/]{4,}={0,2})(?=$|[^A-Za-z0-9+/=])")
@@ -395,25 +417,26 @@ def redact(obj: Any, *, redact_transcripts: bool = True) -> Any:  # noqa: ANN401
             return {k: _redacted_transcript(v) for k, v in value.items()}
         return value
 
-    def _r(o: Any) -> Any:  # noqa: ANN401
+    def _r(o: Any, *, in_storage_options: bool = False) -> Any:  # noqa: ANN401
         if isinstance(o, dict):
             out: dict[str, Any] = {}
             for k, v in o.items():
-                if _is_secret(k):
+                key = str(k).lower()
+                if _is_secret(k) or (in_storage_options and key in _STORAGE_OPTION_SECRET_KEYS):
                     out[k] = "<redacted-secret>"
                 elif redact_transcripts and str(k).lower() in _TRANSCRIPT_KEYS:
                     out[k] = _redacted_transcript(v)
                 else:
-                    out[k] = _r(v)
+                    out[k] = _r(v, in_storage_options=in_storage_options or key == "storage_options")
             return out
         # Every container the payload can actually hold, not just the two that were noticed
         # first. A secret nested inside a TUPLE used to be returned verbatim: the walk fell
         # through to ``return o`` and handed back the original object untouched.
         # ``contracts._clean`` has always flattened tuples and sets, so this was the outlier.
         if isinstance(o, (list, tuple)):
-            return [_r(v) for v in o]
+            return [_r(v, in_storage_options=in_storage_options) for v in o]
         if isinstance(o, (set, frozenset)):
-            return sorted((_r(v) for v in o), key=repr)
+            return sorted((_r(v, in_storage_options=in_storage_options) for v in o), key=repr)
         if isinstance(o, str):
             return redact_secret_text(o)
         return o

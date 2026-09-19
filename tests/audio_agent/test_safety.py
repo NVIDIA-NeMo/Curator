@@ -90,6 +90,52 @@ class TestRedact:
         assert "two words secret" not in redacted
         assert redacted.count("<redacted-secret>") == 2
 
+    def test_cloud_storage_credentials_are_redacted_without_destroying_semantic_keys(self) -> None:
+        """Storage backends use credential names that are not all token/password variants.
+
+        A bare ``key`` is credential-bearing under fsspec ``storage_options`` but an ordinary
+        semantic field everywhere else, so the redactor has to preserve that distinction.
+        """
+        payload = {
+            "score_key": "mos",
+            "storage_options": {
+                "key": "opaque-access-id",
+                "account_key": "opaque-account-key",
+                "connection_string": "opaque-connection-string",
+                "headers": {
+                    "Authorization": "opaque-authorization",
+                    "Cookie": "opaque-cookie",
+                },
+                "client_kwargs": {"endpoint_url": "https://storage.example.test"},
+            },
+        }
+
+        out = _safety.redact(payload, redact_transcripts=False)
+
+        encoded = json.dumps(out)
+        for secret in (
+            "opaque-access-id",
+            "opaque-account-key",
+            "opaque-connection-string",
+            "opaque-authorization",
+            "opaque-cookie",
+        ):
+            assert secret not in encoded
+        assert out["score_key"] == "mos"
+        assert out["storage_options"]["client_kwargs"]["endpoint_url"] == "https://storage.example.test"
+
+    def test_cloud_credentials_embedded_in_error_text_are_redacted(self) -> None:
+        text = (
+            "account_key=opaque-account connection_string='opaque connection' "
+            "Authorization: Basic dXNlcjpwYXNzd29yZA== Cookie='opaque cookie'"
+        )
+
+        redacted = _safety.redact_secret_text(text)
+
+        assert "opaque" not in redacted
+        assert "dXNlcjpwYXNzd29yZA==" not in redacted
+        assert redacted.count("<redacted-secret>") == 4
+
     def test_strips_basic_auth_url_userinfo_and_jwt(self) -> None:
         basic = "dXNlcjpwYXNzd29yZA=="
         jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"  # pragma: allowlist secret
