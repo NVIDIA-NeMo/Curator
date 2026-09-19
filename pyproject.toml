@@ -155,6 +155,11 @@ image_cuda12 = [
     "nvidia-dali-cuda120",
 ]
 
+# Nemotron OCR ships a CUDA extension and is intentionally opt-in.
+nemotron_ocr = [
+    "nemotron-ocr==2.0.2; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+]
+
 # Translation Dependencies
 translation_common = [
     "iso639-lang>=2.6.0",

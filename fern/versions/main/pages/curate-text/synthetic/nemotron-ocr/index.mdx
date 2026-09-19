@@ -41,7 +41,15 @@ The included runner starts a Ray cluster and uses `XennaExecutor`; it does not e
 
 ## Installation and model access
 
-Use the NeMo Curator container for this pipeline. In addition to CUDA and the normal SDG/image dependencies, the repository Dockerfile builds the `nemotron-ocr` C++/CUDA extension from the `nvidia/nemotron-ocr-v2` repository. Installing `sdg_cuda12` or `image_cuda12` alone does not install that extension.
+Install the dedicated `nemotron_ocr` extra on a Linux system with an NVIDIA GPU:
+
+```bash
+uv pip install "nemo-curator[nemotron_ocr]"
+```
+
+From a source checkout, use `uv sync --extra nemotron_ocr`. This installs a `nemotron-ocr` release compatible with Curator's pinned PyTorch version; installing `sdg_cuda12` or `image_cuda12` alone does not install it.
+
+Alternatively, use the NeMo Curator container, which includes the extension:
 
 ```bash
 docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
