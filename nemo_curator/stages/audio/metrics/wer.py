@@ -118,7 +118,10 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         # OR top-level WER over hypothesis+reference keys on the row.
         return StageContract(
             reads_one_of=[
-                IOSpec(data_keys=[self.segments_key]),
+                IOSpec(
+                    data_keys=[self.segments_key],
+                    segment_data_keys=[self.hypothesis_text_key, self.reference_text_key],
+                ),
                 IOSpec(data_keys=[self.hypothesis_text_key, self.reference_text_key]),
             ],
             writes=IOSpec(),

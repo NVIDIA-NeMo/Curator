@@ -995,6 +995,7 @@ def test_compute_wer_custom_keys_augment_existing_mapping() -> None:
 
     assert task.data["scores"]["prior"] == 1
     assert task.data["scores"]["wer"]["wer"] == 0.0
+    assert stage.describe().reads_one_of[0].segment_data_keys == ["hypothesis", "reference"]
 
 
 @pytest.mark.parametrize(
@@ -1201,6 +1202,12 @@ def test_conditional_metric_outputs_are_not_guaranteed_planner_writes(tmp_path: 
     assert valid_wer_input.ok
     assert valid_wer_input.keys_ok
     assert {"text", "text_ref"} <= valid_wer_input.produced_keys
+    missing_segment_text = validate_pipeline(
+        [compute_wer],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+    )
+    assert not missing_segment_text.ok
     wer_report = validate_pipeline(
         [compute_wer, _MetricsConsumer(nested=True)],
         initial_roles={"segments"},
