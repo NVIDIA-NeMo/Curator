@@ -91,6 +91,132 @@ class TestBaseDataDesignerStage:
         assert stage_file.config_builder is real_builder
         assert stage_file.data_designer_config_file == "/some/config.yaml"
 
+    def test_create_requires_artifact_path(self) -> None:
+        real_builder = _minimal_config_builder()
+
+        with pytest.raises(
+            ValueError,
+            match=r"requires an explicit 'artifact_path'",
+        ):
+            DataDesignerStage(
+                config_builder=real_builder,
+                use_create=True,
+            )
+
+    def test_create_rejects_create_only_options_when_disabled(self) -> None:
+        real_builder = _minimal_config_builder()
+
+        with pytest.raises(
+            ValueError,
+            match=r"only apply when 'use_create=True'",
+        ):
+            DataDesignerStage(
+                config_builder=real_builder,
+                artifact_path="/tmp/artifacts",
+            )
+
+        with pytest.raises(
+            ValueError,
+            match=r"only apply when 'use_create=True'",
+        ):
+            DataDesignerStage(
+                config_builder=real_builder,
+                resume=dd.ResumeMode.NEVER,
+            )
+
+    def test_create_defaults_resume_to_never(self, tmp_path: Path) -> None:
+        real_builder = _minimal_config_builder()
+
+        stage = DataDesignerStage(
+            config_builder=real_builder,
+            use_create=True,
+            artifact_path=str(tmp_path),
+        )
+
+        assert stage.use_create is True
+        assert stage.artifact_path == str(tmp_path)
+        assert stage.resume == dd.ResumeMode.NEVER
+
+    def test_process_uses_create_when_enabled(self, tmp_path: Path) -> None:
+        real_builder = _minimal_config_builder()
+
+        stage = DataDesignerStage(
+            config_builder=real_builder,
+            use_create=True,
+            artifact_path=str(tmp_path),
+        )
+        stage.setup()
+
+        output_df = pd.DataFrame(
+            [{"text": "hello", "generated": "world"}]
+        )
+
+        create_results = MagicMock()
+        create_results.load_dataset.return_value = output_df
+        create_results.load_analysis.return_value = None
+
+        stage.data_designer.create = MagicMock(
+            return_value=create_results,
+        )
+        stage.data_designer.preview = MagicMock(
+            side_effect=AssertionError("preview() must not be called")
+        )
+
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+        )
+
+        out_batch = stage.process(batch)
+
+        stage.data_designer.create.assert_called_once_with(
+            real_builder,
+            num_records=1,
+            dataset_name="ds1",
+            artifact_path=str(tmp_path),
+            resume=dd.ResumeMode.NEVER,
+        )
+        stage.data_designer.preview.assert_not_called()
+        create_results.load_dataset.assert_called_once_with()
+        create_results.load_analysis.assert_called_once_with()
+        assert out_batch.data is output_df
+
+    def test_process_uses_preview_by_default(self) -> None:
+        real_builder = _minimal_config_builder()
+
+        stage = DataDesignerStage(
+            config_builder=real_builder,
+        )
+        stage.setup()
+
+        output_df = pd.DataFrame(
+            [{"text": "hello", "generated": "world"}]
+        )
+
+        stage.data_designer.preview = MagicMock(
+            return_value=PreviewResults(
+                config_builder=real_builder,
+                dataset=output_df,
+            )
+        )
+        stage.data_designer.create = MagicMock(
+            side_effect=AssertionError("create() must not be called")
+        )
+
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+        )
+
+        out_batch = stage.process(batch)
+
+        stage.data_designer.preview.assert_called_once_with(
+            real_builder,
+            num_records=1,
+        )
+        stage.data_designer.create.assert_not_called()
+        assert out_batch.data is output_df
+
     def test_properties(self) -> None:
         """Stage name, default resources, and inputs/outputs."""
         stage = DataDesignerStage(config_builder=_minimal_config_builder())
