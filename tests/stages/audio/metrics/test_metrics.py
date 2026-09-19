@@ -141,7 +141,14 @@ class TestSquimResidency:
         )
         assert wf_stage.validate_input(AudioTask(data={"resampled_audio_filepath": "/a.wav"})) is False
         auto = TorchSquimQualityMetricsStage(input_residency="auto")
-        assert {a for s in auto.describe().reads_one_of for a in s.accepts} == {"file", "waveform"}
+        contract = auto.describe()
+        forms = {
+            accepted
+            for branch in contract.conditional_reads
+            for spec in branch.reads_one_of
+            for accepted in spec.accepts
+        }
+        assert forms == {"file", "waveform"}
 
     def test_custom_keys_resolve_and_collect_without_model(self) -> None:
         stage = TorchSquimQualityMetricsStage(
