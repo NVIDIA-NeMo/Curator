@@ -1,0 +1,30 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+input_config: ???
+output_dir: ???
+language: en
+primary_model: null
+recovery_model: null
+sed_checkpoint: null
+reader_concurrency: 2
+primary_batch_size: 64
+recovery_batch_size: 128
+
+regex_yaml: tutorials/audio/granary_v2/common.yaml
+hallucination_phrases: tutorials/audio/granary_v2/phrases.txt
+
+models:
+  qwen_omni: Qwen/Qwen3-Omni-30B-A3B-Instruct
+  qwen_asr: Qwen/Qwen3-ASR-0.6B
+  parakeet_v3: nvidia/parakeet-tdt-0.6b-v3
+  parakeet_riva: ???
+  whisper: large-v3
+  indic_monolingual: ai4bharat/indicconformer_stt_{language}_hybrid_ctc_rnnt_large
