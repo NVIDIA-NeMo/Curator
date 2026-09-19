@@ -194,6 +194,8 @@ Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for ta
 
 Ray Data may fuse adjacent operators when their compute and resource requirements are compatible. Matching resources enables the optimization but does not guarantee it; Ray Data makes the final optimizer decision. The [resource matching and fusion reference](/reference/infra/stage-worker-sizing#resource-matching-and-ray-data-fusion) explains the video-stage CPU reservation behavior.
 
+For scheduler diagnosis, refer to [Ray Data Scheduler Diagnostics](/reference/infra/monitoring#ray-data-scheduler-diagnostics).
+
 ## Per-Stage Runtime Environments
 
 All three backends support per-stage runtime environments, which allow individual stages to declare isolated Python dependencies. When a stage sets a `runtime_env`, the backend forwards it to Ray so that each stage's workers run in a dedicated virtualenv. This enables pipelines where stages require incompatible library versions.
