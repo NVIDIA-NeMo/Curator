@@ -488,6 +488,7 @@ def test_band_auto_contract_rejects_parent_audio_for_unhydrated_segments() -> No
     )
 
     assert not report.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
 
 @pytest.mark.parametrize("action", ["filter", "annotate"])
@@ -504,7 +505,6 @@ def test_malformed_nested_carriers_follow_action_policy(action: str, segments: o
         assert result is task
         if segments is None:
             assert task.data["segments"] == []
-    assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
 
 def test_band_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
