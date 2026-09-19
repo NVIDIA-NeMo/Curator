@@ -310,7 +310,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 self.speaker_key,
                 self.original_file_key,
             ]
-        output_keys = [self.filepath_key, self.diar_segments_key]
+        output_keys = [self.diar_segments_key]
         if self.num_speakers_key is not None:
             output_keys.append(self.num_speakers_key)
         return ["data"], output_keys
@@ -331,7 +331,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             ]
             cardinality = "1:N fan-out"
         else:
-            writes = [self.filepath_key, self.diar_segments_key]
+            writes = [self.diar_segments_key]
             if self.num_speakers_key is not None:
                 writes.append(self.num_speakers_key)
             cardinality = "1:1"

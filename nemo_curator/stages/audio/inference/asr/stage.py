@@ -189,6 +189,23 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             if self.extras_key in {self.pred_text_key, self.skip_me_key, self.notes_key}:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
+        input_keys = {
+            key
+            for key in (
+                self.audio_filepath_key,
+                self.waveform_key,
+                self.sample_rate_key,
+                self.source_lang_key,
+            )
+            if isinstance(key, str) and key
+        }
+        output_keys = {self.pred_text_key, self.skip_me_key, self.notes_key}
+        if self.extras_key is not None:
+            output_keys.add(self.extras_key)
+        collisions = sorted(input_keys & output_keys)
+        if collisions:
+            msg = f"ASRStage output/control keys must not collide with input keys: {collisions}"
+            raise ValueError(msg)
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)

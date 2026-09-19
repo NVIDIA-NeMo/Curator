@@ -570,6 +570,21 @@ def test_num_speakers_is_disabled_by_default_and_preserves_legacy_aliases(stage:
     assert stage_with_alias.num_speakers_key is None
 
 
+@rh.pytest.mark.parametrize("residency", ["file", "waveform"])
+def test_sortformer_non_fanout_contract_only_declares_generated_outputs(residency: str) -> None:
+    stage = rh.InferenceSortformerStage(
+        diar_model=rh.MagicMock(),
+        resources=rh.Resources(gpus=0),
+        input_residency=residency,
+    )
+
+    contract = rh.build_contract(stage)
+
+    assert stage.filepath_key not in contract.writes.data_keys
+    assert stage.filepath_key not in stage.outputs()[1]
+    assert contract.writes.data_keys == [stage.diar_segments_key]
+
+
 @rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
 def test_waveform_materialization_preserves_model_observed_samples(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch

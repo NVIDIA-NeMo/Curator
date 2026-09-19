@@ -533,6 +533,29 @@ def test_control_columns_cannot_be_used_as_prediction_key(pred_text_key: str) ->
         )
 
 
+@pytest.mark.parametrize("keep_waveform", [False, True])
+@pytest.mark.parametrize("output_field", ["skip_me_key", "notes_key", "pred_text_key", "extras_key"])
+def test_output_and_control_keys_cannot_alias_waveform_input(output_field: str, keep_waveform: bool) -> None:
+    with pytest.raises(ValueError, match="must not collide with input keys"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            waveform_key="waveform",
+            sample_rate_key="sample_rate",
+            keep_waveform=keep_waveform,
+            **{output_field: "waveform"},
+        )
+
+
+def test_output_key_cannot_alias_file_input() -> None:
+    with pytest.raises(ValueError, match="must not collide with input keys"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            pred_text_key="resampled_audio_filepath",
+        )
+
+
 @pytest.mark.parametrize(
     ("result", "expected_reason"),
     [
