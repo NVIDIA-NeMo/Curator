@@ -494,8 +494,8 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 (segment, translated_range)
                 for translated_range in _translate_to_original(
                     mappings,
-                    int(start_sec * 1000),
-                    int(end_sec * 1000),
+                    math.floor(start_sec * 1000),
+                    math.ceil(end_sec * 1000),
                 )
             )
         if not translated:
