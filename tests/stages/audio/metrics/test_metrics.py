@@ -610,8 +610,8 @@ def test_auto_residency_rejects_partial_pair_instead_of_different_file(
     if isinstance(stage, BandwidthEstimationStage):
         initial_keys.add("duration")
     report = validate_pipeline([stage], initial_keys=initial_keys, initial_roles=set())
-    assert not report.keys_ok
-    assert any(issue.code in {"unsatisfied_reads", "dangling_key"} for issue in report.issues)
+    assert not report.ok
+    assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
 
 @pytest.mark.parametrize(
