@@ -48,6 +48,9 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     data_designer_config_file: str | None = None
     model_providers: list | None = None
     verbose: bool = False
+    use_create: bool = False
+    artifact_path: str | None = None
+    resume: "dd.ResumeMode | None" = None
     data_designer: DataDesigner = field(init=False)
 
     def __post_init__(self) -> None:
@@ -68,6 +71,17 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # read config from file if config_builder is not set
         if self.config_builder is None:
             self.config_builder = dd.DataDesignerConfigBuilder.from_config(self.data_designer_config_file)
+
+        if self.use_create:
+            if not self.artifact_path:
+                msg = "DataDesignerStage(use_create=True) requires an explicit 'artifact_path'."
+                raise ValueError(msg)
+            if self.resume is None:
+                self.resume = dd.ResumeMode.NEVER
+        elif self.artifact_path is not None or self.resume is not None:
+            msg = "'artifact_path' and 'resume' only apply when 'use_create=True'."
+            raise ValueError(msg)
+
         self._init_data_designer()
 
     def __getstate__(self) -> dict:
@@ -134,8 +148,27 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         try:
             t1 = time.perf_counter()
-            results = self.data_designer.preview(self.config_builder, num_records=num_input_records)
-            df = results.dataset
+            if self.use_create:
+                results = self.data_designer.create(
+                    self.config_builder,
+                    num_records=num_input_records,
+                    dataset_name=batch.dataset_name,
+                    artifact_path=self.artifact_path,
+                    resume=self.resume,
+                )
+            else:
+                results = self.data_designer.preview(
+                    self.config_builder,
+                    num_records=num_input_records,
+                )
+
+            if self.use_create:
+                df = results.load_dataset()
+                analysis = results.load_analysis()
+            else:
+                df = results.dataset
+                analysis = results.analysis
+
             ndd_running_time = time.perf_counter() - t1
         finally:
             if not self.verbose:
@@ -147,9 +180,9 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # (these stats are available for LLM columns only)
         output_medians = []
         input_medians = []
-        if results.analysis:
+        if analysis:
             # Loop through all columns in the analysis that has LLM token stats
-            for col_stat in results.analysis.column_statistics:
+            for col_stat in analysis.column_statistics:
                 in_median = getattr(col_stat, "input_tokens_median", None)
                 out_median = getattr(col_stat, "output_tokens_median", None)
                 if isinstance(in_median, (int, float)):
