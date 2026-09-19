@@ -36,6 +36,7 @@ Output control uses two layers:
 """
 
 import math
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -456,6 +457,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             result = self._build_output_item_no_mapping(item)
 
         if self.sanitize_output:
+            original_file = result.get(self.original_file_key)
+            if isinstance(original_file, os.PathLike):
+                result[self.original_file_key] = os.fspath(original_file)
             sanitized = _jsonable_value(result, set())
             result = sanitized if isinstance(sanitized, dict) else {}
 

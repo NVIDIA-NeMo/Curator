@@ -473,6 +473,33 @@ def test_timestamp_mapper_multispeaker_maps_distinct_windows() -> None:
     assert spans == {"speaker_0": (100, 300), "speaker_1": (1100, 1300)}
 
 
+@pytest.mark.parametrize("mapped", [False, True], ids=["unmapped", "mapped"])
+def test_sanitization_preserves_pathlike_original_file(mapped: bool, tmp_path: Path) -> None:
+    source = tmp_path / "clip.wav"
+    if mapped:
+        task = _make_task(
+            {"start_ms": 0, "end_ms": 1000},
+            metadata={
+                "segment_mappings": [
+                    {
+                        "concat_start_ms": 0,
+                        "concat_end_ms": 1000,
+                        "original_file": source,
+                        "original_start_ms": 0,
+                    }
+                ]
+            },
+        )
+    else:
+        task = _make_task({"audio_filepath": source, "duration": 1.0})
+
+    result = TimestampMapperStage(sanitize_output=True).process(task)
+
+    assert isinstance(result, AudioTask)
+    assert result.data["original_file"] == str(source)
+    json.dumps(result.data)
+
+
 @pytest.mark.parametrize(
     "segment",
     [
