@@ -15,6 +15,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import fsspec
 import pandas as pd
 import pytest
 
@@ -109,6 +110,32 @@ class TestTextDuplicatesRemovalStage:
         assert all(
             stage._custom_metrics[k] > 0 for k in ["input_df_min_max_time", "read_dupes_time", "id_removal_time"]
         )
+
+    def test_process_reads_remote_removal_directory(self, sample_document_batch: DocumentBatch):
+        removal_url = "memory://curator-test/removals"
+        filesystem, removal_path = fsspec.core.url_to_fs(removal_url)
+        pd.DataFrame({"id": [2, 4]}).to_parquet(f"{removal_url}/ids.parquet")
+
+        with (
+            patch(
+                "nemo_curator.stages.text.deduplication.removal.url_to_fs", wraps=fsspec.core.url_to_fs
+            ) as url_to_fs,
+            patch(
+                "nemo_curator.stages.text.deduplication.removal.pd.read_parquet", wraps=pd.read_parquet
+            ) as read_parquet,
+        ):
+            stage = TextDuplicatesRemovalStage(ids_to_remove_path=removal_url)
+            result = stage.process(sample_document_batch)
+            stage.process(sample_document_batch)
+            provided_stage = TextDuplicatesRemovalStage(
+                ids_to_remove_path=removal_url, read_kwargs={"filesystem": filesystem}
+            )
+            provided_stage.process(sample_document_batch)
+
+        assert sorted(result.to_pandas()[CURATOR_DEDUP_ID_STR].tolist()) == [1, 3, 5]
+        assert all(call.args[0] == removal_path for call in read_parquet.call_args_list)
+        assert all(call.kwargs["filesystem"] is filesystem for call in read_parquet.call_args_list)
+        url_to_fs.assert_called_once_with(removal_url)
 
     @patch("pandas.read_parquet")
     def test_process_with_no_matching_ids(
