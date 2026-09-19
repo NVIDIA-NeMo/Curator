@@ -46,17 +46,19 @@ if TYPE_CHECKING:
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
 
 from .config import _deep_merge, get_enabled_stages, load_config
 
 
-class AudioDataFilterStage(CompositeStage):
+class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     """Complete audio data filtering and curation pipeline (CompositeStage).
 
     Decomposes into independent stages that the executor can schedule with
@@ -78,6 +80,8 @@ class AudioDataFilterStage(CompositeStage):
         name: Name for this composite stage instance.
     """
 
+    AGENT_STATIC = StaticHints(gates=Gates(per_row_independent=True))
+
     def __init__(
         self,
         config_path: str | Path | None = None,
@@ -89,6 +93,16 @@ class AudioDataFilterStage(CompositeStage):
         self._cfg = load_config(config_path)
         if config:
             self._cfg = _deep_merge(self._cfg, config)
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            wrappable=False,
+            # True for every topology because it is true of each delegate: mono conversion, VAD,
+            # the three quality filters, concatenation, speaker separation and the timestamp
+            # mapper all work from the row they are handed. The factories below leave
+            # ``write_to_disk`` unset throughout, so none of them even opens a shared directory.
+            gates=Gates(per_row_independent=True),
+        )
 
     def decompose(self) -> list[ProcessingStage]:
         """Build a self-consistent pipeline topology based on enabled features."""
