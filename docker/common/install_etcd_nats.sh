@@ -17,8 +17,8 @@ set -xeuo pipefail
 
 # nats-server matches upstream ai-dynamo/dynamo container/context.yaml. etcd
 # leads Dynamo's pin (3.5.30) to the latest 3.5.x patch to clear the bundled
-# grpc-go + x/net CVEs; 3.5.x binaries stay wire-compatible with Dynamo.
-ETCD_VERSION=3.5.32
+# grpc-go + x/net + x/text CVEs; 3.5.x binaries stay wire-compatible with Dynamo.
+ETCD_VERSION=3.5.33
 NATS_VERSION=2.10.28
 
 for i in "$@"; do
