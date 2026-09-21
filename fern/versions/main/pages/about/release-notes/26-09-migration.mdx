@@ -1,0 +1,56 @@
+---
+description: "Draft migration checklist for upgrading NeMo Curator workflows to 26.09"
+categories: ["reference", "how-to"]
+tags: ["migration", "upgrade", "26.09"]
+personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Migrate to NeMo Curator 26.09
+
+Use this draft checklist to review applications and environments for the planned 26.09 release. The package version and publication status are not confirmed. For the feature summary, refer to the [26.09 release notes](/about/release-notes).
+
+## Migration at a Glance
+
+| Area | Action | Affected users |
+| --- | --- | --- |
+| Release status | Confirm the published package version and release tag before upgrading | Everyone |
+| Semantic deduplication | Review the new `float16` Pairwise default, `pairwise_batch_size=1024`, and precision requirements | Semantic deduplication workflows |
+| KMeans memory | Review `fit_data_fraction` and second-pass Parquet assignment behavior | Large semantic deduplication workflows |
+| Worker sizing | Consider `with_(num_workers_per_node=...)` for node-relative sizing | Multi-node pipelines |
+| Tooling | Use `uv` 0.12 or later | All source and container installations |
+| vLLM on GB200 | Install `quack-kernels>=0.4.1` through the vLLM extra | GB200 inference-server deployments |
+| Nemotron-Parse examples | Use `InterleavedParquetWriterStage(path=...)` | Nemotron-Parse users |
+| Media dependencies | Include the `cv2` extra and install FFmpeg only for workflows that use them | Image, audio, and video workflows |
+
+## Review Semantic Deduplication Precision
+
+Pairwise compute defaults to `float16` and processes ranked neighbors in batches of 1,024. Keep the default after validating duplicate outputs for your data. Set `pairwise_compute_dtype="float32"` with float32 embeddings when your workflow requires that precision, and validate results when changing precision.
+
+KMeans can fit centroids from a sample of complete Parquet files and then reread all input for assignment. Review `fit_data_fraction` and leave GPU memory for reading, prediction, and writing. Refer to [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup) for the current configuration.
+
+## Update Worker Configuration
+
+Consider `stage.with_(num_workers_per_node=...)` when worker capacity should follow the number of live nodes. Do not combine it with `num_workers` or Ray Data actor-pool min/max/initial settings. Existing Xenna stage-spec values remain compatible when the common hook is unset. Refer to [Stage Worker Sizing](/reference/infra/stage-worker-sizing).
+
+## Check Tooling and Inference Dependencies
+
+Use `uv` 0.12 or later to satisfy the project requirement. For GB200 vLLM startup, use `quack-kernels>=0.4.1`.
+
+Use the installation command shown on the current [installation page](/get-started/installation).
+
+The `all` extra no longer installs OpenCV. Include the `cv2` extra for workflows that require it. Install FFmpeg separately when required by audio or video workflows.
+
+## Update Nemotron-Parse Examples
+
+Replace unsupported writer imports or constructor arguments with `InterleavedParquetWriterStage(path=...)`. In-process and Ray Serve inference select architecture-aware attention defaults. Preserve an explicit `attention_backend` only when your deployment requires it. Refer to [Nemotron-Parse PDF processing](/curate-text/load-data/nemotron-parse-pdf).
+
+## Validate Before Adoption
+
+1. Confirm the final release tag, package version, lockfile, and container image.
+2. Reinstall the extras used by your pipeline with the release lockfile.
+3. Run semantic deduplication on a representative sample and compare duplicate IDs at the selected precision.
+4. Run a representative multi-node pipeline and verify worker placement and output manifests.
+5. Validate Nemotron-Parse output on each GPU architecture used in production.
