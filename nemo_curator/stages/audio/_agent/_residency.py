@@ -116,7 +116,7 @@ def normalize_audio_waveform(
 ) -> torch.Tensor:
     """Convert supported resident audio to channel-first float32."""
     try:
-        tensor = waveform.detach() if torch.is_tensor(waveform) else torch.as_tensor(waveform)
+        tensor = waveform if torch.is_tensor(waveform) else torch.as_tensor(waveform)
     except Exception as ex:
         msg = f"[{stage_name}] Resident waveform must be convertible to a torch tensor"
         raise TypeError(msg) from ex
@@ -136,6 +136,9 @@ def normalize_audio_waveform(
             "expected a floating dtype or signed PCM int16/int32"
         )
         raise TypeError(msg)
+
+    if tensor.requires_grad:
+        tensor = tensor.detach()
 
     tensor = ensure_waveform_2d(tensor)
     if mono and tensor.shape[0] > 1:
