@@ -43,9 +43,15 @@ entries:
 
   - name: exact_dedup_identification
     timeout_s: 2400
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
 
   - name: fuzzy_dedup_identification
     timeout_s: 2400
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
 
   - name: minhash_file_group_task_ray_actors
     timeout_s: 1024
@@ -232,6 +238,12 @@ entries:
     timeout_s: 2400
 
   - name: nemotron_parse_pdf_raydata
+    timeout_s: 2400
+
+  - name: nemotron_parse_pdf_inference_server_ray_serve
+    timeout_s: 2400
+
+  - name: nemotron_parse_pdf_inference_server_dynamo
     timeout_s: 2400
 
   - name: alm_pipeline_xenna

@@ -30,6 +30,9 @@ class ArxivDownloader(DocumentDownloader):
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
             raise RuntimeError(msg)
 
+    def num_workers_per_node(self) -> int:
+        return 2
+
     def _get_output_filename(self, url: str) -> str:
         # Use tarfile name as output filename
         return url
