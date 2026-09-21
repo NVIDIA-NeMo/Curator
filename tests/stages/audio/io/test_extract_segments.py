@@ -719,6 +719,44 @@ class TestSegmentExtractionStageProcessBatch:
 
         assert sorted(path.name for path in output_dir.glob("*.wav")) == ["file_a_segment_000.wav"]
 
+    def test_retry_recovers_valid_reservations_before_a_torn_wal_tail(
+        self, wav_dir: Path, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "extracted"
+        first_data = {
+            "original_file": _wav_path(wav_dir),
+            "original_start_ms": 0,
+            "original_end_ms": 500,
+            "duration": 0.5,
+        }
+        first = AudioTask(data=first_data.copy(), dataset_name="test")
+        first._set_task_id("source", 0)
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([first])
+
+        state_path = output_dir / ".segment_extraction_state.json"
+        with state_path.open("a", encoding="utf-8") as state_file:
+            state_file.write('{"version":2,"resume_key":')
+
+        retried = AudioTask(data=first_data.copy(), dataset_name="test")
+        retried._set_task_id("source", 0)
+        second = AudioTask(
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 500,
+                "original_end_ms": 1000,
+                "duration": 0.5,
+            },
+            dataset_name="test",
+        )
+        second._set_task_id("source", 1)
+
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried, second])
+
+        assert [Path(path).name for path in retried.data["extracted_path"]] == ["file_a_segment_000.wav"]
+        assert [Path(path).name for path in second.data["extracted_path"]] == ["file_a_segment_001.wav"]
+        records = [json.loads(line) for line in state_path.read_text().splitlines()]
+        assert len(records) == 2
+
     def test_nested_speaker_reservations_keep_parent_task_identity(self, wav_dir: Path, tmp_path: Path) -> None:
         output_dir = tmp_path / "extracted"
         task_data = {

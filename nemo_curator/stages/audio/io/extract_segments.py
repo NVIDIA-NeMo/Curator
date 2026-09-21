@@ -545,10 +545,26 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 self._state_is_wal = False
             else:
                 segments = {}
-                for line in content.splitlines():
+                lines = content.splitlines(keepends=True)
+                for line_index, line in enumerate(lines):
                     if not line.strip():
                         continue
-                    payload = json.loads(line)
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError:
+                        is_torn_tail = (
+                            bool(segments)
+                            and line_index == len(lines) - 1
+                            and not content.endswith(("\n", "\r"))
+                        )
+                        if not is_torn_tail:
+                            raise
+                        logger.warning(
+                            f"[{self.name}] Ignoring an incomplete final extraction reservation; "
+                            "the valid prefix will be rewritten before the next reservation"
+                        )
+                        self._state_is_wal = False
+                        break
                     if not isinstance(payload, dict) or payload.get("version") != 2:
                         message = f"[{self.name}] Cannot safely resume from malformed extraction state"
                         raise TypeError(message)
