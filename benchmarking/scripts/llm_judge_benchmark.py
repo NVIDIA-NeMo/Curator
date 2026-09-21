@@ -147,9 +147,17 @@ def run_llm_judge_benchmark(  # noqa: PLR0913
     run_time_taken = time.perf_counter() - run_start_time
     output_row_count = _count_jsonl_rows(output_path_obj)
     row_count_match = input_row_count == output_row_count
-    throughput_rows_per_sec = output_row_count / run_time_taken if run_time_taken > 0 else 0.0
 
-    logger.success(f"LLM judge benchmark completed in {run_time_taken:.2f}s")
+    # Server startup (loading + health-checking both configured models) is a fixed
+    # one-time cost that can dominate a short benchmark run; exclude it from the
+    # reported throughput the same way ndd_benchmark.py does, so the metric reflects
+    # steady-state processing rate instead of an average depressed by amortizing
+    # startup over a small row count.
+    serve_startup_s = workflow_result.get_metadata("serve_startup_s") or 0.0
+    pipeline_time_s = workflow_result.get_metadata("pipeline_time_s") or run_time_taken
+    throughput_rows_per_sec = output_row_count / pipeline_time_s if pipeline_time_s > 0 else 0.0
+
+    logger.success(f"LLM judge benchmark completed in {run_time_taken:.2f}s (serve startup: {serve_startup_s:.1f}s)")
     logger.success(f"Input: {input_row_count} rows")
     logger.success(f"Output: {output_row_count} rows")
     logger.success(f"Throughput: {throughput_rows_per_sec:.2f} rows/sec")
@@ -157,7 +165,9 @@ def run_llm_judge_benchmark(  # noqa: PLR0913
     return {
         "metrics": {
             "is_success": True,
-            "time_taken_s": run_time_taken,
+            "time_taken_s": pipeline_time_s,
+            "total_time_s": run_time_taken,
+            "serve_startup_s": serve_startup_s,
             "input_row_count": input_row_count,
             "output_row_count": output_row_count,
             "input_output_row_count_match": row_count_match,

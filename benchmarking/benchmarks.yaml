@@ -1556,6 +1556,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     # TODO: Add requirements after establishing correctness and performance baselines.
@@ -1581,6 +1582,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
@@ -1605,6 +1607,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
@@ -1629,6 +1632,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
@@ -1658,6 +1662,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
@@ -1685,6 +1690,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
@@ -1713,6 +1719,7 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
@@ -1737,6 +1744,92 @@ entries:
           - output_row_count
           - input_output_row_count_match
           - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Brackets nw_qwen12_gemma6_seqs40_mpr256 from below at the same ~2:1 ratio
+  # (fewer total workers) to help locate the actual optimum along the
+  # ratio-preserving worker-count curve.
+  - name: llm_judge_qwen_gemma_nw_qwen10_gemma5_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen10_gemma5_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Brackets nw_qwen12_gemma6_seqs40_mpr256 from above at the same ~2:1 ratio
+  # (between 12/6 and 16/8) to help locate the actual optimum along the
+  # ratio-preserving worker-count curve.
+  - name: llm_judge_qwen_gemma_nw_qwen14_gemma7_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen14_gemma7_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Same asymmetric ratio/worker counts as nw_qwen16_gemma8_seqs40_mpr256, but
+  # with max_parallel_requests doubled to 512 — tests whether that config's
+  # underperformance vs. nw_qwen12_gemma6_seqs40_mpr256 was a real
+  # diminishing-returns ceiling or num_workers outrunning the mpr budget.
+  - name: llm_judge_qwen_gemma_nw_qwen16_gemma8_seqs40_mpr512
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen16_gemma8_seqs40_mpr512.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
