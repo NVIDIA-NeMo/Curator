@@ -341,10 +341,8 @@ class TestFilePartitioningStageGetters:
 
     def test_get_file_list_invalid_input(self):
         """Test that invalid input types raise TypeError."""
-        stage = FilePartitioningStage(file_paths=123)  # Invalid type
-
         with pytest.raises(TypeError, match="Invalid file paths"):
-            stage._get_file_list_with_sizes()
+            FilePartitioningStage(file_paths=123)  # type: ignore[arg-type]
 
     def test_parse_bytes_string_to_int(self):
         """Test parse_bytes_string_to_int method."""
