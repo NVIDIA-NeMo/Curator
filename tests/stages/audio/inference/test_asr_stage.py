@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import soundfile as sf
+import torch
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
@@ -410,6 +411,38 @@ def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> 
     assert inferred_item["waveform"].shape == (_SR,)
     assert inferred_item["waveform"].dtype == np.float32
     stage._load_audio.assert_not_called()
+
+
+@pytest.mark.parametrize(("dtype", "subtype"), [(np.int16, "PCM_16"), (np.int32, "PCM_32")])
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("as_torch", [False, True], ids=["numpy", "torch"])
+def test_resident_signed_pcm_matches_file_loading(
+    tmp_path: Path,
+    dtype: type[np.signedinteger],
+    subtype: str,
+    channels: int,
+    as_torch: bool,
+) -> None:
+    limits = np.iinfo(dtype)
+    mono = np.array([limits.min, limits.min // 2, 0, limits.max // 2, limits.max], dtype=dtype)
+    channel_first = np.stack([mono] * channels) if channels > 1 else mono
+    resident = torch.from_numpy(channel_first.copy()) if as_torch else channel_first
+    audio_path = tmp_path / f"resident-parity-{dtype.__name__}-{channels}.wav"
+    sf.write(audio_path, channel_first.T if channels > 1 else channel_first, _SR, subtype=subtype)
+
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+    )
+    file_waveform, file_sample_rate = stage._load_audio(str(audio_path))
+
+    resident_prepared = stage._prepare_waveform(resident, _SR)
+    file_prepared = stage._prepare_waveform(file_waveform, file_sample_rate)
+
+    np.testing.assert_allclose(resident_prepared, file_prepared, rtol=0.0, atol=1e-7)
+    assert resident_prepared.dtype == np.float32
+    assert np.max(np.abs(resident_prepared)) <= 1.0
 
 
 @pytest.mark.parametrize(
