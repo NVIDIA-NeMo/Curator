@@ -96,6 +96,17 @@ class CreateInitialManifestFleursStage(AgentReady, ProcessingStage[EmptyTask, Au
             if not getattr(self, attr):
                 msg = f"{attr} is required for CreateInitialManifestFleursStage"
                 raise ValueError(msg)
+        output_key_fields = {
+            "filepath_key": self.filepath_key,
+            "text_key": self.text_key,
+        }
+        for field_name, key in output_key_fields.items():
+            if not isinstance(key, str) or not key.strip():
+                msg = f"{field_name} must be a non-empty string"
+                raise ValueError(msg)
+        if self.filepath_key == self.text_key:
+            msg = f"filepath_key={self.filepath_key!r} conflicts with text_key"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

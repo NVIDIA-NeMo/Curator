@@ -91,6 +91,10 @@ def test_custom_output_keys_are_used_everywhere(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "kwargs",
     [
+        {"filepath_key": ""},
+        {"filepath_key": "   "},
+        {"text_key": ""},
+        {"filepath_key": "value", "text_key": "value"},
         {"sample_rate_key": ""},
         {"sample_rate_key": "audio_filepath"},
         {"book_id_key": "text"},
@@ -98,7 +102,7 @@ def test_custom_output_keys_are_used_everywhere(tmp_path: Path) -> None:
         {"book_id_key": "identity", "reader_id_key": "identity"},
     ],
 )
-def test_new_output_keys_reject_empty_names_and_collisions(tmp_path: Path, kwargs: dict) -> None:
+def test_output_keys_reject_empty_names_and_collisions(tmp_path: Path, kwargs: dict) -> None:
     with pytest.raises(ValueError, match=r"must be a non-empty string|conflicts with"):
         CreateInitialManifestReadSpeechStage(raw_data_dir=str(tmp_path), auto_download=False, **kwargs)
 

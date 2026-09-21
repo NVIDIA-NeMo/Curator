@@ -273,6 +273,28 @@ def test_process_uses_renamed_output_keys_declared_by_contract(tmp_path: Path) -
     assert build_contract(stage).writes.data_keys == ["path", "transcript"]
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"filepath_key": ""},
+        {"filepath_key": "   "},
+        {"text_key": ""},
+        {"filepath_key": "value", "text_key": "value"},
+    ],
+)
+def test_output_keys_reject_empty_names_and_collisions(tmp_path: Path, kwargs: dict) -> None:
+    stage_cls, _ = _import_stage_module()
+
+    with pytest.raises(ValueError, match=r"must be a non-empty string|conflicts with"):
+        stage_cls(
+            lang="hy_am",
+            split="train",
+            raw_data_dir=str(tmp_path),
+            auto_download=False,
+            **kwargs,
+        )
+
+
 def test_agent_conformance(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
     raw_dir = _stage_prestaged_layout(tmp_path)

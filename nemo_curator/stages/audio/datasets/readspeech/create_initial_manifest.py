@@ -86,10 +86,8 @@ class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask
             "book_id_key": self.book_id_key,
             "reader_id_key": self.reader_id_key,
         }
-        new_key_fields = ("sample_rate_key", "book_id_key", "reader_id_key")
-        for field_name in new_key_fields:
-            key = output_key_fields[field_name]
-            if not isinstance(key, str) or not key:
+        for field_name, key in output_key_fields.items():
+            if not isinstance(key, str) or not key.strip():
                 msg = f"{field_name} must be a non-empty string"
                 raise ValueError(msg)
             conflicting_fields = sorted(
