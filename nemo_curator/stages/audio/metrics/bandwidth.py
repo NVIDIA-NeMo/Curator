@@ -160,6 +160,11 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         allows it, an in-memory ``waveform_key``+``sample_rate_key``.
         """
         data = task.data
+        try:
+            segments = self._segments_for_entry(data)
+        except TypeError as error:
+            logger.error(str(error))
+            return False
         has_waveform = resident_pair_is_complete(
             data,
             residency=self.input_residency,
@@ -180,12 +185,27 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 f"need '{self.audio_filepath_key}' or '{self.waveform_key}'+'{self.sample_rate_key}'"
             )
             return False
-        if self.segments_key in data or self.duration_key in data:
+        if segments is not None or self.duration_key in data:
             return True
         logger.error(
             f"Task {task.task_id} missing required attributes: need '{self.segments_key}' OR '{self.duration_key}'"
         )
         return False
+
+    def _segments_for_entry(self, data_entry: dict[str, Any]) -> list[Any] | None:
+        """Return normalized nested segments, preserving key absence as top-level mode."""
+        if self.segments_key not in data_entry:
+            return None
+        segments = data_entry[self.segments_key]
+        if segments is None:
+            return []
+        if not isinstance(segments, list):
+            msg = (
+                f"[{self.name}] Segment container '{self.segments_key}' must be a list or null, "
+                f"got {type(segments).__name__}"
+            )
+            raise TypeError(msg)
+        return segments
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""
@@ -275,10 +295,17 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def process(self, task: AudioTask) -> AudioTask:
         """Estimate bandwidth for audio entry."""
         data_entry = task.data
+        segments = self._segments_for_entry(data_entry)
         audio, sample_rate = self._resolve_entry_audio(data_entry)
 
-        if self.segments_key in data_entry:
-            for segment in data_entry[self.segments_key]:
+        if segments is not None:
+            for segment_index, segment in enumerate(segments):
+                if not isinstance(segment, dict):
+                    logger.warning(
+                        f"[{self.name}] skipping malformed segment {segment_index} in {task.task_id}: "
+                        f"expected a mapping, got {type(segment).__name__}"
+                    )
+                    continue
                 try:
                     self.get_bandwidth(segment, audio, sample_rate)
                 except ValueError as ex:

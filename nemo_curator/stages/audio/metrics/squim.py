@@ -171,6 +171,11 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
         default, unchanged behavior).
         """
         data = task.data
+        try:
+            self._segments_for_entry(data)
+        except TypeError as error:
+            logger.error(str(error))
+            return False
         has_waveform = resident_pair_is_complete(
             data,
             residency=self.input_residency,
@@ -193,6 +198,21 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
             f"(segments alone are not sufficient — SQUIM loads audio)"
         )
         return False
+
+    def _segments_for_entry(self, data_entry: dict[str, Any]) -> list[Any] | None:
+        """Return normalized nested segments, preserving key absence as top-level mode."""
+        if self.segments_key not in data_entry:
+            return None
+        segments = data_entry[self.segments_key]
+        if segments is None:
+            return []
+        if not isinstance(segments, list):
+            msg = (
+                f"[{self.name}] Segment container '{self.segments_key}' must be a list or null, "
+                f"got {type(segments).__name__}"
+            )
+            raise TypeError(msg)
+        return segments
 
     @property
     def _device(self) -> str:
@@ -295,6 +315,7 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
 
         Returns a list of (task_idx, segment_idx, waveform) tuples.
         """
+        segments = self._segments_for_entry(data_entry)
         audio, sr = self._resolve_entry_audio(data_entry)
         # Names the entry in the zero-length-segment warning below. Not the path directly:
         # ``_resolve_entry_audio`` also serves resident waveforms, which have no file, and the
@@ -303,9 +324,14 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
         source = data_entry.get(self.audio_filepath_key) or data_entry.get("audio_item_id", "unknown")
 
         collected: list[tuple[int, int, torch.Tensor]] = []
-        if self.segments_key in data_entry:
-            segments = data_entry[self.segments_key]
+        if segments is not None:
             for seg_idx, segment in enumerate(segments):
+                if not isinstance(segment, dict):
+                    logger.warning(
+                        f"[{self.name}] skipping malformed segment {seg_idx} in {source}: "
+                        f"expected a mapping, got {type(segment).__name__}"
+                    )
+                    continue
                 if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
                     continue
 
@@ -379,8 +405,9 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
             for rank, (pesq_val, stoi_val, sisdr_val) in enumerate(sorted_results):
                 orig_idx = sorted_indices[rank]
                 task_idx, seg_idx, _ = all_waveform_metadata[orig_idx]
-                if self.segments_key in tasks[task_idx].data:
-                    segment = tasks[task_idx].data[self.segments_key][seg_idx]
+                segments = self._segments_for_entry(tasks[task_idx].data)
+                if segments is not None:
+                    segment = segments[seg_idx]
                     self.update_metrics(segment, pesq_val, stoi_val, sisdr_val)
                 else:
                     self.update_metrics(tasks[task_idx].data, pesq_val, stoi_val, sisdr_val)

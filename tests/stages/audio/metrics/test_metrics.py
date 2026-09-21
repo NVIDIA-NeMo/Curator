@@ -192,6 +192,68 @@ class TestSquimZeroLengthSegments:
         assert [seg_idx for _, seg_idx, _ in collected] == [1]  # the zero-length one is skipped
 
 
+class TestMetricSegmentContainers:
+    def test_bandwidth_treats_null_segments_as_an_empty_nested_container(self) -> None:
+        stage = BandwidthEstimationStage(input_residency="waveform")
+        task = AudioTask(
+            dataset_name="d",
+            data={"waveform": np.zeros(16000, dtype=np.float32), "sample_rate": 16000, "segments": None},
+        )
+
+        assert stage.validate_input(task)
+        assert stage.process(task) is task
+        assert task.data["segments"] is None
+
+    def test_squim_treats_null_segments_as_an_empty_nested_container(self) -> None:
+        stage = TorchSquimQualityMetricsStage(input_residency="waveform")
+        entry = {"waveform": np.zeros(16000, dtype=np.float32), "sample_rate": 16000, "segments": None}
+
+        assert stage.validate_input(AudioTask(dataset_name="d", data=entry))
+        assert stage._collect_waveforms_for_entry(0, entry) == []
+
+    def test_wer_treats_null_segments_as_an_empty_nested_container(self) -> None:
+        stage = ComputeWERStage()
+        task = AudioTask(dataset_name="d", data={"segments": None})
+
+        assert stage.validate_input(task)
+        assert stage.process(task) is task
+
+    @pytest.mark.parametrize(
+        ("stage", "data"),
+        [
+            (
+                BandwidthEstimationStage(input_residency="waveform"),
+                {"waveform": np.zeros(10, dtype=np.float32), "sample_rate": 16000, "segments": {}},
+            ),
+            (
+                TorchSquimQualityMetricsStage(input_residency="waveform"),
+                {"waveform": np.zeros(10, dtype=np.float32), "sample_rate": 16000, "segments": {}},
+            ),
+            (ComputeWERStage(), {"segments": {}}),
+        ],
+    )
+    def test_validate_input_rejects_non_list_segment_containers(
+        self, stage: ProcessingStage, data: dict[str, object]
+    ) -> None:
+        assert stage.validate_input(AudioTask(dataset_name="d", data=data)) is False
+
+    def test_metric_stages_skip_malformed_segment_children(self) -> None:
+        audio = np.zeros(16000, dtype=np.float32)
+        bandwidth = BandwidthEstimationStage(input_residency="waveform")
+        bandwidth.process(
+            AudioTask(data={"waveform": audio, "sample_rate": 16000, "segments": [None]})
+        )
+
+        squim = TorchSquimQualityMetricsStage(input_residency="waveform")
+        assert squim._collect_waveforms_for_entry(
+            0, {"waveform": audio, "sample_rate": 16000, "segments": [None]}
+        ) == []
+
+        wer = ComputeWERStage()
+        task = AudioTask(data={"segments": [None]})
+        assert wer.process(task) is task
+
+
 class TestComputeWERStage:
     """Tests for ComputeWERStage helpers and process."""
 
