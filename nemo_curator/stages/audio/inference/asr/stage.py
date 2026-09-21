@@ -38,6 +38,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
+from nemo_curator.stages.audio._agent._residency import normalize_audio_waveform
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 
@@ -101,8 +102,6 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
-_MONO_DIMENSIONS = 1
-_CHANNEL_FIRST_DIMENSIONS = 2
 
 
 def _set_note(task_data: dict[str, Any], notes_key: str, stage_name: str, value: str) -> None:
@@ -333,14 +332,9 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             msg = f"sample rate must be > 0, got {source_sample_rate}"
             raise ValueError(msg)
 
-        tensor = torch.as_tensor(waveform, dtype=torch.float32)
-        if tensor.ndim not in {_MONO_DIMENSIONS, _CHANNEL_FIRST_DIMENSIONS}:
-            msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
-            raise ValueError(msg)
+        tensor = normalize_audio_waveform(waveform, stage_name=self.name, mono=True).squeeze(0)
         if tensor.numel() == 0:
             return np.empty(0, dtype=np.float32)
-        if tensor.ndim == _CHANNEL_FIRST_DIMENSIONS:
-            tensor = tensor.mean(dim=0)
         if source_sample_rate != self.target_sample_rate:
             tensor = torchaudio.functional.resample(
                 tensor,
