@@ -100,6 +100,16 @@ class RayActorPoolExecutor(BaseExecutor):
         self.show_progress = show_progress
         self.progress_interval = progress_interval
 
+    @staticmethod
+    def _get_stage_spec(stage: "ProcessingStage") -> dict:
+        stage_spec = stage.ray_stage_spec()
+        if RayStageSpecKeys.USE_TASK_WEIGHTS in stage_spec and not stage_spec.get(
+            RayStageSpecKeys.IS_RAFT_ACTOR, False
+        ):
+            msg = f"Stage {stage.name} sets use_task_weights but is not a RAFT stage"
+            raise RuntimeError(msg)
+        return stage_spec
+
     def execute(  # noqa: PLR0912, PLR0915
         self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None
     ) -> list[Task]:
@@ -154,7 +164,8 @@ class RayActorPoolExecutor(BaseExecutor):
                     self.ignore_head_node,
                 )
 
-                if stage.ray_stage_spec().get(RayStageSpecKeys.IS_LSH_STAGE, False):
+                stage_spec = self._get_stage_spec(stage)
+                if stage_spec.get(RayStageSpecKeys.IS_LSH_STAGE, False):
                     current_tasks = self._execute_lsh_stage(
                         stage,
                         current_tasks,
@@ -181,16 +192,16 @@ class RayActorPoolExecutor(BaseExecutor):
                     )
                     # TODO: Clean up branching logic and handling here
                     # Check if this is a RAFT stage and create appropriate actor pool
-                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+                    if stage_spec.get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
                         logger.info(f"  Creating RAFT actor pool for stage: {stage.name}")
                         actor_pool = self._create_raft_actor_pool(stage, num_actors, session_id)
-                    elif stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+                    elif stage_spec.get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
                         logger.info(f"  Creating Shuffle actors for stage: {stage.name}")
                         actor_pool = self._create_rapidsmpf_actors(stage, num_actors, len(current_tasks))
                     else:
                         actor_pool = self._create_actor_pool(stage, num_actors)
                     logger.info(f"Created actor pool for {stage.name} with {num_actors} actors")
-                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+                    if stage_spec.get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
                         current_tasks = self._process_shuffle_stage_with_rapidsmpf_actors(actor_pool, current_tasks)
                         # Clean up actor pool
                         self._cleanup_actors(actor_pool)
@@ -355,25 +366,30 @@ class RayActorPoolExecutor(BaseExecutor):
         Returns:
             List of processed Task objects
         """
+        stage_spec = self._get_stage_spec(_stage)
+        is_raft_stage = stage_spec.get(RayStageSpecKeys.IS_RAFT_ACTOR, False)
         stage_batch_size: int = ray.get(actor_pool._idle_actors[0].get_batch_size.remote())
-        if _stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+        if is_raft_stage:
             # For a RAFT stage we want to ensure all actors are utilized by distributing tasks evenly
             if stage_batch_size is not None:
                 logger.warning(
                     f"Stage {_stage.name} is a RAFT stage but has a batch size of {stage_batch_size}. Ignoring batch size."
                 )
             num_actors = len(actor_pool._idle_actors)
-            task_weights = [(task._metadata or {}).get("task_weight") for task in tasks]
+            task_weights = None
+            if stage_spec.get(RayStageSpecKeys.USE_TASK_WEIGHTS, True):
+                weights = [(task._metadata or {}).get("task_weight") for task in tasks]
+                task_weights = weights if all(weight is not None for weight in weights) else None
             task_batches = self._generate_task_batches(
                 tasks,
                 num_output_tasks=num_actors,
-                task_weights=task_weights if all(weight is not None for weight in task_weights) else None,
+                task_weights=task_weights,
             )
         else:
             # For non-RAFT stages, we batch it based on the stage batch size
             task_batches = self._generate_task_batches(tasks, batch_size=stage_batch_size)
 
-        if _stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+        if is_raft_stage:
             logger.info(
                 f"Distributed {len(tasks)} tasks evenly across {len(task_batches)} actors for RAFT stage {_stage.name}"
             )

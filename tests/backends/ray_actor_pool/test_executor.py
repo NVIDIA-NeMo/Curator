@@ -23,6 +23,7 @@ from nemo_curator.backends.ray_actor_pool.utils import (
     get_available_actor_pool_resources,
     update_resource_baseline,
 )
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask
 
@@ -31,24 +32,21 @@ class TestRayActorPoolExecutor:
     def test_generate_task_batches_balances_weights(self) -> None:
         executor = RayActorPoolExecutor()
         tasks = [EmptyTask(dataset_name=str(i)) for i in range(6)]
+        weights = {str(i): weight for i, weight in enumerate([10, 9, 8, 3, 2, 1])}
 
-        batches = executor._generate_task_batches(
+        weighted_batches = executor._generate_task_batches(
             tasks,
             num_output_tasks=2,
             task_weights=[10, 9, 8, 3, 2, 1],
         )
+        unweighted_batches = executor._generate_task_batches(tasks, num_output_tasks=2)
 
-        weights = {str(i): weight for i, weight in enumerate([10, 9, 8, 3, 2, 1])}
-        assert [sum(weights[task.dataset_name] for task in batch) for batch in batches] == [16, 17]
+        weighted_loads = [sum(weights[task.dataset_name] for task in batch) for batch in weighted_batches]
+        unweighted_loads = [sum(weights[task.dataset_name] for task in batch) for batch in unweighted_batches]
 
-    def test_generate_task_batches_without_weights_splits_by_count(self) -> None:
-        executor = RayActorPoolExecutor()
-        tasks = [EmptyTask(dataset_name=str(i)) for i in range(6)]
-        weights = {str(i): weight for i, weight in enumerate([10, 9, 8, 3, 2, 1])}
-
-        batches = executor._generate_task_batches(tasks, num_output_tasks=2)
-
-        assert [sum(weights[task.dataset_name] for task in batch) for batch in batches] == [27, 6]
+        assert weighted_loads == [16, 17]
+        assert unweighted_loads == [27, 6]
+        assert max(weighted_loads) - min(weighted_loads) < max(unweighted_loads) - min(unweighted_loads)
 
     def test_generate_task_batches_distributes_zero_weights(self) -> None:
         executor = RayActorPoolExecutor()
@@ -57,6 +55,42 @@ class TestRayActorPoolExecutor:
         batches = executor._generate_task_batches(tasks, num_output_tasks=3, task_weights=[0] * len(tasks))
 
         assert [len(batch) for batch in batches] == [2, 2, 2]
+
+    @pytest.mark.parametrize(
+        ("use_task_weights", "expected_weights"),
+        [(None, [10, 1]), (True, [10, 1]), (False, None)],
+    )
+    def test_raft_stage_can_disable_task_weights(
+        self, use_task_weights: bool | None, expected_weights: list[int] | None
+    ) -> None:
+        executor = RayActorPoolExecutor(show_progress=False)
+        actor_pool = mock.Mock()
+        actor_pool._idle_actors = [mock.Mock(), mock.Mock()]
+        actor_pool.map_unordered.return_value = []
+        stage = mock.Mock()
+        stage.name = "raft_stage"
+        stage_spec = {RayStageSpecKeys.IS_RAFT_ACTOR: True}
+        if use_task_weights is not None:
+            stage_spec[RayStageSpecKeys.USE_TASK_WEIGHTS] = use_task_weights
+        stage.ray_stage_spec.return_value = stage_spec
+        tasks = [EmptyTask(_metadata={"task_weight": weight}) for weight in [10, 1]]
+
+        with (
+            mock.patch("nemo_curator.backends.ray_actor_pool.executor.ray.get", return_value=None),
+            mock.patch.object(executor, "_generate_task_batches", return_value=[]) as generate_batches,
+        ):
+            executor._process_stage_with_pool(actor_pool, stage, tasks)
+
+        generate_batches.assert_called_once_with(tasks, num_output_tasks=2, task_weights=expected_weights)
+
+    def test_task_weights_require_raft_stage(self) -> None:
+        executor = RayActorPoolExecutor(show_progress=False)
+        stage = mock.Mock()
+        stage.name = "non_raft_stage"
+        stage.ray_stage_spec.return_value = {RayStageSpecKeys.USE_TASK_WEIGHTS: False}
+
+        with pytest.raises(RuntimeError, match="sets use_task_weights but is not a RAFT stage"):
+            executor._process_stage_with_pool(mock.Mock(), stage, [])
 
     def test_parse_runtime_env(self):
         # With noset defined we should override it to be empty

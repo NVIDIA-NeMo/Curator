@@ -28,6 +28,7 @@ from cudf.utils import ioutils
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -597,7 +598,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {
-            "is_raft_actor": True,
+            RayStageSpecKeys.IS_RAFT_ACTOR: True,
+            RayStageSpecKeys.USE_TASK_WEIGHTS: True,
         }
 
 

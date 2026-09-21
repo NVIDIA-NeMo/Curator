@@ -77,6 +77,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
     def ray_stage_spec(self) -> dict[str, Any]:
         return {
             RayStageSpecKeys.IS_RAFT_ACTOR: True,
+            RayStageSpecKeys.USE_TASK_WEIGHTS: True,
         }
 
     def __get_2D_div(self, ngpus: int) -> tuple[int, int]:  # noqa: N802
