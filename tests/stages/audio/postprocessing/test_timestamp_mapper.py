@@ -581,6 +581,20 @@ def test_mapped_submillisecond_diarization_interval_remains_nonempty() -> None:
     assert result.data["diar_segments"] == [[5.0, 5.001]]
 
 
+def test_unmapped_submillisecond_diarization_interval_remains_nonempty() -> None:
+    result = TimestampMapperStage().process(
+        _make_task({"audio_filepath": "clip.wav", "diar_segments": [[0.0001, 0.0009]]})
+    )
+
+    assert isinstance(result, AudioTask)
+    assert result.data["original_start_ms"] == 0
+    assert result.data["original_end_ms"] == 1
+    assert result.data["duration_ms"] == 1
+    assert result.data["duration"] == 0.001
+    assert result.data["speaking_duration"] == 0.001
+    assert result.data["diar_segments"] == [[0.0, 0.001]]
+
+
 def test_mapped_diarization_rejects_multiple_original_files() -> None:
     mappings = [
         {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": "a.wav", "original_start_ms": 0},

@@ -556,10 +556,10 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # max, not the last segment's end: diarized speech overlaps, so the segment that
             # starts last does not necessarily finish last.
             last_end = max(end for _s, _st, end in ordered)
-            result[self.original_start_ms_key] = int(first_start * 1000)
-            result[self.original_end_ms_key] = int(last_end * 1000)
-            result[self.duration_ms_key] = int((last_end - first_start) * 1000)
-            result[self.duration_key] = last_end - first_start
+            result[self.original_start_ms_key] = math.floor(first_start * 1000)
+            result[self.original_end_ms_key] = math.ceil(last_end * 1000)
+            result[self.duration_ms_key] = result[self.original_end_ms_key] - result[self.original_start_ms_key]
+            result[self.duration_key] = result[self.duration_ms_key] / 1000.0
             result[self.speaking_duration_key] = round(sum(end - start for _s, start, end in ordered), 3)
             # Echo the shape we were handed, so a diarizer's speaker labels survive.
             result[self.diar_segments_key] = [
