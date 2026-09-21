@@ -25,8 +25,11 @@ nonempty call with durations `d[0] ... d[n-1]`, define:
 ```text
 useful audio seconds = sum(d)
 padded audio seconds = n * max(d)
-padding efficiency   = sum(d) / (n * max(d))
+padding efficiency   = sum(d) / (n * max(d)), when max(d) > 0
 ```
+
+For an all-zero-duration call, padded cost is zero and padding efficiency is
+undefined.
 
 `ASRStage` uses `padded audio seconds` as a simple capacity proxy. Every
 planned adapter call must satisfy:
@@ -36,11 +39,12 @@ number of items in the call * longest item duration
     <= max_audio_sec_per_actor
 ```
 
-This proxy captures the main cost of padding more directly than summing raw
-durations. It is still not a proof of GPU-memory safety: model architecture,
-precision, decoder state, framework workspaces, and fixed per-item overhead
-also matter. The value must be measured and tuned for each adapter, model, and
-hardware configuration.
+For an adapter that forms a jointly padded batch, this proxy captures the main
+cost of padding more directly than summing raw durations. A serial, ragged, or
+packed adapter may not realize the expected benefit. The proxy is also not a
+proof of GPU-memory safety: model architecture, precision, decoder state,
+framework workspaces, and fixed per-item overhead matter. The value must be
+measured and tuned for each adapter, model, and hardware configuration.
 
 Despite its name, `max_audio_sec_per_actor` limits each adapter invocation
 planned by an actor. It is not a lifetime quota and does not accumulate across
@@ -88,13 +92,14 @@ After decode, downmix, and resampling, `ASRStage` always calls
 maximum samples in one segment are:
 
 ```text
-max_samples = max(1, int(D * s))
+max_samples = int(D * s)
 ```
 
 The intervals are contiguous, nonoverlapping, and cover the full waveform.
 An exact multiple creates no empty tail, and every nonempty remainder becomes
 another segment. A zero-sample waveform remains representable as one
-zero-duration segment.
+zero-duration segment. If `max_samples` is less than one, segmentation rejects
+the configured limit at processing time rather than clamping it.
 
 The stage derives `audio_seconds` from the actual prepared segment, not from a
 possibly stale manifest duration:
@@ -166,7 +171,7 @@ With local bucketing, stable ascending order is indices `[1, 3, 2, 0]`:
 
 The same 20 useful audio seconds require 30 proxy seconds without reordering
 and 22 with reordering. The adapter results are then scattered to indices
-`[0, 1, 2, 3]`, so model-call order cannot reorder output rows.
+`[0, 1, 2, 3]`, so adapter-call order cannot reorder output rows.
 
 ### Why the enabled planner uses dynamic programming
 
@@ -294,8 +299,9 @@ An implementation is correct only when all of these properties hold:
 7. Results are scattered to original segment positions before parent
    assembly.
 8. Each parent's segment results are stitched in temporal order.
-9. Parent output order and skip/error behavior do not depend on execution
-   order.
+9. For successfully returned ordered adapter results, scatter preserves
+   parent association and parent output order. A stateful adapter's outputs or
+   exceptions may still depend on call composition or execution order.
 10. No pending audio, planner state, timer, or flush obligation survives the
     current `process_batch()` call.
 
@@ -305,16 +311,17 @@ they may live across calls as usual.
 ## Applying the pattern to another audio GPU stage
 
 The planner is currently implemented inside `ASRStage`; it is not a generic
-base-class hook. Another stage can adopt the approach when its model exposes a
-real batched call across independent audio inputs and its results can be
-mapped back unambiguously.
+base-class hook. Another stage can adopt the approach when independent audio
+inputs can be grouped safely, results can be mapped back unambiguously, and
+`item_count * longest_duration` meaningfully approximates the adapter's
+jointly padded work.
 
 Use this integration sequence:
 
 1. Add the same required padded-seconds budget and local-bucketing Boolean to
    the stage. Keep `batch_size` as its backend window.
 2. In one `process_batch()`, validate and prepare all eligible parents before
-   planning model calls.
+   planning adapter calls.
 3. Apply any model-specific segmentation unconditionally. Do not copy ASR's
    split-and-text-stitch semantics unless they are valid for that model.
 4. Flatten prepared model inputs and save, for each item, its original item
@@ -327,8 +334,9 @@ Use this integration sequence:
    on, use dynamic programming over sorted contiguous spans to minimize call
    count and then total padded seconds, using
    `span_count * span_max_duration` as each span's cost.
-8. Call the model, require a complete result mapping, scatter by saved item
-   index, and only then reassemble or write parent outputs.
+8. Call the adapter once per planned group, require a complete ordered result
+   mapping, scatter by saved item index, and only then reassemble or write
+   parent outputs. Native model-call behavior remains adapter-specific.
 9. Test enabled and disabled modes against the same correctness oracle.
 
 Do not introduce buffering across `process_batch()` calls to improve the

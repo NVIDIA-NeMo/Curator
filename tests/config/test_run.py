@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hydra import compose, initialize_config_dir
+from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
@@ -802,8 +802,7 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
 
 
 def test_nemo_fastconformer_tutorial_accepts_local_bucketing_config() -> None:
-    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
-    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+    with initialize(config_path="../../tutorials/audio/nemo_fastconformer", version_base=None):
         cfg = compose(
             config_name="pipeline",
             overrides=[
