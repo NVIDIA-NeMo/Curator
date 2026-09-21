@@ -15,12 +15,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from .base import BaseInterleavedWriter
 
-if TYPE_CHECKING:
-    import pandas as pd
+_DICTIONARY_COLUMNS = [
+    "position",
+    "modality",
+    "content_type",
+    "source_ref.uri",
+    "source_ref.content_type",
+    "source_frame_index",
+]
 
 
 @dataclass
@@ -30,8 +39,10 @@ class InterleavedParquetWriterStage(BaseInterleavedWriter):
     file_extension: str = "parquet"
     name: str = "interleaved_parquet_writer"
 
-    def _write_dataframe(self, df: pd.DataFrame, file_path: str, write_kwargs: dict[str, Any]) -> None:
+    def _write_table(self, table: pa.Table, file_path: str, write_kwargs: dict[str, Any]) -> None:
         write_kwargs.setdefault("compression", "snappy")
         write_kwargs.setdefault("row_group_size", 128_000)
-        with self._time_metric("parquet_write_s"):
-            df.to_parquet(file_path, **write_kwargs)
+        write_kwargs.setdefault("use_dictionary", _DICTIONARY_COLUMNS)
+        write_kwargs.pop("index", None)
+        with self.fs.open(file_path, "wb") as fobj, self._time_metric("parquet_write_s"):
+            pq.write_table(table.replace_schema_metadata(), fobj, **write_kwargs)
