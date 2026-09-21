@@ -26,12 +26,13 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from curator_benchmarking.paths import resolve_tutorial_file
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-# Add tutorials directory to path to import the pipeline creation function
-REPO_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "tutorials" / "video" / "getting-started"))
+# Add the vendored/source tutorial directory to import the pipeline builder.
+_TUTORIAL_FILE = resolve_tutorial_file("video/getting-started/video_split_clip_example.py")
+sys.path.insert(0, str(_TUTORIAL_FILE.parent))
 
 from video_split_clip_example import (  # noqa: E402
     create_video_splitting_argparser,

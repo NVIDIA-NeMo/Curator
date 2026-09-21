@@ -16,6 +16,8 @@ from __future__ import annotations
 
 
 class DatasetResolver:
+    """Resolve dataset names and formats from merged benchmark YAML."""
+
     def __init__(self, data: list[dict]) -> None:
         """
         Constructor for a DatasetResolver which accepts a list of dataset dictionaries.
