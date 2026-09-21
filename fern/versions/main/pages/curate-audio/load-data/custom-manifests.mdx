@@ -27,7 +27,7 @@ NeMo Curator does not provide a generic TSV reader stage. You must convert your 
 </Note>
 
 <Warning>
-Resolve local manifest paths to absolute paths on the driver before you build the pipeline. File discovery runs in an executor worker, whose working directory can differ from the directory where you launched the pipeline. Audio file paths in the manifest must likewise be absolute or use a shared storage URI that every worker can access.
+Resolve local manifest paths to absolute paths on the driver before you build the pipeline. File discovery runs in an executor worker, whose working directory can differ from the directory where you launched the pipeline. Audio file paths in the manifest must be absolute filesystem paths that resolve identically on every executor. If the source audio is remote, download or otherwise materialize it on that shared or mounted filesystem before running audio stages.
 </Warning>
 
 ## Required Fields
@@ -36,7 +36,7 @@ Every audio manifest entry must include:
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
-| `audio_filepath` | string | Absolute local path visible to every worker, or a shared storage URI | `/data/audio/sample.wav` |
+| `audio_filepath` | string | Absolute filesystem path that resolves on every executor | `/data/audio/sample.wav` |
 | `text` | string | Ground truth transcription | `"hello world"` |
 
 ## Optional Fields
