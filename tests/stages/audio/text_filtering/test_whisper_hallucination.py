@@ -28,6 +28,7 @@ _TEXT_KEY = "pred_text"
 _SKIP_KEY = "_skipme"
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EXAMPLE_DIR = _REPO_ROOT / "tutorials" / "audio" / "whisper_hallucination"
+_JA_LONG = "なんかおばあちゃんのレシピみたいなあのどんな思い出とか食べ物とかでどんな思い出とかあったりしますか"
 
 
 def _make_stage(tmp_path: Path, phrases: list[str], **kwargs) -> WhisperHallucinationStage:
@@ -155,6 +156,56 @@ def test_agglutinative_language_skips_relative_long_word_check(tmp_path: Path) -
     stage = _make_stage(tmp_path, [])
     result = stage.process(AudioTask(data={_TEXT_KEY: "a természetvédelmi cat", _SKIP_KEY: "", "language": "hu"}))
     assert result.data[_SKIP_KEY] == ""
+
+
+def test_long_japanese_utterance_does_not_trigger_word_checks(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: _JA_LONG, _SKIP_KEY: "", "language": "ja"}))
+
+    assert result.data[_SKIP_KEY] == ""
+    assert result.data["additional_notes"]["WhisperHallucination"] == "passed"
+
+
+@pytest.mark.parametrize("language", ["ja", "zh", "th", "zh-CN", "yue", "Japanese"])
+def test_no_space_languages_skip_word_checks(tmp_path: Path, language: str) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: "字" * 60, _SKIP_KEY: "", "language": language}))
+
+    assert result.data[_SKIP_KEY] == ""
+
+
+def test_no_space_language_skips_repeated_word_check(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(
+        AudioTask(data={_TEXT_KEY: "字 字 字 字 字 字", _SKIP_KEY: "", "language": "ja", "duration": 20.0})
+    )
+
+    assert result.data[_SKIP_KEY] == ""
+
+
+def test_identical_long_text_still_uses_word_checks_for_english(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    result = stage.process(AudioTask(data={_TEXT_KEY: _JA_LONG, _SKIP_KEY: "", "language": "en"}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert "long_word" in result.data["additional_notes"]["WhisperHallucination"]
+
+
+def test_no_space_language_still_triggers_phrase_match(tmp_path: Path) -> None:
+    phrase = "ご視聴ありがとうございました"
+    stage = _make_stage(tmp_path, [phrase])
+    result = stage.process(AudioTask(data={_TEXT_KEY: phrase, _SKIP_KEY: "", "language": "ja"}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (phrase_match)"
+
+
+def test_no_space_language_still_triggers_high_character_rate(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [], max_char_rate=40.0)
+    result = stage.process(AudioTask(data={_TEXT_KEY: "字" * 100, _SKIP_KEY: "", "language": "ja", "duration": 1.0}))
+
+    assert result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination"
+    assert result.data["additional_notes"]["WhisperHallucination"] == "hallucination (high_char_rate)"
 
 
 def test_missing_duration_disables_character_rate_check(tmp_path: Path) -> None:
