@@ -110,10 +110,16 @@ Speech rate metrics (words per second, characters per second) help identify samp
 
 ### Calculate Speech Rate Metrics
 
-`ComputeWERStage` calculates speech rates together with WER and CER. Configure the hypothesis and reference fields used by your manifest:
+`ComputeWERStage` calculates speech rates together with WER and CER. For top-level records, it requires a positive numeric `duration`. If the manifest does not already include that field, add `GetAudioDurationStage` first. Then configure the hypothesis and reference fields used by your manifest:
 
 ```python
+from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.stages.audio.metrics.wer import ComputeWERStage
+
+pipeline.add_stage(GetAudioDurationStage(
+    audio_filepath_key="audio_filepath",
+    duration_key="duration",
+))
 
 pipeline.add_stage(ComputeWERStage(
     hypothesis_text_key="pred_text",
@@ -121,6 +127,8 @@ pipeline.add_stage(ComputeWERStage(
 ))
 # Adds metrics.word_rate and metrics.char_rate to each entry or segment.
 ```
+
+For records that contain `segments`, each segment must instead have numeric `start` and `end` timestamps that define a positive interval. A missing or non-positive interval causes `ComputeWERStage` to emit `0.0` for both speech-rate metrics.
 
 ### Speech Rate Filtering
 
@@ -152,7 +160,7 @@ pipeline.add_stage(
 ```
 
 <Note>
-`PreserveByValueStage` reads top-level fields. Before using the following filters, project `metrics.word_rate` and `metrics.char_rate` into top-level `word_rate` and `char_rate` fields with a small custom stage, or provide those fields in the input manifest.
+`PreserveByValueStage` reads top-level fields. Before using the following filters, use a custom stage to copy `metrics.word_rate` and `metrics.char_rate` into top-level `word_rate` and `char_rate` fields. Alternatively, provide these fields in the input manifest.
 </Note>
 
 ## Filtering by Speech Rate

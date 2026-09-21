@@ -17,7 +17,7 @@ Load audio files from local directories by creating custom manifests that refere
 To process local audio files with NeMo Curator, you need to create a manifest file that lists your audio files and their metadata. NeMo Curator does not provide automatic audio file discovery - you must create a JSONL manifest first.
 
 <Warning>
-Resolve the local manifest path on the driver before constructing `ManifestReader`. File discovery runs in an executor worker, so a relative path can resolve against a different working directory. Store absolute audio paths in the manifest, or use shared storage URIs that every worker can access.
+Resolve the local manifest path on the driver before constructing `ManifestReader`. File discovery runs in an executor worker, so a relative path can resolve against a different working directory. Store absolute filesystem paths for audio in the manifest, and make sure those paths resolve identically on every executor. If the source audio is remote, download or otherwise materialize it on that shared or mounted filesystem before running audio stages.
 </Warning>
 
 ## Supported Audio Formats
