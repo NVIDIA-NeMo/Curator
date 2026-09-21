@@ -160,15 +160,35 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def validate_input(self, task: AudioTask) -> bool:
         """OR-shaped validation: segments OR top-level text keys must be present."""
         data = task.data
-        if hasattr(data, self.segments_key):
+        try:
+            segments = self._segments_for_entry(data)
+        except TypeError as error:
+            logger.error(str(error))
+            return False
+        if segments is not None:
             return True
-        if hasattr(data, self.hypothesis_text_key) and hasattr(data, self.reference_text_key):
+        if self.hypothesis_text_key in data and self.reference_text_key in data:
             return True
         logger.error(
             f"Task {task.task_id} missing required attributes: "
             f"need '{self.segments_key}' OR both '{self.hypothesis_text_key}' and '{self.reference_text_key}'"
         )
         return False
+
+    def _segments_for_entry(self, data_entry: dict[str, Any]) -> list[Any] | None:
+        """Return normalized nested segments, preserving key absence as top-level mode."""
+        if self.segments_key not in data_entry:
+            return None
+        segments = data_entry[self.segments_key]
+        if segments is None:
+            return []
+        if not isinstance(segments, list):
+            msg = (
+                f"[{self.name}] Segment container '{self.segments_key}' must be a list or null, "
+                f"got {type(segments).__name__}"
+            )
+            raise TypeError(msg)
+        return segments
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
@@ -393,8 +413,15 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
         data_entry = task.data
-        if self.segments_key in data_entry:
-            for audio_segment in data_entry[self.segments_key]:
+        segments = self._segments_for_entry(data_entry)
+        if segments is not None:
+            for segment_index, audio_segment in enumerate(segments):
+                if not isinstance(audio_segment, dict):
+                    logger.warning(
+                        f"[{self.name}] skipping malformed segment {segment_index} in {task.task_id}: "
+                        f"expected a mapping, got {type(audio_segment).__name__}"
+                    )
+                    continue
                 try:
                     self.get_wer(audio_segment)
                 except (KeyError, ValueError) as ex:
