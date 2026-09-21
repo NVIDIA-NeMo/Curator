@@ -21,7 +21,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
-from nemo_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
+from nemo_curator.utils.file_utils import get_fs, infer_dataset_name_from_path
 
 if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
@@ -96,15 +96,9 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]
         dataset_name = infer_dataset_name_from_path(self.input_path)
 
         for centroid_id, centroid_dir in centroid_dirs.items():
-            partition_files = get_all_file_paths_under(
-                centroid_dir,
-                recurse_subdirectories=True,
-                keep_extensions=[".parquet"],
-                fs=self.fs,
-            )
             pairwise_task = FileGroupTask(
                 dataset_name=dataset_name,
-                data=partition_files,
+                data=[centroid_dir],
                 _metadata={
                     "centroid_id": centroid_id,
                     "filetype": "parquet",
