@@ -1461,10 +1461,7 @@ entries:
   - name: ndd_ray_serve_20b
     enabled: true
     script: ndd_benchmark.py
-    # Ray Serve fails at max-parallel-requests=512 (RuntimeError, Serve-replica
-    # stall) and also at 256 (throughput-threshold miss or full entry timeout,
-    # confirmed 2026-09-17 — do not treat 256 as a fix). Now testing 128, the
-    # remaining untested/stable-default value.
+    # Ray Serve misses throughput-threshold at --max-parallel-requests=256
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
@@ -1617,6 +1614,114 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw8_seqs48_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Asymmetric num_workers: qwen_* stages get num_workers=12, gemma_* stages get
+  # num_workers=6 (~2:1, matching the ~1.87x Qwen-vs-Gemma per-stage cost ratio
+  # measured on nw8_seqs40_mpr256's results.json). Intentionally breaks Ray Data's
+  # fusion (fusion requires matching num_workers across adjacent stages) so Qwen's
+  # slower stages don't lock-step Gemma's GPUs into idling between bursts.
+  - name: llm_judge_qwen_gemma_nw_qwen12_gemma6_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen12_gemma6_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Same asymmetric-ratio idea as nw_qwen12_gemma6, scaled up (qwen=16, gemma=8)
+  # to test whether the now-larger-block-count dataset (64 blocks vs. the
+  # original 32) supports more total worker concurrency.
+  - name: llm_judge_qwen_gemma_nw_qwen16_gemma8_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen16_gemma8_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Symmetric num_workers retest: the earlier nw10/nw12 sweep found no throughput
+  # gain past num_workers=8, but that ran before the dataset was repartitioned to
+  # 64 blocks (previously only 32 blocks capped in-flight tasks at ~4). Retesting
+  # to see if that ceiling still holds on the now-larger-block-count dataset.
+  - name: llm_judge_qwen_gemma_nw10_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw10_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  - name: llm_judge_qwen_gemma_nw12_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw12_seqs40_mpr256.yaml
       --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
       --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
       --language=en
