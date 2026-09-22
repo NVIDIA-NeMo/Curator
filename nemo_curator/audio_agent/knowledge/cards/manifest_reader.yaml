@@ -22,8 +22,11 @@ params_of_note:
   files_per_partition: "number of manifest files per partition (default 1)"
   blocksize: "target partition size (alternative to files_per_partition)"
   storage_options: "fsspec storage options for cloud paths"
+  include_files: "optional list of audio paths; emit only manifest rows whose include_files_key resolves to one of these paths"
+  include_files_key: "row field compared against include_files (default audio_filepath)"
 conflicts_with: [ManifestReaderStage]   # the inner component; use one, not both
 notes:
   - "Composite of FilePartitioningStage + ManifestReaderStage; this is the stage to use directly (ManifestReaderStage is its inner read half)."
+  - "include_files narrows rows within the same manifest reader, preserving the source-stage identity used by full and delta runs."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-26"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}

@@ -16,9 +16,9 @@ use_cases:
   avoid_for: ["non-ALM pipelines"]
 composition:
   typical_upstream: [ALMDataBuilderStage]
-  typical_downstream: [SnippetManifestWriterStage, PretrainMetricsAggregatorStage]
+  typical_downstream: [ManifestWriterStage]
 params_of_note:
   overlap_percentage: "overlap (%) above which a window is dropped (default 0)"
   target_duration: "target window duration used to pick the best of an overlapping set (default 120)"
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

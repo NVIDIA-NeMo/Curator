@@ -16,10 +16,10 @@ use_cases:
   avoid_for: ["general manifests (use ManifestWriterStage)"]
 composition:
   typical_upstream: [SnippetExtractionStage]
-  typical_downstream: []
+  typical_downstream: [PretrainMetricsAggregatorStage]
 params_of_note:
   output_path: "path to the snippet JSONL manifest"
 notes:
   - "Single-replica writer; truncates once on driver setup. Origin-stub tasks (no snippet_id) pass through unchanged so the metrics aggregator still sees them."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

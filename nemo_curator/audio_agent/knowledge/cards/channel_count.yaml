@@ -37,6 +37,7 @@ params_of_note:
   keep_waveform_in_task: "keep the converted waveform in the task for the next stage (action='convert'; default True; in-memory, no disk)."
   write_to_disk: "OPT-IN (default False): also write the converted WAV to disk (action='convert'; pair with output_dir). Off by default -- that is why this card is not tagged writes_disk."
   input_residency: "which input to trust: 'auto' (default) reads a resident waveform when there is one and the file header otherwise; 'file' always reads the header; 'waveform' never touches disk."
+  audio_filepath_key: "file input key (default audio_filepath); configure it to the actual routed artifact when reading a prior disk transform"
 semantic_facts:
   action:
     meaning: "Which of the three things this instance does about the channel count: record it, select on it, or change it."
@@ -66,5 +67,7 @@ comparison:
   SampleRateFilterStage: "the rate-side counterpart: records every row's sample rate and keeps the acceptable ones, header-only. Pairs with this stage when both policies matter."
   ResampleAudioStage: "converts rate and channels via ffmpeg on disk, and knows channel layouts. Use it to change a sample rate, or for a surround downmix action='convert' refuses."
   MonoConversionStage: "an alternative that applies a mono downmix and a single-rate gate together. Use this stage instead when channel policy and rate policy should be set independently."
+notes:
+  - "ResampleAudioStage writes resampled_audio_filepath by default and leaves audio_filepath unchanged. To inspect or convert the resampled artifact, point audio_filepath_key at that output, consume a retained waveform, or configure the resampler to update audio_filepath."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-08-17"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}

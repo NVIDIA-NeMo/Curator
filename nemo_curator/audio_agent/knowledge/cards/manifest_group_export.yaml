@@ -39,6 +39,8 @@ notes:
   - "Pass-through: rows are returned unchanged, so this is a tee and can be followed by ManifestWriterStage."
   - "Non-serializable values (e.g. a resident waveform tensor) are dropped from the written columns instead of crashing -- unlike ManifestWriterStage, which needs sanitized input."
   - "Group files are truncated on first write in a run, so a re-run replaces its own output rather than appending to the previous one."
+  - "Group-derived filenames and timeline labels are sanitized, length-bounded, and disambiguated with a typed stable identity so distinct values do not collapse onto one output name."
+  - "Non-serializable selected values are omitted as documented; unexpected naming, formatting, or write failures are fail-fast rather than silently annotated."
   - "Exists so output shaping never needs ad-hoc Python; if you find yourself scripting a regroup, that is a capability gap to report."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-27"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

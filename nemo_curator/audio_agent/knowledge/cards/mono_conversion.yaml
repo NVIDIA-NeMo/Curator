@@ -20,10 +20,13 @@ composition:
   typical_upstream: [ManifestReader, CreateInitialManifestReadSpeechStage, ResampleAudioStage]
   typical_downstream: [VADSegmentationStage, BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage]
 params_of_note:
+  audio_filepath_key: "file input key (default audio_filepath); after ResampleAudioStage, point this at resampled_audio_filepath unless the resampler updated the canonical path"
+  input_residency: "'file' (default), 'waveform', or 'auto'; selects the configured path, a complete resident waveform/rate pair, or either source"
   output_sample_rate: "sample rate to VERIFY against (default 48000). NOT a resample target -- the stage never resamples."
   strict_sample_rate: "if True (DEFAULT), any row whose rate != output_sample_rate is DROPPED (process returns []); set False to skip the check and keep all rows. WARNING: with the defaults (48000 / True), 16 kHz input is silently dropped -- resample first with ResampleAudioStage or set output_sample_rate to match your data."
   keep_waveform_in_task: "keep the mono waveform in the task for the next stage (default True; in-memory, no disk)."
   write_to_disk: "OPT-IN (default False): also write the mono WAV to disk (pair with output_dir). Off by default -- that is why this card is not tagged writes_disk."
+  update_audio_filepath: "with write_to_disk=True, repoint audio_filepath_key at the written mono file and preserve the prior path (default False)"
 semantic_facts:
   output_sample_rate:
     meaning: "The rate the stage VERIFIES against -- NOT a resample target. This stage converts to mono only; it never changes the sample rate."
@@ -52,5 +55,6 @@ notes:
   - "Mono conversion only (channel mixdown). It does NOT resample: with strict_sample_rate=True (default) a rate != output_sample_rate is DROPPED, not converted. For actual rate conversion use ResampleAudioStage."
   - "This stage is TWO policies in one: a mono downmix and a strict single-rate gate. That coupling is why the default silently discards a 16 kHz corpus. ChannelCountStage and SampleRateFilterStage split the same work in two so each can be set on its own, and each names whether it is measuring, selecting or converting."
   - "Disk output is OPT-IN (write_to_disk=False by default); the default keeps the mono waveform in the task, so the card carries no writes_disk tag (matching SpeakerSeparation/SegmentConcatenation)."
+  - "ResampleAudioStage does not update audio_filepath by default. When it is upstream, read resampled_audio_filepath, consume its retained waveform, or enable update_audio_filepath on the resampler; otherwise this stage will reopen the original audio."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 5, last_validated: "2026-07-30"}
+provenance: {model_card_url: null, card_version: 6, last_validated: "2026-09-22"}

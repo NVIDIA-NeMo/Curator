@@ -18,7 +18,10 @@ composition:
   typical_upstream: [ManifestReader]   # via the composite's FilePartitioningStage
   typical_downstream: [MonoConversionStage, ResampleAudioStage]
 conflicts_with: [ManifestReader]   # the composite that wraps this; use one, not both
+params_of_note:
+  include_files: "optional list of audio paths; emit only rows whose include_files_key matches one of them"
+  include_files_key: "row field used for include_files matching and declared as the emitted path key (default audio_filepath)"
 notes:
   - "Consumes a FileGroupTask (not EmptyTask); it is the low-level component of ManifestReader. Use ManifestReader unless you are building a custom partitioning front-end."
-verified: {tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-26"}
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}

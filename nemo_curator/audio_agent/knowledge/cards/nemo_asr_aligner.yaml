@@ -11,9 +11,9 @@ constraints:
 resource:
   cpus: 1.0
   gpu_mem_gb: 8.6   # measured on RTX 4090 (parakeet-tdt_ctc-1.1b, CTC decode, batch 4, ~8.6 GB); RNNT/TDT decode + larger batches use more
-  gpu_optional: false
+  gpu_optional: true
   bound: gpu
-  throughput_hint: "batched GPU inference + forced alignment"
+  throughput_hint: "batched inference + forced alignment; GPU is the practical default, while Resources(gpus=0) selects CPU"
 use_cases:
   good_for:
     - "word-level alignments/timestamps alongside transcripts"
@@ -37,14 +37,15 @@ comparison:
   accuracy_hint: "produces word alignments/timestamps (richer than plain ASR); parakeet-tdt_ctc-1.1b ~1.8% WER on LibriSpeech test-clean (external)"
   config_complexity: "medium (decoder / timestamp / segment options)"
   choose_when: "you need word timestamps. For a runnable end-to-end long-audio flow use the SplitASRAlignJoinStage composite (it emits the top-level `alignment`); for plain text use ASRStage with NeMoASRAdapter."
-  known_limitations: "heavier than plain transcription; needs 16 kHz input; standalone does NOT emit a top-level `alignment` key (see param_dependencies)"
+  known_limitations: "heavier than plain transcription; needs 16 kHz input; CPU is supported but slower; standalone does NOT emit a top-level `alignment` key (see param_dependencies)"
 param_dependencies:
   infer_segment_only: "aligns only the provided segments. NOTE: the raw stage writes alignment into split metadata, not a top-level 'alignment' key -- to feed MergeAlignmentDiarizationStage use SplitASRAlignJoinStage (split -> align -> join) so JoinSplitAudioMetadataStage emits the top-level 'alignment'."
 notes:
   - "Designed to run INSIDE SplitASRAlignJoinStage (split -> align -> join); standalone it does NOT emit a top-level 'alignment' key that MergeAlignmentDiarizationStage requires."
+  - "The requested device is derived from resources: the default requests a GPU, while Resources(gpus=0) loads and runs the model on CPU."
   - "decoder_type default 'rnnt' maps to the hybrid checkpoint's TDT head (its own default); switch to 'ctc' for CTC-style timestamps or shallow-fusion LM biasing. The measured VRAM above was taken with CTC decode."
   - "If RNNT/TDT decode crashes with a CUDA-graph / NVRTC error (e.g. CUDA error 222), the usual cause is a GPU-driver vs CUDA-toolkit mismatch, not this stage -- run the `doctor` verb for the diagnosis and fix steps. Stage-level quick unblock: decoder_type='ctc' (this hybrid tdt_ctc checkpoint has a CTC head, so no CUDA graphs and no model change)."
   - "max_len is defined but not enforced in the processing logic; min_len (default 1.0 s) is."
   - "(external) nvidia/parakeet-tdt_ctc-1.1b: English, hybrid FastConformer TDT-CTC (~1.1B params), 16 kHz mono, punctuation + capitalization, word/char/segment timestamps, up to ~11 h per pass, CC-BY-4.0 (NVIDIA NeMo + Suno.ai)."
 verified: {params: mechanical, tags: best_guess, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
-provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt_ctc-1.1b", card_version: 4, last_validated: "2026-07-27"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt_ctc-1.1b", card_version: 5, last_validated: "2026-09-22"}

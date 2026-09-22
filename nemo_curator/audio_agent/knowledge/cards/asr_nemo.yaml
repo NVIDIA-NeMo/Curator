@@ -12,9 +12,9 @@ constraints:
 resource:
   cpus: 1.0
   gpu_mem_gb: 5.0   # measured on RTX 4090 for the DEFAULT NeMo preset only (parakeet-tdt-0.6b-v2, ~5.0 GB reserved, batch 4, 6 s clips). Larger NeMo checkpoints need more, and the vLLM Qwen adapters need far more (Qwen3-Omni-30B-A3B is a 30B MoE) -- treat this figure as the parakeet baseline, not a stage-wide bound.
-  gpu_optional: false
+  gpu_optional: true
   bound: gpu
-  throughput_hint: "batched GPU inference"
+  throughput_hint: "adapter-dependent batched inference; the default NeMo path supports CPU, while some adapters require GPU runtimes"
 use_cases:
   good_for:
     - "transcribing speech to text (pred_text)"
@@ -24,8 +24,8 @@ use_cases:
     - "languages the chosen checkpoint was not trained on (pick a matching model_id)"
     - "word-level alignments/timestamps -- use NeMoASRAlignerStage instead"
 composition:
-  typical_upstream: [ResampleAudioStage, VADSegmentationStage, SplitLongAudioStage]
-  typical_downstream: [GetPairwiseWerStage, ComputeWERStage, InverseTextNormalizationStage]
+  typical_upstream: [ResampleAudioStage, ManifestReader]
+  typical_downstream: [GetPairwiseWerStage, ComputeWERStage]
 params_of_note:
   adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
   model_id: "the ASR checkpoint id -- REQUIRED, and must match the chosen adapter. Choose per language; apply the english_parakeet preset for English."
@@ -43,12 +43,16 @@ comparison:
   latency_hint: "very high throughput on GPU (parakeet-tdt-0.6b-v2 RTFx ~3386 at batch 128); slow on CPU"
   config_complexity: "low (pick adapter_target and model_id, or use a preset)"
   choose_when: "you need plain transcripts, on any supported backend. For word timestamps/alignments use NeMoASRAlignerStage or SplitASRAlignJoinStage; for who-said-what add a diarizer + MergeAlignmentDiarizationStage."
-  known_limitations: "GPU required for practical NeMo throughput; output key is pred_text (not text)"
+  known_limitations: "device support is adapter-dependent; GPU is required for practical NeMo throughput and by some vLLM adapters; output key is pred_text (not text)"
 notes:
   - "ASRStage is the canonical Curator ASR runtime; every backend is an adapter passed to adapter_target rather than a parallel stage implementation. It replaced InferenceAsrNemoStage, which no longer exists."
   - "Adapter choice: NeMoASRAdapter for NeMo/parakeet checkpoints (the measured, best-covered path). The two vLLM Qwen adapters are supported by the stage but their resource and accuracy figures below are NOT measured here -- size the GPU from the model card before a large run."
   - "Language is adapter-dependent. NeMoASRAdapter ignores it (a parakeet checkpoint takes no language argument); QwenASRAdapter passes the resolved NAME to its transcribe call; QwenOmniASRAdapter interpolates it into {language} in the prompt and switches to en_prompt_text on the exact string 'English'. So supply ISO CODES, never names: 'English' lowercases to 'english', matches no entry, is forwarded as-is, and silently loses the English prompt path."
-  - "GPU: the stage defaults to Resources(gpus=1.0). Set Resources(gpus=0) only to force CPU inference, which is extremely slow."
+  - "Device support belongs to the selected adapter. The default resources request a GPU; the NeMo adapter supports Resources(gpus=0) for slower CPU inference, while an adapter backed by a GPU-only runtime still requires a GPU."
+  - "VAD or diarization fan-out is directly compatible only when the child retains waveform/sample-rate fields and ASRStage is configured with matching waveform_key and sample_rate_key values."
+  - "SplitLongAudioStage keeps chunks in a nested split structure for NeMoASRAlignerStage; it does not fan out ordinary ASRStage inputs and is not a direct producer for this stage."
+  - "ComputeWERStage must set hypothesis_text_key to this stage's pred_text_key for top-level scoring. GetPairwiseWerStage defaults already match pred_text."
+  - "InverseTextNormalizationStage operates on text inside a segments list, not this stage's top-level pred_text. Add an explicit segment-shaping step before composing them."
   - "When waveform_key is configured, the contract declares that the waveform is removed unless keep_waveform=True. A downstream waveform consumer therefore requires keep_waveform=True; sample_rate metadata alone is retained."
   - "batch_size is a real constructor field (default 32) but is excluded from the discovery param surface; tune it via the stage/executor."
   - "Language coverage is a checkpoint (model-card) fact, not derivable from source; match the checkpoint to the data language."
@@ -67,4 +71,4 @@ versions:   # verified interchangeable via model_id -- load + run + identical pr
   "nvidia/parakeet-tdt-0.6b-v3": "WHEN: multilingual European audio. 25 European languages (auto language ID). Preset: multilingual_parakeet_v3."
   "nvidia/parakeet-tdt_ctc-1.1b": "WHEN: very long English audio, or you need a CTC decoder. Larger hybrid FastConformer TDT+CTC (~1.1B), up to ~11 h/pass; heavier VRAM. Preset: longform_english_1_1b."
 verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 6, last_validated: "2026-09-16"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 7, last_validated: "2026-09-22"}

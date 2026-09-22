@@ -23,12 +23,11 @@ params_of_note:
   wer_key: "output key for the WER percentage (default wer_pct)"
 metrics:
   wer_pct:                                      # the wer_key this stage writes (a percentage)
-    scale: {min: 0.0, max: 100.0, direction: lower_better}
+    scale: {min: 0.0, max: null, direction: lower_better}
     # no threshold_param: this stage annotates; filter downstream with PreserveByValueStage
     anchors:                                    # best_guess
       "0-10": transcription_grade               # <= 10% WER
       "10-25": usable                           # <= 25% WER
-    valid_range: [0.0, 100.0]
 decision:
   separable_from_producer: true
   score_key_param: wer_key
@@ -54,6 +53,6 @@ comparison:
   known_limitations: "no text normalization; requires references"
 conflicts_with: [ComputeWERStage]   # overlapping WER computation
 notes:
-  - "WER is a percentage (5.0 == 5%)."
+  - "WER is a percentage (5.0 == 5%) and is not capped at 100%; insertions can make it larger."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess, metrics: best_guess, decision: mechanical}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-18"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}

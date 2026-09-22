@@ -1,5 +1,5 @@
 stage_id: GetAudioDurationStage
-category: export
+category: preprocess
 summary: "Compute audio duration from the file (or an in-memory waveform) and store it under duration_key."
 tags: []
 model_id: null
@@ -47,6 +47,6 @@ decision:
   missing_score_policy: selector_error
   atomic: true
 param_dependencies:
-  input_residency: "'waveform'/'auto' require waveform_key+sample_rate_key on the task; 'file' requires audio_filepath_key."
+  input_residency: "'waveform' requires a complete waveform plus a positive integral non-boolean sample rate. 'auto' uses a valid resident pair when available and can fall back to audio_filepath_key when resident metadata is missing or invalid; 'file' requires audio_filepath_key."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, decision: mechanical}
-provenance: {model_card_url: null, card_version: 5, last_validated: "2026-08-18"}
+provenance: {model_card_url: null, card_version: 6, last_validated: "2026-09-22"}

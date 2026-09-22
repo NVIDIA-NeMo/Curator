@@ -31,5 +31,6 @@ notes:
   - "This is a pass-through persistence boundary, not a sink: every complete task.data row is serialized and the AudioTask continues downstream."
   - "Waveform tensors are illegal because task.data must be JSON-serializable. Place the checkpoint only after waveform residency has ended."
   - "setup() exclusively creates a new local file and never truncates retained work. The single-worker contract keeps JSONL appends ordered and authoritative."
+  - "A checkpoint becomes reusable only after successful finalization publishes the sibling ._COMPLETE marker after verifying file ownership and size. A JSONL file without that marker is incomplete and must not be treated as reusable output."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-19"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}

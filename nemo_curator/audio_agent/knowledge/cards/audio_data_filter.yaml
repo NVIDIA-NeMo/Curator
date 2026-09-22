@@ -1,9 +1,9 @@
 stage_id: AudioDataFilterStage
-category: export
-summary: "Complete audio filtering/curation pipeline (CompositeStage) driven by a config."
+category: quality
+summary: "Config-driven composite audio-curation pipeline whose effective stages and policy come from the supplied configuration."
 tags: []   # gates depend on the enabled features (VAD/speaker/quality); see notes
 model_id: null
-domain: {language: any, style: any}
+domain: {language: config-dependent, style: config-dependent}
 constraints: {}
 resource:
   cpus: 1.0
@@ -19,15 +19,16 @@ resource:
   bound: gpu
   throughput_hint: "config-dependent; decomposes into many sub-stages"
 use_cases:
-  good_for: ["running a preconfigured end-to-end curation pipeline from a config file"]
+  good_for: ["running a reusable configured curation policy without manually expanding its component stages"]
   avoid_for: ["fine-grained custom pipelines (compose individual stages instead)"]
 composition:
-  typical_upstream: [ManifestReader, CreateInitialManifestReadSpeechStage]
+  typical_upstream: [ManifestReader, CreateInitialManifestAudioFolderStage]
   typical_downstream: [ManifestWriterStage]
 params_of_note:
   config_path: "path to a pipeline config file"
   config: "an in-memory config object (alternative to config_path)"
 notes:
   - "CompositeStage: decomposes into independent sub-stages (Mono/VAD/Speaker/quality) that the executor schedules with cross-file parallelism. Supports several topologies based on which features are enabled; resource needs and gates therefore depend on the config."
+  - "Defaults are one policy choice, not universal data requirements. Inspect or override the configuration for the corpus and goal; do not infer language, sample rate, channel layout, thresholds, or model requirements from this wrapper alone."
 verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

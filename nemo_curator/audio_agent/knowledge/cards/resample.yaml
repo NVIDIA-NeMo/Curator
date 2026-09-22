@@ -22,14 +22,19 @@ params_of_note:
   target_sample_rate: "target rate in Hz (default 16000)"
   target_format: "output container/codec (e.g. wav)"
   target_nchannels: "output channel count (1 = mono)"
-  resampled_audio_dir: "(REQUIRED, no default) directory for the converted files -- the stage has no default and creates it at setup. Give each SETTING its own directory (e.g. resampled_16k/, resampled_22k/): a file already present here is reused as-is, and the name is built from the source path only, so a directory shared between two target rates silently serves the first rate's audio to the second recipe."
+  resampled_audio_dir: "required stage argument and output directory for persisted conversions; existing candidates are reused only after validating target rate and channel count, plus approximate frame count when source metadata is readable"
+  input_residency: "'file' (default), 'waveform', or 'auto'; selects whether conversion reads a path, a complete resident waveform/sample-rate pair, or either source"
+  keep_waveform_in_task: "retain the converted waveform and target sample rate for a resident downstream consumer (default False)"
+  write_to_disk: "persist the converted artifact and write resampled_audio_filepath_key (default True)"
+  update_audio_filepath: "replace audio_filepath_key with the converted path and preserve the prior path under original_audio_filepath_key (default False)"
+  resampled_audio_filepath_key: "output path key for a persisted conversion (default resampled_audio_filepath)"
 semantic_facts:
   resampled_audio_filepath:
     meaning: "Path to a NEW file written at target_sample_rate/target_format -- a transformed copy, not the original."
     unit: "file path (string)"
     provenance: "ffmpeg-converted output written to resampled_audio_dir; the original file is left untouched."
     scope: "the converted copy for this task; a genuinely new artifact on disk"
-    propagation: "Written each run; file-based downstream stages should read this key (not the original audio_filepath) to consume the resampled audio."
+    propagation: "Written when write_to_disk=True; file-based downstream stages must read this key unless update_audio_filepath=True."
     counterexamples:
       - "This stage TRANSFORMS the audio (rate/format/channels) -- do not use it when the intent is to keep the original samples unchanged; it is not a filter."
   sample_rate:
@@ -41,15 +46,19 @@ semantic_facts:
     counterexamples:
       - "It reflects the configured target, so a sample_rate == 16000 check verifies the resample target, not the source rate."
 param_dependencies:
-  resampled_audio_dir: "required: the stage writes converted files here (needs write_to_disk, the default). Not optional. Must not be shared across different target_sample_rate/target_nchannels/target_format values, and must be a fresh directory when the SOURCE files may have been edited in place: an existing output is reused without checking either, so the row's duration and audio come from the earlier conversion."
+  resampled_audio_dir: "required by the constructor; used for persisted output when write_to_disk=True. Reuse validates output shape but does not hash a file-backed source's contents, so separate artifact lifecycles should use separate directories."
+  input_residency: "'waveform' requires a complete waveform/sample-rate pair; 'auto' accepts a valid resident pair or a file path."
+  write_to_disk: "when False, keep_waveform_in_task must provide the converted output; sinkless configurations are rejected."
+  update_audio_filepath: "requires write_to_disk=True because only a persisted conversion can replace the path."
 comparison:
   SampleRateFilterStage: "SELECTS rows by the rate they already are; this stage CONVERTS the rate. Filtering discards a corpus you could have converted, so reach for it only when a rate is genuinely unacceptable rather than merely wrong."
   MonoConversionStage: "verifies a single rate and drops mismatches, and downmixes to mono. Whenever the answer to a mismatch is 'convert it', put this stage upstream of it instead."
   ChannelCountStage: "records, selects on, or changes the channel count without touching the rate (its action='convert' refuses surround downmixes). This stage handles both rate and channels via ffmpeg, and does know channel layouts."
 notes:
   - "Requires ffmpeg on PATH. Placing resample once, upstream, avoids each model stage re-resampling."
-  - "ORDERING TRAP: the converted audio lands in `resampled_audio_filepath` and `audio_filepath` still points at the ORIGINAL file. Anything downstream reading `audio_filepath` therefore reads the un-resampled audio, and does so silently -- there is no error, just the old rate. Put a rate gate (MonoConversionStage, SampleRateFilterStage) UPSTREAM of this stage, or point the downstream stage's path key at `resampled_audio_filepath`. Placed downstream while still reading `audio_filepath`, a rate gate sees the source rate and rejects the whole corpus this stage just converted for it."
+  - "Routing is explicit: by default audio_filepath remains the source and a persisted conversion is written to resampled_audio_filepath. A downstream stage must read that key, consume the retained resident waveform, or use update_audio_filepath=True."
+  - "Reuse is conservative about the requested rate, channel count, and expected duration/frame count. It is not content-addressed for file-backed sources: replacing a source in place with different same-duration content can leave a structurally valid prior output reusable. Use separate output directories for independent artifact lifecycles."
 caveats:
-  - "Writes converted files to disk."
+  - "Writes converted files to disk by default; set write_to_disk=False only when retaining the converted waveform in the task."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 4, last_validated: "2026-07-30"}
+provenance: {model_card_url: null, card_version: 5, last_validated: "2026-09-22"}

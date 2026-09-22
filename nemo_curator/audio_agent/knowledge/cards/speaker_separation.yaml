@@ -11,9 +11,9 @@ constraints:
 resource:
   cpus: 1.0
   gpu_mem_gb: 1.0   # measured on RTX 4090 (~1.0 GB reserved, diarize forward on a 6 s clip)
-  gpu_optional: false
+  gpu_optional: true
   bound: gpu
-  throughput_hint: "GPU inference; 1 -> N fan-out per detected speaker"
+  throughput_hint: "1 -> N fan-out per detected speaker; GPU is the practical default, with a slower Resources(gpus=0) CPU path"
 use_cases:
   good_for:
     - "producing one audio stream/task per speaker from multi-speaker audio"
@@ -25,7 +25,7 @@ use_cases:
     - "non-English audio (Sortformer is English-primary)"
 composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage]
-  typical_downstream: [PrepareModuleSegmentsStage, AudioToDocumentStage]
+  typical_downstream: [GetAudioDurationStage, UTMOSFilterStage, SIGMOSFilterStage, TorchSquimQualityMetricsStage, AudioToDocumentStage]
 params_of_note:
   model_path: "HF model id or local path to the NeMo diarization model (default nvidia/diar_sortformer_4spk-v1)"
   exclude_overlaps: "drop overlapping-speaker regions (default True); False uses clean-cut overlap splitting"
@@ -53,12 +53,14 @@ comparison:
   accuracy_hint: "up to 4 speakers; produces separated per-speaker audio (vs labels-only diarizers)"
   config_complexity: "medium"
   choose_when: "you need per-speaker AUDIO (e.g. to build single-speaker TTS data). For who-spoke-when labels only use InferenceSortformerStage; for >4 speakers or overlap detection use PyAnnoteDiarizationStage."
-  known_limitations: "4-speaker cap; 16 kHz mono; English-conversational; GPU required"
+  known_limitations: "4-speaker cap; 16 kHz mono; English-conversational; CPU execution is supported but slower"
 conflicts_with: [InferenceSortformerStage, PyAnnoteDiarizationStage]   # related diarizers
 notes:
   - "Output shape (default, write_to_disk=False): each child carries a `waveform` tensor + `original_file` and retains the parent `audio_filepath` only as legacy provenance. The contract invalidates that retained path as an audio carrier, so downstream must consume the in-memory waveform (AudioToDocumentStage or a waveform-aware / input_residency='auto' stage), not reopen the full parent recording. With write_to_disk=True each child instead gets its OWN `audio_filepath` (the per-speaker WAV in separated_audio_dir), so file-based stages work; keep_waveform_in_task=False makes it disk-only. The per-speaker output is a single concatenated track (non-overlapping regions overlaid on silence)."
+  - "When ResampleAudioStage is upstream, route its output explicitly: read resampled_audio_filepath, consume a retained resident waveform, or configure the resampler to update audio_filepath. The resampler's default leaves audio_filepath unchanged."
+  - "PrepareModuleSegmentsStage is not a direct consumer: separation emits per-speaker audio plus diar_segments, while preparation expects a configured segments list, top-level duration, and usable word/alignment data."
   - "Uses the OFFLINE non-streaming checkpoint nvidia/diar_sortformer_4spk-v1 (loaded via from_pretrained), distinct from InferenceSortformerStage's streaming v2.1."
-  - "GPU required; downloads the NeMo model from HuggingFace Hub on first run. On OOM, split the audio or reduce load."
+  - "The default resources request a GPU. Resources(gpus=0) selects the supported CPU path; downloads the NeMo model from HuggingFace Hub on first run."
   - "(external) Sortformer end-to-end diarizer (arXiv 2409.06656): 4-speaker cap, 16 kHz mono, English-primary."
 verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
-provenance: {model_card_url: "https://huggingface.co/nvidia/diar_sortformer_4spk-v1", card_version: 4, last_validated: "2026-07-30"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_sortformer_4spk-v1", card_version: 5, last_validated: "2026-09-22"}

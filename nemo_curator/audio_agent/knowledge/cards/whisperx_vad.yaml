@@ -5,8 +5,7 @@ tags: [fanout, needs_internet_first_run]
 model_id: "WhisperX VAD (pyannote-based segmentation model)"
 model_version: "whisperx-vad (whisperx==3.8.5, resolved by load_vad_model)"
 domain: {language: any, style: speech}
-constraints:
-  input_duration_sweetspot_sec: {min: 0.5, max: 40.0}   # min_length / max_length defaults
+constraints: {}
 resource:
   cpus: 1.0
   gpu_mem_gb: 0.1   # measured on RTX 4090 (~0.03 GB load-only; small pyannote segmentation model)
@@ -18,7 +17,7 @@ use_cases:
   avoid_for: ["lightweight silence removal (Silero VADSegmentationStage is cheaper / CPU-friendly)"]
 composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage]
-  typical_downstream: [BandFilterStage, UTMOSFilterStage, SegmentExtractionStage, ASRStage]
+  typical_downstream: [BandFilterStage, UTMOSFilterStage, ASRStage]
 params_of_note:
   min_length: "minimum WHOLE-FILE duration in s to process; shorter inputs are skipped (default 0.5)"
   max_length: "max chunk duration for merge/binarization in s (default 40) -- NOT a cap on input file length"
@@ -39,7 +38,8 @@ notes:
   - "Sample rate: the stage does not resample; it reads audio at its native rate and passes it (with the rate) to the WhisperX/pyannote VAD model, which resamples to its internal 16 kHz target (whisperx_vad.py:99-105,306-308). The default input key `resampled_audio_filepath` reflects the WhisperX 16 kHz convention, but any input rate is accepted."
   - "Passthrough output is metadata-only: vad_segments entries use start/end in seconds. Fan-out instead emits one child per segment with a cloned channel-first `waveform`, `sample_rate`, start/end metadata, and `original_file`; it drops the parent vad_segments container and full-recording paths."
   - "For direct fan-out transcription, configure ASRStage with waveform_key='waveform' and sample_rate_key='sample_rate'. File-only consumers are intentionally rejected because the child no longer points at the complete recording."
+  - "This is not a direct producer for SegmentExtractionStage: passthrough writes vad_segments with start/end seconds, while extraction accepts mapped millisecond rows or its diar_segments schema. Add an explicit schema-mapping step first."
   - "Network: discovery conservatively declares first-run internet because WhisperX model loading may resolve model artifacts. Pre-cache the configured WhisperX/pyannote VAD assets before running offline."
   - "GPU is optional, but the default resources request 1 GPU and the model raises if device='cuda' is requested without CUDA -- set Resources(gpus=0) for CPU."
 verified: {params: mechanical, tags: best_guess, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
-provenance: {model_card_url: "https://github.com/m-bain/whisperX", card_version: 4, last_validated: "2026-09-16"}
+provenance: {model_card_url: "https://github.com/m-bain/whisperX", card_version: 5, last_validated: "2026-09-22"}

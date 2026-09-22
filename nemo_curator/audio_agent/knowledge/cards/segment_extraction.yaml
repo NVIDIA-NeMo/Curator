@@ -1,7 +1,7 @@
 stage_id: SegmentExtractionStage
 category: export
 summary: "Read audio slices from original files and write them as standalone segment files."
-tags: [writes_disk]
+tags: [writes_disk, batch_only]
 model_id: null
 domain: {language: any, style: any}
 constraints: {}
@@ -15,15 +15,16 @@ use_cases:
   good_for: ["materializing per-segment audio files (e.g. per-utterance or per-speaker clips)"]
   avoid_for: ["when only segment metadata is needed (skip extraction)"]
 composition:
-  typical_upstream: [TimestampMapperStage, PrepareModuleSegmentsStage]
+  typical_upstream: [TimestampMapperStage]
   typical_downstream: [ManifestWriterStage]
 params_of_note:
   output_dir: "directory for the extracted segment files"
   output_format: "output audio format (default wav)"
   output_key: "manifest key for the extracted file path (default extracted_path)"
 param_dependencies:
-  output_dir: "entries must carry segment timing (produced by TimestampMapperStage)"
+  output_dir: "each entry must match either original_file + original_start_ms + original_end_ms, or original_file + diar_segments; speaker identity may be top-level or inside diarization entries"
 notes:
-  - "Groups entries by original file; pipeline combo is auto-detected from the first entry per batch."
+  - "Batch-only: process() raises and process_batch() handles all work. Each entry's accepted schema is detected independently, so heterogeneous batches are not interpreted from their first row."
+  - "Durable output reservations make retries idempotent. Existing malformed or unreadable resume state fails safely instead of risking filename reuse or overwrite."
 verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

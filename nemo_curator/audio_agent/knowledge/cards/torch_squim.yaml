@@ -17,7 +17,7 @@ use_cases:
   avoid_for: ["non-speech audio", "when you need a single overall MOS (use UTMOS) or fine-grained P.804 dimensions (use SIGMOS)"]
 composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage, SpeakerSeparationStage, SegmentConcatenationStage]
-  typical_downstream: [PreserveByValueStage, AudioToDocumentStage]
+  typical_downstream: [AudioToDocumentStage]
 params_of_note:
   audio_filepath_key: "input audio path key (default resampled_audio_filepath); required unless input_residency supplies an in-memory waveform. Segments alone are never enough."
   input_residency: "'file' (default; read audio_filepath_key), 'waveform' (in-memory waveform_key+sample_rate_key only), or 'auto' (waveform first, file fallback). Lets SQUIM score a resident waveform without a disk round-trip."
@@ -44,11 +44,11 @@ comparison:
   latency_hint: "heavier than UTMOS; model inference (lower VRAM than SIGMOS)"
   config_complexity: "low-medium"
   choose_when: "you want objective signal-quality proxies (PESQ/STOI/SI-SDR) without a reference. For a perceptual MOS use UTMOS; for 7-dimension P.804 quality use SIGMOS."
-  known_limitations: "speech-only; ESTIMATES, not true reference-based measurements; batch-only; annotate-only (filter downstream with PreserveByValueStage)"
+  known_limitations: "speech-only; ESTIMATES, not true reference-based measurements; batch-only; annotate-only; scores are nested under metrics_key"
 notes:
   - "BATCH_ONLY: process() raises; only process_batch runs -- cannot be used in single-task pipelines."
-  - "Annotate-only: writes metrics.pesq_squim, metrics.stoi_squim, metrics.sisdr_squim (all higher = better); it does NOT drop rows. Filter downstream with PreserveByValueStage (e.g. keep metrics.pesq_squim >= 3.0)."
+  - "Annotate-only: writes metrics.pesq_squim, metrics.stoi_squim, and metrics.sisdr_squim (all higher = better); it does not drop rows. PreserveByValueStage treats dots literally and cannot traverse this nested mapping, so extract or flatten the selected score before generic scalar filtering."
   - "Downloads squim_objective_dns2020.pth from pytorch.org on first run."
   - "(external) torchaudio SQUIM_OBJECTIVE (trained on the DNS2020 dataset; arXiv 2304.01448): reference-free WB-PESQ (~1.0-4.64), STOI (~0.25-1.0), SI-SDR (~-18..35 dB); 16 kHz only. Source: https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html"
 verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess}
-provenance: {model_card_url: "https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html", card_version: 3, last_validated: "2026-07-24"}
+provenance: {model_card_url: "https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html", card_version: 4, last_validated: "2026-09-22"}

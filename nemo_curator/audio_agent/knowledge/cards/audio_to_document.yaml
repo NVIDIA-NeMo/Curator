@@ -1,7 +1,7 @@
 stage_id: AudioToDocumentStage
 category: export
 summary: "Aggregate AudioTasks into a DocumentBatch DataFrame, stripping tensors/audio blobs."
-tags: [sink, sanitizes_output, batch_only]
+tags: [sink, batch_only]
 model_id: null
 domain: {language: any, style: any}
 constraints:
@@ -13,12 +13,18 @@ resource:
   bound: cpu
   throughput_hint: "CPU; aggregates a batch into one DataFrame"
 use_cases:
-  good_for: ["batching AudioTasks for a DocumentBatch consumer", "removing resident tensors before a JSON sink"]
+  good_for: ["batching AudioTasks for a DocumentBatch consumer", "removing known resident audio/tensor carriers at the modality boundary"]
   avoid_for: ["mid-pipeline (place it just before the writer)"]
 composition:
   typical_upstream: [UTMOSFilterStage, SIGMOSFilterStage, GetAudioDurationStage, TimestampMapperStage]
   typical_downstream: [DocumentBatchJsonlWriterStage]
+params_of_note:
+  strict_json: "False (default) preserves legacy DataFrame-compatible values; True establishes a general JSON-serializable output boundary."
+  keep_keys: "optional allowlist of task-data keys to retain"
+  drop_keys: "additional keys to remove"
+  serialize_segments: "retain and recursively sanitize segments_key instead of dropping it (default False)"
 notes:
-  - "The default preserves legacy DataFrame values such as datetime, Decimal, pathlib paths, and tuples while stripping tensors/audio arrays/segments. Set strict_json=true before DocumentBatchJsonlWriterStage when arbitrary custom values may be present."
-verified: {tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-28"}
+  - "The default always strips known audio/tensor carriers, but it preserves legacy values such as datetime, Decimal, pathlib paths, tuples, and custom scalars. It is therefore not a general JSON boundary."
+  - "Before DocumentBatchJsonlWriterStage, use strict_json=True when arbitrary custom values may be present; otherwise ensure the retained schema is already serializable."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}

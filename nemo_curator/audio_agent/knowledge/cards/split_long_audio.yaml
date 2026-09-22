@@ -18,10 +18,14 @@ use_cases:
 composition:
   typical_upstream: [ResampleAudioStage, ManifestReader]
   typical_downstream: [NeMoASRAlignerStage, JoinSplitAudioMetadataStage]
+  incompatible_upstream:
+    VADSegmentationStage: "Its segment schema uses start_ms/end_ms, while this stage requires segments[].start/end in seconds. Convert the schema explicitly before composing them."
 params_of_note:
   suggested_max_len: "target maximum chunk length in seconds (default 3600)"
   min_len: "minimum length for any split segment (s)"
   audio_filepath_key: "input audio path key (default resampled_audio_filepath)"
+  duration_key: "top-level duration field required by the stage (default duration)"
+  segments_key: "list of split candidates; every entry must provide start/end in seconds (default segments)"
 semantic_facts:
   split_filepaths:
     meaning: "Paths to the on-disk audio chunks this long file was split into at natural pauses."
@@ -34,5 +38,6 @@ semantic_facts:
       - "This produces chunks of one recording (for ASR memory/accuracy); it is not speaker/utterance segmentation and not a filter."
 notes:
   - "Emits split file paths/metadata under split_* keys, later recombined by JoinSplitAudioMetadataStage. Used inside SplitASRAlignJoinStage."
+  - "Input requires the configured audio path, a top-level duration, and segments whose start/end values are in seconds. The stage does not translate millisecond schemas."
 verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, resource: best_guess, constraints: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-30"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}

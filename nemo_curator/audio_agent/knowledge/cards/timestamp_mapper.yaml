@@ -18,12 +18,14 @@ composition:
   typical_upstream: [MergeAlignmentDiarizationStage, InferenceSortformerStage, UTMOSFilterStage]
   typical_downstream: [SegmentExtractionStage, AudioToDocumentStage, ManifestWriterStage]
 params_of_note:
-  passthrough_keys: "extra JSON-serializable input keys to copy through to the output (beyond the core fields); non-JSON values are dropped"
+  passthrough_keys: "extra input keys to copy beyond the core fields; known audio/tensor carriers are blocked, but arbitrary non-JSON values are preserved unless sanitize_output=True"
   audio_filepath_key: "source audio path key"
   diar_segments_key: "diarization segments key (used when present)"
+  sanitize_output: "False (default) preserves legacy passthrough values; True recursively converts or drops unsupported values to establish a JSON-compatible boundary"
 notes:
   - "Core fields (original_file, original_start_ms, original_end_ms, duration_ms, duration) are always written; passthrough_keys controls what else is carried over."
   - "Diarization intervals are preserved through same-file concat mappings; rows spanning multiple original files are rejected rather than represented under the wrong source."
   - "Malformed or unresolvable mapped rows may be dropped, so this stage has filter cardinality."
+  - "ManifestWriterStage is a safe direct sink only when selected values are already serializable or sanitize_output=True; the default blocks known carriers but is not a general JSON sanitizer."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

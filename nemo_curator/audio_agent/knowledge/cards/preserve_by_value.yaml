@@ -13,13 +13,13 @@ resource:
   bound: cpu
   throughput_hint: "CPU, trivial"
 use_cases:
-  good_for: ["thresholding on a computed metric (e.g. keep wer <= 25, duration >= 1.0)"]
-  avoid_for: ["filtering before the metric field exists upstream"]
+  good_for: ["thresholding one exact top-level scalar field (e.g. keep wer_pct <= 25 or duration >= 1.0)"]
+  avoid_for: ["filtering before the field exists upstream", "nested values or dot-path traversal; expose the desired value as a flat top-level key first"]
 composition:
-  typical_upstream: [GetPairwiseWerStage, GetAudioDurationStage, ComputeWERStage, UTMOSFilterStage]
+  typical_upstream: [GetPairwiseWerStage, GetAudioDurationStage, UTMOSFilterStage]
   typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
 params_of_note:
-  input_value_key: "the field to compare (must be produced upstream)"
+  input_value_key: "exact top-level field to compare; dots are literal characters, not path separators"
   target_value: "the numeric (including float) or string value to compare against"
   operator: "one of lt, le, eq, ne, ge, gt"
   missing_value_policy: "'error' (default, backward-compatible) raises when input_value_key is absent; 'drop' removes that row."
@@ -32,9 +32,10 @@ semantic_facts:
     propagation: "Rows passing operator(value, target_value) are preserved unchanged; failing rows are dropped. A missing key raises by default or is dropped only when missing_value_policy='drop'."
     counterexamples:
       - "A key name such as duration, score, or num_speakers does not prove which entity it describes; inspect its exact producer and any intervening fan-out or aggregation."
+      - "A key such as metrics.wer is not resolved inside a metrics mapping; nested producer output must be extracted or flattened before this stage."
 param_dependencies:
-  input_value_key: "must be a key produced by an upstream stage (e.g. wer, duration)"
+  input_value_key: "must be an exact top-level key produced upstream (e.g. wer_pct or duration)"
 notes:
   - "Filter AFTER the metric it reads is produced; filtering early (before convert/write) saves downstream cost."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 4, last_validated: "2026-08-19"}
+provenance: {model_card_url: null, card_version: 5, last_validated: "2026-09-22"}

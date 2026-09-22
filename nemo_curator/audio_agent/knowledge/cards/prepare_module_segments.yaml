@@ -1,5 +1,5 @@
 stage_id: PrepareModuleSegmentsStage
-category: export
+category: segment
 summary: "Shape segments for TTS or ASR: merge same-speaker, then split on duration/pause/punctuation/bandwidth."
 tags: []
 model_id: null
@@ -15,8 +15,8 @@ use_cases:
   good_for: ["turning diarized/aligned segments into training-ready units (TTS single-speaker, ASR multi-speaker)"]
   avoid_for: ["audio with no upstream segments/alignment"]
 composition:
-  typical_upstream: [MergeAlignmentDiarizationStage, InferenceSortformerStage]
-  typical_downstream: [SegmentExtractionStage, AudioToDocumentStage]
+  typical_upstream: [MergeAlignmentDiarizationStage]
+  typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
 params_of_note:
   module: "'tts' (single-speaker segments) or 'asr' (multi-speaker ok)"
   min_duration: "minimum segment duration (s)"
@@ -25,5 +25,13 @@ params_of_note:
   punctuation_split_only: "split only on terminal punctuation"
   alignment_key: "metadata key holding the word alignment consulted when segments lack overlap_segments (default 'alignment')"
   overlap_segments_key: "metadata key whose presence marks segments as already word-aligned, skipping re-alignment (default 'overlap_segments')"
+  segments_key: "required list of speaker/text segments to reshape (default segments)"
+  duration_key: "required top-level recording duration used when completing the segment timeline (default duration)"
+param_dependencies:
+  segments_key: "segments must contain usable text plus words, or be alignable from alignment_key; a diarization list alone is insufficient"
+  duration_key: "must describe the same recording represented by segments_key"
+notes:
+  - "InferenceSortformerStage alone is not sufficient by default: it writes diar_segments and no word/text alignment, while this stage defaults to segments and requires content from which word-bearing output can be built."
+  - "SegmentExtractionStage is not a direct consumer of this output; extraction requires mapped original_start_ms/original_end_ms rows or its diar_segments schema. Add an explicit mapping step when materializing files."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-16"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}

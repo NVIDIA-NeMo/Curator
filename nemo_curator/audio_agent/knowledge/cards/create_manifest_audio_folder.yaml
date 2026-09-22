@@ -38,8 +38,10 @@ param_dependencies:
 conflicts_with: [ManifestReader, CreateInitialManifestReadSpeechStage, CreateInitialManifestFleursStage]
 notes:
   - "Generic, dataset-agnostic source. Emits one AudioTask per file with audio_filepath + a filename-derived audio_item_id; no transcripts (add an ASR stage if you need text)."
+  - "audio_item_id is derived from the relative path with separator-safe escaping. Files whose relative stems collide across extensions receive an extension-qualified disambiguation, while non-colliding legacy ids remain stable."
   - "References existing files on disk -- it does not download or write audio, so the card carries no writes_disk tag (see the tag<->gate conformance check)."
   - "Asserts nothing about the audio it lists: no rate, channel count or transcript is claimed, so anything downstream that needs those must measure them. That is the property that makes it the safe default for an unknown corpus."
   - "Choosing a source is not a free choice: it seeds the content-addressed reuse chain, so the same corpus ingested through a different source stage produces a different step-key chain and reuses nothing from the earlier run. Decide the source from the corpus's provenance, and decide it the same way every session."
+  - "An unbounded scan (max_samples < 0) can be safely narrowed with include_files. A non-negative max_samples selects the first files in global sorted order, so additions can change membership and that bounded source must not be treated as independently narrowable."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-08-17"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}

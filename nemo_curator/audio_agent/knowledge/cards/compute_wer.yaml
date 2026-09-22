@@ -15,11 +15,11 @@ use_cases:
   good_for: ["measuring ASR accuracy (normalized WER/CER, edge-CER, PNC) for filtering", "per-segment scoring"]
   avoid_for: ["data with no reference transcripts (WER is unproducible)"]
 composition:
-  typical_upstream: [ASRStage, NeMoASRAlignerStage]
-  typical_downstream: [PreserveByValueStage, AudioToDocumentStage]
+  typical_upstream: [ASRStage, SplitASRAlignJoinStage]
+  typical_downstream: [AudioToDocumentStage]
 params_of_note:
   language: "language for text normalization (default en)"
-  hypothesis_text_key: "ASR prediction key (default text)"
+  hypothesis_text_key: "hypothesis key (default text); set it to ASRStage.pred_text_key (default pred_text) when consuming ASRStage output"
   reference_text_key: "reference transcript key (default text_ref)"
   compute_pnc_wer: "also compute punctuation-and-capitalization WER/CER"
   edge_length: "characters at each edge for edge-CER"
@@ -29,30 +29,27 @@ param_dependencies:
 semantic_facts:
   metrics:
     meaning: "Error-rate scores comparing an ASR HYPOTHESIS against a REFERENCE transcript (nested: metrics.wer.wer, metrics.cer.cer, plus edge/PNC variants)."
-    unit: "fractions; WER/CER are error rates in [0, ~2] (can exceed 1.0 when insertions dominate)"
+    unit: "non-negative fractions; WER/CER can exceed 1.0 when insertions dominate"
     provenance: "word_error_rate_detail over the NORMALIZED hypothesis_text_key vs reference_text_key text; REQUIRES both to be present."
     scope: "per segment when segments_key is present, else the top-level row"
-    propagation: "Written under metrics_key; there is no inline threshold -- filter downstream with PreserveByValueStage."
+    propagation: "Written under metrics_key at task or segment scope; there is no inline threshold. A generic flat-key filter requires the selected score to be extracted or flattened first."
     counterexamples:
       - "WER is unproducible without reference transcripts (reference_text_key, default text_ref) -- it measures transcript accuracy, NOT an audio property, and cannot be computed from audio alone."
-      - "WER/CER are LOWER-better error rates: to keep accurate clips, DROP those ABOVE the threshold (a >= cut), not below."
+      - "WER/CER are LOWER-better error rates: after exposing a score as a flat scalar, keep it with operator='le' (or drop values above the threshold)."
 metrics:
   # ComputeWER writes nested dicts under metrics_key (metrics.wer.wer, metrics.cer.cer,
-  # plus edge/PNC variants). There is NO inline threshold param -- filter downstream with
-  # PreserveByValueStage. Directions are declared so the planner never inverts the filter:
-  # WER/CER are error rates, so LOWER is better (drop clips ABOVE the threshold).
+  # plus edge/PNC variants). There is no inline threshold param. Directions are declared so
+  # a later selector cannot invert the intended lower-is-better comparison after flattening.
   wer:
-    scale: {min: 0.0, max: 1.0, direction: lower_better}
-    valid_range: [0.0, 2.0]          # WER can exceed 1.0 when insertions dominate
+    scale: {min: 0.0, max: null, direction: lower_better}
   cer:
-    scale: {min: 0.0, max: 1.0, direction: lower_better}
-    valid_range: [0.0, 2.0]
+    scale: {min: 0.0, max: null, direction: lower_better}
 comparison:
   accuracy_hint: "normalized, multi-metric (WER/CER/edge/PNC), operates on segments"
   config_complexity: "medium (language + PNC + thresholds)"
   known_limitations: "requires references; normalization is language-dependent"
 conflicts_with: [GetPairwiseWerStage]   # overlapping WER computation
 notes:
-  - "Cleans/normalizes text via NeMo text processing before scoring. Writes results under metrics_key."
+  - "Cleans/normalizes text via NeMo text processing before scoring. Scores are nested under metrics_key, so PreserveByValueStage cannot consume them directly; flatten the chosen scalar first."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-30"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}
