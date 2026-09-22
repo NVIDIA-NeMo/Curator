@@ -28,8 +28,9 @@ The pipeline outputs structured data that you can write to JSONL or Parquet file
 `CommonCrawlWarcIterator` reads WARC files from local paths or fsspec-compatible
 remote paths such as `s3://`. For S3 paths, install the filesystem backend with
 `pip install "fsspec[s3]"`. Pass credentials and other filesystem settings
-through `storage_options`; for a public bucket such as Common Crawl, use
-`storage_options={"anon": True}`.
+through `storage_options`. Common Crawl's S3 bucket requires authenticated
+Requester Pays access, such as `storage_options={"requester_pays": True}` with
+AWS credentials configured.
 
 ### WARC Record Reader
 
