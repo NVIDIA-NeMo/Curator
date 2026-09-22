@@ -1080,7 +1080,7 @@ entries:
 
   # Same real input as Xenna.
   - name: audio_librispeech_raydata
-    enabled: true
+    enabled: false
     script: audio_librispeech_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}

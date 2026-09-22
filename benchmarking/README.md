@@ -669,9 +669,10 @@ The value is passed directly to Docker's `--gpus` flag.
 
 Audio benchmarks that depend on external corpora use the same two-layer setup:
 
-1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
-   machine to populate persistent paths under `{datasets_path}` and, when
-   needed, `{model_weights_path}`.
+1. The benchmark runner executes each configured
+   `benchmarking/data_prep/prepare_*_data.py` entry before the benchmarks to
+   populate or reuse persistent paths under `{datasets_path}` and, when needed,
+   `{model_weights_path}`.
 2. Run nightly entries from the staged data and local model paths so the
    benchmark itself never downloads inputs during the scheduled run. Entries
    that support a standalone download fallback also pass `--no-auto-download`.
@@ -711,18 +712,29 @@ python benchmarking/data_prep/prepare_alm_data.py \
 python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
   --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+python benchmarking/data_prep/prepare_readspeech_data.py \
+  --output-path {datasets_path}/read_speech \
+  --num-parts 3 \
+  --expected-wav-count 43354 \
+  --expected-wav-bytes 20011661694 \
+  --expected-inventory-sha256 ac097a3d4187d8e0e82fab14c8d0a59c0ab6f9de47f8784f2638054580232c20
 ```
 
 The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
+The ReadSpeech setup reuses staging only when its file count, byte count, and
+relative-path inventory match the configured cohort. It automatically stages,
+validates, and publishes a replacement when an older or incomplete cohort is
+present.
 
 | Workload | Before | Current result and target decision |
 | --- | --- | --- |
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Unchanged from `main`. The experimental HiFi-TTS calibration was discarded, so neither workload nor timeout is changed in this PR |
+| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---
 
