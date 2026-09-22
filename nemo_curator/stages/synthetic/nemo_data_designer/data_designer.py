@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
     import data_designer.config as dd
@@ -108,6 +109,9 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         else:
             self.data_designer = DataDesigner()
 
+    def _get_dataset_name(self, batch: DocumentBatch) -> str:
+        return f"{batch.dataset_name}-{get_deterministic_hash([batch.task_id])}"
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
@@ -152,7 +156,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 results = self.data_designer.create(
                     self.config_builder,
                     num_records=num_input_records,
-                    dataset_name=batch.dataset_name,
+                    dataset_name=self._get_dataset_name(batch),
                     artifact_path=self.artifact_path,
                     resume=self.resume,
                 )

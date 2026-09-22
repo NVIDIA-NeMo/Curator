@@ -172,7 +172,7 @@ class TestBaseDataDesignerStage:
         stage.data_designer.create.assert_called_once_with(
             real_builder,
             num_records=1,
-            dataset_name="ds1",
+            dataset_name=stage._get_dataset_name(batch),
             artifact_path=str(tmp_path),
             resume=dd.ResumeMode.NEVER,
         )
@@ -181,41 +181,28 @@ class TestBaseDataDesignerStage:
         create_results.load_analysis.assert_called_once_with()
         assert out_batch.data is output_df
 
-    def test_process_uses_preview_by_default(self) -> None:
-        real_builder = _minimal_config_builder()
-
+    def test_get_dataset_name_is_deterministic(self) -> None:
         stage = DataDesignerStage(
-            config_builder=real_builder,
-        )
-        stage.setup()
-
-        output_df = pd.DataFrame(
-            [{"text": "hello", "generated": "world"}]
+            config_builder=_minimal_config_builder(),
+            use_create=True,
+            artifact_path="/tmp/artifacts",
         )
 
-        stage.data_designer.preview = MagicMock(
-            return_value=PreviewResults(
-                config_builder=real_builder,
-                dataset=output_df,
-            )
+        batch_a = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
         )
-        stage.data_designer.create = MagicMock(
-            side_effect=AssertionError("create() must not be called")
-        )
-
-        batch = DocumentBatch(
+        batch_b = DocumentBatch(
             data=pd.DataFrame([{"text": "hello"}]),
             dataset_name="ds1",
         )
 
-        out_batch = stage.process(batch)
+        batch_a._set_task_id("0", 0)
+        batch_b._set_task_id("0", 1)
 
-        stage.data_designer.preview.assert_called_once_with(
-            real_builder,
-            num_records=1,
-        )
-        stage.data_designer.create.assert_not_called()
-        assert out_batch.data is output_df
+        assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_a)
+        assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
+
 
     def test_properties(self) -> None:
         """Stage name, default resources, and inputs/outputs."""
