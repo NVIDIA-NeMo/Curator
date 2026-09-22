@@ -47,14 +47,14 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="Cache directory for dedup intermediates (must be empty between runs). "
-        "build_pair_dataset.py reads group labels from '<cache-dir>/ConnectedComponentsStage/'.",
+        "3_build_pair_dataset.py reads group labels from '<cache-dir>/ConnectedComponentsStage/'.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         required=True,
         help="Output directory for duplicate IDs and the id generator mapping. "
-        "build_pair_dataset.py reads '<output-dir>/FuzzyDuplicateIds/' and "
+        "3_build_pair_dataset.py reads '<output-dir>/FuzzyDuplicateIds/' and "
         f"'<output-dir>/{ID_GENERATOR_OUTPUT_FILENAME}'.",
     )
     parser.add_argument("--text-field", type=str, default="text", help="Field containing the text to deduplicate.")
@@ -115,7 +115,7 @@ def main() -> None:
     duplicate_ids_dir = Path(args.output_dir) / DUPLICATE_IDS_SUBDIR
     id_generator_path = Path(args.output_dir) / ID_GENERATOR_OUTPUT_FILENAME
 
-    logger.info("Fuzzy dedup identification complete. Artifacts for build_pair_dataset.py:")
+    logger.info("Fuzzy dedup identification complete. Artifacts for 3_build_pair_dataset.py:")
     logger.info(f"  group labels (_curator_dedup_id, _duplicate_group_id): {connected_components_dir}")
     logger.info(f"  removal ids  (_curator_dedup_id):                       {duplicate_ids_dir}")
     logger.info(f"  id generator state:                                     {id_generator_path}")

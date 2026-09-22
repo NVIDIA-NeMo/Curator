@@ -13,8 +13,8 @@
 # limitations under the License.
 
 """
-Step 4 of the fuzzy-dedup-eval example: judge the labeled pairs produced by
-`3_build_pair_dataset.py` with `LLMJudgeWorkflow`.
+Step 5 of the fuzzy-dedup-eval example: judge the span-aligned pairs produced by
+`4_span_alignment.py` with `LLMJudgeWorkflow`.
 
 This is a thin wrapper around `LLMJudgeWorkflow`.
 Edit `judge_config/fuzzy_pair_judge.yaml` first -- set `models[0].model` to a
@@ -22,7 +22,7 @@ local model path or HF repo id, and size `num_replicas`/`tensor_parallel_size`
 to your GPUs (bundled default: 1 GPU).
 
 Example:
-    python tutorials/eval/dedup/4_run_llm_judge.py \
+    python tutorials/eval/dedup/5_run_llm_judge.py \
         --input-path output/dedup_eval/keeper_removed_pairs \
         --output-path output/dedup_eval/judged_pairs
 """
@@ -46,7 +46,7 @@ def _parse_args() -> argparse.Namespace:
         help="YAML file defining the model, Jinja templates, and rubric (default: judge_config/fuzzy_pair_judge.yaml).",
     )
     parser.add_argument(
-        "--input-path", required=True, help="Directory of pairs part_*.jsonl files written by 3_build_pair_dataset.py."
+        "--input-path", required=True, help="Directory of span-aligned pairs JSONL files written by 4_span_alignment.py."
     )
     parser.add_argument("--input-format", default="jsonl", choices=("jsonl", "parquet"))
     parser.add_argument("--output-path", required=True, help="Directory for judged-pair output partitions.")

@@ -1,13 +1,21 @@
 # User-owned evaluation semantics: replace the model, prompts, and rubric for another task.
 #
-# Judges whether text_a/text_b (produced by build_pair_dataset.py, step 3 of this example)
-# are actually duplicates, independent of what fuzzy dedup decided about them.
+# Judges whether text_a/text_b (produced by 3_build_pair_dataset.py, step 3 of this example,
+# with semantic_diff/truncated added by 4_span_alignment.py, step 4) are actually duplicates,
+# independent of what fuzzy dedup decided about them.
 #
 # The rubric is a semantic-retention judgment: rather than one yes/no "duplicate" score, it asks
 # the model to work through what each document retains (content profile, shared basis, per-side
 # delta, hard conflicts, translation status), then derive a replacement direction, relation type,
 # materiality, and primary difference from that analysis -- see system.jinja/pair.jinja for the
 # full reasoning the model is asked to follow.
+#
+# The model is not shown raw text_a/text_b directly -- pair.jinja renders the semantic_diff span
+# packet built by 4_span_alignment.py's build_semantic_diff() instead: a deterministic
+# SHARED/A_ONLY/B_ONLY lexical alignment with stable span IDs, so a short conflicting value (an
+# id, price, date) in otherwise-identical text is surfaced explicitly rather than left for the
+# model to notice unaided. semantic_diff also flags truncated pairs; the rubric's unresolved/low
+# escape hatches exist so a truncated or incomplete packet doesn't get judged as conclusive.
 #
 # As bundled, this uses 1 GPU (num_replicas: 1 x tensor_parallel_size: 1). Edit num_replicas
 # and/or tensor_parallel_size to match your hardware, and set models[0].model below before running.
@@ -35,6 +43,13 @@ models:
       timeout: 600
       max_parallel_requests: 64
 
+dynamo_server:
+  subprocess_env:
+    DYN_SYSTEM_PORT: "0"
+
+inference_server:
+  health_check_timeout_s: 1800
+
 execution:
   stages:
     - name: pair_semantic_judgment
@@ -57,36 +72,36 @@ execution:
                 non_main_only: B contains only reusable cookie, legal, auth, error, paywall, navigation, or platform messaging.
                 unreadable: B cannot be judged safely.
             - name: span_shared_basis
-              description: Verify the identical substantive record or identical complete non-main message from the visible text of both documents; template/topic/local overlap alone is none.
+              description: Cite S### or bilateral A### and B### IDs. Verify the identical substantive record or identical complete non-main message; template/topic/local overlap is none.
               options:
-                verified_substantive_record: The visible text in both documents establishes the identical page-specific substantive record.
-                verified_equivalent_non_main_message: The visible text in both documents establishes the same complete non-main message, function, identity, target, role, and state.
+                verified_substantive_record: Cited spans establish the identical page-specific substantive record.
+                verified_equivalent_non_main_message: Cited spans establish the same complete non-main message, function, identity, target, role, and state.
                 none: No qualifying same-record or complete-message basis exists.
                 unresolved: Visible evidence is insufficient.
             - name: span_a_delta
-              description: Classify everything in A that is absent from B. Choose the most material uncovered class.
+              description: Classify all A### spans together and cite decisive A### IDs. Choose the most material uncovered class.
               options:
-                none: No A-only content exists.
-                semantically_covered: Every A-only passage is formatting, faithful paraphrase, or translation already preserved by B.
-                universal_ui_or_repetition: Every A-only passage is harmless UI, redundant heading/byline, parser noise, or repetition, with no new subject, service target, state, or role.
+                none: No A-only span exists.
+                semantically_covered: Every A-only span is formatting, faithful paraphrase, or translation already preserved by B.
+                universal_ui_or_repetition: Every A-only span is harmless UI, redundant heading/byline, parser noise, or repetition, with no new subject, service target, state, or role.
                 same_record_content_extension: A alone adds retained content to the verified same substantive record.
                 record_identity_role_or_state_change: A-only identity, target, title, SKU, date, count, list, state, or page-role content changes the record.
                 material_non_main_message_change: A-only cookie, legal, auth, error, paywall, or platform meaning changes the complete message.
                 other_substantive_content: A has another uncovered retained proposition.
                 unresolved: The full A-only delta cannot be classified safely.
             - name: span_b_delta
-              description: Classify everything in B that is absent from A. Choose the most material uncovered class.
+              description: Classify all B### spans together and cite decisive B### IDs. Choose the most material uncovered class.
               options:
-                none: No B-only content exists.
-                semantically_covered: Every B-only passage is formatting, faithful paraphrase, or translation already preserved by A.
-                universal_ui_or_repetition: Every B-only passage is harmless UI, redundant heading/byline, parser noise, or repetition, with no new subject, service target, state, or role.
+                none: No B-only span exists.
+                semantically_covered: Every B-only span is formatting, faithful paraphrase, or translation already preserved by A.
+                universal_ui_or_repetition: Every B-only span is harmless UI, redundant heading/byline, parser noise, or repetition, with no new subject, service target, state, or role.
                 same_record_content_extension: B alone adds retained content to the verified same substantive record.
                 record_identity_role_or_state_change: B-only identity, target, title, SKU, date, count, list, state, or page-role content changes the record.
                 material_non_main_message_change: B-only cookie, legal, auth, error, paywall, or platform meaning changes the complete message.
                 other_substantive_content: B has another uncovered retained proposition.
                 unresolved: The full B-only delta cannot be classified safely.
             - name: span_hard_conflict
-              description: Point to concrete incompatible values in A and B. Absence alone is not a conflict after same-record identity is proved.
+              description: Cite incompatible A### and B### IDs. Absence alone is not a conflict after same-record identity is proved.
               options:
                 none: No conflicting material value or role is visible.
                 identity_or_slot: Record identity, title, SKU, entity, target, or defining slot conflicts.
@@ -97,7 +112,7 @@ execution:
                 other_material: Another explicit material conflict exists.
                 unresolved: Visible evidence is insufficient.
             - name: span_translation_status
-              description: Identify complete faithful translation of the same substantive record or equivalent complete non-main message. Every unique part of one side must be covered by the other or be harmless UI; language alone is not identity, role, or state.
+              description: Cite bilateral IDs for complete faithful translation of the same substantive record or equivalent complete non-main message. Every unique span must be covered or harmless UI; language alone is not identity, role, or state.
               options:
                 complete_faithful: Both sides express the same complete substantive record OR equivalent complete non-main message in different languages; no retained delta remains.
                 partial_or_additive: Translation is incomplete, additive, or changes retained meaning.
@@ -118,7 +133,7 @@ execution:
             - name: relation_type
               description: Containment is only a verified one-sided same-record extension. Complete translation and benign equivalence are near-surface.
               options:
-                exact: Complete visible document texts are identical.
+                exact: Complete visible cleaned texts are identical.
                 canonical_exact: Only normalization, whitespace, punctuation, encoding, or formatting differs.
                 near_surface: Meaning is bidirectionally replaceable after benign surface, paraphrase, or translation differences.
                 containment: Exactly one side adds retained content to the same verified substantive record.

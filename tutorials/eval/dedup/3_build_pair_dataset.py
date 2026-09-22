@@ -16,8 +16,8 @@
 Turn the outputs of `2_run_fuzzy_dedup.py` into a labeled JSONL dataset
 of document pairs suitable for `LLMJudgeWorkflow`.
 
-See README.md for the pairing strategies, input lock-step requirement, and
-scaling behavior.
+Writes raw pairs only -- 4_span_alignment.py adds `semantic_diff`/`truncated`
+as a separate step. See README.md for pairing strategies and scaling notes.
 
 Example:
     python tutorials/eval/dedup/3_build_pair_dataset.py \
@@ -25,13 +25,14 @@ Example:
         --input-filetype jsonl \
         --cache-dir output/dedup_eval/fuzzy_cache \
         --fuzzy-output-dir output/dedup_eval/fuzzy_ids \
-        --output-path output/dedup_eval/keeper_removed_pairs \
+        --output-path output/dedup_eval/keeper_removed_pairs_raw \
         --pair-strategy keeper_removed
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import glob
 import json
 import random
@@ -40,6 +41,7 @@ from typing import Literal
 
 import pandas as pd
 import pyarrow.parquet as pq
+import ray.data
 from loguru import logger
 
 from nemo_curator.core.client import RayClient
@@ -57,6 +59,19 @@ PairStrategy = Literal["keeper_removed", "all_pairwise", "cross_group_sample"]
 _VALID_STRATEGIES = ("keeper_removed", "all_pairwise", "cross_group_sample")
 CORPUS_WITH_IDS_SUBDIR = "CorpusWithIds"
 _DOCUMENT_COLUMNS = [CURATOR_DEDUP_ID_STR, "url", "text"]
+_PAIR_ROW_COLUMNS = [
+    "pair_type",
+    "expected_duplicate",
+    "group_id_a",
+    "group_id_b",
+    "id_a",
+    "id_b",
+    "doc_id_a",
+    "doc_id_b",
+    "text_a",
+    "text_b",
+    "pair_id",
+]
 
 
 def _reassign_ids_to_parquet(
@@ -67,9 +82,8 @@ def _reassign_ids_to_parquet(
     id_generator_path: str,
     cache_dir: Path,
 ) -> Path:
-    """Re-read the original corpus, reassigning the same `_curator_dedup_id` values fuzzy dedup
-    used, and write the result back out as sharded Parquet under `cache_dir/CorpusWithIds/`.
-    """
+    """Re-read the corpus, reassigning fuzzy dedup's `_curator_dedup_id` values, into
+    sharded Parquet under `cache_dir/CorpusWithIds/`."""
     corpus_dir = cache_dir / CORPUS_WITH_IDS_SUBDIR
     metadata_file = corpus_dir / "_reassignment_metadata.json"
     metadata = {"input_path": input_path, "input_filetype": input_filetype, "input_blocksize": input_blocksize}
@@ -93,11 +107,8 @@ def _reassign_ids_to_parquet(
 
     if input_filetype == "parquet":
         from nemo_curator.stages.text.io.reader import ParquetReader as ReaderClass
-    elif input_filetype == "jsonl":
-        from nemo_curator.stages.text.io.reader import JsonlReader as ReaderClass
     else:
-        msg = f"Invalid input filetype: {input_filetype}"
-        raise ValueError(msg)
+        from nemo_curator.stages.text.io.reader import JsonlReader as ReaderClass
     from nemo_curator.stages.text.io.writer import ParquetWriter
 
     pipeline = Pipeline(
@@ -129,45 +140,33 @@ def _reassign_ids_to_parquet(
     return corpus_dir
 
 
-def _load_documents_by_id(corpus_dir: Path, needed_ids: set[int]) -> pd.DataFrame:
-    """Stream through the id-reassigned corpus, keeping only rows whose id is in `needed_ids`."""
-    frames = [pd.DataFrame(columns=_DOCUMENT_COLUMNS)]
-    for file in sorted(corpus_dir.glob("*.parquet")):
-        chunk = pd.read_parquet(file, columns=_DOCUMENT_COLUMNS)
-        matched = chunk[chunk[CURATOR_DEDUP_ID_STR].isin(needed_ids)]
-        if not matched.empty:
-            frames.append(matched)
-    return pd.concat(frames, ignore_index=True)
-
-
-def _sample_documents(corpus_dir: Path, *, sample_size: int, seed: int) -> pd.DataFrame:
-    """Draw an approximately uniform sample of documents, sized per-file from Parquet metadata,
-    without loading the whole corpus."""
-    files = sorted(corpus_dir.glob("*.parquet"))
-    if not files:
-        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
-
-    row_counts = {file: pq.ParquetFile(file).metadata.num_rows for file in files}
-    total_rows = sum(row_counts.values())
-    if total_rows == 0:
-        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
-
-    frames = []
-    for file_index, (file, count) in enumerate(row_counts.items()):
-        if count == 0:
-            continue
-        file_target = max(1, round(sample_size * count / total_rows))
-        chunk = pd.read_parquet(file, columns=_DOCUMENT_COLUMNS)
-        # Vary the seed per file; otherwise every file would sample the same row positions.
-        frames.append(chunk.sample(n=min(file_target, len(chunk)), random_state=seed + file_index))
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=_DOCUMENT_COLUMNS)
-
-
 def _read_parquet_glob(directory: str) -> pd.DataFrame:
     files = sorted(glob.glob(str(Path(directory) / "*.parquet")))
     if not files:
         return pd.DataFrame()
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+
+
+def _clean_group_id(value: object) -> int | None:
+    # Group-id column is float64 (NaN for singletons after a left-join); round-trip through
+    # here so JSON gets int/null instead of an invalid NaN token or "11.0" for a real id.
+    return int(value) if pd.notna(value) else None
+
+
+def _make_pair_row(doc_a: dict, doc_b: dict, *, pair_type: str, expected_duplicate: bool) -> dict:
+    return {
+        "pair_type": pair_type,
+        "expected_duplicate": expected_duplicate,
+        "group_id_a": _clean_group_id(doc_a.get(CURATOR_FUZZY_DUPLICATE_GROUP_FIELD)),
+        "group_id_b": _clean_group_id(doc_b.get(CURATOR_FUZZY_DUPLICATE_GROUP_FIELD)),
+        "id_a": doc_a[CURATOR_DEDUP_ID_STR],
+        "id_b": doc_b[CURATOR_DEDUP_ID_STR],
+        "doc_id_a": doc_a.get("url"),
+        "doc_id_b": doc_b.get("url"),
+        # 4_span_alignment.py adds semantic_diff/truncated from these before the judge sees them.
+        "text_a": doc_a.get("text"),
+        "text_b": doc_b.get("text"),
+    }
 
 
 def _build_keeper_removed_pairs(group: pd.DataFrame, removed_ids: set[int]) -> list[dict]:
@@ -181,9 +180,8 @@ def _build_keeper_removed_pairs(group: pd.DataFrame, removed_ids: set[int]) -> l
 
 
 def _build_all_pairwise_pairs(group: pd.DataFrame) -> list[dict]:
-    # Note: intentionally not using DataFrame.itertuples() here -- pandas renames columns that
-    # start with an underscore (e.g. our _curator_dedup_id / _duplicate_group_id) to positional
-    # names like "_1", which would silently break the dict-style lookups in _make_pair_row.
+    # Not DataFrame.itertuples(): pandas renames underscore-prefixed columns (e.g.
+    # _curator_dedup_id) to positional names like "_1", breaking _make_pair_row's lookups.
     rows = group.to_dict("records")
     pairs = []
     for i in range(len(rows)):
@@ -215,78 +213,143 @@ def _build_cross_group_pairs(all_docs: pd.DataFrame, num_samples: int, rng: rand
         seen.add(key)
         pairs.append(_make_pair_row(doc_a, doc_b, pair_type="cross_group_sample", expected_duplicate=False))
     if len(pairs) < num_samples:
-        logger.warning(
-            f"Could only sample {len(pairs)}/{num_samples} cross-group pairs from {len(records)} documents."
-        )
+        logger.warning(f"Could only sample {len(pairs)}/{num_samples} cross-group pairs from {len(records)} docs.")
     return pairs
 
 
-def _clean_group_id(value: object) -> int | None:
-    # The group-label column is float64 (pandas requires float once a left-join introduces NaNs
-    # for singletons): json.dumps would emit invalid `NaN` tokens, and would print a real id as
-    # `11.0` instead of `11`. Round-trip every group id through here so it's always `int`/`null`.
-    return int(value) if pd.notna(value) else None
+def _attach_group_id(batch: pd.DataFrame, *, group_by_id: dict[int, int]) -> pd.DataFrame:
+    """`map_batches` UDF: tag each document with its duplicate-group id, if any."""
+    batch = batch.copy()
+    batch[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD] = batch[CURATOR_DEDUP_ID_STR].map(group_by_id)
+    return batch
 
 
-def _make_pair_row(doc_a: dict, doc_b: dict, *, pair_type: str, expected_duplicate: bool) -> dict:
-    return {
-        "pair_type": pair_type,
-        "expected_duplicate": expected_duplicate,
-        "group_id_a": _clean_group_id(doc_a.get(CURATOR_FUZZY_DUPLICATE_GROUP_FIELD)),
-        "group_id_b": _clean_group_id(doc_b.get(CURATOR_FUZZY_DUPLICATE_GROUP_FIELD)),
-        "id_a": doc_a[CURATOR_DEDUP_ID_STR],
-        "id_b": doc_b[CURATOR_DEDUP_ID_STR],
-        "doc_id_a": doc_a.get("url"),
-        "doc_id_b": doc_b.get("url"),
-        "text_a": doc_a.get("text"),
-        "text_b": doc_b.get("text"),
-    }
+def _build_pairs_for_group(
+    group_df: pd.DataFrame, *, strategy: PairStrategy, removed_ids: set[int], max_group_size: int
+) -> pd.DataFrame:
+    """`groupby(...).map_groups(...)` UDF: build pairs for one duplicate group, distributed
+    across the cluster. `pair_id` is derived from the group id + an in-group index, since no
+    single task sees every group."""
+    group_id = int(group_df[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD].iloc[0])
+    if strategy == "keeper_removed":
+        pairs = _build_keeper_removed_pairs(group_df, removed_ids)
+    elif len(group_df) > max_group_size:
+        logger.warning(
+            f"Skipping duplicate group {group_id} ({len(group_df)} documents) for all_pairwise -- "
+            f"larger than --max-group-size={max_group_size}."
+        )
+        pairs = []
+    else:
+        pairs = _build_all_pairwise_pairs(group_df)
+    for index, pair in enumerate(pairs):
+        pair["pair_id"] = f"{strategy}-{group_id}-{index:04d}"
+    return pd.DataFrame(pairs, columns=_PAIR_ROW_COLUMNS)
 
 
-def build_pairs(  # noqa: PLR0913
+def build_grouped_pairs_distributed(  # noqa: PLR0913
     *,
-    documents_df: pd.DataFrame,
+    corpus_dir: Path,
     group_labels_df: pd.DataFrame,
     removed_ids: set[int],
     strategy: PairStrategy,
-    cross_group_samples: int,
     max_group_size: int,
+    output_dir: Path,
+) -> int:
+    """Build 'keeper_removed'/'all_pairwise' pairs as a distributed Ray Data pipeline.
+    Returns the pair count."""
+    # Dict lookup (unlike the cross-group path's pd.merge()) is dtype-safe -- Python/numpy
+    # ints of any width hash equal by value -- so no dtype cast is needed here.
+    group_by_id = dict(
+        zip(
+            group_labels_df[CURATOR_DEDUP_ID_STR].tolist(),
+            group_labels_df[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD].tolist(),
+            strict=True,
+        )
+    )
+    documents_ds = ray.data.read_parquet(str(corpus_dir), columns=_DOCUMENT_COLUMNS)
+    tagged_ds = documents_ds.map_batches(
+        functools.partial(_attach_group_id, group_by_id=group_by_id), batch_format="pandas"
+    )
+    grouped_ds = tagged_ds.filter(lambda row: pd.notna(row[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD]))
+    paired_ds = grouped_ds.groupby(CURATOR_FUZZY_DUPLICATE_GROUP_FIELD).map_groups(
+        functools.partial(
+            _build_pairs_for_group, strategy=strategy, removed_ids=removed_ids, max_group_size=max_group_size
+        ),
+        batch_format="pandas",
+    )
+    # materialize() runs the pipeline once; without it, write_json()/count() would each redo it.
+    paired_ds = paired_ds.materialize()
+    paired_ds.write_json(str(output_dir))
+    return paired_ds.count()
+
+
+def run_grouped_strategy(
+    args: argparse.Namespace,
+    *,
+    corpus_dir: Path,
+    group_labels_df: pd.DataFrame,
+    removed_ids: set[int],
+    output_dir: Path,
+) -> None:
+    """CLI entry point for --pair-strategy keeper_removed/all_pairwise."""
+    # Own Ray session: _reassign_ids_to_parquet() already started and stopped one.
+    ray_client = RayClient()
+    ray_client.start()
+    try:
+        num_pairs = build_grouped_pairs_distributed(
+            corpus_dir=corpus_dir,
+            group_labels_df=group_labels_df,
+            removed_ids=removed_ids,
+            strategy=args.pair_strategy,
+            max_group_size=args.max_group_size,
+            output_dir=output_dir,
+        )
+    finally:
+        ray_client.stop()
+    if not num_pairs:
+        logger.warning("No pairs were constructed. Check --pair-strategy and that duplicate groups exist.")
+    logger.info(f"Wrote {num_pairs} '{args.pair_strategy}' raw pairs to {output_dir}. Run 4_span_alignment.py next.")
+
+
+def _sample_documents(corpus_dir: Path, *, sample_size: int, seed: int) -> pd.DataFrame:
+    """Draw an approximately uniform sample of documents, sized per-file from Parquet metadata,
+    without loading the whole corpus."""
+    files = sorted(corpus_dir.glob("*.parquet"))
+    if not files:
+        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
+
+    row_counts = {file: pq.ParquetFile(file).metadata.num_rows for file in files}
+    total_rows = sum(row_counts.values())
+    if total_rows == 0:
+        return pd.DataFrame(columns=_DOCUMENT_COLUMNS)
+
+    frames = []
+    for file_index, (file, count) in enumerate(row_counts.items()):
+        if count == 0:
+            continue
+        file_target = max(1, round(sample_size * count / total_rows))
+        chunk = pd.read_parquet(file, columns=_DOCUMENT_COLUMNS)
+        # Vary the seed per file; otherwise every file would sample the same row positions.
+        frames.append(chunk.sample(n=min(file_target, len(chunk)), random_state=seed + file_index))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=_DOCUMENT_COLUMNS)
+
+
+def build_cross_group_sample_pairs(
+    *,
+    documents_df: pd.DataFrame,
+    group_labels_df: pd.DataFrame,
+    cross_group_samples: int,
     seed: int,
 ) -> list[dict]:
-    # cuGraph may write vertex/group ids with a narrower int dtype than the pandas-side reader
-    # assigns; normalize before merging so pandas doesn't silently produce an all-NaN join.
+    """Runs driver-side, unlike build_grouped_pairs_distributed() above: this strategy
+    compares documents across groups, so there's no per-group unit of work to distribute,
+    and _sample_documents() already bounds its input regardless of corpus size."""
+    # cuGraph's group-id column can be a narrower int dtype than the reader assigns; cast
+    # before merging or pandas silently produces an all-NaN join.
     group_labels_df = group_labels_df.astype({CURATOR_DEDUP_ID_STR: documents_df[CURATOR_DEDUP_ID_STR].dtype})
     merged = documents_df.merge(group_labels_df, on=CURATOR_DEDUP_ID_STR, how="left")
     rng = random.Random(seed)  # noqa: S311
-    pairs: list[dict] = []
-
-    if strategy in ("keeper_removed", "all_pairwise"):
-        grouped = merged[merged[CURATOR_FUZZY_DUPLICATE_GROUP_FIELD].notna()].groupby(
-            CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
-        )
-        if strategy == "keeper_removed":
-            for _, group in grouped:
-                pairs.extend(_build_keeper_removed_pairs(group, removed_ids))
-        else:
-            skipped_groups, skipped_docs = 0, 0
-            for _, group in grouped:
-                if len(group) > max_group_size:
-                    skipped_groups += 1
-                    skipped_docs += len(group)
-                    continue
-                pairs.extend(_build_all_pairwise_pairs(group))
-            if skipped_groups:
-                logger.warning(
-                    f"Skipped {skipped_groups} duplicate group(s) totalling {skipped_docs} documents for "
-                    f"all_pairwise -- larger than --max-group-size={max_group_size}. Raise the cap "
-                    "deliberately, or use keeper_removed for those groups instead."
-                )
-    elif strategy == "cross_group_sample":
-        pairs.extend(_build_cross_group_pairs(merged, cross_group_samples, rng))
-    else:
-        msg = f"Unknown pair strategy: {strategy!r}"
-        raise ValueError(msg)
-
+    pairs = _build_cross_group_pairs(merged, cross_group_samples, rng)
     for idx, pair in enumerate(pairs):
         pair["pair_id"] = f"pair-{idx:07d}"
     return pairs
@@ -307,66 +370,59 @@ def write_pairs_sharded(pairs: list[dict], output_dir: Path, *, pairs_per_file: 
     return num_files
 
 
+def run_cross_group_strategy(
+    args: argparse.Namespace, *, corpus_dir: Path, group_labels_df: pd.DataFrame, output_dir: Path
+) -> None:
+    """CLI entry point for --pair-strategy cross_group_sample."""
+    sample_size = max(args.cross_group_samples * 10, 2000)
+    documents_df = _sample_documents(corpus_dir, sample_size=sample_size, seed=args.seed)
+    logger.info(f"Sampled {len(documents_df)} documents for cross-group negative sampling.")
+
+    pairs = build_cross_group_sample_pairs(
+        documents_df=documents_df,
+        group_labels_df=group_labels_df,
+        cross_group_samples=args.cross_group_samples,
+        seed=args.seed,
+    )
+    if not pairs:
+        logger.warning("No pairs were constructed. Check --pair-strategy and that duplicate groups exist.")
+
+    num_files = write_pairs_sharded(pairs, output_dir, pairs_per_file=args.pairs_per_file)
+    logger.info(
+        f"Wrote {len(pairs)} '{args.pair_strategy}' raw pairs across {num_files} part file(s) to {output_dir}. "
+        "Run 4_span_alignment.py next."
+    )
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--input-path", required=True, help="Original corpus path. MUST match step 2.")
+    parser.add_argument("--input-filetype", choices=["parquet", "jsonl"], default="jsonl", help="MUST match step 2.")
+    parser.add_argument("--input-blocksize", default="1GiB", help="MUST match step 2.")
     parser.add_argument(
-        "--input-path", required=True, help="Original corpus path. MUST match the value passed to run_fuzzy_dedup.py."
+        "--cache-dir", required=True, help="Step 2's --cache-dir. Also where this script writes CorpusWithIds/."
     )
-    parser.add_argument(
-        "--input-filetype",
-        choices=["parquet", "jsonl"],
-        default="jsonl",
-        help="MUST match the value passed to run_fuzzy_dedup.py.",
-    )
-    parser.add_argument(
-        "--input-blocksize",
-        default="1GiB",
-        help="MUST match the value passed to run_fuzzy_dedup.py.",
-    )
-    parser.add_argument(
-        "--cache-dir",
-        required=True,
-        help="The --cache-dir used by run_fuzzy_dedup.py (holds ConnectedComponentsStage; also where "
-        "this script writes/reuses CorpusWithIds/).",
-    )
-    parser.add_argument(
-        "--fuzzy-output-dir",
-        required=True,
-        help="The --output-dir used by run_fuzzy_dedup.py (holds FuzzyDuplicateIds/ and fuzzy_id_generator.json).",
-    )
-    parser.add_argument(
-        "--output-path", required=True, help="Directory to write the sharded pairs JSONL part files to."
-    )
+    parser.add_argument("--fuzzy-output-dir", required=True, help="Step 2's --output-dir.")
+    parser.add_argument("--output-path", required=True, help="Directory for the raw pairs JSONL output.")
     parser.add_argument(
         "--pair-strategy",
         choices=_VALID_STRATEGIES,
         required=True,
-        help="Pairing strategy to build. Run this script once per strategy, with a different "
-        "--output-path each time, to get more than one.",
+        help="Run once per strategy, with a different --output-path each time.",
     )
     parser.add_argument(
-        "--cross-group-samples",
-        type=int,
-        default=200,
-        help="Number of cross-group negative-sample pairs to draw when 'cross_group_sample' is selected.",
+        "--cross-group-samples", type=int, default=200, help="Pairs to sample for 'cross_group_sample'."
     )
     parser.add_argument(
-        "--max-group-size",
-        type=int,
-        default=200,
-        help="Skip (and warn about) any duplicate group larger than this for 'all_pairwise', since "
-        "pairs per group grow as C(n, 2).",
+        "--max-group-size", type=int, default=200, help="Skip 'all_pairwise' groups larger than this (C(n,2) pairs)."
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling.")
     parser.add_argument(
         "--pairs-per-file",
         type=int,
         default=2000,
-        help=(
-            "Max pairs per output JSONL part file. A single output file becomes one Curator reader "
-            "task in 4_run_llm_judge.py, so sharding here is what lets that step parallelize "
-            "across multiple workers/replicas."
-        ),
+        help="Max pairs per output file. Only applies to 'cross_group_sample'; the other "
+        "strategies are sharded by Ray Data instead (see README.md).",
     )
     return parser.parse_args()
 
@@ -390,7 +446,7 @@ def main() -> None:
     if group_labels_df.empty:
         msg = (
             f"No group labels found under {connected_components_dir}. Either no fuzzy duplicates were found "
-            "by run_fuzzy_dedup.py, or --cache-dir does not match the value passed to it."
+            "by 2_run_fuzzy_dedup.py, or --cache-dir does not match the value passed to it."
         )
         raise RuntimeError(msg)
     logger.info(f"Loaded group labels for {len(group_labels_df)} documents across duplicate groups.")
@@ -400,32 +456,19 @@ def main() -> None:
     removed_ids = set(removal_df[CURATOR_DEDUP_ID_STR].tolist()) if not removal_df.empty else set()
     logger.info(f"Loaded {len(removed_ids)} ids fuzzy dedup marked for removal.")
 
-    if args.pair_strategy in ("keeper_removed", "all_pairwise"):
-        needed_ids = {int(x) for x in group_labels_df[CURATOR_DEDUP_ID_STR].tolist()}
-        documents_df = _load_documents_by_id(corpus_dir, needed_ids)
-        logger.info(f"Loaded text for {len(documents_df)} documents belonging to a duplicate group.")
-    else:
-        sample_size = max(args.cross_group_samples * 10, 2000)
-        documents_df = _sample_documents(corpus_dir, sample_size=sample_size, seed=args.seed)
-        logger.info(f"Sampled {len(documents_df)} documents for cross-group negative sampling.")
-
-    pairs = build_pairs(
-        documents_df=documents_df,
-        group_labels_df=group_labels_df,
-        removed_ids=removed_ids,
-        strategy=args.pair_strategy,
-        cross_group_samples=args.cross_group_samples,
-        max_group_size=args.max_group_size,
-        seed=args.seed,
-    )
-    if not pairs:
-        logger.warning("No pairs were constructed. Check --pair-strategy and that duplicate groups exist.")
-
     output_dir = Path(args.output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    num_files = write_pairs_sharded(pairs, output_dir, pairs_per_file=args.pairs_per_file)
 
-    logger.info(f"Wrote {len(pairs)} '{args.pair_strategy}' pairs across {num_files} part file(s) to {output_dir}")
+    if args.pair_strategy in ("keeper_removed", "all_pairwise"):
+        run_grouped_strategy(
+            args,
+            corpus_dir=corpus_dir,
+            group_labels_df=group_labels_df,
+            removed_ids=removed_ids,
+            output_dir=output_dir,
+        )
+    else:
+        run_cross_group_strategy(args, corpus_dir=corpus_dir, group_labels_df=group_labels_df, output_dir=output_dir)
 
 
 if __name__ == "__main__":
