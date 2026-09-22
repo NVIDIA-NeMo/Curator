@@ -27,6 +27,9 @@ supported_language_codes: [zh, en, yue, ar, de, fr, es, pt, id, it, ko, ru, th, 
 pred_text_key: pred_text
 extras_key: asr_extras
 gpus_per_actor: 1
+max_audio_sec_per_actor: 240.0
+max_inference_duration_s: 120.0
+local_bucketing: true
 backend: ray_data
 execution_mode: streaming
 
@@ -50,6 +53,9 @@ stages:
     pred_text_key: ${pred_text_key}
     extras_key: ${extras_key}
     batch_size: 128
+    max_audio_sec_per_actor: ${max_audio_sec_per_actor}
+    max_inference_duration_s: ${max_inference_duration_s}
+    local_bucketing: ${local_bucketing}
     resources:
       _target_: nemo_curator.stages.resources.Resources
       gpus: ${gpus_per_actor}

@@ -127,6 +127,7 @@ def test_asr_stage_prefetches_qwen_adapter_with_adapter_owned_revision() -> None
     stage = ASRStage(
         adapter_target="nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
         model_id="Qwen/Qwen3-ASR-0.6B",
+        max_audio_sec_per_actor=2400.0,
         adapter_kwargs={"revision": "abc123"},
     )
     with (
@@ -341,6 +342,7 @@ def test_asr_stage_drives_qwen_adapter_end_to_end() -> None:
     stage = ASRStage(
         adapter_target="nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
         model_id="Qwen/Qwen3-ASR-0.6B",
+        max_audio_sec_per_actor=2400.0,
         batch_size=2,
         waveform_key="waveform",
         sample_rate_key="sample_rate",
