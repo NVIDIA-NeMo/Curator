@@ -24,7 +24,7 @@
 # exists.
 #
 # Run inside a running container, e.g.:
-#   docker exec <container> bash /opt/Curator/docker/common/install_h264_support.sh
+#   docker exec <container> bash /opt/Curator/tools/install_h264_support.sh
 #
 # Behaviour:
 #   - Builds FFmpeg from the upstream release tarball, same version as install_ffmpeg.sh,
@@ -37,7 +37,7 @@
 #     OpenH264 (BSD-2-Clause; see https://www.openh264.org/BINARY_LICENSE.txt).
 #   - Takes ~5-10 min.
 #
-# Keep FFMPEG_VERSION and NVCODEC_VERSION in sync with docker/common/install_ffmpeg.sh.
+# Keep FFMPEG_VERSION and NVCODEC_VERSION in sync with tools/install_ffmpeg.sh.
 
 set -euo pipefail
 

@@ -93,7 +93,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         if not shutil.which("ffmpeg"):
             msg = (
                 "Could not find `ffmpeg` on PATH. ClipTranscodingStage requires "
-                "FFmpeg built with supported video encoders. See docker/common/install_ffmpeg.sh."
+                "FFmpeg built with supported video encoders. See tools/install_ffmpeg.sh."
             )
             raise RuntimeError(msg)
         if self.encoder not in SUPPORTED_ENCODERS:

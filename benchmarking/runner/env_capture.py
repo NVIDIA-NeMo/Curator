@@ -75,12 +75,12 @@ def get_env() -> dict[str, Any]:
 
     # The image digest is not known at image build time and is not available inside the
     # container, so it must be passed in when the container is run.
-    # Get the image digest via the env var set from tools/run.sh
+    # Get the image digest via the env var set by the container launcher.
     image_digest = os.getenv("IMAGE_DIGEST", "unknown")
 
     # Better support container environment usage by looking for the env var HOST_HOSTNAME
-    # which can be set to the container hostname (see tools/run.sh) since the name of the
-    # host machine is expected by most users.
+    # which can be set by the container launcher since the name of the host
+    # machine is expected by most users.
     return {
         "hostname": os.getenv("HOST_HOSTNAME", platform.node()),
         "platform": platform.platform(),
@@ -96,12 +96,14 @@ def get_env() -> dict[str, Any]:
 
 
 def get_git_commit_string() -> str:
-    """Returns the git commit string for Curator."""
-    # Use the directory where this script is located (which is assumed to be the Curator repo)
-    # Another option is to use the file location of the nemo_curator __init__.py file, but that may not be the location of the repo if nemo_curator is installed as a package.
-    # Note: if the benchmarking tools (i.e. this file and others) eventually become an installable package, this approach may not work if these tools are installed as a package.
+    """Returns the git commit string for the Curator-under-test, when available."""
+    configured_path = os.environ.get("CURATOR_BENCHMARK_CURATOR_REPO_DIR")
+    if not configured_path:
+        logger.warning("Failed to get git commit string: CURATOR_BENCHMARK_CURATOR_REPO_DIR is not set.")
+        return "unknown"
+
     try:
-        repo = git.Repo(Path(__file__).parent, search_parent_directories=True)
+        repo = git.Repo(Path(configured_path), search_parent_directories=True)
         commit_str = repo.head.commit.hexsha
     except Exception as e:
         logger.warning(f"Failed to get git commit string: {e}")

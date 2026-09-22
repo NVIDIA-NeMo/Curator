@@ -1,0 +1,6 @@
+GitPython
+gpustat
+nvidia-ml-py
+pyyaml
+rich
+slack_sdk

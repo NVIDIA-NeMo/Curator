@@ -277,7 +277,7 @@ def _preflight_check_h264_decoder(encoder: str) -> None:
         "will fail on every transcoded clip.\n\n"
         "Fix one of:\n"
         "  1. Install software h264/hevc/av1 decoders inside the container:\n"
-        "       bash /opt/Curator/docker/common/install_h264_support.sh\n"
+        "       bash /opt/Curator/tools/install_h264_support.sh\n"
         "  2. Pick a transcode encoder whose output codec the system ffmpeg "
         "can software-decode (e.g. --transcode-encoder libvpx-vp9).\n"
     )

@@ -260,18 +260,10 @@ class Session:
         sinks = []
         for sink_config in sink_configs:
             sink_name = sink_config["name"]
-            if sink_name == "mlflow":
-                from runner.sinks.mlflow_sink import MlflowSink
-
-                sinks.append(MlflowSink(sink_config=sink_config))
-            elif sink_name == "slack":
+            if sink_name == "slack":
                 from runner.sinks.slack_sink import SlackSink
 
                 sinks.append(SlackSink(sink_config=sink_config))
-            elif sink_name == "gdrive":
-                from runner.sinks.gdrive_sink import GdriveSink
-
-                sinks.append(GdriveSink(sink_config=sink_config))
             else:
                 logger.warning(f"Unknown sink: {sink_name}, skipping")
         return sinks
