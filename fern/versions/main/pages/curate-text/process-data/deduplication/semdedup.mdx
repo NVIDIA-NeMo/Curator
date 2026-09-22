@@ -162,6 +162,13 @@ Compare semantic deduplication with other methods:
 | `perform_removal` | bool | `True` | Whether to perform duplicate removal |
 | `text_field` | str | `"text"` | Name of the text field in input data |
 | `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
+| `use_id_generator` | bool | `False` | Whether to assign IDs with the shared ID generator. Set this to `True` when the input does not already contain `id_field`. The generated ID is removed from deduplicated output when `output_fields` is not set. |
+| `output_fields` | list[str] \| None | `None` | Fields to write for deduplicated output. When set, it takes precedence over automatic ID removal. |
+| `read_kwargs` | dict | `{}` | Additional reader keyword arguments. Include `storage_options` for input files on remote storage. |
+| `cache_kwargs` | dict | `{}` | Additional reader and writer arguments, including storage options, for intermediate files and duplicate-ID artifacts, including those under `output_path`. |
+| `write_kwargs` | dict | `{}` | Additional reader and writer arguments, including storage options, for final deduplicated output and reading duplicate-ID artifacts. |
+
+For a remote `output_path`, configure `storage_options` in both `cache_kwargs` and `write_kwargs`, even when `cache_path` is local. The options in `cache_kwargs` must also allow access to `cache_path` if it is remote.
 
 The same discovery rules apply to `TextSemanticDeduplicationWorkflow`, the pre-computed-embedding `SemanticDeduplicationWorkflow`, and `TextDuplicatesRemovalWorkflow`. The extension filter does not infer the reader format: keep `input_filetype="parquet"` when reading a custom Parquet suffix such as `.pq`. See [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery) for examples and recursion details.
 

@@ -91,6 +91,7 @@ Configure fuzzy deduplication using these key parameters:
 | `cache_path` | str | Required | Directory to cache intermediate results |
 | `output_path` | str | Required | Directory to write duplicate IDs and ID generator |
 | `text_field` | str | "text" | Name of the text field in input data |
+| `normalize_text` | bool | False | Whether to lowercase text, collapse whitespace runs, and trim leading and trailing whitespace for matching. The workflow preserves the original text. |
 | `char_ngrams` | int | 24 | Character n-gram size for MinHash (recommended: &gt;= 20) |
 | `num_bands` | int | 20 | Number of LSH bands (affects similarity threshold) |
 | `minhashes_per_band` | int | 13 | Number of hashes per LSH band |
@@ -111,6 +112,8 @@ For recursive discovery behavior, custom suffix examples, and supported formats,
 <Note>
 When fuzzy duplicate IDs are auto-generated, use the same `input_blocksize` value for both `FuzzyDeduplicationWorkflow` and `TextDuplicatesRemovalWorkflow`. Different block sizes can change partition-to-ID mappings and cause removal to fail when resolving generated IDs.
 </Note>
+
+When you pass a `DocumentBatch` to `MinHashStage`, its data must contain the configured `text_field` and the `_curator_dedup_id` column. The stage assigns IDs at read time only for `FileGroupTask` inputs. `read_format` and `read_kwargs` apply only to those file inputs.
 
 ### Similarity Threshold
 
@@ -158,6 +161,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
 )
 result = removal_workflow.run()
 ```
+
+Set `drop_id_field=True` to omit the deduplication ID from removal output. The default is `False`. If you set it to `True`, do not include the ID in `output_fields`.
 
 <Accordion title="ID Field Configuration">
 
