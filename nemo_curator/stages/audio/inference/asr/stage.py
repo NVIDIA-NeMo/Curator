@@ -105,11 +105,16 @@ _PADDED_SECONDS_REL_TOL = 1e-12
 _PADDED_SECONDS_ABS_TOL = 1e-9
 
 
-def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
-    notes = task_data.get(_NOTES_KEY)
+def _set_note(
+    task_data: dict[str, Any],
+    stage_name: str,
+    value: str,
+    notes_key: str = _NOTES_KEY,
+) -> None:
+    notes = task_data.get(notes_key)
     if not isinstance(notes, dict):
         notes = {}
-        task_data[_NOTES_KEY] = notes
+        task_data[notes_key] = notes
     notes[stage_name] = value
 
 
@@ -145,7 +150,14 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
+    language_key: str | None = None
     extras_key: str | None = None
+    skip_me_key: str = _SKIP_ME_KEY
+    notes_key: str = _NOTES_KEY
+    unsupported_language_marks_skip: bool = True
+    unsupported_language_skip_reason: str | None = None
+    preserve_existing_skip: bool = False
+    missing_language_is_unsupported: bool = False
 
     skip_if_output_exists: bool = False
     fail_on_audio_error: bool = False
@@ -158,21 +170,43 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     batch_size: int = 32
     max_inference_duration_s: float = 2400.0
     local_bucketing: bool = False
+    num_workers_override: int | None = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         super().__post_init__()
+        self.skip_me_key = self.skip_me_key.strip()
+        self.notes_key = self.notes_key.strip()
+        if not self.skip_me_key or not self.notes_key:
+            msg = "ASRStage skip_me_key and notes_key must be non-empty"
+            raise ValueError(msg)
+        if self.skip_me_key == self.notes_key:
+            msg = "ASRStage skip_me_key and notes_key must be different"
+            raise ValueError(msg)
         if not self.pred_text_key:
             msg = "ASRStage.pred_text_key must be non-empty"
             raise ValueError(msg)
-        if self.pred_text_key in {_SKIP_ME_KEY, _NOTES_KEY}:
+        if self.pred_text_key in {self.skip_me_key, self.notes_key}:
             msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
             raise ValueError(msg)
+        if self.language_key is not None:
+            self.language_key = self.language_key.strip()
+            if not self.language_key:
+                msg = "ASRStage.language_key must be non-empty or None"
+                raise ValueError(msg)
+            if self.language_key in {self.pred_text_key, self.skip_me_key, self.notes_key}:
+                msg = f"ASRStage.language_key cannot collide with another output column: {self.language_key!r}"
+                raise ValueError(msg)
         if self.extras_key is not None:
             self.extras_key = self.extras_key.strip()
             if not self.extras_key:
                 msg = "ASRStage.extras_key must be non-empty or None"
                 raise ValueError(msg)
-            if self.extras_key in {self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY}:
+            if self.extras_key in {
+                self.pred_text_key,
+                self.language_key,
+                self.skip_me_key,
+                self.notes_key,
+            }:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
         if int(self.batch_size) <= 0:
@@ -195,8 +229,13 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         if not isinstance(self.local_bucketing, bool):
             msg = f"ASRStage.local_bucketing must be a bool, got {type(self.local_bucketing).__name__}"
             raise TypeError(msg)
+        if self.num_workers_override is not None and int(self.num_workers_override) <= 0:
+            msg = f"ASRStage.num_workers_override must be > 0 or None, got {self.num_workers_override}"
+            raise ValueError(msg)
         self.batch_size = int(self.batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
+        if self.num_workers_override is not None:
+            self.num_workers_override = int(self.num_workers_override)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
 
     @staticmethod
@@ -231,10 +270,16 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         )
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        optional_outputs = [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
+        optional_outputs = [self.pred_text_key, self.skip_me_key, self.notes_key]
+        if self.language_key is not None:
+            optional_outputs.append(self.language_key)
         if self.extras_key is not None:
             optional_outputs.append(self.extras_key)
         return [], optional_outputs
+
+    def num_workers(self) -> int | None:
+        """Return an explicit backend worker count when configured."""
+        return self.num_workers_override
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)
@@ -313,6 +358,8 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run one ASR batch."""
+        if not tasks:
+            return []
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 
         for task in tasks_to_process:
@@ -421,7 +468,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                 index,
                 ASRResult(
                     text="",
-                    skipped=True,
+                    skipped=self.unsupported_language_marks_skip,
                     skip_reason=(
                         "language_not_supported"
                         if str(item.get("language_code", "") or "").strip()
@@ -604,36 +651,66 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         skipped_count = 0
         for task, item, result in zip(tasks, items, results, strict=True):
             task.data[self.pred_text_key] = result.text
+            if self.language_key is not None:
+                task.data.setdefault(self.language_key, "")
             if self.extras_key is not None:
                 if result.extras:
                     task.data[self.extras_key] = dict(result.extras)
                 else:
                     task.data.pop(self.extras_key, None)
-            unsupported_language = result.unsupported_language
-            missing_language = self._supported_language_codes is not None and not item["language_code"]
-            if missing_language:
-                _set_note(task.data, self.name, "skipped (missing language)")
-                _set_note(task.data, self.pred_text_key, "language_missing")
-            elif unsupported_language:
-                _set_note(
-                    task.data,
-                    self.name,
-                    f"skipped (unsupported language: {unsupported_language})",
-                )
-                _set_note(
-                    task.data,
-                    self.pred_text_key,
-                    f"lang_not_supported:{unsupported_language}",
-                )
+            self._write_language_result(task, item, result)
             if result.skipped:
-                task.data[_SKIP_ME_KEY] = result.skip_reason or "empty_audio"
+                skip_reason = self._resolve_skip_reason(result)
+                if not self.preserve_existing_skip or not task.data.get(self.skip_me_key):
+                    task.data[self.skip_me_key] = skip_reason
                 skipped_count += 1
 
         if skipped_count:
             logger.info(
-                f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} tasks with {_SKIP_ME_KEY}",
+                f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} tasks with {self.skip_me_key}",
             )
         logger.debug(
             f"ASRStage ({self.adapter_target}): generated {len(results)} predictions",
         )
         return tasks
+
+    def _write_language_result(
+        self,
+        task: AudioTask,
+        item: dict[str, Any],
+        result: ASRResult,
+    ) -> None:
+        """Write the configured language output or routing notes."""
+        unsupported_language = result.unsupported_language
+        missing_language = self._supported_language_codes is not None and not item["language_code"]
+        if missing_language:
+            if self.missing_language_is_unsupported:
+                _set_note(task.data, self.name, "skipped (unsupported language: )", self.notes_key)
+                _set_note(task.data, self.pred_text_key, "lang_not_supported:", self.notes_key)
+            else:
+                _set_note(task.data, self.name, "skipped (missing language)", self.notes_key)
+                _set_note(task.data, self.pred_text_key, "language_missing", self.notes_key)
+        elif unsupported_language:
+            _set_note(
+                task.data,
+                self.name,
+                f"skipped (unsupported language: {unsupported_language})",
+                self.notes_key,
+            )
+            _set_note(
+                task.data,
+                self.pred_text_key,
+                f"lang_not_supported:{unsupported_language}",
+                self.notes_key,
+            )
+        elif self.language_key is not None:
+            task.data[self.language_key] = str(result.extras.get("language_code") or item["language_code"] or "")
+
+    def _resolve_skip_reason(self, result: ASRResult) -> str:
+        """Return the configured machine-readable reason for a skipped result."""
+        if result.unsupported_language and self.unsupported_language_skip_reason is not None:
+            return self.unsupported_language_skip_reason.format(
+                stage_name=self.name,
+                language=result.unsupported_language,
+            )
+        return result.skip_reason or "empty_audio"

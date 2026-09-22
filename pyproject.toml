@@ -142,6 +142,11 @@ audio_cuda12 = [
     "torchlibrosa>=0.1.0",
 ]
 
+audio_tensorrt = [
+    "nemo_curator[audio_cuda12]",
+    "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+]
+
 image_cpu = [
     "Pillow",
     "torchvision"
