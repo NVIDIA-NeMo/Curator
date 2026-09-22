@@ -1833,6 +1833,63 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
 
+  # Brackets nw_qwen10_gemma5_seqs40_mpr256 from below at the same ~2:1 ratio
+  # (fewer total workers) — 10/5 is currently the best-throughput asymmetric
+  # config and the smallest one tested, so this checks whether the optimum is
+  # actually lower still along the ratio-preserving worker-count curve.
+  - name: llm_judge_qwen_gemma_nw_qwen8_gemma4_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen8_gemma4_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
+  # Brackets nw_qwen8_gemma4_seqs40_mpr256 from below at the same ~2:1 ratio,
+  # to keep tracing the ratio-preserving worker-count curve as low as it
+  # continues to help.
+  - name: llm_judge_qwen_gemma_nw_qwen6_gemma3_seqs40_mpr256
+    enabled: true
+    script: llm_judge_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_nw_qwen6_gemma3_seqs40_mpr256.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 32
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - input_output_row_count_match
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     enabled: true
     script: video_pipeline_benchmark.py
