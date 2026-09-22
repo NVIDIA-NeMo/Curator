@@ -1,0 +1,674 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import math
+import os
+import tempfile
+from numbers import Integral, Real
+from typing import TYPE_CHECKING, Any, Literal
+
+import numpy as np
+import soundfile as sf
+import torch
+
+from nemo_curator.stages.audio._agent._agent_ready import AudioForm, ConditionalRead, ConditionalWrite, IOSpec
+from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+InputResidency = Literal["file", "waveform", "auto"]
+FileAudioHydration = Literal["never", "always", "auto_partial"]
+_FILE_AUDIO_HYDRATION_POLICIES = {"never", "always", "auto_partial"}
+
+_SUPPORTED_TORCH_PCM_DTYPES = {
+    torch.int16: 32768.0,
+    torch.int32: 2147483648.0,
+}
+
+
+def validate_input_residency(residency: str, *, stage_name: str) -> None:
+    """Reject unknown residency modes before they can be treated as ``auto``."""
+    if residency not in {"file", "waveform", "auto"}:
+        msg = f"[{stage_name}] input_residency must be one of 'file', 'waveform', or 'auto'; got {residency!r}"
+        raise ValueError(msg)
+
+
+def resident_sample_rate(value: Any, *, sample_rate_key: str, stage_name: str) -> int:  # noqa: ANN401
+    """Return a positive integral resident sample rate without lossy coercion."""
+    if torch.is_tensor(value) and value.ndim == 0:
+        value = value.item()
+
+    rate: int | None = None
+    if isinstance(value, (bool, np.bool_)):
+        rate = None
+    elif isinstance(value, str):
+        try:
+            rate = int(value)
+        except ValueError:
+            rate = None
+    elif isinstance(value, Integral):
+        rate = int(value)
+    elif isinstance(value, Real):
+        numeric = float(value)
+        if math.isfinite(numeric) and numeric.is_integer():
+            rate = int(numeric)
+
+    if rate is None or rate <= 0:
+        msg = (
+            f"[{stage_name}] Resident sample rate '{sample_rate_key}' must be a positive, "
+            f"losslessly integral, non-boolean value; got {value!r}"
+        )
+        raise ValueError(msg)
+    return rate
+
+
+def validate_audio_key_configuration(
+    stage_name: str,
+    *,
+    input_keys: dict[str, str],
+    output_keys: dict[str, str],
+) -> None:
+    """Reject empty configurable keys and destructive output collisions."""
+    for field_name, key in {**input_keys, **output_keys}.items():
+        if not isinstance(key, str) or not key.strip():
+            msg = f"[{stage_name}] '{field_name}' must be a non-empty string"
+            raise ValueError(msg)
+
+    input_values = list(input_keys.values())
+    if len(input_values) != len(set(input_values)):
+        duplicates = sorted({key for key in input_values if input_values.count(key) > 1})
+        msg = f"[{stage_name}] Audio input keys must be distinct; duplicate values: {duplicates}"
+        raise ValueError(msg)
+
+    output_values = list(output_keys.values())
+    if len(output_values) != len(set(output_values)):
+        duplicates = sorted({key for key in output_values if output_values.count(key) > 1})
+        msg = f"[{stage_name}] Output keys must be distinct; duplicate values: {duplicates}"
+        raise ValueError(msg)
+
+    collisions = sorted(set(input_keys.values()) & set(output_values))
+    if collisions:
+        msg = f"[{stage_name}] Output keys must not collide with audio input keys: {collisions}"
+        raise ValueError(msg)
+
+
+def normalize_audio_waveform(
+    waveform: Any,  # noqa: ANN401 - accepts torch tensors and array-like resident audio
+    *,
+    stage_name: str,
+    mono: bool,
+) -> torch.Tensor:
+    """Convert supported resident audio to channel-first float32."""
+    try:
+        tensor = waveform if torch.is_tensor(waveform) else torch.as_tensor(waveform)
+    except Exception as ex:
+        msg = f"[{stage_name}] Resident waveform must be convertible to a torch tensor"
+        raise TypeError(msg) from ex
+
+    if tensor.ndim not in {1, 2}:
+        msg = f"[{stage_name}] Resident waveform must be 1-D or 2-D (channels, samples), got {tensor.ndim}-D"
+        raise ValueError(msg)
+
+    if tensor.is_floating_point():
+        tensor = tensor.to(dtype=torch.float32)
+    elif tensor.dtype in _SUPPORTED_TORCH_PCM_DTYPES:
+        scale = _SUPPORTED_TORCH_PCM_DTYPES[tensor.dtype]
+        tensor = tensor.to(dtype=torch.float32) / scale
+    else:
+        msg = (
+            f"[{stage_name}] Unsupported resident waveform dtype {tensor.dtype}; "
+            "expected a floating dtype or signed PCM int16/int32"
+        )
+        raise TypeError(msg)
+
+    if tensor.requires_grad:
+        tensor = tensor.detach()
+
+    tensor = ensure_waveform_2d(tensor)
+    if mono and tensor.shape[0] > 1:
+        tensor = tensor.mean(dim=0, keepdim=True)
+    return tensor
+
+
+def accepts_for_residency(residency: str) -> list[AudioForm]:
+    """Audio forms an instance actually consumes, given its ``input_residency``.
+
+    The single source of truth a stage's ``describe()`` derives ``accepts`` from,
+    so a ``file``-mode instance can never advertise ``waveform`` (the drift /
+    "lying accepts" bug). ``auto`` accepts either; ``file``/``waveform`` accept
+    only that form.
+    """
+    if residency == "waveform":
+        return ["waveform"]
+    if residency == "file":
+        return ["file"]
+    return ["file", "waveform"]  # "auto"
+
+
+def residency_read_specs(
+    input_residency: str,
+    *,
+    audio_filepath_key: str,
+    waveform_key: str = "waveform",
+    sample_rate_key: str = "sample_rate",
+    infer_sample_rate_from_file: bool = False,
+) -> list[IOSpec]:
+    """The residency-filtered audio read options for a stage's ``reads_one_of``.
+
+    ``file`` -> ``[file spec]``; ``waveform`` -> ``[waveform spec]``; ``auto`` ->
+    ``[waveform spec, file spec]``. Keeps ``accepts`` **and** ``data_keys`` in
+    lockstep with ``input_residency`` so a stage can never advertise (or require)
+    a form it won't consume for its current setting — which lets the deterministic
+    role check enforce residency compatibility with no extra check.
+    """
+    forms = accepts_for_residency(input_residency)
+    specs: list[IOSpec] = []
+    if "waveform" in forms:
+        specs.append(IOSpec(data_keys=[waveform_key, sample_rate_key], accepts=["waveform"]))
+        if input_residency == "auto" and infer_sample_rate_from_file:
+            specs.append(IOSpec(data_keys=[waveform_key, audio_filepath_key], accepts=["waveform"]))
+    if "file" in forms:
+        specs.append(IOSpec(data_keys=[audio_filepath_key], accepts=["file"]))
+    return specs
+
+
+def scoped_audio_io_specs(  # noqa: PLR0913
+    input_residency: str,
+    *,
+    mode: Literal["task", "segments", "auto"],
+    audio_filepath_key: str,
+    waveform_key: str,
+    sample_rate_key: str,
+    segments_key: str,
+    output_keys: list[str],
+    infer_sample_rate_from_file: bool = False,
+) -> tuple[IOSpec, list[IOSpec], IOSpec, list[ConditionalRead]]:
+    """Build mode-accurate reads/writes for task-or-nested audio stages.
+
+    ``task`` exposes only top-level residency alternatives and outputs;
+    ``segments`` requires the top-level segment container while locating audio
+    and outputs inside each segment; and ``auto`` conservatively advertises the
+    complete alternatives for either runtime branch.
+
+    This is contract assembly only. It does not select a runtime branch or
+    change a stage's processing behavior.
+    """
+    task_reads = residency_read_specs(
+        input_residency,
+        audio_filepath_key=audio_filepath_key,
+        waveform_key=waveform_key,
+        sample_rate_key=sample_rate_key,
+        infer_sample_rate_from_file=infer_sample_rate_from_file,
+    )
+    segment_reads = [
+        IOSpec(
+            segment_data_keys=list(spec.data_keys),
+            accepts=list(spec.accepts),
+        )
+        for spec in task_reads
+    ]
+
+    if mode == "task":
+        return IOSpec(), task_reads, IOSpec(data_keys=list(output_keys)), []
+    if mode == "segments":
+        return (
+            IOSpec(data_keys=[segments_key]),
+            segment_reads,
+            IOSpec(segment_data_keys=list(output_keys)),
+            [],
+        )
+    return (
+        IOSpec(),
+        [],
+        IOSpec(data_keys=list(output_keys), segment_data_keys=list(output_keys)),
+        [
+            ConditionalRead(
+                reads_one_of=task_reads,
+                condition=f"'{segments_key}' is absent, so the task-level branch runs",
+                forbids_keys=[segments_key],
+            ),
+            ConditionalRead(
+                reads_one_of=segment_reads,
+                condition=f"'{segments_key}' is present, so the per-segment branch runs",
+                requires_keys=[segments_key],
+            ),
+        ],
+    )
+
+
+def scoped_audio_conditional_writes(
+    mode: Literal["task", "segments", "auto"],
+    *,
+    segments_key: str,
+    output_keys: list[str],
+    assignment_condition: str,
+) -> list[ConditionalWrite]:
+    """Describe data-dependent writes for task-or-segment audio stages.
+
+    ``assignment_condition`` is stage-authored factual prose for the common
+    success path that actually assigns the advertised keys.  The helper adds
+    configured scope/auto-branch context without interpreting the stage or
+    changing execution.
+    """
+    conditional: list[ConditionalWrite] = []
+    if mode in {"task", "auto"}:
+        branch = (
+            "task mode is configured"
+            if mode == "task"
+            else f"'{segments_key}' is absent, so the task-level branch runs"
+        )
+        conditional.append(
+            ConditionalWrite(
+                writes=IOSpec(data_keys=list(output_keys)),
+                condition=f"{branch}; {assignment_condition}",
+            )
+        )
+    if mode in {"segments", "auto"}:
+        branch = (
+            "segments mode is configured and an individual segment exists"
+            if mode == "segments"
+            else (f"'{segments_key}' is present, so the per-segment branch runs, and an individual segment exists")
+        )
+        conditional.append(
+            ConditionalWrite(
+                writes=IOSpec(segment_data_keys=list(output_keys)),
+                condition=f"{branch}; {assignment_condition}",
+            )
+        )
+    return conditional
+
+
+def scoped_file_audio_hydration_writes(  # noqa: PLR0913
+    input_residency: InputResidency,
+    *,
+    hydration_policy: FileAudioHydration,
+    mode: Literal["task", "segments", "auto"],
+    waveform_key: str,
+    sample_rate_key: str,
+    segments_key: str,
+    infer_sample_rate_from_file: bool = False,
+) -> list[ConditionalWrite]:
+    """Describe possible resident writes caused by successful file resolution.
+
+    File hydration is advisory-only because path selection and decode success
+    are runtime facts. ``auto`` exposes both possible scopes without making
+    either a mechanical guarantee. The Band-only header-completion branch is
+    represented separately because it writes only the sample rate and keeps
+    the resident waveform unchanged.
+    """
+    if hydration_policy not in _FILE_AUDIO_HYDRATION_POLICIES:
+        msg = f"Unknown file audio hydration policy: {hydration_policy!r}"
+        raise ValueError(msg)
+
+    pair_hydration_possible = (hydration_policy == "always" and input_residency != "waveform") or (
+        hydration_policy == "auto_partial" and input_residency == "auto"
+    )
+    header_completion_possible = input_residency == "auto" and infer_sample_rate_from_file
+    if not pair_hydration_possible and not header_completion_possible:
+        return []
+
+    conditional: list[ConditionalWrite] = []
+    scopes = ("task", "segments") if mode == "auto" else (mode,)
+    for scope in scopes:
+        if scope == "task":
+            branch = (
+                "task mode is configured"
+                if mode == "task"
+                else f"'{segments_key}' is absent, so the task-level branch runs"
+            )
+            pair_writes = IOSpec(
+                data_keys=[waveform_key, sample_rate_key],
+                produces=["tensor"],
+            )
+            rate_writes = IOSpec(data_keys=[sample_rate_key])
+        else:
+            branch = (
+                "segments mode is configured and an individual segment exists"
+                if mode == "segments"
+                else f"'{segments_key}' is present, so the per-segment branch runs, and an individual segment exists"
+            )
+            pair_writes = IOSpec(
+                segment_data_keys=[waveform_key, sample_rate_key],
+                produces=["tensor"],
+            )
+            rate_writes = IOSpec(segment_data_keys=[sample_rate_key])
+
+        if pair_hydration_possible and hydration_policy == "auto_partial":
+            # ``auto_partial`` only fires on an INCOMPLETE resident pair, so the branch is
+            # reachable only when exactly one of the two keys already exists upstream. Declare
+            # the two halves separately with ``requires_keys`` so a planner seeded with a plain
+            # file manifest (neither key) does not fear a tensor this stage cannot introduce.
+            for present_key, absent_key in ((waveform_key, sample_rate_key), (sample_rate_key, waveform_key)):
+                conditional.append(
+                    ConditionalWrite(
+                        writes=pair_writes,
+                        condition=(
+                            f"{branch}; resident '{present_key}' is present without '{absent_key}', "
+                            f"file audio is selected and decoded successfully; "
+                            f"'{waveform_key}' and '{sample_rate_key}' are assigned together "
+                            "from the decoded file audio"
+                        ),
+                        value_origin="stage_generated",
+                        requires_keys=[present_key],
+                    )
+                )
+        elif pair_hydration_possible:
+            conditional.append(
+                ConditionalWrite(
+                    writes=pair_writes,
+                    condition=(
+                        f"{branch}; file audio is selected and decoded successfully; "
+                        f"'{waveform_key}' and '{sample_rate_key}' are assigned together "
+                        "from the decoded file audio"
+                    ),
+                    value_origin="stage_generated",
+                )
+            )
+        if header_completion_possible:
+            conditional.append(
+                ConditionalWrite(
+                    writes=rate_writes,
+                    condition=(
+                        f"{branch}; a resident '{waveform_key}' is present without "
+                        f"'{sample_rate_key}', the configured file exists, and its header is read successfully; "
+                        f"only '{sample_rate_key}' is assigned from the file header and the resident waveform is retained"
+                    ),
+                    value_origin="stage_generated",
+                    requires_keys=[waveform_key],
+                )
+            )
+    return conditional
+
+
+def resolve_audio(  # noqa: C901, PLR0913 (complexity accepted: policy branches and keyword-only stage knobs)
+    item: dict[str, Any],
+    *,
+    residency: InputResidency = "auto",
+    audio_filepath_key: str = "audio_filepath",
+    waveform_key: str = "waveform",
+    sample_rate_key: str = "sample_rate",
+    mono: bool = True,
+    loader: Callable[..., tuple[Any, int]] | None = None,
+    infer_sample_rate_from_file: bool = False,
+    file_audio_hydration: FileAudioHydration = "never",
+) -> tuple[Any, int] | None:
+    """Return ``(waveform_2d, sample_rate)`` from tensor keys or a file path.
+
+    ``auto`` prefers an existing waveform, then falls back to file loading.
+    ``waveform`` never falls back to disk. ``file`` always loads from the
+    configured path key. When ``infer_sample_rate_from_file`` is enabled,
+    ``auto`` may read only the file header to complete a resident waveform
+    that is missing its sample rate.
+
+    ``file_audio_hydration="always"`` replaces both resident audio fields after
+    any selected file load. ``"auto_partial"`` does so only when ``auto`` falls
+    back with exactly one resident field present. ``"never"`` is the default,
+    preserving file-only and explicit-file consumers. Every update happens only
+    after the loader succeeds, so failures cannot leave a partial pair.
+
+    ``loader`` overrides the file-loading callable (default
+    :func:`~nemo_curator.stages.audio.common.load_audio_file`); stages pass
+    their own module-level symbol so callers can patch it at the stage module.
+    """
+    if file_audio_hydration not in _FILE_AUDIO_HYDRATION_POLICIES:
+        msg = f"Unknown file audio hydration policy: {file_audio_hydration!r}"
+        raise ValueError(msg)
+
+    waveform = item.get(waveform_key)
+    sample_rate = item.get(sample_rate_key)
+    if residency != "file" and waveform is not None:
+        if sample_rate is not None:
+            sample_rate = resident_sample_rate(
+                sample_rate,
+                sample_rate_key=sample_rate_key,
+                stage_name="resolve_audio",
+            )
+            return ensure_waveform_2d(waveform), sample_rate
+        if residency == "auto" and infer_sample_rate_from_file:
+            path = item.get(audio_filepath_key)
+            if path:
+                expanded = os.path.expanduser(str(path))
+                if os.path.exists(expanded):
+                    sample_rate = int(sf.info(expanded).samplerate)
+                    item[sample_rate_key] = sample_rate
+                    return ensure_waveform_2d(waveform), sample_rate
+
+    if residency == "waveform":
+        return None
+
+    path = item.get(audio_filepath_key)
+    if path:
+        expanded = os.path.expanduser(str(path))
+        if os.path.exists(expanded):
+            loaded_waveform, loaded_sample_rate = (loader or load_audio_file)(expanded, mono=mono)
+            has_partial_pair = (waveform is None) != (sample_rate is None)
+            if file_audio_hydration == "always" or (
+                file_audio_hydration == "auto_partial" and residency == "auto" and has_partial_pair
+            ):
+                item.update(
+                    {
+                        waveform_key: loaded_waveform,
+                        sample_rate_key: loaded_sample_rate,
+                    }
+                )
+            return loaded_waveform, loaded_sample_rate
+    return None
+
+
+def reject_sinkless_conversion(
+    *,
+    stage: str,
+    keep_waveform_in_task: bool,
+    write_to_disk: bool,
+    update_audio_filepath: bool,
+) -> None:
+    """Refuse a conversion configuration that converts audio into nowhere.
+
+    A converting stage has exactly two places to put its result: the task (``keep_waveform_in_task``)
+    and disk (``write_to_disk``). With neither, the stage still writes its metadata -- ``is_mono``,
+    ``num_channels``, ``duration`` -- describing audio no consumer can reach, while the row keeps
+    whatever it arrived with. That is worse than an error at any later point: the corpus that comes
+    out is the unconverted one, labelled as converted.
+
+    ``update_audio_filepath`` without ``write_to_disk`` is the same mistake one step on: there is no
+    written file to repoint at, so the request is silently dropped and ``audio_filepath`` keeps
+    naming the original audio.
+
+    Raised in ``__post_init__`` so a recipe dies where it is written rather than mid-corpus.
+    """
+    if not (keep_waveform_in_task or write_to_disk):
+        msg = (
+            f"{stage}: at least one of keep_waveform_in_task or write_to_disk must be True. "
+            f"With neither, the converted audio is discarded and the row keeps its original "
+            f"audio while the metadata claims the conversion happened."
+        )
+        raise ValueError(msg)
+    if update_audio_filepath and not write_to_disk:
+        msg = (
+            f"{stage}: update_audio_filepath=True requires write_to_disk=True -- there is no "
+            f"written file to repoint audio_filepath at, so the original path would survive."
+        )
+        raise ValueError(msg)
+
+
+def drop_resident_audio(data: dict[str, Any], *, waveform_key: str, sample_rate_key: str) -> None:
+    """Remove the resident audio a disk-only conversion has just superseded.
+
+    Not assigning the converted tensor is not the same as removing the stale one. A row that
+    arrived with a resident waveform keeps it otherwise, and the next stage at
+    ``input_residency="auto"`` prefers a resident waveform over the file -- so it reads the
+    PRE-conversion audio while the metadata this stage wrote says the conversion happened.
+    Whatever the conversion was for (mono, a channel count) is silently undone.
+
+    The sample rate goes with it: kept alone it describes a waveform that is no longer there,
+    and a reader pairing it with the file's audio would mis-time every offset it computes.
+    """
+    data.pop(waveform_key, None)
+    data.pop(sample_rate_key, None)
+
+
+def _as_soundfile_array(waveform: Any) -> Any:  # noqa: ANN401
+    waveform = ensure_waveform_2d(waveform)
+    if hasattr(waveform, "detach"):
+        waveform = waveform.detach()
+    if hasattr(waveform, "cpu"):
+        waveform = waveform.cpu()
+    if hasattr(waveform, "numpy"):
+        waveform = waveform.numpy()
+    if getattr(waveform, "ndim", 0) == 2:  # noqa: PLR2004 - 2 == a (channels, samples) 2-D array
+        if waveform.shape[0] == 1:
+            return waveform[0]
+        # The shared representation is channel-first. SoundFile expects frames first,
+        # including for a valid but very short (channels > samples) waveform.
+        return waveform.T
+    return waveform
+
+
+def write_audio_stable(
+    waveform: Any,  # noqa: ANN401 - a torch tensor or numpy array, same as _as_soundfile_array takes
+    sample_rate: int,
+    *,
+    output_dir: str | None,
+    stem: str = "audio",
+    tag: str = "",
+) -> str:
+    """Write a waveform under a name derived from the audio, and return the path.
+
+    Stages writing in-memory audio used to reach for ``tempfile.mkstemp``, whose contract is a
+    name that has never existed -- right for scratch, wrong for a deliverable: each re-run wrote
+    a second full set of files beside the first instead of replacing it, leaving every prior run
+    orphaned in the directory. Naming a file after its own bytes fixes that by construction.
+
+    ``output_dir`` of None keeps the mkstemp behaviour, because that is the system temp dir: a
+    predictable name there would be world-readable in a shared directory, and unguessable-and-
+    private is worth more than de-duplication for audio nothing is going to look for by name.
+    """
+    arr = _as_soundfile_array(waveform)
+    if output_dir is None:
+        fd, path = tempfile.mkstemp(prefix=f"{stem}{f'_{tag}' if tag else ''}_", suffix=".wav")
+        os.close(fd)
+        sf.write(path, arr, int(sample_rate))
+        return path
+
+    os.makedirs(output_dir, exist_ok=True)
+    digest = hashlib.sha256(arr.tobytes())
+    # ``tobytes`` alone loses array shape: mono ``(1, 32000)`` and stereo
+    # ``(2, 16000)`` silence have identical flattened bytes. Include the
+    # representation SoundFile will write so distinct audio layouts cannot
+    # claim the same stable path.
+    digest.update(f"|{arr.shape!r}|{arr.dtype.str}|{int(sample_rate)}|wav".encode())
+    path = os.path.join(output_dir, f"{stem}{f'_{tag}' if tag else ''}_{digest.hexdigest()[:16]}.wav")
+    # Write beside the target and rename, so a killed or concurrent writer cannot leave a
+    # half-written file at a name the next run treats as finished.
+    staged_fd, staged = tempfile.mkstemp(prefix=".", suffix=".wav", dir=output_dir)
+    os.close(staged_fd)
+    try:
+        sf.write(staged, arr, int(sample_rate))
+        os.replace(staged, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(staged)
+        raise
+    return path
+
+
+def resolve_audio_path(  # noqa: C901, PLR0913 (keyword-only residency/key knobs mirror stage fields)
+    item: dict[str, Any],
+    *,
+    residency: InputResidency = "auto",
+    audio_filepath_key: str = "audio_filepath",
+    waveform_key: str = "waveform",
+    sample_rate_key: str = "sample_rate",
+    temp_dir: str | None = None,
+    register_temp: list[str] | None = None,
+) -> str | None:
+    """Return an audio path, writing a temp WAV when only a waveform exists.
+
+    ``auto`` prefers a complete resident waveform/sample-rate pair and falls
+    back to the configured path. ``file`` always uses the configured path.
+
+    When a temp WAV is materialized from an in-memory waveform and
+    ``register_temp`` is provided, the temp path is appended to that list so the
+    caller can delete it after use (see :func:`cleanup_temp_files`). Without
+    ``register_temp`` the caller is responsible for cleanup itself.
+    """
+    if residency != "file":
+        waveform = item.get(waveform_key)
+        sample_rate = item.get(sample_rate_key)
+        if waveform is not None and sample_rate is not None:
+            fd, tmp = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
+            os.close(fd)
+            try:
+                sf.write(tmp, _as_soundfile_array(waveform), int(sample_rate), subtype="FLOAT")
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.remove(tmp)
+                raise
+            if register_temp is not None:
+                register_temp.append(tmp)
+            return tmp
+        if residency == "waveform":
+            return None
+
+    path = item.get(audio_filepath_key)
+    local_path: str | None = None
+    if path:
+        local_path = os.path.expanduser(str(path))
+        if os.path.exists(local_path):
+            return local_path
+        # Protocol-prefixed paths (file://, http(s)://, s3://, ...) were handled
+        # by the stages' own fsspec machinery before the residency layer existed;
+        # keep accepting them when the target exists remotely.
+        if "://" in str(path):
+            try:
+                from fsspec.core import url_to_fs
+
+                fs, fspath = url_to_fs(str(path))
+                if fs.exists(fspath):
+                    return path
+            except Exception:  # noqa: BLE001, S110 - unknown protocol/creds -> deliberate fall-through
+                pass
+
+    if residency == "file":
+        # Pre-residency stages handed unverified paths straight to their own
+        # downstream machinery (ffmpeg/NeMo/fsspec) and let it report the
+        # failure; keep that contract instead of gating on os.path.exists.
+        return local_path
+
+    return local_path
+
+
+def cleanup_temp_files(paths: list[str] | None) -> None:
+    """Best-effort removal of temp files created by :func:`resolve_audio_path`."""
+    for path in paths or ():
+        with contextlib.suppress(OSError):
+            os.remove(path)
+
+
+def produce_audio_filepath(
+    item: dict[str, Any],
+    new_path: str,
+    *,
+    key: str = "audio_filepath",
+    original_key: str = "original_audio_filepath",
+) -> None:
+    """Update a canonical audio path while preserving the first prior value."""
+    if key in item and original_key not in item:
+        item[original_key] = item[key]
+    item[key] = new_path

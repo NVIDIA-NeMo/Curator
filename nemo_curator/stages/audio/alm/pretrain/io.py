@@ -29,10 +29,19 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -56,25 +65,35 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------
 
 
-def _read_manifest_row_id(stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]) -> str | None:
+def _read_manifest_row_id(
+    stage_name: str,
+    lineno: int,
+    entry: dict[str, Any],
+    seen_ids: set[str],
+    *,
+    id_key: str,
+) -> str | None:
     # `id` is required by the pipeline contract: downstream snippet ids
     # embed it, the metrics aggregator keys per-source records on it, and
     # tar members are named with it. A row without a usable id can't be
     # safely processed, and a duplicate id silently collapses per-source
     # metrics and can produce colliding snippet/tar member names.
-    row_id = entry.get("id")
+    row_id = entry.get(id_key)
     if row_id is None or (isinstance(row_id, str) and not row_id.strip()):
-        logger.warning(f"[{stage_name}] line {lineno}: missing or empty 'id'; skipping")
+        logger.warning(f"[{stage_name}] line {lineno}: missing or empty {id_key!r}; skipping")
         return None
 
-    row_id = str(row_id)
-    if row_id in seen_ids:
-        logger.warning(f"[{stage_name}] line {lineno}: duplicate id {row_id!r}; skipping")
+    identity = str(row_id)
+    if identity in seen_ids:
+        logger.warning(f"[{stage_name}] line {lineno}: duplicate id {identity!r}; skipping")
         return None
 
-    seen_ids.add(row_id)
-    entry["id"] = row_id
-    return row_id
+    seen_ids.add(identity)
+    # Backward compatibility: the pre-agent reader always emitted ``id`` as a string (snippet
+    # ids embed it, tar members are named with it, metrics key on it), so a numeric manifest
+    # id must keep leaving this stage as ``"7"``, not ``7``.
+    entry[id_key] = identity
+    return identity
 
 
 def _check_duplicate_audio_basename(
@@ -98,8 +117,30 @@ def _check_duplicate_audio_basename(
     seen_basenames[basename] = row_id
 
 
+def _validate_manifest_row_shape(
+    stage_name: str,
+    lineno: int,
+    entry: Any,  # noqa: ANN401
+    *,
+    segments_key: str,
+    strict_schema: bool,
+) -> dict[str, Any] | None:
+    if not isinstance(entry, dict):
+        logger.warning(f"[{stage_name}] line {lineno}: JSON row is not an object; skipping")
+        return None
+    if not strict_schema:
+        return entry
+    if segments_key not in entry:
+        logger.warning(f"[{stage_name}] line {lineno}: missing {segments_key!r} list; skipping")
+        return None
+    if not isinstance(entry[segments_key], list):
+        logger.warning(f"[{stage_name}] line {lineno}: {segments_key!r} is not a list; skipping")
+        return None
+    return entry
+
+
 @dataclass
-class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
+class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
 
     Each line in ``input_manifest`` is parsed as JSON and re-emitted as
@@ -136,6 +177,12 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
             (preserves subdirectories).  ``"as_is"`` uses the manifest's
             value unchanged.
         dataset_name: Optional dataset tag stamped on emitted tasks.
+        id_key: Manifest field used as the source identity.
+        segments_key: Manifest field containing the segment list.
+        strict_schema: If True, skip rows whose configured segment field
+            is missing or is not a list.  The standalone stage defaults to
+            the legacy permissive behavior; the standard pipeline enables
+            strict validation before the planning stages.
     """
 
     input_manifest: str
@@ -147,12 +194,40 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
     name: str = "ReadLongFormManifest"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    id_key: str = "id"
+    segments_key: str = "segments"
+    strict_schema: bool = False
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "id", "segments"]
+
+    def describe(self) -> StageContract:
+        output_keys = [self.audio_filepath_key, self.id_key]
+        conditional_writes = []
+        if self.strict_schema:
+            output_keys.append(self.segments_key)
+        else:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.segments_key]),
+                    condition=f"the manifest row contains '{self.segments_key}'",
+                    value_origin="upstream_same_key",
+                )
+            )
+        return StageContract(
+            writes=IOSpec(data_keys=output_keys),
+            conditional_writes=conditional_writes,
+            cardinality="1:N fan-out",
+            gates=Gates(per_row_independent=False),
+        )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def num_workers(self) -> int | None:
         return 1
@@ -187,7 +262,20 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
                     logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
                     continue
 
-                row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids)
+                entry = _validate_manifest_row_shape(
+                    self.name,
+                    lineno,
+                    entry,
+                    segments_key=self.segments_key,
+                    strict_schema=self.strict_schema,
+                )
+                if entry is None:
+                    continue
+
+                # Validate the row shape before reserving its id. A malformed
+                # first occurrence must not suppress a later valid row with
+                # the same id as a duplicate.
+                row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids, id_key=self.id_key)
                 if row_id is None:
                     continue
 
@@ -225,7 +313,7 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
 
 @dataclass
-class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Append each (non-stub) snippet's ``data`` as a JSONL line.
 
     Single-replica writer; the file is truncated once on driver setup
@@ -235,10 +323,21 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     output_path: str
-
     name: str = "SnippetManifestWriter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    # Appended after the legacy constructor fields to preserve positional calls.
+    snippet_id_key: str = "snippet_id"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            requires_serializable_input=True,
+            per_row_independent=False,
+        )
+    )
 
     def __post_init__(self) -> None:
         self._shard_path: str | None = None
@@ -248,6 +347,18 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.snippet_id_key]),
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                requires_serializable_input=True,
+                per_row_independent=False,
+            ),
+        )
 
     def setup_on_node(
         self,
@@ -268,7 +379,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"[{self.name}] writing manifest shard to {self._shard_path}")
 
     def process(self, task: AudioTask) -> AudioTask:
-        if not _is_origin_stub(task) and self._shard_path is not None:
+        if not _is_origin_stub(task, self.snippet_id_key) and self._shard_path is not None:
             with open(self._shard_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return task
@@ -280,7 +391,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
+class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Per-replica metrics aggregator.
 
     Each ``process()`` call appends one JSONL record to a per-replica
@@ -312,10 +423,23 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     output_path: str
-
     name: str = "PretrainMetricsAggregator"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    # Appended after the legacy constructor fields to preserve positional calls.
+    id_key: str = "id"
+    snippet_id_key: str = "snippet_id"
+    segments_key: str = "segments"
+    duration_key: str = "duration"
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key", "snippet_id_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_path"],
+            lifecycle_side_effects=True,
+            per_row_independent=False,
+        )
+    )
 
     def __post_init__(self) -> None:
         self._shard_path: str | None = None
@@ -326,6 +450,22 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            optional_reads=IOSpec(
+                data_keys=[self.id_key, self.snippet_id_key, self.segments_key, self.duration_key]
+            ),
+            metadata_reads=[_PRETRAIN_META_KEY],
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_path"],
+                lifecycle_side_effects=True,
+                # The summary it writes is a total over every row of the corpus, so a run over
+                # part of the corpus produces a different (and smaller) truth.
+                per_row_independent=False,
+            ),
+        )
 
     def setup_on_node(
         self,
@@ -346,11 +486,11 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         if self._shard_path is None:
             return task
-        original_id = str(task.data.get("id") or "")
+        original_id = str(task.data.get(self.id_key) or "")
         if not original_id:
             return task
         meta = task._metadata.get(_PRETRAIN_META_KEY, {})
-        is_stub = _is_origin_stub(task)
+        is_stub = _is_origin_stub(task, self.snippet_id_key)
         record: dict[str, Any] = {
             "id": original_id,
             "in_segments": int(meta.get("original_seg_count", 0)),
@@ -364,8 +504,8 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
                 "repetition": int(meta.get("dropped_repetition", 0)),
             },
             "is_stub": is_stub,
-            "out_segments": 0 if is_stub else len(task.data.get("segments") or []),
-            "out_duration_sec": 0.0 if is_stub else float(task.data.get("duration", 0.0)),
+            "out_segments": 0 if is_stub else len(task.data.get(self.segments_key) or []),
+            "out_duration_sec": 0.0 if is_stub else float(task.data.get(self.duration_key, 0.0)),
         }
         if original_id not in self._seen_ids:
             self._seen_ids.add(original_id)

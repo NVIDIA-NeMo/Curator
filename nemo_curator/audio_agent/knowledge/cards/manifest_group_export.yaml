@@ -1,0 +1,44 @@
+stage_id: ManifestGroupExportStage
+category: export
+summary: "Group manifest rows by a column (e.g. speaker_id) and write one txt/json/csv file per group, plus an optional who-spoke-when timeline."
+tags: [writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "CPU/IO; appends one line per row, single worker"
+use_cases:
+  good_for:
+    - "per-speaker transcripts after diarization + ASR (group_by: speaker_id, format: txt)"
+    - "splitting a curated manifest into per-group shards (per language, per source, per label)"
+    - "a readable who-spoke-when transcript of a meeting (write_timeline: true)"
+  avoid_for:
+    - "writing ONE flat manifest of everything -- use ManifestWriterStage"
+    - "cutting audio into per-group files -- that is SegmentExtractionStage / SpeakerSeparationStage"
+composition:
+  typical_upstream:
+    [MergeAlignmentDiarizationStage, InferenceSortformerStage, ASRStage, PreserveByValueStage]
+  typical_downstream: []
+params_of_note:
+  output_dir: "(REQUIRED, no default) directory the per-group files are written into"
+  group_by: "column whose value names each group (default speaker_id); rows missing it go to 'unknown'"
+  format: "txt (default; one text line per row) | json (JSONL) | csv (header + columns)"
+  columns: "which columns to write for json/csv (default: every serializable column)"
+  text_key: "column used as the line body in txt format (default text)"
+  include_timestamps: "prefix txt lines with [start - end] when both are present (default true)"
+  write_timeline: "also write a single time-ordered timeline.txt across all groups (default false)"
+param_dependencies:
+  group_by: "must be a column some upstream stage actually writes -- e.g. speaker_id from a diarizer, or lang from a language-ID stage. If no row has it, everything lands in one 'unknown' file."
+  text_key: "only used by format: txt; pair it with an ASR/alignment stage upstream or the lines will be empty."
+  write_timeline: "ordering uses start/end; without those columns rows fall back to arrival order."
+notes:
+  - "Pass-through: rows are returned unchanged, so this is a tee and can be followed by ManifestWriterStage."
+  - "Non-serializable values (e.g. a resident waveform tensor) are dropped from the written columns instead of crashing -- unlike ManifestWriterStage, which needs sanitized input."
+  - "Group files are truncated on first write in a run, so a re-run replaces its own output rather than appending to the previous one."
+  - "Exists so output shaping never needs ad-hoc Python; if you find yourself scripting a regroup, that is a capability gap to report."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-27"}

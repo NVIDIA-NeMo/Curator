@@ -1,0 +1,49 @@
+# Runnable recipe template (Recipe IR). Fill inputs.* before running.
+# Referenced by knowledge/blueprints/alm.yaml.
+recipe_id: alm-windowing
+name: alm_windowing
+intent: "build audio-language-model training windows from a diarized manifest, then filter overlaps"
+inputs:
+  manifest_path: "REQUIRED: input JSONL manifest with segments"
+  output_manifest: "REQUIRED: output .jsonl path"
+stages:
+  - ref: ManifestReader
+    params: {manifest_path: "REQUIRED_manifest_path", files_per_partition: 1}
+  - ref: ALMDataBuilderStage
+    params:
+      target_window_duration: 120.0
+      tolerance: 0.1
+      min_sample_rate: 16000
+      # 0, not the stage default of 8000. Segments arriving from a diarized manifest carry no
+      # ``metrics`` key, so ``_get_bandwidth`` returns 0 for every one of them and an 8000 Hz
+      # floor rejects the entire corpus. The recipe would run clean, write nothing usable, and
+      # only the acceptance criteria below would notice. Raise this only when an upstream stage
+      # actually measured per-segment bandwidth.
+      min_bandwidth: 0
+      min_speakers: 2
+      max_speakers: 5
+      truncation: true
+      drop_fields: "words"
+      drop_fields_top_level: "words,segments"
+  - ref: ALMDataOverlapStage
+    params: {overlap_percentage: 50, target_duration: 120.0}
+  - ref: ManifestWriterStage
+    params: {output_path: "REQUIRED_output_manifest"}
+# What "done" means, checked against the written rows rather than against the fact that every
+# stage exited zero. Present in the template on purpose: a shipped recipe with no success
+# contract teaches the next author to omit one, and then a run that writes rows nothing can use
+# still reports complete. Retune the thresholds for the job; deleting the block is the one edit
+# that removes the only check on whether the output is worth having.
+acceptance_criteria:
+  - id: every_row_yields_a_window
+    type: output_completeness
+    description: "every written row carries at least one window -- catches files the duration and
+      speaker gates silently reduced to nothing, which a row count still reports as success"
+    check: {field: filtered_windows}
+    severity: must
+  - id: windows_survive_overlap_filter
+    type: yield
+    description: "the pipeline retained rows at all (counts rows, not windows -- pair it with the
+      completeness criterion above, which is the one that sees empty windows)"
+    check: {op: ">", value: 0}
+    severity: must

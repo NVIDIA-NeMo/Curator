@@ -95,6 +95,11 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     audio_path_resolution: str = AUDIO_PATH_RESOLUTION_BASENAME,
     dataset_name: str = "long_form_audio",
     dry_run: bool = False,
+    id_key: str = "id",
+    segments_key: str = "segments",
+    snippet_plan_key: str = "_snippet_plan",
+    snippet_id_key: str = "snippet_id",
+    duration_key: str = "duration",
 ) -> Pipeline:
     """Build the long-form-audio cutting pipeline for ALM pretraining.
 
@@ -184,6 +189,16 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             ``end - start`` (vs. the resampled-frame-count duration
             of a real run -- the difference is at most one frame at
             ``target_sample_rate``, ~62µs at 16 kHz).
+        id_key: Configurable source-identity field shared across the reader,
+            extraction stage, and metrics sink.
+        segments_key: Configurable segment-list field shared across the
+            reader, planners, extraction stage, and metrics sink.
+        snippet_plan_key: Internal task-data field shared by planning,
+            repetition filtering, and extraction.
+        snippet_id_key: Configurable snippet discriminator shared by
+            extraction and the output sinks.
+        duration_key: Configurable snippet-duration field shared by
+            extraction and metrics aggregation.
     """
     return Pipeline(
         name="audio_pretrain_long_form_cut",
@@ -195,12 +210,16 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 audio_filepath_key=audio_filepath_key,
                 audio_path_resolution=audio_path_resolution,
                 dataset_name=dataset_name,
+                id_key=id_key,
+                segments_key=segments_key,
             ),
-            OverlapFilterStage(min_overlap_sec=min_overlap_sec),
+            OverlapFilterStage(min_overlap_sec=min_overlap_sec, segments_key=segments_key),
             SnippetCutPlannerStage(
                 max_duration_sec=max_duration_sec,
                 min_duration_sec=min_duration_sec,
                 max_segment_gap_in_snippet=max_segment_gap_in_snippet,
+                segments_key=segments_key,
+                snippet_plan_key=snippet_plan_key,
             ),
             SnippetRepetitionFilterStage(
                 tokenizer_path=tokenizer_path,
@@ -208,6 +227,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 ngram_max_count=ngram_max_count,
                 cache_dir=tokenizer_cache_dir,
                 hf_token=hf_token,
+                snippet_plan_key=snippet_plan_key,
             ),
             SnippetExtractionStage(
                 output_dir=output_dir,
@@ -216,8 +236,19 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 output_format=output_format,
                 audio_filepath_key=audio_filepath_key,
                 dry_run=dry_run,
+                id_key=id_key,
+                snippet_id_key=snippet_id_key,
+                duration_key=duration_key,
+                segments_key=segments_key,
+                snippet_plan_key=snippet_plan_key,
             ),
-            SnippetManifestWriterStage(output_path=output_manifest_path),
-            PretrainMetricsAggregatorStage(output_path=metrics_path),
+            SnippetManifestWriterStage(output_path=output_manifest_path, snippet_id_key=snippet_id_key),
+            PretrainMetricsAggregatorStage(
+                output_path=metrics_path,
+                id_key=id_key,
+                snippet_id_key=snippet_id_key,
+                segments_key=segments_key,
+                duration_key=duration_key,
+            ),
         ],
     )

@@ -1,0 +1,31 @@
+stage_id: JoinSplitAudioMetadataStage
+category: segment
+summary: "Rejoin transcripts/alignments of previously split audio back into the original file's metadata."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; metadata merge + timestamp adjustment"
+use_cases:
+  good_for: ["recombining chunk-level transcripts/alignments after SplitLongAudioStage + an aligner"]
+  avoid_for: ["audio that was never split"]
+composition:
+  typical_upstream: [NeMoASRAlignerStage]
+  typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage]
+params_of_note:
+  text_key: "transcript text key in the split entries (default text)"
+  split_filepaths_key: "key holding the split file paths"
+  split_metadata_key: "key holding per-split metadata"
+  alignment_key: "key holding alignments to concatenate"
+param_dependencies:
+  split_filepaths_key: "requires SplitLongAudioStage upstream"
+  alignment_key: "requires an aligner (e.g. NeMoASRAlignerStage) upstream"
+notes:
+  - "Adjusts timestamps and concatenates transcripts to recreate the original audio's metadata. Used inside SplitASRAlignJoinStage."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

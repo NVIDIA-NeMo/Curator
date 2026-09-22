@@ -27,7 +27,11 @@ from nemo_curator.backends.slurm_array import (
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.tasks.sentinels import FailedTask, NoneTask
-from nemo_curator.utils.performance_utils import StageTimer
+from nemo_curator.utils.performance_utils import (
+    StageTimer,
+    begin_resource_probe,
+    resource_probe_metrics,
+)
 from nemo_curator.utils.resumability_client import (
     completed_resumability_sources,
     flush_resumability_deltas,
@@ -98,6 +102,12 @@ class BaseStageAdapter:
         input_size = sum(task.num_items for task in tasks)
         # Initialize performance timer for this batch
         self._timer.reinit(input_size)
+        # Opt-in: only stages that declare ``RESOURCE_PROBE`` pay for the reading. It exists
+        # for audio-agent smoke calibration, and ``reset_peak_memory_stats()`` costs ~0.7ms
+        # per batch on a GPU stage -- not a price every modality should pay for a metric it
+        # never reads. ``getattr`` keeps backends/ free of any stages/audio import.
+        resource_probe_enabled = getattr(self.stage, "RESOURCE_PROBE", False)
+        gpu_probe_started = begin_resource_probe(self.stage) if resource_probe_enabled else False
 
         with self._timer.time_process(input_size):
             # Use the batch processing logic
@@ -146,6 +156,14 @@ class BaseStageAdapter:
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
+        if resource_probe_enabled:
+            stage_perf_stats.custom_metrics.update(
+                resource_probe_metrics(
+                    gpu_probe_started=gpu_probe_started,
+                    process_time=stage_perf_stats.process_time,
+                    num_items=stage_perf_stats.num_items_processed,
+                )
+            )
         # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:

@@ -20,6 +20,12 @@ from typing import Any
 
 import pytest
 
+from nemo_curator.audio_agent._resolve import resolved_contract_for
+from nemo_curator.stages.audio._agent._agent_ready import to_json_schema
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
+from nemo_curator.stages.audio._agent._catalog import role_index
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
 
 def _import_stage_module() -> tuple[Any, Any]:
     # Inject a stub for optional dependency 'wget' to avoid import errors
@@ -72,6 +78,44 @@ def test_inputs_outputs(tmp_path: Path) -> None:
     stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path))
     assert stage.inputs() == ([], [])
     assert stage.outputs() == ([], ["audio_filepath", "text"])
+
+
+def test_agent_schema_marks_runtime_validated_params_required() -> None:
+    stage_cls, _ = _import_stage_module()
+    params = stage_params(stage_cls)
+
+    assert to_json_schema(params)["required"] == ["lang", "split", "raw_data_dir"]
+
+    unresolved = resolved_contract_for("CreateInitialManifestFleursStage")
+    assert unresolved.required_params == ("lang", "split", "raw_data_dir")
+
+    index = role_index()
+    assert "CreateInitialManifestFleursStage" not in index["unresolved_stages"]
+    assert "CreateInitialManifestFleursStage" in index["producers"]["audio_filepath"]
+    assert "CreateInitialManifestFleursStage" in index["producers"]["text"]
+
+
+def test_contract_has_conditional_download_gate_and_static_hints(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    local = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path), auto_download=False)
+    downloading = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path), auto_download=True)
+
+    local_contract = build_contract(local)
+    assert local_contract.writes.produces == []
+    assert local_contract.gates.writes_to_disk is False
+    assert local_contract.gates.requires_internet_first_run is False
+    assert local_contract.gates.output_path_params == []
+
+    download_contract = build_contract(downloading)
+    assert download_contract.writes.produces == ["disk"]
+    assert download_contract.gates.writes_to_disk is True
+    assert download_contract.gates.requires_internet_first_run is True
+    assert download_contract.gates.output_path_params == ["raw_data_dir", "cache_dir"]
+
+    static = static_contract(stage_cls)
+    assert static.gates.writes_to_disk is True
+    assert static.gates.requires_internet_first_run is True
+    assert static.gates.output_path_params == ["raw_data_dir", "cache_dir"]
 
 
 def test_language_data_dir_is_namespaced_per_language(tmp_path: Path) -> None:
@@ -206,6 +250,63 @@ def test_process_no_download_reads_prestaged(tmp_path: Path) -> None:
     assert len(results) == 2
     assert results[0].data["text"] == "hello"
     assert results[1].data["text"] == "world"
+
+
+def test_process_uses_renamed_output_keys_declared_by_contract(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    raw_dir = _stage_prestaged_layout(tmp_path)
+    stage = stage_cls(
+        lang="hy_am",
+        split="train",
+        raw_data_dir=str(raw_dir),
+        auto_download=False,
+        filepath_key="path",
+        text_key="transcript",
+    )
+
+    from nemo_curator.tasks import EmptyTask
+
+    results = stage.process(EmptyTask(dataset_name="test", data=None))
+
+    assert results
+    assert set(results[0].data) == {"path", "transcript"}
+    assert build_contract(stage).writes.data_keys == ["path", "transcript"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"filepath_key": ""},
+        {"filepath_key": "   "},
+        {"text_key": ""},
+        {"filepath_key": "value", "text_key": "value"},
+    ],
+)
+def test_output_keys_reject_empty_names_and_collisions(tmp_path: Path, kwargs: dict) -> None:
+    stage_cls, _ = _import_stage_module()
+
+    with pytest.raises(ValueError, match=r"must be a non-empty string|conflicts with"):
+        stage_cls(
+            lang="hy_am",
+            split="train",
+            raw_data_dir=str(tmp_path),
+            auto_download=False,
+            **kwargs,
+        )
+
+
+def test_agent_conformance(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    raw_dir = _stage_prestaged_layout(tmp_path)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(raw_dir), auto_download=False)
+    from nemo_curator.tasks import EmptyTask
+
+    assert_agent_ready(
+        stage,
+        lambda: EmptyTask(dataset_name="test", data=None),
+        expected_cardinality="1:N fan-out",
+        available_keys=set(),
+    )
 
 
 def _import_prep_module() -> types.ModuleType:

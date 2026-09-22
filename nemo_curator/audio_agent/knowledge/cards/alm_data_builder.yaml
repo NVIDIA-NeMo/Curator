@@ -1,0 +1,103 @@
+stage_id: ALMDataBuilderStage
+category: alm
+summary: "Build ALM training windows from existing speaker-labeled segments, filtered by rate/bandwidth/speaker-count/duration."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints:
+  min_segments_per_window: 2   # MIN_SEGMENTS_PER_WINDOW; a 1-segment window is discarded whatever min_speakers says
+  window_duration_gate: "a window is kept only if its span lands in target_window_duration +/- (target_window_duration * tolerance)"
+  required_input_keys: [audio_filepath, segments, audio_sample_rate]   # inputs(); all three must PRESENT or the stage refuses to start
+  required_segment_fields: [start, end, speaker]
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; windowing over segments"
+use_cases:
+  good_for:
+    - "assembling fixed-duration audio-language-model training windows from an existing conforming manifest"
+    - "raw-audio workflows only after an upstream producer has supplied speaker-labeled segments"
+  avoid_for:
+    - "non-ALM curation"
+    - "short single-speaker clips -- a window needs >=2 segments AND a span inside the duration gate, so a clip
+       shorter than the window (or one the diarizer returns as a single turn) yields nothing however low you set
+       min_speakers. Shrinking target_window_duration to fit such clips fragments the long recordings instead and
+       pads windows with empty segments; transcribe those files to a plain manifest rather than windowing them."
+    - "segment lists that still interleave silence placeholders with speaker='no-speaker': window growth aborts
+       when the next segment would introduce no-speaker, so gap-heavy audio can yield windows=[] / lost_no_spkr.
+       Normalize the segment list first; the original diarizer does not matter once the manifest conforms."
+composition:
+  typical_upstream: [MergeAlignmentDiarizationStage]
+  typical_downstream: [ALMDataOverlapStage]
+  incompatible_upstream:
+    PrepareModuleSegmentsStage: "writes metrics.bandwidth as a LIST (one entry per word) while this stage compares
+      that value against min_bandwidth with `<` -- chaining them raises TypeError: '<' not supported between
+      'list' and 'int'. Feed MergeAlignmentDiarizationStage instead, whose segments carry no metrics key
+      (_get_bandwidth then returns 0, so keep min_bandwidth=0 unless a real per-segment bandwidth exists)."
+params_of_note:
+  target_window_duration: "target ALM window length in seconds (default 120)"
+  tolerance: "allowed deviation as a FRACTION of the target (default 0.1 -> a 120 s target keeps only 108-132 s windows)"
+  min_bandwidth: "minimum bandwidth (Hz) to keep a segment. Default 8000 drops every segment when the upstream
+    segments carry no metrics key, because _get_bandwidth then returns 0 -- set 0 unless bandwidth was measured"
+  min_sample_rate: "minimum sample rate to keep a segment, read from audio_sample_rate_key (default 16000)"
+  min_speakers: "minimum distinct speakers per window. Lowering it to 1 does NOT admit single-turn clips: the
+    >=2-segments rule is separate and applies first"
+  max_speakers: "maximum speaker count to keep a window"
+  truncation: "allow truncating windows to fit the target duration"
+  drop_fields_top_level: "comma-separated top-level keys removed from the output entry (default 'words,segments').
+    Add 'waveform' when an upstream stage kept one in the task, or it reaches the sink and fails to serialize"
+param_dependencies:
+  audio_sample_rate_key: "nothing in a raw-audio pipeline writes `audio_sample_rate`. ResampleAudioStage /
+    MonoConversionStage only emit `sample_rate`, and only with keep_waveform_in_task=true -- so point this at
+    `sample_rate` and add `waveform` to drop_fields_top_level, or the stage refuses to start on a missing key."
+semantic_facts:
+  segments:
+    meaning: "INPUT vocabulary: a time-ordered list of turns this stage windows. Each entry needs start/end and a
+      speaker label. The literal speaker value 'no-speaker' is treated as SILENCE/ILLEGAL for window membership --
+      not as a talker."
+    unit: "list of segment dicts with at least {start, end, speaker}; optional metrics.bandwidth / text / words"
+    provenance: "May come directly from an existing manifest or from any upstream segmentation/diarization +
+      transcription flow. This stage validates keys and values, not which producer created them; do not rerun
+      diarization when the input already carries conforming speaker/start/end segment metadata."
+    scope: "whole-recording segment list on the AudioTask (not fan-out children)"
+    propagation: "Consumed then dropped from the output entry when drop_fields_top_level includes 'segments' (default)."
+    counterexamples:
+      - "Presence of many segments does NOT guarantee windows: interleaved no-speaker rows abort growth before the
+         duration gate is met, which shows up as lost_no_spkr in stats rather than lost_spk."
+  windows:
+    meaning: "Accepted training windows: each has a segments sublist and speaker_durations (top-5 padded)."
+    unit: "list of {segments: [...], speaker_durations: [float x5]}"
+    provenance: "Built by expanding contiguous segment spans into target_window_duration +/- tolerance, subject to
+      min/max speakers and the no-speaker ban."
+    scope: "per source recording / manifest row"
+    propagation: "Written under windows_key; ALMDataOverlapStage typically reads these next."
+    counterexamples:
+      - "A non-empty windows list can still be low value if segments are empty-text padding; inspect segment text
+         before treating window count as yield."
+  stats:
+    meaning: "Per-entry loss accounting for the builder (lost_bw, lost_sr, lost_spk, lost_win, lost_no_spkr, ...)."
+    unit: "dict of counts/durations; lost_no_spkr counts window attempts aborted when the blocking next segment
+      had speaker=='no-speaker'"
+    provenance: "Accumulated during process() on this entry."
+    scope: "per source recording"
+    propagation: "Written under stats_key on the same entry."
+    counterexamples:
+      - "lost_spk is the speaker-count gate AFTER a window reached the duration band; lost_no_spkr is usually an
+         earlier abort while still growing -- do not treat them as interchangeable."
+notes:
+  - "This is a manifest consumer, not a diarizer. Apply diarization/transcription only when the input lacks the
+     required segment metadata; preserve existing conforming annotations instead of recomputing them."
+  - "Text/words are not mechanical inputs to the window-building algorithm, but downstream language-model
+     training usually expects transcript-bearing segments. Treat transcript presence as a deliverable criterion,
+     not as a reason to rerun diarization."
+  - "Mutates each entry in-place, adding 'windows', 'stats', and 'truncation_events'."
+  - "A window that clears every gate can still be low value: with min_speakers=1 and a short target the builder
+     emits single-speaker windows whose second segment is empty and zero-length, which satisfies the >=2 rule
+     without adding content. Check the output for empty-text segments before treating a window count as yield."
+  - "Window duration is last_end - first_start over KEPT segments; silence between speech turns does not need
+     placeholder rows. If an upstream format uses speaker='no-speaker' gap rows, normalize those rows before
+     windowing. This is a data-shape requirement, not a blanket incompatibility with that upstream producer."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, constraints: mechanical, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-10"}

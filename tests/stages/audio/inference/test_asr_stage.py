@@ -14,12 +14,16 @@
 
 """Tests for the generic ``ASRStage`` exercised against a mock ``ASRAdapter`` (no real model load)."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from pathlib import Path  # noqa: TC003
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import soundfile as sf
+import torch
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
@@ -27,6 +31,10 @@ from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from tests.stages.audio.inference import review_helpers as rh
+
+if TYPE_CHECKING:
+    from typing import Any
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
 _FASTER_WHISPER_ADAPTER_TARGET = "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
@@ -405,6 +413,38 @@ def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> 
     stage._load_audio.assert_not_called()
 
 
+@pytest.mark.parametrize(("dtype", "subtype"), [(np.int16, "PCM_16"), (np.int32, "PCM_32")])
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("as_torch", [False, True], ids=["numpy", "torch"])
+def test_resident_signed_pcm_matches_file_loading(
+    tmp_path: Path,
+    dtype: type[np.signedinteger],
+    subtype: str,
+    channels: int,
+    as_torch: bool,
+) -> None:
+    limits = np.iinfo(dtype)
+    mono = np.array([limits.min, limits.min // 2, 0, limits.max // 2, limits.max], dtype=dtype)
+    channel_first = np.stack([mono] * channels) if channels > 1 else mono
+    resident = torch.from_numpy(channel_first.copy()) if as_torch else channel_first
+    audio_path = tmp_path / f"resident-parity-{dtype.__name__}-{channels}.wav"
+    sf.write(audio_path, channel_first.T if channels > 1 else channel_first, _SR, subtype=subtype)
+
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+    )
+    file_waveform, file_sample_rate = stage._load_audio(str(audio_path))
+
+    resident_prepared = stage._prepare_waveform(resident, _SR)
+    file_prepared = stage._prepare_waveform(file_waveform, file_sample_rate)
+
+    np.testing.assert_allclose(resident_prepared, file_prepared, rtol=0.0, atol=1e-7)
+    assert resident_prepared.dtype == np.float32
+    assert np.max(np.abs(resident_prepared)) <= 1.0
+
+
 @pytest.mark.parametrize(
     "waveform",
     [np.zeros(0, dtype=np.float32), np.zeros((0, 32), dtype=np.float32)],
@@ -483,6 +523,26 @@ def test_empty_extras_key_is_rejected() -> None:
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
             extras_key=" ",
+        )
+
+
+@pytest.mark.parametrize("field_name", ["skip_me_key", "notes_key"])
+def test_empty_control_key_is_rejected(field_name: str) -> None:
+    with pytest.raises(ValueError, match=rf"{field_name} must be a non-empty string"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            **{field_name: " "},
+        )
+
+
+def test_control_keys_must_be_distinct() -> None:
+    with pytest.raises(ValueError, match="skip_me_key and notes_key must be distinct"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            skip_me_key="control",
+            notes_key="control",
         )
 
 
@@ -689,3 +749,124 @@ def test_teardown_delegates_to_adapter_unload_model_once() -> None:
 
     adapter.unload_model.assert_called_once_with()
     assert stage._adapter is None
+
+
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("resident", [False, True], ids=["file", "waveform"])
+def test_fanout_children_feed_asr_exact_slices(
+    kind: str, resident: bool, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    first_channel = rh.np.arange(12, dtype=rh.np.float32) / 10
+    waveform = rh.np.stack([first_channel, first_channel + 2])
+    audio_path = tmp_path / f"{kind}.wav"
+    rh._write_audio(audio_path, waveform)
+    residency = "waveform" if resident else "file"
+    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency=residency, fanout=True)
+    parent_data: dict[str, Any] = (
+        {
+            "waveform": waveform,
+            "sample_rate": rh._SAMPLE_RATE,
+            "audio_filepath": str(audio_path),
+            "resampled_audio_filepath": str(audio_path),
+        }
+        if resident
+        else {"audio_filepath": str(audio_path), "resampled_audio_filepath": str(audio_path)}
+    )
+    children = stage.process_batch([rh.AudioTask(dataset_name="d", data=parent_data)])
+    assert len(children) == 2
+    expected = [waveform[:, 2:6], waveform[:, 7:10]]
+    dropped_containers = {
+        "pyannote": {"segments", "overlap_segments"},
+        "whisperx": {"vad_segments"},
+        "sortformer": {"diar_segments"},
+    }
+    for child, expected_slice in zip(children, expected, strict=True):
+        rh.np.testing.assert_array_equal(child.data["waveform"], expected_slice)
+        assert child.data["waveform"].shape[0] == 2
+        assert child.data["sample_rate"] == rh._SAMPLE_RATE
+        assert not rh.np.shares_memory(child.data["waveform"], waveform)
+        assert {"audio_filepath", "resampled_audio_filepath"}.isdisjoint(child.data)
+        assert dropped_containers[kind].isdisjoint(child.data)
+        assert child.data["original_file"]
+    if kind == "pyannote":
+        assert [child.data["num_speakers"] for child in children] == [1, 1]
+    asr = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+        keep_waveform=True,
+    )
+    asr._adapter = rh.MagicMock()
+    asr._adapter.transcribe_batch.return_value = [rh.ASRResult(text="one"), rh.ASRResult(text="two")]
+    asr.process_batch(children)
+    assert all("waveform" in child.data for child in children)
+    asr_items = asr._adapter.transcribe_batch.call_args.args[0]
+    rh.np.testing.assert_array_equal(asr_items[0]["waveform"], expected[0].mean(axis=0))
+    rh.np.testing.assert_array_equal(asr_items[1]["waveform"], expected[1].mean(axis=0))
+
+
+def test_asr_waveform_removal_contract_matches_runtime_including_skips() -> None:
+    removing = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        skip_if_output_exists=True,
+        keep_waveform=False,
+    )
+    retaining = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        keep_waveform=True,
+    )
+    assert rh.build_contract(removing).removes_keys == ["waveform"]
+    assert rh.build_contract(retaining).removes_keys == []
+    assert (
+        rh.build_contract(
+            rh.ASRStage(adapter_target=rh._ASR_TARGET, model_id="mock/model", waveform_key="")
+        ).removes_keys
+        == []
+    )
+    planner_seed = {
+        "initial_roles": {"waveform", "sample_rate"},
+        "initial_keys": {"waveform", "sample_rate"},
+        "initial_task_type": "AudioTask",
+    }
+    after_removal = rh.validate_pipeline([removing, retaining], **planner_seed)
+    after_retention = rh.validate_pipeline([retaining, retaining], **planner_seed)
+    assert not after_removal.ok
+    assert any(issue.code == "key_removed_upstream" for issue in after_removal.issues)
+    assert after_retention.ok
+    removing._adapter = rh.MagicMock()
+    skipped = rh.AudioTask(
+        data={
+            "waveform": rh.np.ones((1, 10), dtype=rh.np.float32),
+            "sample_rate": rh._SAMPLE_RATE,
+            "pred_text": "existing",
+        }
+    )
+    assert removing.process_batch([skipped]) == [skipped]
+    assert "waveform" not in skipped.data
+    assert skipped.data["sample_rate"] == rh._SAMPLE_RATE
+    removing._adapter.transcribe_batch.assert_not_called()
+    runtime = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+    )
+    runtime._adapter = rh.MagicMock()
+    runtime._adapter.transcribe_batch.return_value = [rh.ASRResult(text="ok")]
+    rh.assert_agent_ready(
+        runtime,
+        lambda: rh.AudioTask(
+            data={"waveform": rh.np.ones((1, 10), dtype=rh.np.float32), "sample_rate": rh._SAMPLE_RATE}
+        ),
+        expected_cardinality="1:1",
+        available_keys={"waveform", "sample_rate"},
+    )
