@@ -1,0 +1,55 @@
+[project]
+name = "nemo-curator-indic-canary-trtllm-runtime"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "cuda-bindings==13.3.1",
+    "cuda-core==1.0.1",
+    "cuda-pathfinder==1.5.6",
+    "cuda-python==13.3.1",
+    "cuda-toolkit[cudart]==13.3.1",
+    "datasets==3.1.0",
+    "mpi4py==4.1.2",
+    "nvidia-cublas==13.3.0.5",
+    "openmpi==4.1.8",
+    "numpy==1.26.4",
+    "onnx==1.19.1",
+    "opencv-python-headless==4.11.0.86",
+    "protobuf==6.33.5",
+    "setuptools==79.0.1",
+    "tensorrt==10.14.1.48.post1",
+    "tensorrt-llm==1.2.1",
+    "torch==2.9.1+cu128",
+    "transformers==4.57.3",
+    "triton==3.5.1",
+]
+
+[tool.uv]
+required-version = ">=0.12,<0.13"
+managed = true
+package = false
+index-strategy = "unsafe-best-match"
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+tensorrt-llm = { index = "nvidia" }
+torch = { index = "pytorch-cu128" }

@@ -1,0 +1,36 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Opt-in layer for Indic Canary. Build the ordinary Curator image from the
+# same commit first, then pass its immutable tag/digest as CURATOR_BASE_IMAGE.
+# The default Curator Dockerfile remains unchanged.
+ARG CURATOR_BASE_IMAGE=curator-base:local
+FROM ${CURATOR_BASE_IMAGE}
+
+USER root
+
+# The child ships CUDA 13 user-space libraries. Reject hosts whose driver can
+# run the ordinary CUDA 12.9 Curator image but cannot load this runtime.
+ENV NVIDIA_REQUIRE_CUDA="cuda>=13.0"
+
+# This creates a second Python 3.12 environment from the packaged frozen lock;
+# it never modifies /opt/venv (Curator's Python 3.13 environment). OpenMPI is
+# bundled in that environment, so this layer has no host apt dependency.
+RUN UV_PYTHON_INSTALL_DIR=/opt/nemo-curator-runtimes/python \
+    /opt/venv/bin/python -m \
+    nemo_curator.stages.audio.inference.scripts.install_indic_canary_trtllm_runtime \
+    --runtime-root /opt/nemo-curator-runtimes/indic-canary-trtllm && \
+    rm -rf /opt/uv_cache/*
+
+ENV NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON="/opt/nemo-curator-runtimes/indic-canary-trtllm/bin/python"

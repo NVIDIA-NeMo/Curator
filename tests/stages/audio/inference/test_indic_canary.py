@@ -78,6 +78,8 @@ def test_stage_builds_adapter_with_engine_options() -> None:
         min_duration_sec=1.0,
         kv_cache_free_gpu_memory_fraction=0.15,
         cross_kv_cache_fraction=0.25,
+        runtime_python="/opt/canary/bin/python",
+        runtime_startup_timeout_sec=123.0,
     )
 
     adapter = stage._create_adapter()
@@ -91,6 +93,8 @@ def test_stage_builds_adapter_with_engine_options() -> None:
     assert adapter.min_duration_sec == 1.0
     assert adapter.kv_cache_free_gpu_memory_fraction == 0.15
     assert adapter.cross_kv_cache_fraction == 0.25
+    assert adapter.runtime_python == "/opt/canary/bin/python"
+    assert adapter.runtime_startup_timeout_sec == 123.0
 
 
 def test_stage_writes_canary_unsupported_language_contract() -> None:
@@ -173,13 +177,22 @@ def test_stage_does_not_mark_exact_encoder_window_as_truncated() -> None:
     assert "additional_notes" not in result.data
 
 
-def test_setup_on_node_only_validates_engine_artifacts(tmp_path: Path) -> None:
+def test_setup_on_node_validates_engine_artifacts_and_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _write_engine_files(tmp_path)
     stage = InferenceIndicCanaryStage(engine_dir=str(tmp_path))
+    ensure_runtime = MagicMock()
+    monkeypatch.setattr(
+        "nemo_curator.models.asr.indic_canary.ensure_runtime_python",
+        ensure_runtime,
+    )
 
     stage.setup_on_node()
 
     assert stage._adapter is None
+    ensure_runtime.assert_called_once_with(None)
 
 
 def test_missing_engine_directory_is_rejected_during_prefetch() -> None:

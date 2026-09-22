@@ -96,16 +96,14 @@ def _require_tensorrt_llm() -> None:
             TensorInfo = TensorInfoImport
             return
 
-    # tensorrt_llm is intentionally NOT in Curator's uv.lock: its
-    # cuda-python>=13 / transformers<4.52 / fsspec<=2024.9.0 pins conflict with
-    # the audio_cuda12 stack (cudf-cu12, nemo_toolkit), so it cannot be
-    # co-resolved. Install it on top of the synced venv instead.
+    # TensorRT-LLM is intentionally NOT in Curator's main uv.lock: its native
+    # CUDA/Torch ABI conflicts with Curator's shared environment. It belongs in
+    # the separately locked worker runtime provisioned by the audio_trt extra.
     msg = (
-        "tensorrt_llm is required for the Indic Canary ASR runtime but is not "
-        "installed. Install it into the Curator venv (Linux x86_64 only), on top "
-        "of `uv sync --extra audio_cuda12`:\n"
-        "    uv pip install --index-strategy unsafe-best-match \\\n"
-        "        --extra-index-url https://pypi.nvidia.com tensorrt_llm==1.2.1"
+        "tensorrt_llm is missing from the isolated Indic Canary runtime. "
+        "Install `nemo_curator[audio_trt]`, then provision the locked runtime with:\n"
+        "    python -m nemo_curator.stages.audio.inference.scripts."
+        "install_indic_canary_trtllm_runtime"
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 
