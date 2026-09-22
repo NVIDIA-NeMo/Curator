@@ -45,8 +45,9 @@ BENCHMARK_SOURCE_SUBDIRS = ("benchmarking", "tutorials")
 sys.path.insert(0, str(BENCHMARKING_DIR))
 
 # ruff: noqa: E402
+from nemo_curator_benchmarking.config import assert_valid_config_dict, merge_config_files
 from runner.path_resolver import DEFAULT_CONTAINER_PATH_PREFIX, PathResolver
-from runner.utils import assert_valid_config_dict, get_total_memory_bytes, merge_config_files
+from runner.utils import get_total_memory_bytes
 
 PASSTHROUGH_ENV_VARS = (
     "SLACK_BOT_TOKEN",

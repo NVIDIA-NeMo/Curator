@@ -12,16 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: LOG015, ERA001
+# ruff: noqa: LOG015
 
 import os
-import re
 import shutil
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import yaml
+from nemo_curator_benchmarking.config import (
+    assert_valid_config_dict,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+    update_config,
+)
+
+__all__ = [
+    "assert_valid_config_dict",
+    "merge_config_files",
+    "remove_disabled_blocks",
+    "resolve_env_vars",
+    "update_config",
+]
 
 # utils.py is also imported in scripts that run before the Curator
 # environment is set up so do not assume loguru is available
@@ -29,8 +41,6 @@ try:
     from loguru import logger
 except ImportError:
     import logging as logger
-
-_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
 
 # TODO: This utility contains some special cases for Slack JSON messages used in the Slack sink.
@@ -52,72 +62,6 @@ def get_obj_for_json(obj: object) -> object:
     else:
         retval = obj
     return retval
-
-
-def _make_env_var_replacer(strict: bool) -> Callable[[re.Match[str]], str]:
-    def _replace(match: re.Match[str]) -> str:
-        env_var_name = match.group(1)
-        env_value = os.getenv(env_var_name)
-        if env_value is not None and env_value != "":
-            return env_value
-        msg = f"Environment variable {env_var_name} not found in the environment or is empty"
-        if strict:
-            raise ValueError(msg)
-        logger.warning(f"{msg}; substituting empty string")
-        return ""
-
-    return _replace
-
-
-def remove_disabled_blocks(obj: object) -> object:
-    """
-    Recursively remove dictionary blocks that contain "enabled": False.
-    Processes dicts and lists; other types are returned unchanged.
-    """
-    if isinstance(obj, dict):
-        # If this block explicitly disables itself, remove it
-        if obj.get("enabled", True) is False:
-            return None
-        # Else process all values
-        result = {}
-        for k, v in obj.items():
-            filtered = remove_disabled_blocks(v)
-            if filtered is not None:
-                result[k] = filtered
-        return result
-    elif isinstance(obj, list):
-        # Process each item; skip any that are removed
-        result = []
-        for item in obj:
-            filtered = remove_disabled_blocks(item)
-            if filtered is not None:
-                result.append(filtered)
-        return result
-    else:
-        return obj
-
-
-def resolve_env_vars(data: dict | list | str | object, strict: bool = False) -> dict | list | str | object:
-    """Recursively resolve environment variables in strings in/from various objects.
-
-    Environment variables are identified in strings when specified using the ${VAR_NAME}
-    syntax. If the environment variable is not found or empty, behavior depends on `strict`:
-    when True, ValueError is raised; when False (default), the reference is replaced with
-    an empty string and a warning is logged.
-    """
-    replacer = _make_env_var_replacer(strict)
-
-    def _walk(node: object) -> object:
-        if isinstance(node, dict):
-            return {key: _walk(value) for key, value in node.items()}
-        elif isinstance(node, list):
-            return [_walk(item) for item in node]
-        elif isinstance(node, str):
-            return _env_var_pattern.sub(replacer, node)
-        else:
-            return node
-
-    return _walk(data)
 
 
 def find_result(results: dict[str, Any], key: str, default_value: Any = None) -> Any:  # noqa: ANN401
@@ -264,124 +208,3 @@ def log_gpu_stats(
                 logger.warning(msg)
                 warnings.append(msg)
     return warnings
-
-
-_LEGACY_PATH_FIELDS = ["results_path", "datasets_path", "model_weights_path"]
-
-
-def assert_valid_config_dict(data: dict) -> None:  # noqa: C901, PLR0912
-    """Assert that the configuration contains the minimum required config values."""
-    has_legacy = any(k in data for k in _LEGACY_PATH_FIELDS)
-    has_paths = "paths" in data
-
-    if has_legacy and has_paths:
-        msg = (
-            "Configuration error: 'results_path', 'datasets_path', and 'model_weights_path' "
-            "are deprecated and cannot be used together with the 'paths' section. "
-            "Please remove the legacy path fields and use only the 'paths' section."
-        )
-        raise ValueError(msg)
-
-    if has_legacy:
-        logger.warning(
-            "'results_path', 'datasets_path', and 'model_weights_path' are deprecated. "
-            "Please migrate to using the 'paths' section instead."
-        )
-        missing = [k for k in _LEGACY_PATH_FIELDS if k not in data]
-        if missing:
-            msg = f"Invalid configuration: missing required legacy path fields: {missing}"
-            raise ValueError(msg)
-    elif not has_paths:
-        msg = "Invalid configuration: missing required field: 'paths'"
-        raise ValueError(msg)
-    else:
-        if not isinstance(data.get("paths"), list):
-            msg = "Invalid configuration: 'paths' must be a non-empty list"
-            raise ValueError(msg)
-        for i, path_entry in enumerate(data["paths"]):
-            if not isinstance(path_entry, dict):
-                msg = f"Invalid configuration: 'paths' entry at index {i} must be a dict"
-                raise TypeError(msg)
-            missing = [k for k in ("name", "host_path") if k not in path_entry]
-            if missing:
-                msg = f"Invalid configuration: 'paths' entry at index {i} is missing required fields: {missing}"
-                raise ValueError(msg)
-        seen_names: set[str] = set()
-        for path_entry in data["paths"]:
-            if isinstance(path_entry, dict) and "name" in path_entry:
-                name = path_entry["name"]
-                if name in seen_names:
-                    msg = f"Invalid configuration: duplicate name '{name}' in 'paths' section"
-                    raise ValueError(msg)
-                seen_names.add(name)
-        if "results_path" not in seen_names:
-            msg = "Invalid configuration: 'paths' section must include an entry with name 'results_path'"
-            raise ValueError(msg)
-
-    if "entries" not in data:
-        logger.warning("Configuration is missing 'entries' field; no benchmarks will run.")
-
-
-def update_config(config_dict: dict, new_dict: dict) -> None:
-    """Update a config dictionary with values from another."""
-
-    # Iterate through all key-value pairs in the dictionary to merge in
-    for key, value in new_dict.items():
-        if key in config_dict:
-            # Recursively handle nested dicts
-            if isinstance(config_dict[key], dict) and isinstance(value, dict):
-                update_config(config_dict[key], value)
-
-            # Handle list merging/updating on an item-by-item basis
-            # For example, the YAML:
-            #     entries:
-            #      - name: domain_classification_raydata
-            #        requirements:
-            #          - metric: throughput_docs_per_sec
-            #            min_value: 2677            # results in:
-            #     config_dict['entries'] = [{'name': 'domain_classification_raydata',
-            #                                'requirements': [{'metric': 'throughput_docs_per_sec', 'min_value': 2677}]
-            #                              }]
-            #
-            # Dicts in lists are matched by their "name" key when present (since it is the
-            # canonical identifier for entries, paths, sinks, etc.); otherwise the first key
-            # is used as the match key. This means override files should use "name" whenever
-            # possible to ensure reliable matching.
-            elif isinstance(config_dict[key], list) and isinstance(value, list):
-                for sub_val in value:
-                    # Handle dicts in the list by matching on "name" if present, else first key
-                    if isinstance(sub_val, dict) and sub_val:
-                        match_key = "name" if "name" in sub_val else next(iter(sub_val.keys()))
-                        for config_sub_val in config_dict[key]:
-                            if (
-                                isinstance(config_sub_val, dict)
-                                and config_sub_val
-                                and match_key in config_sub_val
-                                and config_sub_val[match_key] == sub_val[match_key]
-                            ):
-                                # If matching dict found, recursively update it
-                                update_config(config_sub_val, sub_val)
-                                break
-                        else:
-                            # If no matching dict, append the new dict to the list
-                            config_dict[key].append(sub_val)
-                    else:
-                        # If not a dict, append the new value to the list
-                        config_dict[key].append(sub_val)
-            else:
-                # If types differ, or not a dict/list, replace value in config_dict
-                config_dict[key] = value
-        else:
-            # If key doesn't exist, add it to config_dict
-            config_dict[key] = value
-
-
-def merge_config_files(config_files: list[Path]) -> dict:
-    """Merge multiple config files into a single dictionary."""
-    config_dict = {}
-    for config_file in config_files:
-        with open(config_file) as f:
-            for new_dict in yaml.full_load_all(f):
-                if new_dict is not None:
-                    update_config(config_dict, new_dict)
-    return config_dict

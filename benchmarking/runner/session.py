@@ -24,13 +24,14 @@ from typing import TYPE_CHECKING
 #       Consider vendoring the pytest code or implementing a custom expression evaluator.
 from _pytest.mark import Expression
 from loguru import logger
+from nemo_curator_benchmarking.config import assert_valid_config_dict
 
 if TYPE_CHECKING:
     from runner.sinks.sink import Sink
 from runner.datasets import DatasetResolver
 from runner.entry import Entry, normalize_environment
 from runner.path_resolver import PathResolver
-from runner.utils import assert_valid_config_dict, get_total_memory_bytes
+from runner.utils import get_total_memory_bytes
 
 _data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
 
