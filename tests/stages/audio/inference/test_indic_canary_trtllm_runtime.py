@@ -101,5 +101,5 @@ def test_missing_optional_runtime_is_reported_at_construction(
 ) -> None:
     monkeypatch.setattr(runtime, "_TRTLLM_IMPORT_ERROR", ImportError("not installed"))
 
-    with pytest.raises(ImportError, match="tensorrt_llm is required"):
+    with pytest.raises(ImportError, match="missing from the isolated Indic Canary runtime"):
         runtime.CanaryTRTLLM(tmp_path)
