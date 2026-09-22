@@ -54,6 +54,7 @@ def test_stage_exposes_parakeet_v3_defaults() -> None:
     )
     assert stage.model_id == "nvidia/parakeet-tdt-0.6b-v3"
     assert stage.batch_size == 16
+    assert stage.max_audio_sec_per_actor == 2400.0
     assert set(stage.supported_language_codes) == set(PARAKEET_TDT_0_6B_V3_LANGS)
     assert stage.num_workers() == 2
 

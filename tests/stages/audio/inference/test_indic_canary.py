@@ -65,6 +65,7 @@ def test_stage_exposes_integration_pipeline_contract() -> None:
     )
     assert stage.model_id == "/models/indic-canary"
     assert stage.name == "IndicCanary_inference"
+    assert stage.max_audio_sec_per_actor == 2400.0
     assert stage.num_workers() == 4
 
 

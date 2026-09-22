@@ -98,10 +98,10 @@ def _require_tensorrt_llm() -> None:
 
     # TensorRT-LLM is intentionally NOT in Curator's main uv.lock: its native
     # CUDA/Torch ABI conflicts with Curator's shared environment. It belongs in
-    # the separately locked worker runtime provisioned by the audio_trt extra.
+    # the separately locked worker runtime provisioned by the audio_tensorrt extra.
     msg = (
         "tensorrt_llm is missing from the isolated Indic Canary runtime. "
-        "Install `nemo_curator[audio_trt]`, then provision the locked runtime with:\n"
+        "Install `nemo_curator[audio_tensorrt]`, then provision the locked runtime with:\n"
         "    python -m nemo_curator.stages.audio.inference.scripts."
         "install_indic_canary_trtllm_runtime"
     )

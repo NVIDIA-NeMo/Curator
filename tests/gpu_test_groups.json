@@ -16,7 +16,7 @@
     "paths": ["tests/stages/math_stages"]
   },
   "audio": {
-    "extras": ["audio_trt"],
+    "extras": ["audio_cuda12"],
     "paths": [
       "tests/stages/audio",
       "tests/models/asr/test_nemo_asr.py",

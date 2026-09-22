@@ -309,7 +309,7 @@ def install_runtime(runtime_root: Path | None = None) -> Path:
     adjacent_uv = Path(sys.executable).with_name("uv")
     uv = str(adjacent_uv) if adjacent_uv.is_file() and os.access(adjacent_uv, os.X_OK) else shutil.which("uv")
     if uv is None:
-        msg = "uv>=0.12,<0.13 is required; install nemo_curator[audio_trt] first"
+        msg = "uv>=0.12,<0.13 is required; install nemo_curator[audio_tensorrt] first"
         raise RuntimeError(msg)
 
     root = (runtime_root or default_runtime_root()).expanduser().absolute()

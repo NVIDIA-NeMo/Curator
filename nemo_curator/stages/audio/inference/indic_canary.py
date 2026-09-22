@@ -57,6 +57,7 @@ class InferenceIndicCanaryStage(ASRStage):
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 64
+    max_audio_sec_per_actor: float = 2400.0
 
     model_id: str = field(default="", init=False, repr=False)
     audio_filepath_key: str = field(default="", init=False, repr=False)
