@@ -300,7 +300,11 @@ def test_empty_token_sequence_decodes_to_empty_text() -> None:
 
 
 def test_stage_prefetch_resolves_checkpoint_without_loading_model() -> None:
-    stage = ASRStage(adapter_target=_ADAPTER_TARGET, model_id="ai4bharat/model")
+    stage = ASRStage(
+        adapter_target=_ADAPTER_TARGET,
+        model_id="ai4bharat/model",
+        max_audio_sec_per_actor=2400.0,
+    )
 
     with patch.object(IndicConformerHybridASR, "download_weights_on_node") as prefetch:
         stage.setup_on_node()

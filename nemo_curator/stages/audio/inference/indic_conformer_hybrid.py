@@ -57,6 +57,7 @@ class InferenceIndicConformerHybridStage(ASRStage):
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
+    max_audio_sec_per_actor: float = 2400.0
 
     audio_filepath_key: str = field(default="", init=False, repr=False)
     target_sample_rate: int = field(default=16_000, init=False, repr=False)

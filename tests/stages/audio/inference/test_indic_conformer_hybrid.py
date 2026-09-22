@@ -53,6 +53,7 @@ def test_stage_exposes_integration_pipeline_contract() -> None:
     )
     assert stage.name == "IndicConformerHybrid_inference"
     assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 2400.0
     assert stage.num_workers() == 3
     assert set(stage.supported_language_codes) == set(INDIC_CONFORMER_HYBRID_LANGS)
 
