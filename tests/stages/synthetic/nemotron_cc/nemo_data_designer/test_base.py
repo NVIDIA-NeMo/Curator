@@ -21,6 +21,7 @@ import pytest
 import pytest_httpserver
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import (
     _FORMATTED_PROMPT_COL,
@@ -137,6 +138,26 @@ class TestNDDBaseSyntheticStage:
         with pytest.raises(ValueError, match="'input_field' is None"):
             stage._process_llm_prompt({"text": "hello"})
 
+    def test_process_preserves_task_id_for_parent(self) -> None:
+        """Temporary batch passed to DataDesignerStage preserves the input task ID."""
+        stage = _make_stage()
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds",
+        )
+        batch._set_task_id("parent", 3)
+
+        captured_task_ids = []
+
+        def fake_parent_process(self, inner_batch):
+            captured_task_ids.append(inner_batch.task_id)
+            return inner_batch
+
+        with patch.object(DataDesignerStage, "process", fake_parent_process):
+            stage.process(batch)
+
+        assert captured_task_ids == ["parent_3"]
+
     def test_process(self) -> None:
         """Covers pre-process prompt formatting, NDD call, post-process response, temp column
         removal, task_id appending, and metadata/stage_perf preservation."""
@@ -162,7 +183,6 @@ class TestNDDBaseSyntheticStage:
             _stage_perf=original_stage_perf,
         )
         out = stage.process(batch)
-
         assert isinstance(out, DocumentBatch)
         assert out.dataset_name == "ds"
         assert out.data["result"].tolist() == ["out_a", "out_b"]
