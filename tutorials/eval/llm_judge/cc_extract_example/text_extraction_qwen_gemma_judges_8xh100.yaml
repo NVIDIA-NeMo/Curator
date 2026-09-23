@@ -3,13 +3,7 @@
 # Fixed mapping (see text_extraction_prompt.jinja / text_extraction_disagreement_prompt.jinja):
 #   candidate_a = justext_text, candidate_b = trafilatura_text.
 #
-# Asymmetric num_workers test, more total concurrency than
-# nw_qwen12_gemma6_seqs40_mpr256: qwen_* stages at num_workers=16, gemma_* stages
-# held at the original baseline num_workers=8 (same ~2:1 ratio matching the
-# observed ~1.87x Qwen-vs-Gemma per-stage cost ratio, but scaled up). Tests
-# whether the dataset's now-larger block count (64 blocks, up from the original
-# 32 that previously capped in-flight tasks at ~4) supports more total worker
-# concurrency than the nw8/nw10/nw12 symmetric sweeps found useful before.
+# Tuned for 8xH100 node setup, num_workers=10/5 (qwen/gemma).
 models:
   - alias: qwen
     model: /path/to/your/hf_cache/Qwen3.8-27B
@@ -61,7 +55,7 @@ inference_server:
 execution:
   stages:
     - name: qwen_extraction_quality
-      num_workers: 16
+      num_workers: 10
       judges:
         - &qwen_extraction_quality
           name: qwen3_8_27b_text_extraction_judgment
@@ -95,7 +89,7 @@ execution:
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
     - name: qwen_semantic_disagreement
-      num_workers: 16
+      num_workers: 10
       judges:
         - &qwen_semantic_disagreement
           name: qwen3_8_27b_text_extraction_disagreement
@@ -112,13 +106,13 @@ execution:
                 4: The candidates have major meaningful-content differences.
                 5: The candidates disagree so substantially that manual review is needed.
     - name: gemma_extraction_quality
-      num_workers: 8
+      num_workers: 5
       judges:
         - <<: *qwen_extraction_quality
           name: gemma_3_27b_text_extraction_judgment
           model_alias: gemma
     - name: gemma_semantic_disagreement
-      num_workers: 8
+      num_workers: 5
       judges:
         - <<: *qwen_semantic_disagreement
           name: gemma_3_27b_text_extraction_disagreement

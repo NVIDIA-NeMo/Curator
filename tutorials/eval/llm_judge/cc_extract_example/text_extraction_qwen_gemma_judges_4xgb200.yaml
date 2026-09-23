@@ -2,18 +2,20 @@
 # Prompt candidates are anonymized to keep the judge blind to which extractor produced which text.
 # Fixed mapping (see text_extraction_prompt.jinja / text_extraction_disagreement_prompt.jinja):
 #   candidate_a = justext_text, candidate_b = trafilatura_text.
+#
+# Tuned for 4xGB200 node setup.
 models:
   - alias: qwen
     model: /path/to/your/hf_cache/Qwen3.8-27B
     # Keep the Hugging Face identifier as the API name while serving local weights.
     served_model_name: Qwen/Qwen3.8-27B
     dynamo_model:
-      num_replicas: 4
+      num_replicas: 2
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 48
+        max_num_seqs: 40
         gpu_memory_utilization: 0.97
     inference_parameters:
       temperature: 0.0
@@ -28,12 +30,12 @@ models:
     model: /path/to/your/hf_cache/gemma-3-27b-it
     served_model_name: google/gemma-3-27b-it
     dynamo_model:
-      num_replicas: 4
+      num_replicas: 2
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation to fit this
-        max_num_seqs: 48
+        max_num_seqs: 40
         gpu_memory_utilization: 0.97
     inference_parameters:
       temperature: 0.0
@@ -53,7 +55,7 @@ inference_server:
 execution:
   stages:
     - name: qwen_extraction_quality
-      num_workers: 8
+      num_workers: 10
       judges:
         - &qwen_extraction_quality
           name: qwen3_8_27b_text_extraction_judgment
@@ -87,7 +89,7 @@ execution:
                 4: Only minor boilerplate remains.
                 5: Boilerplate is effectively removed.
     - name: qwen_semantic_disagreement
-      num_workers: 8
+      num_workers: 10
       judges:
         - &qwen_semantic_disagreement
           name: qwen3_8_27b_text_extraction_disagreement
@@ -104,13 +106,13 @@ execution:
                 4: The candidates have major meaningful-content differences.
                 5: The candidates disagree so substantially that manual review is needed.
     - name: gemma_extraction_quality
-      num_workers: 8
+      num_workers: 5
       judges:
         - <<: *qwen_extraction_quality
           name: gemma_3_27b_text_extraction_judgment
           model_alias: gemma
     - name: gemma_semantic_disagreement
-      num_workers: 8
+      num_workers: 5
       judges:
         - <<: *qwen_semantic_disagreement
           name: gemma_3_27b_text_extraction_disagreement
