@@ -183,12 +183,17 @@ def _strip_arg_separator(args: Sequence[str]) -> list[str]:
 
 def _run_setup_script(
     container: str,
-    mode: str,
+    action: str,
     *,
     curator_extras: Sequence[str] = (),
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    args = ["--mode", mode]
+    args: list[str] = []
+    if action == "check":
+        args.append("--check")
+    elif action != "install":
+        msg = f"Unknown setup action: {action}"
+        raise ValueError(msg)
     for extra in curator_extras:
         args.extend(["--curator-extra", extra])
     quoted_args = " ".join(shlex.quote(arg) for arg in args)
@@ -234,10 +239,6 @@ def start_container(args: argparse.Namespace) -> int:
     _run(cmd)
     if args.setup_benchmark_env == "yes":
         _run_setup_script(args.name, "install", curator_extras=args.curator_extra)
-    elif args.setup_benchmark_env == "auto":
-        _run_setup_script(args.name, "auto", curator_extras=args.curator_extra)
-    else:
-        _run_setup_script(args.name, "check")
     print(args.name)
     return 0
 
@@ -247,13 +248,6 @@ def check_container(args: argparse.Namespace) -> int:
 
 
 def run_in_container(args: argparse.Namespace) -> int:
-    if _run_setup_script(args.container, "check", check=False).returncode != 0:
-        print(
-            "ERROR: benchmark container environment check failed; run setup or recreate the container.",
-            file=sys.stderr,
-        )
-        return 1
-
     command = [
         "python",
         str(CONTAINER_BENCHMARK_SOURCE_DIR / "benchmarking" / "run.py"),
@@ -264,7 +258,6 @@ def run_in_container(args: argparse.Namespace) -> int:
 
 
 def shell_in_container(args: argparse.Namespace) -> int:
-    _run_setup_script(args.container, "check", check=False)
     if args.shell_command:
         command = " ".join(shlex.quote(part) for part in _strip_arg_separator(args.shell_command))
         return _docker_exec_bash(args.container, command, check=False).returncode
@@ -285,9 +278,9 @@ def add_common_container_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--use-host-curator", action="store_true", help="Mount this checkout at /opt/Curator.")
     parser.add_argument(
         "--setup-benchmark-env",
-        choices=("auto", "yes", "no"),
-        default="auto",
-        help="Install benchmark runtime dependencies in the container. Default: auto.",
+        choices=("yes", "no"),
+        default="yes",
+        help="Install benchmark runtime dependencies in the container. Default: yes.",
     )
     parser.add_argument(
         "--curator-extra",

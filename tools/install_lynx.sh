@@ -15,24 +15,42 @@
 
 set -euo pipefail
 
+CHECK_ONLY=0
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     cat <<'EOF'
-Usage: install_lynx.sh
+Usage: install_lynx.sh [--check]
 
 Installs lynx with apt-get when it is not already available. Curator math
 HTML extraction uses lynx to convert HTML content to text.
+
+Options:
+  --check  Verify lynx is available without installing it.
 EOF
     exit 0
 fi
 
-if [ "$#" -ne 0 ]; then
-    echo "Unknown argument: $1" >&2
-    exit 2
-fi
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --check)
+            CHECK_ONLY=1
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
 
 if command -v lynx >/dev/null 2>&1; then
     echo "lynx already available."
     exit 0
+fi
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+    echo "ERROR: lynx not found on PATH" >&2
+    exit 1
 fi
 
 if ! command -v apt-get >/dev/null 2>&1; then

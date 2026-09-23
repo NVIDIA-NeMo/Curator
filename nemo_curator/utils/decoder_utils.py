@@ -218,7 +218,7 @@ def extract_video_metadata(video: str | bytes) -> VideoMetadata:  # noqa: C901, 
                     "The active ffprobe appears to use NVDEC-only h264/hevc/av1 decoders, "
                     "and no GPU is visible to this stage. To process h264/hevc/av1 inputs, "
                     "install full ffmpeg inside the container with:\n"
-                    "    bash /opt/Curator/tools/install_h264_support.sh"
+                    "    bash /opt/Curator/tools/install_ffmpeg.sh"
                 )
                 raise SoftwareCodecMissingError(msg, codec=codec) from e
             raise

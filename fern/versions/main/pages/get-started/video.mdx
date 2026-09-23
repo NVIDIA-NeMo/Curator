@@ -120,12 +120,12 @@ For details on container environments and configurations, see [Container Environ
 
 ## Install FFmpeg and Encoders
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc` or `--transcode-encoder libvpx-vp9`), install `FFmpeg` with NVENC and `libvpx-vp9` support. The maintained install script bundles both.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips, install `FFmpeg` with NVENC, VP9, software H.264/HEVC/AV1 decode, and `libopenh264` support. The maintained install script bundles these capabilities.
 
 <Tabs>
 <Tab title="Debian/Ubuntu (Script)">
 
-Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC and `libvpx-vp9` support. The script enables dynamic CUDA/NVIDIA codec support through `--enable-cuda`, `--enable-cuvid`, `--enable-nvdec`, `--enable-nvenc`, and `--enable-ffnvcodec`, plus `--enable-libvpx`.
+Use the maintained script in the repository to build and install `FFmpeg` with the codecs needed by Curator video workflows. The script enables dynamic CUDA/NVIDIA codec support through `--enable-cuda`, `--enable-cuvid`, `--enable-nvdec`, `--enable-nvenc`, and `--enable-ffnvcodec`, plus `--enable-libvpx` and `--enable-libopenh264`.
 
 - Script source: [tools/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/tools/install_ffmpeg.sh)
 
@@ -139,11 +139,11 @@ sudo bash install_ffmpeg.sh
 
 <Tab title="Verify Installation">
 
-Confirm that `FFmpeg` is on your `PATH` and that the expected video encoders are available:
+Confirm that `FFmpeg` is on your `PATH` and that the expected video codecs are available:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/check_ffmpeg.sh -o check_ffmpeg.sh
-bash check_ffmpeg.sh --encoder h264_nvenc --encoder libvpx-vp9
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/install_ffmpeg.sh -o install_ffmpeg.sh
+bash install_ffmpeg.sh --check
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.

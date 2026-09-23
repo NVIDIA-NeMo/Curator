@@ -93,10 +93,10 @@ python benchmarking/tools/container.py run \
   --config ./benchmarking/nightly-data-setup.yaml
 ```
 
-The start command uses `benchmarking/tools/setup_benchmark_env.sh` through
-`--setup-benchmark-env auto` by default. If the selected image is missing
-benchmark runtime dependencies, setup installs `benchmarking/requirements.txt`
-and the required system tools inside the container before the first run.
+The start command runs `benchmarking/tools/setup_benchmark_env.sh` by default.
+If the selected image is missing benchmark runtime dependencies, setup installs
+`benchmarking/requirements.txt` and the required system tools inside the
+container before the first run.
 
 
 **4. View results:**
@@ -544,7 +544,7 @@ missing benchmark-only Python packages such as `rich` or `slack_sdk`.
 To check the current environment first:
 
 ```bash
-bash benchmarking/tools/setup_benchmark_env.sh --mode check
+bash benchmarking/tools/setup_benchmark_env.sh --check
 ```
 
 ### Reusable Docker container
@@ -591,25 +591,22 @@ directly by bare-metal users or scheduler orchestration before invoking
 `benchmarking/run.py`.
 
 ```bash
-bash benchmarking/tools/setup_benchmark_env.sh --mode check
-bash benchmarking/tools/setup_benchmark_env.sh --mode install
-bash benchmarking/tools/setup_benchmark_env.sh --mode auto
+bash benchmarking/tools/setup_benchmark_env.sh --check
+bash benchmarking/tools/setup_benchmark_env.sh
 ```
 
-`check` verifies benchmark Python dependencies and required system tools.
-`install` installs `benchmarking/requirements.txt` and runs the Curator
-system-dependency scripts needed by the benchmark suite, such as Lynx and
-FFmpeg/H.264 support. `auto` checks first, then installs only when
-`CURATOR_BENCHMARK_PATH_MODE=container` marks the environment as
-container-managed; otherwise it fails with instructions to run `install`
-explicitly.
+`--check` verifies benchmark Python dependencies and required system tools. The
+default action installs `benchmarking/requirements.txt`, runs every
+`install_*.sh` script in the selected Curator dependency tools directory, then
+checks again.
 
 `CURATOR_BENCHMARK_CURATOR_REPO_DIR` must point at the full Curator-under-test
 source checkout. Container runs set it to `/opt/Curator`; bare-metal users
 should set it when benchmark configs use `{curator_repo_dir}` placeholders or
 when setup needs Curator-under-test dependency scripts.
 
-`start` uses `--setup-benchmark-env auto` by default.
+`start` runs setup by default. `run` assumes the existing container was already
+prepared. Use the `check` command to verify a reusable container explicitly.
 
 To force or skip setup:
 

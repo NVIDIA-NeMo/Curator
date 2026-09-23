@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-MODE=auto
+ACTION=install
 PYTHON=${PYTHON:-python}
 CURATOR_UNDER_TEST_REPO_DIR=${CURATOR_BENCHMARK_CURATOR_REPO_DIR:-/opt/Curator}
 BENCHMARK_SOURCE_MOUNT_DIR=${CURATOR_BENCHMARK_SOURCE_MOUNT_DIR:-/tmp/.curator-benchmark-source}
@@ -25,22 +25,15 @@ CURATOR_EXTRAS=()
 
 usage() {
     cat <<'EOF'
-Usage: setup_benchmark_env.sh [--mode check|install|auto] [--curator-extra <extra>]...
+Usage: setup_benchmark_env.sh [--check] [--curator-extra <extra>]...
 
 Prepares the benchmark runtime environment for Curator benchmarks.
 
-Modes:
-  check    Verify benchmark Python dependencies and required system tools.
-  install  Install missing benchmark environment dependencies, then check.
-  auto     Check first. If running in a container, install missing dependencies;
-           otherwise fail with instructions to run install explicitly.
+Actions:
+  default                 Install benchmark environment dependencies, then check.
+  --check                 Verify benchmark Python dependencies and required system tools.
 
 Environment:
-  CURATOR_BENCHMARK_PATH_MODE=container
-      Optional. Marks the current environment as container-managed for
-      --mode auto. Container helpers set this automatically. Bare-metal users
-      should usually leave it unset and run --mode check or --mode install
-      explicitly.
   CURATOR_BENCHMARK_CURATOR_REPO_DIR
       Full Curator-under-test source checkout. Container helpers set this to
       /opt/Curator. Bare-metal users should set it when the Curator-under-test
@@ -57,12 +50,8 @@ EOF
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --mode)
-            MODE="${2:?--mode requires a value}"
-            shift 2
-            ;;
-        --mode=*)
-            MODE="${1#*=}"
+        --check)
+            ACTION=check
             shift
             ;;
         --curator-extra)
@@ -85,10 +74,10 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-case "$MODE" in
-    check|install|auto) ;;
+case "$ACTION" in
+    check|install) ;;
     *)
-        echo "ERROR: --mode must be one of: check, install, auto" >&2
+        echo "ERROR: internal setup action must be one of: check, install" >&2
         exit 2
         ;;
 esac
@@ -166,55 +155,59 @@ raise SystemExit(status)
 PY
 }
 
-run_first_available_script() {
-    local script_name=$1
-    shift
-    local candidates=(
-        "$CURATOR_UNDER_TEST_REPO_DIR/tools/$script_name"
-        "$CURATOR_UNDER_TEST_REPO_DIR/docker/common/$script_name"
-    )
-    local candidate
-    for candidate in "${candidates[@]}"; do
-        if [ -f "$candidate" ]; then
-            bash "$candidate" "$@"
+dependency_tools_dir() {
+    if [ -d "$CURATOR_UNDER_TEST_REPO_DIR/tools" ]; then
+        echo "$CURATOR_UNDER_TEST_REPO_DIR/tools"
+        return
+    fi
+
+    local fallback
+    for fallback in "$BENCHMARK_SOURCE_DIR/tools" "$BENCHMARK_SOURCE_MOUNT_DIR/tools" "$script_repo_root/tools"; do
+        if [ -d "$fallback" ]; then
+            echo "WARNING: Curator-under-test has no tools directory; using benchmark-source tools from $fallback" >&2
+            echo "$fallback"
             return
         fi
     done
-    echo "ERROR: could not find $script_name" >&2
+
+    echo "ERROR: could not find dependency setup tools" >&2
     exit 1
 }
 
-run_benchmark_check_script() {
-    local script_name=$1
+run_dependency_tool() {
+    local script_path=$1
     shift
-    local candidates=(
-        "$BENCHMARK_SOURCE_DIR/tools/$script_name"
-        "$BENCHMARK_SOURCE_MOUNT_DIR/tools/$script_name"
-        "$script_repo_root/tools/$script_name"
-    )
-    local candidate
-    for candidate in "${candidates[@]}"; do
-        if [ -f "$candidate" ]; then
-            bash "$candidate" "$@"
-            return
-        fi
-    done
-    echo "ERROR: could not find $script_name" >&2
-    exit 1
+
+    if [ ! -f "$script_path" ]; then
+        echo "ERROR: dependency setup script not found: $script_path" >&2
+        exit 1
+    fi
+    bash "$script_path" "$@"
+}
+
+install_scripts() {
+    local tools_dir=$1
+    find "$tools_dir" -maxdepth 1 -type f -name 'install_*.sh' | sort
 }
 
 check_environment() {
     local source_root=$1
+    local tools_dir=$2
     local status=0
+    local script
+
     check_python_deps "$source_root" || status=1
-    run_benchmark_check_script check_lynx.sh || status=1
-    run_benchmark_check_script check_ffmpeg.sh \
-        --decoder h264 --decoder hevc --decoder av1 --encoder libopenh264 || status=1
+    while IFS= read -r script; do
+        run_dependency_tool "$script" --check || status=1
+    done < <(install_scripts "$tools_dir")
     return "$status"
 }
 
 install_environment() {
     local source_root=$1
+    local tools_dir=$2
+    local script
+
     "$PYTHON" -m pip install --upgrade-strategy only-if-needed \
         -r "$source_root/benchmarking/requirements.txt"
 
@@ -230,36 +223,21 @@ install_environment() {
         )
     done
 
-    if ! run_benchmark_check_script check_lynx.sh; then
-        run_first_available_script install_lynx.sh
-    fi
-    if ! run_benchmark_check_script check_ffmpeg.sh \
-        --decoder h264 --decoder hevc --decoder av1 --encoder libopenh264; then
-        run_first_available_script install_h264_support.sh --with-libopenh264
-    fi
+    while IFS= read -r script; do
+        run_dependency_tool "$script"
+    done < <(install_scripts "$tools_dir")
 }
 
 prepare_benchmark_source
 source_root=$(benchmark_source_root)
+tools_dir=$(dependency_tools_dir)
 
-case "$MODE" in
+case "$ACTION" in
     check)
-        check_environment "$source_root"
+        check_environment "$source_root" "$tools_dir"
         ;;
     install)
-        install_environment "$source_root"
-        check_environment "$source_root"
-        ;;
-    auto)
-        if check_environment "$source_root"; then
-            exit 0
-        fi
-        if [ "${CURATOR_BENCHMARK_PATH_MODE:-}" != "container" ]; then
-            echo "ERROR: benchmark environment is incomplete." >&2
-            echo "Run setup_benchmark_env.sh --mode install to install dependencies explicitly." >&2
-            exit 1
-        fi
-        install_environment "$source_root"
-        check_environment "$source_root"
+        install_environment "$source_root" "$tools_dir"
+        check_environment "$source_root" "$tools_dir"
         ;;
 esac

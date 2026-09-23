@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#!/bin/bash
+# Copyright (c) 2025-2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,25 +13,103 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
-set -xeuo pipefail # Exit immediately if a command exits with a non-zero status
+set -euo pipefail
 
 FFMPEG_VERSION=8.0.1
 NVCODEC_VERSION=12.1.14.0
+CHECK_ONLY=0
 
-for i in "$@"; do
-    case $i in
-        --FFMPEG_VERSION=?*) FFMPEG_VERSION="${i#*=}";;
-        --NVCODEC_VERSION=?*) NVCODEC_VERSION="${i#*=}";;
-        *) ;;
+usage() {
+    cat <<'EOF'
+Usage: install_ffmpeg.sh [--check] [--FFMPEG_VERSION=<version>] [--NVCODEC_VERSION=<ver>]
+
+Installs the FFmpeg capabilities needed by Curator video workflows and
+benchmarks. The build includes ffprobe, NVENC/NVDEC, VP8/VP9, software
+h264/hevc/av1 decoders, and the libopenh264 software h264 encoder.
+
+Options:
+  --check                    Verify the required FFmpeg capabilities without installing.
+  --FFMPEG_VERSION=<version> FFmpeg upstream release version (default: 8.0.1).
+  --NVCODEC_VERSION=<ver>    nv-codec-headers release version (default: 12.1.14.0).
+  -h, --help                 Show this help.
+
+License notice:
+  This script links Cisco OpenH264 through the libopenh264 package. You are
+  responsible for any license obligations imposed by the resulting binaries.
+EOF
+}
+
+for arg in "$@"; do
+    case $arg in
+        --check)                  CHECK_ONLY=1 ;;
+        --FFMPEG_VERSION=?*)      FFMPEG_VERSION="${arg#*=}" ;;
+        --NVCODEC_VERSION=?*)     NVCODEC_VERSION="${arg#*=}" ;;
+        -h|--help)                usage; exit 0 ;;
+        *)                        echo "Unknown argument: $arg" >&2; usage >&2; exit 2 ;;
     esac
-    shift
 done
 
-# Install video dependency
+check_ffmpeg() {
+    local status=0
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        echo "ERROR: ffmpeg not found on PATH" >&2
+        status=1
+    fi
+    if ! command -v ffprobe >/dev/null 2>&1; then
+        echo "ERROR: ffprobe not found on PATH" >&2
+        status=1
+    fi
+    if [ "$status" -ne 0 ]; then
+        return "$status"
+    fi
+
+    local encoders
+    local decoders
+    local encoder
+    local decoder
+    encoders=$(ffmpeg -hide_banner -encoders 2>/dev/null | awk '{print $2}')
+    decoders=$(ffmpeg -hide_banner -decoders 2>/dev/null | awk '{print $2}')
+
+    for encoder in rawvideo libvpx_vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264; do
+        if ! printf '%s\n' "$encoders" | grep -Fx -- "$encoder" >/dev/null; then
+            echo "ERROR: ffmpeg encoder not found: $encoder" >&2
+            status=1
+        fi
+    done
+    for decoder in rawvideo libvpx_vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1; do
+        if ! printf '%s\n' "$decoders" | grep -Fx -- "$decoder" >/dev/null; then
+            echo "ERROR: ffmpeg decoder not found: $decoder" >&2
+            status=1
+        fi
+    done
+
+    if [ "$status" -eq 0 ]; then
+        echo "FFmpeg dependency check passed."
+    fi
+    return "$status"
+}
+
+if check_ffmpeg; then
+    exit 0
+fi
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+    exit 1
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: must be run as root to install FFmpeg dependencies." >&2
+    exit 1
+fi
+
+echo "==> install_ffmpeg.sh: building ffmpeg ${FFMPEG_VERSION}"
+echo "    Decoders: h264/hevc/av1 software + NVDEC variants"
+echo "    Encoders: NVENC variants + libvpx-vp9 + libopenh264"
+echo "    NOTE: OpenH264 license obligations are the user's responsibility."
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y \
+apt-get install -y --no-install-recommends \
     autoconf \
     automake \
     build-essential \
@@ -38,6 +117,7 @@ apt-get install -y \
     cmake \
     libcrypt-dev \
     libnuma-dev \
+    libopenh264-dev \
     libtool \
     libvpx-dev \
     nasm \
@@ -46,27 +126,20 @@ apt-get install -y \
     yasm \
     zlib1g-dev
 
-# Install nv-codec-headers (NVENC + NVDEC bridge to the NVIDIA driver)
-wget -O /tmp/nv-codec-headers.tar.gz https://github.com/FFmpeg/nv-codec-headers/releases/download/n${NVCODEC_VERSION}/nv-codec-headers-${NVCODEC_VERSION}.tar.gz
-tar xzvf /tmp/nv-codec-headers.tar.gz -C /tmp/
-cd /tmp/nv-codec-headers-${NVCODEC_VERSION}
-make
-make install
+if [ ! -f /usr/local/include/ffnvcodec/dynlink_loader.h ]; then
+    wget -O /tmp/nv-codec-headers.tar.gz \
+        "https://github.com/FFmpeg/nv-codec-headers/releases/download/n${NVCODEC_VERSION}/nv-codec-headers-${NVCODEC_VERSION}.tar.gz"
+    tar xzf /tmp/nv-codec-headers.tar.gz -C /tmp/
+    (cd "/tmp/nv-codec-headers-${NVCODEC_VERSION}" && make && make install)
+fi
 
-# Build FFmpeg ${FFMPEG_VERSION} from the upstream release tarball:
-#   - --disable-everything strips ALL components by default (encoders,
-#     decoders, muxers, demuxers, parsers, bsfs, hwaccels, filters, protocols)
-#     and we re-enable only what's needed.
-#   - --enable-version3 selects LGPLv3+.
-#   - Encoders: only NVENC (h264/hevc/av1) and libvpx-vp9 + rawvideo.
-#   - Decoders: NVDEC variants for h264/hevc/av1/vp9 + software vp8/vp9 +
-#     mpeg1/2/4 + libvpx_vp9 + rawvideo. NO software h264/hevc/av1.
-#   - Shared-linked: installs libav*.so to /usr/local/lib for command-line
-#     tools and any optional source-built consumers.
 cd /tmp
-wget -O /tmp/ffmpeg-snapshot.tar.bz2 "https://www.ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2"
+rm -rf "ffmpeg-${FFMPEG_VERSION}" ffmpeg-snapshot.tar.bz2
+wget -O /tmp/ffmpeg-snapshot.tar.bz2 \
+    "https://www.ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2"
 tar xjvf /tmp/ffmpeg-snapshot.tar.bz2 -C /tmp/
 cd "/tmp/ffmpeg-${FFMPEG_VERSION}"
+
 PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure \
     --prefix="/usr/local" \
     --enable-shared \
@@ -84,8 +157,8 @@ PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure \
     --disable-vdpau \
     --disable-dxva2 \
     --disable-libdrm \
-    --enable-encoder=rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc \
-    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4 \
+    --enable-encoder=rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc,libopenh264 \
+    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1 \
     --enable-muxer=mp4,rawvideo,image2pipe \
     --enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,matroska,webm,image2,image2pipe \
     --enable-parser=h264,hevc,av1,vp8,vp9 \
@@ -93,17 +166,17 @@ PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure \
     --enable-protocol=file,pipe \
     --enable-filter=scale,format,null,copy \
     --enable-libvpx \
+    --enable-libopenh264 \
     --enable-cuda \
     --enable-cuvid \
     --enable-nvdec \
     --enable-nvenc \
     --enable-ffnvcodec
-make -j$(nproc)
+
+make -j"$(nproc)"
 make install
 ldconfig
 
-# Clean up
 cd /
-rm -rf /tmp/ffmpeg*
-rm -rf /tmp/nv-codec-headers*
-rm -rf /var/lib/apt/lists/
+rm -rf /tmp/ffmpeg* /tmp/nv-codec-headers* /var/lib/apt/lists/*
+check_ffmpeg

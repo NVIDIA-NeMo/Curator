@@ -152,7 +152,7 @@ Curator's video pipelines rely on `FFmpeg` for command-line decoding, encoding, 
 <Tabs>
 <Tab title="Debian/Ubuntu (Script)">
 
-Use the maintained script in the repository to build and install a strict-allowlist `FFmpeg` with NVIDIA NVENC/NVDEC and VP9 support. The default build excludes software H.264/HEVC/AV1 decoders and software H.264 encoders.
+Use the maintained script in the repository to build and install a strict-allowlist `FFmpeg` with NVIDIA NVENC/NVDEC, VP9, software H.264/HEVC/AV1 decoders, and the `libopenh264` software H.264 encoder.
 
 - Script source: [tools/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/tools/install_ffmpeg.sh)
 
@@ -166,14 +166,14 @@ sudo bash install_ffmpeg.sh
 
 <Tab title="Verify Installation">
 
-Confirm that `FFmpeg` is on your `PATH` and that the expected encoders are available:
+Confirm that `FFmpeg` is on your `PATH` and that the expected codecs are available:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/check_ffmpeg.sh -o check_ffmpeg.sh
-bash check_ffmpeg.sh --encoder h264_nvenc --encoder libvpx-vp9
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/install_ffmpeg.sh -o install_ffmpeg.sh
+bash install_ffmpeg.sh --check
 ```
 
-If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above. `libopenh264` appears only after opting in with `install_h264_support.sh --with-libopenh264`.
+If codecs are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
 
 </Tab>
 </Tabs>
@@ -182,22 +182,8 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 **FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`.
 </Note>
 
-#### Software H.264/HEVC/AV1 Codec Support (Advanced)
-
-Curator's strict FFmpeg build routes H.264/HEVC/AV1 decode through NVDEC and excludes software H.264 encoders by default. You may need extra software codec support when CPU-only stages run `ffprobe` on H.264/HEVC/AV1 inputs, or when using `--transcode-encoder=libopenh264`.
-
-Inside a container, run:
-
-```bash
-# Add software h264/hevc/av1 decoders only
-bash /opt/Curator/tools/install_h264_support.sh
-
-# Add those decoders plus the libopenh264 software h264 encoder
-bash /opt/Curator/tools/install_h264_support.sh --with-libopenh264
-```
-
 <Warning>
-With `--with-libopenh264`, the resulting FFmpeg binary links Cisco OpenH264. You are responsible for any license obligations imposed by the resulting binaries.
+The FFmpeg install script links Cisco OpenH264. You are responsible for any license obligations imposed by the resulting binaries.
 </Warning>
 
 ---
@@ -222,8 +208,8 @@ sudo bash install_lynx.sh
 <Tab title="Verify Installation">
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/check_lynx.sh -o check_lynx.sh
-bash check_lynx.sh
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/install_lynx.sh -o install_lynx.sh
+bash install_lynx.sh --check
 ```
 
 </Tab>
