@@ -8,9 +8,10 @@
 #
 # The "paths" section defines files and directories used by the benchmarks.
 # Each entry requires a "name" and a "host_path". Paths must exist on the host.
-# If running inside a Docker container started with tools/run.sh, each path is
-# automatically mounted into the container. An optional "container_path" overrides
-# the default mount point (default is host_path prefixed with "/MOUNT").
+# If running inside a Docker container started with benchmarking/tools/container.py,
+# each path is automatically mounted into the container. An optional
+# "container_path" overrides the default mount point (default is host_path
+# prefixed with "/MOUNT").
 # The "name" can be used as a placeholder elsewhere in this file
 # (e.g. {datasets_path}) and will be substituted with either host_path or
 # container_path based on the environment.
@@ -162,10 +163,6 @@ min_timeout_s: 600
 
 # Optional sinks
 sinks:
-#  - name: mlflow
-#    enabled: false
-#    tracking_uri: ${MLFLOW_TRACKING_URI}
-#    experiment: ray-curator-common-crawl
   - name: slack
     # Disabled by default so local/open-source runs do not require Slack
     # credentials or post notifications. Managed orchestration can re-enable
@@ -176,10 +173,6 @@ sinks:
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
     ping_users_on_failure: false
-#  - name: gdrive
-#    enabled: false
-#    drive_folder_id: ${GDRIVE_FOLDER_ID}
-#    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
 # Whether to delete scratch dirs after each run
 delete_scratch: true
