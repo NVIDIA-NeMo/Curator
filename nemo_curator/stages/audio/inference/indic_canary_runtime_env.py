@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -235,12 +236,83 @@ def _deduplicate_paths(paths: list[Path]) -> list[Path]:
     return unique
 
 
+def _query_runtime_python_library_metadata(runtime_python: Path) -> object:
+    query = (
+        "import json, sysconfig; "
+        "print(json.dumps({key: sysconfig.get_config_var(key) "
+        "for key in ('LIBPL', 'LIBDIR', 'LDLIBRARY')}))"
+    )
+    try:
+        completed = subprocess.run(  # noqa: S603 - validated fixed interpreter
+            [str(runtime_python), "-I", "-c", query],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip()
+        msg = f"Could not query native-library paths from Indic Canary runtime: {runtime_python}"
+        if detail:
+            msg = f"{msg} ({detail})"
+        raise RuntimeError(msg) from exc
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        msg = f"Could not query native-library paths from Indic Canary runtime: {runtime_python}"
+        raise RuntimeError(msg) from exc
+    try:
+        return json.loads(completed.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        msg = f"Indic Canary runtime returned invalid native-library metadata: {runtime_python}"
+        raise RuntimeError(msg) from exc
+
+
+def _runtime_python_library_dirs(runtime_python: Path) -> list[Path]:
+    """Return native-library directories reported by the selected runtime.
+
+    The isolated environment can be a venv backed by a distribution Python.
+    In that layout ``libpython3.12.so`` may live in CPython's platform config
+    directory instead of the venv itself.  Query the selected interpreter—
+    not Curator's interpreter—so TensorRT-LLM can load that exact ABI.
+    """
+    values = _query_runtime_python_library_metadata(runtime_python)
+    if not isinstance(values, dict):
+        msg = f"Indic Canary runtime returned invalid native-library metadata: {runtime_python}"
+        raise TypeError(msg)
+
+    ld_library = values.get("LDLIBRARY")
+    if not isinstance(ld_library, str) or not ld_library or Path(ld_library).name != ld_library:
+        msg = f"Indic Canary runtime returned an invalid LDLIBRARY: {ld_library!r}"
+        raise RuntimeError(msg)
+
+    directories: list[Path] = []
+    for key in ("LIBPL", "LIBDIR"):
+        value = values.get(key)
+        if not value:
+            continue
+        if not isinstance(value, str):
+            msg = f"Indic Canary runtime reported an invalid {key}: {value!r}"
+            raise TypeError(msg)
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            msg = f"Indic Canary runtime reported a non-absolute {key}: {value!r}"
+            raise RuntimeError(msg)
+        if candidate.is_dir():
+            directories.append(candidate)
+    directories = _deduplicate_paths(directories)
+    providers = [directory for directory in directories if (directory / ld_library).is_file()]
+    if not providers:
+        msg = f"Indic Canary runtime could not locate {ld_library} in LIBPL or LIBDIR"
+        raise RuntimeError(msg)
+    return [*providers, *(directory for directory in directories if directory not in providers)]
+
+
 def runtime_subprocess_environment(runtime_python: Path) -> dict[str, str]:
     """Build the worker environment without exposing Curator's site-packages."""
     runtime_python = _validate_runtime_python(runtime_python)
     prefix = _runtime_prefix(runtime_python)
     site_packages = prefix / "lib" / "python3.12" / "site-packages"
     runtime_library_dirs = [
+        *_runtime_python_library_dirs(runtime_python),
         site_packages / "tensorrt_llm" / "libs",
         site_packages / "tensorrt_libs",
         site_packages / "nvidia" / "cu13" / "lib",

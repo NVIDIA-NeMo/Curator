@@ -14,6 +14,7 @@
 
 """Tests for the independently locked Indic Canary runtime environment."""
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -117,7 +118,16 @@ def test_runtime_subprocess_environment_isolates_python_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     python = tmp_path / "runtime" / "bin" / "python"
+    python_libpl = tmp_path / "python-libpl"
+    python_libdir = tmp_path / "python-libdir"
+    python_libpl.mkdir()
+    python_libdir.mkdir()
     monkeypatch.setattr(runtime_env, "_validate_runtime_python", lambda path: path)
+    monkeypatch.setattr(
+        runtime_env,
+        "_runtime_python_library_dirs",
+        lambda _path: [python_libpl, python_libdir],
+    )
     monkeypatch.setenv("VIRTUAL_ENV", "/curator/main")
     monkeypatch.setenv("PYTHONPATH", "/curator/main/site-packages")
     monkeypatch.setenv("PYTHONHOME", "/curator/python")
@@ -174,9 +184,98 @@ def test_runtime_subprocess_environment_isolates_python_path(
     assert (
         str(tmp_path / "runtime" / "lib" / "python3.12" / "site-packages" / "nvidia" / "cu13" / "lib") in library_path
     )
+    assert str(python_libpl) in library_path
+    assert str(python_libdir) in library_path
     assert "/curator/main/lib" not in library_path
     assert "/usr/local/cuda/lib64" not in library_path
     assert library_path[-1] == "/usr/local/nvidia/lib64"
+
+
+def test_runtime_python_library_dirs_query_selected_interpreter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    python = tmp_path / "runtime" / "bin" / "python"
+    libpl = tmp_path / "usr" / "lib" / "python3.12" / "config"
+    libdir = tmp_path / "usr" / "lib" / "x86_64-linux-gnu"
+    libpl.mkdir(parents=True)
+    libdir.mkdir(parents=True)
+    (libpl / "libpython3.12.so").touch()
+    run = MagicMock(
+        return_value=MagicMock(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "LIBPL": str(libpl),
+                    "LIBDIR": str(libdir),
+                    "LDLIBRARY": "libpython3.12.so",
+                }
+            ),
+            stderr="",
+        )
+    )
+    monkeypatch.setattr(runtime_env.subprocess, "run", run)
+
+    assert runtime_env._runtime_python_library_dirs(python) == [libpl, libdir]
+    command = run.call_args.args[0]
+    assert command[:3] == [str(python), "-I", "-c"]
+    assert run.call_args.kwargs["timeout"] == 30
+
+
+def test_runtime_python_library_dirs_rejects_relative_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    python = tmp_path / "runtime" / "bin" / "python"
+    monkeypatch.setattr(
+        runtime_env.subprocess,
+        "run",
+        MagicMock(
+            return_value=MagicMock(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "LIBPL": "relative/lib",
+                        "LIBDIR": None,
+                        "LDLIBRARY": "libpython3.12.so",
+                    }
+                ),
+                stderr="",
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="non-absolute LIBPL"):
+        runtime_env._runtime_python_library_dirs(python)
+
+
+def test_runtime_python_library_dirs_requires_ldlibrary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    python = tmp_path / "runtime" / "bin" / "python"
+    libpl = tmp_path / "python-libpl"
+    libpl.mkdir()
+    monkeypatch.setattr(
+        runtime_env.subprocess,
+        "run",
+        MagicMock(
+            return_value=MagicMock(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "LIBPL": str(libpl),
+                        "LIBDIR": None,
+                        "LDLIBRARY": "libpython3.12.so",
+                    }
+                ),
+                stderr="",
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match=r"could not locate libpython3\.12\.so"):
+        runtime_env._runtime_python_library_dirs(python)
 
 
 def test_validate_runtime_python_rejects_wrong_locked_stack(
