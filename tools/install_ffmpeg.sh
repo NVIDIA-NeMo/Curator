@@ -70,13 +70,13 @@ check_ffmpeg() {
     encoders=$(ffmpeg -hide_banner -encoders 2>/dev/null | awk '{print $2}')
     decoders=$(ffmpeg -hide_banner -decoders 2>/dev/null | awk '{print $2}')
 
-    for encoder in rawvideo libvpx_vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264; do
+    for encoder in rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264; do
         if ! printf '%s\n' "$encoders" | grep -Fx -- "$encoder" >/dev/null; then
             echo "ERROR: ffmpeg encoder not found: $encoder" >&2
             status=1
         fi
     done
-    for decoder in rawvideo libvpx_vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1; do
+    for decoder in rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1; do
         if ! printf '%s\n' "$decoders" | grep -Fx -- "$decoder" >/dev/null; then
             echo "ERROR: ffmpeg decoder not found: $decoder" >&2
             status=1
