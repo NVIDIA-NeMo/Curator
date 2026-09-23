@@ -175,3 +175,67 @@ and error:
    `subprocess_env`, model, or engine-kwarg change** before trusting a full
    run — a clean server-registration log proves registration, not that
    generation works.
+
+## Improving throughput from Dynamo worker logs
+
+Use this section for any Curator workload served through Dynamo.
+
+### Collect evidence before changing a setting
+
+Read every `dynamo.vllm` worker log for the same steady workload and time
+window. Depending on the vLLM version, useful startup and periodic messages
+include these signals (wording can vary slightly):
+
+| Signal | What it tells you |
+|---|---|
+| Model maximum length, chunked prefill, `max_num_batched_tokens`, `max_num_seqs` | Actual scheduler limits after defaults and engine kwargs resolve. Do not infer them from the requested config alone. |
+| Available KV-cache memory, KV-cache size, maximum concurrency | Practical request/token capacity at the configured maximum sequence length. |
+| `Running` and `Waiting` request counts | Whether work reaches the engine and queues at the scheduler. |
+| GPU KV-cache usage | Whether memory capacity is the current bottleneck. |
+| Average prompt and generation throughput | Whether the workload is prefill- or decode-bound, and whether a change improved useful work rather than just startup behavior. |
+| GPU utilization, memory use, and power over the same interval | Corroborating evidence of sustained work and imbalance across replicas. |
+
+Ignore model loading, compilation, and warm-up samples when comparing
+throughput. Compare a stable interval of the same prompt/output distribution,
+arrival rate, replica count, and model. Aggregate across replicas: one healthy
+worker does not prove the service is saturated.
+
+### Diagnose the limiting resource
+
+Use the combined signals rather than a single utilization number.
+
+| Observed steady state | Likely limit | Next experiment |
+|---|---|---|
+| Few running requests, no waiting queue, low KV-cache use, GPUs not consistently busy | Client/workload under-drives the service | Increase client-side in-flight requests gradually and verify completed throughput rises. |
+| A waiting queue persists while running requests are below the resolved sequence limit | More admitted work or batching is needed | Increase client concurrency first; then test `max_num_batched_tokens` or `max_num_seqs` one at a time. |
+| Waiting persists, running is at the sequence limit, or KV-cache use stays near full | KV or scheduler capacity | Do not just add client concurrency. Test higher `max_num_seqs` only with memory headroom; otherwise consider a smaller permitted maximum length, a carefully higher `gpu_memory_utilization`, or more suitable GPU capacity. |
+| Prompt throughput is weak and chunked prefill is enabled | Prefill batching is too small | Increase `max_num_batched_tokens` in small steps; check tail latency, decode throughput, and OOMs. |
+| Generation throughput is weak while KV cache and GPU activity are high | Decode/model compute is limiting | More concurrency may hide idle time but cannot create decode capacity. Test replicas, hardware, model-parallel strategy, or workload/model changes. |
+| A replica has materially lower throughput, utilization, or power than peers | Placement, routing, or a straggling worker | Inspect that worker's logs, its GPU/processes, and request distribution before global engine changes. |
+
+GPU power is supporting evidence, not a throughput target. Balanced high power
+with a small queue can mean the model is compute-bound; balanced modest power
+with low KV use and no queue usually means the workload is not supplying
+enough concurrent work. An imbalance is often more actionable than absolute
+wattage.
+
+### Change one constraint at a time
+
+1. Record the resolved startup values and steady-state log/GPU metrics for a
+   baseline.
+2. Change exactly one of: client concurrency, `max_num_batched_tokens`,
+   `max_num_seqs`, `gpu_memory_utilization`, maximum model length, replica
+   count, or model-parallel configuration.
+3. Re-run the identical workload and compare completed throughput, error rate,
+   latency if relevant, KV-cache behavior, and the slowest replica—not merely
+   one peak log line.
+4. Increase aggressively only when the prior setting demonstrated headroom. A
+   first OOM, engine-startup failure, or sustained error-rate increase is a
+   capacity boundary: keep the preceding stable configuration and preserve the
+   failure log as evidence.
+
+Keep the default maximum model length unless the product permits a lower
+request limit. Reducing it can free KV cache and raise concurrency, but it
+changes the serving contract; it is not a transparent throughput optimization.
+Likewise, raising `gpu_memory_utilization` trades startup/fragmentation safety
+margin for KV capacity and should be tested in small increments.
