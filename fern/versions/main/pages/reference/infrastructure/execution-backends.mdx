@@ -133,6 +133,10 @@ results = pipeline.run(executor)
 | `ignore_head_node` | `bool` | `False` | Exclude the head from setup and resource sizing; placement remains best-effort |
 | `show_progress` | `bool` | `True` | Display tqdm progress bars during stage execution and shuffle inserts |
 | `progress_interval` | `float` | `10.0` | Minimum interval in seconds between progress bar updates |
+| `config["resource_wait_timeout_s"]` | `float` | `5.0` | Maximum seconds to wait for stage resources; must be non-negative |
+| `config["resource_wait_interval_s"]` | `float` | `0.2` | Seconds between resource availability checks; must be positive |
+
+Before creating each actor pool, the executor waits for the stage's requested resources. If they are not available within `resource_wait_timeout_s`, execution raises `TimeoutError`. Increase this timeout when a previous stage may take longer to release resources.
 
 For either Ray executor, leave `ignore_head_node=False` on a single-node cluster. Set it only for environments such as Anyscale where the head cannot run workloads; excluding the only node leaves no nodes for per-node sizing.
 
