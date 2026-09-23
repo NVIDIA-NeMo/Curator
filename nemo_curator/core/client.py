@@ -14,6 +14,7 @@
 
 import atexit
 import contextlib
+import glob
 import os
 import shutil
 import signal
@@ -70,6 +71,7 @@ class RayClient:
         enable_object_spilling: Whether to enable object spilling.
         ray_stdouterr_capture_file: The file to capture stdout/stderr to.
         metrics_dir: The directory for Prometheus/Grafana metrics data. If None, uses the per-user default.
+        cleanup_ray_session_dir: Delete the Ray session directory of the cluster this client started on `stop()`.
 
     Note:
         To start monitoring services (Prometheus and Grafana), use the standalone
@@ -89,8 +91,10 @@ class RayClient:
     enable_object_spilling: bool = False
     ray_stdouterr_capture_file: str | None = None
     metrics_dir: str | None = None
+    cleanup_ray_session_dir: bool = False
 
     ray_process: subprocess.Popen | None = field(init=False, default=None)
+    _sessions_before: set[str] = field(init=False, default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
         if self.ray_stdouterr_capture_file and os.path.exists(self.ray_stdouterr_capture_file):
@@ -148,6 +152,8 @@ class RayClient:
             )
             ip_address = socket.gethostbyname(socket.gethostname())
 
+            if self.cleanup_ray_session_dir:
+                self._sessions_before = set(glob.glob(os.path.join(glob.escape(self.ray_temp_dir), "session_*")))
             self.ray_process = init_cluster(
                 ray_port=self.ray_port,
                 ray_temp_dir=self.ray_temp_dir,
@@ -180,6 +186,8 @@ class RayClient:
                 logger.debug("Could not remove Ray metrics service discovery during shutdown.")
 
         if self.ray_process:
+            # Find our session dirs before the kill: once wait() reaps `ray start`, another cluster can reuse its pid.
+            own_sessions = self._own_session_dirs(self.ray_process.pid) if self.cleanup_ray_session_dir else set()
             # Kill the entire process group to ensure child processes are terminated
             try:
                 os.killpg(os.getpgid(self.ray_process.pid), signal.SIGTERM)
@@ -195,6 +203,8 @@ class RayClient:
             except (ProcessLookupError, OSError):
                 # Process group not found or process group already terminated
                 pass
+            if self.cleanup_ray_session_dir:
+                self._remove_session_dirs(own_sessions)
             # Reset the environment variable for RAY_ADDRESS
             os.environ.pop("RAY_ADDRESS", None)
             # Currently there is no good way of stopping a particular Ray cluster. https://github.com/ray-project/ray/issues/54989
@@ -205,6 +215,27 @@ class RayClient:
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
+
+    def _own_session_dirs(self, pid: int) -> set[str]:
+        # `ray start` names its session dir session_<date>_<pid of ray start> (ray/_private/node.py), so the pid
+        # keeps the dirs of other clusters sharing ray_temp_dir, and the pre-start snapshot keeps older dirs of
+        # a reused pid. glob.escape keeps metacharacters in ray_temp_dir from matching other directories.
+        own = set(glob.glob(os.path.join(glob.escape(self.ray_temp_dir), f"session_*_{pid}"))) - self._sessions_before
+        if not own:
+            logger.debug(f"No Ray session directory for pid {pid} found in {self.ray_temp_dir}.")
+        return own
+
+    def _remove_session_dirs(self, own: set[str]) -> None:
+        for session_dir in own:
+            try:
+                shutil.rmtree(session_dir)
+            except OSError as e:
+                logger.warning(f"Could not remove Ray session directory {session_dir}: {e}")
+        # Ray does not replace a dangling session_latest link, so drop it once its target is gone.
+        latest = os.path.join(self.ray_temp_dir, "session_latest")
+        if os.path.islink(latest) and not os.path.exists(latest):
+            with contextlib.suppress(OSError):
+                os.unlink(latest)
 
     def __enter__(self):
         self.start()
