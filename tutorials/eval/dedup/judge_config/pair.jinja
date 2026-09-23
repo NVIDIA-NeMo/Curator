@@ -1,0 +1,34 @@
+Compare the two blind cleaned documents using the deterministic span ledger.
+Inspect all unique spans, cite only supplied stable IDs, and let the ledger—not
+raw length or boilerplate volume—determine the replacement directions.
+
+First distinguish the shared record or complete non-main message from reusable
+context. Full faithful translations of either content type are bidirectionally
+equivalent, material none, only when every unique span is covered or harmless UI.
+Separate a missing same-record field from a conflicting value or another record.
+Cite concrete subject/service target, policy scope, state, or page-role changes;
+buttons, navigation, language, and whitespace alone do not establish a conflict.
+Check every delta even when translation_status is complete_faithful.
+
+<semantic_diff status="{{ semantic_diff.status }}" truncated="{{ semantic_diff.truncated }}">
+counts: {{ semantic_diff.span_counts }}
+{% for span in semantic_diff.spans %}
+{% if span.kind == "SHARED" %}
+[{{ span.span_id }} SHARED]
+A: {{ span.a_text }}
+B: {{ span.b_text }}
+{% else %}
+[{{ span.span_id }} {{ span.kind }}] {{ span.text }}
+{% endif %}
+{% endfor %}
+</semantic_diff>
+{% if semantic_diff.truncated %}
+<truncation_notice>
+{% if semantic_diff.truncated_a %}Document A was cut off before its end; content after the visible text above is unknown.
+{% endif %}{% if semantic_diff.truncated_b %}Document B was cut off before its end; content after the visible text above is unknown.
+{% endif %}A decisive difference could exist only in the cut-off portion. Do not
+treat apparent agreement among the visible spans as proof the full documents
+match -- use unresolved for any field whose only support is "no difference
+was visible in the shown spans," and confidence_tier must not be high.
+</truncation_notice>
+{% endif %}
