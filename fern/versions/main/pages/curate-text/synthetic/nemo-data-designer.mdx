@@ -10,16 +10,16 @@ modality: "text-only"
 
 # NeMo Data Designer Integration
 
-[NeMo Data Designer (NDD)](https://nvidia-nemo.github.io/DataDesigner/latest/) is a declarative data generation framework that integrates with NeMo Curator to scale synthetic data pipelines. Instead of writing imperative LLM call logic, you define a configuration that describes what columns to generate, how to sample structured fields, and which LLM to use. NDD handles execution, batching, and token metric collection automatically.
+[NeMo Data Designer (NDD)](https://nvidia-nemo.github.io/DataDesigner/latest/) is a declarative data generation framework that integrates with NeMo Curator to scale synthetic data pipelines. Instead of writing imperative large language model (LLM) call logic, you define the columns, structured-field sampling, and LLM. NDD handles execution, batching, and token metric collection automatically.
 
 ## How It Works
 
 NeMo Curator wraps NDD through the `DataDesignerStage`, which accepts a `DataDesignerConfigBuilder` or a YAML config file. The stage:
 
-1. Takes input records from a `DocumentBatch`
-2. Passes them to NDD as a seed dataset
-3. Calls `DataDesigner.preview()` to generate new columns (samplers, expressions, LLM text)
-4. Returns the enriched dataset as a new `DocumentBatch` with token usage metrics
+1. Takes input records from a `DocumentBatch`.
+2. Passes them to NDD as a seed dataset.
+3. Calls `DataDesigner.preview()` to generate new columns for samplers, expressions, and LLM text.
+4. Returns the enriched dataset as a new `DocumentBatch` with token usage metrics.
 
 ```mermaid
 flowchart LR
@@ -46,7 +46,7 @@ Install the NDD dependency:
 uv pip install nemo-curator[sdg_cpu]
 ```
 
-The `data-designer` package ships in the SDG extras only — `sdg_cpu`, or `sdg_cuda12` for the GPU stack. It is not part of the text extras.
+The `data-designer` package ships only in the synthetic data generation (SDG) extras: `sdg_cpu` and `sdg_cuda12` for the GPU stack. It is not part of the text extras.
 
 For local model serving on GPU, install `sdg_cuda12`, which pulls in `cuda12`, `sdg_cpu`, and `inference_server` together:
 
@@ -63,12 +63,14 @@ The `DataDesignerStage` is the core integration point between NeMo Curator and N
 
 ### Parameters
 
+The `DataDesignerStage` constructor accepts the following parameters:
+
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `config_builder` | `DataDesignerConfigBuilder` | None | NDD configuration builder. Mutually exclusive with `data_designer_config_file`. |
-| `data_designer_config_file` | str | None | Path to a YAML config file. Mutually exclusive with `config_builder`. |
-| `model_providers` | list | None | Custom `ModelProvider` instances for local or test endpoints. If None, NDD uses its default providers. |
-| `verbose` | bool | False | When True, show full NDD log output. |
+| `config_builder` | `DataDesignerConfigBuilder` | `None` | NDD configuration builder. Mutually exclusive with `data_designer_config_file`. |
+| `data_designer_config_file` | `str` | `None` | Path to a YAML configuration file. Mutually exclusive with `config_builder`. |
+| `model_providers` | `list` | `None` | Custom `ModelProvider` instances for local or test endpoints. If the value is `None`, NDD uses its default providers. |
+| `verbose` | `bool` | `False` | Shows complete NDD log output when set to `True`. |
 
 ### Metrics
 
@@ -78,12 +80,24 @@ The `DataDesignerStage` is the core integration point between NeMo Curator and N
 - `num_input_records` / `num_output_records`: Record counts before and after generation
 - `input_tokens_median_per_record` / `output_tokens_median_per_record`: Median token counts across all LLM columns
 
+### Distributed Execution and Empty Batches
+
+Ray can serialize and copy `DataDesignerStage` to workers even though the live Data Designer client contains process-local objects that are not serializable. The stage serializes its configuration builder and model providers, omits the live client, and recreates the client inside the destination worker. This process is automatic. Construct the stage normally, and do not create or replace its internal Data Designer client.
+
+An upstream stage can legitimately produce an empty `DocumentBatch`. For example, a filter might remove every record in one input partition while other partitions still contain data. In that case, `DataDesignerStage`:
+
+1. Skips `DataDesigner.preview()`, so it makes no generation or judge requests for that batch.
+2. Returns an empty `DocumentBatch` while preserving its dataset name, metadata, and stage-performance history.
+3. Reports `0` for running time, input and output record counts, and median input and output tokens.
+
+This behavior makes it safe to place filtering stages before Data Designer or between multiple Data Designer stages without special-casing fully filtered partitions.
+
 ## Building a Configuration
 
 NDD configurations use a builder pattern. You add columns of three types:
 
 <Tip>
-For full documentation for building NDD configuration, see the [NDD config builder reference](https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config_builder/).
+For complete guidance on building an NDD configuration, refer to the [NDD config builder reference](https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config_builder/).
 </Tip>
 
 ### Sampler Columns
@@ -260,6 +274,8 @@ stage = DataDesignerStage(
 
 The Nemotron-CC synthetic data stages have NDD-backed equivalents that replace the `AsyncOpenAIClient` with NDD execution. These stages accept the same `input_field`, `output_field`, and prompt parameters, but route generation through `DataDesignerStage` internally.
 
+The following stages provide NDD-backed implementations:
+
 | Stage | Import Path | Output Field |
 | --- | --- | --- |
 | `WikipediaParaphrasingStage` | `nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc` | `rephrased` |
@@ -316,6 +332,8 @@ This is useful for reproducible pipelines where the generation config is version
 
 ## Next Steps
 
-- [Inference Server](/curate-text/synthetic/inference-server): Co-locate model serving with your pipeline
-- [Nemotron-CC Pipelines](/curate-text/synthetic/nemotron-cc): Advanced text transformation tasks
-- [Synthetic Data Generation](/curate-text/synthetic): Overview of all SDG capabilities
+Refer to the following pages for related configuration and workflows:
+
+- [Inference Server](/curate-text/synthetic/inference-server): Co-locate model serving with your pipeline.
+- [Nemotron-CC Pipelines](/curate-text/synthetic/nemotron-cc): Explore advanced text transformation tasks.
+- [Synthetic Data Generation](/curate-text/synthetic): Review all synthetic data generation capabilities.

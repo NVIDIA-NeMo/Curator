@@ -177,6 +177,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/curate-text/tutorials/index.mdx
                 slug: ""
+              - page: LLM Judge Runner
+                path: ./main/pages/curate-text/tutorials/llm-judge/index.mdx
+                slug: llm-judge
               - section: Nemotron-CLIMB
                 slug: nemotron-climb
                 contents:
@@ -282,6 +285,9 @@ navigation:
                   - page: Heuristic Filtering
                     path: ./main/pages/curate-text/process-data/quality-assessment/heuristic.mdx
                     slug: heuristic
+                  - page: LLM Judge Workflow
+                    path: ./main/pages/curate-text/process-data/quality-assessment/llm-judge.mdx
+                    slug: llm-judge
               - section: Specialized Processing
                 slug: specialized-processing
                 contents:
