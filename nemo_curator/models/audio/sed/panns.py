@@ -31,8 +31,8 @@ import numpy as np
 import torch
 from loguru import logger
 
-from nemo_curator.models.sed import get_model_class
-from nemo_curator.models.sed.base import SEDResult
+from . import get_model_class
+from .base import SEDResult
 
 _DEFAULT_MODEL_TYPE = "Cnn14_DecisionLevelMax"
 _DEFAULT_CHECKPOINT_FILENAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
@@ -53,7 +53,7 @@ class PANNsSEDAdapter:
     """Run an AudioSet-pretrained PANNs CNN14 checkpoint.
 
     ``model_type`` must be one of the checkpoint names exposed by
-    ``nemo_curator.models.sed.SUPPORTED_MODEL_TYPES``. The frontend arguments
+    ``nemo_curator.models.audio.sed.SUPPORTED_MODEL_TYPES``. The frontend arguments
     must match the checkpoint. ``checkpoint_path`` is the single checkpoint
     location: an existing file is loaded directly, while a missing file path
     is populated from the upstream PANNs Zenodo release. With no path, that
