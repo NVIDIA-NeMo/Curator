@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import tempfile
 from pathlib import Path
 from unittest import mock
 
+import fsspec
 import pytest
+from fsspec.implementations.memory import MemoryFileSystem
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.download import DocumentDownloader, DocumentDownloadStage
@@ -37,6 +40,13 @@ class MockDocumentDownloader(DocumentDownloader):
         # Default successful mock
         Path(path).write_text(f"mock content for {url}")
         return True, None
+
+
+class RemoteMockDownloader(MockDocumentDownloader):
+    supports_remote_download_dir = True
+
+
+MOCK_CONTENT = b"mock content for http://dummy/test-file.txt"
 
 
 class TestBaseDocumentDownloader:
@@ -181,6 +191,83 @@ class TestBaseDocumentDownloader:
         assert result == str(final_file)
         assert final_file.read_text() == "mock content for http://dummy/test-file.txt"
         assert not temp_file.exists()  # Temp file should be moved to final location
+
+    @pytest.mark.parametrize(
+        ("existing", "outcome", "expected", "calls", "log"),
+        [
+            pytest.param(None, "ok", MOCK_CONTENT, 1, "Successfully downloaded to", id="new"),
+            pytest.param(b"existing", "ok", b"existing", 0, "exists. Not downloading", id="existing-skipped"),
+            pytest.param(b"", "ok", MOCK_CONTENT, 1, "Successfully downloaded to", id="empty-redownloaded"),
+            pytest.param(None, "failed", None, 1, "Failed to download to", id="failed"),
+            pytest.param(None, "upload-raises", None, 1, None, id="upload-raises"),
+        ],
+    )
+    def test_download_to_fsspec_download_dir(  # noqa: PLR0913
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        existing: bytes | None,
+        outcome: str,
+        expected: bytes | None,
+        calls: int,
+        log: str | None,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(staging))
+        fs = fsspec.filesystem("memory")
+        root = f"memory://downloads-{tmp_path.name}"
+        target = f"{root}/test-file.txt"
+        downloader = RemoteMockDownloader(root, verbose=True)
+        assert not fs.exists(root)
+        if existing is not None:
+            fs.pipe(target, existing)
+
+        real_download = downloader._download_to_path
+        attempts = []
+
+        def download_to_path(url: str, path: str) -> tuple[bool, str | None]:
+            attempts.append(url)
+            return (False, "boom") if outcome == "failed" else real_download(url, path)
+
+        monkeypatch.setattr(downloader, "_download_to_path", download_to_path)
+
+        if outcome == "upload-raises":
+            monkeypatch.setattr(MemoryFileSystem, "put_file", mock.Mock(side_effect=OSError("upload failed")))
+            with pytest.raises(OSError, match="upload failed"):
+                downloader.download("http://dummy/test-file.txt")
+        else:
+            result = downloader.download("http://dummy/test-file.txt")
+            assert result == (target if expected is not None else None)
+
+        if expected is None:
+            assert not fs.exists(target)
+        else:
+            assert fs.cat(target) == expected
+        assert not [p for p in fs.find(root) if p.endswith(".tmp")]
+        assert len(attempts) == calls
+        assert list(staging.iterdir()) == []
+        assert not (tmp_path / "memory:").exists()
+        if log:
+            assert log in caplog.text
+
+    def test_file_uri_download_dir_is_local(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        downloader = MockDocumentDownloader(f"file://{tmp_path}")
+
+        assert downloader.download("http://dummy/test-file.txt") == str(tmp_path / "test-file.txt")
+        assert not (tmp_path / "file:").exists()
+
+    def test_remote_download_dir_rejected_without_opt_in(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ValueError, match="MockDocumentDownloader needs a local download_dir"):
+            MockDocumentDownloader("memory://x")
+        assert not (tmp_path / "memory:").exists()
 
 
 class TestDocumentDownloadStage:

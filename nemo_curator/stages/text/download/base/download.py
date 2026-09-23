@@ -13,9 +13,13 @@
 # limitations under the License.
 
 import os
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
+from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -26,16 +30,27 @@ from nemo_curator.tasks import FileGroupTask
 class DocumentDownloader(ABC):
     """Abstract base class for document downloaders."""
 
-    def __init__(self, download_dir: str, verbose: bool = False):
+    supports_remote_download_dir = False
+
+    def __init__(self, download_dir: str, verbose: bool = False, storage_options: dict[str, Any] | None = None):
         """Initialize the downloader.
 
         Args:
-            download_dir: Directory to store downloaded files
+            download_dir: Directory to store downloaded files, a local path or an fsspec URL
+                (the latter only for subclasses that set ``supports_remote_download_dir``)
             verbose: If True, logs detailed download information
+            storage_options: Options forwarded to the fsspec filesystem inferred from ``download_dir``
         """
-        self._download_dir = download_dir
+        self._fs, _ = url_to_fs(download_dir, **(storage_options or {}))
+        self._is_local = isinstance(self._fs, LocalFileSystem)
+        if not self._is_local and not self.supports_remote_download_dir:
+            msg = f"{type(self).__name__} needs a local download_dir, got {download_dir!r}"
+            raise ValueError(msg)
+        self._download_dir = download_dir.removeprefix("file://") if self._is_local else download_dir
         self._verbose = verbose
-        os.makedirs(download_dir, exist_ok=True)
+        # Object stores need no directory, and s3fs makedirs would try to create a missing bucket.
+        if self._is_local:
+            os.makedirs(self._download_dir, exist_ok=True)
 
     @abstractmethod
     def _get_output_filename(self, url: str) -> str:
@@ -80,19 +95,29 @@ class DocumentDownloader(ABC):
         temp_file = output_file + ".tmp"
 
         # If final file exists and is non-empty, assume it's complete
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+        if self._fs.exists(output_file) and self._fs.size(output_file) > 0:
             if self._verbose:
                 logger.info(f"File: {output_file} exists. Not downloading")
             return output_file
 
-        # Download to temporary file
-        success, error_message = self._download_to_path(url, temp_file)
+        if self._is_local:
+            # Download to temporary file, then atomically move it to the final location
+            success, error_message = self._download_to_path(url, temp_file)
+            if success:
+                os.rename(temp_file, output_file)
+        else:
+            # No remote .tmp: a failed upload never leaves a partial final object, so there is nothing to
+            # clean up (S3 https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html,
+            # GCS https://cloud.google.com/storage/docs/consistency). Aborted multipart parts are out of scope.
+            with tempfile.TemporaryDirectory() as staging_dir:
+                staged_file = os.path.join(staging_dir, output_name)
+                success, error_message = self._download_to_path(url, staged_file)
+                if success:
+                    self._fs.put_file(staged_file, output_file)
 
         if success:
-            # Download successful, atomically move temp file to final location
-            os.rename(temp_file, output_file)
             if self._verbose:
-                file_size = os.path.getsize(output_file)
+                file_size = self._fs.size(output_file)
                 logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
             return output_file
         else:
@@ -111,9 +136,9 @@ class DocumentDownloader(ABC):
 
 @dataclass
 class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
-    """Stage that downloads files from URLs to local storage.
+    """Stage that downloads files from URLs to local or fsspec storage.
 
-    Takes a FileGroupTask with URLs and returns a FileGroupTask with local file paths.
+    Takes a FileGroupTask with URLs and returns a FileGroupTask with local paths or fsspec URLs.
     This allows the download step to scale independently from iteration/extraction.
     """
 
@@ -129,17 +154,17 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         return (["data"], [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define output - produces FileGroupTask with local paths."""
+        """Define output - produces FileGroupTask with local paths or fsspec URLs."""
         return (["data"], [])
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
-        """Download URLs to local files.
+        """Download URLs to local or fsspec files.
 
         Args:
             task (FileGroupTask): Task containing URLs to download
 
         Returns:
-            FileGroupTask: Task containing local file paths
+            FileGroupTask: Task containing local file paths or fsspec URLs
         """
         local_files = []
 

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Literal
+from typing import Any, Literal
 
 from loguru import logger
 
@@ -52,6 +52,7 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
         record_limit: int | None = None,
         add_filename_column: bool | str = True,
         extractor_max_calls_per_worker: int | None = None,
+        storage_options: dict[str, Any] | None = None,
     ):
         self.crawl_type = crawl_type
         self.start_snapshot = start_snapshot
@@ -67,9 +68,12 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             )
 
         self.downloader = CommonCrawlWARCDownloader(
-            download_dir=download_dir, use_aws_to_download=use_aws_to_download, verbose=verbose
+            download_dir=download_dir,
+            use_aws_to_download=use_aws_to_download,
+            verbose=verbose,
+            storage_options=storage_options,
         )
-        self.iterator = CommonCrawlWarcIterator()
+        self.iterator = CommonCrawlWarcIterator(storage_options=storage_options)
         self.extractor = CommonCrawlHTMLExtractor(
             algorithm=html_extraction,
             algorithm_kwargs=html_extraction_kwargs,
