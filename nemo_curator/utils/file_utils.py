@@ -209,6 +209,7 @@ def _gather_file_records(  # noqa: PLR0913
     normalize = fs.unstrip_protocol if is_remote_url(path) else (lambda x: x)
     roots = fs.expand_path(path, recursive=False)
     records = []
+    skipped = 0
 
     for root in roots:
         if fs.isdir(root):
@@ -231,6 +232,13 @@ def _gather_file_records(  # noqa: PLR0913
         for raw_path, raw_size in entries:
             if (allowed_exts is None) or (_gather_extention(raw_path) in allowed_exts):
                 records.append((normalize(raw_path), -1 if include_size and raw_size is None else raw_size))
+            else:
+                skipped += 1
+
+    if skipped:
+        logger.warning(
+            f"Skipped {skipped} file(s) under {path} because their extensions do not match {keep_extensions}."
+        )
 
     return records
 
