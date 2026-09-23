@@ -185,7 +185,6 @@ def _run_setup_script(
     container: str,
     action: str,
     *,
-    curator_extras: Sequence[str] = (),
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     args: list[str] = []
@@ -194,8 +193,6 @@ def _run_setup_script(
     elif action != "install":
         msg = f"Unknown setup action: {action}"
         raise ValueError(msg)
-    for extra in curator_extras:
-        args.extend(["--curator-extra", extra])
     quoted_args = " ".join(shlex.quote(arg) for arg in args)
     candidates = " ".join(shlex.quote(str(path)) for path in CONTAINER_SETUP_SCRIPT_CANDIDATES)
     script = f"""
@@ -238,7 +235,7 @@ def start_container(args: argparse.Namespace) -> int:
 
     _run(cmd)
     if args.setup_benchmark_env == "yes":
-        _run_setup_script(args.name, "install", curator_extras=args.curator_extra)
+        _run_setup_script(args.name, "install")
     print(args.name)
     return 0
 
@@ -281,12 +278,6 @@ def add_common_container_args(parser: argparse.ArgumentParser) -> None:
         choices=("yes", "no"),
         default="yes",
         help="Install benchmark runtime dependencies in the container. Default: yes.",
-    )
-    parser.add_argument(
-        "--curator-extra",
-        action="append",
-        default=[],
-        help="Install a Curator-under-test Python extra, e.g. video_cuda12. Can be repeated.",
     )
 
 

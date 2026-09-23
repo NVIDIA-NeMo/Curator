@@ -595,11 +595,10 @@ bash benchmarking/tools/setup_benchmark_env.sh --check
 bash benchmarking/tools/setup_benchmark_env.sh
 ```
 
-`--check` verifies benchmark Python dependencies and required system tools. The
-default action installs `benchmarking/requirements.txt`, installs Curator's
-`cv2` extra because the full benchmark suite uses OpenCV-backed stages, runs
-every `install_*.sh` script in the selected Curator dependency tools directory,
-then checks again.
+`--check` verifies Curator workflow dependencies, benchmark Python
+dependencies, and required system tools. The default action runs every
+`install_*.sh` script in the selected Curator dependency tools directory,
+installs `benchmarking/requirements.txt`, then checks again.
 
 `CURATOR_BENCHMARK_CURATOR_REPO_DIR` must point at the full Curator-under-test
 source checkout. Container runs set it to `/opt/Curator`; bare-metal users
@@ -614,17 +613,6 @@ To force or skip setup:
 ```bash
 python benchmarking/tools/container.py start --setup-benchmark-env yes ...
 python benchmarking/tools/container.py start --setup-benchmark-env no ...
-```
-
-If a benchmark needs another Curator Python extra that the image does not
-include, install it from the Curator-under-test with `--curator-extra`:
-
-```bash
-python benchmarking/tools/container.py start \
-  --image nvcr.io/nvidia/nemo-curator:latest \
-  --curator-extra video_cuda12 \
-  --config benchmarking/benchmarks.yaml \
-  --config /path/to/paths.yaml
 ```
 
 ### Shell and checks

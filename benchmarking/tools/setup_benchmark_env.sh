@@ -21,29 +21,23 @@ CURATOR_UNDER_TEST_REPO_DIR=${CURATOR_BENCHMARK_CURATOR_REPO_DIR:-/opt/Curator}
 BENCHMARK_SOURCE_MOUNT_DIR=${CURATOR_BENCHMARK_SOURCE_MOUNT_DIR:-/tmp/.curator-benchmark-source}
 BENCHMARK_SOURCE_DIR=${CURATOR_BENCHMARK_SOURCE_DIR:-/opt/curator-benchmark-source}
 BENCHMARK_SOURCE_SUBDIRS=(benchmarking tutorials)
-CURATOR_EXTRAS=(cv2)
 
 usage() {
     cat <<'EOF'
-Usage: setup_benchmark_env.sh [--check] [--curator-extra <extra>]...
+Usage: setup_benchmark_env.sh [--check]
 
 Prepares the benchmark runtime environment for Curator benchmarks.
 
 Actions:
   default                 Install benchmark environment dependencies, then check.
   --check                 Verify benchmark Python dependencies and required system tools.
-  --curator-extra <extra> Install an additional Curator-under-test Python extra.
-
-The benchmark suite installs the Curator-under-test cv2 extra by default because
-several image, PDF, and video stages require opencv-python-headless. Repeat
---curator-extra to request more extras.
 
 Environment:
   CURATOR_BENCHMARK_CURATOR_REPO_DIR
       Full Curator-under-test source checkout. Container helpers set this to
       /opt/Curator. Bare-metal users should set it when the Curator-under-test
-      checkout is not /opt/Curator, when installing Curator extras, or when
-      benchmark configs use {curator_repo_dir}.
+      checkout is not /opt/Curator or when benchmark configs use
+      {curator_repo_dir}.
   CURATOR_BENCHMARK_SOURCE_MOUNT_DIR
       Container-only read-only benchmark-source checkout mount. Default:
       /tmp/.curator-benchmark-source. Bare-metal users do not need this.
@@ -57,14 +51,6 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --check)
             ACTION=check
-            shift
-            ;;
-        --curator-extra)
-            CURATOR_EXTRAS+=("${2:?--curator-extra requires a value}")
-            shift 2
-            ;;
-        --curator-extra=*)
-            CURATOR_EXTRAS+=("${1#*=}")
             shift
             ;;
         -h|--help)
@@ -201,10 +187,10 @@ check_environment() {
     local status=0
     local script
 
-    check_python_deps "$source_root" || status=1
     while IFS= read -r script; do
         run_dependency_tool "$script" --check || status=1
     done < <(install_scripts "$tools_dir")
+    check_python_deps "$source_root" || status=1
     return "$status"
 }
 
@@ -213,24 +199,12 @@ install_environment() {
     local tools_dir=$2
     local script
 
-    "$PYTHON" -m pip install --upgrade-strategy only-if-needed \
-        -r "$source_root/benchmarking/requirements.txt"
-
-    local extra
-    for extra in "${CURATOR_EXTRAS[@]}"; do
-        if [ ! -d "$CURATOR_UNDER_TEST_REPO_DIR" ]; then
-            echo "ERROR: Curator-under-test repo directory not found: $CURATOR_UNDER_TEST_REPO_DIR" >&2
-            exit 1
-        fi
-        (
-            cd "$CURATOR_UNDER_TEST_REPO_DIR" && \
-                "$PYTHON" -m pip install --upgrade-strategy only-if-needed ".[${extra}]"
-        )
-    done
-
     while IFS= read -r script; do
         run_dependency_tool "$script"
     done < <(install_scripts "$tools_dir")
+
+    "$PYTHON" -m pip install --upgrade-strategy only-if-needed \
+        -r "$source_root/benchmarking/requirements.txt"
 }
 
 prepare_benchmark_source
