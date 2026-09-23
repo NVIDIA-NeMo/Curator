@@ -49,7 +49,7 @@ class DynamoRouterConfig:
     Dynamo frontend as CLI args via ``router_kwargs``.
     """
 
-    mode: Literal["round_robin", "random", "kv", "direct"] | None = None
+    mode: Literal["round_robin", "random", "kv", "direct", "least-loaded"] | None = None
     kv_events: bool = False
     router_kwargs: dict[str, Any] = field(default_factory=dict)
 
