@@ -18,6 +18,7 @@ set -euo pipefail
 CHECK_ONLY=0
 PYTHON=${PYTHON:-python}
 CURATOR_UNDER_TEST_REPO_DIR=${CURATOR_BENCHMARK_CURATOR_REPO_DIR:-/opt/Curator}
+FSSPEC_VERSION=2026.3.0
 
 usage() {
     cat <<'EOF'
@@ -28,7 +29,7 @@ workflows require opencv-python-headless, but Curator keeps it out of the
 default install because its wheel vendors FFmpeg.
 
 Options:
-  --check  Verify cv2 is importable without installing it.
+  --check  Verify cv2 and semdedup's fsspec parquet API without installing.
 EOF
 }
 
@@ -50,7 +51,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if "$PYTHON" - <<'PY'
+check_cv2_environment() {
+    "$PYTHON" - <<'PY'
 import sys
 
 try:
@@ -59,14 +61,23 @@ except Exception as exc:
     print(f"ERROR: cv2 not importable: {exc}", file=sys.stderr)
     raise SystemExit(1)
 
-print(f"cv2 already available: {cv2.__version__}")
+try:
+    import fsspec
+    from fsspec.parquet import open_parquet_files  # noqa: F401
+except Exception as exc:
+    print(f"ERROR: fsspec parquet API not importable: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+print(f"cv2 available: {cv2.__version__}")
+print(f"fsspec parquet API available: {fsspec.__version__}")
 PY
-then
+}
+
+if check_cv2_environment; then
     exit 0
 fi
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
-    echo "ERROR: cv2 not importable" >&2
     exit 1
 fi
 
@@ -80,8 +91,10 @@ fi
         "$PYTHON" -m pip install --upgrade-strategy only-if-needed ".[cv2]"
 )
 
-"$PYTHON" - <<'PY'
-import cv2
+# Installing Curator's cv2 extra currently lets pip choose an fsspec version
+# that breaks semdedup's fsspec.parquet.open_parquet_files import. This is a
+# temporary benchmark-environment repair; the real fix is to encode the correct
+# fsspec constraint in Curator package metadata.
+"$PYTHON" -m pip install --upgrade-strategy only-if-needed "fsspec==${FSSPEC_VERSION}"
 
-print(f"cv2 dependency check passed: {cv2.__version__}")
-PY
+check_cv2_environment
