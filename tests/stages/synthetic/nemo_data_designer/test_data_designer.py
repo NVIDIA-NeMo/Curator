@@ -203,6 +203,100 @@ class TestBaseDataDesignerStage:
         assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_a)
         assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
 
+    def test_get_dataset_name_prefers_source_files(self) -> None:
+        stage = DataDesignerStage(
+            config_builder=_minimal_config_builder(),
+            use_create=True,
+            artifact_path="/tmp/artifacts",
+        )
+
+        batch_a = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+            _metadata={"source_files": ["/data/file-a.jsonl"]},
+        )
+        batch_b = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+            _metadata={"source_files": ["/data/file-a.jsonl"]},
+        )
+
+        batch_a._set_task_id("parent", 0)
+        batch_b._set_task_id("r123", 99)
+
+        assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_b)
+
+    def test_get_dataset_name_uses_task_id_without_source_files(self) -> None:
+        stage = DataDesignerStage(
+            config_builder=_minimal_config_builder(),
+            use_create=True,
+            artifact_path="/tmp/artifacts",
+        )
+
+        batch_a = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+        )
+        batch_b = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+        )
+
+        batch_a._set_task_id("0", 0)
+        batch_b._set_task_id("0", 1)
+
+        assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
+
+    def test_get_dataset_name_empty_task_id_is_deterministic(self) -> None:
+        stage = DataDesignerStage(
+            config_builder=_minimal_config_builder(),
+            use_create=True,
+            artifact_path="/tmp/artifacts",
+        )
+
+        batch_a = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}] * 3),
+            dataset_name="ds1",
+        )
+        batch_b = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}] * 3),
+            dataset_name="ds1",
+        )
+
+        assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_b)
+
+    def test_get_dataset_name_sanitizes_dataset_name(self) -> None:
+        stage = DataDesignerStage(
+            config_builder=_minimal_config_builder(),
+            use_create=True,
+            artifact_path="/tmp/artifacts",
+        )
+
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="my dataset/foo",
+        )
+
+        name = stage._get_dataset_name(batch)
+
+        assert name.startswith("my-dataset-foo-")
+        assert "/" not in name
+        assert " " not in name
+
+    def test_get_dataset_name_uses_dataset_fallback_for_empty_name(self) -> None:
+        stage = DataDesignerStage(
+            config_builder=_minimal_config_builder(),
+            use_create=True,
+            artifact_path="/tmp/artifacts",
+        )
+
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="...",
+        )
+
+        assert stage._get_dataset_name(batch).startswith("dataset-")
+
 
     def test_properties(self) -> None:
         """Stage name, default resources, and inputs/outputs."""

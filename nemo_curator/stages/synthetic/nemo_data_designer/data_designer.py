@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -110,7 +111,17 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             self.data_designer = DataDesigner()
 
     def _get_dataset_name(self, batch: DocumentBatch) -> str:
-        return f"{batch.dataset_name}-{get_deterministic_hash([batch.task_id])}"
+        source_files = batch._metadata.get("source_files")
+        if source_files:
+            digest = get_deterministic_hash([str(p) for p in source_files])
+        elif batch.task_id:
+            digest = get_deterministic_hash([batch.task_id])
+        else:
+            digest = get_deterministic_hash([f"{batch.dataset_name}:{batch.num_items}"])
+        safe_dataset_name = re.sub(
+            r"[^A-Za-z0-9_.-]+", "-", batch.dataset_name
+        ).strip("-.") or "dataset"
+        return f"{safe_dataset_name[:80]}-{digest}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
