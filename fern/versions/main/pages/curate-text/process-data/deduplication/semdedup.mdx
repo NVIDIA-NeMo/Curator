@@ -127,6 +127,39 @@ result = semantic_workflow.run()
 This approach enables analysis of intermediate results and parameter tuning.
 </Accordion>
 
+### Disable Weighted K-Means Task Assignment
+
+By default, the Ray Actor Pool executor uses each input partition's file size to balance K-means work across RAFT actors. To restore equal task-count assignment, override the decomposed `KMeansStage` with `USE_TASK_WEIGHTS=False`:
+
+```python
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
+
+kmeans_stage = KMeansStage(
+    input_path="embeddings/",
+    output_path="clustered_embeddings/",
+    n_clusters=1000,
+    id_field="_curator_dedup_id",
+    embedding_field="embeddings",
+).with_(
+    {
+        "KMeansStage": {
+            "ray_stage_spec": {
+                RayStageSpecKeys.USE_TASK_WEIGHTS: False,
+            }
+        }
+    }
+)
+
+Pipeline(name="kmeans", stages=[kmeans_stage]).run(
+    executor=RayActorPoolExecutor(),
+)
+```
+
+This override is available when using `KMeansStage` directly. The high-level semantic deduplication workflows construct their K-means stage internally and keep weighted assignment enabled. Disabling weights is mainly useful for comparisons or troubleshooting; it can leave actors with uneven amounts of input data.
+
 ### Comparison with Other Deduplication Methods
 
 Compare semantic deduplication with other methods:
