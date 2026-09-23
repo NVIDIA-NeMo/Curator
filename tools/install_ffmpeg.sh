@@ -25,7 +25,8 @@ Usage: install_ffmpeg.sh [--check] [--FFMPEG_VERSION=<version>] [--NVCODEC_VERSI
 
 Installs the FFmpeg capabilities needed by Curator video workflows and
 benchmarks. The build includes ffprobe, NVENC/NVDEC, VP8/VP9, software
-h264/hevc/av1 decoders, and the libopenh264 software h264 encoder.
+h264/hevc/av1 decoders, WAV/PCM audio support, and the libopenh264 software
+h264 encoder.
 
 Options:
   --check                    Verify the required FFmpeg capabilities without installing.
@@ -51,6 +52,11 @@ done
 
 check_ffmpeg() {
     local status=0
+    local encoders
+    local decoders
+    local muxers
+    local demuxers
+    local filters
     if ! command -v ffmpeg >/dev/null 2>&1; then
         echo "ERROR: ffmpeg not found on PATH" >&2
         status=1
@@ -63,22 +69,44 @@ check_ffmpeg() {
         return "$status"
     fi
 
-    local encoders
-    local decoders
     local encoder
     local decoder
+    local muxer
+    local demuxer
+    local filter
     encoders=$(ffmpeg -hide_banner -encoders 2>/dev/null | awk '{print $2}')
     decoders=$(ffmpeg -hide_banner -decoders 2>/dev/null | awk '{print $2}')
+    muxers=$(ffmpeg -hide_banner -muxers 2>/dev/null | awk '{print $2}')
+    demuxers=$(ffmpeg -hide_banner -demuxers 2>/dev/null | awk '{print $2}')
+    filters=$(ffmpeg -hide_banner -filters 2>/dev/null | awk '{print $2}')
 
-    for encoder in rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264; do
+    for encoder in rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264 pcm_s16le; do
         if ! printf '%s\n' "$encoders" | grep -Fx -- "$encoder" >/dev/null; then
             echo "ERROR: ffmpeg encoder not found: $encoder" >&2
             status=1
         fi
     done
-    for decoder in rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1; do
+    for decoder in rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1 pcm_s16le; do
         if ! printf '%s\n' "$decoders" | grep -Fx -- "$decoder" >/dev/null; then
             echo "ERROR: ffmpeg decoder not found: $decoder" >&2
+            status=1
+        fi
+    done
+    for muxer in wav; do
+        if ! printf '%s\n' "$muxers" | grep -Fx -- "$muxer" >/dev/null; then
+            echo "ERROR: ffmpeg muxer not found: $muxer" >&2
+            status=1
+        fi
+    done
+    for demuxer in wav; do
+        if ! printf '%s\n' "$demuxers" | grep -Fx -- "$demuxer" >/dev/null; then
+            echo "ERROR: ffmpeg demuxer not found: $demuxer" >&2
+            status=1
+        fi
+    done
+    for filter in aresample; do
+        if ! printf '%s\n' "$filters" | grep -Fx -- "$filter" >/dev/null; then
+            echo "ERROR: ffmpeg filter not found: $filter" >&2
             status=1
         fi
     done
@@ -105,6 +133,7 @@ fi
 echo "==> install_ffmpeg.sh: building ffmpeg ${FFMPEG_VERSION}"
 echo "    Decoders: h264/hevc/av1 software + NVDEC variants"
 echo "    Encoders: NVENC variants + libvpx-vp9 + libopenh264"
+echo "    Audio: WAV demux/mux + pcm_s16le + resampling"
 echo "    NOTE: OpenH264 license obligations are the user's responsibility."
 
 export DEBIAN_FRONTEND=noninteractive
@@ -157,14 +186,14 @@ PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure \
     --disable-vdpau \
     --disable-dxva2 \
     --disable-libdrm \
-    --enable-encoder=rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc,libopenh264 \
-    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1 \
-    --enable-muxer=mp4,rawvideo,image2pipe \
-    --enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,matroska,webm,image2,image2pipe \
+    --enable-encoder=rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc,libopenh264,pcm_s16le \
+    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1,pcm_s16le \
+    --enable-muxer=mp4,rawvideo,image2pipe,wav \
+    --enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,matroska,webm,image2,image2pipe,wav \
     --enable-parser=h264,hevc,av1,vp8,vp9 \
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb \
     --enable-protocol=file,pipe \
-    --enable-filter=scale,format,null,copy \
+    --enable-filter=scale,format,null,copy,aresample,aformat,anull \
     --enable-libvpx \
     --enable-libopenh264 \
     --enable-cuda \

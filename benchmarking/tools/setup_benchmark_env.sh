@@ -21,7 +21,7 @@ CURATOR_UNDER_TEST_REPO_DIR=${CURATOR_BENCHMARK_CURATOR_REPO_DIR:-/opt/Curator}
 BENCHMARK_SOURCE_MOUNT_DIR=${CURATOR_BENCHMARK_SOURCE_MOUNT_DIR:-/tmp/.curator-benchmark-source}
 BENCHMARK_SOURCE_DIR=${CURATOR_BENCHMARK_SOURCE_DIR:-/opt/curator-benchmark-source}
 BENCHMARK_SOURCE_SUBDIRS=(benchmarking tutorials)
-CURATOR_EXTRAS=()
+CURATOR_EXTRAS=(cv2)
 
 usage() {
     cat <<'EOF'
@@ -32,6 +32,11 @@ Prepares the benchmark runtime environment for Curator benchmarks.
 Actions:
   default                 Install benchmark environment dependencies, then check.
   --check                 Verify benchmark Python dependencies and required system tools.
+  --curator-extra <extra> Install an additional Curator-under-test Python extra.
+
+The benchmark suite installs the Curator-under-test cv2 extra by default because
+several image, PDF, and video stages require opencv-python-headless. Repeat
+--curator-extra to request more extras.
 
 Environment:
   CURATOR_BENCHMARK_CURATOR_REPO_DIR
