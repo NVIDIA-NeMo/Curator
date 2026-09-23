@@ -12,6 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pandas as pd
+import pyarrow as pa
+
+
+def pyarrow_string_to_pandas_dtype(arrow_type: pa.DataType, *, na_value: object = pd.NA) -> pd.StringDtype | None:
+    """Map Arrow strings to a pandas dtype with functional string operations."""
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        try:
+            return pd.StringDtype(storage="pyarrow", na_value=na_value)
+        except TypeError:
+            # pandas 2.1 does not accept na_value or Arrow large_string arrays.
+            storage = "python" if pa.types.is_large_string(arrow_type) else "pyarrow"
+            return pd.StringDtype(storage=storage)
+    return None
+
+
+def pyarrow_to_pandas_dtype(arrow_type: pa.DataType) -> pd.StringDtype | pd.ArrowDtype:
+    """Map Arrow types to pandas dtypes with functional string operations."""
+    string_dtype = pyarrow_string_to_pandas_dtype(arrow_type)
+    return string_dtype if string_dtype is not None else pd.ArrowDtype(arrow_type)
+
 
 def resolve_filename_column(add_filename_column: bool | str) -> str | None:
     """Resolve the filename column name based on the input parameter.
