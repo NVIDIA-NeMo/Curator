@@ -113,7 +113,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _get_dataset_name(self, batch: DocumentBatch) -> str:
         source_files = batch._metadata.get("source_files")
         if source_files:
-            digest = get_deterministic_hash([str(p) for p in source_files])
+            digest = get_deterministic_hash([str(p) for p in source_files] + [batch.task_id])
         elif batch.task_id:
             digest = get_deterministic_hash([batch.task_id])
         else:
