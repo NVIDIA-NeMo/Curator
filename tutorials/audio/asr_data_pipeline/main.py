@@ -13,42 +13,19 @@
 # limitations under the License.
 
 """
-Audio Tagging Pipeline for NeMo Curator.
+ASR data processing pipeline runner for NeMo Curator.
 
-Processes raw audio data through diarization, ASR alignment, text
-normalization, quality metrics, and segment preparation to produce
-labelled training manifests for TTS or ASR.
-
-The pipeline is YAML-driven via Hydra and supports both TTS and ASR
-modalities by switching the configuration file.
+This YAML-driven runner is intended for downloaded ASR datasets that already
+include transcripts. It runs ingestion, transcript normalization, transcript
+statistics, and split-aware manifest writing stages.
 
 Usage:
-    # TTS pipeline with bundled sample data (from Curator repo root)
-    python tutorials/audio/tagging/main.py \\
-        --config-path . \\
-        --config-name tts_pipeline \\
-        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
-        final_manifest=/tmp/tts_output.jsonl \\
-        hf_token=<your_hf_token>
-
-    # Override backend
-    python tutorials/audio/tagging/main.py \\
-        --config-path . \\
-        --config-name tts_pipeline \\
-        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
-        final_manifest=/tmp/tts_output.jsonl \\
-        hf_token=<your_hf_token> \\
-        backend=ray_data
-
-    # Override parameters
-    python tutorials/audio/tagging/main.py \\
-        --config-path . \\
-        --config-name tts_pipeline \\
-        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
-        final_manifest=/tmp/output.jsonl \\
-        hf_token=<your_hf_token> \\
-        max_segment_length=30 \\
-        stages.4.batch_size=16
+    python tutorials/audio/asr_data_pipeline/main.py \\
+        --config-path ../../../configs \\
+        --config-name indicvoices \\
+        raw_data_dir=/data/asr/IndicVoices/raw \\
+        output_dir=/data/asr/IndicVoices/curated \\
+        'langs=[gu]'
 """
 
 import importlib
@@ -93,7 +70,7 @@ def _resolve_stats_summary_path(cfg: DictConfig) -> str | None:
 
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
-    """Run audio tagging pipeline using Hydra configuration."""
+    """Run an ASR data processing pipeline using Hydra configuration."""
     try:
         pipeline = create_pipeline_from_yaml(cfg)
 
@@ -107,10 +84,10 @@ def main(cfg: DictConfig) -> None:
         config = {"execution_mode": mode}
         executor = _create_executor(backend, config=config)
 
-        logger.info("Starting audio tagging pipeline...")
+        logger.info("Starting ASR data processing pipeline...")
         results = pipeline.run(executor)
     except Exception:
-        logger.error("Audio pipeline failed with full chained traceback:\n{}", traceback.format_exc())
+        logger.error("ASR data pipeline failed with full chained traceback:\n{}", traceback.format_exc())
         raise
 
     num_tasks = len(results) if results else 0
@@ -124,8 +101,7 @@ def main(cfg: DictConfig) -> None:
     elif "output_dir" in cfg:
         logger.info(f"  Output directory: {cfg.output_dir}")
 
-    stats_summary_path = _resolve_stats_summary_path(cfg)
-    TranscriptStatsStage.log_summary_from_path(stats_summary_path)
+    TranscriptStatsStage.log_summary_from_path(_resolve_stats_summary_path(cfg))
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

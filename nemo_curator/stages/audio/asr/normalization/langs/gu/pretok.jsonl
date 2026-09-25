@@ -1,0 +1,7 @@
+{"pattern": "<gu-IN>", "repl": ""}
+{"pattern": "\u0007|\u200d|\u200c|\u200b|\u200f", "repl": ""}
+{"pattern": "\u201a", "repl": ","}
+{"pattern": "_", "repl": " "}
+{"pattern": "-", "repl": " "}
+{"pattern": "\u2014", "repl": " "}
+{"pattern": "\u2013", "repl": " "}
