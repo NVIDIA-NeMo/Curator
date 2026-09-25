@@ -10,7 +10,35 @@ modality: "text-only"
 
 # Save and Export Text Data
 
-After processing your text datasets with NeMo Curator, use writer stages to export curated data for downstream use. Curator provides writers for common formats (JSONL, Parquet) as well as specialized writers for training frameworks.
+After processing your text datasets with NeMo Curator, use writer stages to export curated data for downstream use. Curator provides writers for common formats (JSONL, Parquet, Lance) as well as specialized writers for training frameworks.
+
+## Lance Datasets
+
+For a pipeline that produces `DocumentBatch` tasks, add a Lance writer and commit the output.
+Calling `commit_lance_checkpoint` publishes the output as a Lance dataset version. Writing
+fragments alone does not publish a readable dataset version.
+
+Install the optional Lance dependencies with `pip install "nemo-curator[lance]"`. Use a fresh
+checkpoint path for each independent run because a completed checkpoint is skipped on retry.
+
+```python
+from nemo_curator.stages.text.io.writer import LanceWriter, commit_lance_checkpoint
+
+dataset_path = "./curated.lance"
+commit_path = "./curated.lance-commit"
+
+pipeline.add_stage(LanceWriter(path=dataset_path, commit_path=commit_path))
+pipeline.run()
+
+version = commit_lance_checkpoint(dataset_path, commit_path)
+print(f"Published Lance dataset version {version}")
+```
+
+Use `mode="create"` for a new dataset, `mode="append"` to add fragments, or
+`mode="overwrite"` to replace the dataset. Put Lance write options, including dataset
+`storage_options`, in `write_kwargs`. Put checkpoint `storage_options` in `write_kwargs` under
+`checkpoint_storage_options`, and pass matching `dataset_storage_options` and
+`checkpoint_storage_options` to `commit_lance_checkpoint` when those locations require them.
 
 ## Megatron Tokenization
 
