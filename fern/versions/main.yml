@@ -513,6 +513,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/curate-audio/process-data/index.mdx
                 slug: ""
+              - page: Sound Event Detection
+                path: ./main/pages/curate-audio/process-data/sound-event-detection.mdx
+                slug: sound-event-detection
               - section: ASR Inference
                 slug: asr-inference
                 contents:
