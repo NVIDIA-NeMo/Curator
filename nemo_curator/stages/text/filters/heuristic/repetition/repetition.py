@@ -56,6 +56,8 @@ class RepeatedParagraphsFilter(DocumentFilter):
         self._name = "repeated_paragraphs"
 
     def score_document(self, text: str) -> float:
+        if not text.strip():
+            return 0.0
         paragraphs = self._paragraphs
         if paragraphs is None:
             paragraphs = get_paragraphs(text)
