@@ -15,6 +15,7 @@
 from .audio_task import AudioTask
 from .document import DocumentBatch
 from .file_group import FileGroupTask
+from .group import TaskGroup, group_tasks_by_data_key
 from .image import ImageBatch, ImageObject
 from .interleaved import InterleavedBatch
 from .lance import LanceReadTask
@@ -34,4 +35,6 @@ __all__ = [
     "NoneTask",
     "SentinelTask",
     "Task",
+    "TaskGroup",
+    "group_tasks_by_data_key",
 ]
