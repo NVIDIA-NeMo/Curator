@@ -14,19 +14,26 @@
 
 """Chinese text conversion stage (Traditional -> Simplified, etc.)."""
 
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
 from loguru import logger
 from opencc import OpenCC
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ChineseConversionStage(ProcessingStage[AudioTask, AudioTask]):
+class ChineseConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Convert Traditional Chinese text to Simplified Chinese (or other OpenCC conversions).
 
     Iterates over the ``segments`` list of each entry and writes the converted
@@ -38,6 +45,7 @@ class ChineseConversionStage(ProcessingStage[AudioTask, AudioTask]):
         convert_type: OpenCC conversion type (e.g. ``"t2s"``, ``"s2t"``).
     """
 
+    # Legacy positional slots (pre-agent order preserved).
     text_key: str = "text"
     convert_type: str = "t2s"
 
@@ -47,11 +55,30 @@ class ChineseConversionStage(ProcessingStage[AudioTask, AudioTask]):
     # Internal state
     _converter: Any = field(default=None, repr=False)
 
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    segments_key: str = "segments"
+    output_suffix: str = "_simplified"
+
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.segments_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[f"{self.text_key}{self.output_suffix}"]),
+                    condition=f"an item in '{self.segments_key}' contains '{self.text_key}'",
+                )
+            ],
+            # The OpenCC mapping is fixed by ``convert_type``; each segment's text converts alone.
+            gates=Gates(per_row_independent=True),
+        )
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
@@ -61,8 +88,8 @@ class ChineseConversionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         data_entry = task.data
-        output_key = f"{self.text_key}_simplified"
-        for segment in data_entry.get("segments", []):
+        output_key = f"{self.text_key}{self.output_suffix}"
+        for segment in data_entry.get(self.segments_key, []):
             if self.text_key in segment:
                 try:
                     segment[output_key] = self._converter.convert(segment[self.text_key])
