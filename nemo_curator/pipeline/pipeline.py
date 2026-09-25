@@ -94,7 +94,8 @@ class Pipeline:
         """
         self.name = name
         self.description = description
-        self.stages: list[ProcessingStage] = stages or []
+        self._logical_stages: list[ProcessingStage] = list(stages or [])
+        self.stages: list[ProcessingStage] = list(self._logical_stages)
         self.config = config or {}
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
@@ -110,7 +111,8 @@ class Pipeline:
             msg = f"Stage must be a ProcessingStage, got {type(stage)}"
             raise TypeError(msg)
 
-        self.stages.append(stage)
+        self._logical_stages.append(stage)
+        self.stages = list(self._logical_stages)
         logger.info(f"Added stage '{stage.name}' to pipeline '{self.name}'")
         return self
 
@@ -123,12 +125,16 @@ class Pipeline:
         logger.info(f"Planning pipeline: {self.name}")
 
         # 1. Validate pipeline has stages
-        if not self.stages:
+        if not self._logical_stages:
             msg = f"Pipeline '{self.name}' has no stages"
             raise ValueError(msg)
 
         # 2. Decompose composite stages into execution stages
-        execution_stages, decomposition_info = self._decompose_stages(self.stages)
+        execution_stages, decomposition_info = self._decompose_stages(self._logical_stages)
+
+        from nemo_curator.pipeline.payload_lifecycle import expand_payload_lifecycle_stages
+
+        execution_stages = expand_payload_lifecycle_stages(execution_stages, self.config)
 
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
@@ -286,6 +292,22 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+
+        from nemo_curator.pipeline.payload_lifecycle import payload_lifecycle_enabled
+
+        if payload_lifecycle_enabled(self.config):
+            from nemo_curator.backends.xenna import XennaExecutor
+
+            if isinstance(executor, XennaExecutor):
+                msg = (
+                    "payload_lifecycle is not supported on XennaExecutor. The lifecycle "
+                    "bounds resident payload bytes, but Xenna's streaming backpressure "
+                    "counts tasks rather than bytes, and its batch mode runs each stage to "
+                    "completion before starting the next — so the materialize stage would "
+                    "block on an admission budget that only the downstream release stage "
+                    "can free. Use RayDataExecutor instead."
+                )
+                raise RuntimeError(msg)
 
         from nemo_curator.core.serve import is_inference_server_active
 
