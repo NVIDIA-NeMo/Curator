@@ -46,14 +46,19 @@ _QWEN2_5_VL_MODEL_REVISION = "cc59489"
 _QWEN3_VL_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 _QWEN3_VL_MODEL_REVISION = "0c351dd"
 
+_QWEN3_5_VL_MODEL_ID = "Qwen/Qwen3.5-9B"
+_QWEN3_5_VL_MODEL_REVISION = "c202236"
+
 _QWEN_VARIANTS_INFO: Final = {
     "qwen2.5": _QWEN2_5_VL_MODEL_ID,
     "qwen3": _QWEN3_VL_MODEL_ID,
+    "qwen3.5": _QWEN3_5_VL_MODEL_ID,
 }
 
 _QWEN_REVISION_INFO: Final = {
     "qwen2.5": _QWEN2_5_VL_MODEL_REVISION,
     "qwen3": _QWEN3_VL_MODEL_REVISION,
+    "qwen3.5": _QWEN3_5_VL_MODEL_REVISION,
 }
 
 _QWEN_VL_PIXEL_PARAMS: Final = {
@@ -66,6 +71,14 @@ _QWEN_VL_PIXEL_PARAMS: Final = {
         "video_total_pixels": 24576 * 28 * 28,
     },
     "qwen3": {
+        "image_factor": 32,
+        "min_pixels": 4 * 32 * 32,
+        "max_pixels": 16384 * 32 * 32,
+        "video_min_pixels": 128 * 32 * 32,
+        "video_max_pixels": 768 * 32 * 32,
+        "video_total_pixels": 24576 * 32 * 32,
+    },
+    "qwen3.5": {
         "image_factor": 32,
         "min_pixels": 4 * 32 * 32,
         "max_pixels": 16384 * 32 * 32,
