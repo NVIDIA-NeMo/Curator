@@ -14,20 +14,66 @@
 
 import json
 import os
+import posixpath
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import soundfile
 import torch
 from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.utils.file_utils import write_json_file_streaming_array
+
+if TYPE_CHECKING:
+    import fsspec
+
+    from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+
+
+def _normalized_filesystem_path(fs: "fsspec.AbstractFileSystem", path: str) -> str:
+    if isinstance(fs, LocalFileSystem):
+        return os.path.realpath(os.path.abspath(path))
+    return posixpath.normpath(path)
+
+
+def _same_filesystem_location(
+    left_fs: "fsspec.AbstractFileSystem",
+    left_path: str,
+    right_fs: "fsspec.AbstractFileSystem",
+    right_path: str,
+) -> bool:
+    """Return whether two resolved fsspec locations identify the same destination."""
+    same_filesystem = left_fs is right_fs or (
+        type(left_fs) is type(right_fs)
+        and left_fs.protocol == right_fs.protocol
+        and left_fs.storage_options == right_fs.storage_options
+    )
+    return same_filesystem and _normalized_filesystem_path(left_fs, left_path) == _normalized_filesystem_path(
+        right_fs, right_path
+    )
+
+
+def _same_filesystem_path(left_url: str, right_url: str) -> bool:
+    """Return whether two URLs identify the same normalized fsspec destination."""
+    left_fs, left_path = url_to_fs(left_url)
+    right_fs, right_path = url_to_fs(right_url)
+    return _same_filesystem_location(left_fs, left_path, right_fs, right_path)
+
+
+def _append_slurm_shard_suffix(path: str, shard_index: int, total_shards: int) -> str:
+    """Derive a deterministic per-shard filename without changing its directory."""
+    parent, filename = posixpath.split(path)
+    stem, suffix = posixpath.splitext(filename)
+    sharded_filename = f"{stem}.shard-{shard_index:05d}-of-{total_shards:05d}{suffix}"
+    return posixpath.join(parent, sharded_filename) if parent else sharded_filename
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -243,15 +289,29 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        performance_report_path: Optional JSON destination for raw pipeline
+            invocation metrics. Supports local and cloud paths through fsspec.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    performance_report_path: str | None = None
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
+        if self.performance_report_path is not None:
+            if not self.performance_report_path.strip():
+                msg = "performance_report_path must not be blank"
+                raise ValueError(msg)
+            if _same_filesystem_path(self.output_path, self.performance_report_path):
+                msg = "performance_report_path must not resolve to the manifest output_path"
+                raise ValueError(msg)
+
+    def requests_performance_records(self) -> bool:
+        """A configured stage report requires complete invocation collection."""
+        return self.performance_report_path is not None
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""
@@ -283,6 +343,40 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             _metadata=task._metadata,
             _stage_perf=list(task._stage_perf),
         )
+
+    def finalize_performance_report(
+        self,
+        *,
+        performance_records: "PerformanceRecordStore",
+        wall_time_s: float,
+        report_context: dict[str, Any],
+    ) -> None:
+        """Stream complete invocation telemetry to the configured report."""
+        if self.performance_report_path is None:
+            return
+        report_fs, report_path = url_to_fs(self.performance_report_path)
+        slurm_array = report_context["slurm_array"]
+        shard_index = slurm_array["shard_index"] if slurm_array is not None else None
+        total_shards = slurm_array["total_shards"] if slurm_array is not None else None
+        if shard_index is not None and total_shards is not None:
+            report_path = _append_slurm_shard_suffix(report_path, shard_index, total_shards)
+        output_fs, output_path = url_to_fs(self.output_path)
+        if _same_filesystem_location(output_fs, output_path, report_fs, report_path):
+            msg = "effective performance report path must not resolve to the manifest output_path"
+            raise ValueError(msg)
+        write_json_file_streaming_array(
+            report_path,
+            {
+                "schema_version": 1,
+                **report_context,
+                "wall_time_s": wall_time_s,
+                "record_count": len(performance_records),
+            },
+            array_key="records",
+            items=performance_records.iter_dicts(),
+            fs=report_fs,
+        )
+        logger.info(f"ManifestWriterStage: wrote performance report to {report_path}")
 
     def num_workers(self) -> int | None:
         return 1
