@@ -18,7 +18,7 @@ import ray
 from loguru import logger
 from ray.data import DataContext, Dataset
 
-from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.base import Backend, BaseExecutor
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -38,6 +38,8 @@ class RayDataExecutor(BaseExecutor):
     3. Applies each stage as a Ray Data transformation (as a task or actor in map_batches)
     4. Returns final results as a list of tasks
     """
+
+    backend = Backend.RAY_DATA
 
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         """Initialize the executor.
