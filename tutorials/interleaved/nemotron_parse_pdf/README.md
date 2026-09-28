@@ -71,6 +71,7 @@ option.
 **Alternative — Run inference in process:**
 
 ```bash
+uv pip install albumentations==2.0.8  # required by the model's remote processor code
 uv run python tutorials/interleaved/nemotron_parse_pdf/inprocess.py \
     --manifest manifest.jsonl \
     --pdf-dir /path/to/pdfs \
