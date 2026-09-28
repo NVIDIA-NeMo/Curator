@@ -219,12 +219,14 @@ replicas: `--parse-batch-size` (pages per Parse batch, default 64),
 
 Each page is published whole or not at all. A page fails when NRL reports an
 error for it, including a vLLM finish reason other than `stop`, when the model
-response contains anything outside complete elements, or when a `Picture` crop
-cannot be produced. An empty response counts as blank only on pages listed in
+response contains anything outside complete elements, when an element has no
+class or an invalid box, or when a `Picture` crop cannot be produced or is smaller
+than 10 pixels. An empty response counts as blank only on pages listed in
 `valid_blank_pages`; otherwise the page fails with `unexpected_empty_output`.
 
 A document is `success` or `valid_blank` when every page validates, `partial`
-when some pages fail, and `failed` when none validate. Failed documents produce
+when some pages validate but the document has an issue such as a failed,
+missing, or unexpected page, and `failed` when none validate. Failed documents produce
 no rows. Each document's metadata row records its `extraction_status`,
 `page_outcomes`, and issues, so the export carries its own coverage. These
 statuses describe structural validation, not extraction accuracy.
@@ -263,12 +265,28 @@ The table extends the interleaved schema with provenance columns:
 - `ingest` collects every parsed element, including picture crops, in the
   driver before writing Lance, so memory grows with the input. Split large
   corpora across runs.
-- NRL renders pages at 200 DPI and the native pipeline at 300 DPI by default,
-  so the two paths do not produce identical output.
+- `consume` reads the run directory and re-hashes the source PDFs at the
+  absolute paths that `ingest` recorded, so both commands must see the same
+  paths.
+- The recipe and the native pipeline differ, so they do not produce identical
+  output:
+  - NRL renders pages at 200 DPI; native renders at 300 DPI by default.
+  - NRL's local model allows 9,000 output tokens per page; native allows 8,192.
+  - The recipe parses every page; native parses at most `--max-pages` (default
+    50) pages per PDF.
+  - The recipe keeps element text as NRL post-processes it, including empty
+    elements, and NRL renames `Inline-formula` to `Formula`. Native strips
+    `<...>` tags and drops empty non-`Picture` elements.
+  - The recipe fails a page whose response does not parse completely or whose
+    `Picture` crop fails. Native keeps the elements it can parse, falls back to
+    one `Text` element when none parse, and skips failed crops.
+  - Recipe crops come from the full-resolution page render; native crops come
+    from the padded model canvas.
 
 ### Tests
 
-The recipe tests run in both environments:
+The recipe tests run in both environments. Curator CI runs the Curator
+environment set; tests that import NRL run only in the NRL environment:
 
 ```bash
 # Curator environment; the NRL graph tests are skipped
