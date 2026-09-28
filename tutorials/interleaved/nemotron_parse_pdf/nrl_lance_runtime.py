@@ -313,14 +313,10 @@ def _package_version(distribution: str) -> str | None:
         return None
 
 
-def _model_revision(model_id: str) -> str:
+def _model_revision(model_id: str) -> str | None:
     from nemo_retriever.models.hf_model_registry import get_hf_revision
 
-    revision = get_hf_revision(model_id)
-    if not revision:
-        msg = f"No pinned Hugging Face revision is registered for {model_id}"
-        raise RuntimeError(msg)
-    return revision
+    return get_hf_revision(model_id)
 
 
 def _load_graph_module() -> ModuleType:
@@ -363,9 +359,9 @@ def _counts(inputs: Sequence[Mapping[str, Any]], documents: Sequence[Mapping[str
     }
 
 
-def _publish_completion_and_update_state(
-    completion_path: Path,
-    completion: Mapping[str, Any],
+def _publish_marker_and_update_state(
+    marker_path: Path,
+    marker: Mapping[str, Any],
     *,
     state_path: Path,
     state_updates: Mapping[str, Any],
@@ -373,15 +369,15 @@ def _publish_completion_and_update_state(
     """Publish the authoritative marker before updating diagnostic state."""
 
     try:
-        contract._write_json_exclusive_atomic(completion_path, completion)
+        contract._write_json_exclusive_atomic(marker_path, marker)
     except contract.MarkerDurabilityUnconfirmedError:
         with contextlib.suppress(Exception):
             state = contract._load_json(state_path)
             state.update(state_updates)
-            state["marker_durability"] = {"path": str(completion_path), "status": "unconfirmed"}
+            state["marker_durability"] = {"path": str(marker_path), "status": "unconfirmed"}
             contract._write_json_atomic(state_path, state)
         raise
-    # The sealed completion marker is authoritative. A diagnostic-state write
+    # The sealed marker is authoritative. A diagnostic-state write
     # failure must not turn a completed publication into an error that a caller
     # might retry against the same immutable run.
     with contextlib.suppress(Exception):
@@ -475,6 +471,13 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
         msg = "No PDF inputs were found"
         raise ValueError(msg)
 
+    runner = graph_runner
+    if runner is None:
+        graph_module = _load_graph_module()
+        graph_module.check_nrl_compatibility()
+        runner = graph_module.run_nrl_graph
+    model_revision = _model_revision(contract.PARSE_MODEL)
+
     output_root = Path(args.output_root).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     run_dir = output_root / run_id
@@ -529,7 +532,6 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
 
         envelope_records: list[dict[str, Any]] = []
         if pending:
-            runner = graph_runner or _load_graph_module().run_nrl_graph
             graph_started = time.perf_counter()
             envelope = runner(
                 [str(document["path"]) for document in pending],
@@ -609,7 +611,7 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
             "models": {
                 "nemotron_parse": {
                     "model_id": contract.PARSE_MODEL,
-                    "revision": _model_revision(contract.PARSE_MODEL),
+                    "revision": model_revision,
                     "task_prompt": contract.PARSE_TASK_PROMPT,
                 }
             },
@@ -626,8 +628,11 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
         }
         handoff = contract._seal_payload(handoff_core, contract._HANDOFF_HASH_FIELD)
         handoff_path = run_dir / contract.HANDOFF_MANIFEST_FILE
-        state.update(
-            {
+        _publish_marker_and_update_state(
+            handoff_path,
+            handoff,
+            state_path=state_path,
+            state_updates={
                 "status": "tables_validated",
                 "handed_off_at": handoff["handed_off_at"],
                 "inputs": inputs,
@@ -635,16 +640,11 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
                 "counts": handoff["counts"],
                 "handoff_manifest": str(handoff_path),
                 "handoff_sha256": handoff[contract._HANDOFF_HASH_FIELD],
-            }
+            },
         )
-        contract._write_json_atomic(state_path, state)
-        contract._write_json_exclusive_atomic(handoff_path, handoff)
-    except contract.MarkerDurabilityUnconfirmedError as exc:
+    except contract.MarkerDurabilityUnconfirmedError:
         # Visibility is the publication point; a failed directory sync cannot
         # turn a valid handoff back into an unpublished extraction.
-        state["marker_durability"] = {"path": str(exc.path), "status": "unconfirmed"}
-        with contextlib.suppress(Exception):
-            contract._write_json_atomic(state_path, state)
         raise
     except Exception as exc:
         state["status"] = "unpublished"
@@ -1028,10 +1028,6 @@ def run_consume(args: argparse.Namespace) -> Path:  # noqa: C901, PLR0912, PLR09
             "pipeline_and_reconciliation_seconds": time.perf_counter() - consume_started,
         },
     }
-    report = contract._seal_payload(report_core, contract._REPORT_HASH_FIELD)
-    report_path = output_dir / contract.CONSUME_REPORT_FILE
-    contract._write_json_exclusive_atomic(report_path, report)
-
     current_dataset = lance.dataset(str(table_path))
     if int(current_dataset.version) != version or int(current_dataset.count_rows()) != expected_row_count:
         msg = "Lance table changed during Curator consumption"
@@ -1047,6 +1043,9 @@ def run_consume(args: argparse.Namespace) -> Path:  # noqa: C901, PLR0912, PLR09
             msg = f"Lance table {key} differs from its handoff contract"
             raise RuntimeError(msg)
     rehashed_input_count = contract._rehash_source_inventory(source_inputs)
+    report = contract._seal_payload(report_core, contract._REPORT_HASH_FIELD)
+    report_path = output_dir / contract.CONSUME_REPORT_FILE
+    contract._write_json_exclusive_atomic(report_path, report)
 
     published_inputs = copy.deepcopy(source_inputs)
     for entry in published_inputs:
@@ -1088,7 +1087,7 @@ def run_consume(args: argparse.Namespace) -> Path:  # noqa: C901, PLR0912, PLR09
         },
     }
     completion = contract._seal_payload(completion_core, contract._COMPLETION_HASH_FIELD)
-    _publish_completion_and_update_state(
+    _publish_marker_and_update_state(
         completion_path,
         completion,
         state_path=handoff_path.parent / contract.RUN_STATE_FILE,
