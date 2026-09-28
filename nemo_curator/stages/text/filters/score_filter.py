@@ -421,7 +421,10 @@ def _format_field_list(
     if isinstance(_field, list):
         if len(_field) == 1:
             logger.info(f"Using the same {field_name} field for all functions: {_field}")
-            _field = [_field] * filter_count
+            # Repeat the one entry, rather than wrapping the list: [x] * n gives
+            # n copies of x, and the length check below then passes on a list of
+            # lists. For invert that is n truthy values whatever x was.
+            _field = _field * filter_count
         if len(_field) != filter_count:
             msg = f"Number of {field_name} fields must match number of functions: {_field}"
             raise ValueError(msg)

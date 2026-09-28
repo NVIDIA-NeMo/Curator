@@ -259,6 +259,32 @@ class TestFilterModule:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize(("invert", "expected"), [([False], False), ([True], True)])
+    def test_one_element_invert_is_the_same_as_the_bare_value(
+        self, letter_count_data: DocumentBatch, invert: list[bool], expected: bool
+    ) -> None:
+        """A one-element list means "the same for every filter".
+
+        _format_field_list used to wrap the list rather than repeat its entry, so
+        each filter saw [False], which is truthy, and both were inverted whatever
+        the value was.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=invert,
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=expected,
+        )
+
+        assert as_list.invert == [expected, expected]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
+
     @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
     def test_score_filter_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
         if score_field in ["a_count", ["a_count"]]:
