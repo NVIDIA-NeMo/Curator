@@ -181,10 +181,15 @@ B: Applicable to Model X200
 
 the packet includes an `A_ONLY`/`B_ONLY` pair covering "Applicable to Model
 X100"/"...X200" rather than just the bare `X100`/`X200` tokens, so the judge
-sees what the changed value actually refers to. This is stored as the
-`semantic_diff` field (`status`, `truncated`, `truncated_a`, `truncated_b`,
-`span_counts`, `spans`) and is what `judge_config/pair.jinja` renders to the
-judge -- the judge never sees raw `text_a`/`text_b` directly. `status` is
+sees what the changed value actually refers to. Each `A_ONLY`/`B_ONLY` span
+also carries `delta_start_char`/`delta_end_char` -- the unpadded bounds of
+the actual difference, before `_SPAN_CONTEXT_CHARS` padding is applied to
+`start_char`/`end_char` -- so consumers of `semantic_diff` can tell the
+padding apart from the diff itself; `SHARED` spans have no delta fields
+since they're never padded. This is stored as the `semantic_diff` field
+(`status`, `truncated`, `truncated_a`, `truncated_b`, `span_counts`,
+`spans`) and is what `judge_config/pair.jinja` renders to the judge -- the
+judge never sees raw `text_a`/`text_b` directly. `status` is
 `INCOMPLETE_LIMIT` instead of `COMPLETE` if a pair produces more than
 `_MAX_SPANS_PER_KIND` spans of one kind; `system.jinja` treats an incomplete
 packet as unresolved rather than trusting a silently-clipped span list.
@@ -216,6 +221,21 @@ visible text is objectively identical, per `fuzzy_pair_judge.yaml`'s own
 definition of `exact` -- since the judge sometimes returns `near_surface`
 for this instead (`_correct_identical_text_relation()`; corrected rows are
 flagged with `relation_type_corrected` in the disagreements output).
+
+It also deterministically corrects `relation_type` away from `containment`
+whenever the judge violated one of containment's own preconditions from
+`system.jinja`'s DETERMINISTIC POLICY: a `span_content_profile_a`/
+`span_content_profile_b` mismatch, both sides `non_main_only`, or no
+verified `span_shared_basis` -- each of which the policy requires to be
+`no`/`no` rather than containment. Since `containment` is bucketed as
+`duplicate` below, an unfixed violation inflates the duplicate count for
+pairs where one side is pure boilerplate/chrome and the other has real
+content (`_correct_invalid_containment_relation()`; corrected rows are
+flagged with `relation_type_containment_corrected` in the disagreements
+output). The disagreements output also includes flat `material_difference`,
+`primary_material_difference`, `confidence_tier`, `primary_risk_factor`, and
+`dominant_overlap_source` columns (pulled out of `pair_semantic_judgment`)
+for reviewer context beyond the bucketed `relation_type`.
 
 `6_analyze_results.py` (step 6) buckets `relation_type` into a coarse
 duplicate/not_duplicate/unresolved verdict (`exact`/`canonical_exact`/

@@ -61,6 +61,12 @@ def _extract_relation(row: dict | None) -> str | None:
     return row.get(SCORE_NAME, {}).get("score")
 
 
+def _extract_field(row: dict | None, field_name: str) -> str | None:
+    if not isinstance(row, dict):
+        return None
+    return row.get(field_name, {}).get("score")
+
+
 def _bucket_relation(relation: str | None) -> str:
     if relation in DUPLICATE_RELATIONS:
         return "duplicate"
@@ -70,8 +76,7 @@ def _bucket_relation(relation: str | None) -> str:
 
 
 def _correct_identical_text_relation(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Deterministically correct `relation_type` to `exact` for pairs the judge should never get
+    """Deterministically correct `relation_type` to `exact` for pairs the judge should never get
     wrong: an untruncated, COMPLETE span packet with zero `A_ONLY`/`B_ONLY` spans means the
     visible text on both sides is identical.
 
@@ -86,6 +91,37 @@ def _correct_identical_text_relation(df: pd.DataFrame) -> pd.DataFrame:
     eligible = is_complete & identical_visible_text & ~df["truncated"] & df["relation_type"].notna()
     df["relation_type_corrected"] = eligible & (df["relation_type"] != "exact")
     df.loc[df["relation_type_corrected"], "relation_type"] = "exact"
+    return df
+
+
+def _correct_invalid_containment_relation(df: pd.DataFrame) -> pd.DataFrame:
+    """Deterministically correct `relation_type` away from `containment` when the judge violated
+    one of its own preconditions for that verdict.
+
+    `judge_config/system.jinja`'s DETERMINISTIC POLICY states containment "requires exactly one
+    same_record_content_extension, a verified substantive shared record, and no uncovered
+    opposite-side delta or conflict", and separately that "non-main-only pairs never form
+    containment" and "any conflict or profile mismatch: no/no, major". The LLM sometimes returns
+    `relation_type=containment` anyway when a row violates one of these three checkable
+    preconditions:
+    - `span_content_profile_a != span_content_profile_b` (a profile mismatch -- e.g. reasoning
+      that a substantive side is a "superset" of a boilerplate side);
+    - both sides are `non_main_only` (containment is never valid between two non-main-only sides);
+    - `span_shared_basis == "none"` (no verified shared record/message to extend).
+    Each of these is `containment` bucketed as "duplicate" by `DUPLICATE_RELATIONS` below,
+    inflating the duplicate count. Reclassify those rows to `related_non_duplicate`, the verdict
+    the deterministic policy would have produced.
+    """
+    profile_a = df[JUDGE_COLUMN].map(lambda row: _extract_field(row, "span_content_profile_a"))
+    profile_b = df[JUDGE_COLUMN].map(lambda row: _extract_field(row, "span_content_profile_b"))
+    shared_basis = df[JUDGE_COLUMN].map(lambda row: _extract_field(row, "span_shared_basis"))
+    profile_mismatch = profile_a.notna() & profile_b.notna() & (profile_a != profile_b)
+    both_non_main = (profile_a == "non_main_only") & (profile_b == "non_main_only")
+    no_shared_basis = shared_basis == "none"
+    invalid_containment = profile_mismatch | both_non_main | no_shared_basis
+    eligible = invalid_containment & (df["relation_type"] == "containment")
+    df["relation_type_containment_corrected"] = eligible
+    df.loc[eligible, "relation_type"] = "related_non_duplicate"
     return df
 
 
@@ -104,6 +140,16 @@ def annotate(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
     df["relation_type"] = df[JUDGE_COLUMN].map(_extract_relation)
+    # Flat columns for _DISAGREEMENT_COLUMNS -- reviewer context beyond the bucketing-relevant
+    # relation_type, pulled from the same nested JUDGE_COLUMN dict.
+    for field_name in (
+        "material_difference",
+        "primary_material_difference",
+        "confidence_tier",
+        "primary_risk_factor",
+        "dominant_overlap_source",
+    ):
+        df[field_name] = df[JUDGE_COLUMN].map(lambda row, f=field_name: _extract_field(row, f))
     # Older pairs files predate build_semantic_diff()/the `truncated` column -- treat those as
     # not truncated rather than dropping them, since we have no truncation info for them either way.
     df["truncated"] = df["truncated"].fillna(False).astype(bool) if "truncated" in df.columns else False
@@ -111,6 +157,7 @@ def annotate(df: pd.DataFrame) -> pd.DataFrame:
         df = _correct_identical_text_relation(df)
     else:
         df["relation_type_corrected"] = False
+    df = _correct_invalid_containment_relation(df)
     df["verdict"] = df["relation_type"].map(_bucket_relation)
     duplicate_expected = df["expected_duplicate"].astype(bool)
     df["is_disagreement"] = (duplicate_expected & (df["verdict"] != "duplicate")) | (
@@ -160,6 +207,7 @@ _DISAGREEMENT_COLUMNS = [
     "truncated",
     "relation_type",
     "relation_type_corrected",
+    "relation_type_containment_corrected",
     "material_difference",
     "primary_material_difference",
     "confidence_tier",
@@ -211,6 +259,13 @@ def main() -> None:
         logger.info(
             f"Deterministically corrected relation_type to 'exact' for {num_corrected}/{len(df)} pairs where "
             "the visible span packet showed identical text but the judge said otherwise."
+        )
+    num_containment_corrected = int(df["relation_type_containment_corrected"].sum())
+    if num_containment_corrected:
+        logger.info(
+            f"Deterministically corrected relation_type from 'containment' to 'related_non_duplicate' for "
+            f"{num_containment_corrected}/{len(df)} pairs where the judge violated one of containment's own "
+            "preconditions (profile mismatch, both sides non_main_only, or no verified shared basis)."
         )
     summary = summarize(df)
     logger.warning(
