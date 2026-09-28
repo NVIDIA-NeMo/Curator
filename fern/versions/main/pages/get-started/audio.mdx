@@ -100,112 +100,52 @@ For details on container environments and configurations, see [Container Environ
 </Tab>
 </Tabs>
 
-## Download Sample Configuration
+## Run the Maintained FLEURS Pipeline
 
-NeMo Curator provides a sample FLEURS configuration for audio curation. You can download and customize it:
+The repository maintains the executable tutorial in `tutorials/audio/fleurs/main.py` and its complete Hydra configuration in `tutorials/audio/fleurs/pipeline.yaml`. Run it from the repository root so the documentation and executable configuration stay synchronized:
 
-```bash
-mkdir -p ~/nemo_curator/configs
-wget -O ~/nemo_curator/configs/fleurs_pipeline.yaml https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/tutorials/audio/fleurs/pipeline.yaml
-```
-
-This configuration file contains a complete audio curation pipeline for the FLEURS dataset, including ASR inference, quality assessment, and filtering.
-
-## Set Up Data Directory
-
-Create a directory to store your audio datasets:
+If you installed the package from PyPI or are not already in a source checkout, clone the tutorial repository first:
 
 ```bash
-mkdir -p ~/nemo_curator/audio_data
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 ```
-
-## Basic Audio Curation Example
-
-Here's a simple example to get started with audio curation using the FLEURS dataset:
-
-```python
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
-from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
-from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
-from nemo_curator.stages.resources import Resources
-
-# Create audio curation pipeline
-pipeline = Pipeline(name="audio_curation", description="FLEURS audio curation with ASR and WER filtering")
-
-# 1. Load FLEURS dataset (Armenian development set)
-pipeline.add_stage(
-    CreateInitialManifestFleursStage(
-        lang="hy_am",
-        split="dev",
-        raw_data_dir="/absolute/path/to/nemo_curator/audio_data"
-    ).with_(batch_size=4)
-)
-
-# 2. Perform ASR inference using NeMo model
-pipeline.add_stage(
-    ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-        model_id="nvidia/stt_hy_fastconformer_hybrid_large_pc",
-        audio_filepath_key="audio_filepath",
-    ).with_(resources=Resources(gpus=1.0))
-)
-
-# 3. Calculate Word Error Rate (WER)
-pipeline.add_stage(
-    GetPairwiseWerStage(
-        text_key="text",
-        pred_text_key="pred_text",
-        wer_key="wer_pct",
-    )
-)
-
-# 4. Calculate audio duration
-pipeline.add_stage(
-    GetAudioDurationStage(
-        audio_filepath_key="audio_filepath",
-        duration_key="duration"
-    )
-)
-
-# 5. Filter by WER threshold (keep samples with WER &lt;= 75%)
-pipeline.add_stage(
-    PreserveByValueStage(
-        input_value_key="wer_pct",
-        target_value=75.0,
-        operator="le"  # less than or equal
-    )
-)
-
-# Execute the pipeline
-pipeline.run()
-```
-
-## Alternative: Configuration-Based Approach
-
-You can also run the pipeline using the downloaded configuration:
 
 ```bash
-cd ~/nemo_curator
-python tutorials/audio/fleurs/run.py \
-    --config-path ~/nemo_curator/configs \
-    --config-name fleurs_pipeline.yaml \
-    raw_data_dir=~/nemo_curator/audio_data
+python tutorials/audio/fleurs/main.py \
+  --config-path . \
+  --config-name pipeline \
+  raw_data_dir="${PWD}/example_audio/fleurs"
 ```
+
+The maintained configuration downloads the Armenian (`hy_am`) development split, runs the matching FastConformer model, calculates `wer_pct` and duration, filters at `wer_pct <= 5.5`, and writes JSONL output. Its ASR configuration includes the required duration budget:
+
+- `max_audio_sec_per_actor=240.0`
+- `max_inference_duration_s=120.0`, which is no larger than the actor budget
+- `local_bucketing=true`
+- `stages.1.adapter_kwargs.use_cuda_graph_decoder=false` for broad hybrid-RNNT driver compatibility
+
+An NVIDIA GPU is recommended, but not required. For CPU fallback, install the `audio_cpu` extra and override the ASR resource request:
+
+```bash
+python tutorials/audio/fleurs/main.py \
+  --config-path . \
+  --config-name pipeline \
+  raw_data_dir="${PWD}/example_audio/fleurs-cpu" \
+  stages.1.resources.gpus=0
+```
+
+Refer to the [Beginner Audio Processing Tutorial](/curate-audio/tutorials/beginner) for supported overrides and a walkthrough of the checked-in configuration.
 
 ## Expected Output
 
 After running the pipeline, you'll have:
 
 ```text
-~/nemo_curator/audio_data/
-├── hy_am/                    # Armenian language data
-│   ├── dev.tsv              # Transcription metadata
-│   ├── dev.tar.gz          # Audio archive
-│   ├── dev/                # Extracted audio files
-│   └── result/             # Filtered results
-│       └── *.jsonl        # High-quality audio-text pairs
+example_audio/fleurs/
+├── hy_am/                   # Downloaded Armenian data and source manifest
+└── result/
+    └── hy_am/               # Filtered JSONL output shards
 ```
 
 Each output entry contains:
@@ -215,7 +155,7 @@ Each output entry contains:
     "audio_filepath": "/absolute/path/to/audio.wav",
     "text": "ground truth transcription",
     "pred_text": "asr model prediction",
-    "wer_pct": 12.5,
+    "wer_pct": 2.5,
     "duration": 4.2
 }
 ```

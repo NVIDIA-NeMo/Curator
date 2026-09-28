@@ -110,7 +110,7 @@ Speech rate metrics (words per second, characters per second) help identify samp
 
 ### Calculate Speech Rate Metrics
 
-`ComputeWERStage` calculates speech rates together with WER and CER. For top-level records, it requires a positive numeric `duration`. If the manifest does not already include that field, add `GetAudioDurationStage` first. Then configure the hypothesis and reference fields used by your manifest:
+`ComputeWERStage` calculates speech rates together with WER and CER. For top-level records, it requires a positive numeric `duration`. If the manifest does not already include that field, add `GetAudioDurationStage` first. Both configured text fields must exist, and the reference must normalize to nonempty text. An empty reference produces `metrics.wer = None`, `metrics.cer = None`, and `metrics.metric_skip_reason = "empty_reference"` without adding `word_rate` or `char_rate`. Then configure the hypothesis and reference fields used by your manifest:
 
 ```python
 from nemo_curator.stages.audio.common import GetAudioDurationStage
@@ -125,7 +125,7 @@ pipeline.add_stage(ComputeWERStage(
     hypothesis_text_key="pred_text",
     reference_text_key="text",
 ))
-# Adds metrics.word_rate and metrics.char_rate to each entry or segment.
+# Adds metrics.word_rate and metrics.char_rate when the prerequisites above are met.
 ```
 
 For records that contain `segments`, each segment must instead have numeric `start` and `end` timestamps that define a positive interval. A missing or non-positive interval causes `ComputeWERStage` to emit `0.0` for both speech-rate metrics.
@@ -236,9 +236,9 @@ if retention_rate < 0.5:  # Less than 50% retained
 
 **Under-Filtering**: Keeping problematic samples that may negatively impact training or processing efficiency.
 
-## Real Working Example
+## Composed Example
 
-Here's a complete working example from the NeMo Curator tutorials showing actual duration filtering in practice:
+The following function shows how duration extraction composes with ASR and WER filtering. For the maintained runnable FLEURS entrypoint and complete export configuration, use `tutorials/audio/fleurs/main.py` with `tutorials/audio/fleurs/pipeline.yaml`.
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -250,7 +250,7 @@ from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.resources import Resources
 
 def create_audio_pipeline(raw_data_dir: str, wer_threshold: float = 75.0) -> Pipeline:
-    """Real working pipeline from NeMo Curator tutorials."""
+    """Build a FLEURS pipeline with duration and WER filtering."""
 
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
@@ -268,7 +268,11 @@ def create_audio_pipeline(raw_data_dir: str, wer_threshold: float = 75.0) -> Pip
         ASRStage(
             adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
             model_id="nvidia/stt_hy_fastconformer_hybrid_large_pc",
+            max_audio_sec_per_actor=240.0,
+            max_inference_duration_s=120.0,
+            local_bucketing=True,
             audio_filepath_key="audio_filepath",
+            adapter_kwargs={"use_cuda_graph_decoder": False},
         ).with_(resources=Resources(gpus=1.0))
     )
 
@@ -305,7 +309,7 @@ def create_audio_pipeline(raw_data_dir: str, wer_threshold: float = 75.0) -> Pip
 ```
 
 <Note>
-This example comes directly from `tutorials/audio/fleurs/pipeline.py` and shows the correct parameter names and usage patterns for the built-in stages.
+The supplied FLEURS YAML also configures the writer, backend, Ray lifecycle, CPU fallback, and model-specific decoder compatibility. Prefer that maintained configuration for an end-to-end run.
 </Note>
 
 ## Related Topics

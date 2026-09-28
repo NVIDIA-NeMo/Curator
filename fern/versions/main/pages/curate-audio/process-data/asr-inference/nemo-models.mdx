@@ -38,6 +38,9 @@ from nemo_curator.stages.resources import Resources
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     pred_text_key="pred_text",
     batch_size=16,
@@ -56,6 +59,9 @@ asr_stage = asr_stage.with_(
 custom_asr = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="custom_audio_path",
     pred_text_key="transcription",
     batch_size=32,
@@ -72,6 +78,9 @@ The executor downloads and caches model weights once per node, then loads one ad
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
 )
 
@@ -90,6 +99,9 @@ from nemo_curator.stages.resources import Resources
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     batch_size=16,
 ).with_(

@@ -34,6 +34,9 @@ from nemo_curator.stages.resources import Resources
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     pred_text_key="pred_text",
     batch_size=16,
@@ -59,6 +62,9 @@ language_models = {
 armenian_asr = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id=language_models["hy_am"],
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
 )
 ```
@@ -97,6 +103,8 @@ asr_stage = asr_stage.with_(
 
 ### Batch Processing
 
+`max_inference_duration_s` is the per-segment model-input ceiling; longer rows are split and stitched into one result. `max_audio_sec_per_actor` bounds the padded audio seconds passed to the adapter in one call and must be greater than or equal to `max_inference_duration_s`. Setting `local_bucketing=True` sorts segments within the current process batch by duration to reduce padding.
+
 ```python
 # Optimize batch size based on GPU memory
 asr_stage = asr_stage.with_(
@@ -132,7 +140,7 @@ Data loading stages create input `AudioTask` objects that must contain:
 - **Supported Formats**: Any format readable by the installed `torchaudio` backend.
 - **Sample Rates**: Inputs are resampled to `target_sample_rate` (16 kHz by default) before adapter inference.
 - **Channels**: Multichannel audio is down-mixed to mono before inference.
-- **Duration**: Long files can require manual chunking before inference.
+- **Duration**: Audio longer than `max_inference_duration_s` is split automatically before inference and its transcripts are stitched afterward. Pre-segment files only when you need application-specific or semantic boundaries.
 
 ## Output Structure
 
@@ -178,6 +186,9 @@ Processing behavior:
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     batch_size=8,
 ).with_(

@@ -114,6 +114,9 @@ from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     batch_size=16,
 )
@@ -193,6 +196,9 @@ duration_stage = GetAudioDurationStage(
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_ctc_large",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     batch_size=8,
 ).with_(
@@ -207,6 +213,9 @@ asr_stage = ASRStage(
 asr_stage = ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
 ).with_(
     resources=Resources(gpus=1.0)  # Dedicated GPU
@@ -241,6 +250,9 @@ audio_to_text = [
     ASRStage(
         adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_ctc_large",
+        max_audio_sec_per_actor=240.0,
+        max_inference_duration_s=120.0,
+        local_bucketing=True,
         audio_filepath_key="audio_filepath",
     ),  # Audio → Transcriptions
     AudioToDocumentStage(),   # AudioTask → DocumentBatch

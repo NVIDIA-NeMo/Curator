@@ -55,10 +55,10 @@ def create_audio_manifest(audio_dir: str, manifest_path: str):
         if filename.endswith(('.wav', '.flac', '.mp3', '.ogg')):
             audio_path = os.path.abspath(os.path.join(audio_dir, filename))
 
-            # Basic entry - ASR will generate transcriptions
+            # Basic entry without a reference transcript
             entry = {
                 "audio_filepath": audio_path,
-                "text": ""  # Empty - will be filled by ASR inference based on pred_text_key
+                "text": ""  # ASR writes pred_text; it does not populate text
             }
             manifest_entries.append(entry)
 
@@ -75,6 +75,8 @@ create_audio_manifest(
     manifest_path="/absolute/path/to/local_audio_manifest.jsonl"
 )
 ```
+
+An empty `text` field means no reference transcript is available. You can still run ASR to produce `pred_text`, but WER and `ComputeWERStage` speech-rate metrics require a nonempty reference.
 
 ### Directory Organization Examples
 
@@ -131,6 +133,9 @@ def process_local_audio_manifest(manifest_path: str, output_dir: str):
     pipeline.add_stage(ASRStage(
         adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+        max_audio_sec_per_actor=240.0,
+        max_inference_duration_s=120.0,
+        local_bucketing=True,
         audio_filepath_key="audio_filepath",
     ))
 

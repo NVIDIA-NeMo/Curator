@@ -17,7 +17,7 @@ Convert processed audio data from `AudioTask` to `DocumentBatch` format using th
 The `AudioToDocumentStage` provides straightforward format conversion between NeMo Curator's audio and text data structures:
 
 1. **Format Conversion**: Transform `AudioTask` objects to `DocumentBatch` format
-2. **Metadata Preservation**: All fields from the audio data are preserved in the conversion
+2. **Metadata Sanitization**: Preserve serializable top-level metadata while removing raw audio, segments, and tensor values
 3. **Export Ready**: Convert audio processing results to pandas DataFrame format for analysis or export
 
 **Common use cases:**
@@ -59,25 +59,40 @@ print(f"Converted {len(document_batch.data)} audio records to DocumentBatch")
 - `AudioToDocumentStage()` has no configuration parameters; it performs direct format conversion
 
 **Returns:**
-- List of `DocumentBatch` objects containing a pandas DataFrame with all original audio fields
+- A list containing one `DocumentBatch` whose pandas DataFrame contains the retained fields from the input batch
 
-### What Gets Preserved
+### Preserved and Removed Fields
 
-The conversion preserves all fields from your audio processing pipeline:
+The conversion preserves ordinary top-level scalar, list, and dictionary fields, including:
 
 ```python
-# All audio processing results are maintained:
+# Retained serializable top-level fields include:
 # - audio_filepath: Original audio file reference
 # - text: Ground truth transcription (if available)
 # - pred_text: ASR prediction
-# - wer: Word Error Rate (if calculated)
+# - wer_pct: Word Error Rate percentage (if calculated)
 # - duration: Audio duration (if calculated)
-# - Any other metadata fields you've added
+# - Other metadata fields that are not explicitly excluded below
 ```
 
 <Note>
-Field names and values are preserved exactly as they appear in the `AudioTask`. No data transformation or cleaning is performed during conversion.
+For retained fields, names and values are preserved as they appear in the `AudioTask`. Before building the DataFrame, `AudioToDocumentStage` removes `waveform`, `audio`, `audio_data`, `audio_array`, `segments`, and every top-level tensor-valued field.
 </Note>
+
+### Preserve Segments During JSONL Export
+
+If you need `segments` or segment-level WER/CER in the output, keep the records as `AudioTask` objects and use `ManifestWriterStage` instead of converting them:
+
+```python
+from nemo_curator.stages.audio.common import ManifestWriterStage
+
+# Add this as the final audio stage instead of AudioToDocumentStage + JsonlWriter.
+pipeline.add_stage(
+    ManifestWriterStage(output_path="/absolute/shared/path/processed_audio.jsonl")
+)
+```
+
+`ManifestWriterStage` serializes `task.data` directly. Remove waveform arrays and tensor-valued fields before this writer because they are not JSON-serializable.
 
 ## Integration in Pipelines
 
@@ -110,6 +125,9 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 pipeline.add_stage(ASRStage(
     adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     audio_filepath_key="audio_filepath",
     pred_text_key="pred_text"
 ).with_(resources=Resources(gpus=1.0)))
@@ -136,7 +154,7 @@ executor = XennaExecutor()
 pipeline.run(executor)
 ```
 
-**Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with all fields:
+**Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with the fields retained by `AudioToDocumentStage`:
 
 ```json
 {"audio_filepath": "/data/audio/sample1.wav", "text": "hello world", "pred_text": "hello world", "wer_pct": 0.0, "duration": 1.5}
@@ -186,9 +204,9 @@ document_batch.data  # pandas DataFrame with columns:
 # - audio_filepath: "/path/to/audio.wav"
 # - text: "ground truth transcription"
 # - pred_text: "asr prediction"
-# - wer: 15.2
+# - wer_pct: 15.2
 # - duration: 3.4
-# - [any other fields from your audio processing]
+# - [other retained serializable top-level fields]
 ```
 
 ## Limitations
