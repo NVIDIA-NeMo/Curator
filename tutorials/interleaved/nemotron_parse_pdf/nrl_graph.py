@@ -23,6 +23,7 @@ has no NeMo Curator dependency.
 from __future__ import annotations
 
 import base64
+import glob
 import hashlib
 import os
 import re
@@ -391,14 +392,24 @@ class NRLCuratorProjectionOperator(AbstractOperator, CPUOperator):
         return data
 
 
-def build_projection_graph() -> Graph:
-    """Build the existing NRL PDF graph plus one terminal CPU projection."""
+def check_nrl_compatibility() -> None:
+    """Fail before any extraction work when the installed NRL cannot supply the page contract."""
 
+    from nemo_retriever.models.local import NemotronParseV12
     from nemo_retriever.operators.extract.parse.nemotron_parse import NEMOTRON_PARSE_DEFAULT_TASK_PROMPT
 
     if NEMOTRON_PARSE_DEFAULT_TASK_PROMPT != contract.PARSE_TASK_PROMPT:
         msg = "NRL's default Nemotron Parse prompt no longer matches the pinned v1.2 contract"
         raise RuntimeError(msg)
+    if not hasattr(NemotronParseV12, "invoke_batch_with_finish_reasons"):
+        msg = "The installed NRL does not report Nemotron Parse finish reasons; install an NRL release that does"
+        raise RuntimeError(msg)
+
+
+def build_projection_graph() -> Graph:
+    """Build the existing NRL PDF graph plus one terminal CPU projection."""
+
+    check_nrl_compatibility()
 
     extract_params = ExtractParams(
         method="nemotron_parse",
@@ -508,4 +519,5 @@ def run_nrl_graph(
     if not normalized_paths:
         return pd.DataFrame(columns=contract.PROJECTION_COLUMNS, dtype=object)
     _prepare_executor_for_local_parse(executor)
-    return contract.validate_projection_envelope(executor.ingest(normalized_paths))
+    # NRL expands every input as a glob pattern; escape literal file names such as "report[1].pdf".
+    return contract.validate_projection_envelope(executor.ingest([glob.escape(path) for path in normalized_paths]))

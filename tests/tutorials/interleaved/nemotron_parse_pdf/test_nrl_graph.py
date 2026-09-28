@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import base64
+import glob
 import hashlib
 import importlib.util
 import json
@@ -319,6 +320,22 @@ def test_build_projection_graph_reuses_nrl_graph_with_fixed_settings(
     assert isinstance(captured["operator"], recipe.CPUOperator)
 
 
+@pytest.mark.parametrize("incompatibility", ["prompt", "finish_reasons"])
+def test_nrl_compatibility_check_rejects_missing_page_contract(
+    recipe: ModuleType, monkeypatch: pytest.MonkeyPatch, incompatibility: str
+) -> None:
+    from nemo_retriever.models.local import NemotronParseV12
+    from nemo_retriever.operators.extract.parse import nemotron_parse
+
+    recipe.check_nrl_compatibility()
+    if incompatibility == "prompt":
+        monkeypatch.setattr(nemotron_parse, "NEMOTRON_PARSE_DEFAULT_TASK_PROMPT", "changed")
+    else:
+        monkeypatch.delattr(NemotronParseV12, "invoke_batch_with_finish_reasons")
+    with pytest.raises(RuntimeError, match=r"prompt|finish reasons"):
+        recipe.check_nrl_compatibility()
+
+
 def test_real_graph_is_existing_pdf_chain_plus_one_projection(recipe: ModuleType) -> None:
     graph = recipe.build_projection_graph()
     nodes = []
@@ -475,7 +492,7 @@ def test_run_nrl_graph_validates_executor_result(
     monkeypatch.setattr(recipe, "build_projection_executor", fake_executor)
 
     result = recipe.run_nrl_graph(
-        Path("/data/example.pdf"),
+        Path("/data/report[1].pdf"),
         projection_workers=3,
         projection_block_rows=projection_block_rows,
         parse_batch_size=parse_batch_size,
@@ -489,8 +506,19 @@ def test_run_nrl_graph_validates_executor_result(
         "projection_block_rows": projection_block_rows,
         "parse_batch_size": parse_batch_size,
         "parse_cpus": parse_cpus,
-        "paths": ["/data/example.pdf"],
+        "paths": ["/data/report[[]1].pdf"],
     }
+
+
+def test_escaped_input_path_names_only_that_file_for_nrl(tmp_path: Path) -> None:
+    from nemo_retriever.common.input_files import expand_input_file_patterns
+
+    literal, lookalike = tmp_path / "report[1].pdf", tmp_path / "report1.pdf"
+    literal.write_bytes(b"%PDF")
+    lookalike.write_bytes(b"%PDF")
+
+    assert expand_input_file_patterns([str(literal)]) == [str(lookalike)]
+    assert expand_input_file_patterns([glob.escape(str(literal))]) == [str(literal)]
 
 
 def test_empty_run_still_validates_execution_options(recipe: ModuleType) -> None:

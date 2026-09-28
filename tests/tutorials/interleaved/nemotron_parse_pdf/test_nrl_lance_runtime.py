@@ -65,6 +65,7 @@ class _CuratorLanceWriter:
 @pytest.fixture(autouse=True)
 def _curator_lance_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(contract, "ElementTableWriter", _CuratorLanceWriter)
+    monkeypatch.setattr(runtime, "_model_revision", lambda _model: "model-revision")
 
 
 @pytest.mark.parametrize("option", ["parse_batch_size", "parse_cpus"])
@@ -422,7 +423,6 @@ def test_ingest_writes_handoff_only_after_validated_table(  # noqa: PLR0913
         encoding="utf-8",
     )
     monkeypatch.setattr(contract, "_pdf_page_count", lambda _path: 2 if partial else 1)
-    monkeypatch.setattr(runtime, "_model_revision", lambda _model: "model-revision")
 
     def fake_graph(paths: list[str], **kwargs) -> pd.DataFrame:
         assert paths == [str(source.resolve())]
@@ -513,7 +513,6 @@ def test_structural_vertical_slice_accounts_for_duplicate_blank_and_corrupt_inpu
         return 2 if path == source else 1
 
     monkeypatch.setattr(contract, "_pdf_page_count", page_count)
-    monkeypatch.setattr(runtime, "_model_revision", lambda _model: "model-revision")
 
     def fake_graph(paths: list[str], **_kwargs) -> pd.DataFrame:
         assert paths == [str(source.resolve()), str(blank.resolve())]
@@ -575,7 +574,7 @@ def test_completion_marker_precedes_non_authoritative_state_update(
         original_write(path, payload)
 
     monkeypatch.setattr(contract, "_write_json_atomic", fail_state_update)
-    runtime._publish_completion_and_update_state(
+    runtime._publish_marker_and_update_state(
         completion_path,
         {"status": "published"},
         state_path=state_path,
@@ -615,7 +614,7 @@ def test_confirmed_completion_clears_prior_handoff_durability_diagnostic(tmp_pat
     )
     completion_path = tmp_path / contract.COMPLETION_MANIFEST_FILE
     completion = contract._seal_payload({"status": "published"}, contract._COMPLETION_HASH_FIELD)
-    runtime._publish_completion_and_update_state(
+    runtime._publish_marker_and_update_state(
         completion_path,
         completion,
         state_path=state_path,
@@ -747,7 +746,6 @@ def _lifecycle_inputs(
     manifest = root / "manifest.jsonl"
     manifest.write_text("".join(json.dumps({"path": str(path)}) + "\n" for path in sources))
     monkeypatch.setattr(contract, "_pdf_page_count", lambda _path: 1)
-    monkeypatch.setattr(runtime, "_model_revision", lambda _model: "model-revision")
 
     def graph(paths: list[str], **_kwargs) -> pd.DataFrame:
         return pd.DataFrame(
@@ -836,13 +834,12 @@ def test_partial_table_rejects_incorrect_coverage(tmp_path: Path, mutation: str)
 
 
 @pytest.mark.parametrize(
-    "fault", ["first_write", "later_write", "table_validation", "source_changed", "state_write", "handoff_write"]
+    "fault", ["first_write", "later_write", "table_validation", "source_changed", "handoff_write"]
 )
 def test_ingest_storage_faults_never_publish(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str) -> None:
     args, graph = _lifecycle_inputs(monkeypatch, tmp_path)
     original_add = contract.ElementTableWriter.add_document
     original_validate = runtime.validate_element_table
-    original_state = contract._write_json_atomic
     calls = 0
 
     def add(writer: object, rows: list[dict[str, Any]]) -> None:
@@ -861,19 +858,12 @@ def test_ingest_storage_faults_never_publish(monkeypatch: pytest.MonkeyPatch, tm
             (tmp_path / "source-0.pdf").write_bytes(b"changed after inventory")
         return original_validate(*args, **kwargs)
 
-    def write_state(path: Path, payload: dict[str, Any]) -> None:
-        if fault == "state_write" and payload.get("status") == "tables_validated":
-            msg = "injected state failure"
-            raise OSError(msg)
-        original_state(path, payload)
-
     def marker_failure(_path: Path, _payload: object) -> None:
         msg = "injected marker failure"
         raise OSError(msg)
 
     monkeypatch.setattr(contract.ElementTableWriter, "add_document", add)
     monkeypatch.setattr(runtime, "validate_element_table", validate)
-    monkeypatch.setattr(contract, "_write_json_atomic", write_state)
     if fault == "handoff_write":
         monkeypatch.setattr(contract, "_write_json_exclusive_atomic", marker_failure)
     with pytest.raises((OSError, RuntimeError), match=r"injected|changed after inventory"):
@@ -882,6 +872,38 @@ def test_ingest_storage_faults_never_publish(monkeypatch: pytest.MonkeyPatch, tm
     assert not (run_dir / contract.HANDOFF_MANIFEST_FILE).exists()
     assert not (run_dir / contract.COMPLETION_MANIFEST_FILE).exists()
     assert contract._load_json(run_dir / contract.RUN_STATE_FILE)["status"] == "unpublished"
+
+
+def test_ingest_checks_nrl_before_creating_the_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    args, _graph = _lifecycle_inputs(monkeypatch, tmp_path)
+
+    def incompatible() -> None:
+        msg = "incompatible NRL"
+        raise RuntimeError(msg)
+
+    graph_module = SimpleNamespace(check_nrl_compatibility=incompatible, run_nrl_graph=None)
+    monkeypatch.setattr(runtime, "_load_graph_module", lambda: graph_module)
+    with pytest.raises(RuntimeError, match="incompatible NRL"):
+        runtime.run_ingest(args)
+    assert not (tmp_path / "runs").exists()
+
+
+def test_handoff_is_published_before_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    args, graph = _lifecycle_inputs(monkeypatch, tmp_path)
+    original_state = contract._write_json_atomic
+
+    def write_state(path: Path, payload: dict[str, Any]) -> None:
+        if payload.get("status") == "tables_validated":
+            assert (path.parent / contract.HANDOFF_MANIFEST_FILE).exists()
+            msg = "injected state failure"
+            raise OSError(msg)
+        original_state(path, payload)
+
+    monkeypatch.setattr(contract, "_write_json_atomic", write_state)
+    handoff = runtime.run_ingest(args, graph_runner=graph)
+
+    assert runtime._load_handoff_manifest(handoff)["status"] == "tables_validated"
+    assert contract._load_json(handoff.parent / contract.RUN_STATE_FILE)["status"] == "unpublished"
 
 
 @pytest.mark.parametrize("phase", ["handoff", "completion"])
@@ -1016,7 +1038,10 @@ def test_completed_run_and_run_id_cannot_be_reused(monkeypatch: pytest.MonkeyPat
     with pytest.raises(FileExistsError, match="completion manifest already exists"):
         runtime.run_consume(_consume_args(handoff, tmp_path / "new-export"))
     with pytest.raises(FileExistsError):
-        runtime.run_ingest(_ingest_args(tmp_path, tmp_path / "manifest.jsonl"))
+        runtime.run_ingest(
+            _ingest_args(tmp_path, tmp_path / "manifest.jsonl"),
+            graph_runner=lambda *_args, **_kwargs: pytest.fail("a reused run must not extract"),
+        )
     assert completion.exists()
     assert {path: path.read_bytes() for path in snapshot} == snapshot
     assert not (tmp_path / "new-export").exists()
@@ -1035,6 +1060,7 @@ root = pathlib.Path(sys.argv[2])
 phase = sys.argv[3]
 patch = pytest.MonkeyPatch()
 patch.setattr(tests.contract, 'ElementTableWriter', tests._CuratorLanceWriter)
+patch.setattr(tests.runtime, '_model_revision', lambda _model: 'model-revision')
 args, graph = tests._lifecycle_inputs(patch, root)
 def pause():
     (root / 'ready').write_text('ready')
