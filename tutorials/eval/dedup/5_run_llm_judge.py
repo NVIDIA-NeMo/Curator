@@ -40,60 +40,47 @@ _DEFAULT_JUDGE_CONFIG = Path(__file__).resolve().parent / "judge_config" / "fuzz
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument(
+        "--ray-temp-dir",
+        default="/tmp/ray",  # noqa: S108
+        help="Ray runtime directory (default: /tmp/ray).",
+    )
+
     parser.add_argument(
         "--judge-config",
         default=str(_DEFAULT_JUDGE_CONFIG),
         help="YAML file defining the model, Jinja templates, and rubric (default: judge_config/fuzzy_pair_judge.yaml).",
     )
     parser.add_argument(
-        "--input-path", required=True, help="Directory of span-aligned pairs JSONL files written by 4_span_alignment.py."
+        "--input-path",
+        required=True,
+        help="Directory of span-aligned pairs JSONL files written by 4_span_alignment.py.",
     )
-    parser.add_argument("--input-format", default="jsonl", choices=("jsonl", "parquet"))
     parser.add_argument("--output-path", required=True, help="Directory for judged-pair output partitions.")
     parser.add_argument("--output-format", default="jsonl", choices=("jsonl", "parquet"))
-    parser.add_argument("--files-per-partition", type=int, default=None)
     parser.add_argument(
         "--checkpoint-path",
         default=None,
         help="Optional durable Curator checkpoint directory for this pipeline.",
     )
-    parser.add_argument(
-        "--ray-temp-dir",
-        default="/tmp/ray",  # noqa: S108
-        help="Ray runtime directory (default: /tmp/ray).",
-    )
-    parser.add_argument(
-        "--num-cpus",
-        type=int,
-        default=None,
-        help="Optional CPU count for the local Ray client (default: all available CPUs).",
-    )
-    parser.add_argument(
-        "--num-gpus",
-        type=int,
-        default=None,
-        help="Optional GPU count for the local Ray client (default: all available GPUs).",
-    )
+
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
+
     workflow = LLMJudgeWorkflow(
         judge_config=args.judge_config,
         input_path=args.input_path,
         output_path=args.output_path,
-        input_format=args.input_format,
+        input_format="jsonl",
         output_format=args.output_format,
-        files_per_partition=args.files_per_partition,
         checkpoint_path=args.checkpoint_path,
     )
-    ray_client = RayClient(
-        num_cpus=args.num_cpus,
-        num_gpus=args.num_gpus,
-        include_dashboard=False,
-        ray_temp_dir=args.ray_temp_dir,
-    )
+
+    ray_client = RayClient(ray_temp_dir=args.ray_temp_dir)
     ray_client.start()
     try:
         workflow.run()

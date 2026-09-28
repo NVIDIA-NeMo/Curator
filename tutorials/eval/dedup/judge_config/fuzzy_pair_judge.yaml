@@ -25,7 +25,7 @@ models:
     # Keep the Hugging Face identifier as the API name while serving local weights.
     served_model_name: Qwen/Qwen3.8-27B
     dynamo_model:
-      num_replicas: 1
+      num_replicas: 8
       mode: aggregated
       engine_kwargs:
         tensor_parallel_size: 1
@@ -33,15 +33,19 @@ models:
         max_num_seqs: 8
         gpu_memory_utilization: 0.85
     inference_parameters:
-      temperature: 0.0
+      # Was 0.0 (deterministic): the model's 5 automatic conversation restarts on a
+      # non-retryable failure just re-sampled the identical greedy output, so a bad
+      # parse/enum-cross-wire never had a chance to self-correct. Non-zero lets restarts
+      # actually differ.
+      temperature: 0.2
       # Structured judging needs the final JSON, not Qwen's private deliberation.
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
       # 15 scores + reasoning per call needs more room than a single-score rubric.
-      max_tokens: 3072
+      max_tokens: 6144
       timeout: 600
-      max_parallel_requests: 64
+      max_parallel_requests: 32
 
 dynamo_server:
   subprocess_env:

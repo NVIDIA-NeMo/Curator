@@ -209,6 +209,14 @@ rubric field -- `span_content_profile_a`/`span_content_profile_b`,
 `judge_config/fuzzy_pair_judge.yaml` for the full rubric and
 `nemo_curator/eval/llm_judge/LLM_JUDGE_CONFIG_SKILL.md` for how to change it.
 
+Before bucketing, `6_analyze_results.py` also deterministically corrects
+`relation_type` to `exact` for any untruncated, `COMPLETE` pair whose
+`semantic_diff.span_counts` shows zero `A_ONLY`/`B_ONLY` spans -- i.e. the
+visible text is objectively identical, per `fuzzy_pair_judge.yaml`'s own
+definition of `exact` -- since the judge sometimes returns `near_surface`
+for this instead (`_correct_identical_text_relation()`; corrected rows are
+flagged with `relation_type_corrected` in the disagreements output).
+
 `6_analyze_results.py` (step 6) buckets `relation_type` into a coarse
 duplicate/not_duplicate/unresolved verdict (`exact`/`canonical_exact`/
 `near_surface`/`containment` -> duplicate; `version_related`/

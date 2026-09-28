@@ -38,6 +38,9 @@ from nemo_curator.stages.deduplication.fuzzy.workflow import ID_GENERATOR_OUTPUT
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument("--ray-temp-dir", default="/tmp/ray", help="Ray temporary directory.")  # noqa: S108
+
     parser.add_argument("--input-path", type=str, required=True, help="Input directory of Parquet/JSONL files.")
     parser.add_argument(
         "--input-filetype", type=str, choices=["parquet", "jsonl"], default="jsonl", help="Input file type."
@@ -57,6 +60,7 @@ def _parse_args() -> argparse.Namespace:
         "3_build_pair_dataset.py reads '<output-dir>/FuzzyDuplicateIds/' and "
         f"'<output-dir>/{ID_GENERATOR_OUTPUT_FILENAME}'.",
     )
+
     parser.add_argument("--text-field", type=str, default="text", help="Field containing the text to deduplicate.")
     parser.add_argument("--input-blocksize", type=str, default="1GiB", help="Size of input blocks to read.")
     parser.add_argument(
@@ -75,6 +79,7 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Use 64-bit hash function (default: 32-bit).",
     )
+
     return parser.parse_args()
 
 
@@ -87,7 +92,7 @@ def main() -> None:
 
     input_file_extensions = [".parquet"] if args.input_filetype == "parquet" else [".jsonl", ".json"]
 
-    ray_client = RayClient()
+    ray_client = RayClient(ray_temp_dir=args.ray_temp_dir)
     ray_client.start()
     try:
         logger.info("Running fuzzy deduplication identification (no removal)...")

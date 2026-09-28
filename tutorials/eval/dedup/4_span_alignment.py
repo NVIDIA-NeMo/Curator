@@ -180,11 +180,20 @@ def _chunk_segments(  # noqa: PLR0913
         chunks = _chunk_token_range(tokens, tok_start, tok_end)
         for index, (chunk_start, chunk_end) in enumerate(chunks):
             start_char, end_char = tokens[chunk_start][0], tokens[chunk_end - 1][1]
+            delta_start_char, delta_end_char = start_char, end_char
             if index == 0:
                 start_char = max(0, start_char - _SPAN_CONTEXT_CHARS)
             if index == len(chunks) - 1:
                 end_char = min(visible_len, end_char + _SPAN_CONTEXT_CHARS)
-            raw_spans[kind].append({"start_char": start_char, "end_char": end_char, "text": text[start_char:end_char]})
+            raw_spans[kind].append(
+                {
+                    "start_char": start_char,
+                    "end_char": end_char,
+                    "text": text[start_char:end_char],
+                    "delta_start_char": delta_start_char,
+                    "delta_end_char": delta_end_char,
+                }
+            )
 
     counts = {kind: len(items) for kind, items in raw_spans.items()}
     complete = all(count <= _MAX_SPANS_PER_KIND for count in counts.values())
@@ -327,6 +336,9 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument("--ray-temp-dir", default="/tmp/ray", help="Ray temporary directory.")  # noqa: S108
+
     parser.add_argument(
         "--input-path",
         required=True,
@@ -336,13 +348,11 @@ def _parse_args() -> argparse.Namespace:
         "--output-path", required=True, help="Directory to write the span-aligned pairs JSONL files to."
     )
     parser.add_argument(
-        "--files-per-partition",
-        type=int,
-        default=1,
-        help="Raw pairs files grouped into each reader task, shared by TokenizerStage/SpanAlignmentStage/"
-        "SpanChunkingStage. Default 1 preserves 3_build_pair_dataset.py's --pairs-per-file sharding as the "
-        "parallelism unit for both this step and 5_run_llm_judge.py.",
+        "--checkpoint-path",
+        default=None,
+        help="Optional durable Curator checkpoint directory for this pipeline.",
     )
+
     parser.add_argument(
         "--max-visible-chars",
         type=int,
@@ -351,6 +361,7 @@ def _parse_args() -> argparse.Namespace:
         "judge_config/pair.jinja's truncation (currently also 6000) and stay within "
         "judge_config/fuzzy_pair_judge.yaml's max_model_len.",
     )
+
     return parser.parse_args()
 
 
@@ -360,7 +371,7 @@ def main() -> None:
         name="dedup_eval_span_alignment",
         description="Add semantic-diff span-alignment evidence to labeled pairs.",
         stages=[
-            JsonlReader(file_paths=args.input_path, files_per_partition=args.files_per_partition),
+            JsonlReader(file_paths=args.input_path, files_per_partition=1),
             TokenizerStage(max_chars=args.max_visible_chars),
             SpanAlignmentStage(),
             SpanChunkingStage(max_chars=args.max_visible_chars),
@@ -368,10 +379,10 @@ def main() -> None:
         ],
     )
 
-    ray_client = RayClient()
+    ray_client = RayClient(ray_temp_dir=args.ray_temp_dir)
     ray_client.start()
     try:
-        pipeline.run()
+        pipeline.run(checkpoint_path=args.checkpoint_path)
     finally:
         ray_client.stop()
 

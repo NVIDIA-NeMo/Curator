@@ -74,13 +74,14 @@ _PAIR_ROW_COLUMNS = [
 ]
 
 
-def _reassign_ids_to_parquet(
+def _reassign_ids_to_parquet(  # noqa: PLR0913
     *,
     input_path: str,
     input_filetype: str,
     input_blocksize: str,
     id_generator_path: str,
     cache_dir: Path,
+    ray_temp_dir: str,
 ) -> Path:
     """Re-read the corpus, reassigning fuzzy dedup's `_curator_dedup_id` values, into
     sharded Parquet under `cache_dir/CorpusWithIds/`."""
@@ -120,7 +121,7 @@ def _reassign_ids_to_parquet(
         ],
     )
 
-    ray_client = RayClient()
+    ray_client = RayClient(ray_temp_dir=ray_temp_dir)
     ray_client.start()
     try:
         create_id_generator_actor(id_generator_path)
@@ -396,6 +397,9 @@ def run_cross_group_strategy(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument("--ray-temp-dir", default="/tmp/ray", help="Ray temporary directory.")  # noqa: S108
+
     parser.add_argument("--input-path", required=True, help="Original corpus path. MUST match step 2.")
     parser.add_argument("--input-filetype", choices=["parquet", "jsonl"], default="jsonl", help="MUST match step 2.")
     parser.add_argument("--input-blocksize", default="1GiB", help="MUST match step 2.")
@@ -404,6 +408,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fuzzy-output-dir", required=True, help="Step 2's --output-dir.")
     parser.add_argument("--output-path", required=True, help="Directory for the raw pairs JSONL output.")
+
     parser.add_argument(
         "--pair-strategy",
         choices=_VALID_STRATEGIES,
@@ -424,6 +429,7 @@ def _parse_args() -> argparse.Namespace:
         help="Max pairs per output file. Only applies to 'cross_group_sample'; the other "
         "strategies are sharded by Ray Data instead (see README.md).",
     )
+
     return parser.parse_args()
 
 
@@ -439,6 +445,7 @@ def main() -> None:
         input_blocksize=args.input_blocksize,
         id_generator_path=id_generator_path,
         cache_dir=cache_dir,
+        ray_temp_dir=args.ray_temp_dir,
     )
 
     connected_components_dir = cache_dir / "ConnectedComponentsStage"
