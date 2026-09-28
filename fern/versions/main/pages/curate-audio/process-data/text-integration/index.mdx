@@ -79,6 +79,60 @@ The conversion preserves all fields from your audio processing pipeline:
 Field names and values are preserved exactly as they appear in the `AudioTask`. No data transformation or cleaning is performed during conversion.
 </Note>
 
+## Process Transcripts Before Conversion
+
+Use the audio transcript stages for cleanup and screening before you convert records to `DocumentBatch`. Add them to an existing audio pipeline that reads `AudioTask` records.
+
+| Stage | Behavior |
+| --- | --- |
+| `RegexSubstitutionStage` | Applies ordered regular-expression rules from a YAML list, then collapses whitespace. It writes an empty-result skip reason only when nonempty input becomes empty. |
+| `AbbreviationConcatStage` | Joins matched ASR-spelled letter sequences, such as `N V I D I A` to `NVIDIA`, in the selected language. |
+| `WhisperHallucinationStage` | Flags repeated words, long words, maintained corpus phrases, or a high character rate. It writes a `Hallucination:` value to `_skipme` and the matching checks to `additional_notes`. |
+| `SelectBestPredictionStage` | Selects a configured primary, fallback, or reference field according to policy. By default, it writes the text to `best_prediction` and the route to `best_prediction_source`. The selection does not measure transcription accuracy or make model output ground truth. |
+
+`WhisperHallucinationStage` is a lexical heuristic. A flag identifies a transcript for review or filtering. It does not prove that the transcript is factually wrong, and the stage does not drop the record. Existing non-hallucination skip reasons remain unchanged. With `overwrite=True`, a later clean transcript can clear an existing hallucination flag and write a recovery note. This re-check does not invoke ASR. Use a reference transcript or a second model when your workflow needs recovery.
+
+For this example, each manifest record includes `pred_text`, `duration`, `_skipme`, and `language`. `language` selects the language-aware long-word rule. The hallucination stage treats a missing language as empty. `AbbreviationConcatStage` defaults to `source_lang` and English. Set `source_lang_key="language"` to share the manifest language field. Refer to the maintained [hallucination pipeline configuration](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/pipeline.yaml) and [phrase corpus](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/phrases.txt) for the complete inputs.
+
+Add transcript stages to an existing pipeline as follows. Use absolute paths for the input YAML and hallucination phrase corpus:
+
+```python
+from nemo_curator.stages.audio.text_filtering import (
+    AbbreviationConcatStage,
+    RegexSubstitutionStage,
+    WhisperHallucinationStage,
+)
+
+pipeline.add_stage(
+    RegexSubstitutionStage(
+        regex_params_yaml="/data/config/transcript_rules.yaml",
+        text_key="pred_text",
+        output_text_key="pred_text",
+    )
+)
+pipeline.add_stage(
+    AbbreviationConcatStage(
+        text_key="pred_text",
+        output_text_key="pred_text",
+        source_lang_key="language",
+    )
+)
+pipeline.add_stage(
+    WhisperHallucinationStage(
+        common_hall_file="/data/config/whisper_hallucination/phrases.txt",
+        language_key="language",
+    )
+)
+```
+
+The regex file is a YAML list. Rules run in file order:
+
+```yaml
+- pattern: "[.]{2,}"
+  repl: "."
+  count: 1
+```
+
 ## Integration in Pipelines
 
 ### Complete Audio Processing with Export
@@ -143,7 +197,7 @@ pipeline.run(executor)
 
 ## Custom Integration
 
-While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, and so on) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
+While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, the transcript stages in [Process Transcripts Before Conversion](#process-transcripts-before-conversion) handle common ASR cleanup and screening on `AudioTask` records. Implement a custom stage on the converted `DocumentBatch` data for transformations outside those stages.
 
 ### Example: Custom Text Processing
 
