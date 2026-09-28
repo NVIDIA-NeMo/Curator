@@ -150,3 +150,132 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--dpi` | 300 | PDF rendering resolution |
 | `--max-pages` | 50 | Max pages per PDF |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
+
+## Extract with NeMo Retriever Library (experimental)
+
+The [`nrl_lance.py`](nrl_lance.py) recipe runs Nemotron-Parse through
+[NeMo Retriever Library](https://github.com/NVIDIA/NeMo-Retriever) (NRL) and
+hands the parsed elements to native Curator stages through a Lance dataset. It
+extracts elements only; it does not chunk, embed, or index content.
+
+NRL and Curator pin different GPU stacks, so the two commands run in separate
+environments:
+
+| Command | Environment | Work |
+|---------|-------------|------|
+| `ingest` | NRL, with a GPU visible to Ray | Deduplicate PDFs, run NRL's PDF graph with Nemotron-Parse v1.2, validate every page, and write the `pdf_elements` Lance table |
+| `consume` | Curator, CPU only | Read the pinned Lance version with `InterleavedLanceReader`, decode every image, write Parquet, reconcile it with the source, and publish completion |
+
+**Requirements:**
+
+- An NRL release that records `raw_output` in the `nemotron_parse_v1_2` page
+  metadata, installed with its local vLLM dependencies. `ingest` fails when Ray
+  cannot see a GPU; it never falls back to a remote endpoint.
+- A Curator environment with the Lance and OpenCV extras:
+
+```bash
+uv sync --extra interleaved_cpu --extra lance --extra cv2
+```
+
+**Inputs:** pass `--input-dir` to process every PDF under a directory, or
+`--manifest` with one JSON object per line:
+
+```json
+{"path": "pdfs/report.pdf", "url": "https://example.com/report.pdf", "valid_blank_pages": [3]}
+```
+
+`path` may be relative to the manifest, and symlinks are resolved. `url` and
+`valid_blank_pages` are optional, and page numbers are zero-based. Byte-identical
+PDFs are parsed once and recorded as aliases of one document.
+
+**Run:**
+
+```bash
+# NRL environment
+python tutorials/interleaved/nemotron_parse_pdf/nrl_lance.py ingest \
+    --manifest manifest.jsonl \
+    --output-root /path/to/runs \
+    --run-id run-001
+
+# Curator environment
+python tutorials/interleaved/nemotron_parse_pdf/nrl_lance.py consume \
+    --handoff-manifest /path/to/runs/run-001/handoff_manifest.json \
+    --output-dir /path/to/export
+```
+
+`ingest` writes `run-001/pdf_elements.lance` and, after validating the stored
+table, a sealed `handoff_manifest.json`. `consume` writes Parquet and a sealed
+`consume_validation.json` to the fresh output directory, then creates
+`completion_manifest.json` in the run directory. The completion manifest is the
+only signal that a run is published.
+
+`ingest` scheduling flags tune Ray without changing extraction or adding Parse
+replicas: `--parse-batch-size` (pages per Parse batch, default 64),
+`--parse-cpus` (CPUs reserved for the Parse actor, default 1),
+`--projection-workers` (CPU projection actors, 1 to 8, default 8), and
+`--projection-block-rows` (page rows per block before projection).
+
+### Page outcomes
+
+Each page is published whole or not at all. A page fails when NRL reports an
+error for it, including a vLLM finish reason other than `stop`, when the model
+response contains anything outside complete elements, or when a `Picture` crop
+cannot be produced. An empty response counts as blank only on pages listed in
+`valid_blank_pages`; otherwise the page fails with `unexpected_empty_output`.
+
+A document is `success` or `valid_blank` when every page validates, `partial`
+when some pages fail, and `failed` when none validate. Failed documents produce
+no rows. Each document's metadata row records its `extraction_status`,
+`page_outcomes`, and issues, so the export carries its own coverage. These
+statuses describe structural validation, not extraction accuracy.
+
+Run directories, Lance versions, and output directories are never reused. Retry
+a failed `ingest` with a new `--run-id`, and a failed `consume` with the same
+handoff and a new `--output-dir`.
+
+### `pdf_elements` schema
+
+The table extends the interleaved schema with provenance columns:
+
+| Column | Description |
+|--------|-------------|
+| `sample_id` | SHA-256 of the PDF bytes |
+| `position` | `-1` for the metadata row, then document-wide element order |
+| `modality` | `metadata`, `text`, `table`, or `image` |
+| `content_type` | `application/json`, `text/markdown`, or `image/png` |
+| `text_content` | Metadata JSON, element text, or model-native table markup |
+| `binary_content` | Inline PNG bytes for `image` rows |
+| `source_ref`, `materialize_error` | Always null |
+| `url` | Source URL from the manifest |
+| `page_number` | Zero-based source page; null for the metadata row |
+| `pdf_name`, `source_path`, `source_aliases` | Representative file name and path, and every byte-identical alias |
+| `element_class` | Nemotron-Parse class, such as `Text`, `Table`, or `Picture` |
+| `content_sha256` | Same digest as `sample_id` |
+| `bbox_xyxy_norm`, `bbox_coordinate_space` | Element box, normalized to Nemotron-Parse's 1664x2048 padded canvas |
+| `run_id` | Ingest run identifier |
+
+`Picture` maps to `image`, `Table` to `table`, and every other class, including
+`Chart` and `Infographic`, to `text`, matching the native postprocessor.
+
+### Limitations
+
+- Each `ingest` runs one Nemotron-Parse model on one GPU.
+- `ingest` collects every parsed element, including picture crops, in the
+  driver before writing Lance, so memory grows with the input. Split large
+  corpora across runs.
+- NRL renders pages at 200 DPI and the native pipeline at 300 DPI by default,
+  so the two paths do not produce identical output.
+
+### Tests
+
+The recipe tests run in both environments:
+
+```bash
+# Curator environment; the NRL graph tests are skipped
+pytest tests/tutorials -m "not gpu"
+
+# NRL environment
+pytest tests/tutorials/interleaved/nemotron_parse_pdf/test_nrl_graph.py \
+    tests/tutorials/interleaved/nemotron_parse_pdf/test_nrl_lance_contract.py \
+    --confcutdir=tests/tutorials/interleaved/nemotron_parse_pdf
+```
