@@ -88,11 +88,15 @@ Use the audio transcript stages for cleanup and screening before you convert rec
 | `RegexSubstitutionStage` | Applies ordered regular-expression rules from a YAML list, then collapses whitespace. It writes an empty-result skip reason only when nonempty input becomes empty. |
 | `AbbreviationConcatStage` | Joins matched ASR-spelled letter sequences, such as `N V I D I A` to `NVIDIA`, in the selected language. |
 | `WhisperHallucinationStage` | Flags repeated words, long words, maintained corpus phrases, or a high character rate. It writes a `Hallucination:` value to `_skipme` and the matching checks to `additional_notes`. |
-| `SelectBestPredictionStage` | Selects a configured primary, fallback, or reference field according to policy. By default, it writes the text to `best_prediction` and the route to `best_prediction_source`. The selection does not measure transcription accuracy or make model output ground truth. |
+| `SelectBestPredictionStage` | Selects a configured primary, fallback, or reference field according to policy. By default, it reads the key `primary_model_prediction` (set `primary_text_key="pred_text"` to read a standard ASR prediction field instead), and writes the text to `best_prediction` and the route to `best_prediction_source`. The selection does not measure transcription accuracy or make model output ground truth. |
 
 `WhisperHallucinationStage` is a lexical heuristic. A flag identifies a transcript for review or filtering. It does not prove that the transcript is factually wrong, and the stage does not drop the record. Existing non-hallucination skip reasons remain unchanged. With `overwrite=True`, a later clean transcript can clear an existing hallucination flag and write a recovery note. This re-check does not invoke ASR. Use a reference transcript or a second model when your workflow needs recovery.
 
-For this example, each manifest record includes `pred_text`, `duration`, `_skipme`, and `language`. `language` selects the language-aware long-word rule. The hallucination stage treats a missing language as empty. `AbbreviationConcatStage` defaults to `source_lang` and English. Set `source_lang_key="language"` to share the manifest language field. Refer to the maintained [hallucination pipeline configuration](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/pipeline.yaml) and [phrase corpus](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/phrases.txt) for the complete inputs.
+For this example, each manifest record includes `pred_text`, `duration`, `_skipme`, and `language`. `language` selects the language-aware long-word rule: for agglutinative and compounding languages such as Finnish, Turkish, and Estonian, the long-word threshold is raised to 35 characters and relative-length comparison is used. The hallucination stage treats a missing language as empty; other checks such as repeated-word detection apply regardless of language. `AbbreviationConcatStage` defaults to `source_lang` and English. Set `source_lang_key="language"` to share the manifest language field. Refer to the maintained [hallucination pipeline configuration](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/pipeline.yaml) and [phrase corpus](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/phrases.txt) for the complete inputs.
+
+<Warning>
+If your pipeline already calculates WER with `GetPairwiseWerStage`, position these cleanup stages **before** WER calculation. Running cleanup after WER is calculated leaves the stored metric disagreeing with the cleaned transcript.
+</Warning>
 
 Add transcript stages to an existing pipeline as follows. Use absolute paths for the input YAML and hallucination phrase corpus:
 
@@ -143,7 +147,7 @@ The most common use case is adding `AudioToDocumentStage` at the end of your aud
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -161,10 +165,13 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 ).with_(batch_size=8))
 
 # 2. Run ASR inference
-pipeline.add_stage(InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
-    pred_text_key="pred_text"
-).with_(resources=Resources(gpus=1.0)))
+pipeline.add_stage(ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    pred_text_key="pred_text",
+    batch_size=16,
+    resources=Resources(gpus=1.0),
+))
 
 # 3. Calculate quality metrics
 pipeline.add_stage(GetPairwiseWerStage(
