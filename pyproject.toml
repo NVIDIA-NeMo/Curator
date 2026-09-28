@@ -57,10 +57,8 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna==0.2.0",
-    # The shared bounds span the normal locked stack and Canary's older exact
-    # pins; the mutually exclusive audio_canary_trtllm fork selects the latter.
-    "datasets>=3.1.0,<5.0.0",
-    "fsspec>=2024.9.0,<2026.4.0",
+    "datasets>=4.0.0",
+    "fsspec",
     "hydra-core",
     "jieba==0.42.1",
     "lmdb>=1.4",
@@ -111,10 +109,9 @@ deduplication_cuda12 = [
 
 audio_common = [
     # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
-    "nemo_toolkit[asr]>=2.7.2,<3.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",
-    "torchvision",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "onnx>=1.19.0",
     "silero-vad",
@@ -150,6 +147,7 @@ audio_cuda12 = [
 audio_tensorrt = [
     "nemo_curator[audio_cuda12]",
     "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "uv>=0.12,<0.13; platform_machine == 'x86_64' and platform_system == 'Linux'",
 ]
 
 # Indic Canary uses the TensorRT-LLM 1.2.1 CUDA-13/TensorRT-10.14 dependency
@@ -397,11 +395,6 @@ conflicts = [
     [{ extra = "audio_canary_trtllm" }, { extra = "all" }],
     [{ extra = "audio_canary_trtllm" }, { group = "test" }],
 ]
-exclude-dependencies = [
-    # Curator already owns the Torch ABI. WhisperX's narrow upper bounds lag
-    # the CUDA 12/vLLM stack; the packages remain direct audio/base deps.
-    { package = { name = "whisperx" }, dependencies = ["torch", "torchaudio", "torchvision"] },
-]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
@@ -413,19 +406,38 @@ constraint-dependencies = [
     "pyopenssl>=26.0.0", # Address CVE GHSA-5pwr-322w-8jr4
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
-    # Bound the two supported Torch ABI families: normal CUDA 12 resolves the
-    # upper end, while the mutually exclusive Canary profile pins the lower.
-    "torch>=2.9.1,<=2.11.0",
-    "torchaudio>=2.9.1,<=2.11.0",
-    "torchvision>=0.24.1,<=0.26.0",
+    # Keep the regular resolver fork on Curator's existing dependency family.
+    # These constraints switch off only in the supported Canary extra fork.
+    "datasets>=4.0.0; extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux'",
+    "datasets==3.1.0; extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "fsspec>=2025.3.0; extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux'",
+    "pandas>=3.0.0,<=3.0.4; extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux'",
+    "pyarrow>=19,<24; extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux'",
+    "setuptools>=80.10.1; extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux'",
+    "torch==2.11.0+cu129; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')",
+    "torchaudio==2.11.0+cu129; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')",
+    "torchvision==0.26.0+cu129; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')",
+    # The global Linux-only overrides below intentionally erase dependency
+    # version specifiers, so restore Canary's exact ABI in its resolver fork.
+    "torch==2.9.1+cu128; extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchaudio==2.9.1+cu128; extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchvision==0.24.1+cu128; extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wandb>=0.30.0", # prebuilt wandb-core ships patched Go and dependency versions
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
-    # Keep the existing RAPIDS-compatible Arrow range for Data Designer without
-    # globally overriding Canary's independent pyarrow==25.0.1 profile.
+    # Let the mutually exclusive resolver forks select Curator's regular
+    # datasets family or TensorRT-LLM's exact older dependency.
+    "datasets>=3.1.0",
+    # Preserve main's Linux-only Torch-family behavior. These marker-only overrides
+    # also suppress transitive Torch edges on unsupported host platforms.
+    "torch; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "torchaudio; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "torchvision; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    # Preserve main's dependency substitutions in regular resolver forks while
+    # leaving the mutually exclusive Canary fork free to honor its exact pins.
     { package = { name = "data-designer", version = "0.9.1" }, dependencies = ["pandas>=3.0.0,<=3.0.4", "pyarrow>=19,<24"] },
     { package = { name = "data-designer-config", version = "0.9.1" }, dependencies = ["pandas>=3.0.0,<=3.0.4", "pyarrow>=19,<24"] },
     { package = { name = "data-designer-engine", version = "0.9.1" }, dependencies = ["fsspec>=2025.3.0", "pandas>=3.0.0,<=3.0.4", "pyarrow>=19,<24"] },
@@ -433,7 +445,9 @@ override-dependencies = [
     { package = { name = "lightning", version = "2.4.0" }, dependencies = ["fsspec>=2025.3.0"] },
     { package = { name = "nemo-toolkit" }, dependencies = ["fsspec>=2025.3.0"] },
     { package = { name = "s3fs", version = "2024.12.0" }, dependencies = ["fsspec>=2025.3.0"] },
-    { package = { name = "vllm" }, dependencies = ["xgrammar>=0.1.32"] },
+    { package = { name = "torch", version = "2.11.0" }, dependencies = ["setuptools>=80.10.1"] },
+    { package = { name = "torch", version = "2.11.0+cu129" }, dependencies = ["setuptools>=80.10.1"] },
+    { package = { name = "vllm" }, dependencies = ["setuptools>=80.10.1", "xgrammar>=0.1.32"] },
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Overrides Transformers' <1 cap and data-designer==0.9.1's >=1.0.1 requirement
@@ -445,6 +459,9 @@ override-dependencies = [
     "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "cryptography>=50.0.1", # Override data-designer==0.9.1's 49.0.0 pin
+    # Preserve the existing lock's effective audio_tensorrt plan: its legacy
+    # child-runtime uv dependency was metadata-only and never installed.
+    "uv; sys_platform == 'never'",
 ]
 
 
@@ -455,7 +472,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl"
+url = "https://download.pytorch.org/whl/cu129"
 explicit = true
 
 [[tool.uv.index]]
@@ -470,15 +487,18 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchaudio = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchvision = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.24.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "extra == 'audio_canary_trtllm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'audio_canary_trtllm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchcodec = [
