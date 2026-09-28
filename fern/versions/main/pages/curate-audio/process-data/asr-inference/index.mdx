@@ -46,6 +46,9 @@ asr = ASRStage(
     audio_filepath_key="audio_filepath",
     pred_text_key="pred_text",
     batch_size=16,
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
     resources=Resources(gpus=1.0),
 )
 ```
@@ -56,11 +59,12 @@ the number of GPUs each worker receives.
 
 ## Provide Input Audio
 
-Each `AudioTask` must provide an audio path under the key configured by
-`audio_filepath_key`. The default key is `resampled_audio_filepath`, so place a
-`ResampleAudioStage` before `ASRStage`, or point the stage at an existing audio
-path. The stage loads audio for the current batch and normalizes it to mono at
-`target_sample_rate` (16 kHz by default) before inference.
+For file-based input, each `AudioTask` must provide an audio path under the key
+configured by `audio_filepath_key`. The default key is `resampled_audio_filepath`,
+so place a `ResampleAudioStage` before `ASRStage`, or point the stage at an
+existing audio path. Alternatively, set `waveform_key` and provide an in-memory
+waveform with its sample rate under `sample_rate_key`. The stage normalizes input
+audio to mono at `target_sample_rate` (16 kHz by default) before inference.
 
 For manifest pipelines, each JSONL row can contain an audio path and optional
 language metadata:
@@ -76,10 +80,12 @@ language skip reason instead of being sent to the adapter.
 
 ## Read Output
 
-The stage preserves input fields and writes the transcript to `pred_text_key`,
+The stage preserves input metadata and writes the transcript to `pred_text_key`,
 which defaults to `pred_text`. Set `extras_key` to store adapter-specific
-serializable metadata in one nested field. The stage can also write these
-control fields:
+serializable metadata in one nested field. When using waveform input, the stage
+removes the waveform key after inference by default; set `keep_waveform=True`
+when a downstream stage still needs the resident audio. The stage can also write
+these control fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -97,6 +103,11 @@ Model loading and adapter inference errors propagate to the pipeline. Inspect
 ## Tune Batching and Resources
 
 Set `batch_size` to control how many tasks the executor sends to one adapter
-call. Start with the tutorial value, then reduce it when the model exceeds GPU
-memory. Use the tutorial's documented CPU configuration when the selected
-adapter supports CPU inference.
+call, and `max_audio_sec_per_actor` to cap the total padded audio seconds per
+call. The stage segments rows at `max_inference_duration_s` and packs the
+resulting segments within the `max_audio_sec_per_actor` budget. Start with the
+tutorial values, then reduce `batch_size` or `max_audio_sec_per_actor` when the
+model exceeds GPU memory. The stage does not split an individual recording, so a
+long file can still exceed memory at batch size one; in that case, chunk the
+recording manually before running the pipeline. Use the tutorial's documented
+CPU configuration when the selected adapter supports CPU inference.
