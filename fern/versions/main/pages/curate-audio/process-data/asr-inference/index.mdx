@@ -1,7 +1,7 @@
 ---
-description: "Perform automatic speech recognition using NeMo Framework models with GPU acceleration and batch processing"
+description: "Run automatic speech recognition with Curator audio adapters"
 categories: ["audio-processing"]
-tags: ["asr-inference", "nemo-models", "speech-recognition", "gpu-accelerated", "batch-processing"]
+tags: ["asr-inference", "speech-recognition", "audio-adapters"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -10,206 +10,93 @@ modality: "audio-only"
 
 # ASR Inference
 
-Perform automatic speech recognition (ASR) on audio files using NeMo Framework models. The ASR inference stage transcribes audio into text, enabling downstream quality assessment and text processing workflows.
+Use `ASRStage` to transcribe audio with a supported model adapter.
 
-## How it Works
+## Choose an Adapter
 
-The `InferenceAsrNemoStage` processes `AudioTask` objects by:
+The maintained tutorials show complete manifest-to-transcript pipelines for
+these adapters:
 
-1. **Input Validation**: Verifies required attributes and data structure
-2. **Model Loading**: Downloads and initializes NeMo ASR models on GPU or CPU
-3. **Batch Processing**: Groups audio files for efficient inference
-4. **Transcription**: Generates text predictions for each audio file
-5. **Output Creation**: Returns `AudioTask` with original data plus predicted transcriptions
+| Adapter | Use When | Tutorial |
+| --- | --- | --- |
+| `NeMoASRAdapter` | You need an NVIDIA NeMo FastConformer checkpoint. | [NeMo FastConformer ASR tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/nemo_fastconformer) |
+| `QwenASRAdapter` | You need Qwen3-ASR transcription with language routing. | [Qwen3-ASR adapter tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/qwen_asr) |
+| `QwenOmniASRAdapter` | You need Qwen3-Omni in-process inference. | [Qwen3-Omni in-process ASR tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/qwen_omni_inprocess) |
+| `FasterWhisperASR` | You need Faster-Whisper Large-v3 transcription. | [Faster-Whisper adapter tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/faster_whisper) |
 
-## Basic Usage
+Each tutorial includes its optional dependencies, executor settings, model
+defaults, and a runnable command. The examples use GPU inference unless the
+tutorial documents a CPU option.
 
-### Simple ASR Inference
+Refer to [NeMo ASR models](/curate-audio/process-data/asr-inference/nemo-models)
+for the NeMo model catalog and model-specific guidance.
+
+## Configure the Stage
+
+Set `adapter_target` to the adapter import path and `model_id` to the model
+checkpoint. The following example shows the shared stage interface:
 
 ```python
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
-# Create ASR inference stage
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
-    filepath_key="audio_filepath",
-    pred_text_key="pred_text"
-)
-
-# Configure for GPU processing
-asr_stage = asr_stage.with_(
+asr = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_ctc_large",
+    audio_filepath_key="audio_filepath",
+    pred_text_key="pred_text",
+    batch_size=16,
     resources=Resources(gpus=1.0),
-    batch_size=16
 )
 ```
 
-### Multilingual ASR
+Use the adapter-specific tutorial when you need `adapter_kwargs`. Those
+settings stay with the adapter that implements them. Set `resources.gpus` to
+the number of GPUs each worker receives.
 
-```python
-# Use language-specific models
-language_models = {
-    "en_us": "nvidia/stt_en_fastconformer_hybrid_large_pc",
-    "es_419": "nvidia/stt_es_fastconformer_hybrid_large_pc",
-    "hy_am": "nvidia/stt_hy_fastconformer_hybrid_large_pc",
-}
+## Provide Input Audio
 
-# Create stage for Armenian
-armenian_asr = InferenceAsrNemoStage(
-    model_name=language_models["hy_am"]
-)
+Each `AudioTask` must provide an audio path under the key configured by
+`audio_filepath_key`. The default key is `resampled_audio_filepath`, so place a
+`ResampleAudioStage` before `ASRStage`, or point the stage at an existing audio
+path. The stage loads audio for the current batch and normalizes it to mono at
+`target_sample_rate` (16 kHz by default) before inference.
+
+For manifest pipelines, each JSONL row can contain an audio path and optional
+language metadata:
+
+```json
+{"audio_filepath": "/data/sample.wav", "source_lang": "en"}
 ```
 
-## Configuration Options
+Set `source_lang_key` to use another language field. Set `default_language`
+when rows do not contain language metadata. If you set
+`supported_language_codes`, rows outside that list remain in the output with a
+language skip reason instead of being sent to the adapter.
 
-### Model Selection
+## Read Output
 
-NeMo Framework provides ready-to-use ASR models for several languages and domains:
+The stage preserves input fields and writes the transcript to `pred_text_key`,
+which defaults to `pred_text`. Set `extras_key` to store adapter-specific
+serializable metadata in one nested field. The stage can also write these
+control fields:
 
-```python
-# Domain-specific models
-models = {
-    "general": "nvidia/stt_en_fastconformer_hybrid_large_pc",
-    "telephony": "nvidia/stt_en_fastconformer_telephony_large",
-    "streaming": "nvidia/stt_en_fastconformer_streaming_large",
-}
-```
+| Field | Meaning |
+| --- | --- |
+| `pred_text` | Transcript text; skipped results can contain an empty string. |
+| `_skipme` | Machine-readable reason for a skipped row. |
+| `additional_notes` | Additional stage or adapter diagnostics. |
+| Configured `extras_key` | Adapter-specific metadata when the adapter returns it. |
 
-### Resource Configuration
+Skipped results remain in the output with `_skipme`. By default, an unreadable
+audio file receives an `audio_load_error` skip reason; set
+`fail_on_audio_error` to `True` when that audio error must fail the pipeline.
+Model loading and adapter inference errors propagate to the pipeline. Inspect
+`_skipme` and `additional_notes` before consuming the output manifest.
 
-```python
-from nemo_curator.stages.resources import Resources
+## Tune Batching and Resources
 
-# GPU configuration
-asr_stage = asr_stage.with_(
-    resources=Resources(
-        gpus=1.0,           # Number of GPUs (multi-GPU aware stages)
-        cpus=4.0            # CPU cores
-    )
-)
-
-# Alternatively, request fractional single-GPU memory (do not combine with gpus):
-# asr_stage = asr_stage.with_(resources=Resources(cpus=4.0, gpu_memory_gb=16.0))
-```
-
-### Batch Processing
-
-```python
-# Optimize batch size based on GPU memory
-asr_stage = asr_stage.with_(
-    batch_size=32  # Larger batches improve GPU utilization
-)
-```
-
-<Note>
-`batch_size` controls the number of tasks the executor groups per call. The ASR stage defines `process_batch()` as its canonical method — the executor groups tasks by `batch_size` before calling it.
-
-Within a single `AudioTask`, `process_batch()` transcribes the audio file path.
-</Note>
-
-## Input Requirements
-
-### AudioTask Format
-
-Data loading stages create input `AudioTask` objects that must contain:
-
-```python
-# AudioTask's data object structure (created automatically by loading stages)
-# Each item in the batch contains:
-{
-    "audio_filepath": "/path/to/audio1.wav",
-    # Optional: existing metadata
-    "duration": 5.2,
-    "language": "en"
-}
-```
-
-### Audio File Requirements
-
-- **Supported Formats**: Determined by the selected NeMo ASR model; refer to the NeMo ASR documentation.
-- **Sample Rates**: Typically 16 kHz; refer to the model card for details.
-- **Channels**: Mono or stereo; channel handling (for example, down-mixing) depends on the model.
-- **Duration**: Long files can require manual chunking before inference.
-
-## Output Structure
-
-The ASR stage adds predicted transcriptions to each audio sample:
-
-```python
-# Output AudioTask's data object structure
-{
-    "audio_filepath": "/path/to/audio1.wav",
-    "pred_text": "this is the predicted transcription",
-    "duration": 5.2,  # Preserved from input
-    "language": "en"  # Preserved from input
-}
-```
-
-## Error Handling
-
-### Model Loading Errors
-
-```python
-try:
-    asr_stage.setup()
-except RuntimeError as e:
-    print(f"Failed to load ASR model: {e}")
-    # Fallback to CPU or different model
-```
-
-### Processing Errors
-
-Processing behavior:
-
-- **Input structure validation**: The stage uses `validate_input()` to check required attributes/columns and raises `ValueError` if they are missing.
-- **Model loading failures**: `setup()` raises `RuntimeError` if model download or initialization fails.
-- **No automatic retries or auto-tuning**: The stage does not perform automatic batch size reduction or network retries.
-- **Missing files**: `AudioTask.validate()` can log file-existence warnings when code creates tasks; the stage does not auto-skip files.
-
-## Performance Optimization
-
-### GPU Memory Management
-
-```python
-# For large models or limited GPU memory
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
-).with_(
-    batch_size=8,  # Reduce batch size
-    resources=Resources(gpus=0.5)  # Share GPU resources
-)
-```
-
-### Distributed Processing
-
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-
-# Configure executor (refer to Pipeline Execution Backends)
-executor = XennaExecutor(
-    config={
-        "execution_mode": "streaming",
-        "logging_interval": 60,
-        "ignore_failures": False
-    }
-)
-```
-
-## Integration Examples
-
-### Complete Audio-to-Text Pipeline
-
-```python
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-
-pipeline = Pipeline(name="audio_to_text")
-
-# ASR inference
-pipeline.add_stage(asr_stage)
-
-# Convert to text format
-pipeline.add_stage(AudioToDocumentStage())
-
-# Continue with text processing...
-```
+Set `batch_size` to control how many tasks the executor sends to one adapter
+call. Start with the tutorial value, then reduce it when the model exceeds GPU
+memory. Use the tutorial's documented CPU configuration when the selected
+adapter supports CPU inference.
