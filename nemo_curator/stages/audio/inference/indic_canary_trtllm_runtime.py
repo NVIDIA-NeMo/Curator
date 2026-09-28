@@ -43,9 +43,12 @@ The engine directory layout it expects (produced by the example's
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+import platform
 import re
+import sys
 from collections import OrderedDict
 from pathlib import Path
 from string import punctuation
@@ -64,6 +67,39 @@ ModelRunnerCpp: Any = None
 Session: Any = None
 TensorInfo: Any = None
 _TRTLLM_IMPORT_ERROR: ImportError | None = None
+_NATIVE_LIBRARY_HANDLES: list[Any] = []
+_NATIVE_RUNTIME_PREPARED = False
+
+
+def _prepare_tensorrt_llm_native_runtime() -> None:
+    """Expose wheel-bundled CUDA 13, TensorRT, and OpenMPI libraries."""
+    global _NATIVE_RUNTIME_PREPARED  # noqa: PLW0603
+
+    if _NATIVE_RUNTIME_PREPARED or sys.platform != "linux" or platform.machine() != "x86_64":
+        return
+
+    prefix = Path(sys.prefix)
+    if (prefix / "share/openmpi").is_dir():
+        # The openmpi wheel retains its build-time /opt/openmpi prefix. Point
+        # OpenMPI at the active Curator environment before mpi4py initializes.
+        os.environ.setdefault("OPAL_PREFIX", str(prefix))
+
+    site_packages = Path(torch.__file__).resolve().parent.parent
+    native_libraries = (
+        site_packages / "nvidia/cu13/lib/libcudart.so.13",
+        site_packages / "nvidia/cu13/lib/libnvrtc-builtins.so.13.3",
+        site_packages / "nvidia/cu13/lib/libnvrtc.so.13",
+        site_packages / "nvidia/cu13/lib/libcublasLt.so.13",
+        site_packages / "nvidia/cu13/lib/libcublas.so.13",
+        site_packages / "nvidia/nccl/lib/libnccl.so.2",
+        site_packages / "tensorrt_libs/libnvinfer.so.10",
+        site_packages / "tensorrt_libs/libnvinfer_plugin.so.10",
+    )
+    for library in native_libraries:
+        if library.is_file():
+            _NATIVE_LIBRARY_HANDLES.append(ctypes.CDLL(str(library), mode=ctypes.RTLD_GLOBAL))
+
+    _NATIVE_RUNTIME_PREPARED = True
 
 
 def _require_tensorrt_llm() -> None:
@@ -75,6 +111,7 @@ def _require_tensorrt_llm() -> None:
         return
     if _TRTLLM_IMPORT_ERROR is None:
         try:
+            _prepare_tensorrt_llm_native_runtime()
             import tensorrt as trt_module
             import tensorrt_llm as tensorrt_llm_module
             from tensorrt_llm._utils import str_dtype_to_torch as str_dtype_to_torch_fn
@@ -83,8 +120,8 @@ def _require_tensorrt_llm() -> None:
             from tensorrt_llm.runtime import ModelRunnerCpp as ModelRunnerCppImport
             from tensorrt_llm.runtime.session import Session as SessionImport
             from tensorrt_llm.runtime.session import TensorInfo as TensorInfoImport
-        except ImportError as exc:  # pragma: no cover - runtime-only optional dependency
-            _TRTLLM_IMPORT_ERROR = exc
+        except (ImportError, OSError) as exc:  # pragma: no cover - runtime-only optional dependency
+            _TRTLLM_IMPORT_ERROR = ImportError(str(exc))
         else:
             trt = trt_module
             tensorrt_llm = tensorrt_llm_module
@@ -96,14 +133,14 @@ def _require_tensorrt_llm() -> None:
             TensorInfo = TensorInfoImport
             return
 
-    # TensorRT-LLM is intentionally NOT in Curator's main uv.lock: its native
-    # CUDA/Torch ABI conflicts with Curator's shared environment. It belongs in
-    # the separately locked worker runtime provisioned by the audio_tensorrt extra.
+    # The Canary stack is deliberately a mutually exclusive root profile. It
+    # cannot be combined with audio_cuda12/audio_tensorrt in one environment.
     msg = (
-        "tensorrt_llm is missing from the isolated Indic Canary runtime. "
-        "Install `nemo_curator[audio_tensorrt]`, then provision the locked runtime with:\n"
-        "    python -m nemo_curator.stages.audio.inference.scripts."
-        "install_indic_canary_trtllm_runtime"
+        "tensorrt_llm is required for the Indic Canary ASR runtime but could "
+        "not be loaded. Create the dedicated Curator profile with CPython 3.12 on "
+        "Linux x86_64:\n"
+        "    uv sync --python 3.12 --extra audio_canary_trtllm --no-default-groups\n"
+        "Do not combine audio_canary_trtllm with audio_cuda12 or audio_tensorrt."
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 

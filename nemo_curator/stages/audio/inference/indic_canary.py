@@ -32,7 +32,12 @@ _ADAPTER_TARGET = "nemo_curator.models.asr.indic_canary.IndicCanaryTRTLLMASR"
 
 @dataclass
 class InferenceIndicCanaryStage(ASRStage):
-    """Transcribe Indic audio with an existing Canary TensorRT-LLM engine."""
+    """Transcribe Indic audio with an existing Canary TensorRT-LLM engine.
+
+    Run this stage from the mutually exclusive ``audio_canary_trtllm``
+    environment profile. TensorRT-LLM is loaded directly in the Curator worker;
+    no nested Python runtime or inference subprocess is created.
+    """
 
     adapter_target: str = field(default=_ADAPTER_TARGET, init=False, repr=False)
     engine_dir: str = ""
@@ -44,8 +49,6 @@ class InferenceIndicCanaryStage(ASRStage):
     min_duration_sec: float = 0.5
     kv_cache_free_gpu_memory_fraction: float = 0.2
     cross_kv_cache_fraction: float = 0.2
-    runtime_python: str | None = None
-    runtime_startup_timeout_sec: float = 600.0
     source_lang_key: str = "source_lang"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
@@ -88,8 +91,6 @@ class InferenceIndicCanaryStage(ASRStage):
             "min_duration_sec": self.min_duration_sec,
             "kv_cache_free_gpu_memory_fraction": self.kv_cache_free_gpu_memory_fraction,
             "cross_kv_cache_fraction": self.cross_kv_cache_fraction,
-            "runtime_python": self.runtime_python,
-            "runtime_startup_timeout_sec": self.runtime_startup_timeout_sec,
         }
         super().__post_init__()
 

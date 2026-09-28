@@ -24,10 +24,6 @@ include = [
 
 [tool.setuptools.package-data]
 "nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
-"nemo_curator.stages.audio.inference" = [
-    "runtimes/indic_canary_trtllm/pyproject.toml",
-    "runtimes/indic_canary_trtllm/uv.lock",
-]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
@@ -61,8 +57,10 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna==0.2.0",
-    "datasets>=4.0.0",
-    "fsspec",
+    # The shared bounds span the normal locked stack and Canary's older exact
+    # pins; the mutually exclusive audio_canary_trtllm fork selects the latter.
+    "datasets>=3.1.0,<5.0.0",
+    "fsspec>=2024.9.0,<2026.4.0",
     "hydra-core",
     "jieba==0.42.1",
     "lmdb>=1.4",
@@ -113,9 +111,10 @@ deduplication_cuda12 = [
 
 audio_common = [
     # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
-    "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "nemo_toolkit[asr]>=2.7.2,<3.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",
+    "torchvision",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "onnx>=1.19.0",
     "silero-vad",
@@ -146,18 +145,47 @@ audio_cuda12 = [
     "torchlibrosa>=0.1.0",
 ]
 
-# TensorRT audio inference. TensorRT-LLM itself is deliberately kept out of
-# Curator's environment: Indic Canary runs in the independently locked runtime
-# shipped with the stage because its Python/CUDA/Torch ABI conflicts with main.
+# TensorRT audio inference for the regular CUDA 12 stack. Indic Canary's
+# incompatible TensorRT-LLM stack is selected separately below.
 audio_tensorrt = [
     "nemo_curator[audio_cuda12]",
     "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
-    "uv>=0.12,<0.13; platform_machine == 'x86_64' and platform_system == 'Linux'",
+]
+
+# Indic Canary uses the TensorRT-LLM 1.2.1 CUDA-13/TensorRT-10.14 dependency
+# family. It is a complete, mutually exclusive application profile rather than
+# an extension of audio_cuda12/audio_tensorrt. Run Curator itself from this
+# environment; no nested interpreter or inference subprocess is created.
+audio_canary_trtllm = [
+    "cuda-bindings==13.3.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-core==1.0.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-pathfinder==1.5.6; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-python==13.3.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-toolkit[cudart]==13.3.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "datasets==3.1.0; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "fsspec==2024.9.0; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "mpi4py==4.1.2; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "nvidia-cublas==13.3.0.5; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "numpy==1.26.4; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "onnx==1.19.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "openmpi==4.1.8; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "opencv-python-headless==4.11.0.86; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "pandas==3.0.6; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "protobuf==6.33.5; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "pyarrow==25.0.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "setuptools==79.0.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "tensorrt==10.14.1.48.post1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "tensorrt-llm==1.2.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torch==2.9.1+cu128; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchaudio==2.9.1+cu128; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchvision==0.24.1+cu128; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "transformers==4.57.3; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "triton==3.5.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
 ]
 
 image_cpu = [
     "Pillow",
-    "torchvision"
+    "torchvision",
 ]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
@@ -349,6 +377,31 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
+conflicts = [
+    [{ extra = "audio_canary_trtllm" }, { extra = "vllm" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "deduplication_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "audio_common" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "audio_cpu" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "audio_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "audio_tensorrt" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "image_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "inference_server" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "text_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "video_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "video_media" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "math_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "interleaved_cpu" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "interleaved_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "sdg_cpu" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "sdg_cuda12" }],
+    [{ extra = "audio_canary_trtllm" }, { extra = "all" }],
+    [{ extra = "audio_canary_trtllm" }, { group = "test" }],
+]
+exclude-dependencies = [
+    # Curator already owns the Torch ABI. WhisperX's narrow upper bounds lag
+    # the CUDA 12/vLLM stack; the packages remain direct audio/base deps.
+    { package = { name = "whisperx" }, dependencies = ["torch", "torchaudio", "torchvision"] },
+]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
@@ -360,13 +413,27 @@ constraint-dependencies = [
     "pyopenssl>=26.0.0", # Address CVE GHSA-5pwr-322w-8jr4
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
+    # Bound the two supported Torch ABI families: normal CUDA 12 resolves the
+    # upper end, while the mutually exclusive Canary profile pins the lower.
+    "torch>=2.9.1,<=2.11.0",
+    "torchaudio>=2.9.1,<=2.11.0",
+    "torchvision>=0.24.1,<=0.26.0",
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wandb>=0.30.0", # prebuilt wandb-core ships patched Go and dependency versions
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
-    "fsspec>=2025.3.0", # Overrides nemo-toolkit[asr]'s fsspec==2024.12.0 pin; data-designer-engine==0.9.1 requires >=2025.3.0
+    # Keep the existing RAPIDS-compatible Arrow range for Data Designer without
+    # globally overriding Canary's independent pyarrow==25.0.1 profile.
+    { package = { name = "data-designer", version = "0.9.1" }, dependencies = ["pandas>=3.0.0,<=3.0.4", "pyarrow>=19,<24"] },
+    { package = { name = "data-designer-config", version = "0.9.1" }, dependencies = ["pandas>=3.0.0,<=3.0.4", "pyarrow>=19,<24"] },
+    { package = { name = "data-designer-engine", version = "0.9.1" }, dependencies = ["fsspec>=2025.3.0", "pandas>=3.0.0,<=3.0.4", "pyarrow>=19,<24"] },
+    { package = { name = "datasets", version = "4.0.0" }, dependencies = ["fsspec>=2025.3.0"] },
+    { package = { name = "lightning", version = "2.4.0" }, dependencies = ["fsspec>=2025.3.0"] },
+    { package = { name = "nemo-toolkit" }, dependencies = ["fsspec>=2025.3.0"] },
+    { package = { name = "s3fs", version = "2024.12.0" }, dependencies = ["fsspec>=2025.3.0"] },
+    { package = { name = "vllm" }, dependencies = ["xgrammar>=0.1.32"] },
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Overrides Transformers' <1 cap and data-designer==0.9.1's >=1.0.1 requirement
@@ -375,15 +442,8 @@ override-dependencies = [
     "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
     "packaging>=25", # Required by data-designer==0.9.1; overrides Lightning's packaging<25 cap from nemo-toolkit[asr]
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
-    "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
-    "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
-    "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
-    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
-    "pandas>=3.0.0, <= 3.0.4", # Override data-designers constraint of <3
-    "pyarrow>=19,<24", # Matches RAPIDS/cuDF; overrides data-designer==0.9.1's pyarrow>=24 requirement
     "cryptography>=50.0.1", # Override data-designer==0.9.1's 49.0.0 pin
 ]
 
@@ -395,12 +455,17 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu129"
+url = "https://download.pytorch.org/whl"
 explicit = true
 
 [[tool.uv.index]]
 name = "vllm-cu129"
 url = "https://wheels.vllm.ai/0.22.0/cu129"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
 explicit = true
 
 [tool.uv.sources]
@@ -422,6 +487,7 @@ torchcodec = [
 vllm = [
     { index = "vllm-cu129", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
 ]
+tensorrt-llm = { index = "nvidia", extra = "audio_canary_trtllm" }
 nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
