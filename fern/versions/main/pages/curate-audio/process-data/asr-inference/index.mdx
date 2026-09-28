@@ -46,9 +46,6 @@ asr = ASRStage(
     audio_filepath_key="audio_filepath",
     pred_text_key="pred_text",
     batch_size=16,
-    max_audio_sec_per_actor=240.0,
-    max_inference_duration_s=120.0,
-    local_bucketing=True,
     resources=Resources(gpus=1.0),
 )
 ```
@@ -103,11 +100,8 @@ Model loading and adapter inference errors propagate to the pipeline. Inspect
 ## Tune Batching and Resources
 
 Set `batch_size` to control how many tasks the executor sends to one adapter
-call, and `max_audio_sec_per_actor` to cap the total padded audio seconds per
-call. The stage segments rows at `max_inference_duration_s` and packs the
-resulting segments within the `max_audio_sec_per_actor` budget. Start with the
-tutorial values, then reduce `batch_size` or `max_audio_sec_per_actor` when the
-model exceeds GPU memory. The stage does not split an individual recording, so a
-long file can still exceed memory at batch size one; in that case, chunk the
-recording manually before running the pipeline. Use the tutorial's documented
-CPU configuration when the selected adapter supports CPU inference.
+call. Start with the tutorial value, then reduce it when the model exceeds GPU
+memory. The stage does not split an individual recording, so a long file can
+still exceed memory at batch size one; in that case, chunk the recording
+manually before running the pipeline. Use the tutorial's documented CPU
+configuration when the selected adapter supports CPU inference.
