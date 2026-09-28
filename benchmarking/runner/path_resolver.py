@@ -12,16 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
-
-CONTAINER_CURATOR_DIR = "/opt/Curator"
 
 # Prefix prepended to host paths when resolving container paths that do not have an explicit
 # container_path specified. Using /MOUNT makes it obvious in log/error messages from the
 # container that these paths are available on the host, and allows copy-and-paste of all
 # but the "/MOUNT" prefix to get the equivalent host path.
 DEFAULT_CONTAINER_PATH_PREFIX = "/MOUNT"
+
+
+def _use_container_paths() -> bool:
+    path_mode = os.getenv("CURATOR_BENCHMARK_PATH_MODE")
+    if path_mode == "container":
+        return True
+    if path_mode == "host":
+        return False
+    if path_mode in (None, "", "auto"):
+        return Path("/.dockerenv").exists()
+
+    msg = "CURATOR_BENCHMARK_PATH_MODE must be one of: host, container, auto"
+    raise ValueError(msg)
 
 
 class PathResolver:
@@ -38,8 +50,7 @@ class PathResolver:
         'container_path' overrides the default container path (which is the host_path
         prefixed with '/MOUNT').
         """
-        # TODO: Is this the best way to determine if running inside a Docker container?
-        in_docker = Path("/.dockerenv").exists()
+        use_container_paths = _use_container_paths()
         self.path_map: dict[str, Path] = {}
         self._volume_pairs: list[tuple[Path, Path]] = []
 
@@ -51,7 +62,7 @@ class PathResolver:
                 container_path = (
                     Path(raw_container) if raw_container else Path(f"{DEFAULT_CONTAINER_PATH_PREFIX}/{host_path}")
                 )
-                self.path_map[name] = container_path if in_docker else host_path
+                self.path_map[name] = container_path if use_container_paths else host_path
                 self._volume_pairs.append((host_path, container_path))
         else:
             # Legacy top-level YAML path fields are deprecated. The path
@@ -63,7 +74,7 @@ class PathResolver:
                 ("model_weights_path", Path(data["model_weights_path"])),
             ]:
                 container_path = Path(f"{DEFAULT_CONTAINER_PATH_PREFIX}/{host_path}")
-                self.path_map[name] = container_path if in_docker else host_path
+                self.path_map[name] = container_path if use_container_paths else host_path
                 self._volume_pairs.append((host_path, container_path))
 
     def volume_mount_pairs(self) -> Iterator[tuple[Path, Path]]:

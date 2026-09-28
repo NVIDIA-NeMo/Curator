@@ -269,7 +269,7 @@ class TestExtractVideoMetadata:
         self, mock_subprocess: Mock, stderr_signal: bytes
     ) -> None:
         """When ffprobe fails because the codec/CUDA cannot be opened, raise
-        SoftwareCodecMissingError with a hint pointing at install_h264_support.sh."""
+        SoftwareCodecMissingError with a hint pointing at install_ffmpeg.sh."""
         mock_subprocess.side_effect = subprocess.CalledProcessError(
             returncode=1, cmd=["ffprobe"], stderr=stderr_signal
         )
@@ -283,7 +283,7 @@ class TestExtractVideoMetadata:
             with pytest.raises(SoftwareCodecMissingError) as excinfo:
                 extract_video_metadata(tmp_path)
             assert excinfo.value.codec == "h264"
-            assert "install_h264_support.sh" in str(excinfo.value)
+            assert "install_ffmpeg.sh" in str(excinfo.value)
         finally:
             pathlib.Path(tmp_path).unlink()
 
@@ -292,7 +292,7 @@ class TestExtractVideoMetadata:
         [
             # A generic "Could not open codec" without any CUDA signal must NOT
             # be remapped — common cause is a corrupt file or unsupported codec
-            # profile, neither of which install_h264_support.sh fixes.
+            # profile, neither of which install_ffmpeg.sh fixes.
             b"[vp9 @ 0x0] Could not open codec for input stream 0",
             b"some other generic ffprobe failure",
             b"Invalid data found when processing input",

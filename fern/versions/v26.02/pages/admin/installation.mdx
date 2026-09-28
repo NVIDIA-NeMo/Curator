@@ -142,10 +142,10 @@ Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you p
 
 Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
 
-- Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
+- Script source: [tools/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/tools/install_ffmpeg.sh)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/tools/install_ffmpeg.sh -o install_ffmpeg.sh
 chmod +x install_ffmpeg.sh
 sudo bash install_ffmpeg.sh
 ```
@@ -223,7 +223,7 @@ try:
         print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("⚠ No GPU detected")
-    
+
     # Check cuDF for GPU deduplication
     import cudf
     print("✓ cuDF available for GPU-accelerated deduplication")

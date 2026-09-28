@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -27,8 +28,18 @@ if TYPE_CHECKING:
     from runner.datasets import DatasetResolver
     from runner.path_resolver import PathResolver
 
-_curator_repo_path = Path(__file__).parent.parent.parent
-_entry_script_base_path = _curator_repo_path / "benchmarking/scripts"
+_benchmark_source_repo_path = Path(__file__).parent.parent.parent
+_entry_script_base_path = _benchmark_source_repo_path / "benchmarking/scripts"
+
+
+def _curator_repo_dir_for_subprocess() -> Path:
+    """Return the Curator-under-test source checkout for legacy {curator_repo_dir} placeholders."""
+    configured_path = os.environ.get("CURATOR_BENCHMARK_CURATOR_REPO_DIR")
+    if configured_path:
+        return Path(configured_path)
+
+    msg = "CURATOR_BENCHMARK_CURATOR_REPO_DIR must be set for {curator_repo_dir} substitution."
+    raise RuntimeError(msg)
 
 
 def normalize_environment(environment: dict[str, Any] | None, context: str) -> dict[str, str]:
@@ -106,8 +117,6 @@ class Entry:
         # sink_data:
         #   - name: slack
         #     additional_metrics: ["num_documents_processed", "throughput_docs_per_sec"]
-        #   - name: gdrive
-        #     ...
         sink_data = {}
         # Will be a list of dicts if reading from YAML, in which case make it a dict of dicts with key
         # from "name" for easy lookup based on sink name.
@@ -239,7 +248,7 @@ class Entry:
         curator_repo_dir_pattern = re.compile(r"\{curator_repo_dir\}")
 
         def _replace_curator_repo_dir(match: re.Match[str]) -> str:  # noqa: ARG001
-            return str(_curator_repo_path)
+            return str(_curator_repo_dir_for_subprocess())
 
         dataset_pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
 
