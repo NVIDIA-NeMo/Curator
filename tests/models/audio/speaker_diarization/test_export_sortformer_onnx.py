@@ -22,11 +22,18 @@ import torch
 
 from nemo_curator.models.audio.speaker_diarization.export_sortformer_onnx import (
     RivaStreamingExportMixin,
+    _is_high_resolution,
     save_learnable_silence,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_missing_high_resolution_attribute_uses_standard_resolution() -> None:
+    assert not _is_high_resolution(SimpleNamespace())
+    assert not _is_high_resolution(SimpleNamespace(high_resolution=False))
+    assert _is_high_resolution(SimpleNamespace(high_resolution=True))
 
 
 def test_concat_and_pad_preserves_each_ragged_prefix() -> None:
