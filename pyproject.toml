@@ -118,6 +118,8 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+    "openai-whisper==20250625; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "speechbrain>=1.1.0,<2.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "transformers>=4.57.6,<5.0",
     "accelerate>=1.12.0",
     "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
@@ -422,6 +424,14 @@ source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curato
 
 [tool.ruff]
 line-length = 119
+# These two conversion helpers are retained from the reference Curator
+# implementation. ``force-exclude`` keeps pre-commit from rewriting them even
+# when it passes their paths explicitly; the maintained wrapper is linted.
+force-exclude = true
+extend-exclude = [
+    "scripts/audio/indic_canary_trtllm_conversion/convert_checkpoint.py",
+    "scripts/audio/indic_canary_trtllm_conversion/conformer_onnx_trt.py",
+]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [

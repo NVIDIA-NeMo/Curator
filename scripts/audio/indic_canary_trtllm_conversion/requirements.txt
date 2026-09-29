@@ -1,0 +1,51 @@
+# The tensorrt_llm build stack for the (Indic) Canary TensorRT-LLM engine conversion.
+#
+# Install this AFTER the NeMo fork, into the SAME dedicated conda env, with uv (see
+# README.md "Setup"). Do NOT install it into the Curator runtime venv — tensorrt_llm's
+# transformers/numpy/torch/cuda-python pins conflict with Curator's audio_cuda12 stack.
+#
+#     conda create -y -n canary_build python=3.12 && conda activate canary_build
+#     cd /path/to/NeMo && pip install -e ".[asr]"     # the Indic Canary fork
+#     conda install -y -c conda-forge openmpi          # libmpi.so for mpi4py
+#     uv pip install -r requirements.txt               # this file
+#
+# Use uv, not pip: pip's resolver backtracks for hours reconciling the trtllm/NeMo pins.
+#
+# tensorrt_llm 1.2.1 is a CUDA-13 build: it needs an NVIDIA driver that supports CUDA 13
+# (>= 580). It also imports mpi4py, which needs an MPI runtime (libmpi.so) at import time
+# — provide it via conda-forge openmpi (above) and put the env lib dir on LD_LIBRARY_PATH.
+#
+# tensorrt_llm provides the `trtllm-build` CLI used for the decoder engine.
+
+--extra-index-url https://pypi.nvidia.com
+
+# conformer_onnx_trt.py: encoder TensorRT engine build
+click
+
+# tensorrt_llm 1.2.1 does NOT pull the CUDA-13 cuBLAS it links against (libcublasLt.so.13)
+# — without this, `import tensorrt_llm` dies with "libcublasLt.so.13: cannot open shared
+# object file". This extra provides nvidia-cublas (cu13) under site-packages/nvidia/cu13/lib.
+cuda-toolkit[cublas]==13.3.1
+
+# tensorrt_llm 1.2.1 requires numpy<2, AND on numpy 2.x the decoder trtllm-build step dies
+# with "set_weights_name(): incompatible function arguments ... got array(...)" when naming
+# bias weights (e.g. lm_head.bias). 1.26.4 also satisfies the NeMo fork (<2.0) and numba.
+numpy==1.26.4
+
+# convert_checkpoint.py: ONNX export + TRT-LLM checkpoint weights (torch comes from
+# tensorrt_llm's pinned build; onnx/onnxscript/graphsurgeon do the ONNX export).
+onnx
+onnx_graphsurgeon
+onnxscript
+
+# tensorrt_llm pulls opencv-python-headless, whose latest releases require numpy>=2 and would
+# otherwise drag numpy back to 2.x (overriding the pin above during the full resolve). 4.10.0.84
+# is the last line that allows numpy<2. opencv is not used on the Canary build path.
+opencv-python-headless==4.10.0.84
+safetensors
+
+tensorrt_llm==1.2.1
+
+# Needed for the NeMo-fork ASR import chain (convert_checkpoint.py). Its deps (torchdata,
+# kagglehub) resolve cleanly here and are otherwise unused by the build.
+torchtune

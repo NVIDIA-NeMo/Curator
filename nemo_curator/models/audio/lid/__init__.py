@@ -12,18 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Audio postprocessing stages.
+"""Spoken-language-identification model adapters.
 
-These stages run after filtering and speaker separation to produce
-the final output:
-- SelectAudioLanguageStage: Select a final spoken language from LID models
-- TimestampMapperStage: Map segment positions back to original file timestamps
-- SEDPostprocessingStage: Turn framewise sound-event probabilities into events
+Concrete adapters intentionally are not imported here. Keeping package import
+lightweight lets Curator resolve one configured adapter without importing the
+optional SpeechBrain, NeMo, Whisper, or TensorRT runtimes used by the others.
 """
 
-from .lid_selection import SelectAudioLanguageStage
-from .sed_postprocessing import SEDPostprocessingStage
-from .timestamp_mapper import TimestampMapperStage
+from .base import AudioLIDAdapter, AudioLIDResult
 
-__all__ = ["SEDPostprocessingStage", "SelectAudioLanguageStage", "TimestampMapperStage"]
+__all__ = ["AudioLIDAdapter", "AudioLIDResult"]

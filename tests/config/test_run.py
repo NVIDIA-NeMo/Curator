@@ -207,6 +207,40 @@ def test_pipeline_with_hydra_instantiated_resources():
     assert pipeline.stages[0].resources.gpus == 2.0
 
 
+def test_pipeline_applies_yaml_worker_cap_with_stage_override():
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": ("nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage"),
+                    "num_workers": 2,
+                }
+            ]
+        }
+    )
+
+    (stage,) = create_pipeline_from_yaml(cfg, log_config=False).stages
+
+    assert stage.num_workers() == 2
+
+
+def test_pipeline_rejects_two_yaml_worker_sizing_modes():
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": ("nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage"),
+                    "num_workers": 2,
+                    "num_workers_per_node": 1,
+                }
+            ]
+        }
+    )
+
+    with pytest.raises(ValueError, match="only one"):
+        create_pipeline_from_yaml(cfg, log_config=False)
+
+
 def test_pipeline_with_multiple_stages():
     from nemo_curator.stages.text.modifiers import Modify
     from nemo_curator.stages.text.modifiers.string import UrlRemover
@@ -818,6 +852,63 @@ def test_nemo_fastconformer_tutorial_accepts_local_bucketing_config() -> None:
     assert stage.max_audio_sec_per_actor == 360.0
     assert stage.max_inference_duration_s == 90.0
     assert stage.local_bucketing is False
+
+
+def test_audio_language_identification_tutorial_uses_shared_adapter_contract() -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "language_identification"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "canary_engine_dir=/models/indic_canary",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, speechbrain, canary, whisper, selector, writer = pipeline.stages
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert [speechbrain.model_id, canary.model_id, whisper.model_id] == [
+        "SpeechBrainLangID",
+        "IndicCanaryLangID",
+        "WhisperLangID",
+    ]
+    assert [speechbrain.num_workers(), canary.num_workers(), whisper.num_workers()] == [2, 1, 2]
+    assert canary.max_duration_sec == 40.0
+    assert canary.adapter_kwargs["max_duration_sec"] == 40.0
+    assert whisper.adapter_kwargs["backend"] == "torch"
+    assert whisper.adapter_kwargs["tensorrt_engine_path"] is None
+    assert speechbrain.adapter_kwargs["source"] == "speechbrain/lang-id-voxlingua107-ecapa"
+    assert canary.adapter_kwargs["engine_dir"] == "/models/indic_canary"
+    assert whisper.adapter_kwargs == {
+        "model_size": "medium",
+        "fp16": True,
+        "backend": "torch",
+        "tensorrt_engine_path": None,
+    }
+    assert selector.__class__.__name__ == "SelectAudioLanguageStage"
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+
+
+def test_audio_language_identification_tutorial_supports_ambernet_primary() -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "language_identification"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "canary_engine_dir=/models/indic_canary",
+                "primary_backend=ambernet",
+                "ambernet_model_name=custom_ambernet",
+            ],
+        )
+
+    primary = create_pipeline_from_yaml(cfg, log_config=False).stages[1]
+
+    assert primary.adapter_target == "nemo_curator.models.audio.lid.ambernet.AmberNetLIDAdapter"
+    assert primary.model_id == "AmberNetLangID"
+    assert primary.adapter_kwargs == {"model_name": "custom_ambernet"}
 
 
 def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
