@@ -150,6 +150,11 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
+  # Pinned public CC-BY-4.0 Hindi FLEURS train split: 2,120 clips / 6.6557 audio hours.
+  - name: "audio_indic_asr_fleurs_hi_in"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/audio_indic_asr_fleurs_hi_in_train_70bb2e84/manifest.jsonl"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -1056,6 +1061,64 @@ entries:
         exact_value: 450.0
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
+
+  # Mirrors the optimized Hindi production chain: Indic Canary primary,
+  # Parakeet TensorRT recovery, hallucination guards, and text normalization.
+  - name: audio_indic_asr_raydata
+    enabled: true
+    script: audio_indic_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_indic_asr_fleurs_hi_in,jsonl}
+      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+      --regex-yaml=benchmarking/configs/audio_indic_asr_regex.yaml
+      --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt
+      --executor=ray_data
+      --expected-num-rows=2120
+      --read-concurrency=4
+      --prep-workers=24
+    timeout_s: 13740
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_audio_hours_per_hour
+          - mean_wer_pct
+          - best_prediction_coverage_ratio
+          - primary_prediction_coverage_ratio
+          - fallback_prediction_coverage_ratio
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 30
+      num_gpus: 1
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_rows
+        exact_value: 2120
+      - metric: num_output_rows
+        exact_value: 2120
+      - metric: input_output_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_hours
+        min_value: 6.6557
+        max_value: 6.6558
+      - metric: wer_output_coverage_ratio
+        exact_value: 1.0
+      - metric: best_prediction_coverage_ratio
+        exact_value: 1.0
+      - metric: cleaned_text_coverage_ratio
+        exact_value: 1.0
+      - metric: abbreviated_text_coverage_ratio
+        exact_value: 1.0
+      - metric: num_skipped_rows
+        exact_value: 0
+      - metric: recognized_prediction_source_ratio
+        exact_value: 1.0
+      - metric: prediction_source_ground_truth_rows
+        exact_value: 0
+      - metric: prediction_source_other_rows
+        exact_value: 0
 
   # Shared 750-hour workload; the executor selects workers.
   - name: audio_librispeech_xenna
