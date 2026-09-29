@@ -63,6 +63,11 @@ DYNAMIC_AXES = {
 _NATIVE_VALIDATION_ATOL = 1.0e-5
 
 
+def _is_high_resolution(model: Any) -> bool:  # noqa: ANN401 - supports multiple NeMo model releases
+    """Return whether a checkpoint uses NeMo's optional high-resolution head."""
+    return bool(getattr(model, "high_resolution", False))
+
+
 def _sortformer_model_class() -> type:
     try:
         from nemo.collections.asr.models.sortformer_diar_models import SortformerEncLabelModel
@@ -199,7 +204,7 @@ class RivaStreamingExportMixin:
             )
         encoder_mask = self.sortformer_modules.length_to_mask(pred_lengths, encoded.shape[1])
         transformed = self.transformer_encoder(encoder_states=encoded, encoder_mask=encoder_mask)
-        if self.high_resolution:
+        if _is_high_resolution(self):
             transformed = transformed * encoder_mask.unsqueeze(-1)
             transformed = self.sortformer_modules.upsample_hidden(transformed)
             predictions = self.sortformer_modules.forward_speaker_sigmoids(transformed)
@@ -300,7 +305,7 @@ def export_checkpoint(  # noqa: PLR0913 - explicit build controls form the CLI c
 
     input_example = make_input_example(model)
     native_predictions = None
-    if model.high_resolution and validate_native:
+    if _is_high_resolution(model) and validate_native:
         with torch.no_grad():
             native_predictions = model.forward_for_export(*input_example)[0]
 
