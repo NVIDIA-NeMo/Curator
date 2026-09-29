@@ -40,7 +40,7 @@ def test_defaults_preserve_the_existing_silero_stage_contract() -> None:
     assert adapter.speech_pad_ms == 300
 
 
-@pytest.mark.parametrize("backend", ["openvino", "invalid"])
+@pytest.mark.parametrize("backend", ["openvino", "tensorrt"])
 def test_unknown_runtime_is_rejected(backend: str) -> None:
     with pytest.raises(ValueError, match="Unsupported Silero backend"):
         SileroVADAdapter(backend=backend)  # type: ignore[arg-type]

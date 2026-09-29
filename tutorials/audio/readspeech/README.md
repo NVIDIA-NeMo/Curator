@@ -304,9 +304,17 @@ post-speaker branches use fan-out mode, where one input may create several
 child tasks. A larger VAD batch is intended for a standalone
 `VADSegmentationStage(nested=True)`, which retains one parent task per input.
 
-For CPU ONNX inference, set `backend: onnx` and `gpus: 0.0`. The stage keeps
-the same segment fields and writes duration in the existing `duration` key for
-both maintained runtimes.
+For CPU ONNX inference, set `backend: onnx` and `gpus: 0.0`. For a compatible
+caller-built TensorRT engine, use
+`nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter`, set
+`adapter_kwargs.engine_path`, and request a GPU. The stage keeps the same
+segment fields and writes duration in the existing `duration` key across all
+three runtimes. Build a target-specific engine with
+
+```bash
+python -m nemo_curator.models.audio.vad.build_silero_tensorrt_engine \
+  --output /models/silero_vad.plan
+```
 
 ### Band Filter (`--band-value`)
 
@@ -465,7 +473,7 @@ The `metadata.csv` contains one row per extracted segment with columns:
 
 The Torch VAD stage can run on CPU, but resource requests are explicit: set
 `vad.gpus: 0.0` rather than expecting a GPU-requesting actor to fall back.
-The ONNX VAD backend is CPU-only.
+The ONNX VAD backend is CPU-only and the TensorRT backend requires one GPU.
 GPU is strongly recommended for UTMOS, SIGMOS, and Speaker Separation because
 their CPU inference is significantly slower. Band Filter and Silero VAD run
 efficiently on CPU.

@@ -76,6 +76,7 @@ def _prepare_waveform(
     item: dict[str, Any],
     *,
     device: object,
+    force_16khz: bool,
 ) -> tuple[torch.Tensor, int]:
     """Prepare one stage-normalized mono item with Silero's rate rules."""
     import torch
@@ -104,7 +105,9 @@ def _prepare_waveform(
         raise ValueError(msg)
     waveform = waveform.contiguous()
 
-    needs_resample = sample_rate not in SILERO_SUPPORTED_SAMPLE_RATES
+    needs_resample = (
+        sample_rate != SILERO_TARGET_SAMPLE_RATE if force_16khz else sample_rate not in SILERO_SUPPORTED_SAMPLE_RATES
+    )
     if needs_resample:
         import torchaudio
 
@@ -221,6 +224,7 @@ class SileroVADAdapter:
                 waveform, sample_rate = _prepare_waveform(
                     item,
                     device=self._device,
+                    force_16khz=False,
                 )
                 try:
                     timestamps = get_speech_timestamps(

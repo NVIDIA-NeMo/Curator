@@ -456,10 +456,11 @@ ordered prepared segments and configuration, the plan is deterministic.
 - [`speaker_diarization/stage.py`](speaker_diarization/stage.py):
   whole-recording task preparation, output/resume semantics, and RTTM files.
 - [`models/audio/speaker_diarization/`](../../../models/audio/speaker_diarization/):
-  NeMo Sortformer model adapter.
+  NeMo and TensorRT Sortformer model adapters.
 - [`segmentation/vad_segmentation.py`](../segmentation/vad_segmentation.py):
   Silero task preparation plus segment fan-out or nested assembly.
-- [`models/audio/vad/`](../../../models/audio/vad/): Torch/ONNX Silero adapter.
+- [`models/audio/vad/`](../../../models/audio/vad/): Torch/ONNX and TensorRT
+  Silero adapters.
 - [`models/asr/base.py`](../../../models/asr/base.py): ordered ASR adapter input
   and result contract.
 - [`test_asr_stage.py`](../../../../tests/stages/audio/inference/test_asr_stage.py):

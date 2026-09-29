@@ -46,9 +46,9 @@ class VADSegmentationStage(AdapterInferenceStage[VADAdapter]):
     """Split recordings into speech segments through a selectable VAD adapter.
 
     The default adapter uses the official Silero TorchScript model. Select its
-    ONNX runtime with ``adapter_kwargs={"backend": "onnx"}``. Detection
-    options remain stage fields so changing runtimes does not change the task
-    contract.
+    ONNX runtime with ``adapter_kwargs={"backend": "onnx"}``, or select the
+    TensorRT adapter explicitly and provide its engine path. Detection options
+    remain stage fields so changing adapters does not change the task contract.
 
     Input may be an in-memory waveform plus sample rate or a file path. The
     adapter always receives contiguous mono float32 samples and the source

@@ -29,6 +29,45 @@ and inference. Adapter items contain exactly one of `audio_filepath` or
 change GPU allocation and the backend candidate window with `resources` and
 `batch_size`.
 
+For a converted TensorRT deployment, change `adapter_target` to
+`nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter`
+and provide `engine_path`, `config_path`, and a trusted
+`runtime_module_path` under `adapter_kwargs`. The task and output schema stay
+the same.
+
+Install the TensorRT-specific dependencies before building or running that
+adapter:
+
+```bash
+uv sync --extra audio_cuda12 --extra audio_tensorrt
+```
+
+Build the target-GPU bundle from a local `.nemo` checkpoint and the matching
+trusted Riva runtime module:
+
+```bash
+python -m nemo_curator.models.audio.speaker_diarization.build_sortformer_tensorrt_engine \
+  --nemo-model /models/sortformer.nemo \
+  --runtime-module /opt/riva/backends/sortformer_modules.py \
+  --output /models/sortformer.plan
+```
+
+The command validates a staged bundle before publishing the JSON completeness
+marker last. It writes `/models/sortformer.plan`, `/models/sortformer.json`,
+`/models/sortformer.mel_basis.npy`,
+`/models/sortformer.sortformer_modules.py`, and an optional
+`/models/sortformer.learnable_sil_emb.npy`. Point the three adapter settings at
+the engine, JSON, and stem-scoped copied Python file. Build on the same GPU
+architecture used for deployment; TensorRT engines are target-specific. The
+runtime module is executable Python, so only use one from a trusted deployment
+environment. Long same-rate file inputs use bounded waveform reads and STFT
+calls; full-recording normalized features and output probabilities still grow
+with recording duration. Long files that need resampling are rejected rather
+than silently materialized as a second full waveform.
+The schema-v2 JSON records the checkpoint's frontend normalization contract;
+the adapter rejects older or ambiguous configs instead of sending
+off-distribution features to the engine, so rebuild pre-schema-v2 bundles.
+
 `batch_size` groups independent recordings. Do not pre-split a recording to
 make a larger batch: Sortformer speaker clustering and speaker identity depend
 on whole-recording context. The stage may duration-sort complete recordings

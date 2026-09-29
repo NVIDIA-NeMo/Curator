@@ -28,6 +28,7 @@ _LAZY = {
     "DiarizationResult": "nemo_curator.models.audio.speaker_diarization.base",
     "DiarizationSegment": "nemo_curator.models.audio.speaker_diarization.base",
     "NeMoSortformerAdapter": "nemo_curator.models.audio.speaker_diarization.sortformer",
+    "TensorRTSortformerAdapter": "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt",
     "parse_sortformer_segments": "nemo_curator.models.audio.speaker_diarization.sortformer",
 }
 
@@ -36,6 +37,7 @@ __all__ = [
     "DiarizationResult",
     "DiarizationSegment",
     "NeMoSortformerAdapter",
+    "TensorRTSortformerAdapter",
     "parse_sortformer_segments",
 ]
 
