@@ -282,7 +282,7 @@ class TestDecomposeConfig:
             config={
                 "vad": {
                     "adapter_target": "package.CustomVADAdapter",
-                    "adapter_kwargs": {"engine_path": "/models/silero.plan"},
+                    "adapter_kwargs": {"runtime": "custom"},
                     "batch_size": 1,
                     "num_workers": 2,
                     "cpus": 2.0,
@@ -295,7 +295,7 @@ class TestDecomposeConfig:
         assert len(vad_stages) == 2
         for vad_stage in vad_stages:
             assert vad_stage.adapter_target == "package.CustomVADAdapter"
-            assert vad_stage.adapter_kwargs == {"engine_path": "/models/silero.plan"}
+            assert vad_stage.adapter_kwargs == {"runtime": "custom"}
             assert vad_stage.batch_size == 1
             assert vad_stage.num_workers() == 2
             assert vad_stage.resources.cpus == 2.0

@@ -1,5 +1,5 @@
 ---
-description: "Diarize audio with offline SortFormer speaker fan-out or retain whole-recording metadata with streaming Sortformer"
+description: "Diarize audio with offline SortFormer or streaming Sortformer and fan out one task per speaker for downstream per-speaker filtering"
 categories: ["audio-processing"]
 tags: ["audio-filtering", "diarization", "sortformer", "speaker-separation", "streaming"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -10,22 +10,13 @@ modality: "audio-only"
 
 # Speaker Separation
 
-Diarize multi-speaker audio and either fan out one task per detected speaker or
-retain whole-recording diarization metadata. NeMo Curator ships **two** stages
-built on NVIDIA's [SortFormer](https://huggingface.co/nvidia/diar_sortformer_4spk-v1)
-family. Both target up to 4 speakers per file; choose based on the output
-contract your downstream pipeline needs.
+Diarize multi-speaker audio and fan out one task per detected speaker so that downstream stages can score each speaker's audio independently. NeMo Curator ships **two** diarization stages built on NVIDIA's [SortFormer](https://huggingface.co/nvidia/diar_sortformer_4spk-v1) family. Both target up to 4 speakers per file; choose based on whether your workload is offline batch curation or streaming/online.
 
 ## Understanding Diarization
 
 ### What Diarization Does
 
-Diarization answers "who spoke when?" — it segments an audio stream into
-per-speaker regions, identifying that speaker A talks 0.0–3.5s, speaker B
-talks 3.5–7.0s, speaker A returns at 7.0–9.0s, and so on.
-`SpeakerSeparationStage` emits one `AudioTask` **per speaker**, each containing
-only that speaker's audio. `InferenceSortformerStage` instead retains one task
-per recording and adds diarization intervals and speaker count metadata.
+Diarization answers "who spoke when?" — it segments an audio stream into per-speaker regions, identifying that speaker A talks 0.0–3.5s, speaker B talks 3.5–7.0s, speaker A returns at 7.0–9.0s, and so on. The output is one `AudioTask` **per speaker**, each containing only that speaker's audio.
 
 This unlocks **per-speaker filtering**: pipelines can rerun VAD, UTMOS, SIGMOS, and the band filter separately on each speaker, dropping individual low-quality speakers without losing the rest of the recording.
 
@@ -34,11 +25,9 @@ This unlocks **per-speaker filtering**: pipelines can rerun VAD, UTMOS, SIGMOS, 
 | Stage | Model | Best For |
 |-------|-------|----------|
 | `SpeakerSeparationStage` | `nvidia/diar_sortformer_4spk-v1` (offline) | Bulk offline curation. Used inside `AudioDataFilterStage`. Higher accuracy because it sees the whole utterance. |
-| `InferenceSortformerStage` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Whole-recording diarization metadata and optional RTTM output. The checkpoint uses streaming inference internally. |
+| `InferenceSortformerStage` | `nvidia/diar_streaming_sortformer_4spk-v2.1` (streaming) | Online/chunked workloads with bounded latency. Supports RTTM output for downstream tools. |
 
-Use `SpeakerSeparationStage` when downstream filters need per-speaker
-waveforms. Use `InferenceSortformerStage` when a manifest should retain one
-row per recording with diarization intervals, speaker count, or RTTM output.
+For most curation pipelines, **`SpeakerSeparationStage` (offline) is the right choice**. Use the streaming variant only when you need bounded latency or RTTM output.
 
 ## Offline Speaker Separation
 
@@ -61,7 +50,7 @@ The stage produces a fan-out list of `AudioTask` objects, one per detected speak
 
 - `speaker_id` — speaker identifier (0, 1, 2, ...)
 - `num_speakers` — total speakers found in this file
-- `duration` — duration of this speaker's audio in seconds
+- `duration_sec` — duration of this speaker's audio
 - `waveform` — that speaker's torch tensor with overlapping regions removed (when `exclude_overlaps=True`)
 
 GPU is required (`Resources(cpus=1.0, gpus=1.0)` by default).
@@ -88,67 +77,36 @@ Speaker overlap regions (where multiple speakers talk simultaneously) and short 
 | `gap_threshold` | float | `0.1` | Gap threshold for merging adjacent same-speaker segments. |
 | `buffer_time` | float | `0.5` | Buffer (seconds) added around each merged speaker segment. |
 
-## Adapter-Backed Sortformer Diarization
+## Streaming Speaker Diarization
 
-### When to Use It
+### When to Use Streaming
 
-`InferenceSortformerStage` is purpose-built for two use cases:
+The streaming variant (`InferenceSortformerStage`) is purpose-built for two use cases:
 
-1. **Manifest enrichment** — retain each recording as one task and add
-   `diar_segments` plus `num_speakers`.
-2. **RTTM output** — downstream tooling (Kaldi, ESPnet, evaluation harnesses)
-   consumes RTTM-format diarization output.
+1. **Online / chunked workloads** — bounded latency requirements that can't tolerate waiting for the full utterance.
+2. **RTTM output** — downstream tooling (Kaldi, ESPnet, evaluation harnesses) consumes RTTM-format diarization output.
 
-The Curator stage processes a complete recording. The selected v2.1 model has
-streaming parameters internally, but the stage is not a live-stream source
-and does not assign globally consistent speakers across independently cut
-chunks. For per-speaker waveform fan-out, use `SpeakerSeparationStage`.
+For pure offline curation, `SpeakerSeparationStage` is faster and more accurate.
 
 ### Step 1: Configure the Stage
 
 ```python
-from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
-from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 
 streaming = InferenceSortformerStage(
-    adapter_target=(
-        "nemo_curator.models.audio.speaker_diarization.sortformer."
-        "NeMoSortformerAdapter"
-    ),
-    model_id="nvidia/diar_streaming_sortformer_4spk-v2.1",
+    model_name="nvidia/diar_streaming_sortformer_4spk-v2.1",
     rttm_out_dir="./rttm",
-    adapter_kwargs={
-        "chunk_len": 340,
-        "chunk_right_context": 40,
-        "inference_batch_size": 1,
-        "precision": "fp32",
-    },
-).with_(resources=Resources(gpus=1), batch_size=4, num_workers=1)
+    chunk_len=340,            # ~30.4 seconds latency in 80 ms frames
+    inference_batch_size=1,
+)
 pipeline.add_stage(streaming)
 ```
 
-The former
-`nemo_curator.stages.audio.inference.speaker_diarization.sortformer` import
-continues to re-export the stage for compatibility. New code should use the
-task-facing `speaker_diarization.stage` module shown above; model adapters live
-under `nemo_curator.models.audio.speaker_diarization`. Existing constructor
-names (`model_name`, `model_path`, `cache_dir`, `diar_model`, `filepath_key`,
-streaming-context fields, and `inference_batch_size`) are translated to the
-canonical stage/adapter fields with conflict checks; new configurations should
-use `model_id`, `audio_filepath_key`, and `adapter_kwargs` directly.
+This stage **does not fan out per speaker** — instead it writes a `diar_segments` list onto the input `AudioTask`. Use it as a metadata-enriching stage; downstream code consumes the `diar_segments` field directly.
 
-This stage **does not fan out per speaker** — instead it writes a
-`diar_segments` list and `num_speakers` onto the input `AudioTask`. The stage
-owns task fields, input-mode selection, in-memory downmix/resampling, RTTM
-paths, task-local errors, and resume checks. The adapter owns the checkpoint,
-worker-local model state, provider-native path decoding or bounded streaming,
-streaming configuration, precision, and inference. Each adapter item contains
-exactly one of `audio_filepath` or `waveform` plus `sample_rate`.
+### Step 2: Tune Latency
 
-### Step 2: Tune the Checkpoint's Streaming Context
-
-`chunk_len` is an adapter setting that controls the model's internal context
-trade-off. It does not change the whole-recording task boundary:
+`chunk_len` controls latency vs accuracy:
 
 | `chunk_len` | Latency | Accuracy |
 |-------------|---------|----------|
@@ -162,82 +120,21 @@ Streaming-mode evaluation on **CallHome-eng0** (139 files) at the default settin
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `adapter_target` | str | `nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter` | Import path for the diarization adapter. |
-| `model_id` | str | `"nvidia/diar_streaming_sortformer_4spk-v2.1"` | Provider model ID passed to the adapter. |
-| `audio_filepath_key` | str | `"audio_filepath"` | Manifest key with the audio path. |
-| `waveform_key` | str \| None | `None` | In-memory waveform key; leave unset for file input. |
-| `sample_rate_key` | str | `"sample_rate"` | Sample-rate key used with an in-memory waveform. |
+| `model_name` | str | `"nvidia/diar_streaming_sortformer_4spk-v2.1"` | Hugging Face model ID. |
+| `model_path` | str \| None | `None` | Local `.nemo` checkpoint; overrides `model_name` when set. |
+| `cache_dir` | str \| None | `None` | Cache dir for downloaded model weights. |
+| `filepath_key` | str | `"audio_filepath"` | Manifest key with the audio path. |
 | `diar_segments_key` | str | `"diar_segments"` | Output manifest key for the diarization segment list. |
-| `num_speakers_key` | str | `"num_speakers"` | Output key for the number of distinct speakers. |
-| `store_segments` | bool | `True` | Store JSON-safe intervals on the task. Set to `False` only when RTTM output is enabled. |
-| `rttm_out_dir` | str \| None | `None` | Exact root directory for per-recording RTTM files. Sharded tasks retain their shard subdirectory below it. |
-| `skip_if_output_exists` | bool | `False` | Reuse output by key presence. An empty interval list is complete; with RTTM enabled, the referenced file must also resolve safely below `rttm_out_dir` and exist. |
-| `adapter_kwargs` | dict | `{}` | Provider settings such as a local `model_path`, `cache_dir`, streaming context, precision, or bounded-STFT controls. |
+| `rttm_out_dir` | str \| None | `None` | Optional directory to write per-file RTTM. |
+| `chunk_len` | int | `340` | Streaming chunk size in 80 ms frames. |
+| `chunk_left_context` | int | `1` | Left-context frames retained between chunks. |
+| `chunk_right_context` | int | `40` | Right-context frames retained between chunks. |
+| `fifo_len` | int | `40` | FIFO queue size in frames. |
+| `spkcache_update_period` | int | `300` | Speaker-cache update period in frames. |
+| `spkcache_len` | int | `188` | Speaker-cache size in frames. |
+| `inference_batch_size` | int | `1` | Batch size passed to `diarize()`. |
 
-Default resource allocation is `Resources(cpus=1.0, gpu_memory_gb=8.0)`.
-Override executor controls with `.with_(resources=..., batch_size=...,
-num_workers=...)`; do not place them in `adapter_kwargs`.
-
-Independent recordings in one stage batch may be duration-sorted for the
-adapter call and are scattered back to input order. Never split one recording
-merely to improve batching: global speaker clustering and speaker identity
-make arbitrary chunks non-equivalent.
-
-### Select the TensorRT Adapter
-
-The same task-facing stage can host a target-specific TensorRT Sortformer
-engine. Supply all deployment artifacts explicitly:
-
-```bash
-uv sync --extra audio_cuda12 --extra audio_tensorrt
-```
-
-```python
-tensorrt_diarization = InferenceSortformerStage(
-    adapter_target=(
-        "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt."
-        "TensorRTSortformerAdapter"
-    ),
-    model_id="nvidia/diar_streaming_sortformer_4spk-v2.1",
-    adapter_kwargs={
-        "engine_path": "/models/sortformer.plan",
-        "config_path": "/models/sortformer.json",
-        "runtime_module_path": "/models/sortformer.sortformer_modules.py",
-        "inference_batch_size": 4,
-    },
-).with_(resources=Resources(gpus=1), batch_size=4)
-```
-
-Build the bundle from a local `.nemo` checkpoint on the target GPU:
-
-```bash
-python -m nemo_curator.models.audio.speaker_diarization.build_sortformer_tensorrt_engine \
-  --nemo-model /models/sortformer.nemo \
-  --runtime-module /opt/riva/backends/sortformer_modules.py \
-  --output /models/sortformer.plan
-```
-
-The builder validates a staged bundle before publishing the config last. It
-writes `/models/sortformer.plan`, `/models/sortformer.json`,
-`/models/sortformer.mel_basis.npy`,
-`/models/sortformer.sortformer_modules.py`, and, when the checkpoint uses it,
-`/models/sortformer.learnable_sil_emb.npy`. TensorRT engines are
-target-specific, so build on the same GPU architecture used for deployment.
-
-`engine_path`, `config_path`, and `runtime_module_path` are required adapter
-settings. The runtime module is executable Python and must come from a trusted
-conversion/deployment environment. Optional TensorRT controls include
-`speech_threshold`, `long_audio_seconds`, and `stft_block_seconds`. Engine
-profiles and the stage batch size must be compatible. Switching adapters does
-not change `diar_segments`, `num_speakers`, RTTM, error, or resume semantics.
-TensorRT uses bounded waveform reads and STFT calls for long same-rate file
-inputs. The full-recording normalized feature matrix and output probabilities
-still grow with duration. Regular files and in-memory waveforms may be
-materialized, and long files that require resampling are rejected rather than
-silently materializing a second full waveform.
-The schema-v2 runtime JSON also freezes the checkpoint's frontend
-normalization. Older or ambiguous configs are rejected; rebuild those bundles
-so TensorRT receives the same normalized features as NeMo.
+Default resource allocation: `Resources(cpus=1.0, gpu_memory_gb=8.0)`.
 
 ## Complete Speaker Separation Pipeline
 
@@ -259,7 +156,7 @@ pipeline = Pipeline(name="speaker_diarization")
 
 # 1. Normalize and segment
 pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
-pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0, nested=True))
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
 
 # 2. Concatenate surviving segments per file
 pipeline.add_stage(SegmentConcatenationStage(silence_duration_sec=0.5))
@@ -287,15 +184,10 @@ pipeline.run(executor)
 
 ## Best Practices
 
-- **Choose by output contract**: use `SpeakerSeparationStage` for per-speaker
-  waveform fan-out and `InferenceSortformerStage` for whole-recording segment
-  metadata or RTTM files.
+- **Use offline mode unless you specifically need streaming**: `SpeakerSeparationStage` is faster and more accurate than `InferenceSortformerStage` for batch curation.
 - **Run VAD + concat before diarization**: feeding diarization a clean concatenated speech-only waveform (no long silences) is cheaper and more reliable than feeding raw audio.
 - **Pair with per-speaker quality filters**: place the filtering chain (VAD → Band → UTMOS → SIGMOS) **after** speaker separation so each speaker's audio is scored independently. Bad speakers get dropped; good speakers from the same file are kept.
 - **Mind the 4-speaker model limit**: both stages target up to 4 speakers per file. Files with more speakers will likely produce degraded diarization.
-- **Keep each diarization item whole**: batching independent recordings is
-  safe; arbitrarily segmenting one recording before diarization can change
-  clustering and speaker labels.
 - **Don't enable `exclude_overlaps=False` for training data**: overlapping speech is hard for downstream models; only disable when explicitly preserving natural conversation.
 
 ## Related Topics

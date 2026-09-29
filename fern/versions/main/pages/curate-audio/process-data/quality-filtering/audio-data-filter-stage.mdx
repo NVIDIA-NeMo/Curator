@@ -28,7 +28,7 @@ This serves two purposes:
 When all sub-stages are enabled, the composite expands into:
 
 1. **`MonoConversionStage`** — normalize channels and sample rate.
-2. **`VADSegmentationStage` + selected VAD adapter** — detect speech and fan out segment tasks while keeping model/runtime selection separate.
+2. **`VADSegmentationStage`** — split into speech segments.
 3. **`BandFilterStage`** — drop segments not matching the target bandwidth.
 4. **`UTMOSFilterStage`** — drop segments below the MOS threshold.
 5. **`SIGMOSFilterStage`** — drop segments failing any active SIGMOS dimension.
@@ -84,16 +84,11 @@ mono_conversion:
 
 vad:
   enable: true
-  adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
-  adapter_kwargs:
-    backend: torch
   min_duration_sec: 2.0
   max_duration_sec: 60.0
   threshold: 0.5
   min_interval_ms: 500
   speech_pad_ms: 300
-  batch_size: 1
-  num_workers: null
   cpus: 1.0
   gpus: 0.1
 
@@ -140,42 +135,6 @@ timestamp_mapper:
 ```
 
 The parameters mirror the sub-stage's constructor arguments. See the per-stage pages linked at the bottom for parameter details.
-
-For VAD, task semantics and model runtime settings have separate homes.
-Thresholds, interval limits, padding, and fan-out remain stage settings.
-`adapter_target` selects the model implementation and `adapter_kwargs`
-contains runtime-only settings. During decomposition, `cpus`/`gpus`,
-`batch_size`, and `num_workers` are applied through the common stage
-`.with_()` controls.
-
-To run the official Silero ONNX backend on CPU:
-
-```yaml
-vad:
-  adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
-  adapter_kwargs:
-    backend: onnx
-  cpus: 1.0
-  gpus: 0.0
-  batch_size: 1
-```
-
-To use a caller-built TensorRT engine:
-
-```yaml
-vad:
-  adapter_target: nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
-  adapter_kwargs:
-    engine_path: /models/silero_vad.plan
-  cpus: 1.0
-  gpus: 1.0
-  batch_size: 1
-```
-
-The composite keeps `batch_size: 1` because its VAD-only and post-speaker
-branches fan out child tasks. A standalone `VADSegmentationStage` can use a
-larger model batch when `nested=True`, where every input remains one parent
-task.
 
 <Note>
 The default UTMOS threshold in the YAML config is `3.4`, while the standalone `UTMOSFilterStage` class default is `3.5`. The composite uses the YAML value when constructed from the bundled config; tune as needed for your data.

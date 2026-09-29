@@ -16,41 +16,15 @@ Split a continuous audio waveform into discrete speech segments using [Silero VA
 
 ### What VAD Does
 
-A VAD model classifies short audio frames as either **speech** or
-**non-speech**. `VADSegmentationStage` runs the classifier across the input
-waveform, groups contiguous speech frames into segments, and emits one
-`AudioTask` per detected segment. Each emitted task carries:
+A VAD model classifies short audio frames (typically 30 ms) as either **speech** or **non-speech**. `VADSegmentationStage` runs the classifier across the input waveform, groups contiguous speech frames into segments, and emits one `AudioTask` per detected segment. Each emitted task carries:
 
 - `start_ms` / `end_ms` — segment boundaries in the original file
 - `segment_num` — sequential index of the segment
-- `duration` — segment length in seconds
+- `duration_sec` — segment length
 - `waveform` — the segment's torch tensor
+- A PyDub `AudioSegment` for visualization or export
 
 This **fan-out** behavior means downstream stages score each segment independently, and individual bad segments can be dropped without losing the rest of the file.
-
-By default, fan-out mode preserves the current-main contract and drops
-no-speech or unreadable inputs. Set `emit_audit_placeholders=True` to retain a
-no-speech parent with `vad_empty: true` or an unreadable parent with
-`read_error: true`. Nested mode always retains one parent and uses
-`segments: []` for no speech. Model-wide adapter failures still raise instead
-of being converted into task-local placeholders.
-
-### Stage and Adapter Responsibilities
-
-The stage and the Silero runtime are intentionally separate:
-
-- `VADSegmentationStage` owns Curator task input, audio loading, mono
-  normalization, segment fan-out or `nested=True` assembly, child metadata,
-  the `duration` output key, and task-local error behavior.
-- The adapter selected by `adapter_target` owns the worker-local model or
-  engine, Silero's sample-rate rules, and ordered inference results.
-- `adapter_kwargs` selects model-runtime behavior. Common execution controls
-  such as resources, batch size, and worker count use `.with_()`.
-
-The default adapter is
-`nemo_curator.models.audio.vad.silero.SileroVADAdapter` with the Torch
-backend. The same adapter also exposes the official ONNX backend, and a
-separate TensorRT adapter accepts a caller-built engine.
 
 ### Threshold Guidelines
 
@@ -79,88 +53,20 @@ Typical training-segment durations: **2–60 seconds** for ASR, **5–30 seconds
 
 ```python
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
-from nemo_curator.stages.resources import Resources
 
 vad = VADSegmentationStage(
-    adapter_target="nemo_curator.models.audio.vad.silero.SileroVADAdapter",
     min_duration_sec=2.0,
     max_duration_sec=60.0,
     threshold=0.5,
     speech_pad_ms=300,
-    adapter_kwargs={"backend": "torch"},
-).with_(
-    resources=Resources(cpus=1, gpus=0),
-    batch_size=1,
-    num_workers=4,
 )
 
 pipeline.add_stage(vad)
 ```
 
-The default resource allocation is `Resources(cpus=1.0, gpus=0.0)`. Silero
-VAD runs efficiently on CPU. The Torch adapter can use a GPU when the stage
-requests one; ONNX is CPU-only, while the TensorRT adapter requires one GPU.
+The default resource allocation is `Resources(cpus=1.0, gpus=0.0)`. Silero VAD is small enough that fractional-GPU sharing works well; set `gpus=0.1` on the stage's `Resources` if you have GPU headroom.
 
-Inputs can carry `waveform` plus `sample_rate`, or provide `audio_filepath`
-for worker-side loading. Place a
-[`MonoConversionStage`](/curate-audio/process-data/quality-filtering/preprocessing)
-upstream when the next stages should share one normalized in-memory waveform.
-The VAD adapter still receives the source sample rate: officially supported
-Silero rates retain Silero's native decimation behavior, while other rates are
-resampled to 16 kHz.
-
-### Select Torch, ONNX, or TensorRT
-
-Use the maintained Silero adapter and set its backend to `torch` (default) or
-`onnx`:
-
-```python
-onnx_vad = VADSegmentationStage(
-    adapter_kwargs={"backend": "onnx"},
-).with_(resources=Resources(cpus=1, gpus=0), batch_size=1)
-```
-
-For a compatible TensorRT engine, select the dedicated adapter. The engine is
-an explicit deployment artifact and is not downloaded implicitly:
-
-```bash
-uv sync --extra audio_cuda12 --extra audio_tensorrt
-```
-
-```bash
-python -m nemo_curator.models.audio.vad.build_silero_tensorrt_engine \
-  --output /models/silero_vad.plan \
-  --opt-batch 32 \
-  --max-batch 64
-```
-
-Build on the target GPU. The builder validates the PyTorch, ONNX, and
-TensorRT recurrent core and writes a provenance JSON sidecar beside the
-engine. FP32 is the parity-oriented default; pass `--fp16` only after
-validating boundary parity for your deployment.
-
-```python
-tensorrt_vad = VADSegmentationStage(
-    adapter_target=(
-        "nemo_curator.models.audio.vad.silero_tensorrt."
-        "TensorRTSileroVADAdapter"
-    ),
-    adapter_kwargs={"engine_path": "/models/silero_vad.plan"},
-).with_(resources=Resources(gpus=1), batch_size=1)
-```
-
-Keep detection semantics (`threshold`, duration limits, silence interval, and
-padding) on the stage so switching adapters does not silently change the task
-contract. Put runtime-only values such as `backend` or `engine_path` in
-`adapter_kwargs`.
-
-Keep `batch_size=1` when `nested=False` (the normal fan-out mode). This keeps
-source-attributed child task IDs deterministic. For resumable fan-out, also
-set `emit_audit_placeholders=True`; otherwise a no-speech or failed source
-intentionally emits no row and cannot record completion. Batched model
-execution is appropriate when `nested=True`, because each input still returns
-exactly one parent task; tune that case against the selected runtime and
-engine profile.
+**Prerequisites**: each input `AudioTask` must carry a `waveform` and `sample_rate` field. Place a [`MonoConversionStage`](/curate-audio/process-data/quality-filtering/preprocessing) upstream to guarantee both.
 
 ### Step 2: Tune the Padding
 
@@ -183,13 +89,9 @@ For training data going to TTS, increase to **400–500 ms** to keep more natura
 | `max_duration_sec` | float | `60.0` | Cap segment duration; longer segments are split. |
 | `threshold` | float | `0.5` | Silero VAD confidence threshold (0.0–1.0). See [Threshold Guidelines](#threshold-guidelines). |
 | `speech_pad_ms` | int | `300` | Padding (in ms) added to either side of each detected segment. |
-| `adapter_target` | str | `nemo_curator.models.audio.vad.silero.SileroVADAdapter` | Import path for the VAD model adapter. |
-| `adapter_kwargs` | dict | `{}` | Model-runtime settings, such as `backend: onnx` or a TensorRT `engine_path`. |
 | `waveform_key` | str | `"waveform"` | Input task key containing the waveform tensor. |
 | `sample_rate_key` | str | `"sample_rate"` | Input task key containing the sample rate. |
-| `duration_key` | str | `"duration"` | Output key for segment length in seconds. |
-| `nested` | bool | `False` | When `True`, store child segment dictionaries under the parent task's `segments` field instead of fanning out tasks. Used before concatenation in nested filter chains. |
-| `emit_audit_placeholders` | bool | `False` | In fan-out mode, retain empty or failed parent rows with `vad_empty` or `read_error` instead of preserving the historical drop behavior. Nested mode always retains its parent. |
+| `nested` | bool | `False` | When `True`, segments inherit the parent task's `mappings` field for nested re-segmentation (used in per-speaker filter chains). |
 
 ## Domain-Specific Tuning
 
@@ -268,11 +170,8 @@ pipeline.run(executor)
 
 - **Start with defaults**: `threshold=0.5` and `min_duration_sec=2.0` cover most use cases. Tune only after inspecting a sample of output segments.
 - **Pair with quality filters**: VAD alone keeps anything that sounds like speech, including low-quality, noisy, or distorted segments. Chain a [UTMOS filter](/curate-audio/process-data/quality-filtering/utmos) and/or [SIGMOS filter](/curate-audio/process-data/quality-filtering/sigmos) after VAD to drop low-quality segments.
-- **Use the topology's declared nested mode**: `nested=True` keeps segments
-  together for a following concatenation stage; `nested=False` fans them out
-  for independent downstream scoring. `AudioDataFilterStage` chooses the
-  appropriate form for each branch.
-- **Inspect distributions before filtering aggressively**: export a sample manifest with VAD only, then plot the distribution of `duration` across segments. Use that distribution to choose realistic `min_duration_sec` and `max_duration_sec` for your data.
+- **Use `nested=True` for per-speaker pipelines**: when running VAD again on speaker-separated audio downstream of [Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation), set `nested=True` so the inner VAD inherits the outer segment's `mappings` chain — required for correct timestamp resolution at the end.
+- **Inspect distributions before filtering aggressively**: export a sample manifest with VAD only, then plot the distribution of `duration_sec` across segments. Use that distribution to choose realistic `min_duration_sec` and `max_duration_sec` for your data.
 
 ## Related Topics
 
