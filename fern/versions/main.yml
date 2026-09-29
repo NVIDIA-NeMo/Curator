@@ -510,9 +510,6 @@ navigation:
               - page: Local Files
                 path: ./main/pages/curate-audio/load-data/local-files.mdx
                 slug: local-files
-              - page: NeMo Speech YAML and Tarred Data
-                path: ./main/pages/curate-audio/load-data/nemo-speech-io.mdx
-                slug: nemo-speech-io
           - section: Process Data
             slug: process-data
             contents:
