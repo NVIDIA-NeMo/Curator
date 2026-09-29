@@ -42,11 +42,16 @@ primary_models:
     adapter_kwargs:
       model_name: ${ambernet_model_name}
 whisper_model_size: medium
+whisper_model_path: null
+whisper_fp16: true
 whisper_backend: torch
 whisper_tensorrt_engine_path: null
 canary_max_duration_sec: 40.0
-sample_rate: 16000
 batch_size: 16
+selector_retry_skip_reasons:
+  - skipped due to missing langID predictions.
+  - skipped due to missing or empty whisper langID prediction.
+  - skipped due to disagreement between langID models.
 
 # Batch-mode Xenna materializes each heavyweight model stage before starting
 # the next one. This is the maintained single-GPU topology: the full-GPU
@@ -68,7 +73,7 @@ stages:
     model_id: ${primary_models.${primary_backend}.model_id}
     tag: primary
     name: ${primary_models.${primary_backend}.model_id}
-    sample_rate: ${sample_rate}
+    sample_rate: 16000
     waveform_key: null
     sample_rate_key: sample_rate
     audio_filepath_key: audio_filepath
@@ -77,7 +82,8 @@ stages:
     max_duration_sec: 10.0
     skip_if_output_exists: true
     fail_on_audio_error: false
-    prefetch_fail_on_error: true
+    retry_skip_reasons: ${selector_retry_skip_reasons}
+    prefetch_fail_on_error: false
     batch_size: ${batch_size}
     num_workers: 2
     resources:
@@ -92,7 +98,7 @@ stages:
     model_id: IndicCanaryLangID
     tag: secondary
     name: IndicCanaryLangID
-    sample_rate: ${sample_rate}
+    sample_rate: 16000
     waveform_key: null
     sample_rate_key: sample_rate
     audio_filepath_key: audio_filepath
@@ -101,6 +107,7 @@ stages:
     max_duration_sec: ${canary_max_duration_sec}
     skip_if_output_exists: true
     fail_on_audio_error: false
+    retry_skip_reasons: ${selector_retry_skip_reasons}
     prefetch_fail_on_error: true
     batch_size: ${batch_size}
     num_workers: 1
@@ -112,6 +119,7 @@ stages:
       num_beams: 1
       max_new_tokens: 1
       max_duration_sec: ${canary_max_duration_sec}
+      model_batch_size: ${batch_size}
       kv_cache_free_gpu_memory_fraction: 0.2
       cross_kv_cache_fraction: 0.2
 
@@ -121,7 +129,7 @@ stages:
     model_id: WhisperLangID
     tag: tertiary
     name: WhisperLangID
-    sample_rate: ${sample_rate}
+    sample_rate: 16000
     waveform_key: null
     sample_rate_key: sample_rate
     audio_filepath_key: audio_filepath
@@ -130,7 +138,8 @@ stages:
     max_duration_sec: 30.0
     skip_if_output_exists: true
     fail_on_audio_error: false
-    prefetch_fail_on_error: true
+    retry_skip_reasons: ${selector_retry_skip_reasons}
+    prefetch_fail_on_error: false
     batch_size: ${batch_size}
     num_workers: 2
     resources:
@@ -138,9 +147,11 @@ stages:
       gpu_memory_gb: 6.0
     adapter_kwargs:
       model_size: ${whisper_model_size}
-      fp16: true
+      model_path: ${whisper_model_path}
+      fp16: ${whisper_fp16}
       backend: ${whisper_backend}
       tensorrt_engine_path: ${whisper_tensorrt_engine_path}
+      model_batch_size: ${batch_size}
 
   - _target_: nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage
     results_key: lid

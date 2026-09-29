@@ -79,6 +79,9 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         skip_if_output_exists: Reuse this model's existing mapping entry.
         fail_on_audio_error: Mark audio preparation failures terminal via
             ``_skipme=audio_load_error``.
+        retry_skip_reasons: Exact prior skip reasons that this stage may clear
+            before resume/inference. This lets a final selector-owned rejection
+            re-enter the ensemble without discarding unrelated upstream skips.
         prefetch_fail_on_error: Whether node-level weight prefetch errors fail
             setup immediately.
         adapter_kwargs: Provider-native adapter constructor arguments.
@@ -99,6 +102,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
     max_duration_sec: float = 10.0
     skip_if_output_exists: bool = False
     fail_on_audio_error: bool = False
+    retry_skip_reasons: tuple[str, ...] = ()
     prefetch_fail_on_error: bool = True
 
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -133,6 +137,18 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         if 0 < self.max_duration_sec < self.min_duration_sec:
             msg = "AudioLIDInferenceStage.max_duration_sec must be zero or at least min_duration_sec"
             raise ValueError(msg)
+        if isinstance(self.retry_skip_reasons, (str, bytes)):
+            msg = "AudioLIDInferenceStage.retry_skip_reasons must contain only non-empty strings"
+            raise TypeError(msg)
+        try:
+            retry_skip_reasons = tuple(self.retry_skip_reasons)
+        except TypeError as exc:
+            msg = "AudioLIDInferenceStage.retry_skip_reasons must be an iterable of non-empty strings"
+            raise TypeError(msg) from exc
+        if not all(isinstance(reason, str) and reason for reason in retry_skip_reasons):
+            msg = "AudioLIDInferenceStage.retry_skip_reasons must contain only non-empty strings"
+            raise ValueError(msg)
+        self.retry_skip_reasons = retry_skip_reasons
         self.adapter_kwargs = dict(self.adapter_kwargs)
 
     @staticmethod
@@ -166,6 +182,14 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Prepare eligible audio, identify it in one adapter call, and merge results."""
+        retry_reasons = set(self.retry_skip_reasons)
+        retried = 0
+        for task in tasks:
+            if task.data.get(_SKIP_ME_KEY) in retry_reasons:
+                task.data.pop(_SKIP_ME_KEY, None)
+                retried += 1
+        if retried:
+            logger.info("Audio LID {}: retrying {}/{} selector-rejected tasks", self.model_id, retried, len(tasks))
         skip_indices = {index for index, task in enumerate(tasks) if task.data.get(_SKIP_ME_KEY)}
         skip_indices.update(self._resume_indices(tasks))
         valid_indices, items = self._prepare_items(tasks, skip_indices)

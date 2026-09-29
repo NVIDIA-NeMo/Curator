@@ -876,17 +876,25 @@ def test_audio_language_identification_tutorial_uses_shared_adapter_contract() -
         "WhisperLangID",
     ]
     assert [speechbrain.num_workers(), canary.num_workers(), whisper.num_workers()] == [2, 1, 2]
+    assert speechbrain.prefetch_fail_on_error is False
+    assert canary.prefetch_fail_on_error is True
+    assert whisper.prefetch_fail_on_error is False
+    assert speechbrain.retry_skip_reasons == canary.retry_skip_reasons == whisper.retry_skip_reasons
+    assert "skipped due to disagreement between langID models." in speechbrain.retry_skip_reasons
     assert canary.max_duration_sec == 40.0
     assert canary.adapter_kwargs["max_duration_sec"] == 40.0
+    assert canary.adapter_kwargs["model_batch_size"] == 16
     assert whisper.adapter_kwargs["backend"] == "torch"
     assert whisper.adapter_kwargs["tensorrt_engine_path"] is None
     assert speechbrain.adapter_kwargs["source"] == "speechbrain/lang-id-voxlingua107-ecapa"
     assert canary.adapter_kwargs["engine_dir"] == "/models/indic_canary"
     assert whisper.adapter_kwargs == {
         "model_size": "medium",
+        "model_path": None,
         "fp16": True,
         "backend": "torch",
         "tensorrt_engine_path": None,
+        "model_batch_size": 16,
     }
     assert selector.__class__.__name__ == "SelectAudioLanguageStage"
     assert writer.__class__.__name__ == "ManifestWriterStage"
@@ -912,6 +920,49 @@ def test_audio_language_identification_tutorial_supports_ambernet_primary() -> N
     assert primary.adapter_target == "nemo_curator.models.audio.lid.ambernet.AmberNetLIDAdapter"
     assert primary.model_id == "AmberNetLangID"
     assert primary.adapter_kwargs == {"model_name": "custom_ambernet"}
+
+
+def test_audio_language_identification_tutorial_forwards_whisper_runtime_overrides() -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "language_identification"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "canary_engine_dir=/models/indic_canary",
+                "batch_size=7",
+                "whisper_model_path=/models/whisper-medium.pt",
+                "whisper_fp16=false",
+            ],
+        )
+
+    _, _, canary, whisper, _, _ = create_pipeline_from_yaml(cfg, log_config=False).stages
+
+    assert canary.adapter_kwargs["model_batch_size"] == 7
+    assert whisper.adapter_kwargs["model_batch_size"] == 7
+    assert whisper.adapter_kwargs["model_path"] == "/models/whisper-medium.pt"
+    assert whisper.adapter_kwargs["fp16"] is False
+
+
+def test_audio_language_identification_non_indic_tutorial_matches_reference_roles() -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "language_identification"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline_non_indic",
+            overrides=["manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl"],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, primary, whisper, selector, writer = pipeline.stages
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert primary.model_id == "SpeechBrainLangID"
+    assert primary.tag == "primary"
+    assert whisper.model_id == "WhisperLangID"
+    assert whisper.tag == "secondary"
+    assert whisper.adapter_kwargs["model_batch_size"] == 16
+    assert selector.__class__.__name__ == "SelectAudioLanguageStage"
+    assert writer.__class__.__name__ == "ManifestWriterStage"
 
 
 def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
