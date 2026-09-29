@@ -212,6 +212,23 @@ def test_an_existing_shared_skip_is_passed_through_untouched() -> None:
     assert adapter.calls == []
 
 
+def test_configured_selector_skip_reason_reenters_inference() -> None:
+    reason = "skipped due to disagreement between langID models."
+    stage, adapter = _stage(retry_skip_reasons=[reason])
+    task = _task(_skipme=reason)
+
+    (result,) = stage.process_batch([task])
+
+    assert "_skipme" not in result.data
+    assert result.data["lid"][_MODEL_ID]["language"] == "ta"
+    assert len(adapter.calls) == 1
+
+
+def test_retry_skip_reasons_rejects_empty_or_non_string_values() -> None:
+    with pytest.raises(ValueError, match="retry_skip_reasons"):
+        _stage(retry_skip_reasons=[""])
+
+
 def test_resume_uses_own_model_key_membership_even_at_zero_confidence() -> None:
     stage, adapter = _stage(skip_if_output_exists=True)
     existing = {"language": "", "confidence": 0.0, "tag": "primary"}

@@ -1,17 +1,8 @@
-# Speech-language identification with a three-model agreement ensemble.
+# Two-model speech-language identification for non-Indic datasets.
 #
-# Usage from the Curator repository root in the tested full-ensemble
-# environment documented in README.md:
-#   python nemo_curator/config/run.py \
-#     --config-path ../../tutorials/audio/language_identification \
-#     --config-name pipeline \
-#     manifest_path=/absolute/path/to/input.jsonl \
-#     output_path=/absolute/path/to/lid_output.jsonl \
-#     canary_engine_dir=/absolute/path/to/indic_canary_engine
-#
-# Every input row must contain an audio_filepath that all executor workers can
-# read. The selector copies component evidence into additional_notes, removes
-# the intermediate lid mapping, and writes its source_lang decision.
+# This is the maintained equivalent of the reference pipeline without
+# ``--indic``: a configurable primary classifier and Whisper tagged secondary.
+# English is accepted immediately; other non-Indic languages require agreement.
 
 defaults:
   - _self_
@@ -24,8 +15,7 @@ hydra:
   output_subdir: null
 
 manifest_path: ???
-output_path: ./audio_lid_output.jsonl
-canary_engine_dir: ???
+output_path: ./audio_lid_non_indic_output.jsonl
 
 primary_backend: speechbrain
 speechbrain_source: speechbrain/lang-id-voxlingua107-ecapa
@@ -41,23 +31,18 @@ primary_models:
     model_id: AmberNetLangID
     adapter_kwargs:
       model_name: ${ambernet_model_name}
+
 whisper_model_size: medium
 whisper_model_path: null
 whisper_fp16: true
 whisper_backend: torch
 whisper_tensorrt_engine_path: null
-canary_max_duration_sec: 40.0
 batch_size: 16
 selector_retry_skip_reasons:
   - skipped due to missing langID predictions.
   - skipped due to missing or empty whisper langID prediction.
   - skipped due to disagreement between langID models.
 
-# Batch-mode Xenna materializes each heavyweight model stage before starting
-# the next one. This is the maintained single-GPU topology: the full-GPU
-# Canary actor never waits behind resident fractional SpeechBrain/Whisper
-# actors. Multi-GPU deployments may opt into Ray Data after sizing the
-# aggregate concurrent reservations.
 backend: xenna
 execution_mode: batch
 
@@ -66,8 +51,6 @@ stages:
     manifest_path: ${manifest_path}
     files_per_partition: 1
 
-  # Configurable primary classifier. The default is broad-coverage SpeechBrain;
-  # set primary_backend=ambernet for NeMo AmberNet.
   - _target_: nemo_curator.stages.audio.inference.lid.stage.AudioLIDInferenceStage
     adapter_target: ${primary_models.${primary_backend}.adapter_target}
     model_id: ${primary_models.${primary_backend}.model_id}
@@ -91,43 +74,10 @@ stages:
       gpu_memory_gb: 4.0
     adapter_kwargs: ${primary_models.${primary_backend}.adapter_kwargs}
 
-  # Indic-specialized secondary classifier. The adapter consumes a prebuilt
-  # TensorRT-LLM engine; see the README for its required runtime and directory layout.
-  - _target_: nemo_curator.stages.audio.inference.lid.stage.AudioLIDInferenceStage
-    adapter_target: nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter
-    model_id: IndicCanaryLangID
-    tag: secondary
-    name: IndicCanaryLangID
-    sample_rate: 16000
-    waveform_key: null
-    sample_rate_key: sample_rate
-    audio_filepath_key: audio_filepath
-    results_key: lid
-    min_duration_sec: 1.0
-    max_duration_sec: ${canary_max_duration_sec}
-    skip_if_output_exists: true
-    fail_on_audio_error: false
-    retry_skip_reasons: ${selector_retry_skip_reasons}
-    prefetch_fail_on_error: true
-    batch_size: ${batch_size}
-    num_workers: 1
-    resources:
-      cpus: 1.0
-      gpus: 1.0
-    adapter_kwargs:
-      engine_dir: ${canary_engine_dir}
-      num_beams: 1
-      max_new_tokens: 1
-      max_duration_sec: ${canary_max_duration_sec}
-      model_batch_size: ${batch_size}
-      kv_cache_free_gpu_memory_fraction: 0.2
-      cross_kv_cache_fraction: 0.2
-
-  # Independent tertiary classifier used for English routing and agreement.
   - _target_: nemo_curator.stages.audio.inference.lid.stage.AudioLIDInferenceStage
     adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
     model_id: WhisperLangID
-    tag: tertiary
+    tag: secondary
     name: WhisperLangID
     sample_rate: 16000
     waveform_key: null

@@ -28,10 +28,10 @@ evidence into `additional_notes`, and removes `lid` before the final writer.
 
 The implementation supports two interchangeable primary adapters:
 SpeechBrain (the maintained YAML default) and AmberNet. AmberNet replaces
-SpeechBrain in a customized pipeline; it is not a fourth simultaneously running
-ensemble member. The same selector supports the full primary + Indic Canary +
-Whisper mode required to accept Indic predictions and the reference non-Indic
-primary + Whisper mode with Canary absent.
+SpeechBrain; it is not a fourth simultaneously running ensemble member. Two
+maintained configurations cover both reference compositions: `pipeline.yaml`
+for primary + Indic Canary + Whisper and `pipeline_non_indic.yaml` for primary
++ Whisper without Canary.
 
 ## Prerequisites
 
@@ -102,8 +102,10 @@ Make the resulting plan visible at the same path on every executor. TensorRT
 engines are specific to the TensorRT version and target GPU. In the separately
 validated full-ensemble runtime, select it with
 `whisper_backend=tensorrt` and
-`whisper_tensorrt_engine_path=/models/whisper-medium-encoder.plan`. The configured
-`batch_size` must not exceed the engine's maximum batch profile.
+`whisper_tensorrt_engine_path=/models/whisper-medium-encoder.plan`. The YAML
+forwards `batch_size` to Whisper's model-batch limit. The TensorRT wrapper
+automatically splits a larger stage window into calls that fit the engine's
+maximum batch profile.
 
 ## Input manifest
 
@@ -118,6 +120,12 @@ Paths must be readable by every executor worker. `ManifestReader` does not
 preflight audio files; `AudioLIDInferenceStage` loads and validates each file in
 its worker. The stage converts supported input to contiguous mono float32 audio
 at 16 kHz before calling an adapter.
+
+File mode treats every `audio_filepath` as one complete clip. It does not slice
+the file from manifest `offset` or `duration` fields. Pipelines that already
+segment recordings (for example, a VAD pipeline) should pass the segment through
+`waveform_key` and its native rate through `sample_rate_key`; this also lets all
+three model stages share one decoded waveform instead of reopening the file.
 
 For programmatic pipelines, set `waveform_key` to consume an in-memory waveform
 and set `sample_rate_key` to its source sample-rate field. The maintained YAML
@@ -154,10 +162,11 @@ worker-local model setup.
 | `speechbrain_source` | `speechbrain/lang-id-voxlingua107-ecapa` | SpeechBrain checkpoint source. |
 | `ambernet_model_name` | `langid_ambernet` | NeMo model name when `primary_backend=ambernet`. |
 | `whisper_model_size` | `medium` | Whisper checkpoint name. |
+| `whisper_model_path` | `null` | Optional local Whisper `.pt` checkpoint; takes precedence over `whisper_model_size`. |
+| `whisper_fp16` | `true` | Use FP16 Whisper Mel/model inference when the worker is on CUDA. |
 | `whisper_backend` | `torch` | Whisper encoder backend (`torch` or `tensorrt`). |
 | `whisper_tensorrt_engine_path` | `null` | Required shared `.plan` path when `whisper_backend=tensorrt`. |
-| `sample_rate` | `16000` | Canonical sample rate supplied to every adapter. |
-| `batch_size` | `16` | Backend candidate-window size for each inference stage. |
+| `batch_size` | `16` | Stage window and Canary/Whisper model-batch limit. |
 | `backend` | `xenna` | Executor backend (`xenna` or `ray_data`). |
 | `execution_mode` | `batch` | Xenna mode; batch serializes the GPU stages. |
 
@@ -310,12 +319,13 @@ is a completed result. Another model's result does not count, while any mapping
 already stored for this model—including an empty result—is reused.
 
 The final selector deliberately removes `lid`. Therefore the final manifest is
-not a component-level resume manifest. Feeding an accepted final row back
-through the full YAML reruns its models because it has neither `lid` nor a skip
-marker. Rejected final rows retain `_skipme`, so the inference stages pass them
-through without rerunning the adapters. To persist model-level restart data,
-write an intermediate manifest before `SelectAudioLanguageStage`, then resume
-from that manifest and write the completed run to a different path.
+not a component-level resume manifest. Feeding any final row back through the
+maintained YAML reruns its models. For a previously rejected row, the inference
+stages clear only the selector's three exact rejection reasons before retrying;
+an unrelated upstream `_skipme` remains terminal and untouched. To persist
+model-level restart data instead, write an intermediate manifest before
+`SelectAudioLanguageStage`, then resume from that manifest and write the
+completed run to a different path.
 
 With `fail_on_audio_error: false`, unreadable or missing audio produces a
 completed empty component result instead of immediately setting `_skipme` or
@@ -348,10 +358,19 @@ covers the dataset before substituting it.
 
 ## Non-Indic mode without Canary
 
-For a dataset where Indic acceptance is not required, remove the Indic Canary
-stage and its `canary_engine_dir` setting. Keep SpeechBrain (or AmberNet) tagged
-`primary`, keep Whisper tagged `tertiary`, then run the same selector. The
-remaining accepted routes are:
+For a dataset where Indic acceptance is not required, run the maintained
+two-model configuration. It omits Canary and tags Whisper `secondary`, matching
+the reference pipeline without `--indic`:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/language_identification \
+  --config-name pipeline_non_indic \
+  manifest_path=/data/input.jsonl \
+  output_path=/data/output.jsonl
+```
+
+The remaining accepted routes are:
 
 - Whisper English, which wins immediately.
 - A non-Indic language on which the primary and Whisper agree.

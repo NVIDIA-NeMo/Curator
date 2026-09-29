@@ -135,6 +135,27 @@ def test_injected_runtime_loads_lazily_and_filters_candidates(tmp_path: Path) ->
     assert runtime.closed
 
 
+def test_failed_candidate_filter_keeps_runtime_reachable_for_cleanup(tmp_path: Path) -> None:
+    engine_dir = _engine_bundle(tmp_path)
+    adapter = IndicCanaryLIDAdapter(
+        engine_dir=str(engine_dir),
+        runtime_class=_Runtime,
+        candidate_languages=["not-a-canary-language"],
+    )
+
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        pytest.raises(RuntimeError, match="no language special tokens"),
+    ):
+        adapter.load_model(num_gpus=1)
+
+    runtime = adapter._model
+    assert runtime is not None
+    with patch("torch.cuda.empty_cache"):
+        adapter.unload_model()
+    assert runtime.closed
+
+
 def _loaded_adapter(*, candidate_languages: list[str] | None = None) -> IndicCanaryLIDAdapter:
     adapter = IndicCanaryLIDAdapter(engine_dir="unused", candidate_languages=candidate_languages)
     adapter._model = _Runtime(Path("unused"))

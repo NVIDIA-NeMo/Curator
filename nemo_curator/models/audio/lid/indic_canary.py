@@ -195,7 +195,6 @@ class IndicCanaryLIDAdapter:
         )
         self._language_by_token_id = self._collect_language_token_ids()
         if not self._language_by_token_id:
-            self._model = None
             msg = "Indic Canary tokenizer has no language special tokens matching candidate_languages"
             raise RuntimeError(msg)
         logger.info(
