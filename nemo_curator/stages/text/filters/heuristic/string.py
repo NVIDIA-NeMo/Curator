@@ -84,7 +84,7 @@ class SymbolsToWordsFilter(DocumentFilter):
             symbol_ratio = len(regex_hash.findall(word)) / len(word)
             if word in ellipsis_marks or symbol_ratio > 0.5:  # noqa: PLR2004
                 num_symbol_words += 1
-        # Remove if the document is empty
+        # Empty documents score 1.0, which the default cutoff rejects; WordCountFilter drops them unconditionally
         return num_symbol_words / len(words) if words else 1.0
 
     def keep_document(self, score: float) -> bool:
@@ -167,7 +167,7 @@ class BulletsFilter(DocumentFilter):
                 if sentence.strip().startswith(bullet):
                     num_bullet_lines += 1
                     break
-        # Remove if the document is empty
+        # Empty documents score 1.0, which the default cutoff rejects; WordCountFilter drops them unconditionally
         return num_bullet_lines / len(sentences) if sentences else 1.0
 
     def keep_document(self, score: float) -> bool:
@@ -234,6 +234,7 @@ class LongWordFilter(DocumentFilter):
         self._name = "max_word_length"
 
     def score_document(self, text: str) -> float:
+        # Empty documents score 0, which the limit accepts; WordCountFilter drops them unconditionally
         return max((len(w) for w in self._word_splitter(text.strip())), default=0)
 
     def keep_document(self, score: float) -> bool:
@@ -327,7 +328,7 @@ class MeanWordLengthFilter(DocumentFilter):
 
     def score_document(self, text: str) -> float:
         word_lens = [len(w) for w in self._word_splitter(text.strip()) if len(w) > 0]
-        # Remove if the document is empty
+        # Empty documents score 0.0, which the default range rejects; WordCountFilter drops them unconditionally
         return sum(word_lens) / len(word_lens) if word_lens else 0.0
 
     def keep_document(self, score: float) -> bool:
@@ -351,7 +352,7 @@ class PunctuationFilter(DocumentFilter):
         if sentences is None:
             sentences = get_sentences(text)
         num_sentence_without_endmarks = len([s for s in sentences if not s.strip().endswith(end_marks)])
-        # Remove if the document is empty
+        # Empty documents score 1.0, which the default cutoff rejects; WordCountFilter drops them unconditionally
         return num_sentence_without_endmarks / len(sentences) if sentences else 1.0
 
     def keep_document(self, score: float) -> bool:
@@ -379,7 +380,7 @@ class EllipsisFilter(DocumentFilter):
                 if sentence.strip().lower().endswith(ellipsis):
                     num_lines_ending_with_ellipsis += 1
                     break
-        # Remove if the document is empty
+        # Empty documents score 1.0, which the default cutoff rejects; WordCountFilter drops them unconditionally
         return num_lines_ending_with_ellipsis / len(sentences) if sentences else 1.0
 
     def keep_document(self, score: float) -> bool:
@@ -441,7 +442,7 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
             if regex_alpha.search(word):
                 num_english_alpha += 1
 
-        # Remove if the document is empty
+        # Empty documents score 0.0, which the default cutoff rejects; WordCountFilter drops them unconditionally
         return num_english_alpha / len(words) if words else 0.0
 
     def keep_document(self, score: float) -> bool:

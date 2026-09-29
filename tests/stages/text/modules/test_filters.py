@@ -611,6 +611,31 @@ class TestHeuristicFilters:
         assert score == expected_score
         assert doc_filter.keep_document(score) is expected_keep
 
+    @pytest.mark.parametrize(
+        ("filter_cls", "keeps_empty"),
+        [
+            (SymbolsToWordsFilter, False),
+            (BulletsFilter, False),
+            (LongWordFilter, True),
+            (MeanWordLengthFilter, False),
+            (PunctuationFilter, False),
+            (EllipsisFilter, False),
+            (WordsWithoutAlphabetsFilter, False),
+        ],
+    )
+    def test_empty_document_score_filter(self, filter_cls: type[DocumentFilter], keeps_empty: bool) -> None:
+        good = "This is a normal sentence with enough words to pass."
+        documents = ["", good, " ", "\n\n"]
+        filters = ScoreFilter(filter_cls())
+
+        filtered_data = filters.process(list_to_dataset(documents))
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": documents if keeps_empty else [good]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_parentheses(self) -> None:
         dataset = list_to_dataset(["()", "(not good)", "this is completely absolutely fine", "123456789("])
         filters = ScoreFilter(ParenthesesFilter())
