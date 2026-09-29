@@ -879,6 +879,9 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     output_path: str
     name: str = "manifest_writer"
+    # The Audio Agent redirects these fixed-file outputs to a run-owned sibling
+    # and publishes them only after the whole pipeline succeeds.
+    AGENT_ATOMIC_OUTPUT_PARAMS: ClassVar[tuple[str, ...]] = ("output_path",)
 
     # ``output_path`` is required, so static discovery cannot instantiate this
     # stage. Publish invariant sink behavior so an agent never mistakes it for
