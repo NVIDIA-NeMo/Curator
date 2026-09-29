@@ -16,6 +16,7 @@ import pickle
 from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
     AudioDataFilterStage,
@@ -117,6 +118,27 @@ class TestValidate:
         cfg["vad"]["threshold"] = 1.5
         with pytest.raises(ValueError, match=r"vad\.threshold"):
             _validate(cfg)
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("adapter_target", ""),
+            ("adapter_kwargs", []),
+            ("batch_size", 0),
+            ("batch_size", 2),
+            ("num_workers", 0),
+        ],
+    )
+    def test_validate_vad_adapter_configuration(self, key: str, value: object) -> None:
+        cfg = load_config(None)
+        cfg["vad"][key] = value
+        with pytest.raises((TypeError, ValueError), match=key):
+            _validate(cfg)
+
+    def test_validate_accepts_hydra_adapter_kwargs_mapping(self) -> None:
+        cfg = load_config(None)
+        cfg["vad"]["adapter_kwargs"] = OmegaConf.create({"backend": "onnx"})
+        _validate(cfg)
 
     def test_validate_utmos_threshold_out_of_range(self) -> None:
         cfg = load_config(None)
@@ -254,6 +276,30 @@ class TestDecomposeConfig:
         assert len(utmos_stages) == 2
         for s in utmos_stages:
             assert s.mos_threshold == 4.2
+
+    def test_decompose_vad_adapter_and_worker_configuration(self) -> None:
+        stage = AudioDataFilterStage(
+            config={
+                "vad": {
+                    "adapter_target": "package.CustomVADAdapter",
+                    "adapter_kwargs": {"engine_path": "/models/silero.plan"},
+                    "batch_size": 1,
+                    "num_workers": 2,
+                    "cpus": 2.0,
+                    "gpus": 0.5,
+                }
+            }
+        )
+
+        vad_stages = [item for item in stage.decompose() if isinstance(item, VADSegmentationStage)]
+        assert len(vad_stages) == 2
+        for vad_stage in vad_stages:
+            assert vad_stage.adapter_target == "package.CustomVADAdapter"
+            assert vad_stage.adapter_kwargs == {"engine_path": "/models/silero.plan"}
+            assert vad_stage.batch_size == 1
+            assert vad_stage.num_workers() == 2
+            assert vad_stage.resources.cpus == 2.0
+            assert vad_stage.resources.gpus == 0.5
 
 
 # ---------------------------------------------------------------------------
