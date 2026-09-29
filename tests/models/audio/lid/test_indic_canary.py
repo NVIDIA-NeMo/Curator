@@ -170,7 +170,7 @@ def test_candidate_filter_makes_other_language_unknown() -> None:
 
 def test_identify_batch_preserves_short_rows_and_truncates_long_rows() -> None:
     adapter = _loaded_adapter()
-    adapter.max_duration_sec = 0.1
+    adapter.max_duration_sec = 2.0
     captured: list[int] = []
 
     def identify(waveforms):  # noqa: ANN001, ANN202
@@ -180,14 +180,21 @@ def test_identify_batch_preserves_short_rows_and_truncates_long_rows() -> None:
     adapter._identify_waveforms = identify
     results = adapter.identify_batch(
         [
-            {"waveform": np.zeros(100, dtype=np.float32)},
-            {"waveform": np.zeros(800, dtype=np.float32)},
-            {"waveform": np.zeros(3_200, dtype=np.float32)},
+            {"waveform": np.zeros(8_000, dtype=np.float32)},
+            {"waveform": np.zeros(16_000, dtype=np.float32)},
+            {"waveform": np.zeros(48_000, dtype=np.float32)},
         ]
     )
 
     assert results == [AudioLIDResult("", 0.0), AudioLIDResult("hi", 1.0), AudioLIDResult("hi", 1.0)]
-    assert captured == [800, 1_600]
+    assert captured == [16_000, 32_000]
+
+
+def test_default_duration_floor_matches_the_reference_stage_and_engine_profile() -> None:
+    adapter = IndicCanaryLIDAdapter(engine_dir="unused")
+
+    assert adapter.min_duration_sec == 1.0
+    assert adapter.min_samples == 16_000
 
 
 @pytest.mark.parametrize("num_gpus", [0, 2, -1, True])

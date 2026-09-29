@@ -161,11 +161,14 @@ The main configuration controls are:
 | `whisper_backend` | `torch` | Whisper encoder backend (`torch` or `tensorrt`). |
 | `whisper_tensorrt_engine_path` | `null` | Required shared `.plan` path for the TensorRT backend. |
 | `batch_size` | `16` | Candidate-window size; it must fit all model and engine profiles. |
-| `backend` | `ray_data` | Executor backend (`ray_data` or `xenna`). |
-| `execution_mode` | `streaming` | Xenna execution mode. |
+| `backend` | `xenna` | Executor backend (`xenna` or `ray_data`). |
+| `execution_mode` | `batch` | Xenna mode; batch serializes the GPU stages. |
 
-The maintained configuration uses the Ray Data backend, a candidate batch size
-of 16, and these duration windows:
+The maintained single-GPU configuration uses Xenna batch mode so each
+heavyweight model stage completes before the next one starts. This prevents
+the full-GPU Canary actor from waiting behind resident fractional primary or
+Whisper actors. It uses a candidate batch size of 16 and these duration
+windows:
 
 | Component | Role | Model input window |
 |---|---|---:|

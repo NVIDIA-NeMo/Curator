@@ -158,8 +158,8 @@ worker-local model setup.
 | `whisper_tensorrt_engine_path` | `null` | Required shared `.plan` path when `whisper_backend=tensorrt`. |
 | `sample_rate` | `16000` | Canonical sample rate supplied to every adapter. |
 | `batch_size` | `16` | Backend candidate-window size for each inference stage. |
-| `backend` | `ray_data` | Executor backend (`ray_data` or `xenna`). |
-| `execution_mode` | `streaming` | Xenna execution mode when `backend=xenna`. |
+| `backend` | `xenna` | Executor backend (`xenna` or `ray_data`). |
+| `execution_mode` | `batch` | Xenna mode; batch serializes the GPU stages. |
 
 Override any setting on the command line, for example:
 
@@ -366,10 +366,13 @@ throughput depends on clip duration, Whisper model size, engine build, GPU, and
 batch size. Benchmark the exact deployment rather than relying on a
 cross-hardware files-per-second number.
 
-The default Ray Data backend executes each model as its own stage. Xenna can be
-selected with `backend=xenna execution_mode=streaming`; ensure the configured
-GPU reservations fit if stages overlap. Keep one identical model cache and
-Canary engine available to each node in multi-node runs.
+The maintained single-GPU configuration uses
+`backend=xenna execution_mode=batch`. Batch mode materializes each model stage
+before the next one starts, so the full-GPU Canary actor does not compete with
+resident fractional SpeechBrain or Whisper actors. A multi-GPU deployment can
+select Ray Data streaming only after sizing the aggregate concurrent GPU
+reservations. Keep one identical model cache and Canary engine available to
+each node in multi-node runs.
 
 The maintained YAML caps SpeechBrain, Indic Canary, and Whisper at 2, 1, and 2
 workers, respectively. These explicit actor caps prevent each heavyweight model

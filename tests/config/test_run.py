@@ -867,6 +867,7 @@ def test_audio_language_identification_tutorial_uses_shared_adapter_contract() -
 
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
     reader, speechbrain, canary, whisper, selector, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
 
     assert reader.__class__.__name__ == "ManifestReader"
     assert [speechbrain.model_id, canary.model_id, whisper.model_id] == [
@@ -889,6 +890,8 @@ def test_audio_language_identification_tutorial_uses_shared_adapter_contract() -
     }
     assert selector.__class__.__name__ == "SelectAudioLanguageStage"
     assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert executor.__class__.__name__ == "XennaExecutor"
+    assert executor.config == {"execution_mode": "batch"}
 
 
 def test_audio_language_identification_tutorial_supports_ambernet_primary() -> None:
