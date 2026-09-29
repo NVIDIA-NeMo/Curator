@@ -88,6 +88,14 @@ class RivaStreamingExportMixin:
     def output_names(self) -> list[str]:
         return OUTPUT_NAMES
 
+    def _call_pre_encode(
+        self,
+        chunk: torch.Tensor,
+        chunk_lengths: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Call the encoder API shared by released NeMo Sortformer checkpoints."""
+        return self.encoder.pre_encode(x=chunk, lengths=chunk_lengths)
+
     @staticmethod
     def concat_and_pad(
         embs: Sequence[torch.Tensor],
