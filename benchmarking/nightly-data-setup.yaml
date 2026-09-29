@@ -45,6 +45,13 @@ data_setups:
       --cache-dir {datasets_path}/_hf_cache/audio_sortformer
       --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 
+  - name: audio_indic_asr_fleurs_hi_in
+    enabled: true
+    script: prepare_audio_indic_asr_data.py
+    args: >-
+      --output-path {datasets_path}/audio_indic_asr_fleurs_hi_in_train_70bb2e84
+      --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
+
   - name: read_speech
     enabled: true
     script: prepare_readspeech_data.py
