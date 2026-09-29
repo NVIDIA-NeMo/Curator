@@ -27,7 +27,7 @@ Use this draft checklist to review applications and environments for the planned
 
 ## Review Semantic Deduplication Precision
 
-Pairwise compute defaults to `float16` and processes ranked neighbors in batches of 1,024. Keep the default after validating duplicate outputs for your data. Set `pairwise_compute_dtype="float32"` with float32 embeddings when your workflow requires that precision, and validate results when changing precision.
+Pairwise compute defaults to `float16` and processes ranked neighbors in batches of 1,024. Keep the default after validating duplicate outputs for your data. When your workflow requires float32 precision, set both `kmeans_embedding_output_dtype="float32"` and `pairwise_compute_dtype="float32"`. Combining the default float16 KMeans output with float32 pairwise compute raises a `ValueError` at construction time. Validate results when changing precision.
 
 KMeans can fit centroids from a sample of complete Parquet files and then reread all input for assignment. Review `fit_data_fraction` and leave GPU memory for reading, prediction, and writing. Refer to [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup) for the current configuration.
 
@@ -41,7 +41,7 @@ Use `uv` 0.12 or later to satisfy the project requirement. For GB200 vLLM startu
 
 Use the installation command shown on the current [installation page](/get-started/installation).
 
-The `all` extra no longer installs OpenCV. Include the `cv2` extra for workflows that require it. Install FFmpeg separately when required by audio or video workflows.
+The `all` extra no longer includes `cv2` directly, though OpenCV may be installed transitively through vLLM. Include the `cv2` extra for workflows that require it explicitly. Install FFmpeg separately when required by audio or video workflows.
 
 ## Update Nemotron-Parse Examples
 
