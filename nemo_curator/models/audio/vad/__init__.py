@@ -20,6 +20,7 @@ from importlib import import_module
 
 _LAZY = {
     "SileroVADAdapter": "nemo_curator.models.audio.vad.silero",
+    "TensorRTSileroVADAdapter": "nemo_curator.models.audio.vad.silero_tensorrt",
     "VADAdapter": "nemo_curator.models.audio.vad.base",
     "VADResult": "nemo_curator.models.audio.vad.base",
     "VADSegment": "nemo_curator.models.audio.vad.base",
@@ -27,6 +28,7 @@ _LAZY = {
 
 __all__ = [
     "SileroVADAdapter",
+    "TensorRTSileroVADAdapter",
     "VADAdapter",
     "VADResult",
     "VADSegment",
