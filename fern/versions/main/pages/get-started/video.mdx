@@ -211,7 +211,7 @@ Organize input videos and output locations before running the pipeline.
   MODEL_DIR=/path/to/models
   ```
 
-- **S3**: For cloud storage (AWS S3, MinIO, etc.). Configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-clip-path`.
+- **S3**: For cloud storage (AWS S3, MinIO, etc.). Install `nemo-curator[s3]`, configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-clip-path`.
 
 **S3 usage notes:**
 - Input videos can be read from S3 paths
