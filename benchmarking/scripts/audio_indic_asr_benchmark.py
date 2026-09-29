@@ -48,6 +48,7 @@ from nemo_curator.tasks import AudioTask
 
 EXPECTED_NUM_ROWS = 2120
 SAMPLE_RATE = 16_000
+GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 CANARY_REQUIRED_FILES = (
     "encoder/encoder.plan",
     "encoder/config.json",
@@ -290,7 +291,7 @@ def _build_pipeline(  # noqa: PLR0913
                 batch_size=64,
                 num_workers_override=1,
                 resources=Resources(gpu_memory_gb=50),
-            ),
+            ).with_(runtime_env=GPU_ACTOR_RUNTIME_ENV),
             WhisperHallucinationStage(
                 name="WhisperHallucination_primary",
                 common_hall_file=str(hall_phrases),
@@ -310,7 +311,7 @@ def _build_pipeline(  # noqa: PLR0913
                 batch_size=64,
                 num_workers_override=1,
                 resources=Resources(gpu_memory_gb=24),
-            ),
+            ).with_(runtime_env=GPU_ACTOR_RUNTIME_ENV),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
                 common_hall_file=str(hall_phrases),

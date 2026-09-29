@@ -1111,6 +1111,10 @@ entries:
         exact_value: 1.0
       - metric: best_prediction_coverage_ratio
         exact_value: 1.0
+      - metric: primary_prediction_coverage_ratio
+        min_value: 0.9
+      - metric: fallback_prediction_coverage_ratio
+        min_value: 0.9
       - metric: cleaned_text_coverage_ratio
         min_value: 0.9
       - metric: abbreviated_text_coverage_ratio
