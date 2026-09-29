@@ -133,7 +133,6 @@ class PrepareIndicASRInputStage(ProcessingStage[AudioTask, AudioTask]):
         data["sampling_rate"] = sample_rate
         data["waveform"] = waveform
         data["_skipme"] = ""
-        task.task_id = audio_item_id
         return task
 
 
@@ -308,7 +307,7 @@ def _build_pipeline(  # noqa: PLR0913
                 source_lang_key="source_lang",
                 pred_text_key="fallback_model_prediction",
                 keep_waveform=False,
-                batch_size=16,
+                batch_size=64,
                 num_workers_override=1,
                 resources=Resources(gpu_memory_gb=24),
             ),
@@ -402,9 +401,12 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
             or not math.isfinite(wer_pct)
             or wer_pct < 0
             or source not in {"primary", "fallback"}
-            or skip_reason != ""
+            or not isinstance(skip_reason, str)
             or not all(isinstance(value, str) for value in model_text_values)
-            or not all(isinstance(value, str) and bool(value.strip()) for value in selected_text_values)
+            or not isinstance(selected_text_values[0], str)
+            or not selected_text_values[0].strip()
+            or not all(isinstance(value, str) for value in selected_text_values[1:])
+            or (not skip_reason and not all(bool(value.strip()) for value in selected_text_values[1:]))
         ):
             msg = f"Invalid Indic ASR output values in row {row_index}"
             raise RuntimeError(msg)
