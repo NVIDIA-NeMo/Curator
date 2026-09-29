@@ -126,7 +126,11 @@ class IndicCanaryLIDAdapter:
     max_new_tokens: int = 1
     prompt_text: str | None = None
     max_duration_sec: float = 40.0
-    min_duration_sec: float = 0.025
+    # The maintained engine builder profiles at least 32 encoder frames. A
+    # one-second floor matches the reference stage and keeps direct adapter use
+    # comfortably inside that profile instead of relying on a wrapping stage to
+    # reject sub-profile clips first.
+    min_duration_sec: float = 1.0
     candidate_languages: list[str] | None = None
     model_batch_size: int = 32
     kv_cache_free_gpu_memory_fraction: float = 0.2

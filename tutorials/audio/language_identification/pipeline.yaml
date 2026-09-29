@@ -48,8 +48,13 @@ canary_max_duration_sec: 40.0
 sample_rate: 16000
 batch_size: 16
 
-backend: ray_data
-execution_mode: streaming
+# Batch-mode Xenna materializes each heavyweight model stage before starting
+# the next one. This is the maintained single-GPU topology: the full-GPU
+# Canary actor never waits behind resident fractional SpeechBrain/Whisper
+# actors. Multi-GPU deployments may opt into Ray Data after sizing the
+# aggregate concurrent reservations.
+backend: xenna
+execution_mode: batch
 
 stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
