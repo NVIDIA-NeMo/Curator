@@ -44,11 +44,6 @@ diarize = InferenceSortformerStage(
 )
 ```
 
-The same stage can select
-`nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter`
-and pass its explicit engine, runtime-config, and trusted runtime-module paths
-through `adapter_kwargs`; task outputs and RTTM semantics do not change.
-
 Use `.with_(resources=..., batch_size=..., num_workers=...)` for executor
 controls. Put task and output fields in the stage constructor, and put model
 runtime fields such as Sortformer streaming parameters or the Silero backend
@@ -67,17 +62,8 @@ from nemo_curator.stages.audio.segmentation.vad_segmentation import (
     VADSegmentationStage,
 )
 
-# Official CPU ONNX runtime.
+# Official CPU ONNX runtime; the stage contract is unchanged.
 onnx_vad = VADSegmentationStage(adapter_kwargs={"backend": "onnx"})
-
-# Caller-supplied TensorRT engine.
-tensorrt_vad = VADSegmentationStage(
-    adapter_target=(
-        "nemo_curator.models.audio.vad.silero_tensorrt."
-        "TensorRTSileroVADAdapter"
-    ),
-    adapter_kwargs={"engine_path": "/models/silero_vad.plan"},
-)
 ```
 
 The VAD stage retains the existing `duration` output key for every adapter.

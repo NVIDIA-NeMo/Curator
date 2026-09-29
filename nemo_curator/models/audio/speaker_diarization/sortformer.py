@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from numbers import Integral, Real
 from pathlib import Path
 from types import MethodType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 from loguru import logger
@@ -243,9 +243,6 @@ class NeMoSortformerAdapter:
     Streaming fields default to Curator's maintained v2.1 preset. Set an
     individual field to ``None`` to retain that checkpoint value.
     """
-
-    DEFAULT_MODEL_ID: ClassVar[str] = _DEFAULT_MODEL_ID
-    DEFAULT_SAMPLE_RATE: ClassVar[int] = _DEFAULT_SAMPLE_RATE
 
     model_id: str = _DEFAULT_MODEL_ID
     model_path: str | None = None
