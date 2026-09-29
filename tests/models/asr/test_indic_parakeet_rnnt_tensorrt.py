@@ -161,7 +161,7 @@ def test_adapter_requires_available_cuda(tmp_path: Path) -> None:
         adapter.load_model(num_gpus=1)
 
 
-def test_adapter_enables_batched_greedy_decoder(tmp_path: Path) -> None:
+def test_adapter_enables_batched_greedy_decoder_without_cuda_graphs(tmp_path: Path) -> None:
     adapter = TensorRTParakeetRNNTAdapter(engine_dir=_engine_bundle(tmp_path))
     model = _nemo_model()
     adapter._model = model
@@ -171,7 +171,8 @@ def test_adapter_enables_batched_greedy_decoder(tmp_path: Path) -> None:
 
     assert model.cfg.decoding.strategy == "greedy_batch"
     assert model.cfg.decoding.greedy.max_symbols_per_step == 10
-    assert model.cfg.decoding.greedy.use_cuda_graph_decoder is True
+    assert model.cfg.decoding.greedy.use_cuda_graph_decoder is False
+    assert model.cfg.decoding.greedy.allow_cuda_graphs is False
     model.change_decoding_strategy.assert_called_once_with(model.cfg.decoding)
 
 
