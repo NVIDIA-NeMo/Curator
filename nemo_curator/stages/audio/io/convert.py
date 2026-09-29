@@ -275,6 +275,9 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
 
     output_path: str
     name: str = "document_batch_jsonl_writer"
+    # The Audio Agent redirects these fixed-file outputs to a run-owned sibling
+    # and publishes them only after the whole pipeline succeeds.
+    AGENT_ATOMIC_OUTPUT_PARAMS: ClassVar[tuple[str, ...]] = ("output_path",)
     # A retried source can encounter a partially appended shared file. Until this
     # sink writes source-attributable atomic shards, checkpointed execution must
     # fail before setup rather than silently duplicate or truncate rows.
