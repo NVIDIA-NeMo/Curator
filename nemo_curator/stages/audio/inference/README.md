@@ -1,4 +1,40 @@
-# Local Duration Bucketing for Audio GPU Inference
+# Audio Inference Stages and Local Duration Bucketing
+
+## Shared stage-adapter boundary
+
+ASR, sound-event detection, Sortformer diarization, and Silero VAD use the
+same model-adapter lifecycle. The task-facing stage owns Curator input/output
+keys, input-mode selection, in-memory normalization, task-local error
+behavior, output assembly, file side effects, and resume semantics. The
+adapter selected by `adapter_target` owns model acquisition, worker-local
+runtime state, provider preprocessing and inference, plus provider-native
+file decoding or bounded streaming when its item contract accepts a path.
+`AdapterInferenceStage` connects those layers with node prefetch, worker
+setup, GPU-count handoff, and teardown.
+
+Provider-runtime settings that are not part of the task contract belong in
+`adapter_kwargs`; backend execution settings do not. Stable task settings
+such as output keys, detection thresholds, and the provider model ID stay on
+their stage. Configure resources, the backend candidate window, and worker
+count with the common stage override:
+
+```python
+from nemo_curator.stages.resources import Resources
+
+stage = stage.with_(
+    resources=Resources(gpus=1),
+    batch_size=8,
+    num_workers=1,
+)
+```
+
+The stage contract determines whether reordering or splitting is safe. ASR
+can split with explicit transcript stitching, and VAD deliberately emits
+speech intervals. Sortformer only reorders independent whole recordings in a
+finite batch; it does not arbitrarily split a recording because global
+speaker clustering and speaker identities must remain coherent.
+
+## Local duration bucketing
 
 This document describes the local duration-batching contract implemented by
 [`ASRStage`](asr/stage.py) and how to apply the same pattern to another audio
@@ -417,6 +453,14 @@ ordered prepared segments and configuration, the plan is deterministic.
   model-safe segment planning and validation.
 - [`inference/base.py`](base.py): shared adapter lifecycle and input handling;
   deliberately not a generic batching planner.
+- [`speaker_diarization/stage.py`](speaker_diarization/stage.py):
+  whole-recording task preparation, output/resume semantics, and RTTM files.
+- [`models/audio/speaker_diarization/`](../../../models/audio/speaker_diarization/):
+  NeMo and TensorRT Sortformer model adapters.
+- [`segmentation/vad_segmentation.py`](../segmentation/vad_segmentation.py):
+  Silero task preparation plus segment fan-out or nested assembly.
+- [`models/audio/vad/`](../../../models/audio/vad/): Torch/ONNX and TensorRT
+  Silero adapters.
 - [`models/asr/base.py`](../../../models/asr/base.py): ordered ASR adapter input
   and result contract.
 - [`test_asr_stage.py`](../../../../tests/stages/audio/inference/test_asr_stage.py):

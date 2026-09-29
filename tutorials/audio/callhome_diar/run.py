@@ -40,8 +40,9 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, EmptyTask
 
 COLLAR = 0.25
@@ -511,15 +512,17 @@ def main() -> None:
         CallHomeReaderStage(data_dir=str(data_dir), cha_dir=str(cha_dir), rttm_out_dir=str(rttm_out)),
         EnsureMonoStage(mono_dir=str(data_dir / "mono")),
         InferenceSortformerStage(
-            model_name=args.model,
+            model_id=args.model,
             rttm_out_dir=str(rttm_out),
-            chunk_len=args.chunk_len,
-            chunk_right_context=args.chunk_right_context,
-            fifo_len=args.fifo_len,
-            spkcache_update_period=args.spkcache_update_period,
-            spkcache_len=args.spkcache_len,
-            inference_batch_size=1,
-        ),
+            adapter_kwargs={
+                "chunk_len": args.chunk_len,
+                "chunk_right_context": args.chunk_right_context,
+                "fifo_len": args.fifo_len,
+                "spkcache_update_period": args.spkcache_update_period,
+                "spkcache_len": args.spkcache_len,
+                "inference_batch_size": 1,
+            },
+        ).with_(resources=Resources(gpus=1), batch_size=1),
         DERComputationStage(cha_dir=str(cha_dir), collar=args.collar),
     ]
 

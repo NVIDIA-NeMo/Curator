@@ -45,6 +45,14 @@ vad_max_duration_sec: 60.0
 vad_threshold: 0.5
 vad_min_interval_ms: 500
 vad_speech_pad_ms: 300
+# Detection semantics stay above; runtime selection is adapter-owned.
+vad_adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
+vad_backend: torch
+# Keep 1 because this composite contains fan-out VAD branches.
+vad_batch_size: 1
+vad_num_workers: null
+vad_cpus: 1.0
+vad_gpus: 0.1
 
 enable_band_filter: true
 band_value: full_band
@@ -73,11 +81,18 @@ processors:
         output_sample_rate: ${sample_rate}
       vad:
         enable: ${enable_vad}
+        adapter_target: ${vad_adapter_target}
+        adapter_kwargs:
+          backend: ${vad_backend}
         min_duration_sec: ${vad_min_duration_sec}
         max_duration_sec: ${vad_max_duration_sec}
         threshold: ${vad_threshold}
         min_interval_ms: ${vad_min_interval_ms}
         speech_pad_ms: ${vad_speech_pad_ms}
+        batch_size: ${vad_batch_size}
+        num_workers: ${vad_num_workers}
+        cpus: ${vad_cpus}
+        gpus: ${vad_gpus}
       band_filter:
         enable: ${enable_band_filter}
         band_value: ${band_value}
