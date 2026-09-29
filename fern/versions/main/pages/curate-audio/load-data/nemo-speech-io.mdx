@@ -1,0 +1,284 @@
+---
+description: "Read NeMo YAML speech datasets, including tarred shards, and publish per-shard manifests with Opus audio"
+categories: ["data-loading", "audio-processing"]
+tags: ["nemo", "speech", "tarred-audio", "opus", "resumability"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Read and Write NeMo Speech Shards
+
+Use `NeMoSpeechAudioReader` to load NeMo `input_cfg` YAML with ordinary
+(`nemo`) or tarred (`nemo_tarred`) speech manifests. Pair it with
+`NeMoSpeechWriterStage` to write atomic Opus clips, durable row receipts, and
+one output manifest per physical input manifest.
+
+Each physical manifest is a source partition and a resume boundary. The
+reader emits mono float32 waveforms as `AudioTask` objects and preserves the
+source sample rate. The writer creates a stable output path for every row and
+retains JSON-safe input metadata.
+
+A physical manifest/tar pair is both the resume unit and the reader memory
+unit. The current reader materializes that shard's rows and decoded outputs
+before emission, so size physical shards to fit one worker's RAM. Peak reader
+memory scales with concurrently active reader workers; prefer more bounded
+physical shards over one very large manifest.
+
+<Warning>
+The writer output must be a POSIX-style filesystem visible at the same path to
+every worker. Object-store URIs such as `s3://` are not supported as the
+output directory because publication relies on atomic rename and filesystem
+durability. Input YAML and manifests can use fsspec-compatible paths. Tar
+files are opened by NeMo/Lhotse and must use a transport supported by its
+active I/O backend (for example, a local path, a supported `smart_open` URI,
+or a NeMo `pipe:` source); generic fsspec support alone is not sufficient.
+</Warning>
+
+## Define the input YAML
+
+Use a top-level `input_cfg` list:
+
+```yaml
+input_cfg:
+  - corpus: librispeech
+    language: en
+    type: nemo
+    manifest_filepath: /datasets/librispeech/manifests/train-clean-100.jsonl
+    shard_key_prefix: librispeech/en/train-clean-100
+
+  - corpus: granary
+    language: hi
+    type: nemo_tarred
+    manifest_filepath: /datasets/granary/hi/manifest__OP_0..127_CL_.json
+    tarred_audio_filepaths: /datasets/granary/hi/audio__OP_0..127_CL_.tar
+    shard_key_prefix: granary/hi/train
+```
+
+| Field | Required | Description |
+|---|---:|---|
+| `manifest_filepath` | Yes | A path, list of paths, or NeMo shard-range expression. |
+| `type` | No | `nemo` or `nemo_tarred`. If omitted, the presence of `tarred_audio_filepaths` selects `nemo_tarred`. |
+| `tarred_audio_filepaths` | For tarred input | A path, list, or range expression. Its expanded shard count must equal the manifest count. It is rejected for `type: nemo`. |
+| `corpus` | No | Dataset label. Defaults to `unknown`. |
+| `language` | No | Added as `source_lang` when a row does not already define it. |
+| `shard_key_prefix` | Recommended | A stable relative output namespace. Absolute paths and traversal components are rejected. |
+
+The YAML file can also be a list of entries directly. Non-tarred manifest rows
+normally include `audio_filepath`, `duration`, and `text`. In a tarred
+manifest, `audio_filepath` identifies the member in the corresponding tar.
+Each tarred row must also contain its integer `shard_id`; offset rows can use
+NeMo's `-subN` filename convention and an `offset`:
+
+```json
+{"audio_filepath":"session-sub1.wav","duration":12.5,"offset":30.0,"text":"...","shard_id":0}
+```
+
+Use absolute local input paths so they resolve from executor workers. YAML and
+manifest files may instead use fsspec-compatible URIs. Tar paths must be
+readable by NeMo/Lhotse's active I/O backend and may require the corresponding
+`smart_open` transport, credentials, or a `pipe:` command.
+
+The reader expands the manifest and tar ranges and requires a one-to-one
+match. Without `shard_key_prefix`, the `corpus` value must occur exactly once
+as a component of the manifest path. An explicit prefix is recommended for
+stable and unambiguous output keys.
+
+## Build the pipeline
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.io import (
+    NeMoSpeechAudioReader,
+    NeMoSpeechWriterStage,
+    finalize_nemo_speech_output,
+)
+
+output_dir = "/shared/curator/nemo-speech-output"
+
+pipeline = Pipeline(name="nemo_speech_io")
+pipeline.add_stage(
+    NeMoSpeechAudioReader(
+        yaml_path="/absolute/path/to/input.yaml",
+        output_dir=output_dir,
+        resume_mode="done_markers",
+        reader_workers=8,
+    )
+)
+pipeline.add_stage(
+    NeMoSpeechWriterStage(
+        output_dir=output_dir,
+        target_sample_rate=16000,
+        writer_concurrency=4,
+    )
+)
+
+pipeline.run(executor=XennaExecutor())
+finalize_nemo_speech_output(output_dir)
+```
+
+Pass the same absolute `output_dir` to the reader, writer, and finalizer. The
+reader records every physical shard there before downstream fan-out; using a
+different writer directory would defeat detection of an input whose every
+child was dropped.
+
+Use `corpus_filter` or `language_filter` on the reader to select entries from
+a larger YAML configuration. `max_audio_duration_sec` defaults to 12 hours;
+rows over the limit become `read_error` placeholders instead of being
+dropped.
+
+## Match the target sample rate
+
+`NeMoSpeechAudioReader` decodes to mono but does not resample. The writer's
+`target_sample_rate` is a strict validation target, not a conversion option.
+Every waveform-bearing task must already have that rate. Insert an upstream
+resampling stage when necessary; otherwise the writer raises an error rather
+than silently changing the audio.
+
+Opus encoding uses libsndfile's OGG/Opus support when available and otherwise
+falls back to `ffmpeg` with `libopus` plus `ffprobe`. The same probe validates
+new and existing files on workers and in the driver finalizer. Set
+`save_audio=False` only for an intentional manifest-only workflow. It preserves
+the resolved source reference instead of inventing a path to an unwritten Opus
+file. For relative paths in non-tar manifests, the reader retains the original
+row value in task metadata while manifest-only output uses NeMo's resolved path
+so the published manifest remains readable from its new location.
+
+## Choose exactly one resume mode
+
+`done_markers` and `checkpoint` are mutually exclusive scheduling models.
+They must not be combined.
+
+### Done-marker mode
+
+```python
+pipeline = Pipeline(name="nemo_speech_done_markers")
+pipeline.add_stage(
+    NeMoSpeechAudioReader(
+        yaml_path="/absolute/path/to/input.yaml",
+        output_dir=output_dir,
+        resume_mode="done_markers",
+    )
+)
+pipeline.add_stage(NeMoSpeechWriterStage(output_dir=output_dir))
+
+# Do not pass checkpoint_path in this mode.
+pipeline.run(executor=XennaExecutor())
+finalize_nemo_speech_output(output_dir)
+```
+
+A valid `<shard>.jsonl.done` file plus its manifest makes that shard complete,
+and discovery verifies the marker's manifest digest before skipping it on the
+next run. For a partial shard, discovery removes
+the incomplete manifest and row-receipt directory before replay. Atomic Opus
+files remain in place and are validated and reused. Set `cleanup_partial=False`
+only when you intentionally need to inspect or retain that intermediate state.
+Audio ownership claims are immutable restart records. If transformation logic
+or output identity changes, use a fresh output directory instead of mixing
+the new run with prior claims.
+
+### Pipeline-checkpoint mode
+
+```python
+pipeline = Pipeline(name="nemo_speech_checkpoint")
+pipeline.add_stage(
+    NeMoSpeechAudioReader(
+        yaml_path="/absolute/path/to/input.yaml",
+        output_dir=output_dir,
+        resume_mode="checkpoint",
+    )
+)
+pipeline.add_stage(NeMoSpeechWriterStage(output_dir=output_dir))
+
+pipeline.run(
+    executor=XennaExecutor(),
+    checkpoint_path="/shared/curator/checkpoints/nemo-speech",
+)
+finalize_nemo_speech_output(output_dir)
+```
+
+In this mode, `Pipeline.run(checkpoint_path=...)` is the scheduling authority.
+Discovery ignores `.done` files and does not clean partial receipts; Curator
+skips completed source partitions and replays incomplete ones. The `.done`
+files are still written as output-integrity records. Checkpoint resumability
+requires a pre-existing Ray cluster. See [Resumable
+Processing](/reference/infra/resumable-processing) for storage and cluster
+requirements. Curator rejects `checkpoint_path` when the reader is configured
+for `done_markers`, before discovery can modify partial state.
+
+## Finalize after a successful run
+
+The writer intentionally does not publish manifests from distributed workers.
+It atomically writes an Opus clip and a receipt for every row. You **must** call
+`finalize_nemo_speech_output(output_dir)` on the driver after
+`pipeline.run()` returns successfully.
+
+Run exactly one finalizer after all writer workers are quiescent. Concurrent
+pipeline writers or finalizers targeting the same output directory are not a
+supported coordination mechanism.
+
+The writer is a terminal consuming stage. It returns no waveform-bearing
+tasks to the driver; the atomic receipts are its durable acknowledgements.
+
+The finalizer validates every pending shard before creating any marker. It
+checks the expected and observed input counts, receipt consistency, relative
+path safety, and every referenced Opus file. It then atomically writes the
+manifest followed by a structured completion marker containing the manifest
+SHA-256. Do not call it from a `finally` block after a failed pipeline.
+
+Fan-out stages can emit multiple children for one reader row because all of
+those children retain the same `_shard_input_id`. A stage that intentionally
+drops every child for a row must instead emit one terminal placeholder, such
+as `vad_empty` or `read_error`. Otherwise the finalizer rejects that shard as
+incomplete; this is deliberate protection against silent data loss. Custom
+batch fan-out that receives a non-deterministic framework task ID must assign
+a unique, stable `_shard_output_id` to each child before the writer.
+
+If execution finished but the process stopped before finalization, the durable
+receipts can be finalized without rerunning the pipeline:
+
+```python
+finalize_nemo_speech_output("/shared/curator/nemo-speech-output")
+```
+
+## Inspect the output
+
+For the shard key `granary/hi/train/manifest_0`, the layout is:
+
+```text
+output/
+├── granary/hi/train/manifest_0.jsonl
+├── granary/hi/train/manifest_0.jsonl.done
+├── granary/hi/train/manifest_0/audio/.../*.opus
+└── .nemo_curator/
+    ├── nemo_speech_shards/
+    │   └── granary/hi/train/manifest_0.json
+    ├── nemo_speech_rows/
+    │   └── granary/hi/train/manifest_0/*.json
+    └── nemo_speech_audio_owners/
+        └── <hash[0:2]>/<hash[2:4]>/<sha256>.json
+```
+
+Manifest audio paths are relative to each shard manifest's parent, so NeMo can
+resolve nested output manifests directly. Internal `output_audio_filepath`
+values and audio-ownership claims remain relative to the output root. Rows
+include both `sample_rate` and `sampling_rate`, plus
+`original_audio_filepath`. Decode failures, missing
+tar members, and over-duration inputs remain represented by `read_error` rows
+with an empty `audio_filepath`; this preserves per-shard accounting for safe
+finalization and restart. Keep all three private subtrees. The shard
+registration is written before downstream fan-out or filtering and records the
+physical shard's expected input count, allowing finalization to detect even an
+all-dropped shard with no row receipts. Row receipts still record durable task
+completion, while the hash-sharded ownership claims still prevent two outputs
+from claiming the same Opus path and are revalidated during finalization.
+
+Empty physical manifests are rejected explicitly because they cannot produce
+a row receipt. Preset `output_audio_filepath` values, when used for Opus
+backfill, must be relative `.opus` paths below that shard's directory.
+
+For a complete command-line example, see
+`tutorials/audio/nemo_speech_io/run.py` and its accompanying README in the
+Curator repository.
