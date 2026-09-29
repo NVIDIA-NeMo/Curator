@@ -67,24 +67,38 @@ def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
 def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     """Instantiate a single stage from its Hydra config.
 
-    Extracts ``resources`` before calling ``hydra.utils.instantiate``
-    (it is applied via ``.with_()``, not as a constructor argument) and
-    re-applies it after construction. ``batch_size`` is left in the config
-    dict so that stages declaring it as a dataclass field receive it
-    during construction.
+    Extracts execution-only overrides before calling
+    ``hydra.utils.instantiate`` (they are applied via ``.with_()``, not as
+    constructor arguments) and re-applies them after construction.
+    ``batch_size`` is left in the config dict so that stages declaring it as a
+    dataclass field receive it during construction.
     """
     cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
 
     stage_resources = cfg_dict.pop("resources", None)
+    num_workers = cfg_dict.pop("num_workers", None)
+    num_workers_per_node = cfg_dict.pop("num_workers_per_node", None)
+
+    if num_workers is not None and num_workers_per_node is not None:
+        msg = "A YAML stage may set only one of num_workers or num_workers_per_node."
+        raise ValueError(msg)
 
     stage = hydra.utils.instantiate(cfg_dict)
 
+    with_kwargs: dict[str, Any] = {}
     if stage_resources:
         if isinstance(stage_resources, dict) and "_target_" in stage_resources:
             resources_obj = hydra.utils.instantiate(stage_resources)
         else:
             resources_obj = Resources(**stage_resources)
-        with_kwargs: dict[str, Any] = {"resources": resources_obj}
+        with_kwargs["resources"] = resources_obj
+
+    if num_workers is not None:
+        with_kwargs["num_workers"] = int(num_workers)
+    if num_workers_per_node is not None:
+        with_kwargs["num_workers_per_node"] = float(num_workers_per_node)
+
+    if with_kwargs:
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
 

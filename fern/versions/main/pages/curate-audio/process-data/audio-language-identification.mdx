@@ -1,0 +1,319 @@
+---
+title: "Audio Language Identification"
+description: "Identify spoken languages with a SpeechBrain, Indic Canary, and Whisper agreement ensemble"
+categories: ["audio-processing"]
+tags: ["language-identification", "speechbrain", "whisper", "indic-canary", "gpu"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Audio Language Identification
+
+Identify the spoken language in every row of an audio manifest with a
+three-model ensemble. The maintained pipeline runs SpeechBrain as a
+broad-coverage primary classifier, Indic Canary as an Indic-specialized
+secondary classifier, and Whisper as an independent tertiary classifier. A
+deterministic selector converts their predictions into `source_lang` or marks
+the row for review.
+
+<Note>
+The selector uses categorical agreement, not averaged confidence. Confidence
+values from different model families are not calibrated against one another.
+</Note>
+
+## Architecture
+
+The pipeline follows NeMo Curator's stage-adapter boundary:
+
+- `AudioLIDInferenceStage` owns `AudioTask` I/O, file loading, mono conversion,
+  16 kHz resampling, duration limits, per-model resume checks, and result
+  storage.
+- `SpeechBrainLIDAdapter`, `IndicCanaryLIDAdapter`, `WhisperLIDAdapter`, and
+  `AmberNetLIDAdapter` own their model lifecycle and inference implementation.
+- `SelectAudioLanguageStage` owns the ensemble decision and skip reason. It
+  copies component evidence into `additional_notes` and consumes the
+  intermediate `lid` mapping before final output.
+
+This keeps the task contract identical across models. A stage writes one plain
+JSON object to `lid[model_id]`:
+
+```json
+{"language": "hi", "confidence": 0.94, "tag": "primary"}
+```
+
+The `tag` identifies the model's ensemble role. The `model_id` provides the
+stable intermediate mapping key and allows each stage to resume independently.
+
+The implementation supplies two interchangeable primary adapters. The
+maintained YAML uses SpeechBrain; a custom pipeline can replace it with
+AmberNet. AmberNet is an alternative, not a fourth model to run alongside the
+default three. The selector supports both the full primary + Indic Canary +
+Whisper mode needed for Indic acceptance and the reference non-Indic primary +
+Whisper mode with Canary absent.
+
+## Prerequisites
+
+The complete ensemble requires:
+
+- Python 3.12;
+- x86_64 Linux;
+- a tested immutable container or isolated environment containing mutually
+  compatible NeMo Curator audio dependencies, CUDA, and
+  `tensorrt_llm==1.2.1`;
+- a compatible CUDA GPU; and
+- a prebuilt Indic Canary TensorRT-LLM engine visible at the same path to every
+  executor worker.
+
+For a composition that omits Indic Canary, Curator's supported `audio_cuda12`
+extra provides SpeechBrain, Whisper, and AmberNet:
+
+```bash
+uv sync --extra audio_cuda12
+```
+
+<Warning>
+Do not install TensorRT-LLM over Curator's locked environment. Its dependency
+pins are intentionally outside the Curator lock. Run the complete Canary
+ensemble only in a separately validated Python 3.12 environment or immutable
+container that already includes TensorRT-LLM 1.2.1 and its compatible CUDA
+stack.
+</Warning>
+
+SpeechBrain and Whisper populate their model caches on first use. The pipeline
+does not build or download the Canary engine. Its root directory must contain:
+
+```text
+encoder/encoder.plan
+encoder/config.json
+decoder/rank0.engine
+decoder/config.json
+decoder/vocab.json
+preprocessor/config.json
+preprocessor/mel_basis.pt
+```
+
+### Optional Whisper TensorRT encoder
+
+Whisper uses its PyTorch encoder by default. Build the optional TensorRT encoder
+in a Curator environment separate from the full Canary runtime:
+
+```bash
+uv sync --extra audio_tensorrt
+
+uv run --extra audio_tensorrt python scripts/build_whisper_encoder_tensorrt_engine.py \
+  --checkpoint medium \
+  --output /models/whisper-medium-encoder.plan \
+  --min-batch 1 \
+  --opt-batch 8 \
+  --max-batch 16 \
+  --fp16
+```
+
+The plan must be visible at the same path on every executor and must match the
+deployment TensorRT version and GPU. In the tested full-ensemble environment,
+run with `whisper_backend=tensorrt` and
+`whisper_tensorrt_engine_path=/models/whisper-medium-encoder.plan`. Do not set
+`batch_size` above the engine's maximum batch profile.
+
+## Input manifest
+
+Provide one JSON object per line with an audio path:
+
+```json
+{"audio_filepath": "/absolute/shared/audio/example.wav", "duration": 8.2}
+```
+
+Use an absolute path or another path resolvable on every worker. `ManifestReader`
+does not validate the audio file; the LID stage loads it in the worker. The
+maintained YAML uses file input, converts supported audio to mono float32, and
+resamples it to 16 kHz. Programmatic pipelines can instead configure an
+in-memory `waveform_key` plus `sample_rate_key`.
+
+## Run the maintained pipeline
+
+Enter the tested full-ensemble environment, then from the repository root run
+the
+[audio language-identification YAML](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/language_identification/pipeline.yaml):
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/language_identification \
+  --config-name pipeline \
+  manifest_path=/absolute/path/to/input.jsonl \
+  output_path=/absolute/path/to/audio_lid_output.jsonl \
+  canary_engine_dir=/absolute/path/to/indic_canary_engine
+```
+
+Keep `output_path` different from `manifest_path`. `ManifestWriterStage`
+truncates its destination once during setup.
+
+The main configuration controls are:
+
+| Setting | Default | Purpose |
+|---|---:|---|
+| `canary_engine_dir` | required | Shared Indic Canary TensorRT-LLM engine root. |
+| `canary_max_duration_sec` | `40.0` | Canary stage and adapter duration cap; keep it within the engine build profile. |
+| `primary_backend` | `speechbrain` | Primary classifier (`speechbrain` or `ambernet`). |
+| `speechbrain_source` | `speechbrain/lang-id-voxlingua107-ecapa` | SpeechBrain checkpoint source. |
+| `ambernet_model_name` | `langid_ambernet` | NeMo model name when `primary_backend=ambernet`. |
+| `whisper_backend` | `torch` | Whisper encoder backend (`torch` or `tensorrt`). |
+| `whisper_tensorrt_engine_path` | `null` | Required shared `.plan` path for the TensorRT backend. |
+| `batch_size` | `16` | Candidate-window size; it must fit all model and engine profiles. |
+| `backend` | `ray_data` | Executor backend (`ray_data` or `xenna`). |
+| `execution_mode` | `streaming` | Xenna execution mode. |
+
+The maintained configuration uses the Ray Data backend, a candidate batch size
+of 16, and these duration windows:
+
+| Component | Role | Model input window |
+|---|---|---:|
+| SpeechBrain VoxLingua107 | Primary | 1–10 seconds |
+| Indic Canary | Secondary | 1–40 seconds |
+| Whisper | Tertiary | 1–30 seconds |
+
+Longer input is truncated for that component. Shorter input produces a
+completed empty-language result with confidence `0.0`, so it is not repeatedly
+inferred on resume. Adjust the windows only after validating the intended model
+contract.
+
+The YAML also caps SpeechBrain, Indic Canary, and Whisper at 2, 1, and 2
+workers, respectively. These limits keep heavyweight model actors from
+expanding to every available slot; tune them together with GPU reservations,
+cache placement, and engine profiles.
+
+## Selection policy
+
+`SelectAudioLanguageStage` evaluates predictions in this exact order:
+
+1. No predictions: mark the row skipped.
+2. Whisper predicts English (`en`): accept Whisper immediately.
+3. Whisper is missing or empty: mark the row skipped.
+4. Primary, Canary, and Whisper all agree: accept Canary's language and
+   confidence.
+5. Whisper predicts a non-Indic language and the primary agrees: accept
+   Whisper's language and confidence. Canary may be absent for this rule.
+6. Every other case: mark the row skipped for disagreement.
+
+For rule 5, the selector treats the following as Indic:
+
+```text
+hi ta bn ur gu mr ml kn te or as pa ne sa sd si kok mai doi ks mni sat brx bo
+```
+
+Therefore an Indic prediction is accepted only through full three-model
+agreement. `_skipme` is the authoritative rejection field; downstream stages
+should not infer acceptance from `source_lang` alone. The selector preserves an
+unrelated upstream reason such as `audio_load_error` rather than replacing it
+with an ensemble rejection reason.
+
+## Output schema
+
+Before selection, the three stages build this intermediate mapping:
+
+```json
+{
+  "lid": {
+    "SpeechBrainLangID": {"language": "hi", "confidence": 0.91, "tag": "primary"},
+    "IndicCanaryLangID": {"language": "hi", "confidence": 1.0, "tag": "secondary"},
+    "WhisperLangID": {"language": "hi", "confidence": 0.88, "tag": "tertiary"}
+  }
+}
+```
+
+The selector consumes `lid` and copies the evidence into role-prefixed notes.
+A successful final row resembles:
+
+```json
+{
+  "audio_filepath": "/data/audio/example.wav",
+  "source_lang": "hi",
+  "additional_notes": {
+    "primary_lid_model": "speechbrain",
+    "primary_lid_prediction": "hi",
+    "primary_lid_confidence": "0.910",
+    "secondary_lid_model": "indic_canary",
+    "secondary_lid_prediction": "hi",
+    "secondary_lid_confidence": "1.000",
+    "tertiary_lid_model": "whisper",
+    "tertiary_lid_prediction": "hi",
+    "tertiary_lid_confidence": "0.880",
+    "source_lid_confidence": 1.0,
+    "SelectBestLIDPrediction": "used secondary, agreement between all 3 langID models."
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `lid` | Intermediate component predictions keyed by configured `model_id`; removed by the selector. |
+| `language` | Adapter-normalized lowercase language code. |
+| `confidence` | Adapter-native score; do not compare scores across adapters. |
+| `tag` | `primary`, `secondary`, or `tertiary` ensemble role. |
+| `source_lang` | Final selected language. |
+| `additional_notes.<role>_lid_*` | Final copy of each component's model, prediction, and three-decimal confidence. |
+| `additional_notes.source_lid_confidence` | Confidence belonging to the selected result. |
+| `_skipme` | Skip reason when the row is not accepted. |
+
+Indic Canary currently reports `1.0` when the engine emits a recognized
+language token and `0.0` otherwise because its generation interface does not
+expose calibrated logits.
+
+## Resume behavior
+
+The maintained YAML enables `skip_if_output_exists` for every component. When
+a task reaches a model stage with an intermediate `lid` mapping, the stage
+reuses membership of its own `lid[model_id]` as the completion marker. Empty
+language with confidence `0.0` is complete. Another model's entry does not
+count; an existing entry for this model is reused.
+
+The final selector deliberately removes `lid`. Consequently, feeding an
+accepted final row back through the YAML reruns its models because it has
+neither component state nor a skip marker. Rejected final rows retain
+`_skipme`, so the inference stages pass them through without rerunning the
+adapters. To persist component-level restart data, place an intermediate
+manifest writer before the selector and resume from that file, writing the
+completed output elsewhere.
+
+With `fail_on_audio_error: false`, unreadable audio creates a completed empty
+component result without immediately setting `_skipme` or terminating the
+batch. The selector later applies its normal missing/empty and disagreement
+rules. A custom stage configured with `fail_on_audio_error: true` sets
+`_skipme=audio_load_error` during preparation, and the selector preserves that
+upstream reason.
+
+## Alternative compositions
+
+### AmberNet primary
+
+Select AmberNet through the maintained YAML; do not append it as a fourth
+model:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/language_identification \
+  --config-name pipeline \
+  manifest_path=/data/input.jsonl \
+  output_path=/data/output.jsonl \
+  canary_engine_dir=/models/canary_trtllm \
+  primary_backend=ambernet \
+  ambernet_model_name=langid_ambernet
+```
+
+AmberNet uses NeMo's `EncDecSpeakerLabelModel`. Verify that its smaller language
+inventory covers the target dataset before replacing VoxLingua107. Review the
+[NVIDIA LangID AmberNet NGC model card and license](https://catalog.ngc.nvidia.com/orgs/nvidia/nemo/models/langid_ambernet/-)
+before using or redistributing its weights.
+
+### Non-Indic mode without Canary
+
+For a non-Indic dataset, omit the Canary stage and keep the primary plus Whisper
+(`tertiary`) stages. The selector can then accept Whisper English immediately,
+or another non-Indic language when the primary and Whisper agree. It will not
+accept Indic predictions without Canary because those require full three-model
+agreement.
+
+See the
+[full tutorial README](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/language_identification/README.md)
+for tuning, model artifacts, troubleshooting, and licensing guidance.

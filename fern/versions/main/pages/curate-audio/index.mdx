@@ -1,7 +1,7 @@
 ---
-description: "Comprehensive audio curation capabilities for speech data processing including ASR inference, quality assessment, and text integration workflows"
+description: "Audio curation capabilities for ASR, language identification, quality assessment, and text integration workflows"
 categories: ["workflows"]
-tags: ["audio-curation", "asr-inference", "speech-processing", "quality-metrics", "manifests", "text-integration"]
+tags: ["audio-curation", "asr-inference", "language-identification", "speech-processing", "quality-metrics", "manifests", "text-integration"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "workflow"
@@ -10,13 +10,14 @@ modality: "audio-only"
 
 # About Audio Curation
 
-NeMo Curator provides comprehensive audio curation capabilities to prepare high-quality speech data for automatic speech recognition (ASR) and multi-modal model training. The toolkit includes processors for loading audio datasets, performing ASR inference, assessing transcription quality, and integrating with text curation workflows.
+NeMo Curator provides comprehensive audio curation capabilities to prepare high-quality speech data for automatic speech recognition (ASR) and multi-modal model training. The toolkit includes processors for loading audio datasets, identifying spoken languages, performing ASR inference, assessing transcription quality, and integrating with text curation workflows.
 
 ## Use Cases
 
 - Process and curate large-scale speech datasets for ASR model training
 - Perform quality assessment and filtering based on transcription accuracy metrics
 - Generate transcriptions using state-of-the-art NVIDIA NeMo ASR models
+- Identify spoken languages with a multi-model agreement ensemble
 - Integrate audio processing with text curation pipelines for multi-modal workflows
 - Scale audio processing across GPU clusters efficiently
 
@@ -77,7 +78,7 @@ benchmarks
 
 ### Process Data
 
-Transform and enhance your audio data through ASR inference, quality assessment, and analysis.
+Transform and enhance your audio data through ASR inference, language identification, quality assessment, and analysis.
 
 <Cards>
 
@@ -99,6 +100,13 @@ Analyze audio characteristics including duration and format validation
 duration-calculation
 format-validation
 metadata-extraction
+</Card>
+
+<Card title="Language Identification" href="/curate-audio/process-data/audio-language-identification">
+Combine SpeechBrain, Indic Canary, and Whisper predictions into one language decision
+multilingual
+ensemble
+agreement
 </Card>
 
 <Card title="Text Integration" href="/curate-audio/process-data/text-integration">

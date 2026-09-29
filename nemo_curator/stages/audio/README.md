@@ -140,6 +140,23 @@ def setup(self, worker_metadata=None) -> None:
 
 `setup()` is called once per worker before any processing begins.
 
+### Adapter-backed model stages
+
+Use `AdapterInferenceStage` when several model providers should share one task
+contract. Follow the SED and audio-LID split:
+
+- the stage declares manifest keys, normalizes/resamples audio, implements
+  resume semantics, and writes JSON-safe results;
+- the adapter implements `download_weights_on_node()`, `load_model()`,
+  `unload_model()`, and its model-specific batch method; and
+- optional heavyweight dependencies stay behind lazy imports in the concrete
+  adapter or runtime.
+
+Keep the stage's stable result identity separate from the provider checkpoint
+identifier. For example, `AudioLIDInferenceStage.model_id` selects the key in
+the shared `lid` mapping, while a SpeechBrain adapter's `source` selects the
+actual Hugging Face model.
+
 ## Writing a GPU or IO stage
 
 Override **`process_batch`** for batched processing.  `process()` should
