@@ -36,6 +36,23 @@ def test_missing_high_resolution_attribute_uses_standard_resolution() -> None:
     assert _is_high_resolution(SimpleNamespace(high_resolution=True))
 
 
+def test_pre_encode_uses_released_nemo_encoder_contract() -> None:
+    expected_embeddings = torch.randn(1, 4, 8)
+    expected_lengths = torch.tensor([4])
+
+    class Encoder:
+        def pre_encode(self, *, x: torch.Tensor, lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            assert x.shape == (1, 6, 3)
+            assert lengths.tolist() == [6]
+            return expected_embeddings, expected_lengths
+
+    model = SimpleNamespace(encoder=Encoder())
+    actual = RivaStreamingExportMixin._call_pre_encode(model, torch.randn(1, 6, 3), torch.tensor([6]))
+
+    assert actual[0] is expected_embeddings
+    assert actual[1] is expected_lengths
+
+
 def test_concat_and_pad_preserves_each_ragged_prefix() -> None:
     speaker_cache = torch.tensor([[[1.0], [2.0]], [[3.0], [4.0]]])
     fifo = torch.tensor([[[10.0], [11.0]], [[12.0], [13.0]]])
