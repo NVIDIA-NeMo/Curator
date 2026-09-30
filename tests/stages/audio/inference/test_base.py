@@ -39,7 +39,11 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
 
 def test_worker_sizing_uses_the_processing_stage_override() -> None:
     sed = SEDInferenceStage(adapter_target="package.Adapter", checkpoint_path="/checkpoint.pth")
-    asr = ASRStage(adapter_target="package.Adapter", model_id="model")
+    asr = ASRStage(
+        adapter_target="package.Adapter",
+        model_id="model",
+        max_audio_sec_per_actor=2400.0,
+    )
 
     assert "num_workers_override" not in SEDInferenceStage.__dataclass_fields__
     assert sed.num_workers() is None

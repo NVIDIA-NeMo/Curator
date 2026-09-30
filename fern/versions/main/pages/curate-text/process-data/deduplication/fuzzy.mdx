@@ -112,6 +112,42 @@ For recursive discovery behavior, custom suffix examples, and supported formats,
 When fuzzy duplicate IDs are auto-generated, use the same `input_blocksize` value for both `FuzzyDeduplicationWorkflow` and `TextDuplicatesRemovalWorkflow`. Different block sizes can change partition-to-ID mappings and cause removal to fail when resolving generated IDs.
 </Note>
 
+### Disable Weighted Connected-Components Assignment
+
+By default, `BucketsToEdgesStage` records each task's edge count and the Ray Actor Pool executor uses it to balance connected-components work across RAFT actors. When composing the connected-components pipeline directly, set `USE_TASK_WEIGHTS=False` on `ConnectedComponentsStage` to restore equal task-count assignment:
+
+```python
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
+from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
+from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import IdentifyDuplicatesStage
+
+connected_components = ConnectedComponentsStage(
+    output_path="cache/",
+).with_(
+    ray_stage_spec={
+        RayStageSpecKeys.USE_TASK_WEIGHTS: False,
+    }
+)
+
+pipeline = Pipeline(
+    name="connected_components_pipeline",
+    stages=[
+        BucketsToEdgesStage(output_path="cache/"),
+        connected_components,
+        IdentifyDuplicatesStage(output_path="results/"),
+    ],
+)
+pipeline.run(
+    executor=RayActorPoolExecutor(),
+    initial_tasks=lsh_tasks,
+)
+```
+
+Here, `lsh_tasks` is the output of the preceding fuzzy LSH pipeline. `FuzzyDeduplicationWorkflow` constructs this pipeline internally and keeps weighted assignment enabled. Disabling weights is mainly useful for comparisons or troubleshooting; skewed edge counts can otherwise leave some actors with substantially more work.
+
 ### Similarity Threshold
 
 Control matching strictness with `num_bands` and `minhashes_per_band`:

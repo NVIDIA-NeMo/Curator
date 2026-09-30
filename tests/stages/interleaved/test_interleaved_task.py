@@ -60,6 +60,25 @@ def test_to_pyarrow_invalid_type() -> None:
 # --- to_pandas ---
 
 
+@pytest.mark.parametrize("string_type", [pa.string(), pa.large_string()])
+def test_to_pandas_supports_arrow_string_methods(string_type: pa.DataType) -> None:
+    table = pa.table(
+        {
+            "sample_id": ["s1", "s1"],
+            "source_ref": pa.array(["abcdefghijklmnopqrstuvwxyz", None], type=string_type),
+            "position": pa.array([0, 1], type=pa.int32()),
+            "modality": ["image", "image"],
+        }
+    )
+
+    dataframe = _make_batch(table).to_pandas()
+    truncated = dataframe["source_ref"].str[:5]
+
+    assert truncated.iloc[0] == "abcde"
+    assert pd.isna(truncated.iloc[1])
+    assert dataframe["position"].dtype == pd.ArrowDtype(pa.int32())
+
+
 def test_to_pandas_invalid_type() -> None:
     task = _make_batch(pa.Table.from_pylist([_SAMPLE_ROW], schema=INTERLEAVED_SCHEMA))
     object.__setattr__(task, "data", [1, 2, 3])

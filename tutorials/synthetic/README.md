@@ -97,12 +97,12 @@ python synthetic_data_generation_example.py \
 # High-quality processing: Run any task (diverse_qa, distill, extract_knowledge, knowledge_list)
 python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
     --task diverse_qa \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --tokenizer nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --mock
 
 # Low-quality processing: Wikipedia-style paraphrasing to improve text quality
 python nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --tokenizer nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --mock
 ```
 
@@ -112,7 +112,7 @@ python nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py \
 # Process Parquet input files
 python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
     --task diverse_qa \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --tokenizer nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --input-parquet-path ./my_data/*.parquet \
     --output-path ./synthetic_output \
     --output-format parquet
@@ -122,11 +122,13 @@ python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
 
 #### Medical Notes Generation
 
+Hosted examples now use NVIDIA Nemotron 3 Super because the previous Llama 3.3 70B endpoint has reached end of life.
+
 ```bash
 # Remote NVIDIA NIM API
 python nemo_data_designer/ndd_data_generation_example.py \
     --provider nvidia \
-    --model meta/llama-3.3-70b-instruct
+    --model nvidia/nemotron-3-super-120b-a12b
 ```
 
 #### Nemotron-CC Pipelines
@@ -135,12 +137,12 @@ python nemo_data_designer/ndd_data_generation_example.py \
 # High-quality processing: Run any task (diverse_qa, distill, extract_knowledge, knowledge_list)
 python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipeline.py \
     --task diverse_qa \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --tokenizer nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --mock
 
 # Low-quality processing: Wikipedia-style paraphrasing to improve text quality
 python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_low_quality_example_pipeline.py \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --tokenizer nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --mock
 ```
 
@@ -150,7 +152,7 @@ python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_low_quality_example_pipeli
 # Process Parquet input files
 python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipeline.py \
     --task diverse_qa \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --tokenizer nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --input-parquet-path ./my_data/*.parquet \
     --output-path ./synthetic_output \
     --output-format parquet
@@ -161,5 +163,5 @@ python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipel
 ## Additional Resources
 
 - [LLM Client Configuration](../../docs/curate-text/synthetic/llm-client.md)
-- [Nemotron-CC Pipeline Documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md)
+- [Nemotron-CC synthetic data generation code](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/recipes/data/curation/nemotron-cc/step_4-sdg.py) uses `Qwen/Qwen3-30B-A3B-Instruct-2507` by default.
 - [Task Reference](../../docs/curate-text/synthetic/nemotron-cc/tasks.md)
