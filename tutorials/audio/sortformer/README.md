@@ -29,17 +29,26 @@ and inference. Adapter items contain exactly one of `audio_filepath` or
 change GPU allocation and the backend candidate window with `resources` and
 `batch_size`.
 
-For a converted TensorRT deployment, change `adapter_target` to
-`nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter`
-and provide `engine_path`, `config_path`, and a trusted
-`runtime_module_path` under `adapter_kwargs`. The task and output schema stay
-the same.
+For a converted TensorRT deployment, replace both `adapter_target` and the
+entire native `adapter_kwargs` mapping. Native options such as `precision` and
+`chunk_len` are not TensorRT adapter arguments:
+
+```yaml
+adapter_target: nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter
+adapter_kwargs:
+  engine_path: /models/sortformer.plan
+  config_path: /models/sortformer.json
+  runtime_module_path: /models/sortformer.sortformer_modules.py
+  inference_batch_size: 1
+```
+
+The task and output schema stay the same.
 
 Install the TensorRT-specific dependencies before building or running that
 adapter:
 
 ```bash
-uv sync --extra audio_cuda12 --extra audio_tensorrt
+uv sync --extra audio_tensorrt
 ```
 
 Build the target-GPU bundle from a local `.nemo` checkpoint and the matching

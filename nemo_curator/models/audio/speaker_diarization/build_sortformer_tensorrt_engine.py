@@ -444,7 +444,7 @@ def _build_bundle(args: argparse.Namespace, paths: _BundlePaths) -> bool:
         args.nemo_model,
         paths.onnx,
         device=args.export_device,
-        bf16_roundtrip=not args.no_bf16_roundtrip,
+        bf16_roundtrip=args.precision == "bf16" and not args.no_bf16_roundtrip,
         validate_native=not args.skip_native_validation,
         learnable_silence_output=paths.learned_silence,
     )

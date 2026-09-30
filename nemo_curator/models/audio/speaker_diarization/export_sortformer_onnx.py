@@ -306,10 +306,10 @@ def export_checkpoint(  # noqa: PLR0913 - explicit build controls form the CLI c
     model_class = _sortformer_model_class()
     model = model_class.restore_from(restore_path=str(nemo_model), map_location=device)
     model.eval().float()
-    if learnable_silence_output is not None:
-        save_learnable_silence(model, learnable_silence_output)
     if bf16_roundtrip:
         round_model_tensors_through_bf16(model)
+    if learnable_silence_output is not None:
+        save_learnable_silence(model, learnable_silence_output)
 
     input_example = make_input_example(model)
     native_predictions = None

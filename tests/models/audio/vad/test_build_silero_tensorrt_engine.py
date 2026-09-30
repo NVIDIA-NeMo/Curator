@@ -22,6 +22,7 @@ from nemo_curator.models.audio.vad.build_silero_tensorrt_engine import (
     _parse_args,
     _sha256,
     _shape_for_batch,
+    _validation_batch_sizes,
     _write_metadata_sidecar,
 )
 from nemo_curator.utils import atomic_io
@@ -40,10 +41,16 @@ def test_parse_args_has_reference_profile_defaults(tmp_path: Path) -> None:
     assert args.fp16 is False
 
 
+def test_validation_batches_stay_inside_small_profiles() -> None:
+    assert _validation_batch_sizes(4) == (1, 4)
+    assert _validation_batch_sizes(1) == (1,)
+
+
 @pytest.mark.parametrize(
     "extra_args",
     [
         ["--min-batch", "0"],
+        ["--min-batch", "2", "--opt-batch", "2"],
         ["--min-batch", "8", "--opt-batch", "4"],
         ["--opt-batch", "65"],
         ["--workspace-gb", "0"],
