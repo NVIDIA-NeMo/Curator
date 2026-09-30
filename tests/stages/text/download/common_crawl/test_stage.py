@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gzip
+import subprocess
 from pathlib import Path
 from typing import Literal
 
+import fsspec
 import pytest
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
@@ -29,6 +32,7 @@ from nemo_curator.stages.text.download.common_crawl.url_generation import (
 )
 from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
 from nemo_curator.stages.text.download.html_extractors import JusTextExtractor, ResiliparseExtractor
+from nemo_curator.tasks import FileGroupTask
 
 
 class TestCommonCrawlDownloadExtractStage:
@@ -286,3 +290,60 @@ class TestCommonCrawlDownloadExtractStage:
         assert isinstance(algorithm, JusTextExtractor)
         assert algorithm.length_low == 50
         assert algorithm.stopwords_low == 0.25
+
+    @pytest.mark.parametrize("use_aws_to_download", [False, True])
+    def test_common_crawl_stage_writes_to_fsspec_download_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_aws_to_download: bool
+    ) -> None:
+        url = "https://data.commoncrawl.org/crawl-data/CC-MAIN-2024-10/segments/1/warc/a.warc.gz"
+        name = "crawl-data-CC-MAIN-2024-10-segments-1-warc-a.warc.gz"
+        page_url = "http://example.com/page"
+        html = b"<html><body>hello</body></html>"
+
+        http_response = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + html
+        warc = gzip.compress(
+            (
+                "WARC/1.0\r\n"
+                "WARC-Type: response\r\n"
+                "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\n"
+                "WARC-Date: 2024-03-01T00:00:00Z\r\n"
+                f"WARC-Target-URI: {page_url}\r\n"
+                "Content-Type: application/http;msgtype=response\r\n"
+                f"Content-Length: {len(http_response)}\r\n"
+                "\r\n"
+            ).encode()
+            + http_response
+            + b"\r\n\r\n"
+        )
+
+        def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess:
+            out = cmd[cmd.index("-O") + 1] if cmd[0] == "wget" else cmd[-1]
+            Path(out).write_bytes(warc)
+            return subprocess.CompletedProcess(cmd, 0)
+
+        module = "nemo_curator.stages.text.download.common_crawl.download"
+        monkeypatch.setattr(f"{module}.check_s5cmd_installed", lambda: True)
+        monkeypatch.setattr(f"{module}.subprocess.run", fake_run)
+        monkeypatch.chdir(tmp_path)
+
+        root = "dir://cc"
+        base = f"/cc-{tmp_path.name}"
+        stage = CommonCrawlDownloadExtractStage(
+            start_snapshot="2024-10",
+            end_snapshot="2024-10",
+            download_dir=root,
+            use_aws_to_download=use_aws_to_download,
+            storage_options={"path": base, "target_protocol": "memory"},
+        )
+        stages = stage.decompose()
+        download_stage = next(s for s in stages if isinstance(s, DocumentDownloadStage))
+        iterate_stage = next(s for s in stages if isinstance(s, DocumentIterateExtractStage))
+
+        result = download_stage.process(FileGroupTask(dataset_name="cc", data=[url]))
+
+        assert result.data == [f"{root}/{name}"]
+        assert fsspec.filesystem("memory").exists(f"{base}/cc/{name}")
+        records = list(iterate_stage.iterator.iterate(result.data[0]))
+        assert [r["url"] for r in records] == [page_url]
+        assert html in records[0]["content"]
+        assert not (tmp_path / "dir:").exists()
