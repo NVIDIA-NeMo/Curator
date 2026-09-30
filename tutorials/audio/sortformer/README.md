@@ -8,9 +8,24 @@ From the repository root:
 ```bash
 uv sync --extra audio_cuda12
 
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/sortformer \
-  manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
+python - <<'PY'
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
+from nemo_curator.stages.resources import Resources
+
+pipeline = Pipeline(name="sortformer_diarization")
+pipeline.add_stage(ManifestReader(manifest_path="tests/fixtures/audio/tagging/sample_input.jsonl"))
+pipeline.add_stage(
+    InferenceSortformerStage().with_(
+        resources=Resources(gpus=1),
+        batch_size=2,
+    )
+)
+pipeline.add_stage(ManifestWriterStage(output_path="sortformer_output.jsonl"))
+pipeline.run(RayDataExecutor())
+PY
 ```
 
 Each input row must contain `audio_filepath`. The output preserves the row and

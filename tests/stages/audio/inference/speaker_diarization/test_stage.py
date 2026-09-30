@@ -20,9 +20,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from omegaconf import OmegaConf
 
-from nemo_curator.config.run import _instantiate_stage
 from nemo_curator.models.audio.speaker_diarization.base import DiarizationResult
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.inference.speaker_diarization.stage import (
@@ -31,8 +29,6 @@ from nemo_curator.stages.audio.inference.speaker_diarization.stage import (
 )
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-
-_PIPELINE_YAML = Path(__file__).parents[5] / "tutorials" / "audio" / "sortformer" / "pipeline.yaml"
 
 
 @dataclass
@@ -403,18 +399,3 @@ def test_empty_batch_and_setup_requirement() -> None:
     assert stage.process_batch([]) == []
     with pytest.raises(RuntimeError, match="not initialized"):
         stage.process_batch([_waveform_task("one", 1)])
-
-
-def test_example_yaml_instantiates_the_stage_adapter_contract() -> None:
-    cfg = OmegaConf.load(_PIPELINE_YAML)
-    cfg.manifest_path = "/input.jsonl"
-
-    stage = _instantiate_stage(cfg.stages[1])
-
-    assert isinstance(stage, InferenceSortformerStage)
-    assert stage.model_id == "nvidia/diar_streaming_sortformer_4spk-v2.1"
-    assert stage.adapter_target.endswith(".NeMoSortformerAdapter")
-    assert stage.adapter_kwargs["precision"] == "fp32"
-    assert stage.adapter_kwargs["inference_batch_size"] == 1
-    assert stage.batch_size == 4
-    assert stage.resources.gpus == 1
