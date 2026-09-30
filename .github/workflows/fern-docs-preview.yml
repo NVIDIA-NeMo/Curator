@@ -58,7 +58,6 @@ jobs:
               - fern/**
               - .github/workflows/fern-docs-ci.yml
               - .github/workflows/fern-docs-preview.yml
-              - .github/scripts/test-fern-preview.sh
       - name: Report docs preview gate
         env:
           DOCS_CHANGED: ${{ steps.changed-files.outputs.docs_any_changed }}
