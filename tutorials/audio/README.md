@@ -46,7 +46,6 @@ python nemo_curator/config/run.py \
 
 | I want to... | Tutorial | GPU | Data |
 |---|---|---|---|
-| Read NeMo YAML or tarred speech shards and write per-shard manifests with Opus audio | [**nemo_speech_io/**](nemo_speech_io/) | No (CPU-only) | Bring your own NeMo `input_cfg` YAML |
 | Transcribe a manifest with NeMo FastConformer through the shared ASR adapter | [**nemo_fastconformer/**](nemo_fastconformer/) | Recommended (1 per ASR actor) | Bundled sample or your own manifest |
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
@@ -62,7 +61,6 @@ python nemo_curator/config/run.py \
 
 | Tutorial | Auto-download | Size | Notes |
 |---|---|---|---|
-| `nemo_speech_io/` | No | Varies | Reads ordinary or tarred manifests from a user-provided NeMo YAML file |
 | `nemo_fastconformer/` | Model only | Two bundled audio files | Downloads the configured NeMo ASR checkpoint on first use |
 | `fleurs/` | Yes | ~50 MB per language split | Downloads from HuggingFace `google/fleurs` |
 | `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
@@ -90,7 +88,6 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 
 | Tutorial | System packages | Pip extras |
 |---|---|---|
-| `nemo_speech_io/` | libsndfile with OGG/Opus, or `ffmpeg` with `libopus` | `audio_cpu` |
 | `nemo_fastconformer/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
 | `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
