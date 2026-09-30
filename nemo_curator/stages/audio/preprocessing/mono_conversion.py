@@ -131,15 +131,24 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         validate_audio_key_configuration(
             self.name,
             input_keys={
-                "audio_filepath_key": self.audio_filepath_key,
-                "waveform_key": self.waveform_key,
-                "sample_rate_key": self.sample_rate_key,
+                **({"audio_filepath_key": self.audio_filepath_key} if self.input_residency != "waveform" else {}),
+                **(
+                    {"waveform_key": self.waveform_key, "sample_rate_key": self.sample_rate_key}
+                    if self.input_residency != "file"
+                    else {}
+                ),
             },
             # waveform/sample_rate and, conditionally, audio_filepath are intentional
             # in-place writes. Only the independently named metadata/path outputs belong
             # here, where collisions would erase an audio carrier or one another.
             output_keys=output_keys,
         )
+        if self.keep_waveform_in_task:
+            validate_audio_key_configuration(
+                self.name,
+                input_keys={"waveform_key": self.waveform_key, "sample_rate_key": self.sample_rate_key},
+                output_keys=output_keys,
+            )
         reject_sinkless_conversion(
             stage="MonoConversionStage",
             keep_waveform_in_task=self.keep_waveform_in_task,

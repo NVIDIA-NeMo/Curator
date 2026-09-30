@@ -15,9 +15,12 @@
 """Unit tests for CreateInitialManifestAudioFolderStage (generic local-folder source)."""
 
 import os
+from pathlib import Path
 
 import pytest
 
+from nemo_curator.backends import base as backend_base
+from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
 from nemo_curator.tasks import EmptyTask
 
@@ -79,12 +82,45 @@ class TestCreateInitialManifestAudioFolderStage:
             _touch(root, rel)
 
         tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
-        ids_by_name = {
-            os.path.basename(task.data["audio_filepath"]): task.data["audio_item_id"] for task in tasks
-        }
+        ids_by_name = {os.path.basename(task.data["audio_filepath"]): task.data["audio_item_id"] for task in tasks}
 
-        assert ids_by_name == {"a.flac": "a~eflac", "a.wav": "a~ewav"}
+        assert ids_by_name == {"a.flac": "a~eflac", "a.wav": "a"}
         assert len(set(ids_by_name.values())) == 2
+
+    @pytest.mark.parametrize("suffix", [".flac", ".WAV", ".mp3"])
+    def test_ids_survive_full_delta_and_bounded_scans(self, tmp_path: Path, suffix: str) -> None:
+        wav = tmp_path / "a.wav"
+        wav.touch()
+        retained = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)[0]
+        added = tmp_path / f"a{suffix}"
+        added.touch()
+        full = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)
+        delta = CreateInitialManifestAudioFolderStage(str(tmp_path), include_files=[str(added)]).process(None)[0]
+        by_path = {row.data["audio_filepath"]: row.data["audio_item_id"] for row in full}
+        assert by_path[str(wav)] == retained.data["audio_item_id"]
+        assert by_path[str(added)] == delta.data["audio_item_id"]
+        assert by_path[str(wav)] != by_path[str(added)]
+        bounded = CreateInitialManifestAudioFolderStage(str(tmp_path), max_samples=1).process(None)[0]
+        assert bounded.data["audio_item_id"] == by_path[bounded.data["audio_filepath"]]
+
+    def test_resume_does_not_skip_a_new_earlier_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        later = tmp_path / "b.wav"
+        later.touch()
+        source = CreateInitialManifestAudioFolderStage(str(tmp_path))
+        source.is_source_stage = True
+        adapter = BaseStageAdapter(source)
+        parent = EmptyTask()
+        parent.task_id = "0"
+        first = adapter._post_process_task_ids([parent], source.process(parent))
+        completed = first[0].get_source_id()
+        earlier = tmp_path / "a.wav"
+        earlier.touch()
+        second = adapter._post_process_task_ids([parent], source.process(parent))
+        monkeypatch.setattr(backend_base, "completed_resumability_sources", lambda _ids: {completed})
+        monkeypatch.setattr(backend_base, "flush_resumability_deltas", lambda _deltas: None)
+        survivors = adapter._source_counters(second)
+        assert [row.data["audio_filepath"] for row in survivors] == [str(earlier)]
+        assert second[1].get_source_id() == completed
 
     def test_non_recursive_and_max_samples(self, tmp_path) -> None:  # noqa: ANN001
         root = str(tmp_path)
