@@ -10,7 +10,7 @@ modality: "universal"
 
 # NeMo Curator Release Notes: 26.09 (v1.4.0)
 
-NeMo Curator 26.09 expands audio inference and evaluation, adds Lance and remote WARC data sources, tightens semantic-deduplication memory use, and delivers pipeline scheduling improvements. Before upgrading, review the [26.09 migration checklist](/about/release-notes/26-09-migration) for the OpenCV packaging change and the semantic-deduplication precision defaults. The [26.07 release notes](https://docs.nvidia.com/nemo/curator/v26.07/about/release-notes) remain available in the archived documentation version.
+NeMo Curator 26.09 expands audio inference and evaluation, adds Lance and remote WARC data sources, tightens semantic-deduplication memory use, and delivers pipeline scheduling improvements. Before upgrading, review the [26.09 migration checklist](/about/release-notes/migration-checklist) for the OpenCV packaging change and the semantic-deduplication precision defaults.
 
 ## What's New
 
@@ -68,7 +68,7 @@ Pairwise similarity now uses bounded batch sizes and defaults to `float16` compu
 - `pairwise_batch_size` defaults to `1024`, capping GPU memory consumption per batch.
 - `pairwise_compute_dtype` defaults to `"float16"`, reducing memory use at the cost of reduced precision.
 
-If you set `pairwise_compute_dtype="float32"`, also set `kmeans_embedding_output_dtype="float32"`. See the [26.09 migration checklist](/about/release-notes/26-09-migration) for the required configuration change.
+If you set `pairwise_compute_dtype="float32"`, also set `kmeans_embedding_output_dtype="float32"`. See the [26.09 migration checklist](/about/release-notes/migration-checklist) for the required configuration change.
 
 ### KMeans Fit Memory Reduction
 
@@ -132,14 +132,14 @@ In-process and Ray Serve Nemotron-Parse inference now uses Triton-based attentio
 
 ## Dependency Changes
 
-- **OpenCV is now an optional extra:** The `all` extra no longer includes `cv2` directly. Install the `cv2` extra for workflows that require OpenCV explicitly. OpenCV may still be installed transitively through vLLM. See the [26.09 migration checklist](/about/release-notes/26-09-migration) and [Install NeMo Curator](/get-started/installation).
+- **OpenCV is now an optional extra:** The `all` extra no longer includes `cv2` directly. Install the `cv2` extra for workflows that require OpenCV explicitly. OpenCV may still be installed transitively through vLLM. See the [26.09 migration checklist](/about/release-notes/migration-checklist) and [Install NeMo Curator](/get-started/installation).
 - **`datasets` is a core dependency:** `huggingface_hub`-based dataset access via the `datasets` library is now included in all installation extras ([#2164](https://github.com/NVIDIA-NeMo/Curator/pull/2164)).
 - **RAPIDS 26.08:** The 26.09 release uses RAPIDS 26.08 for GPU-accelerated text and semantic deduplication ([#2303](https://github.com/NVIDIA-NeMo/Curator/pull/2303)).
 - **vLLM GB200 startup fix:** The vLLM extra requires `quack-kernels>=0.4.1` for GB200 startup compatibility ([#2391](https://github.com/NVIDIA-NeMo/Curator/pull/2391)).
 
 ## Upgrade Checklist
 
-1. Apply every relevant code change in the [26.09 migration checklist](/about/release-notes/26-09-migration).
+1. Apply every relevant code change in the [26.09 migration checklist](/about/release-notes/migration-checklist).
 2. If your pipeline uses OpenCV features, add the `cv2` extra: `nemo-curator[text_cuda12,cv2]`.
 3. If you use `pairwise_compute_dtype="float32"`, also set `kmeans_embedding_output_dtype="float32"` to avoid a `ValueError` at construction time.
 4. Reinstall the modality extras used by your pipeline and verify RAPIDS 26.08 compatibility.
