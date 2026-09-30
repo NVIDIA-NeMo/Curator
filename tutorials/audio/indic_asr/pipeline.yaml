@@ -1,0 +1,60 @@
+# Hindi Indic ASR benchmark tutorial configuration
+#
+# This tutorial delegates to benchmarking/scripts/audio_indic_asr_benchmark.py,
+# so these values are the same contract used by audio_indic_asr_xenna and
+# audio_indic_asr_raydata in benchmarking/benchmarks.yaml.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Hindi Indic Canary + Parakeet recovery benchmark
+  ################################################
+  Run the canonical production processor chain over the pinned public Hindi
+  cohort. The same normalized input, stages, timing boundary, and output
+  validator are used by both Xenna and Ray Data.
+
+# Manifest produced by benchmarking/data_prep/prepare_audio_indic_asr_data.py.
+input_manifest: ???
+
+# Prebuilt production-compatible TensorRT engine bundles.
+indic_canary_engine_dir: ???
+parakeet_tensorrt_engine_dir: ???
+
+# Use a fresh path for every run. The benchmark fails closed rather than
+# overwriting a prior scratch manifest or result manifest.
+benchmark_results_path: ./indic_asr_benchmark_output/${backend}
+
+# Select exactly one paired benchmark backend per invocation.
+backend: xenna
+
+# Checked-in text-processing configuration used by the benchmark entries.
+regex_yaml: benchmarking/configs/audio_indic_asr_regex.yaml
+hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
+
+# Immutable cohort and processor concurrency contract.
+expected_num_rows: 216169
+read_concurrency: 4
+prep_workers: 24
+primary_workers: 8
+fallback_workers: 8
+
+# Matches the default single-node EOS allocation. An externally managed Ray
+# cluster referenced by RAY_ADDRESS takes precedence over these local values.
+ray:
+  num_cpus: 128
+  num_gpus: 8
+  object_store_memory: null
+
+# Keep the driver and actor runtime settings aligned with benchmarks.yaml.
+environment:
+  RAY_DATA_OP_RESERVATION_RATIO: "0"
+  RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB: "4096"
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
