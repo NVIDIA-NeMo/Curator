@@ -45,7 +45,8 @@ duration_stage = GetAudioDurationStage(
 When `soundfile`/`libsndfile` cannot read audio files:
 
 - **Duration Calculation**: Returns -1.0 for corrupted/unreadable files
-- **ASR Inference**: Will fail with clear error messages for unsupported formats
+- **ASR Inference (default)**: Logs the preparation error, writes an empty prediction, and marks the task with `_skipme="audio_load_error"`
+- **ASR Inference (fail fast)**: Set `fail_on_audio_error=True` to raise a `RuntimeError` instead
 - **File Validation**: Use duration = -1.0 as an indicator of file issues
 
 ```python
@@ -66,7 +67,7 @@ Here is a complete pipeline that handles format validation through built-in erro
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 # Create pipeline with built-in error handling
 pipeline = Pipeline(name="audio_validation")
@@ -85,8 +86,14 @@ pipeline.add_stage(PreserveByValueStage(
 ))
 
 # 3. Proceed with ASR inference on valid files only
-pipeline.add_stage(InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+pipeline.add_stage(ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
+    audio_filepath_key="audio_filepath",
+    fail_on_audio_error=False,  # Default: mark unreadable audio and continue
 ))
 ```
 
