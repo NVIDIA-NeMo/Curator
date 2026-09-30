@@ -304,3 +304,20 @@ def test_unload_closes_the_injected_session() -> None:
     assert session.closed is True
     assert adapter._session is None
     assert adapter._max_batch_size is None
+
+
+def test_public_package_resolves_tensorrt_adapter_lazily() -> None:
+    from nemo_curator.models.audio import vad
+
+    assert vad.TensorRTSileroVADAdapter is TensorRTSileroVADAdapter
+
+
+def test_vad_stage_constructs_tensorrt_adapter() -> None:
+    from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+
+    stage = VADSegmentationStage(
+        adapter_target="nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter",
+        adapter_kwargs={"engine_path": "/models/silero.plan"},
+    )
+
+    assert isinstance(stage._create_adapter(), TensorRTSileroVADAdapter)

@@ -199,7 +199,18 @@ def _shape_for_batch(network_shape: Sequence[int], batch_size: int) -> tuple[int
     return tuple(batch_size if dimension == -1 else dimension for dimension in network_shape)
 
 
-def _validate_tensorrt_engine(engine_path: Path, core, *, fp16: bool = False) -> float:  # noqa: ANN001
+def _validation_batch_sizes(max_batch_size: int) -> tuple[int, ...]:
+    """Exercise batch one plus a representative batch inside the profile."""
+    return tuple(dict.fromkeys((1, min(8, max_batch_size))))
+
+
+def _validate_tensorrt_engine(
+    engine_path: Path,
+    core: torch.nn.Module,
+    *,
+    validation_batch_sizes: Sequence[int],
+    fp16: bool = False,
+) -> float:
     """Compare recurrent TensorRT inference with the exact PyTorch core."""
     import torch
 
@@ -216,7 +227,7 @@ def _validate_tensorrt_engine(engine_path: Path, core, *, fp16: bool = False) ->
         if set(session.output_names) != _OUTPUT_NAMES:
             msg = f"Silero TensorRT engine outputs must be {sorted(_OUTPUT_NAMES)}, got {sorted(session.output_names)}"
             raise ValueError(msg)
-        for batch_size in (1, 8):
+        for batch_size in validation_batch_sizes:
             expected_state = torch.zeros((batch_size, 2, _STATE_SIZE), dtype=torch.float32)
             actual_state = expected_state.to(session.device)
             for _ in range(3):
@@ -317,7 +328,12 @@ def _build_engine(  # noqa: C901, PLR0915
     temporary = args.output.with_suffix(args.output.suffix + ".part")
     temporary.write_bytes(serialized_engine)
     try:
-        recurrent_max_abs = _validate_tensorrt_engine(temporary, core, fp16=args.fp16)
+        recurrent_max_abs = _validate_tensorrt_engine(
+            temporary,
+            core,
+            validation_batch_sizes=_validation_batch_sizes(args.max_batch),
+            fp16=args.fp16,
+        )
         temporary.replace(args.output)
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -342,8 +358,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
-    if not 1 <= args.min_batch <= args.opt_batch <= args.max_batch:
-        parser.error("batch profile must satisfy 1 <= min-batch <= opt-batch <= max-batch")
+    if args.min_batch != 1 or not args.min_batch <= args.opt_batch <= args.max_batch:
+        parser.error("batch profile must satisfy min-batch = 1 <= opt-batch <= max-batch")
     if args.workspace_gb < 1:
         parser.error("workspace-gb must be at least 1")
     return args
@@ -401,7 +417,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             },
         },
         "recurrent_max_abs": recurrent_max_abs,
-        "recurrent_validation": {"batches": [1, 8], "steps": 3},
+        "recurrent_validation": {"batches": list(_validation_batch_sizes(args.max_batch)), "steps": 3},
         "sample_rate": _SAMPLE_RATE,
         "silero_vad_version": importlib.metadata.version("silero-vad"),
         "state_size": _STATE_SIZE,

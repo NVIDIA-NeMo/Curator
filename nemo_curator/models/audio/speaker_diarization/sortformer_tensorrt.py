@@ -36,7 +36,8 @@ from nemo_curator.models.audio.speaker_diarization.base import (
     DiarizationSegment,
 )
 from nemo_curator.models.audio.speaker_diarization.sortformer import (
-    NeMoSortformerAdapter,
+    _DEFAULT_MODEL_ID,
+    _DEFAULT_SAMPLE_RATE,
     _torch_module,
 )
 
@@ -427,8 +428,8 @@ class TensorRTSortformerAdapter:
     target-specific inputs produced by ``build_sortformer_tensorrt_engine``.
     """
 
-    model_id: str = NeMoSortformerAdapter.DEFAULT_MODEL_ID
-    sample_rate: int = NeMoSortformerAdapter.DEFAULT_SAMPLE_RATE
+    model_id: str = _DEFAULT_MODEL_ID
+    sample_rate: int = _DEFAULT_SAMPLE_RATE
     engine_path: str | None = None
     config_path: str | None = None
     runtime_module_path: str | None = None
@@ -801,7 +802,6 @@ class TensorRTSortformerAdapter:
             msg = "TensorRTSortformerAdapter is not initialized"
             raise RuntimeError(msg)
         chunk_len = int(self._config["chunk_len"])
-        subsampling = int(self._config["subsampling_factor"])
         self._modules.sync_pending_compression_batched(batch_states)
 
         chunks = torch.zeros(
@@ -812,8 +812,6 @@ class TensorRTSortformerAdapter:
         chunk_lengths = [min(window.shape[0], chunk_len) for window in feature_windows]
         for index, (window, length) in enumerate(zip(feature_windows, chunk_lengths, strict=True)):
             chunks[index, :length] = window[:length].to(device=self._session.device, non_blocking=True)
-        embedding_lengths = [(length - 1) // subsampling + 1 for length in chunk_lengths]
-
         speaker_lengths = [state.spkcache_len_cached for state in batch_states]
         fifo_lengths = [state.fifo_len_cached for state in batch_states]
         max_speaker_length = max(1, *speaker_lengths)
@@ -840,6 +838,21 @@ class TensorRTSortformerAdapter:
                 "fifo_lengths": torch.tensor(fifo_lengths, dtype=torch.int64, device=self._session.device),
             }
         )
+        chunk_embedding_lengths = outputs["chunk_emb_lengths"]
+        if chunk_embedding_lengths.numel() != len(batch_states):
+            msg = (
+                "Sortformer TensorRT chunk_emb_lengths must contain one value per batch row, "
+                f"got shape {tuple(chunk_embedding_lengths.shape)} for batch {len(batch_states)}"
+            )
+            raise RuntimeError(msg)
+        embedding_lengths = [int(value) for value in chunk_embedding_lengths.detach().cpu().reshape(-1).tolist()]
+        maximum_embedding_length = outputs["chunk_embs"].shape[1]
+        if any(length < 1 or length > maximum_embedding_length for length in embedding_lengths):
+            msg = (
+                "Sortformer TensorRT chunk_emb_lengths contains a value outside the chunk_embs sequence, "
+                f"got {embedding_lengths} for length {maximum_embedding_length}"
+            )
+            raise RuntimeError(msg)
         predictions = self._modules.apply_mask_to_preds(outputs["predictions"], outputs["pred_lengths"])
         updated_states, chunk_predictions, _ = self._modules.streaming_update_batched(
             batch_states=batch_states,

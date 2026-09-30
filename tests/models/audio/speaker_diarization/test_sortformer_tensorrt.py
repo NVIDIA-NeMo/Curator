@@ -282,6 +282,50 @@ def test_engine_profile_must_support_configured_batch(tmp_path: Path) -> None:
         adapter._validate_session(session, _config())
 
 
+def test_inference_uses_engine_reported_chunk_embedding_lengths(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    adapter._config = _config()
+    session = _FakeSession()
+    session.device = torch.device("cpu")
+    session.infer = MagicMock(
+        return_value={
+            "predictions": torch.zeros((1, 4, 2)),
+            "pred_lengths": torch.tensor([4]),
+            "chunk_embs": torch.zeros((1, 4, 4)),
+            "chunk_emb_lengths": torch.tensor([3]),
+        }
+    )
+    adapter._session = session
+    observed: dict[str, list[int]] = {}
+
+    def streaming_update_batched(**kwargs: object) -> tuple[list[object], torch.Tensor, None]:
+        observed["chunk_emb_lengths"] = kwargs["chunk_emb_lengths"]  # type: ignore[assignment]
+        return kwargs["batch_states"], kwargs["preds"], None  # type: ignore[return-value]
+
+    adapter._modules = SimpleNamespace(
+        sync_pending_compression_batched=lambda _states: None,
+        apply_mask_to_preds=lambda predictions, _lengths: predictions,
+        streaming_update_batched=streaming_update_batched,
+    )
+    state = SimpleNamespace(
+        spkcache_len_cached=1,
+        fifo_len_cached=0,
+        spkcache=torch.zeros((1, 1, 4)),
+        fifo=torch.zeros((1, 0, 4)),
+    )
+
+    _, probabilities = adapter._infer_batch(
+        [state],
+        [torch.zeros((8, 128))],
+        [0],
+        [0],
+        [1],
+    )
+
+    assert observed["chunk_emb_lengths"] == [3]
+    assert probabilities[0].shape == (3, 2)
+
+
 def test_unload_closes_shared_session(tmp_path: Path) -> None:
     adapter = _adapter(tmp_path)
     session = _FakeSession()
@@ -526,3 +570,14 @@ def test_public_package_resolves_tensorrt_adapter_lazily() -> None:
     from nemo_curator.models.audio import speaker_diarization
 
     assert speaker_diarization.TensorRTSortformerAdapter is TensorRTSortformerAdapter
+
+
+def test_sortformer_stage_constructs_tensorrt_adapter(tmp_path: Path) -> None:
+    from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
+
+    stage = InferenceSortformerStage(
+        adapter_target=("nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter"),
+        adapter_kwargs={**_bundle(tmp_path), "inference_batch_size": 1},
+    )
+
+    assert isinstance(stage._create_adapter(), TensorRTSortformerAdapter)

@@ -77,6 +77,23 @@ class _PrecomputedProbabilityModel:
         return probability.reshape(1, 1)
 
 
+def _prepare_16khz_waveform(item: dict[str, Any], *, device: object) -> torch.Tensor:
+    """Reuse Silero input validation, then enforce the TensorRT engine rate."""
+    waveform, sample_rate = _prepare_waveform(item, device="cpu")
+    if sample_rate != SILERO_TARGET_SAMPLE_RATE:
+        import torchaudio
+
+        waveform = (
+            torchaudio.transforms.Resample(
+                orig_freq=sample_rate,
+                new_freq=SILERO_TARGET_SAMPLE_RATE,
+            )(waveform.unsqueeze(0))
+            .squeeze(0)
+            .contiguous()
+        )
+    return waveform.to(device=device, dtype=waveform.dtype, non_blocking=True)
+
+
 @dataclass
 class TensorRTSileroVADAdapter:
     """Persistent 16 kHz Silero TensorRT adapter with ragged batching.
@@ -288,14 +305,7 @@ class TensorRTSileroVADAdapter:
 
         from silero_vad import get_speech_timestamps
 
-        waveforms = [
-            _prepare_waveform(
-                item,
-                device=self._session.device,
-                force_16khz=True,
-            )[0]
-            for item in items
-        ]
+        waveforms = [_prepare_16khz_waveform(item, device=self._session.device) for item in items]
         probabilities = self._infer_probabilities(waveforms)
 
         results = []
