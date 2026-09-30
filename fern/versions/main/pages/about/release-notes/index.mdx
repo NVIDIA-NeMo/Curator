@@ -128,6 +128,7 @@ In-process and Ray Serve Nemotron-Parse inference now uses Triton-based attentio
 - **Empty QA batch handling:** Diverse QA stages handle empty batches without raising an exception ([#2450](https://github.com/NVIDIA-NeMo/Curator/pull/2450)).
 - **Interleaved batch string operations:** Interleaved pipeline stages correctly apply pandas string operations across heterogeneous batch types ([#2434](https://github.com/NVIDIA-NeMo/Curator/pull/2434)).
 - **Null WebDataset content types:** Interleaved readers handle null or missing content-type fields in WebDataset shards without failing ([#2438](https://github.com/NVIDIA-NeMo/Curator/pull/2438)).
+- **Hosted LLM tutorial default:** Tutorial examples replace the retired `meta/llama-3.3-70b-instruct` default with `nvidia/nemotron-3-super-120b-a12b` across CLI defaults, notebooks, and README references ([#2461](https://github.com/NVIDIA-NeMo/Curator/pull/2461)).
 
 ## Dependency Changes
 
