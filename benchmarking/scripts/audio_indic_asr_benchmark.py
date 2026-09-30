@@ -46,7 +46,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-EXPECTED_NUM_ROWS = 2120
+EXPECTED_NUM_ROWS = 216_169
 SAMPLE_RATE = 16_000
 GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 CANARY_REQUIRED_FILES = (
@@ -75,7 +75,7 @@ class InputInventory:
 
     @property
     def total_duration_s(self) -> float:
-        return sum(self.durations_by_id.values())
+        return math.fsum(self.durations_by_id.values())
 
 
 @dataclass
@@ -266,6 +266,8 @@ def _build_pipeline(  # noqa: PLR0913
     hall_phrases: Path,
     read_concurrency: int,
     prep_workers: int,
+    primary_workers: int,
+    fallback_workers: int,
 ) -> Pipeline:
     reader = ManifestReader(
         manifest_path=[str(path) for path in input_manifests],
@@ -289,7 +291,7 @@ def _build_pipeline(  # noqa: PLR0913
                 pred_text_key="primary_model_prediction",
                 keep_waveform=True,
                 batch_size=64,
-                num_workers_override=1,
+                num_workers_override=primary_workers,
                 resources=Resources(gpu_memory_gb=50),
             ).with_(runtime_env=GPU_ACTOR_RUNTIME_ENV),
             WhisperHallucinationStage(
@@ -309,7 +311,7 @@ def _build_pipeline(  # noqa: PLR0913
                 pred_text_key="fallback_model_prediction",
                 keep_waveform=False,
                 batch_size=64,
-                num_workers_override=1,
+                num_workers_override=fallback_workers,
                 resources=Resources(gpu_memory_gb=24),
             ).with_(runtime_env=GPU_ACTOR_RUNTIME_ENV),
             WhisperHallucinationStage(
@@ -373,7 +375,7 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
 
     output_ids: set[str] = set()
     wers: list[float] = []
-    total_duration_s = 0.0
+    output_durations_s: list[float] = []
     source_counts = {"primary": 0, "fallback": 0, "reference": 0, "ground_truth": 0, "other": 0}
     skipped_rows = 0
     for row_index, row in enumerate(rows):
@@ -413,7 +415,7 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
             raise RuntimeError(msg)
         output_ids.add(audio_item_id)
         wers.append(wer_pct)
-        total_duration_s += duration_s
+        output_durations_s.append(duration_s)
         skipped_rows += bool(skip_reason)
         source_counts[source if source in source_counts else "other"] += 1
 
@@ -421,6 +423,7 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
     if output_ids != expected_ids:
         msg = f"Indic ASR output identity mismatch: missing={len(expected_ids - output_ids)}, extra={len(output_ids - expected_ids)}"
         raise RuntimeError(msg)
+    total_duration_s = math.fsum(output_durations_s)
     if not math.isclose(total_duration_s, inventory.total_duration_s, rel_tol=0, abs_tol=1e-6):
         msg = f"Indic ASR output duration changed: input={inventory.total_duration_s}, output={total_duration_s}"
         raise RuntimeError(msg)
@@ -461,8 +464,10 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     expected_num_rows: int = EXPECTED_NUM_ROWS,
     read_concurrency: int = 4,
     prep_workers: int = 24,
+    primary_workers: int = 8,
+    fallback_workers: int = 8,
 ) -> dict[str, Any]:
-    """Run the pinned production processor chain over staged Hindi FLEURS."""
+    """Run the pinned production processor chain over the staged Hindi cohort."""
     benchmark_path = Path(benchmark_results_path)
     scratch_dir = benchmark_path / "scratch" / "audio_indic_asr_input"
     output_manifest = benchmark_path / "results" / "audio_indic_asr_output.jsonl"
@@ -481,7 +486,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     _preflight_runtime_and_models(canary_path, parakeet_engine)
     inventory = _materialize_input_manifests(Path(input_manifest), scratch_dir, read_concurrency)
     if inventory.num_rows != expected_num_rows:
-        msg = f"Expected {expected_num_rows} Hindi FLEURS rows, found {inventory.num_rows}"
+        msg = f"Expected {expected_num_rows} Hindi rows, found {inventory.num_rows}"
         raise RuntimeError(msg)
 
     pipeline = _build_pipeline(
@@ -493,23 +498,28 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
         hall_phrases=phrases_path,
         read_concurrency=read_concurrency,
         prep_workers=prep_workers,
+        primary_workers=primary_workers,
+        fallback_workers=fallback_workers,
     )
     logger.info(pipeline.describe())
     start_time = time.perf_counter()
     tasks = pipeline.run(setup_executor(executor))
-    elapsed_s = time.perf_counter() - start_time
+    pipeline_elapsed_s = time.perf_counter() - start_time
     output_metrics = _validate_output_manifest(output_manifest, inventory)
+    elapsed_s = time.perf_counter() - start_time
+    del tasks
     total_audio_hours = float(output_metrics["total_audio_duration_hours"])
-    logger.success(f"Processed {inventory.num_rows} Hindi FLEURS clips in {elapsed_s:.2f}s")
+    logger.success(f"Processed {inventory.num_rows} unique Hindi clips in {elapsed_s:.2f}s")
     return {
         "metrics": {
             "is_success": True,
             "time_taken_s": elapsed_s,
+            "pipeline_time_s": pipeline_elapsed_s,
             **output_metrics,
             "throughput_tasks_per_sec": inventory.num_rows / elapsed_s if elapsed_s > 0 else 0,
             "throughput_audio_hours_per_hour": total_audio_hours * 3600 / elapsed_s if elapsed_s > 0 else 0,
         },
-        "tasks": tasks,
+        "tasks": [],
     }
 
 
@@ -521,10 +531,12 @@ def main() -> int:
     parser.add_argument("--parakeet-tensorrt-engine-dir", required=True)
     parser.add_argument("--regex-yaml", required=True)
     parser.add_argument("--hall-phrases", required=True)
-    parser.add_argument("--executor", default="ray_data", choices=["ray_data"])
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
     parser.add_argument("--expected-num-rows", type=int, default=EXPECTED_NUM_ROWS)
     parser.add_argument("--read-concurrency", type=int, default=4)
     parser.add_argument("--prep-workers", type=int, default=24)
+    parser.add_argument("--primary-workers", type=int, default=8)
+    parser.add_argument("--fallback-workers", type=int, default=8)
     args = parser.parse_args()
 
     params = vars(args)

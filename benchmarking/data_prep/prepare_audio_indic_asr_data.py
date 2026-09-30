@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Stage the pinned public Hindi FLEURS cohort for the Indic ASR benchmark."""
+"""Stage the pinned public 531-hour Hindi ASR cohort."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ import json
 import shutil
 import tempfile
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import soundfile as sf
@@ -30,30 +31,28 @@ from loguru import logger
 
 from nemo_curator.stages.audio.datasets.file_utils import extract_archive
 
-HF_REPO_ID = "google/fleurs"  # CC-BY-4.0
-HF_REVISION = "70bb2e84b976b7e960aa89f1c648e09c59f894dd"  # pragma: allowlist secret
-HF_CONFIG = "hi_in"
+HF_REPO_ID = "ketav/parakeet-hindi-asr"
+HF_REVISION = "35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0"  # pragma: allowlist secret
 HF_SPLIT = "train"
-TRANSCRIPT_FILENAME = f"data/{HF_CONFIG}/{HF_SPLIT}.tsv"
-AUDIO_ARCHIVE_FILENAME = f"data/{HF_CONFIG}/audio/{HF_SPLIT}.tar.gz"
-TRANSCRIPT_SHA256 = "fa15b11ca73fd4e8ccb6403f58cde3ac5bbdf27d9654799b3c85c26375489c78"  # pragma: allowlist secret
-AUDIO_ARCHIVE_SHA256 = "bb6f52bfb27ca91c54539480111163eb9245305008cfe0526c6f4af3bfdd04e9"  # pragma: allowlist secret
-EXPECTED_NUM_ROWS = 2120
-EXPECTED_TOTAL_FRAMES = 383_370_240
+SOURCE_MANIFEST_FILENAME = "data/manifests/train_hi_clean.json"
+AUDIO_ARCHIVE_FILENAME = "data/hindi/hindi_audio.tar.gz"
+SOURCE_MANIFEST_SHA256 = "407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4"
+AUDIO_ARCHIVE_SHA256 = "9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20"
+EXPECTED_NUM_ROWS = 216_169
+EXPECTED_TOTAL_DURATION_MS = 1_914_385_701
 SAMPLE_RATE = 16_000
-MIN_TRANSCRIPT_FIELDS = 6
+MAX_DURATION_ERROR_S = 0.001
 DEFAULT_CACHE_DIR = "/tmp/curator/audio_indic_asr_cache"  # noqa: S108
 
 
 @dataclass(frozen=True)
-class FleursTranscriptRow:
-    """One validated row from the pinned FLEURS TSV."""
+class HindiASRRow:
+    """One validated row from the pinned Hindi source manifest."""
 
-    source_id: str
+    source_audio_filepath: str
     filename: str
-    raw_text: str
     text: str
-    num_frames: int
+    duration_ms: int
 
 
 def _require(condition: bool, message: str) -> None:
@@ -69,94 +68,101 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _parse_transcript(transcript_path: Path) -> list[FleursTranscriptRow]:
-    rows: list[FleursTranscriptRow] = []
+def _parse_source_manifest(manifest_path: Path) -> list[HindiASRRow]:
+    rows: list[HindiASRRow] = []
     filenames: set[str] = set()
-    with transcript_path.open(encoding="utf-8") as transcript_file:
-        for line_number, line in enumerate(transcript_file, start=1):
+    total_duration_ms = 0
+    with manifest_path.open(encoding="utf-8") as manifest_file:
+        for line_number, line in enumerate(manifest_file, start=1):
             if not line.strip():
                 continue
-            parts = line.rstrip("\r\n").split("\t")
-            if len(parts) < MIN_TRANSCRIPT_FIELDS:
-                msg = f"Invalid FLEURS transcript row {transcript_path}:{line_number}"
-                raise RuntimeError(msg)
-            source_id, filename, raw_text, text, _characters, frame_count = parts[:6]
             try:
-                num_frames = int(frame_count)
-            except ValueError as e:
-                msg = f"Invalid frame count at {transcript_path}:{line_number}"
+                source_row = json.loads(line, parse_float=Decimal)
+                source_audio_filepath = source_row["audio_filepath"]
+                text = source_row["text"]
+                duration = Decimal(str(source_row["duration"]))
+            except (json.JSONDecodeError, KeyError, TypeError, InvalidOperation) as e:
+                msg = f"Invalid Hindi source manifest row {manifest_path}:{line_number}"
                 raise RuntimeError(msg) from e
+
+            filename = Path(source_audio_filepath).name if isinstance(source_audio_filepath, str) else ""
+            duration_ms_value = duration * 1000
             if (
-                not source_id
+                not source_audio_filepath
                 or not filename.endswith(".wav")
-                or Path(filename).name != filename
                 or filename in filenames
-                or not raw_text.strip()
+                or not isinstance(text, str)
                 or not text.strip()
-                or num_frames <= 0
+                or duration <= 0
+                or duration_ms_value != duration_ms_value.to_integral_value()
             ):
-                msg = f"Invalid or duplicate FLEURS transcript row {transcript_path}:{line_number}"
+                msg = f"Invalid or duplicate Hindi source manifest row {manifest_path}:{line_number}"
                 raise RuntimeError(msg)
+
+            duration_ms = int(duration_ms_value)
             filenames.add(filename)
+            total_duration_ms += duration_ms
             rows.append(
-                FleursTranscriptRow(
-                    source_id=source_id,
+                HindiASRRow(
+                    source_audio_filepath=source_audio_filepath,
                     filename=filename,
-                    raw_text=raw_text,
                     text=text,
-                    num_frames=num_frames,
+                    duration_ms=duration_ms,
                 )
             )
-    if not rows:
-        msg = f"FLEURS transcript contains no rows: {transcript_path}"
+
+    if len(rows) != EXPECTED_NUM_ROWS:
+        msg = f"Expected {EXPECTED_NUM_ROWS} Hindi rows, found {len(rows)}"
+        raise RuntimeError(msg)
+    if total_duration_ms != EXPECTED_TOTAL_DURATION_MS:
+        msg = f"Expected {EXPECTED_TOTAL_DURATION_MS} ms of Hindi audio, found {total_duration_ms}"
         raise RuntimeError(msg)
     return rows
 
 
-def _manifest_row(row: FleursTranscriptRow) -> dict[str, object]:
+def _manifest_row(row: HindiASRRow) -> dict[str, object]:
     return {
         "audio_filepath": f"audio/{row.filename}",
-        "audio_item_id": f"fleurs_hi_in_train_{Path(row.filename).stem}",
-        "corpus": "FLEURS",
-        "duration": row.num_frames / SAMPLE_RATE,
-        "fleurs_source_id": row.source_id,
-        "raw_text": row.raw_text,
+        "audio_item_id": f"parakeet_hindi_asr_train_{Path(row.filename).stem}",
+        "corpus": "Parakeet Hindi ASR",
+        "duration": row.duration_ms / 1000,
         "sampling_rate": SAMPLE_RATE,
+        "source_audio_filepath": row.source_audio_filepath,
         "source_lang": "hi",
         "text": row.text,
     }
 
 
-def _validate_rows_and_audio(rows: list[FleursTranscriptRow], audio_dir: Path) -> None:
-    if len(rows) != EXPECTED_NUM_ROWS:
-        msg = f"Expected {EXPECTED_NUM_ROWS} FLEURS rows, found {len(rows)}"
-        raise RuntimeError(msg)
-    total_frames = sum(row.num_frames for row in rows)
-    if total_frames != EXPECTED_TOTAL_FRAMES:
-        msg = f"Expected {EXPECTED_TOTAL_FRAMES} FLEURS frames, found {total_frames}"
-        raise RuntimeError(msg)
-
+def _validate_rows_and_audio(rows: list[HindiASRRow], audio_dir: Path) -> None:
     expected_filenames = {row.filename for row in rows}
     actual_filenames = {path.name for path in audio_dir.iterdir() if path.is_file()}
     if actual_filenames != expected_filenames:
         msg = (
-            "FLEURS audio inventory does not match the transcript: "
+            "Hindi audio inventory does not match the source manifest: "
             f"missing={len(expected_filenames - actual_filenames)}, "
             f"extra={len(actual_filenames - expected_filenames)}"
         )
         raise RuntimeError(msg)
-    for row in rows:
+
+    for index, row in enumerate(rows, start=1):
         audio_path = audio_dir / row.filename
         info = sf.info(audio_path)
-        if info.samplerate != SAMPLE_RATE or info.channels != 1 or info.frames != row.num_frames:
+        measured_duration_s = info.frames / info.samplerate
+        if (
+            info.samplerate != SAMPLE_RATE
+            or info.channels != 1
+            or abs(measured_duration_s - row.duration_ms / 1000) > MAX_DURATION_ERROR_S
+        ):
             msg = (
-                f"Unexpected audio metadata for {audio_path}: "
-                f"samplerate={info.samplerate}, channels={info.channels}, frames={info.frames}"
+                f"Unexpected audio metadata for {audio_path}: samplerate={info.samplerate}, "
+                f"channels={info.channels}, frames={info.frames}, source_duration_ms={row.duration_ms}"
             )
             raise RuntimeError(msg)
+        if index % 20_000 == 0:
+            logger.info(f"Verified {index}/{len(rows)} Hindi WAV headers")
 
 
-def _write_manifest(rows: list[FleursTranscriptRow], manifest_path: Path) -> None:
+def _write_manifest(rows: list[HindiASRRow], manifest_path: Path) -> None:
     with manifest_path.open("x", encoding="utf-8") as manifest_file:
         for row in rows:
             manifest_file.write(json.dumps(_manifest_row(row), ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -166,75 +172,108 @@ def _metadata() -> dict[str, object]:
     return {
         "audio_archive_filename": AUDIO_ARCHIVE_FILENAME,
         "audio_archive_sha256": AUDIO_ARCHIVE_SHA256,
-        "config": HF_CONFIG,
         "expected_num_rows": EXPECTED_NUM_ROWS,
-        "expected_total_frames": EXPECTED_TOTAL_FRAMES,
+        "expected_total_duration_ms": EXPECTED_TOTAL_DURATION_MS,
         "hf_repo_id": HF_REPO_ID,
         "hf_revision": HF_REVISION,
-        "license": "CC-BY-4.0",
+        "license": "Apache-2.0",
         "sample_rate": SAMPLE_RATE,
+        "source_manifest_filename": SOURCE_MANIFEST_FILENAME,
+        "source_manifest_sha256": SOURCE_MANIFEST_SHA256,
         "split": HF_SPLIT,
-        "transcript_filename": TRANSCRIPT_FILENAME,
-        "transcript_sha256": TRANSCRIPT_SHA256,
     }
 
 
+def _verify_manifest(rows: list[HindiASRRow], manifest_path: Path) -> None:
+    with manifest_path.open(encoding="utf-8") as manifest_file:
+        for line_number, row in enumerate(rows, start=1):
+            line = manifest_file.readline()
+            if not line:
+                msg = f"Staged Hindi manifest ended before row {line_number}"
+                raise RuntimeError(msg)
+            if json.loads(line) != _manifest_row(row):
+                msg = f"Staged Hindi manifest differs from its pinned source at row {line_number}"
+                raise RuntimeError(msg)
+        if any(line.strip() for line in manifest_file):
+            msg = "Staged Hindi manifest contains unexpected extra rows"
+            raise RuntimeError(msg)
+
+
 def verify_dataset(output_path: Path) -> bool:
-    """Verify the complete pinned dataset, including every WAV header."""
+    """Verify the complete pinned dataset and every WAV header."""
     try:
         manifest_path = output_path / "manifest.jsonl"
-        transcript_path = output_path / "source.tsv"
+        source_manifest_path = output_path / "source_manifest.jsonl"
         metadata_path = output_path / "metadata.json"
         audio_dir = output_path / "audio"
         _require(
-            manifest_path.is_file() and transcript_path.is_file() and metadata_path.is_file(),
+            manifest_path.is_file() and source_manifest_path.is_file() and metadata_path.is_file(),
             f"Required Indic ASR dataset files are missing under {output_path}",
         )
-        _require(audio_dir.is_dir(), f"FLEURS audio directory is missing: {audio_dir}")
+        _require(audio_dir.is_dir(), f"Hindi audio directory is missing: {audio_dir}")
         _require(
-            _sha256_file(transcript_path) == TRANSCRIPT_SHA256,
-            "Pinned FLEURS transcript checksum mismatch",
+            _sha256_file(source_manifest_path) == SOURCE_MANIFEST_SHA256,
+            "Pinned Hindi source manifest checksum mismatch",
         )
         _require(
             json.loads(metadata_path.read_text(encoding="utf-8")) == _metadata(),
-            "Pinned FLEURS metadata does not match the checked-in contract",
+            "Pinned Hindi metadata does not match the checked-in contract",
         )
 
-        rows = _parse_transcript(transcript_path)
+        rows = _parse_source_manifest(source_manifest_path)
         _validate_rows_and_audio(rows, audio_dir)
-        manifest_rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
-        _require(
-            manifest_rows == [_manifest_row(row) for row in rows],
-            "Pinned FLEURS manifest content or ordering mismatch",
-        )
+        _verify_manifest(rows, manifest_path)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError, sf.SoundFileError) as e:
         logger.error(f"Indic ASR dataset verification failed: {e}")
         return False
 
     logger.success(
-        f"Verified {EXPECTED_NUM_ROWS} Hindi FLEURS clips / "
-        f"{EXPECTED_TOTAL_FRAMES / SAMPLE_RATE / 3600:.4f} audio hours at {output_path}"
+        f"Verified {EXPECTED_NUM_ROWS} unique Hindi clips / "
+        f"{EXPECTED_TOTAL_DURATION_MS / 3_600_000:.4f} audio hours at {output_path}"
     )
     return True
 
 
+def _publish_audio(rows: list[HindiASRRow], extracted_path: Path, audio_dir: Path) -> None:
+    expected_filenames = {row.filename for row in rows}
+    source_paths: dict[str, Path] = {}
+    for candidate in extracted_path.rglob("*.wav"):
+        if candidate.name not in expected_filenames:
+            continue
+        if candidate.name in source_paths:
+            msg = f"Duplicate Hindi WAV filename in source archive: {candidate.name}"
+            raise RuntimeError(msg)
+        source_paths[candidate.name] = candidate
+
+    missing = expected_filenames - source_paths.keys()
+    if missing:
+        msg = f"Hindi source archive is missing {len(missing)} manifest WAV files"
+        raise RuntimeError(msg)
+
+    audio_dir.mkdir()
+    for index, row in enumerate(rows, start=1):
+        source_paths[row.filename].replace(audio_dir / row.filename)
+        if index % 20_000 == 0:
+            logger.info(f"Published {index}/{len(rows)} Hindi WAV files")
+
+
 def stage_dataset(output_path: Path, cache_dir: str) -> None:
-    """Download, verify, and atomically publish the pinned FLEURS cohort."""
+    """Download, verify, and atomically publish the pinned Hindi cohort."""
     output_path = output_path.resolve()
     if output_path.exists():
         if verify_dataset(output_path):
-            logger.info(f"Reusing staged Hindi FLEURS dataset at {output_path}")
+            logger.info(f"Reusing staged Hindi ASR dataset at {output_path}")
             return
         msg = f"Refusing to overwrite incomplete staged data at {output_path}; move or remove it first"
         raise RuntimeError(msg)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    transcript_path = Path(
+    source_manifest_path = Path(
         hf_hub_download(
             repo_id=HF_REPO_ID,
             repo_type="dataset",
             revision=HF_REVISION,
-            filename=TRANSCRIPT_FILENAME,
+            filename=SOURCE_MANIFEST_FILENAME,
             cache_dir=cache_dir,
         )
     )
@@ -247,8 +286,8 @@ def stage_dataset(output_path: Path, cache_dir: str) -> None:
             cache_dir=cache_dir,
         )
     )
-    if _sha256_file(transcript_path) != TRANSCRIPT_SHA256:
-        msg = f"Unexpected checksum for {TRANSCRIPT_FILENAME} at revision {HF_REVISION}"
+    if _sha256_file(source_manifest_path) != SOURCE_MANIFEST_SHA256:
+        msg = f"Unexpected checksum for {SOURCE_MANIFEST_FILENAME} at revision {HF_REVISION}"
         raise RuntimeError(msg)
     if _sha256_file(archive_path) != AUDIO_ARCHIVE_SHA256:
         msg = f"Unexpected checksum for {AUDIO_ARCHIVE_FILENAME} at revision {HF_REVISION}"
@@ -256,17 +295,14 @@ def stage_dataset(output_path: Path, cache_dir: str) -> None:
 
     staging_path = Path(tempfile.mkdtemp(prefix=f".{output_path.name}.partial-", dir=output_path.parent))
     try:
-        extract_archive(str(archive_path), str(staging_path), force_extract=True)
-        extracted_audio = staging_path / HF_SPLIT
-        _require(
-            extracted_audio.is_dir(),
-            f"Pinned FLEURS archive did not contain the expected {HF_SPLIT}/ directory",
-        )
-        audio_dir = staging_path / "audio"
-        extracted_audio.replace(audio_dir)
-        shutil.copy2(transcript_path, staging_path / "source.tsv")
-        rows = _parse_transcript(staging_path / "source.tsv")
-        _validate_rows_and_audio(rows, audio_dir)
+        extracted_path = staging_path / "source_archive"
+        extracted_path.mkdir()
+        extract_archive(str(archive_path), str(extracted_path), force_extract=True)
+        shutil.copy2(source_manifest_path, staging_path / "source_manifest.jsonl")
+        rows = _parse_source_manifest(staging_path / "source_manifest.jsonl")
+        _publish_audio(rows, extracted_path, staging_path / "audio")
+        shutil.rmtree(extracted_path)
+        _validate_rows_and_audio(rows, staging_path / "audio")
         _write_manifest(rows, staging_path / "manifest.jsonl")
         (staging_path / "metadata.json").write_text(
             json.dumps(_metadata(), indent=2, sort_keys=True) + "\n",
@@ -278,7 +314,7 @@ def stage_dataset(output_path: Path, cache_dir: str) -> None:
         raise
 
     if not verify_dataset(output_path):
-        msg = f"Published Hindi FLEURS dataset failed verification: {output_path}"
+        msg = f"Published Hindi ASR dataset failed verification: {output_path}"
         raise RuntimeError(msg)
 
 
