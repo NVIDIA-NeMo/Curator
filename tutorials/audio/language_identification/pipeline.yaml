@@ -85,7 +85,7 @@ stages:
     retry_skip_reasons: ${selector_retry_skip_reasons}
     prefetch_fail_on_error: false
     batch_size: ${batch_size}
-    num_workers: 2
+    num_workers_override: 2
     resources:
       cpus: 1.0
       gpu_memory_gb: 4.0
@@ -110,7 +110,7 @@ stages:
     retry_skip_reasons: ${selector_retry_skip_reasons}
     prefetch_fail_on_error: true
     batch_size: ${batch_size}
-    num_workers: 1
+    num_workers_override: 1
     resources:
       cpus: 1.0
       gpus: 1.0
@@ -141,7 +141,7 @@ stages:
     retry_skip_reasons: ${selector_retry_skip_reasons}
     prefetch_fail_on_error: false
     batch_size: ${batch_size}
-    num_workers: 2
+    num_workers_override: 2
     resources:
       cpus: 1.0
       gpu_memory_gb: 6.0

@@ -102,6 +102,17 @@ def test_process_rejects_non_batch_execution() -> None:
     assert adapter.calls == []
 
 
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "2"])
+def test_worker_override_must_be_a_positive_integer(value: object) -> None:
+    with pytest.raises(ValueError, match="num_workers_override"):
+        _stage(num_workers_override=value)
+
+
+def test_worker_override_caps_backend_actors() -> None:
+    stage, _ = _stage(num_workers_override=2)
+    assert stage.num_workers() == 2
+
+
 def test_results_are_json_safe_and_preserve_other_models() -> None:
     stage, _ = _stage(results=[AudioLIDResult(language="TA", confidence=np.float32(0.625))])
     task = _task(lid={"WhisperLangID": {"language": "ta", "confidence": 0.7, "tag": "tertiary"}})
