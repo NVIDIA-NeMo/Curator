@@ -270,7 +270,10 @@ def write_grafana_configs(grafana_web_port: int, prometheus_web_port: int, metri
             logger.warning(
                 f"Xenna Grafana dashboard not found at {xenna_dashboard_src}; "
                 "the Xenna dashboard will not be provisioned. This usually means the "
-                "packaged data file is missing from the installed nemo_curator distribution."
+                "packaged data file is missing from the installed nemo_curator distribution. "
+                "To fix it, reinstall nemo_curator, or copy nemo_curator/metrics/xenna_grafana_dashboard.json "
+                f"from the NeMo Curator repository (or any custom dashboard JSON) into {dashboards_path}; "
+                "an existing file there is used as is and never overwritten."
             )
 
     # Generate Ray's default Grafana dashboards

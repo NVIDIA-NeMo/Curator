@@ -298,3 +298,6 @@ class TestWriteGrafanaConfigs:
         elif expect_copy:
             assert dst.read_text() == '{"title": "xenna"}'  # content transferred
         assert ("will not be provisioned" in caplog.text) == expect_warning
+        if expect_warning:  # the warning must tell the user how to fix it
+            assert "reinstall nemo_curator" in caplog.text
+            assert str(dst.parent) in caplog.text
