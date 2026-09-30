@@ -519,9 +519,6 @@ navigation:
               - page: Sound Event Detection
                 path: ./main/pages/curate-audio/process-data/sound-event-detection.mdx
                 slug: sound-event-detection
-              - page: Audio Language Identification
-                path: ./main/pages/curate-audio/process-data/audio-language-identification.mdx
-                slug: audio-language-identification
               - section: ASR Inference
                 slug: asr-inference
                 contents:
