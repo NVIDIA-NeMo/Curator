@@ -15,9 +15,12 @@
 ARG CURATOR_IMAGE=nemo_curator
 FROM ${CURATOR_IMAGE} AS nemo_curator_benchmarking
 
+ARG CUDA_COMPAT_13_VERSION=610.57.04-1ubuntu1
+
 # Add system utilities useful for benchmark and debug
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+    cuda-compat-13-3=${CUDA_COMPAT_13_VERSION} \
     less \
     lynx \
     openssh-client \
@@ -30,10 +33,17 @@ RUN apt-get update \
 # Add video benchmark codec support to the benchmark image.
 RUN bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264
 
-# Ensure all extras and dependency groups (including test) are synced
+# Ensure all benchmark extras and dependency groups (including test) are
+# synced. TensorRT audio is intentionally separate from ``all``; its Indic
+# Canary decoder runs from the independently locked child environment below.
 RUN cd /opt/Curator \
- && uv sync --extra all --all-groups \
+ && uv sync --extra all --extra audio_canary_trtllm --all-groups \
+ && UV_PYTHON_INSTALL_DIR=/opt/nemo-curator-runtimes/python \
+    python -m nemo_curator.stages.audio.inference.scripts.install_indic_canary_trtllm_runtime \
+      --runtime-root /opt/nemo-curator-runtimes/indic-canary-trtllm \
  && uv cache prune
+
+ENV NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON="/opt/nemo-curator-runtimes/indic-canary-trtllm/bin/python"
 
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings
 RUN git config --global --add safe.directory /opt/Curator

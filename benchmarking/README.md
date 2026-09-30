@@ -673,9 +673,14 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 `nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
-The benchmark image must provide `tensorrt_llm` and TensorRT versions compatible
-with those serialized engines. The benchmark validates both runtime imports and
-the complete engine inventories before timing the processor chain.
+The benchmark image must install the `audio_canary_trtllm` extra and provision
+its separately locked Indic Canary child runtime. Parakeet uses TensorRT from
+the Curator parent environment; Canary loads its compatible TensorRT-LLM stack
+only in the child process. The benchmark image includes the pinned NVIDIA
+`cuda-compat-13-3` libraries needed by supported data-center GPUs on
+older host drivers. The benchmark validates both runtimes and the complete
+engine inventories before timing the processor chain.
+
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,
 validates, and publishes a replacement when an older or incomplete cohort is

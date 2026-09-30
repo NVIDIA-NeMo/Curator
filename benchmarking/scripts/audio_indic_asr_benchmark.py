@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage, load_audio_file
 from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
+from nemo_curator.stages.audio.inference.indic_canary_runtime_env import ensure_runtime_python
 from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.text_filtering import (
@@ -61,6 +61,16 @@ CANARY_REQUIRED_FILES = (
 PARAKEET_ENGINE_REQUIRED_FILES = ("encoder.plan", "metadata.json", "model.nemo")
 
 
+def _load_benchmark_utils() -> tuple[Any, Any]:
+    """Load harness-only helpers without burdening Hydra stage imports."""
+    if __package__:
+        from benchmarking.scripts.utils import setup_executor, write_benchmark_results
+    else:  # Direct script execution adds only benchmarking/scripts to sys.path.
+        from utils import setup_executor, write_benchmark_results
+
+    return setup_executor, write_benchmark_results
+
+
 @dataclass(frozen=True)
 class InputInventory:
     """Identity and duration contract for one staged benchmark cohort."""
@@ -84,6 +94,7 @@ class PrepareIndicASRInputStage(ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "prepare_indic_asr_input"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    audio_root: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], ["audio_filepath", "audio_item_id", "duration", "source_lang", "text"]
@@ -112,7 +123,19 @@ class PrepareIndicASRInputStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"Expected source_lang='hi' for {audio_item_id}, found {data['source_lang']!r}"
             raise RuntimeError(msg)
 
-        waveform, sample_rate = load_audio_file(data["audio_filepath"], mono=True)
+        audio_path = Path(data["audio_filepath"])
+        if not audio_path.is_absolute():
+            if self.audio_root is None:
+                msg = f"Relative audio path requires audio_root for {audio_item_id}: {audio_path}"
+                raise RuntimeError(msg)
+            audio_path = Path(self.audio_root) / audio_path
+        audio_path = audio_path.expanduser().resolve()
+        if not audio_path.is_file():
+            msg = f"Input audio is missing for {audio_item_id}: {audio_path}"
+            raise FileNotFoundError(msg)
+        data["audio_filepath"] = str(audio_path)
+
+        waveform, sample_rate = load_audio_file(str(audio_path), mono=True)
         duration_s = float(data["duration"])
         measured_duration_s = waveform.shape[-1] / sample_rate
         if sample_rate != SAMPLE_RATE or waveform.shape[0] != 1:
@@ -241,16 +264,18 @@ def _preflight_runtime_and_models(
     indic_canary_engine_dir: Path,
     parakeet_tensorrt_engine_dir: Path,
 ) -> None:
-    missing_modules = [module for module in ("tensorrt", "tensorrt_llm") if importlib.util.find_spec(module) is None]
+    missing_modules = [module for module in ("tensorrt",) if importlib.util.find_spec(module) is None]
     if missing_modules:
         msg = (
             "Indic ASR benchmark image is missing required runtime module(s): "
-            f"{missing_modules}. Use the TensorRT-LLM-compatible Curator benchmark image."
+            f"{missing_modules}. Install the audio_canary_trtllm extra."
         )
         raise RuntimeError(msg)
     _require_files(indic_canary_engine_dir, CANARY_REQUIRED_FILES, "Indic Canary engine")
     _require_files(parakeet_tensorrt_engine_dir, PARAKEET_ENGINE_REQUIRED_FILES, "Indic Parakeet TensorRT bundle")
-    for package_name in ("tensorrt", "tensorrt-llm"):
+    runtime_python = ensure_runtime_python()
+    logger.info(f"Indic Canary isolated runtime Python: {runtime_python}")
+    for package_name in ("tensorrt",):
         try:
             logger.info(f"{package_name} version: {importlib.metadata.version(package_name)}")
         except importlib.metadata.PackageNotFoundError:
@@ -502,6 +527,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
         fallback_workers=fallback_workers,
     )
     logger.info(pipeline.describe())
+    setup_executor, _ = _load_benchmark_utils()
     start_time = time.perf_counter()
     tasks = pipeline.run(setup_executor(executor))
     pipeline_elapsed_s = time.perf_counter() - start_time
@@ -551,6 +577,7 @@ def main() -> int:
         logger.debug(f"Full traceback:\n{traceback.format_exc()}")
         results["metrics"]["error_message"] = str(e)
     finally:
+        _, write_benchmark_results = _load_benchmark_utils()
         write_benchmark_results(results, args.benchmark_results_path)
     return exit_code
 

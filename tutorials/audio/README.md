@@ -51,7 +51,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
-| Reproduce the paired Hindi Indic Canary + Parakeet benchmark | [**indic_asr/**](indic_asr/) | Yes (8× H100 for benchmark-equivalent results) | Separate pinned Hugging Face data preparation; prebuilt TensorRT engines required |
+| Run the Hindi Indic Canary + Parakeet benchmark processor graph with Xenna or Ray Data | [**indic_asr/**](indic_asr/) | Yes (8× H100 for benchmark-equivalent results) | Separate pinned Hugging Face data preparation; hardware-compatible TensorRT engines required |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
@@ -95,7 +95,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
-| `indic_asr/` | TensorRT-LLM-compatible runtime | `audio_cuda12` |
+| `indic_asr/` | CUDA 13-capable driver or supported forward-compat stack; TensorRT engine bundles | `audio_canary_trtllm` |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |

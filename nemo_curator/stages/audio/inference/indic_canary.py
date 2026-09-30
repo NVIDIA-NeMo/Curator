@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
+from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR, IsolatedIndicCanaryTRTLLMASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage, _set_note
 from nemo_curator.stages.resources import Resources
 
@@ -27,16 +27,17 @@ if TYPE_CHECKING:
     from nemo_curator.models.asr.base import ASRResult
     from nemo_curator.tasks import AudioTask
 
-_ADAPTER_TARGET = "nemo_curator.models.asr.indic_canary.IndicCanaryTRTLLMASR"
+_ADAPTER_TARGET = "nemo_curator.models.asr.indic_canary.IsolatedIndicCanaryTRTLLMASR"
 
 
 @dataclass
 class InferenceIndicCanaryStage(ASRStage):
     """Transcribe Indic audio with an existing Canary TensorRT-LLM engine.
 
-    Run this stage from the mutually exclusive ``audio_canary_trtllm``
-    environment profile. TensorRT-LLM is loaded directly in the Curator worker;
-    no nested Python runtime or inference subprocess is created.
+    Install the ``audio_canary_trtllm`` profile in the Curator environment.
+    The stage launches TensorRT-LLM from a separately locked CPython 3.12/CUDA
+    13 child runtime so its native ABI does not conflict with Curator's parent
+    Torch/CUDA stack.
     """
 
     adapter_target: str = field(default=_ADAPTER_TARGET, init=False, repr=False)
@@ -49,6 +50,8 @@ class InferenceIndicCanaryStage(ASRStage):
     min_duration_sec: float = 0.5
     kv_cache_free_gpu_memory_fraction: float = 0.2
     cross_kv_cache_fraction: float = 0.2
+    runtime_python: str | None = None
+    runtime_startup_timeout_sec: float = 600.0
     source_lang_key: str = "source_lang"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
@@ -91,12 +94,14 @@ class InferenceIndicCanaryStage(ASRStage):
             "min_duration_sec": self.min_duration_sec,
             "kv_cache_free_gpu_memory_fraction": self.kv_cache_free_gpu_memory_fraction,
             "cross_kv_cache_fraction": self.cross_kv_cache_fraction,
+            "runtime_python": self.runtime_python,
+            "runtime_startup_timeout_sec": self.runtime_startup_timeout_sec,
         }
         super().__post_init__()
 
-    def _create_adapter(self) -> IndicCanaryTRTLLMASR:
-        """Construct Canary through its reference-compatible ``engine_dir`` API."""
-        return IndicCanaryTRTLLMASR(engine_dir=self.engine_dir, **self.adapter_kwargs)
+    def _create_adapter(self) -> IsolatedIndicCanaryTRTLLMASR:
+        """Construct the isolated adapter through the compatible ``engine_dir`` API."""
+        return IsolatedIndicCanaryTRTLLMASR(engine_dir=self.engine_dir, **self.adapter_kwargs)
 
     def assemble(
         self,
@@ -145,4 +150,4 @@ class InferenceIndicCanaryStage(ASRStage):
         return tasks
 
 
-__all__ = ["IndicCanaryTRTLLMASR", "InferenceIndicCanaryStage"]
+__all__ = ["IndicCanaryTRTLLMASR", "InferenceIndicCanaryStage", "IsolatedIndicCanaryTRTLLMASR"]
