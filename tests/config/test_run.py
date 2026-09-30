@@ -207,40 +207,6 @@ def test_pipeline_with_hydra_instantiated_resources():
     assert pipeline.stages[0].resources.gpus == 2.0
 
 
-def test_pipeline_applies_yaml_worker_cap_with_stage_override():
-    cfg = OmegaConf.create(
-        {
-            "stages": [
-                {
-                    "_target_": ("nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage"),
-                    "num_workers": 2,
-                }
-            ]
-        }
-    )
-
-    (stage,) = create_pipeline_from_yaml(cfg, log_config=False).stages
-
-    assert stage.num_workers() == 2
-
-
-def test_pipeline_rejects_two_yaml_worker_sizing_modes():
-    cfg = OmegaConf.create(
-        {
-            "stages": [
-                {
-                    "_target_": ("nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage"),
-                    "num_workers": 2,
-                    "num_workers_per_node": 1,
-                }
-            ]
-        }
-    )
-
-    with pytest.raises(ValueError, match="only one"):
-        create_pipeline_from_yaml(cfg, log_config=False)
-
-
 def test_pipeline_with_multiple_stages():
     from nemo_curator.stages.text.modifiers import Modify
     from nemo_curator.stages.text.modifiers.string import UrlRemover

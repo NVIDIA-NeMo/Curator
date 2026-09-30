@@ -394,9 +394,10 @@ reservations. Keep one identical model cache and Canary engine available to
 each node in multi-node runs.
 
 The maintained YAML caps SpeechBrain, Indic Canary, and Whisper at 2, 1, and 2
-workers, respectively. These explicit actor caps prevent each heavyweight model
-from scaling to every available slot. Tune them together with GPU reservations,
-model-cache placement, and the Canary engine profile for your cluster.
+workers, respectively, through each inference stage's local worker override.
+These actor caps prevent each heavyweight model from scaling to every available
+slot. Tune them together with GPU reservations, model-cache placement, and the
+Canary engine profile for your cluster.
 
 ## Troubleshooting
 
