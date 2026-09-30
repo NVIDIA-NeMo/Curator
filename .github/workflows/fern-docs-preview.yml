@@ -58,6 +58,7 @@ jobs:
               - fern/**
               - .github/workflows/fern-docs-ci.yml
               - .github/workflows/fern-docs-preview.yml
+              - .github/scripts/test-fern-preview.sh
       - name: Report docs preview gate
         env:
           DOCS_CHANGED: ${{ steps.changed-files.outputs.docs_any_changed }}
@@ -103,17 +104,37 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: pr-source
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Prepare preview docs
         run: |
           set -euo pipefail
           test -d pr-source/fern
-          test -z "$(find pr-source/fern -type l -print -quit)"
+          test ! -L pr-source/fern
+          # Accept only unchanged trusted links, including directory links.
+          find pr-source/fern -type l -print0 > "$RUNNER_TEMP/fern-links"
+          while IFS= read -r -d '' link; do
+            trusted="trusted-source/${link#pr-source/}"
+            test -L "$trusted"
+            test "$(readlink -- "$link")" = "$(readlink -- "$trusted")"
+          done < "$RUNNER_TEMP/fern-links"
           mkdir -p "$RUNNER_TEMP/fern-preview"
           cp -R trusted-source/fern "$RUNNER_TEMP/fern-preview/fern"
-          # Keep trusted navigation, components and tooling, including fallback
-          # pages referenced by navigation added after the PR branched.
+          # Keep newer main pages as fallbacks, but honor explicit PR deletions.
+          BASE=$(git -C pr-source merge-base HEAD refs/remotes/origin/main)
+          git -C pr-source diff --no-renames --diff-filter=D --name-only -z \
+            "$BASE" HEAD -- fern/ > "$RUNNER_TEMP/fern-deleted-paths"
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              */.*|*/components/*) continue ;;
+            esac
+            case "$path" in
+              *.md|*.mdx|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp|*.ico|*.pdf)
+                rm -f -- "$RUNNER_TEMP/fern-preview/$path" ;;
+            esac
+          done < "$RUNNER_TEMP/fern-deleted-paths"
+          # Navigation, components and executable tooling always come from main.
           CONTENT='.*\.(md|mdx|png|jpg|jpeg|gif|svg|webp|ico|pdf)'
           (cd pr-source && find fern -regextype posix-extended -type f \
             -regex "$CONTENT" ! -path '*/.*' ! -path '*/components/*' \
@@ -177,3 +198,31 @@ jobs:
           else
             gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" -f body="$BODY"
           fi
+
+  clear-preview:
+    needs: changed-files
+    if: >-
+      github.repository == 'NVIDIA-NeMo/Curator' &&
+      needs.changed-files.outputs.docs == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove stale preview comments after docs changes are reverted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" =~ ^refs/heads/pull-request/([1-9][0-9]*)$ ]]
+          PR_NUMBER=${BASH_REMATCH[1]}
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" | jq -e \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$GITHUB_SHA" --argjson number "$PR_NUMBER" \
+            '.number == $number and .state == "open" and .head.sha == $sha and
+             .base.repo.full_name == $repo'
+          gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- preview-docs -->"))) | .id' \
+            > "$RUNNER_TEMP/fern-preview-comments"
+          while IFS= read -r comment; do
+            [[ "$comment" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment" -X DELETE
+          done < "$RUNNER_TEMP/fern-preview-comments"
