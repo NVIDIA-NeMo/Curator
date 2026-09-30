@@ -424,14 +424,6 @@ source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curato
 
 [tool.ruff]
 line-length = 119
-# These two conversion helpers are retained from the reference Curator
-# implementation. ``force-exclude`` keeps pre-commit from rewriting them even
-# when it passes their paths explicitly; the maintained wrapper is linted.
-force-exclude = true
-extend-exclude = [
-    "scripts/audio/indic_canary_trtllm_conversion/convert_checkpoint.py",
-    "scripts/audio/indic_canary_trtllm_conversion/conformer_onnx_trt.py",
-]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [

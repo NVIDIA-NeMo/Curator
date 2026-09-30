@@ -133,12 +133,14 @@ def _require_tensorrt_llm() -> None:
             TensorInfo = TensorInfoImport
             return
 
+    # The Canary stack is deliberately a mutually exclusive root profile. It
+    # cannot be combined with audio_cuda12/audio_tensorrt in one environment.
     msg = (
-        "tensorrt_llm is required for the Indic Canary runtime but could not be loaded. "
-        "TensorRT-LLM 1.2.1 has a CUDA-13/Python-3.12 dependency family that is not part "
-        "of Curator's regular audio lock. Run Canary in a tested container or isolated "
-        "environment that provides that runtime; see the audio language-identification "
-        "tutorial for the validated environment contract."
+        "tensorrt_llm is required for the Indic Canary ASR runtime but could "
+        "not be loaded. Create the dedicated Curator profile with CPython 3.12 on "
+        "Linux x86_64:\n"
+        "    uv sync --python 3.12 --extra audio_canary_trtllm --no-default-groups\n"
+        "Do not combine audio_canary_trtllm with audio_cuda12 or audio_tensorrt."
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 

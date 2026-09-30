@@ -6,7 +6,7 @@ Hands-on tutorials for curating audio data with NeMo Curator.
 
 ## Platform support
 
-Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda12` extras omit several dependencies on arm64/aarch64 (NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack — use amd64 for ASR, language identification, diarization, and tagging tutorials below.
+Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda12` extras omit several dependencies on arm64/aarch64 (NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack — use amd64 for ASR, diarization, and tagging tutorials below.
 
 ## Getting started in 5 minutes
 
@@ -51,7 +51,6 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
-| Identify spoken languages with a SpeechBrain (or alternate AmberNet) primary, Indic Canary, and Whisper agreement | [**language_identification/**](language_identification/) | Yes | Bring your own manifest and prebuilt Canary engine |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
@@ -67,7 +66,6 @@ python nemo_curator/config/run.py \
 | `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
 | `qwen_asr/` | Model only | Two bundled audio files | Downloads Qwen3-ASR weights on first use |
 | `faster_whisper/` | Model only | Two bundled audio files | Downloads the configured Faster-Whisper checkpoint on first use |
-| `language_identification/` | Model weights only | Bring your own manifest | Downloads SpeechBrain and Whisper weights; requires a prebuilt Indic Canary engine |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
 | `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
@@ -95,7 +93,6 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
-| `language_identification/` | None for libsndfile-readable input | `audio_cuda12` for SpeechBrain, Whisper, and AmberNet; full Canary ensemble requires a tested isolated runtime (see tutorial) |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
@@ -111,15 +108,6 @@ uv sync --extra audio_cuda12
 # CPU only
 uv sync --extra audio_cpu
 ```
-
-The full language-identification ensemble is an exception to the standard
-extra-only setup: its Indic Canary engine needs `tensorrt_llm==1.2.1`, whose
-dependency pins are intentionally outside Curator's lock. Do not install it on
-top of the locked Curator venv. Use a tested immutable container or isolated
-Python 3.12 x86_64 Linux environment containing compatible Curator, CUDA, and
-TensorRT-LLM versions. The
-[language-identification tutorial](language_identification/) documents the
-runtime contract and optional Whisper TensorRT encoder.
 
 ## Troubleshooting: is my pipeline hung?
 
@@ -144,7 +132,7 @@ Audio pipelines can appear stuck for legitimate reasons. Before killing a run:
 |---|---|
 | **Setup** | [Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html) · [Configuration](https://docs.nvidia.com/nemo/curator/latest/get-started/configuration.html) |
 | **Concepts** | [Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) · [Data Loading](https://docs.nvidia.com/nemo/curator/latest/about/concepts/text/data-loading-concepts.html) |
-| **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) · [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) · [Audio Language Identification](https://docs.nvidia.com/nemo/curator/main/curate-audio/process-data/audio-language-identification.html) · [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
+| **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) · [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) · [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
 
 ## Known Issues
 

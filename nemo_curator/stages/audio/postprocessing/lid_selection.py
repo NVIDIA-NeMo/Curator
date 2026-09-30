@@ -100,7 +100,6 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
     notes_key: str = "additional_notes"
 
     speechbrain_model_id: str = "SpeechBrainLangID"
-    ambernet_model_id: str = "AmberNetLangID"
     indic_canary_model_id: str = "IndicCanaryLangID"
     whisper_model_id: str = "WhisperLangID"
     indic_languages: frozenset[str] = field(default_factory=lambda: _DEFAULT_INDIC_LANGUAGES)
@@ -116,7 +115,6 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
             "skip_me_key",
             "notes_key",
             "speechbrain_model_id",
-            "ambernet_model_id",
             "indic_canary_model_id",
             "whisper_model_id",
             "name",
@@ -129,7 +127,6 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
 
         model_ids = (
             self.speechbrain_model_id,
-            self.ambernet_model_id,
             self.indic_canary_model_id,
             self.whisper_model_id,
         )
@@ -169,9 +166,8 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
         primary: _Prediction | None = None
         canary: _Prediction | None = None
         whisper: _Prediction | None = None
-        primary_ids = {self.speechbrain_model_id, self.ambernet_model_id}
         for model_id, prediction in predictions.items():
-            if model_id in primary_ids:
+            if model_id == self.speechbrain_model_id:
                 primary = prediction
             elif model_id == self.indic_canary_model_id:
                 canary = prediction
@@ -215,7 +211,6 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
     def _parse_predictions(self, raw_results: dict[str, Any]) -> dict[str, _Prediction]:
         allowed_ids = {
             self.speechbrain_model_id,
-            self.ambernet_model_id,
             self.indic_canary_model_id,
             self.whisper_model_id,
         }
@@ -255,7 +250,6 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
     def _add_component_notes(self, task: AudioTask, predictions: dict[str, _Prediction]) -> None:
         labels = {
             self.speechbrain_model_id: "speechbrain",
-            self.ambernet_model_id: "ambernet",
             self.indic_canary_model_id: "indic_canary",
             self.whisper_model_id: "whisper",
         }

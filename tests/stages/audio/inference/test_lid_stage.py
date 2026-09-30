@@ -315,6 +315,60 @@ def test_stage_declares_file_or_waveform_inputs_and_shared_outputs() -> None:
     assert file_stage.outputs() == ([], ["lid", "_skipme"])
 
 
+def test_metadata_extraction_runner_three_model_topology_is_representable() -> None:
+    common = {
+        "waveform_key": "waveform",
+        "sample_rate_key": "sample_rate",
+        "batch_size": 16,
+        "resources": Resources(gpu_memory_gb=8.0),
+    }
+    speechbrain = AudioLIDInferenceStage(
+        adapter_target="nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter",
+        model_id="SpeechBrainLangID",
+        tag="primary",
+        max_duration_sec=10.0,
+        num_workers_override=2,
+        adapter_kwargs={"source": "speechbrain/lang-id-voxlingua107-ecapa"},
+        **common,
+    )
+    canary = AudioLIDInferenceStage(
+        adapter_target="nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter",
+        model_id="IndicCanaryLangID",
+        tag="secondary",
+        max_duration_sec=40.0,
+        num_workers_override=1,
+        adapter_kwargs={
+            "engine_dir": "/models/indic_canary",
+            "model_batch_size": 16,
+            "kv_cache_free_gpu_memory_fraction": 0.1,
+            "cross_kv_cache_fraction": 0.1,
+        },
+        **common,
+    )
+    whisper = AudioLIDInferenceStage(
+        adapter_target="nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter",
+        model_id="WhisperLangID",
+        tag="tertiary",
+        max_duration_sec=30.0,
+        num_workers_override=2,
+        adapter_kwargs={
+            "model_size": "medium",
+            "model_path": "/models/whisper-medium.pt",
+            "fp16": True,
+            "backend": "torch",
+            "model_batch_size": 16,
+        },
+        **common,
+    )
+
+    assert [(stage.model_id, stage.tag, stage.num_workers()) for stage in (speechbrain, canary, whisper)] == [
+        ("SpeechBrainLangID", "primary", 2),
+        ("IndicCanaryLangID", "secondary", 1),
+        ("WhisperLangID", "tertiary", 2),
+    ]
+    assert all(stage.inputs() == ([], ["waveform", "sample_rate"]) for stage in (speechbrain, canary, whisper))
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [

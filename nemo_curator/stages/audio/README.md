@@ -1,13 +1,8 @@
 # Audio Stages Developer Guide
 
-Audio processing stages ultimately subclass
-`ProcessingStage[AudioTask, AudioTask]`, the same root used by video, text, and
-image modalities. Simple transformations normally inherit it directly.
-Adapter-backed ASR, sound-event-detection, and language-identification stages
-instead share `AdapterInferenceStage`, an audio inference base that owns lazy
-adapter resolution, node-level weight prefetch, worker-local load/unload, GPU
-count derivation, and file input. The concrete stage still owns task I/O and
-audio preparation; its model adapter owns provider-specific inference.
+All audio processing stages subclass `ProcessingStage[AudioTask, AudioTask]`
+directly — the same base class used by video, text, and image modalities.
+There is no audio-specific intermediate base class.
 
 Each `AudioTask` wraps a single manifest entry as a plain `dict` (backed by
 `_AttrDict` for attribute-style access).  Stages read keys from that dict,
@@ -62,23 +57,6 @@ def setup(self, worker_metadata=None) -> None:
 ```
 
 `setup()` is called once per worker before any processing begins.
-
-### Adapter-backed model stages
-
-Use `AdapterInferenceStage` when several model providers should share one task
-contract. Follow the SED and audio-LID split:
-
-- the stage declares manifest keys, normalizes/resamples audio, implements
-  resume semantics, and writes JSON-safe results;
-- the adapter implements `download_weights_on_node()`, `load_model()`,
-  `unload_model()`, and its model-specific batch method; and
-- optional heavyweight dependencies stay behind lazy imports in the concrete
-  adapter or runtime.
-
-Keep the stage's stable result identity separate from the provider checkpoint
-identifier. For example, `AudioLIDInferenceStage.model_id` selects the key in
-the shared `lid` mapping, while a SpeechBrain adapter's `source` selects the
-actual Hugging Face model.
 
 ## Writing a GPU or IO stage
 
@@ -1044,8 +1022,7 @@ Appends the entry as a single JSON line to
 
 ## Quick checklist for adding a new audio stage
 
-1. Subclass `ProcessingStage[AudioTask, AudioTask]`, or
-   `AdapterInferenceStage` for a pluggable model family
+1. Subclass `ProcessingStage[AudioTask, AudioTask]`
 2. Order dataclass fields: `name` first, stage-specific params, then `resources`, then `batch_size`
 3. Implement `inputs()` and `outputs()` to declare required/produced keys
 4. For CPU stages: override `process(task: AudioTask) -> AudioTask | None`
@@ -1057,8 +1034,7 @@ Appends the entry as a single JSON line to
    call `self.validate_input(task)` per task at the top, guard with
    `if len(tasks) == 0: return []`.  `process()` should raise
    `NotImplementedError` (matching the dedup-stage convention).
-7. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`; use
-   `.with_(num_workers=...)` when duplicate model actors must be capped
+7. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`
 8. Add tests in `tests/stages/audio/` using `AudioTask` for fixtures
 
 ---

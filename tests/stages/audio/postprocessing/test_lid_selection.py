@@ -18,12 +18,10 @@ from __future__ import annotations
 
 import pytest
 
-from nemo_curator.stages.audio.postprocessing import SelectAudioLanguageStage as PublicSelectAudioLanguageStage
 from nemo_curator.stages.audio.postprocessing.lid_selection import SelectAudioLanguageStage
 from nemo_curator.tasks import AudioTask
 
 _SPEECHBRAIN = "SpeechBrainLangID"
-_AMBERNET = "AmberNetLangID"
 _CANARY = "IndicCanaryLangID"
 _WHISPER = "WhisperLangID"
 
@@ -127,34 +125,6 @@ def test_indic_language_without_three_way_agreement_is_rejected() -> None:
     )
 
 
-def test_ambernet_can_fill_the_primary_role() -> None:
-    results = {
-        _AMBERNET: _prediction("de", 0.7, "primary"),
-        _WHISPER: _prediction("de", 0.9, "tertiary"),
-    }
-
-    task = SelectAudioLanguageStage().process(_task(results))
-
-    assert task.data["source_lang"] == "de"
-    assert task.data["additional_notes"]["primary_lid_model"] == "ambernet"
-
-
-def test_the_last_primary_in_mapping_order_matches_reference_behavior() -> None:
-    results = {
-        _SPEECHBRAIN: _prediction("de", 0.7, "speechbrain_primary"),
-        _AMBERNET: _prediction("fr", 0.8, "ambernet_primary"),
-        _WHISPER: _prediction("fr", 0.9, "tertiary"),
-    }
-
-    task = SelectAudioLanguageStage().process(_task(results))
-
-    assert task.data["source_lang"] == "fr"
-    assert (
-        task.data["additional_notes"]["SelectBestLIDPrediction"]
-        == "used tertiary, agreement between ambernet_primary and tertiary langID models."
-    )
-
-
 def test_component_notes_record_model_prediction_and_three_decimal_confidence() -> None:
     task = SelectAudioLanguageStage().process(_task(_full_results()))
     notes = task.data["additional_notes"]
@@ -169,7 +139,6 @@ def test_component_notes_record_model_prediction_and_three_decimal_confidence() 
 def test_custom_model_ids_and_notes_key_work_on_the_english_fast_path() -> None:
     stage = SelectAudioLanguageStage(
         speechbrain_model_id="primary-id",
-        ambernet_model_id="alternate-primary-id",
         indic_canary_model_id="canary-id",
         whisper_model_id="whisper-id",
         notes_key="audit",
@@ -270,14 +239,13 @@ def test_rejection_preserves_an_audio_preparation_root_cause() -> None:
     )
 
 
-def test_selector_declares_its_io_contract_and_is_publicly_exported() -> None:
+def test_selector_declares_its_io_contract() -> None:
     stage = SelectAudioLanguageStage(results_key="predictions", output_key="language", notes_key="audit")
     assert stage.inputs() == ([], [])
     assert stage.outputs() == ([], ["language", "audit", "_skipme"])
     assert stage.resources.gpus == 0
-    assert PublicSelectAudioLanguageStage is SelectAudioLanguageStage
 
 
 def test_duplicate_configured_model_ids_are_rejected() -> None:
     with pytest.raises(ValueError, match="must be distinct"):
-        SelectAudioLanguageStage(ambernet_model_id=_SPEECHBRAIN)
+        SelectAudioLanguageStage(indic_canary_model_id=_SPEECHBRAIN)
