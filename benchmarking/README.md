@@ -643,7 +643,7 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 
 python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
-  --output-path {datasets_path}/audio_indic_asr_fleurs_hi_in_train_70bb2e84 \
+  --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11 \
   --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
 
 python benchmarking/data_prep/prepare_readspeech_data.py \
@@ -657,10 +657,11 @@ python benchmarking/data_prep/prepare_readspeech_data.py \
 The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
-The Hindi Indic ASR setup pins `google/fleurs` revision
-`70bb2e84b976b7e960aa89f1c648e09c59f894dd` (`hi_in`, train, CC-BY-4.0) and
-validates all 2,120 mono 16 kHz clips against the source frame counts. Its timed
-entry also requires the production-compatible model artifacts to be staged at:
+The Hindi Indic ASR setup pins the public `ketav/parakeet-hindi-asr` revision
+`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0) and validates
+all 216,169 unique mono 16 kHz clips (531.7738 audio hours) against the source
+manifest and WAV headers. Its timed entries also require the
+production-compatible model artifacts to be staged at:
 
 ```text
 {model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
@@ -669,7 +670,7 @@ entry also requires the production-compatible model artifacts to be staged at:
 
 The Parakeet TensorRT directory is a self-contained bundle whose `model.nemo`
 is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
-`nightly-data-setup.yaml`; stage the pinned FLEURS data and both engine bundles
+`nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
 The benchmark image must provide `tensorrt_llm` and TensorRT versions compatible
@@ -685,7 +686,7 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| Hindi Indic ASR | Production Slurm pipeline only | Pinned 2,120-clip Hindi FLEURS cohort (6.6557h) through Indic Canary primary inference, Parakeet TensorRT recovery, selection, cleanup, and WER. Throughput remains informational until an EOS baseline is accepted. |
+| Hindi Indic ASR | Production Slurm pipeline only | Paired Xenna and Ray Data runs share 216,169 unique public Hindi clips (531.7738h), eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. Xenna alone is gated to 600-900s full process wall time on the default EOS 8xH100 node; Ray Data is an ungated same-data comparison. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---
