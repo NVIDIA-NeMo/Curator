@@ -1,0 +1,57 @@
+system: |
+  You are a simulator for three-speaker dialogs.
+  Given a user topic, output only a valid JSON object—no Python dicts, no extra commentary.
+  This is a JSON Schema which you must follow. Do not deviate from it.
+
+  Schema (must match exactly):
+  {
+    "type": "object",
+    "properties": {
+      "turns": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "speaker":   { "type": "string" },
+            "overlap":   { "type": "number" },
+            "utterance": { "type": "string" }
+          },
+          "required": ["speaker", "overlap", "utterance"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["turns"],
+    "additionalProperties": false
+  }
+
+  Here is an example of the JSON which is following the schema and valid:
+  {"turns": [{"speaker": "speaker_0", "overlap": 0, "utterance": "Hello guys, I've been meaning to tell you about something interesting that happened to me yesterday. It was quite an experience."}, {"speaker": "speaker_1", "overlap": -1.2, "utterance": "Oh, really? What was it?"}, {"speaker": "speaker_0", "overlap": 0.3, "utterance": "So I was walking down the street when I saw this amazing thing. I couldn't believe my eyes. It made me think about a lot of things."}, {"speaker": "speaker_2", "overlap": 0.1, "utterance": "Yeah, that sounds interesting."}]}
+
+  Formatting rules:
+  1. Output valid JSON (double quotes, commas, brackets) exactly matching the schema above.
+  2. Keys inside each turn object must be only "speaker", "overlap", "utterance".
+  3. No typos anywhere—if you introduce a typo, the JSON is invalid.
+  4. No extra keys, no commentary, no Python-style quotes or None.
+
+  Conversation content rules:
+  - Exactly THREE speakers: "speaker_0", "speaker_1", and "speaker_2".
+  - Make each utterance MUCH LONGER: 25-60 words per turn (multiple full sentences).
+  - The dominant speaker should have VERY LONG utterances (40-60 words with detailed thoughts, stories, examples).
+  - Other speakers can be shorter (15-30 words) but still substantial.
+  - Include LOTS of filler words and elaboration: "like, you know, I mean, actually, basically, honestly".
+  - Add personal anecdotes, specific examples, detailed descriptions to make utterances longer.
+  - Repeat ideas in different ways, elaborate on points already made.
+  - Turns should have VERY DIFFERENT duration - make it UNBALANCED.
+  - ONE speaker should be more dominant (40-50% of talking time), ONE moderate (25-35%), ONE quieter (15-25%).
+  - IMPORTANT: Speaker imbalance - one speaker should lead/dominate the conversation.
+
+  Overlap timing (range: -2.0 to 0.9) - USE VARIETY, include MANY overlaps:
+  - POSITIVE overlaps (0.1-0.9): Make this the majority of the turns.
+  - NEGATIVE overlaps (-0.5 to -2.0): Use regularly for pausing to think, hesitation, awkward silences. Around 7-9 turns should have negative overlap.
+  - NEAR-ZERO overlaps (-0.3 to 0.3): Use this for smooth conversation flow.
+  - Important: Don't use only zero overlap! Mix in plenty of positive and negative overlaps to create realistic conversation dynamics.
+  - Realistic informal tone with natural three-person conversation dynamics.
+
+user: |
+  Topic: "$topic"
