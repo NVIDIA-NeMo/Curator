@@ -344,22 +344,23 @@ def test_native_reader_cannot_change_validated_stored_output(
         runtime._validate_consumed_output(*published_table, output)
 
 
+@pytest.mark.parametrize("executor", ["ray", "in_process"])
 def test_native_pipeline_preserves_exact_schema_and_reopens_export(
     tmp_path: Path,
     element_rows: list[dict[str, Any]],
     published_table: tuple[Path, int],
+    executor: str,
 ) -> None:
-    from nemo_curator.backends.ray_data import RayDataExecutor
-
     output = tmp_path / "output"
     pipeline = runtime._build_consume_pipeline(published_table[0], version=published_table[1], output_dir=output)
-    pipeline.run(RayDataExecutor())
-    report = runtime._validate_consumed_output(*published_table, output)
+    pipeline.run(runtime._consume_executor(executor))
+    report = runtime._validate_consumed_output(*published_table, output, executor=executor)
 
     assert report["output"]["row_count"] == len(element_rows)
     assert report["reconciliation"]["schema_and_nullability_validated"] is True
     assert report["reconciliation"]["native_parquet_reader_validated"] is True
     assert report["reconciliation"]["native_parquet_reader_seconds"] > 0
+    assert report["reconciliation"]["native_parquet_reader_executor"] == executor
     exported_tables = []
     for path in output.rglob("*.parquet"):
         assert pq.read_schema(path).equals(contract.element_schema(), check_metadata=False)
@@ -626,9 +627,8 @@ def test_confirmed_completion_clears_prior_handoff_durability_diagnostic(tmp_pat
     )
 
 
-def test_real_curator_pipeline_reads_validates_and_writes_pinned_lance(tmp_path: Path) -> None:
-    from nemo_curator.backends.ray_data import RayDataExecutor
-
+@pytest.mark.parametrize("executor", ["ray", "in_process"])
+def test_real_curator_pipeline_reads_validates_and_writes_pinned_lance(tmp_path: Path, executor: str) -> None:
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     content_path = tmp_path / "content.pdf"
@@ -680,11 +680,12 @@ def test_real_curator_pipeline_reads_validates_and_writes_pinned_lance(tmp_path:
         contract._table_path(source_dir), version=int(table.version), output_dir=output_dir
     )
 
-    pipeline.run(RayDataExecutor())
+    pipeline.run(runtime._consume_executor(executor))
     result = runtime._validate_consumed_output(
         contract._table_path(source_dir),
         int(table.version),
         output_dir,
+        executor=executor,
     )
 
     assert result["status"] == "validated"
@@ -693,9 +694,8 @@ def test_real_curator_pipeline_reads_validates_and_writes_pinned_lance(tmp_path:
     assert result["output"]["document_count"] == 4
 
 
-def test_truncated_png_passes_header_but_fails_pixel_decode_reconciliation(tmp_path: Path) -> None:
-    from nemo_curator.backends.ray_data import RayDataExecutor
-
+@pytest.mark.parametrize("executor", ["ray", "in_process"])
+def test_truncated_png_passes_header_but_fails_pixel_decode_reconciliation(tmp_path: Path, executor: str) -> None:
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     source_path = tmp_path / "source.pdf"
@@ -727,14 +727,33 @@ def test_truncated_png_passes_header_but_fails_pixel_decode_reconciliation(tmp_p
         contract._table_path(source_dir), version=int(table.version), output_dir=output_dir
     )
 
-    pipeline.run(RayDataExecutor())
+    pipeline.run(runtime._consume_executor(executor))
 
     with pytest.raises(ValueError, match="row keys differ"):
         runtime._validate_consumed_output(
             contract._table_path(source_dir),
             int(table.version),
             output_dir,
+            executor=executor,
         )
+
+
+@pytest.mark.parametrize(
+    ("choice", "rows", "expected"),
+    [
+        ("auto", runtime.IN_PROCESS_MAX_ROWS, "in_process"),
+        ("auto", runtime.IN_PROCESS_MAX_ROWS + 1, "ray"),
+        ("ray", 1, "ray"),
+        ("in_process", runtime.IN_PROCESS_MAX_ROWS + 1, "in_process"),
+    ],
+)
+def test_consume_executor_choice(choice: str, rows: int, expected: str) -> None:
+    assert runtime._resolve_consume_executor(choice, rows) == expected
+
+
+def test_consume_executor_rejects_unknown_choice() -> None:
+    with pytest.raises(ValueError, match="consume executor must be one of"):
+        runtime._resolve_consume_executor("threads", 1)
 
 
 def _lifecycle_inputs(
@@ -808,6 +827,28 @@ def test_partial_handoff_consumption_preserves_status_and_missing_pages(
     assert completion["counts"]["delivered_content_element_count"] == 3
     assert all(document["status"] == "partial" for document in completion["documents"])
     assert all(document["page_outcomes"][1]["status"] == "failed" for document in completion["documents"])
+
+
+@pytest.mark.parametrize(("option", "expected"), [(None, "in_process"), ("ray", "ray"), ("in_process", "in_process")])
+def test_consume_records_the_executor_it_used(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, option: str | None, expected: str
+) -> None:
+    args, graph = _lifecycle_inputs(monkeypatch, tmp_path)
+    handoff_path = runtime.run_ingest(args, graph_runner=graph)
+    used = []
+    real = runtime._consume_executor
+    monkeypatch.setattr(runtime, "_consume_executor", lambda name: used.append(name) or real(name))
+    _storage_consumer(monkeypatch)
+    consume_args = _consume_args(handoff_path, tmp_path / "export")
+    if option is not None:
+        consume_args.consume_executor = option
+    runtime.run_consume(consume_args)
+    report = contract._load_sealed_json(
+        tmp_path / "export" / contract.CONSUME_REPORT_FILE, contract._REPORT_HASH_FIELD, label="report"
+    )
+    assert used == [expected, expected]
+    assert report["timings"]["consume_executor"] == expected
+    assert report["reconciliation"]["native_parquet_reader_executor"] == expected
 
 
 @pytest.mark.parametrize("mutation", ["status", "missing_page", "page_row", "issues"])

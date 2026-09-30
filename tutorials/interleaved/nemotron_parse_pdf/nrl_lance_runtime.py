@@ -26,7 +26,12 @@ if TYPE_CHECKING:
 
     import pyarrow as pa
 
+    from nemo_curator.backends.base import BaseExecutor
     from nemo_curator.pipeline import Pipeline
+
+CONSUME_EXECUTORS = ("auto", "ray", "in_process")
+# Measured on a 32-core host: in-process was faster at 57,400 rows and Ray at 287,000.
+IN_PROCESS_MAX_ROWS = 50_000
 
 
 def _expected_document_provenance(
@@ -763,7 +768,57 @@ def _collect_reconciliation_rows(
     return records, positions, row_count
 
 
-def _validate_consumed_output(table_path: Path, version: int, output_dir: Path) -> dict[str, Any]:  # noqa: C901
+def _resolve_consume_executor(choice: str, row_count: int) -> str:
+    """Pick the executor for consume and the output reread.
+
+    ``auto`` runs in-process for tables up to ``IN_PROCESS_MAX_ROWS`` rows, where
+    Ray startup dominates, and uses Ray Data above that, where its parallelism pays off.
+    """
+    if choice not in CONSUME_EXECUTORS:
+        msg = f"consume executor must be one of {CONSUME_EXECUTORS}, not {choice!r}"
+        raise ValueError(msg)
+    if choice != "auto":
+        return choice
+    return "in_process" if row_count <= IN_PROCESS_MAX_ROWS else "ray"
+
+
+def _consume_executor(name: str) -> BaseExecutor:
+    """Return a Curator executor: Ray Data, or the same stages run in order in this process."""
+    if name == "ray":
+        from nemo_curator.backends.ray_data import RayDataExecutor
+
+        return RayDataExecutor()
+
+    from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
+    from nemo_curator.tasks import EmptyTask
+
+    class InProcessExecutor(BaseExecutor):
+        def execute(self, stages: list[Any], initial_tasks: list[Any] | None = None) -> list[Any]:
+            tasks = list(initial_tasks or [EmptyTask()])
+            for stage in stages:
+                if stage.resources.gpus:
+                    msg = f"in-process consume cannot run GPU stage {stage.name}"
+                    raise ValueError(msg)
+                stage.setup_on_node()
+                stage.setup()
+                try:
+                    adapter = BaseStageAdapter(stage)
+                    size = stage.batch_size or 1
+                    tasks = [
+                        output
+                        for start in range(0, len(tasks), size)
+                        for output in adapter.process_batch(tasks[start : start + size])
+                    ]
+                finally:
+                    stage.teardown()
+            return tasks
+
+    return InProcessExecutor()
+
+
+def _validate_consumed_output(  # noqa: C901
+    table_path: Path, version: int, output_dir: Path, *, executor: str = "ray"
+) -> dict[str, Any]:
     import lance
     import pyarrow.parquet as pq
 
@@ -790,7 +845,6 @@ def _validate_consumed_output(table_path: Path, version: int, output_dir: Path) 
     native_reader_seconds = 0.0
 
     def native_reader_batches() -> Iterable[Any]:
-        from nemo_curator.backends.ray_data import RayDataExecutor
         from nemo_curator.pipeline import Pipeline
         from nemo_curator.stages.interleaved.io import InterleavedParquetReader
 
@@ -800,7 +854,7 @@ def _validate_consumed_output(table_path: Path, version: int, output_dir: Path) 
             InterleavedParquetReader(file_paths=[str(path) for path in parquet_files], files_per_partition=1)
         )
         started = time.perf_counter()
-        tasks = pipeline.run(RayDataExecutor())
+        tasks = pipeline.run(_consume_executor(executor))
         native_reader_seconds = time.perf_counter() - started
         for task in tasks:
             table = task.to_pyarrow()
@@ -856,6 +910,7 @@ def _validate_consumed_output(table_path: Path, version: int, output_dir: Path) 
             "schema_and_nullability_validated": True,
             "native_parquet_reader_validated": True,
             "native_parquet_reader_seconds": native_reader_seconds,
+            "native_parquet_reader_executor": executor,
         },
     }
 
@@ -993,21 +1048,21 @@ def run_consume(args: argparse.Namespace) -> Path:  # noqa: C901, PLR0912, PLR09
         msg = "Current Lance row count differs from the handoff"
         raise RuntimeError(msg)
 
-    from nemo_curator.backends.ray_data import RayDataExecutor
     from nemo_curator.tasks.utils import TaskPerfUtils
 
+    executor = _resolve_consume_executor(getattr(args, "consume_executor", "auto"), expected_row_count)
     pipeline = _build_consume_pipeline(table_path, version=version, output_dir=output_dir)
 
     consume_started = time.perf_counter()
     pipeline_started = time.perf_counter()
-    tasks = pipeline.run(RayDataExecutor())
+    tasks = pipeline.run(_consume_executor(executor))
     pipeline_seconds = time.perf_counter() - pipeline_started
     stage_metrics = {
         stage: {name: values.tolist() for name, values in metrics.items()}
         for stage, metrics in TaskPerfUtils.collect_stage_metrics(tasks).items()
     }
     reconciliation_started = time.perf_counter()
-    reconciliation = _validate_consumed_output(table_path, version, output_dir)
+    reconciliation = _validate_consumed_output(table_path, version, output_dir, executor=executor)
     reconciliation_seconds = time.perf_counter() - reconciliation_started
     if reconciliation["source"]["row_count"] != expected_row_count:
         msg = "Reconciled source count differs from the handoff"
@@ -1023,6 +1078,7 @@ def run_consume(args: argparse.Namespace) -> Path:  # noqa: C901, PLR0912, PLR09
         "table": copy.deepcopy(table_info),
         "stage_metrics": stage_metrics,
         "timings": {
+            "consume_executor": executor,
             "pipeline_seconds": pipeline_seconds,
             "reconciliation_seconds": reconciliation_seconds,
             "pipeline_and_reconciliation_seconds": time.perf_counter() - consume_started,
