@@ -186,7 +186,7 @@ When the next GA cuts (e.g. `v26.10` / `v1.2.0`):
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `fern-docs-ci.yml` | PR touching Fern docs or preview/check code | Token-free `fern check` and staging regression tests; no authenticated autodocs generation |
+| `fern-docs-ci.yml` | PR touching Fern docs or preview/check code | Token-free `fern check`; no staging regression tests or authenticated autodocs generation |
 | `fern-docs-preview.yml` | Push to an approved upstream `pull-request/<number>` mirror | Verify the current PR head, generate a preview with trusted configuration and pinned tooling, and post a comment; remove stale preview comments when docs changes are reverted |
 | `publish-fern-docs.yml` | push of `docs/v*` tag, or manual dispatch | Publish to docs.nvidia.com/nemo/curator |
 
