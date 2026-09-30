@@ -35,7 +35,7 @@ Use an LLM judge when quality depends on meaning, context, or comparison and a d
 | Add review signals without deleting data | Write judge scores and reasoning to new columns, then analyze them downstream. |
 | Keep only records that satisfy a semantic requirement | Add declarative score filters immediately after the judge that produces the decision. |
 
-The workflow does not assume a particular task or row schema. A Jinja prompt can use any fields in a JSONL or Parquet row, and the YAML configuration defines the output rubric.
+The workflow does not assume a particular task or row schema. A Jinja prompt can use any fields in a JSON Lines (JSONL) or Parquet row, and the YAML configuration defines the output rubric.
 
 ### Why Run It Through Curator?
 

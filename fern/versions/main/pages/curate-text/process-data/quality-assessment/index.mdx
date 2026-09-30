@@ -72,9 +72,9 @@ The filter object implements two key methods:
 For more specific use cases, NeMo Curator provides two specialized modules:
 
 - `Score`: A module that only adds metadata scores to records without filtering.
-- Takes a scoring function that evaluates text and returns a score.
-- Adds the score to a specified metadata field.
-- Supports analysis or multistage filtering pipelines.
+  - Takes a scoring function that evaluates text and returns a score.
+  - Adds the score to a specified metadata field.
+  - Supports analysis or multistage filtering pipelines.
   
 ```python
 # Example: Score documents without filtering
@@ -150,7 +150,7 @@ distributed
 scalable
 </Card>
 
-<Card title="LLM Judge Workflow" href="/main/curate-text/process-data/quality-assessment/llm-judge">
+<Card title="LLM Judge Workflow" href="/curate-text/process-data/quality-assessment/llm-judge">
 Evaluate and filter records with config-driven large language model (LLM) judges and structured rubrics
 llm
 evaluation
