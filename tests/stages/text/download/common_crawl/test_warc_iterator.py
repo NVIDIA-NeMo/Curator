@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import gzip
-from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -40,6 +39,35 @@ def _response_record(record_id: str, http_payload: bytes, version: str = "WARC/1
         f"\r\n"
     ).encode()
     return header + http_payload + b"\r\n\r\n"
+
+
+def _chunked(body: bytes) -> bytes:
+    """Serialize body as a single-chunk HTTP Transfer-Encoding: chunked payload."""
+    return b"%x\r\n" % len(body) + body + b"\r\n0\r\n\r\n"
+
+
+_DECODED_BODY = b"<html><body>decoded</body></html>"
+
+# (HTTP encoding headers, body as sent on the wire); each must come back as _DECODED_BODY.
+# Shared with test_warc_reader.py so both range readers are held to the same contract.
+HTTP_BODY_ENCODINGS = pytest.mark.parametrize(
+    ("encoding_headers", "wire_body"),
+    [
+        ("", _DECODED_BODY),
+        ("Content-Encoding: gzip\r\n", gzip.compress(_DECODED_BODY)),
+        # Older Common Crawl crawls (e.g. CC-MAIN-2016-07) still store chunked bodies.
+        ("Transfer-Encoding: chunked\r\n", _chunked(_DECODED_BODY)),
+        ("Transfer-Encoding: chunked\r\nContent-Encoding: gzip\r\n", _chunked(gzip.compress(_DECODED_BODY))),
+        # The header claims gzip but the body is plain, which happens on the live web.
+        ("Content-Encoding: gzip\r\n", _DECODED_BODY),
+    ],
+    ids=["plain", "gzip", "chunked", "chunked-gzip", "mislabeled-gzip"],
+)
+
+
+def http_payload(encoding_headers: str, wire_body: bytes) -> bytes:
+    """Serialize an HTTP 200 response with the given encoding headers and body."""
+    return f"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{encoding_headers}\r\n".encode() + wire_body
 
 
 class TestCommonCrawlWarcIterator:
@@ -197,31 +225,15 @@ class TestCommonCrawlWarcIterator:
         # Verify the content contains expected HTML
         assert b"<h1>Test Page</h1>" in record["content"]
 
-    @pytest.mark.parametrize(
-        ("content_encoding", "encode"),
-        [
-            (None, lambda body: body),
-            ("gzip", gzip.compress),
-        ],
-    )
-    def test_http_body_is_returned_decoded(
-        self,
-        tmp_path: Path,
-        content_encoding: str | None,
-        encode: Callable[[bytes], bytes],
-    ) -> None:
-        """The yielded content is the decoded HTTP body, whatever Content-Encoding the server used."""
-        body = b"<html><body>decoded</body></html>"
-        encoding_header = f"Content-Encoding: {content_encoding}\r\n" if content_encoding else ""
-        http_payload = (f"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{encoding_header}\r\n").encode() + encode(body)
-
+    @HTTP_BODY_ENCODINGS
+    def test_http_body_is_returned_decoded(self, tmp_path: Path, encoding_headers: str, wire_body: bytes) -> None:
+        """The yielded content is the decoded HTTP body, whatever encoding the server used."""
         raw_warc_path = tmp_path / "encoded.warc"
-        raw_warc_path.write_bytes(_response_record("encoded123", http_payload))
+        raw_warc_path.write_bytes(_response_record("encoded123", http_payload(encoding_headers, wire_body)))
 
         records = list(CommonCrawlWarcIterator().iterate(str(raw_warc_path)))
 
-        assert len(records) == 1
-        assert records[0]["content"] == body
+        assert [record["content"] for record in records] == [_DECODED_BODY]
 
     # expected_errors is 0 for both corrupt-record cases on purpose: fastwarc 0.x
     # resynchronizes past the bad record and offers no way to observe that it did,

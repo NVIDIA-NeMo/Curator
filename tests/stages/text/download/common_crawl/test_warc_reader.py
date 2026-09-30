@@ -14,12 +14,47 @@
 
 import gzip
 import sys
+from collections.abc import Callable
 from unittest import mock
 
 import pandas as pd
 import pytest
 
 from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCReader
+from tests.stages.text.download.common_crawl.test_warc_iterator import (
+    _DECODED_BODY,
+    HTTP_BODY_ENCODINGS,
+    _response_record,
+    http_payload,
+)
+
+_ROW = pd.Series({"warc_filename": "crawl-data/CC-MAIN-2024-10/seg/warc.gz", "warc_record_offset": 0})
+
+
+def _gzipped_record(encoding_headers: str = "", wire_body: bytes = _DECODED_BODY) -> bytes:
+    """One gzip member holding one Common Crawl-style WARC response record, as a range request returns it."""
+    return gzip.compress(_response_record("r", http_payload(encoding_headers, wire_body)))
+
+
+def _read_via_s3(raw_gz: bytes) -> bytes | None:
+    reader = CommonCrawlWARCReader(use_s3=True)
+    reader._s3_client = mock.Mock()
+    reader._s3_client.get_object.return_value = {"Body": mock.Mock(read=mock.Mock(return_value=raw_gz))}
+    return reader._read_warc_record_s3(pd.concat([_ROW, pd.Series({"warc_record_length": len(raw_gz)})]))
+
+
+def _read_via_https(raw_gz: bytes) -> bytes | None:
+    reader = CommonCrawlWARCReader(use_s3=False)
+    reader._session = mock.Mock()
+    reader._session.get.return_value = mock.Mock(status_code=206, content=raw_gz)
+    return reader._read_warc_record(pd.concat([_ROW, pd.Series({"warc_record_length": len(raw_gz)})]))
+
+
+@HTTP_BODY_ENCODINGS
+@pytest.mark.parametrize("read", [_read_via_s3, _read_via_https], ids=["s3", "https"])
+def test_range_reader_returns_decoded_http_body(read: Callable, encoding_headers: str, wire_body: bytes) -> None:
+    """Both range readers return exactly the decoded HTTP body, never the WARC record or the wire bytes."""
+    assert read(_gzipped_record(encoding_headers, wire_body)) == _DECODED_BODY
 
 
 class TestTransportSelection:
@@ -65,8 +100,7 @@ class TestReadWarcRecordS3:
     @staticmethod
     def _make_gzipped_warc() -> bytes:
         """Build minimal gzip-compressed WARC response record."""
-        warc_record = "WARC/1.0\r\nWARC-Type: response\r\nContent-Length: 11\r\n\r\nHello World"
-        return gzip.compress(warc_record.encode("utf-8"))
+        return _gzipped_record()
 
     def test_read_warc_record_s3_default_bucket(self) -> None:
         """S3 fetch uses the default 'commoncrawl' bucket when none is specified."""
@@ -91,7 +125,7 @@ class TestReadWarcRecordS3:
 
         result = reader._read_warc_record_s3(row)
 
-        assert result is not None
+        assert result == _DECODED_BODY
         mock_client.get_object.assert_called_once_with(
             Bucket="commoncrawl",
             Key=warc_filename,
@@ -119,7 +153,7 @@ class TestReadWarcRecordS3:
 
         result = reader._read_warc_record_s3(row)
 
-        assert result is not None
+        assert result == _DECODED_BODY
         mock_client.get_object.assert_called_once_with(
             Bucket="my-bucket",
             Key="CC-MAIN-2024-10/seg/warc.gz",
@@ -170,8 +204,7 @@ class TestReadWarcRecordHTTPS:
         """Successful HTTPS range-request fetch returns content."""
         reader = CommonCrawlWARCReader(use_s3=False)
 
-        warc_payload = "WARC/1.0\r\nWARC-Type: response\r\nContent-Length: 11\r\n\r\nHello World"
-        raw_gz = gzip.compress(warc_payload.encode("utf-8"))
+        raw_gz = _gzipped_record()
 
         mock_response = mock.Mock()
         mock_response.status_code = 206
@@ -191,7 +224,7 @@ class TestReadWarcRecordHTTPS:
 
         result = reader._read_warc_record(row)
 
-        assert result is not None
+        assert result == _DECODED_BODY
         mock_session.get.assert_called_once_with(
             "https://data.commoncrawl.org/crawl-data/CC-MAIN-2024-10/seg/warc.gz",
             headers={"Range": f"bytes=0-{len(raw_gz) - 1}"},

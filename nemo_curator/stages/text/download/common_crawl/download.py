@@ -27,6 +27,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download.common_crawl.warc_iterator import read_http_body
 from nemo_curator.stages.text.download.utils import check_s5cmd_installed
 from nemo_curator.tasks import DocumentBatch
 
@@ -289,10 +290,10 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             try:
                 stream = io.BytesIO(decompressed)
                 archive_iterator = ArchiveIterator(
-                    stream, record_types=WarcRecordType.response, auto_decode="all", strict_mode=False
+                    stream, record_types=WarcRecordType.response, auto_decode="none", strict_mode=False
                 )
                 for record in archive_iterator:
-                    return record.reader.read()
+                    return read_http_body(record)
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"Failed to parse WARC record {filename}: {e}, returning decompressed bytes")
                 return decompressed
@@ -357,11 +358,11 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             try:
                 stream = io.BytesIO(decompressed)
                 archive_iterator = ArchiveIterator(
-                    stream, record_types=WarcRecordType.response, auto_decode="all", strict_mode=False
+                    stream, record_types=WarcRecordType.response, auto_decode="none", strict_mode=False
                 )
                 for record in archive_iterator:
                     # Return the HTTP response body (content after HTTP headers)
-                    return record.reader.read()
+                    return read_http_body(record)
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"Failed to parse WARC record {filename}: {e}, returning decompressed bytes")
                 return decompressed
