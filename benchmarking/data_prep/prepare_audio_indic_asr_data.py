@@ -36,8 +36,8 @@ HF_REVISION = "35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0"  # pragma: allowlist se
 HF_SPLIT = "train"
 SOURCE_MANIFEST_FILENAME = "data/manifests/train_hi_clean.json"
 AUDIO_ARCHIVE_FILENAME = "data/hindi/hindi_audio.tar.gz"
-SOURCE_MANIFEST_SHA256 = "407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4"
-AUDIO_ARCHIVE_SHA256 = "9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20"
+SOURCE_MANIFEST_SHA256 = "407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4"  # pragma: allowlist secret
+AUDIO_ARCHIVE_SHA256 = "9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20"  # pragma: allowlist secret
 EXPECTED_NUM_ROWS = 216_169
 EXPECTED_TOTAL_DURATION_MS = 1_914_385_701
 SAMPLE_RATE = 16_000
@@ -166,6 +166,84 @@ def _write_manifest(rows: list[HindiASRRow], manifest_path: Path) -> None:
     with manifest_path.open("x", encoding="utf-8") as manifest_file:
         for row in rows:
             manifest_file.write(json.dumps(_manifest_row(row), ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def _select_duration_prefix(source_manifest_path: Path, target_duration_s: Decimal) -> tuple[list[str], Decimal]:
+    selected_lines: list[str] = []
+    selected_duration_s = Decimal(0)
+    with source_manifest_path.open(encoding="utf-8") as source_file:
+        for line_number, line in enumerate(source_file, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line, parse_float=Decimal)
+                duration_s = Decimal(str(row["duration"]))
+            except (json.JSONDecodeError, KeyError, TypeError, InvalidOperation) as e:
+                msg = f"Invalid staged Hindi manifest row {source_manifest_path}:{line_number}"
+                raise RuntimeError(msg) from e
+            if not duration_s.is_finite() or duration_s <= 0:
+                msg = f"Invalid duration in staged Hindi manifest row {source_manifest_path}:{line_number}"
+                raise RuntimeError(msg)
+            selected_lines.append(line if line.endswith("\n") else f"{line}\n")
+            selected_duration_s += duration_s
+            if selected_duration_s >= target_duration_s:
+                break
+    return selected_lines, selected_duration_s
+
+
+def write_duration_subset(
+    dataset_path: Path,
+    subset_manifest_path: Path,
+    target_hours: Decimal,
+) -> None:
+    """Write a deterministic duration-prefix manifest from the pinned cohort."""
+    if not target_hours.is_finite() or target_hours <= 0:
+        msg = f"Subset duration must be finite and positive, found {target_hours}"
+        raise ValueError(msg)
+
+    source_manifest_path = (dataset_path / "manifest.jsonl").resolve()
+    subset_manifest_path = subset_manifest_path.expanduser().resolve()
+    if source_manifest_path == subset_manifest_path:
+        msg = "Subset manifest must not replace the canonical full-cohort manifest"
+        raise ValueError(msg)
+
+    target_duration_s = target_hours * Decimal(3600)
+    selected_lines, selected_duration_s = _select_duration_prefix(source_manifest_path, target_duration_s)
+
+    if selected_duration_s < target_duration_s:
+        msg = (
+            f"Pinned Hindi cohort contains only {selected_duration_s / Decimal(3600):.4f} hours; "
+            f"cannot write a {target_hours}-hour subset"
+        )
+        raise RuntimeError(msg)
+
+    contents = "".join(selected_lines)
+    if subset_manifest_path.is_file():
+        if subset_manifest_path.read_text(encoding="utf-8") != contents:
+            msg = f"Refusing to overwrite a different subset manifest: {subset_manifest_path}"
+            raise RuntimeError(msg)
+        logger.info(f"Reusing deterministic Hindi subset manifest at {subset_manifest_path}")
+    else:
+        subset_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix=f".{subset_manifest_path.name}.",
+            suffix=".tmp",
+            dir=subset_manifest_path.parent,
+            delete=False,
+        ) as temporary_file:
+            temporary_file.write(contents)
+            temporary_path = Path(temporary_file.name)
+        try:
+            temporary_path.replace(subset_manifest_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    logger.success(
+        f"Selected {len(selected_lines)} clips / {selected_duration_s / Decimal(3600):.4f} audio hours "
+        f"at {subset_manifest_path}"
+    )
 
 
 def _metadata() -> dict[str, object]:
@@ -323,11 +401,31 @@ def main() -> int:
     parser.add_argument("--output-path", type=Path, required=True)
     parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR)
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument(
+        "--subset-hours",
+        type=Decimal,
+        default=None,
+        help="Also write a deterministic duration-prefix manifest from the staged cohort",
+    )
+    parser.add_argument(
+        "--subset-manifest",
+        type=Path,
+        default=None,
+        help="Output path paired with --subset-hours",
+    )
     args = parser.parse_args()
 
+    if (args.subset_hours is None) != (args.subset_manifest is None):
+        parser.error("--subset-hours and --subset-manifest must be provided together")
+
+    output_path = args.output_path.resolve()
     if args.verify_only:
-        return 0 if verify_dataset(args.output_path.resolve()) else 1
-    stage_dataset(args.output_path, args.cache_dir)
+        if not verify_dataset(output_path):
+            return 1
+    else:
+        stage_dataset(output_path, args.cache_dir)
+    if args.subset_hours is not None:
+        write_duration_subset(output_path, args.subset_manifest, args.subset_hours)
     return 0
 
 

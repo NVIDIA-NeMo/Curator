@@ -21,6 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.resources import Resources
 
 _EXECUTOR_TARGETS = {
@@ -28,6 +29,30 @@ _EXECUTOR_TARGETS = {
     "ray_data": "nemo_curator.backends.ray_data.RayDataExecutor",
 }
 _XENNA_EXECUTION_MODES = {"batch", "streaming"}
+
+
+def _instantiate_resources(resources: object) -> Resources:
+    """Convert a YAML resource mapping into the runtime dataclass."""
+    if isinstance(resources, Resources):
+        return resources
+    if not isinstance(resources, dict):
+        msg = f"resources must be a mapping or Resources instance, found {type(resources).__name__}"
+        raise TypeError(msg)
+    if "_target_" in resources:
+        instantiated = hydra.utils.instantiate(resources)
+        if not isinstance(instantiated, Resources):
+            msg = f"resources target must instantiate Resources, found {type(instantiated).__name__}"
+            raise TypeError(msg)
+        return instantiated
+    return Resources(**resources)
+
+
+def _normalize_stage_with(stage_with: dict[str, Any]) -> dict[str, Any]:
+    """Hydrate special values accepted by ``ProcessingStage.with_``."""
+    normalized = dict(stage_with)
+    if "resources" in normalized:
+        normalized["resources"] = _instantiate_resources(normalized["resources"])
+    return normalized
 
 
 def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
@@ -67,24 +92,48 @@ def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
 def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     """Instantiate a single stage from its Hydra config.
 
-    Extracts ``resources`` before calling ``hydra.utils.instantiate``
-    (it is applied via ``.with_()``, not as a constructor argument) and
-    re-applies it after construction. ``batch_size`` is left in the config
-    dict so that stages declaring it as a dataclass field receive it
-    during construction.
+    Extracts ``resources`` and ``stage_with`` before calling
+    ``hydra.utils.instantiate``. Processing-stage overrides are applied as
+    ``stage.with_(**stage_with)``; composite-stage overrides use the nested
+    stage-name mapping accepted by ``CompositeStage.with_()``. ``batch_size``
+    is left in the config dict so stages declaring it as a dataclass field
+    receive it during construction.
     """
     cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
 
     stage_resources = cfg_dict.pop("resources", None)
+    stage_with = cfg_dict.pop("stage_with", None)
 
     stage = hydra.utils.instantiate(cfg_dict)
 
+    with_kwargs: dict[str, Any] = {}
     if stage_resources:
-        if isinstance(stage_resources, dict) and "_target_" in stage_resources:
-            resources_obj = hydra.utils.instantiate(stage_resources)
+        with_kwargs["resources"] = _instantiate_resources(stage_resources)
+
+    if stage_with:
+        if not isinstance(stage_with, dict):
+            msg = f"stage_with for '{stage.name}' must be a mapping"
+            raise TypeError(msg)
+        if isinstance(stage, CompositeStage):
+            if with_kwargs:
+                msg = f"Composite stage '{stage.name}' cannot use top-level resources; put them under stage_with"
+                raise ValueError(msg)
+            composite_with: dict[str, dict[str, Any]] = {}
+            for nested_stage_name, nested_stage_with in stage_with.items():
+                if not isinstance(nested_stage_with, dict):
+                    msg = f"stage_with entry for '{nested_stage_name}' in '{stage.name}' must be a mapping"
+                    raise TypeError(msg)
+                composite_with[nested_stage_name] = _normalize_stage_with(nested_stage_with)
+            stage = stage.with_(composite_with)
+            logger.info(f"Applied composite .with_() to '{stage.name}': {composite_with}")
         else:
-            resources_obj = Resources(**stage_resources)
-        with_kwargs: dict[str, Any] = {"resources": resources_obj}
+            normalized_stage_with = _normalize_stage_with(stage_with)
+            if "resources" in normalized_stage_with and "resources" in with_kwargs:
+                msg = f"Stage '{stage.name}' defines resources both at top level and under stage_with"
+                raise ValueError(msg)
+            with_kwargs.update(normalized_stage_with)
+
+    if with_kwargs:
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
 
