@@ -33,7 +33,7 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import WikipediaParap
 
 stage = WikipediaParaphrasingStage(
     client=llm_client,
-    model_name="meta/llama-3.3-70b-instruct",
+    model_name="nvidia/nemotron-3-super-120b-a12b",
     generation_config=generation_config,
     input_field="text",
     output_field="rephrased",
@@ -85,7 +85,7 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import DiverseQAStage
 
 stage = DiverseQAStage(
     client=llm_client,
-    model_name="meta/llama-3.3-70b-instruct",
+    model_name="nvidia/nemotron-3-super-120b-a12b",
     generation_config=generation_config,
     input_field="text",
     output_field="diverse_qa",
@@ -161,7 +161,7 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import DistillStage
 
 stage = DistillStage(
     client=llm_client,
-    model_name="meta/llama-3.3-70b-instruct",
+    model_name="nvidia/nemotron-3-super-120b-a12b",
     generation_config=generation_config,
     input_field="text",
     output_field="distill",
@@ -213,7 +213,7 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import ExtractKnowled
 
 stage = ExtractKnowledgeStage(
     client=llm_client,
-    model_name="meta/llama-3.3-70b-instruct",
+    model_name="nvidia/nemotron-3-super-120b-a12b",
     generation_config=generation_config,
     input_field="text",
     output_field="extract_knowledge",
@@ -264,7 +264,7 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import KnowledgeListS
 
 stage = KnowledgeListStage(
     client=llm_client,
-    model_name="meta/llama-3.3-70b-instruct",
+    model_name="nvidia/nemotron-3-super-120b-a12b",
     generation_config=generation_config,
     input_field="text",
     output_field="knowledge_list",
