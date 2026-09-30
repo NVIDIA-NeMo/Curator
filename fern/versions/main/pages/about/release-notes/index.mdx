@@ -110,10 +110,6 @@ Ray Data pipelines now emit scheduler diagnostics that report queue depth, stall
 
 Parquet writers now preserve the Arrow schema from the input task, including field metadata and nested type annotations ([#2360](https://github.com/NVIDIA-NeMo/Curator/pull/2360)). Previously, schemas could be inferred at write time, which dropped metadata.
 
-### Faster JSONL Reads
-
-`JsonlReaderStage` uses the PyArrow fast path for JSON parsing ([#2325](https://github.com/NVIDIA-NeMo/Curator/pull/2325)), reducing read overhead for large JSONL files.
-
 ### Bounded vLLM Embedding Generation
 
 `VLLMEmbeddingStage` now processes inputs in bounded batches ([#2317](https://github.com/NVIDIA-NeMo/Curator/pull/2317)), preventing out-of-memory conditions when embedding large partitions.
@@ -126,14 +122,12 @@ In-process and Ray Serve Nemotron-Parse inference now uses Triton-based attentio
 
 - **GB300 and large-memory GPU support:** `Resources(gpu_memory_gb=N)` now floors the derived fractional GPU count at `0.1`, preventing stages from resolving to `0` GPUs on devices with more than approximately 200 GB of total memory such as GB300 ([#2421](https://github.com/NVIDIA-NeMo/Curator/pull/2421)).
 - **Semantic deduplication storage options:** Parquet storage options passed to `TextSemanticDeduplicationWorkflow` are now forwarded to the output writer ([#2316](https://github.com/NVIDIA-NeMo/Curator/pull/2316)).
-- **PyArrow table column validation:** `Pipeline` validates that expected output columns are present before passing a PyArrow table to the next stage ([#2218](https://github.com/NVIDIA-NeMo/Curator/pull/2218)).
 - **Semantic deduplication ID preservation:** Semantic deduplication ID fields are preserved in the output when `drop_id_field` is not set ([#2358](https://github.com/NVIDIA-NeMo/Curator/pull/2358)).
 - **Partial rerun routing:** Partial pipeline reruns now route tasks to the current attempt instead of a prior completed attempt ([#2381](https://github.com/NVIDIA-NeMo/Curator/pull/2381)).
 - **Nemotron OCR API key:** The Nemotron OCR pipeline now uses a standardized API key field across in-process and remote serving configurations ([#2405](https://github.com/NVIDIA-NeMo/Curator/pull/2405)).
 - **Empty QA batch handling:** Diverse QA stages handle empty batches without raising an exception ([#2450](https://github.com/NVIDIA-NeMo/Curator/pull/2450)).
 - **Interleaved batch string operations:** Interleaved pipeline stages correctly apply pandas string operations across heterogeneous batch types ([#2434](https://github.com/NVIDIA-NeMo/Curator/pull/2434)).
 - **Null WebDataset content types:** Interleaved readers handle null or missing content-type fields in WebDataset shards without failing ([#2438](https://github.com/NVIDIA-NeMo/Curator/pull/2438)).
-- **Redundant fanout stage overrides removed:** Stages no longer generate redundant fanout override entries that could conflict with explicit `with_()` configurations ([#2157](https://github.com/NVIDIA-NeMo/Curator/pull/2157)).
 
 ## Dependency Changes
 
