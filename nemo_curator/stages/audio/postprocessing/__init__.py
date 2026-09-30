@@ -17,13 +17,11 @@ Audio postprocessing stages.
 
 These stages run after filtering and speaker separation to produce
 the final output:
-- SelectAudioLanguageStage: Select a final spoken language from LID models
 - TimestampMapperStage: Map segment positions back to original file timestamps
 - SEDPostprocessingStage: Turn framewise sound-event probabilities into events
 """
 
-from .lid_selection import SelectAudioLanguageStage
 from .sed_postprocessing import SEDPostprocessingStage
 from .timestamp_mapper import TimestampMapperStage
 
-__all__ = ["SEDPostprocessingStage", "SelectAudioLanguageStage", "TimestampMapperStage"]
+__all__ = ["SEDPostprocessingStage", "TimestampMapperStage"]

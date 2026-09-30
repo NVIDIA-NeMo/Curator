@@ -16,7 +16,7 @@
 
 Concrete adapters intentionally are not imported here. Keeping package import
 lightweight lets Curator resolve one configured adapter without importing the
-optional SpeechBrain, NeMo, Whisper, or TensorRT runtimes used by the others.
+optional SpeechBrain, Whisper, or TensorRT runtimes used by the others.
 """
 
 from .base import AudioLIDAdapter, AudioLIDResult

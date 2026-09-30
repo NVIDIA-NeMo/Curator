@@ -97,7 +97,7 @@ def _resolve_runtime_class(path: str) -> type:
     except ImportError as exc:
         msg = (
             "Indic Canary LID requires its TensorRT-LLM runtime dependencies. "
-            "Use the tested isolated/container environment documented in the audio LID tutorial."
+            "Use the tested isolated/container environment from the metadata-extraction deployment."
         )
         raise ImportError(msg) from exc
     runtime_class = getattr(module, class_name, None)
@@ -126,7 +126,7 @@ class IndicCanaryLIDAdapter:
     max_new_tokens: int = 1
     prompt_text: str | None = None
     max_duration_sec: float = 40.0
-    # The maintained engine builder profiles at least 32 encoder frames. A
+    # The reference prebuilt engine profiles at least 32 encoder frames. A
     # one-second floor matches the reference stage and keeps direct adapter use
     # comfortably inside that profile instead of relying on a wrapping stage to
     # reject sub-profile clips first.
