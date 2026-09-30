@@ -12,111 +12,107 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run the canonical Hindi Indic ASR benchmark from a Hydra tutorial config.
+"""Run one canonical Hindi Indic ASR benchmark entry from Hydra configuration.
 
-This runner deliberately delegates to
-``benchmarking/scripts/audio_indic_asr_benchmark.py``. The tutorial therefore
-uses the same input normalization, processor graph, executor setup, timer, and
-output validation as the benchmark entries instead of maintaining a second
-copy of that contract.
+This runner delegates to ``benchmarking/run.py`` with the checked-in
+``benchmarking/benchmarks.yaml`` and an exact entry name. The tutorial therefore
+uses the benchmark's resource allocation, timeout, input normalization,
+processor graph, GPU recorder, timing boundary, output validation, and
+requirements instead of maintaining a second copy of that contract.
 
 Usage (from the Curator repository root)::
 
     python tutorials/audio/indic_asr/main.py \
         --config-path . \
         --config-name pipeline \
-        input_manifest=/data/audio_indic_asr/manifest.jsonl \
-        indic_canary_engine_dir=/models/indic_canary/engine_bfloat16_64_new \
-        parakeet_tensorrt_engine_dir=/models/parakeet_indic/encoder_fp16 \
+        datasets_path=/data/curator_datasets \
+        model_weights_path=/models/curator \
         backend=xenna
 """
 
 from __future__ import annotations
 
-import importlib
-import os
+import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 import hydra
 from hydra.utils import to_absolute_path
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
-from nemo_curator.core.client import RayClient
-
-if TYPE_CHECKING:
-    from types import ModuleType
-
-_BACKENDS = {"xenna", "ray_data"}
+_ENTRY_BY_BACKEND = {
+    "xenna": "audio_indic_asr_xenna",
+    "ray_data": "audio_indic_asr_raydata",
+}
 
 
-def _load_benchmark_module() -> ModuleType:
-    """Import the repository's canonical benchmark implementation."""
-    repository_root = Path(__file__).resolve().parents[3]
-    scripts_dir = repository_root / "benchmarking" / "scripts"
-    sys.path.insert(0, str(scripts_dir))
-    try:
-        return importlib.import_module("audio_indic_asr_benchmark")
-    finally:
-        sys.path.remove(str(scripts_dir))
+def _path_overlay(cfg: DictConfig) -> dict[str, list[dict[str, str]]]:
+    """Map the tutorial's host roots onto the canonical config path names."""
 
+    def path_entry(name: str, value: str) -> dict[str, str]:
+        resolved = to_absolute_path(value)
+        return {"name": name, "host_path": resolved, "container_path": resolved}
 
-def _benchmark_args(cfg: DictConfig) -> dict[str, Any]:
     return {
-        "benchmark_results_path": to_absolute_path(cfg.benchmark_results_path),
-        "input_manifest": to_absolute_path(cfg.input_manifest),
-        "indic_canary_engine_dir": to_absolute_path(cfg.indic_canary_engine_dir),
-        "parakeet_tensorrt_engine_dir": to_absolute_path(cfg.parakeet_tensorrt_engine_dir),
-        "regex_yaml": to_absolute_path(cfg.regex_yaml),
-        "hall_phrases": to_absolute_path(cfg.hall_phrases),
-        "executor": cfg.backend,
-        "expected_num_rows": cfg.expected_num_rows,
-        "read_concurrency": cfg.read_concurrency,
-        "prep_workers": cfg.prep_workers,
-        "primary_workers": cfg.primary_workers,
-        "fallback_workers": cfg.fallback_workers,
+        "paths": [
+            path_entry("datasets_path", cfg.datasets_path),
+            path_entry("model_weights_path", cfg.model_weights_path),
+            path_entry("results_path", cfg.results_path),
+        ]
     }
 
 
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
-    """Run one exact benchmark entry using the selected backend."""
-    if cfg.backend not in _BACKENDS:
-        msg = f"Unknown backend '{cfg.backend}'. Choose from: {sorted(_BACKENDS)}"
+    """Run one exact benchmark entry and require every configured gate to pass."""
+    if cfg.backend not in _ENTRY_BY_BACKEND:
+        msg = f"Unknown backend '{cfg.backend}'. Choose from: {sorted(_ENTRY_BY_BACKEND)}"
         raise ValueError(msg)
 
-    for key, value in cfg.environment.items():
-        os.environ[str(key)] = str(value)
+    repository_root = Path(__file__).resolve().parents[3]
+    benchmark_config = Path(to_absolute_path(cfg.benchmark_config))
+    results_path = Path(to_absolute_path(cfg.results_path))
+    session_path = results_path / cfg.session_name
+    entry_name = _ENTRY_BY_BACKEND[cfg.backend]
+    result_path = session_path / entry_name / "results.json"
+    if session_path.exists():
+        msg = f"Use a fresh session name or results path: {session_path}"
+        raise FileExistsError(msg)
 
-    benchmark = _load_benchmark_module()
-    run_args = _benchmark_args(cfg)
-    result: dict[str, Any] = {
-        "params": run_args,
-        "metrics": {"is_success": False},
-        "tasks": [],
-    }
-    ray_client = RayClient(
-        num_cpus=cfg.ray.num_cpus,
-        num_gpus=cfg.ray.num_gpus,
-        object_store_memory=cfg.ray.object_store_memory,
-    )
-
+    results_path.mkdir(parents=True, exist_ok=True)
     logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
-    logger.info(f"Using canonical benchmark: {Path(benchmark.__file__).resolve()}")
-    try:
-        ray_client.start()
-        result.update(benchmark.run_audio_indic_asr_benchmark(**run_args))
-    finally:
-        benchmark.write_benchmark_results(result, run_args["benchmark_results_path"])
-        ray_client.stop()
+    logger.info(f"Running canonical entry '{entry_name}' from {benchmark_config}")
+    with tempfile.TemporaryDirectory(prefix="indic-asr-tutorial-") as temp_dir:
+        overlay_path = Path(temp_dir) / "paths.json"
+        overlay_path.write_text(json.dumps(_path_overlay(cfg)))
+        command = [
+            sys.executable,
+            str(repository_root / "benchmarking" / "run.py"),
+            "--config",
+            str(benchmark_config),
+            "--config",
+            str(overlay_path),
+            "--session-name",
+            cfg.session_name,
+            "--entries-exact",
+            entry_name,
+            "--reason",
+            cfg.reason,
+        ]
+        subprocess.run(command, cwd=repository_root, check=True)  # noqa: S603
 
+    result = json.loads(result_path.read_text())
+    if not result["success"] or result.get("requirements_not_met"):
+        msg = f"Benchmark entry did not pass every requirement: {result_path}"
+        raise RuntimeError(msg)
     metrics = result["metrics"]
     logger.success(
         "Indic ASR benchmark complete: "
         f"backend={cfg.backend}, rows={metrics['num_output_rows']}, "
-        f"wall={metrics['time_taken_s']:.2f}s, "
+        f"exec_time={result['exec_time_s']:.2f}s, "
         f"audio={metrics['total_audio_duration_hours']:.4f}h"
     )
 

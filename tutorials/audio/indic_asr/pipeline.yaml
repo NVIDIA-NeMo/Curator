@@ -1,8 +1,8 @@
 # Hindi Indic ASR benchmark tutorial configuration
 #
-# This tutorial delegates to benchmarking/scripts/audio_indic_asr_benchmark.py,
-# so these values are the same contract used by audio_indic_asr_xenna and
-# audio_indic_asr_raydata in benchmarking/benchmarks.yaml.
+# The tutorial selects an exact entry from benchmarking/benchmarks.yaml. That
+# canonical file remains the single owner of processor arguments, resources,
+# timeouts, environment variables, and acceptance requirements.
 
 defaults:
   - _self_
@@ -17,44 +17,25 @@ hydra:
 documentation: |
   Hindi Indic Canary + Parakeet recovery benchmark
   ################################################
-  Run the canonical production processor chain over the pinned public Hindi
-  cohort. The same normalized input, stages, timing boundary, and output
-  validator are used by both Xenna and Ray Data.
+  Run one canonical benchmark entry over the pinned public Hindi cohort.
+  Xenna and Ray Data use the same normalized input, stages, resource contract,
+  harness timing boundary, output validator, and correctness requirements.
 
-# Manifest produced by benchmarking/data_prep/prepare_audio_indic_asr_data.py.
-input_manifest: ???
+# Root containing audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl.
+datasets_path: ???
 
-# Prebuilt production-compatible TensorRT engine bundles.
-indic_canary_engine_dir: ???
-parakeet_tensorrt_engine_dir: ???
+# Root containing both production-compatible engine directories under
+# audio_indic_asr/indic_canary_trtllm and audio_indic_asr/parakeet_indic_trt.
+model_weights_path: ???
 
-# Use a fresh path for every run. The benchmark fails closed rather than
-# overwriting a prior scratch manifest or result manifest.
-benchmark_results_path: ./indic_asr_benchmark_output/${backend}
+# Root for benchmark session evidence. Use a fresh session_name for every run.
+results_path: ./indic_asr_benchmark_output
+session_name: indic-asr-${backend}
 
-# Select exactly one paired benchmark backend per invocation.
+# Select exactly one canonical benchmark entry per invocation.
 backend: xenna
 
-# Checked-in text-processing configuration used by the benchmark entries.
-regex_yaml: benchmarking/configs/audio_indic_asr_regex.yaml
-hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
-
-# Immutable cohort and processor concurrency contract.
-expected_num_rows: 216169
-read_concurrency: 4
-prep_workers: 24
-primary_workers: 8
-fallback_workers: 8
-
-# Matches the default single-node EOS allocation. An externally managed Ray
-# cluster referenced by RAY_ADDRESS takes precedence over these local values.
-ray:
-  num_cpus: 128
-  num_gpus: 8
-  object_store_memory: null
-
-# Keep the driver and actor runtime settings aligned with benchmarks.yaml.
-environment:
-  RAY_DATA_OP_RESERVATION_RATIO: "0"
-  RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB: "4096"
-  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+# The full canonical suite config. The tutorial passes a temporary path-only
+# overlay after this file and selects the exact Indic ASR entry by name.
+benchmark_config: benchmarking/benchmarks.yaml
+reason: Indic ASR tutorial exact-entry reproduction
