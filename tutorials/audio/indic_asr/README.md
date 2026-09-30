@@ -1,16 +1,16 @@
 # Hindi Indic ASR Benchmark Pipeline
 
-This tutorial runs the same Hindi Indic Canary + Parakeet recovery benchmark
-used by the `audio_indic_asr_xenna` and `audio_indic_asr_raydata` entries. Like
-the [ALM tutorial](../alm/), it uses a Hydra YAML configuration, manages the Ray
+This tutorial runs the exact `audio_indic_asr_xenna` or
+`audio_indic_asr_raydata` entry from `benchmarking/benchmarks.yaml`. Like the
+[ALM tutorial](../alm/), it uses a Hydra YAML configuration, manages the Ray
 cluster lifecycle, supports Xenna and Ray Data, and keeps backend runs in
 separate output directories.
 
-The tutorial does not contain a second pipeline implementation. `main.py`
-loads `benchmarking/scripts/audio_indic_asr_benchmark.py` and calls its
-canonical benchmark function. Input normalization and sharding, the complete
-processor graph, timing boundary, and output validation therefore stay exact
-as the benchmark evolves.
+The tutorial does not contain a second pipeline or benchmark implementation.
+`main.py` invokes `benchmarking/run.py` with the canonical config and an exact
+entry name. The resource allocation, object store, timeout, environment, input
+normalization, processor graph, GPU statistics, harness timing boundary, output
+validation, and requirements therefore stay exact as the benchmark evolves.
 
 For an ALM-style walkthrough that runs and compares both backends, open
 `indic_asr_tutorial.ipynb`. The command-line sections below run the same code.
@@ -41,8 +41,8 @@ model pools share the eight GPUs instead of requesting 16 physical GPUs.
 
 - Python 3.11+
 - NeMo Curator with the `audio_cuda12` dependencies
-- One x86_64 node with 128 CPUs and eight H100 GPUs for benchmark-equivalent
-  results
+- One x86_64 node with 128 CPUs, at least 500 GB available for the Ray object
+  store, and eight H100 GPUs for benchmark-equivalent results
 - A TensorRT-LLM-compatible environment containing `tensorrt` and
   `tensorrt_llm`
 - The production-compatible Indic Canary and Parakeet TensorRT engine bundles
@@ -52,32 +52,33 @@ uv sync --extra audio_cuda12
 source .venv/bin/activate
 ```
 
-The engine directories must contain these files:
+Under a shared model root, stage the exact directory layout expected by the
+canonical entries:
 
 ```text
-indic_canary_engine_dir/
-├── encoder/encoder.plan
-├── encoder/config.json
-├── decoder/config.json
-├── decoder/rank0.engine
-├── decoder/vocab.json
-├── preprocessor/config.json
-└── preprocessor/mel_basis.pt
-
-parakeet_tensorrt_engine_dir/
-├── encoder.plan
-├── metadata.json
-└── model.nemo
+MODEL_WEIGHTS_ROOT/audio_indic_asr/
+├── indic_canary_trtllm/engine_bfloat16_64_new/
+│   ├── encoder/encoder.plan
+│   ├── encoder/config.json
+│   ├── decoder/config.json
+│   ├── decoder/rank0.engine
+│   ├── decoder/vocab.json
+│   ├── preprocessor/config.json
+│   └── preprocessor/mel_basis.pt
+└── parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001/
+    ├── encoder.plan
+    ├── metadata.json
+    └── model.nemo
 ```
 
 ## Prepare the pinned public data
 
-From the repository root, stage the open Hugging Face Hindi corpus:
+From the repository root, run the separate data-preparation command:
 
 ```bash
 python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
-  --output-path /data/audio_indic_asr_parakeet_hindi_531h_35376a11 \
-  --cache-dir /data/_hf_cache/audio_indic_asr
+  --output-path DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11 \
+  --cache-dir DATASETS_ROOT/_hf_cache/audio_indic_asr
 ```
 
 The setup pins `ketav/parakeet-hindi-asr` revision
@@ -88,70 +89,85 @@ The setup pins `ketav/parakeet-hindi-asr` revision
 
 ## Run with Xenna
 
-Run from the repository root and use a new output directory:
+Run from the repository root and use a new session name:
 
 ```bash
 python tutorials/audio/indic_asr/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=/data/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
-  indic_canary_engine_dir=/models/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
-  parakeet_tensorrt_engine_dir=/models/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  benchmark_results_path=./indic_asr_benchmark_output/xenna \
+  datasets_path=DATASETS_ROOT \
+  model_weights_path=MODEL_WEIGHTS_ROOT \
+  results_path=./indic_asr_benchmark_output \
+  session_name=indic-asr-xenna-001 \
   backend=xenna
 ```
 
+This selects `audio_indic_asr_xenna`, including its 1,800-second timeout and
+its `exec_time_s` requirement of 600–900 seconds.
+
 ## Run with Ray Data
 
-Use the same manifest and engine directories, but a different output path:
+Use the same data and model roots, but a different session name:
 
 ```bash
 python tutorials/audio/indic_asr/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=/data/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
-  indic_canary_engine_dir=/models/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
-  parakeet_tensorrt_engine_dir=/models/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  benchmark_results_path=./indic_asr_benchmark_output/ray_data \
+  datasets_path=DATASETS_ROOT \
+  model_weights_path=MODEL_WEIGHTS_ROOT \
+  results_path=./indic_asr_benchmark_output \
+  session_name=indic-asr-ray-data-001 \
   backend=ray_data
 ```
 
+This selects `audio_indic_asr_raydata`, including its 3,600-second timeout.
+Ray Data has the same correctness gates but no runtime gate.
+
 The paired methodology holds the data, engines, processor settings, actor
-counts, and output checks constant. Only the executor changes. Run the two
-backends independently; do not reuse an output directory.
+counts, Ray resources, output checks, and runner instrumentation constant.
+Only the executor and its configured timeout/runtime requirement differ. Run
+the two backends independently; do not reuse a session name.
 
 ## Configuration
 
-All user-overridable values are in `pipeline.yaml`:
+The tutorial config contains only path and entry-selection values. The
+canonical config remains the single owner of benchmark behavior.
 
-| Parameter | Benchmark value | Description |
-| --- | ---: | --- |
-| `backend` | `xenna` | `xenna` or `ray_data` |
-| `expected_num_rows` | 216169 | Exact input and output cardinality |
-| `read_concurrency` | 4 | Number of normalized input shards and reader workers |
-| `prep_workers` | 24 | Audio loading and validation workers |
-| `primary_workers` | 8 | Indic Canary actors |
-| `fallback_workers` | 8 | Parakeet TensorRT actors |
-| `ray.num_cpus` | 128 | Local Ray CPU resources |
-| `ray.num_gpus` | 8 | Local Ray GPU resources |
+| Parameter | Description |
+| --- | --- |
+| `datasets_path` | Root containing the pinned dataset directory |
+| `model_weights_path` | Root containing both engine directories |
+| `results_path` | Root for benchmark sessions |
+| `session_name` | Fresh session directory name |
+| `backend` | `xenna` or `ray_data` |
+| `benchmark_config` | Canonical benchmark suite config |
 
-The model settings are intentionally owned by the canonical benchmark script:
-Indic Canary uses batch size 64, four beams, 347 maximum new tokens, and 0.1
-fractions for both KV-cache pools; Parakeet uses TensorRT engine chunking and
-batch size 64. Keeping those values in one implementation prevents tutorial
-and benchmark drift.
+The canonical entry uses four manifest-reader workers, 24 preparation workers,
+eight primary actors, and eight recovery actors. Indic Canary uses batch size
+64, four beams, 347 maximum new tokens, and 0.1 fractions for both KV-cache
+pools; Parakeet uses TensorRT engine chunking and batch size 64. The runner
+starts Ray with 128 CPUs, eight GPUs, object spilling disabled, and a 500 GB
+object store.
 
-## Outputs and validation
+## Outputs and acceptance
 
-Each result directory contains:
+Each session writes entry evidence under:
 
 ```text
-params.json
-metrics.json
-tasks.pkl
-results/audio_indic_asr_output.jsonl
-scratch/audio_indic_asr_input/manifest-00.jsonl ... manifest-03.jsonl
+RESULTS_ROOT/SESSION_NAME/ENTRY_NAME/
+├── results.json
+├── params.json
+├── metrics.json
+├── tasks.pkl
+├── gpustats.csv
+├── logs/
+└── results/audio_indic_asr_output.jsonl
 ```
+
+`results.json` contains the harness-level `exec_time_s`, exit status, timeout
+state, captured environment/resource evidence, metrics, and any unmet
+requirements. The tutorial exits unsuccessfully if the entry or any configured
+requirement fails.
 
 Before execution, the benchmark resolves audio paths, rejects missing or
 duplicate clips, verifies Hindi text and positive durations, and creates four
@@ -159,18 +175,22 @@ absolute-path manifests. After execution, it requires exactly one output per
 input identity, unchanged paths and durations, finite WER, recognized primary
 or fallback provenance, and complete selected prediction text.
 
-The accepted EOS benchmark gate applies only to Xenna: the full process wall
-time must be 600–900 seconds on the standard eight-H100 runner. Ray Data uses
-the identical cohort as an ungated comparison. Local tutorial timing is useful
-for diagnosis but is not a replacement for the standard EOS benchmark result.
+The accepted EOS timing gate applies only to Xenna: harness-level
+`exec_time_s` must be 600–900 seconds on the standard eight-H100 runner. Ray
+Data uses the identical cohort as an ungated comparison. Runs on other systems
+still exercise every correctness requirement, but their performance is not an
+EOS-equivalent result.
 
 ## Troubleshooting
 
-- **Output already exists**: choose a fresh `benchmark_results_path`; the
-  benchmark fails closed instead of overwriting evidence.
+- **Session already exists**: choose a fresh `session_name`; evidence is never
+  overwritten by the tutorial.
 - **Missing `tensorrt_llm`**: use the TensorRT-LLM-compatible benchmark image.
 - **Missing engine file**: stage the complete engine bundle listed above.
 - **Wrong row count**: rerun the pinned data preparation and do not edit or
   subset its manifest.
 - **Ray sees fewer than eight GPUs**: verify `CUDA_VISIBLE_DEVICES` and the
   cluster resources before comparing runtime.
+- **Xenna is outside 600–900 seconds**: inspect `results.json`, `gpustats.csv`,
+  and `logs/stdouterr.log`; do not substitute the script's `time_taken_s` for
+  the harness `exec_time_s` gate.
