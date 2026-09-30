@@ -14,7 +14,7 @@ if str(_MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(_MODULE_DIR))
 
 import nrl_lance_contract as contract  # noqa: E402
-from nrl_lance_runtime import run_consume, run_ingest  # noqa: E402
+from nrl_lance_runtime import CONSUME_EXECUTORS, run_consume, run_ingest  # noqa: E402
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -60,6 +60,15 @@ def create_parser() -> argparse.ArgumentParser:
     )
     consume.add_argument("--handoff-manifest", required=True)
     consume.add_argument("--output-dir", required=True, help="Fresh directory for the Parquet export")
+    consume.add_argument(
+        "--consume-executor",
+        choices=CONSUME_EXECUTORS,
+        default="auto",
+        help=(
+            "Where the consume stages and the output reread run: in this process (in_process), "
+            "on Ray Data (ray), or in-process up to IN_PROCESS_MAX_ROWS rows and Ray above (auto)"
+        ),
+    )
     return parser
 
 
