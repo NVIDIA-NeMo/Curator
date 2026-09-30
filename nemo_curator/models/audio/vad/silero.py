@@ -63,8 +63,8 @@ def _validate_detection_options(  # noqa: PLR0913
     if not math.isfinite(minimum) or minimum < 0:
         msg = f"{owner}.min_duration_sec must be finite and non-negative, got {min_duration_sec!r}"
         raise ValueError(msg)
-    if not math.isfinite(maximum) or maximum <= minimum:
-        msg = f"{owner}.max_duration_sec must be finite and greater than min_duration_sec, got {max_duration_sec!r}"
+    if not maximum > minimum:
+        msg = f"{owner}.max_duration_sec must be greater than min_duration_sec, got {max_duration_sec!r}"
         raise ValueError(msg)
     for name, value in (("min_interval_ms", min_interval_ms), ("speech_pad_ms", speech_pad_ms)):
         if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
