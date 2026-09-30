@@ -82,7 +82,7 @@ The `DataDesignerStage` constructor accepts the following parameters:
 
 ### Distributed Execution and Empty Batches
 
-Ray can serialize and copy `DataDesignerStage` to workers even though the live Data Designer client contains process-local objects that are not serializable. The stage serializes its configuration builder and model providers, omits the live client, and recreates the client inside the destination worker. This process is automatic. Construct the stage normally, and do not create or replace its internal Data Designer client.
+Ray can serialize and copy `DataDesignerStage` to workers even though the live Data Designer client contains process-local objects that are not serializable. The stage serializes its configuration builder and model providers, omits the live client, and recreates the client inside the destination worker. This process is done automatically via internal `__getstate__`, `__setstate__`, and `_init_data_designer` methods. Construct the stage normally, and do not create or replace its internal Data Designer client.
 
 An upstream stage can legitimately produce an empty `DocumentBatch`. For example, a filter might remove every record in one input partition while other partitions still contain data. In that case, `DataDesignerStage`:
 
