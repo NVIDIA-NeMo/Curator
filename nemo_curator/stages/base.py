@@ -404,9 +404,19 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         Returns:
             Either a single tuple of (output_attributes, output_columns), or a
-            mapping from input task type to that tuple. In each tuple:
+            mapping from input task type to that tuple (for a CompositeStage, the
+            input task types of its last sub-stage). In each tuple:
             - output_top_level_attributes: List of task attributes this stage adds/modifies
             - output_data_attributes: List of attributes within the data that this stage adds/modifies
+
+        Example:
+            ```python
+            def outputs(self) -> StageOutputSpecs:
+                return {
+                    FileGroupTask: (["data"], []),
+                    DocumentBatch: (["data"], ["minhash"]),
+                }
+            ```
         """
         return [], []
 

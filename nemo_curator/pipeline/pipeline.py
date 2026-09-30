@@ -26,17 +26,18 @@ def _append_specs(
     lines: list[str],
     specs: StageInputSpecs | StageOutputSpecs,
     section: str,
-    attrs_label: str,
-    cols_label: str,
+    label: str,
+    key_suffix: str = "",
 ) -> None:
-    if isinstance(specs, tuple):
+    if not isinstance(specs, dict):
+        # Any non-dict is the single-spec form; unpack like main did so list pairs still render.
         attrs, cols = specs
         if attrs or cols:
             lines.append(f"  {section}:")
             if attrs:
-                lines.append(f"    {attrs_label}: {', '.join(attrs)}")
+                lines.append(f"    {label} attributes: {', '.join(attrs)}")
             if cols:
-                lines.append(f"    {cols_label}: {', '.join(cols)}")
+                lines.append(f"    {label} columns: {', '.join(cols)}")
         return
 
     visible_specs = [(task_type, attrs, cols) for task_type, (attrs, cols) in specs.items() if attrs or cols]
@@ -45,11 +46,11 @@ def _append_specs(
 
     lines.append(f"  {section}:")
     for task_type, attrs, cols in visible_specs:
-        lines.append(f"    {task_type.__name__}:")
+        lines.append(f"    {task_type.__name__}{key_suffix}:")
         if attrs:
-            lines.append(f"      {attrs_label}: {', '.join(attrs)}")
+            lines.append(f"      {label} attributes: {', '.join(attrs)}")
         if cols:
-            lines.append(f"      {cols_label}: {', '.join(cols)}")
+            lines.append(f"      {label} columns: {', '.join(cols)}")
 
 
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
@@ -231,8 +232,9 @@ class Pipeline:
 
                 lines.append(f"  Batch size: {stage.batch_size}")
 
-                _append_specs(lines, input_specs, "Inputs", "Required attributes", "Required columns")
-                _append_specs(lines, output_specs, "Outputs", "Output attributes", "Output columns")
+                _append_specs(lines, input_specs, "Inputs", "Required")
+                # Output dict keys are input task types, so label them as such.
+                _append_specs(lines, output_specs, "Outputs", "Output", " input")
 
             except Exception as e:  # noqa: BLE001
                 lines.append(f"  Error getting stage info: {e}")

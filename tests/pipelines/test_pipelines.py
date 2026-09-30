@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
-from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -159,6 +159,13 @@ class _TupleOutputStage(_NoopStage):
         return (["data"], ["values"])
 
 
+class _ListOutputStage(_NoopStage):
+    name = "list-output"
+
+    def outputs(self) -> list[list[str]]:  # outside the tuple contract; main's describe() unpacked any pair
+        return [["data"], ["values"]]
+
+
 class _EmptyDictOutputStage(_NoopStage):
     name = "empty-dict-output"
 
@@ -166,26 +173,43 @@ class _EmptyDictOutputStage(_NoopStage):
         return {_SimpleTask: ([], [])}
 
 
+class _DictOutputComposite(CompositeStage[Task, Task]):
+    name = "dict-output-composite"
+
+    def decompose(self) -> list[ProcessingStage]:
+        return [_NoopStage(), _DictOutputStage()]
+
+
 @pytest.mark.parametrize(
     ("stage", "present", "absent"),
     [
         (
             _DictOutputStage(),
-            ["  Outputs:", "    _SimpleTask:", "      Output attributes: data", "      Output columns: values"],
-            ["    EmptyTask:", "    Output attributes: data"],
+            ["  Outputs:", "    _SimpleTask input:", "      Output attributes: data", "      Output columns: values"],
+            ["    EmptyTask input:", "    Output attributes: data"],
         ),
         (
             _TupleOutputStage(),
             ["  Outputs:", "    Output attributes: data", "    Output columns: values"],
-            ["    _SimpleTask:"],
+            ["    _SimpleTask input:"],
+        ),
+        (
+            _ListOutputStage(),
+            ["  Outputs:", "    Output attributes: data", "    Output columns: values"],
+            [],
         ),
         (
             _EmptyDictOutputStage(),
             [],
-            ["  Outputs:", "    _SimpleTask:"],
+            ["  Outputs:", "    _SimpleTask input:"],
+        ),
+        (
+            _DictOutputComposite(),
+            ["  Outputs:", "    _SimpleTask input:", "      Output attributes: data", "      Output columns: values"],
+            [],
         ),
     ],
-    ids=["dict", "tuple", "empty-dict"],
+    ids=["dict", "tuple", "list-output", "empty-dict", "composite"],
 )
 def test_describe_renders_output_specs(stage: ProcessingStage, present: list[str], absent: list[str]) -> None:
     lines = Pipeline(name="test", stages=[stage]).describe().splitlines()
