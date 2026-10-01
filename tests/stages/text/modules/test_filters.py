@@ -590,6 +590,52 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize("text", ["", " ", "\n\n", "\xa0"])
+    @pytest.mark.parametrize(
+        ("filter_cls", "expected_score", "expected_keep"),
+        [
+            (SymbolsToWordsFilter, 1.0, False),
+            (BulletsFilter, 1.0, False),
+            (LongWordFilter, 0, True),
+            (MeanWordLengthFilter, 0.0, False),
+            (PunctuationFilter, 1.0, False),
+            (EllipsisFilter, 1.0, False),
+            (WordsWithoutAlphabetsFilter, 0.0, False),
+        ],
+    )
+    def test_empty_document(
+        self, filter_cls: type[DocumentFilter], expected_score: float, expected_keep: bool, text: str
+    ) -> None:
+        doc_filter = filter_cls()
+        score = doc_filter.score_document(text)
+        assert score == expected_score
+        assert doc_filter.keep_document(score) is expected_keep
+
+    @pytest.mark.parametrize(
+        ("filter_cls", "keeps_empty"),
+        [
+            (SymbolsToWordsFilter, False),
+            (BulletsFilter, False),
+            (LongWordFilter, True),
+            (MeanWordLengthFilter, False),
+            (PunctuationFilter, False),
+            (EllipsisFilter, False),
+            (WordsWithoutAlphabetsFilter, False),
+        ],
+    )
+    def test_empty_document_score_filter(self, filter_cls: type[DocumentFilter], keeps_empty: bool) -> None:
+        good = "This is a normal sentence with enough words to pass."
+        documents = ["", good, " ", "\n\n"]
+        filters = ScoreFilter(filter_cls())
+
+        filtered_data = filters.process(list_to_dataset(documents))
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": documents if keeps_empty else [good]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_parentheses(self) -> None:
         dataset = list_to_dataset(["()", "(not good)", "this is completely absolutely fine", "123456789("])
         filters = ScoreFilter(ParenthesesFilter())
