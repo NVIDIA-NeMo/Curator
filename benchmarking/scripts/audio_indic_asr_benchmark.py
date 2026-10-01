@@ -48,6 +48,7 @@ from nemo_curator.tasks import AudioTask
 
 EXPECTED_NUM_ROWS = 216_169
 SAMPLE_RATE = 16_000
+MAX_DURATION_ERROR_S = 0.001
 GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 CANARY_REQUIRED_FILES = (
     "encoder/encoder.plan",
@@ -141,7 +142,7 @@ class PrepareIndicASRInputStage(ProcessingStage[AudioTask, AudioTask]):
         if sample_rate != SAMPLE_RATE or waveform.shape[0] != 1:
             msg = f"Expected mono {SAMPLE_RATE} Hz audio for {audio_item_id}"
             raise RuntimeError(msg)
-        if not math.isclose(duration_s, measured_duration_s, rel_tol=0, abs_tol=1 / SAMPLE_RATE):
+        if not math.isclose(duration_s, measured_duration_s, rel_tol=0, abs_tol=MAX_DURATION_ERROR_S):
             msg = (
                 f"Manifest duration mismatch for {audio_item_id}: "
                 f"manifest={duration_s}, measured={measured_duration_s}"

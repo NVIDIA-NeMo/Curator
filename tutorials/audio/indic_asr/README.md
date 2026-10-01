@@ -78,7 +78,7 @@ python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
 ```
 
 The setup validates 216,169 unique mono 16 kHz clips totaling 531.7738 audio
-hours. Its manifest stores paths such as `audio/<clip>.wav`; the tutorial passes
+hours. Its manifest stores paths such as `audio/<clip>.flac`; the tutorial passes
 the dataset directory to `PrepareIndicASRInputStage`, which resolves those paths
 before loading audio. The canonical `manifest.jsonl` remains unchanged and is
 used by both benchmark entries. `manifest-1h.jsonl` is a deterministic
