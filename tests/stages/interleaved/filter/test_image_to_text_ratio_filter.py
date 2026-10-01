@@ -28,6 +28,12 @@ def test_text_word_count_nan_float_is_zero() -> None:
     assert _text_word_count(float("nan")) == 0
 
 
+def test_text_word_count_pandas_na_is_zero() -> None:
+    import pandas as pd
+
+    assert _text_word_count(pd.NA) == 0
+
+
 def test_text_word_count_splits_on_whitespace() -> None:
     assert _text_word_count("  one   two three  ") == 3
 
