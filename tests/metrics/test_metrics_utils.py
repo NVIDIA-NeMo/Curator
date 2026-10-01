@@ -274,7 +274,7 @@ class TestWriteGrafanaConfigs:
             (False, True, False, False),  # missing but provisioned -> silent
         ],
     )
-    def test_xenna_dashboard_provisioning(  # noqa: PLR0913, PLR0917
+    def test_xenna_dashboard_provisioning(  # noqa: PLR0913
         self,
         tmp_path: pathlib.Path,
         caplog: pytest.LogCaptureFixture,
