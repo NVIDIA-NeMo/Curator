@@ -62,6 +62,7 @@ def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
     dataset_size_gb: float,
     engine_kwargs: dict[str, Any] | None = None,
     autoscaling_config: dict[str, Any] | None = None,
+    max_parallel_requests: int = 128,
     model_path: str | None = None,
     tiktoken_cache_dir: str | None = None,
     health_check_timeout_s: int | None = None,
@@ -78,6 +79,7 @@ def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
     logger.info(f"Output path: {output_path}")
     logger.info(f"Executor: {executor}")
     logger.info(f"Dataset size: {dataset_size_gb} GB")
+    logger.info(f"Max parallel requests: {max_parallel_requests}")
 
     input_files = load_dataset_files(input_path, dataset_size_gb, keep_extensions="jsonl")
 
@@ -140,7 +142,7 @@ def run_nemotron_cc_sdg_benchmark(  # noqa: PLR0915
                 temperature=1.0,
                 top_p=1.0,
                 max_tokens=512,
-                max_parallel_requests=128,
+                max_parallel_requests=max_parallel_requests,
             ),
         )
     ]
@@ -239,6 +241,12 @@ def main() -> int:
     parser.add_argument("--executor", default="ray_data", choices=["ray_data", "xenna"], help="Pipeline executor")
     parser.add_argument("--dataset-size-gb", type=float, required=True, help="Size of dataset to process in GB")
     parser.add_argument(
+        "--max-parallel-requests",
+        type=int,
+        default=128,
+        help="Maximum concurrent Data Designer requests per model provider (default: 128).",
+    )
+    parser.add_argument(
         "--engine-kwargs",
         type=str,
         default=None,
@@ -294,6 +302,7 @@ def main() -> int:
                 dataset_size_gb=args.dataset_size_gb,
                 engine_kwargs=engine_kwargs,
                 autoscaling_config=autoscaling_config,
+                max_parallel_requests=args.max_parallel_requests,
                 model_path=args.model_path,
                 tiktoken_cache_dir=args.tiktoken_cache_dir,
                 health_check_timeout_s=args.health_check_timeout_s,
