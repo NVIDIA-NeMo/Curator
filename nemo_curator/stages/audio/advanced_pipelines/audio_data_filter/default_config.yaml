@@ -4,7 +4,7 @@
 # Pass the path to this file (or a copy) to AudioDataFilterStage(config_path=...).
 # Only values you specify override the defaults shown here.
 # Set "enable: false" on any stage section to skip it entirely.
-# Each stage has cpus/gpus resource allocation that can be tuned per deployment.
+# Each stage has resource and execution controls that can be tuned per deployment.
 
 mono_conversion:
   output_sample_rate: 48000
@@ -13,11 +13,16 @@ mono_conversion:
 
 vad:
   enable: true
+  # Model/runtime selection; thresholds below remain stage-owned.
+  adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
+  adapter_kwargs: {}
   min_duration_sec: 2.0
   max_duration_sec: 60.0
   threshold: 0.5
   min_interval_ms: 500
   speech_pad_ms: 300
+  batch_size: 1  # required for deterministic fan-out child attribution
+  num_workers: null
   cpus: 1.0
   gpus: 0.1
 
