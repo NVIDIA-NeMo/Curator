@@ -150,7 +150,11 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
-  # Pinned public Apache-2.0 Hindi ASR train split: 216,169 unique clips / 531.7738 audio hours.
+  # Pinned public Apache-2.0 Hindi ASR train split at revision
+  # 35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0. The source manifest has 216,169
+  # rows / 1,914,385,701 ms and SHA-256 407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4.
+  # Full decoding rejects corrupt hindi_017643, 017655, 017656, 017666, and
+  # 018619 FLACs; the runnable cohort retains 216,164 rows / 1,914,327,468 ms.
   - name: "audio_indic_asr_hindi_531h"
     formats:
     - type: "jsonl"
@@ -1076,7 +1080,10 @@ entries:
       --regex-yaml={curator_repo_dir}/benchmarking/configs/audio_indic_asr_regex.yaml
       --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
       --executor=xenna
-      --expected-num-rows=216169
+      --expected-num-rows=216164
+      --expected-total-duration-ms=1914327468
+      --expected-manifest-bytes=116382162
+      --expected-manifest-sha256=0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
       --read-concurrency=4
       --prep-workers=24
       --primary-workers=8
@@ -1102,14 +1109,20 @@ entries:
         min_value: 600
         max_value: 900
       - metric: num_input_rows
-        exact_value: 216169
+        exact_value: 216164
       - metric: num_output_rows
-        exact_value: 216169
+        exact_value: 216164
       - metric: input_output_coverage_ratio
         exact_value: 1.0
+      - metric: total_audio_duration_ms
+        exact_value: 1914327468
       - metric: total_audio_duration_hours
-        min_value: 531.7738
-        max_value: 531.7739
+        min_value: 531.7576
+        max_value: 531.7577
+      - metric: input_manifest_bytes
+        exact_value: 116382162
+      - metric: input_manifest_sha256
+        exact_value: 0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
       - metric: best_prediction_coverage_ratio
@@ -1142,12 +1155,15 @@ entries:
       --regex-yaml={curator_repo_dir}/benchmarking/configs/audio_indic_asr_regex.yaml
       --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
       --executor=ray_data
-      --expected-num-rows=216169
+      --expected-num-rows=216164
+      --expected-total-duration-ms=1914327468
+      --expected-manifest-bytes=116382162
+      --expected-manifest-sha256=0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
       --read-concurrency=4
       --prep-workers=24
       --primary-workers=8
       --fallback-workers=8
-    timeout_s: 3600
+    timeout_s: 14340
     environment:
       RAY_DATA_OP_RESERVATION_RATIO: "0"
       RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB: "4096"
@@ -1165,14 +1181,20 @@ entries:
           - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_input_rows
-        exact_value: 216169
+        exact_value: 216164
       - metric: num_output_rows
-        exact_value: 216169
+        exact_value: 216164
       - metric: input_output_coverage_ratio
         exact_value: 1.0
+      - metric: total_audio_duration_ms
+        exact_value: 1914327468
       - metric: total_audio_duration_hours
-        min_value: 531.7738
-        max_value: 531.7739
+        min_value: 531.7576
+        max_value: 531.7577
+      - metric: input_manifest_bytes
+        exact_value: 116382162
+      - metric: input_manifest_sha256
+        exact_value: 0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
       - metric: best_prediction_coverage_ratio

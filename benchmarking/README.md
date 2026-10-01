@@ -658,10 +658,24 @@ The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
 The Hindi Indic ASR setup pins the public `ketav/parakeet-hindi-asr` revision
-`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0) and validates
-all 216,169 unique mono 16 kHz clips (531.7738 audio hours) against the source
-manifest and FLAC headers. Its timed entries also require the
-production-compatible model artifacts to be staged at:
+`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0). The pinned
+source manifest has 216,169 rows / 1,914,385,701 ms and SHA-256
+`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`;
+the 40,543,034,328-byte source archive has SHA-256
+`9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20`.
+The archive is a superset, so only files referenced by that manifest define
+the cohort.
+
+Full-sample decoding deterministically rejects five referenced corrupt FLACs:
+`audio/hindi_017643.flac`, `audio/hindi_017666.flac`, and
+`audio/hindi_018619.flac` are empty; `audio/hindi_017655.flac` and
+`audio/hindi_017656.flac` are truncated 262,144-byte files whose decoders lose
+sync. They account for 58,233 ms. The shared runnable cohort therefore has
+216,164 unique mono 16 kHz clips / 1,914,327,468 ms (531.75763 hours). Its
+116,382,162-byte canonical manifest has SHA-256
+`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
+Both timed entries consume this byte-identical retained cohort and also require
+the production-compatible model artifacts to be staged at:
 
 ```text
 {model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
@@ -676,10 +690,11 @@ under its mounted dataset and model roots before launching this entry.
 The Curator environment must install the `audio_canary_trtllm` extra. The
 standard `all` profile includes this audio extra, so the benchmark follows the
 same pyproject/lock-driven environment path as other Curator jobs. Before its
-timer starts, benchmark preflight automatically provisions and reuses the
-separately locked Indic Canary child runtime. Parakeet uses TensorRT from the
-parent environment; Canary loads its compatible TensorRT-LLM stack only in the
-child process. The host or container runtime must independently provide a
+timed entry starts, NeMo-CI preflight must provision and validate the separately
+locked Indic Canary child runtime. A standalone first invocation provisions it
+inside that invocation; later runs reuse the lock-keyed environment. Parakeet
+uses TensorRT from the parent environment; Canary loads its compatible
+TensorRT-LLM stack only in the child process. The host or container runtime must independently provide a
 CUDA-13-capable NVIDIA driver, or NVIDIA forward-compatibility libraries on a
 supported data-center GPU. The benchmark validates both Python runtimes and the
 complete engine inventories before timing the processor chain.
@@ -694,7 +709,7 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| Hindi Indic ASR | Production Slurm pipeline only | Paired Xenna and Ray Data runs share 216,169 unique public Hindi clips (531.7738h), eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. Xenna alone is gated to 600-900s full process wall time on the default EOS 8xH100 node; Ray Data is an ungated same-data comparison. |
+| Hindi Indic ASR | Production Slurm pipeline only | Paired Xenna and Ray Data runs share the 216,164-clip / 531.75763h retained cohort from the pinned 216,169-row public Hindi source after rejecting five exactly identified corrupt FLACs. Both run eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. Xenna alone is gated to 600-900s full process wall time on the default EOS 8xH100 node; Ray Data is an ungated same-data comparison. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---

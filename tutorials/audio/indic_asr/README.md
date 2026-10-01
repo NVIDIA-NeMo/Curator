@@ -49,9 +49,10 @@ source .venv/bin/activate
 That one audio extra installs the parent dependencies and the runtime manager.
 At first adapter setup, the runtime manager synchronizes the packaged child
 `pyproject.toml` and `uv.lock` into a lock-keyed cache. Concurrent workers share
-a file lock, and later runs reuse the validated environment. The benchmark
-harness performs the same setup in preflight, before its timer starts. To use a
-pre-provisioned shared runtime instead, set:
+a file lock, and later runs reuse the validated environment. NeMo-CI preflight
+prewarms this cache before a timed benchmark entry; a standalone first run
+performs the setup inside that invocation. To use a pre-provisioned shared
+runtime instead, set:
 
 ```bash
 export NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON=/shared/indic-canary-runtime/bin/python
@@ -77,13 +78,33 @@ python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
   --subset-manifest DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest-1h.jsonl
 ```
 
-The setup validates 216,169 unique mono 16 kHz clips totaling 531.7738 audio
-hours. Its manifest stores paths such as `audio/<clip>.flac`; the tutorial passes
-the dataset directory to `PrepareIndicASRInputStage`, which resolves those paths
-before loading audio. The canonical `manifest.jsonl` remains unchanged and is
-used by both benchmark entries. `manifest-1h.jsonl` is a deterministic
-at-least-one-hour prefix of that same pinned cohort for the local functional
-run below.
+The upstream source contract is kept separate from the runnable cohort. The
+pinned source manifest has 216,169 rows / 1,914,385,701 ms and SHA-256
+`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`.
+The 40,543,034,328-byte archive has SHA-256
+`9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20`;
+it is a superset, and only members referenced by the source manifest define
+this train cohort.
+
+The setup decodes every referenced FLAC to EOF and rejects exactly this pinned
+corrupt set:
+
+| Archive member | Payload bytes | Source duration (ms) | Decode result |
+| --- | ---: | ---: | --- |
+| `audio/hindi_017643.flac` | 0 | 7,457 | Empty; format not recognized |
+| `audio/hindi_017655.flac` | 262,144 | 17,362 | Truncated; decoder lost sync |
+| `audio/hindi_017656.flac` | 262,144 | 15,329 | Truncated; decoder lost sync |
+| `audio/hindi_017666.flac` | 0 | 9,242 | Empty; format not recognized |
+| `audio/hindi_018619.flac` | 0 | 8,843 | Empty; format not recognized |
+
+Those five rows total 58,233 ms. The canonical `manifest.jsonl` used by both
+benchmark entries therefore contains 216,164 unique mono 16 kHz clips /
+1,914,327,468 ms (531.75763 hours), is 116,382,162 bytes, and has SHA-256
+`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
+Its paths have the form `audio/<clip>.flac`; the tutorial passes the dataset
+directory to `PrepareIndicASRInputStage`, which resolves them before loading
+audio. `manifest-1h.jsonl` is a deterministic at-least-one-hour prefix of that
+same retained cohort for the local functional run below.
 
 ## Stage the engines
 
@@ -180,11 +201,12 @@ reservations; reducing the row count does not reduce static engine memory.
 
 `benchmarking/benchmarks.yaml` contains the canonical performance entries:
 
-- `audio_indic_asr_xenna` uses the full pinned cohort and requires harness
-  `exec_time_s` between 600 and 900 seconds on the standard eight-H100 EOS
-  runner.
-- `audio_indic_asr_raydata` uses the same cohort and correctness requirements,
-  but has no runtime gate.
+- `audio_indic_asr_xenna` uses the full 216,164-row retained cohort, requires
+  the exact duration, manifest byte count, and manifest hash above, and gates
+  harness `exec_time_s` between 600 and 900 seconds on the standard eight-H100
+  EOS runner.
+- `audio_indic_asr_raydata` uses that byte-identical cohort and the same exact
+  correctness requirements, but has no runtime gate.
 
 Both entries require one output per input identity, unchanged audio paths and
 durations, finite WER, a recognized primary/fallback provenance, and complete

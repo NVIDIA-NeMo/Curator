@@ -17,14 +17,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
 import importlib.util
 import json
 import math
+import os
 import statistics
 import time
 import traceback
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +49,10 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-EXPECTED_NUM_ROWS = 216_169
+EXPECTED_NUM_ROWS = 216_164
+EXPECTED_TOTAL_DURATION_MS = 1_914_327_468
+EXPECTED_MANIFEST_BYTES = 116_382_162
+EXPECTED_MANIFEST_SHA256 = "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"
 SAMPLE_RATE = 16_000
 MAX_DURATION_ERROR_S = 0.001
 GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
@@ -78,7 +84,10 @@ class InputInventory:
 
     manifests: tuple[Path, ...]
     audio_paths_by_id: dict[str, str]
-    durations_by_id: dict[str, float]
+    durations_ms_by_id: dict[str, int]
+    reference_texts_by_id: dict[str, str]
+    manifest_bytes: int
+    manifest_sha256: str
 
     @property
     def num_rows(self) -> int:
@@ -86,7 +95,11 @@ class InputInventory:
 
     @property
     def total_duration_s(self) -> float:
-        return math.fsum(self.durations_by_id.values())
+        return self.total_duration_ms / 1000
+
+    @property
+    def total_duration_ms(self) -> int:
+        return sum(self.durations_ms_by_id.values())
 
 
 @dataclass
@@ -161,26 +174,32 @@ class PrepareIndicASRInputStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
 
-def _normalize_input_row(row: object, manifest_path: Path, line_number: int) -> dict[str, Any]:
+def _normalize_input_row(
+    row: object,
+    manifest_path: Path,
+    line_number: int,
+) -> tuple[dict[str, Any], int]:
     if not isinstance(row, dict):
         msg = f"Input manifest row must be an object: {manifest_path}:{line_number}"
         raise TypeError(msg)
     try:
         audio_item_id = row["audio_item_id"]
         audio_filepath = row["audio_filepath"]
-        duration_s = float(row["duration"])
+        duration = Decimal(str(row["duration"]))
         source_lang = row["source_lang"]
         text = row["text"]
-    except (KeyError, TypeError, ValueError) as e:
+    except (InvalidOperation, KeyError, TypeError, ValueError) as e:
         msg = f"Invalid input manifest row: {manifest_path}:{line_number}"
         raise RuntimeError(msg) from e
+    duration_ms_decimal = duration * 1000
     if (
         not isinstance(audio_item_id, str)
         or not audio_item_id
         or not isinstance(audio_filepath, str)
         or not audio_filepath
-        or not math.isfinite(duration_s)
-        or duration_s <= 0
+        or not duration.is_finite()
+        or duration <= 0
+        or duration_ms_decimal != duration_ms_decimal.to_integral_value()
         or source_lang != "hi"
         or not isinstance(text, str)
         or not text.strip()
@@ -198,11 +217,15 @@ def _normalize_input_row(row: object, manifest_path: Path, line_number: int) -> 
 
     normalized = dict(row)
     normalized["audio_filepath"] = str(resolved_audio_path)
-    normalized["duration"] = duration_s
-    return normalized
+    normalized["duration"] = float(duration)
+    return normalized, int(duration_ms_decimal)
 
 
-def _materialize_input_manifests(source_manifest: Path, scratch_dir: Path, num_shards: int) -> InputInventory:
+def _materialize_input_manifests(  # noqa: C901
+    source_manifest: Path,
+    scratch_dir: Path,
+    num_shards: int,
+) -> InputInventory:
     if num_shards <= 0:
         msg = f"num_shards must be positive, got {num_shards}"
         raise ValueError(msg)
@@ -212,27 +235,38 @@ def _materialize_input_manifests(source_manifest: Path, scratch_dir: Path, num_s
 
     rows: list[dict[str, Any]] = []
     audio_paths_by_id: dict[str, str] = {}
-    durations_by_id: dict[str, float] = {}
+    durations_ms_by_id: dict[str, int] = {}
+    reference_texts_by_id: dict[str, str] = {}
     seen_audio_paths: set[str] = set()
-    with source_manifest.open(encoding="utf-8") as source_file:
-        for line_number, line in enumerate(source_file, start=1):
-            if not line.strip():
+    manifest_digest = hashlib.sha256()
+    manifest_bytes = 0
+    with source_manifest.open("rb") as source_file:
+        opened_manifest_bytes = os.fstat(source_file.fileno()).st_size
+        for line_number, raw_line in enumerate(source_file, start=1):
+            manifest_digest.update(raw_line)
+            manifest_bytes += len(raw_line)
+            if not raw_line.strip():
                 continue
             try:
-                raw_row = json.loads(line)
-            except json.JSONDecodeError as e:
+                raw_row = json.loads(raw_line, parse_float=Decimal)
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
                 msg = f"Invalid JSON input manifest row: {source_manifest}:{line_number}"
                 raise RuntimeError(msg) from e
-            row = _normalize_input_row(raw_row, source_manifest, line_number)
+            row, duration_ms = _normalize_input_row(raw_row, source_manifest, line_number)
             audio_item_id = row["audio_item_id"]
             audio_path = row["audio_filepath"]
             if audio_item_id in audio_paths_by_id or audio_path in seen_audio_paths:
                 msg = f"Duplicate input identity or audio path at {source_manifest}:{line_number}"
                 raise RuntimeError(msg)
             audio_paths_by_id[audio_item_id] = audio_path
-            durations_by_id[audio_item_id] = row["duration"]
+            durations_ms_by_id[audio_item_id] = duration_ms
+            reference_texts_by_id[audio_item_id] = row["text"]
             seen_audio_paths.add(audio_path)
             rows.append(row)
+    if manifest_bytes != opened_manifest_bytes:
+        msg = f"Input manifest changed size while it was read: opened={opened_manifest_bytes}, read={manifest_bytes}"
+        raise RuntimeError(msg)
+    manifest_sha256 = manifest_digest.hexdigest()
     if not rows:
         msg = f"Input manifest contains no rows: {source_manifest}"
         raise RuntimeError(msg)
@@ -250,7 +284,10 @@ def _materialize_input_manifests(source_manifest: Path, scratch_dir: Path, num_s
     return InputInventory(
         manifests=shard_paths,
         audio_paths_by_id=audio_paths_by_id,
-        durations_by_id=durations_by_id,
+        durations_ms_by_id=durations_ms_by_id,
+        reference_texts_by_id=reference_texts_by_id,
+        manifest_bytes=manifest_bytes,
+        manifest_sha256=manifest_sha256,
     )
 
 
@@ -390,7 +427,7 @@ def _percentile(values: list[float], percentile: float) -> float:
     return ordered[index]
 
 
-def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) -> dict[str, float | int]:
+def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) -> dict[str, float | int | str]:
     if not output_manifest.is_file():
         msg = f"Indic ASR pipeline wrote no output manifest: {output_manifest}"
         raise RuntimeError(msg)
@@ -401,7 +438,7 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
 
     output_ids: set[str] = set()
     wers: list[float] = []
-    output_durations_s: list[float] = []
+    output_durations_ms: list[int] = []
     source_counts = {"primary": 0, "fallback": 0, "reference": 0, "ground_truth": 0, "other": 0}
     skipped_rows = 0
     for row_index, row in enumerate(rows):
@@ -409,6 +446,10 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
             audio_item_id = row["audio_item_id"]
             audio_filepath = row["audio_filepath"]
             duration_s = float(row["duration"])
+            duration_ms_decimal = Decimal(str(row["duration"])) * 1000
+            source_lang = row["source_lang"]
+            reference_text = row["reference_text"]
+            granary_v1_prediction = row["granary_v1_prediction"]
             wer_pct = float(row["wer_pct"])
             source = row["best_prediction_source"]
             skip_reason = row["_skipme"]
@@ -426,7 +467,11 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
             or audio_item_id in output_ids
             or inventory.audio_paths_by_id.get(audio_item_id) != audio_filepath
             or not math.isfinite(duration_s)
-            or not math.isclose(duration_s, inventory.durations_by_id.get(audio_item_id, -1), rel_tol=0, abs_tol=1e-9)
+            or duration_ms_decimal != duration_ms_decimal.to_integral_value()
+            or int(duration_ms_decimal) != inventory.durations_ms_by_id.get(audio_item_id, -1)
+            or source_lang != "hi"
+            or reference_text != inventory.reference_texts_by_id.get(audio_item_id)
+            or granary_v1_prediction != reference_text
             or not math.isfinite(wer_pct)
             or wer_pct < 0
             or source not in {"primary", "fallback"}
@@ -441,7 +486,7 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
             raise RuntimeError(msg)
         output_ids.add(audio_item_id)
         wers.append(wer_pct)
-        output_durations_s.append(duration_s)
+        output_durations_ms.append(int(duration_ms_decimal))
         skipped_rows += bool(skip_reason)
         source_counts[source if source in source_counts else "other"] += 1
 
@@ -449,16 +494,21 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
     if output_ids != expected_ids:
         msg = f"Indic ASR output identity mismatch: missing={len(expected_ids - output_ids)}, extra={len(output_ids - expected_ids)}"
         raise RuntimeError(msg)
-    total_duration_s = math.fsum(output_durations_s)
-    if not math.isclose(total_duration_s, inventory.total_duration_s, rel_tol=0, abs_tol=1e-6):
-        msg = f"Indic ASR output duration changed: input={inventory.total_duration_s}, output={total_duration_s}"
+    total_duration_ms = sum(output_durations_ms)
+    if total_duration_ms != inventory.total_duration_ms:
+        msg = (
+            f"Indic ASR output duration changed: input_ms={inventory.total_duration_ms}, output_ms={total_duration_ms}"
+        )
         raise RuntimeError(msg)
 
     return {
         "num_input_rows": inventory.num_rows,
         "num_output_rows": len(rows),
         "input_output_coverage_ratio": len(rows) / inventory.num_rows,
-        "total_audio_duration_hours": total_duration_s / 3600,
+        "total_audio_duration_ms": total_duration_ms,
+        "total_audio_duration_hours": total_duration_ms / 3_600_000,
+        "input_manifest_bytes": inventory.manifest_bytes,
+        "input_manifest_sha256": inventory.manifest_sha256,
         "primary_prediction_coverage_ratio": _coverage(rows, "primary_model_prediction"),
         "fallback_prediction_coverage_ratio": _coverage(rows, "fallback_model_prediction"),
         "best_prediction_coverage_ratio": _coverage(rows, "best_prediction"),
@@ -488,6 +538,9 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     hall_phrases: str,
     executor: str = "ray_data",
     expected_num_rows: int = EXPECTED_NUM_ROWS,
+    expected_total_duration_ms: int = EXPECTED_TOTAL_DURATION_MS,
+    expected_manifest_bytes: int = EXPECTED_MANIFEST_BYTES,
+    expected_manifest_sha256: str = EXPECTED_MANIFEST_SHA256,
     read_concurrency: int = 4,
     prep_workers: int = 24,
     primary_workers: int = 8,
@@ -513,6 +566,15 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     inventory = _materialize_input_manifests(Path(input_manifest), scratch_dir, read_concurrency)
     if inventory.num_rows != expected_num_rows:
         msg = f"Expected {expected_num_rows} Hindi rows, found {inventory.num_rows}"
+        raise RuntimeError(msg)
+    if inventory.total_duration_ms != expected_total_duration_ms:
+        msg = f"Expected {expected_total_duration_ms} ms of Hindi audio, found {inventory.total_duration_ms}"
+        raise RuntimeError(msg)
+    if inventory.manifest_bytes != expected_manifest_bytes:
+        msg = f"Expected {expected_manifest_bytes} manifest bytes, found {inventory.manifest_bytes}"
+        raise RuntimeError(msg)
+    if inventory.manifest_sha256 != expected_manifest_sha256.lower():
+        msg = f"Expected manifest SHA-256 {expected_manifest_sha256.lower()}, found {inventory.manifest_sha256}"
         raise RuntimeError(msg)
 
     pipeline = _build_pipeline(
@@ -560,6 +622,9 @@ def main() -> int:
     parser.add_argument("--hall-phrases", required=True)
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
     parser.add_argument("--expected-num-rows", type=int, default=EXPECTED_NUM_ROWS)
+    parser.add_argument("--expected-total-duration-ms", type=int, default=EXPECTED_TOTAL_DURATION_MS)
+    parser.add_argument("--expected-manifest-bytes", type=int, default=EXPECTED_MANIFEST_BYTES)
+    parser.add_argument("--expected-manifest-sha256", default=EXPECTED_MANIFEST_SHA256)
     parser.add_argument("--read-concurrency", type=int, default=4)
     parser.add_argument("--prep-workers", type=int, default=24)
     parser.add_argument("--primary-workers", type=int, default=8)
