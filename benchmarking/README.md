@@ -660,7 +660,7 @@ pipeline outputs without rescanning or downloading the staged corpus.
 The Hindi Indic ASR setup pins the public `ketav/parakeet-hindi-asr` revision
 `35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0) and validates
 all 216,169 unique mono 16 kHz clips (531.7738 audio hours) against the source
-manifest and WAV headers. Its timed entries also require the
+manifest and FLAC headers. Its timed entries also require the
 production-compatible model artifacts to be staged at:
 
 ```text

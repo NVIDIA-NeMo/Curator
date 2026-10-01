@@ -42,6 +42,9 @@ EXPECTED_NUM_ROWS = 216_169
 EXPECTED_TOTAL_DURATION_MS = 1_914_385_701
 SAMPLE_RATE = 16_000
 MAX_DURATION_ERROR_S = 0.001
+SOURCE_MANIFEST_AUDIO_SUFFIX = ".wav"
+ARCHIVE_AUDIO_SUFFIX = ".flac"
+ARCHIVE_AUDIO_FORMAT = "FLAC"
 DEFAULT_CACHE_DIR = "/tmp/curator/audio_indic_asr_cache"  # noqa: S108
 
 
@@ -85,11 +88,16 @@ def _parse_source_manifest(manifest_path: Path) -> list[HindiASRRow]:
                 msg = f"Invalid Hindi source manifest row {manifest_path}:{line_number}"
                 raise RuntimeError(msg) from e
 
-            filename = Path(source_audio_filepath).name if isinstance(source_audio_filepath, str) else ""
+            source_filename = Path(source_audio_filepath).name if isinstance(source_audio_filepath, str) else ""
+            filename = (
+                f"{Path(source_filename).stem}{ARCHIVE_AUDIO_SUFFIX}"
+                if source_filename.endswith(SOURCE_MANIFEST_AUDIO_SUFFIX)
+                else ""
+            )
             duration_ms_value = duration * 1000
             if (
                 not source_audio_filepath
-                or not filename.endswith(".wav")
+                or not filename
                 or filename in filenames
                 or not isinstance(text, str)
                 or not text.strip()
@@ -149,17 +157,19 @@ def _validate_rows_and_audio(rows: list[HindiASRRow], audio_dir: Path) -> None:
         info = sf.info(audio_path)
         measured_duration_s = info.frames / info.samplerate
         if (
-            info.samplerate != SAMPLE_RATE
+            info.format != ARCHIVE_AUDIO_FORMAT
+            or info.samplerate != SAMPLE_RATE
             or info.channels != 1
             or abs(measured_duration_s - row.duration_ms / 1000) > MAX_DURATION_ERROR_S
         ):
             msg = (
-                f"Unexpected audio metadata for {audio_path}: samplerate={info.samplerate}, "
-                f"channels={info.channels}, frames={info.frames}, source_duration_ms={row.duration_ms}"
+                f"Unexpected audio metadata for {audio_path}: format={info.format}, "
+                f"samplerate={info.samplerate}, channels={info.channels}, frames={info.frames}, "
+                f"source_duration_ms={row.duration_ms}"
             )
             raise RuntimeError(msg)
         if index % 20_000 == 0:
-            logger.info(f"Verified {index}/{len(rows)} Hindi WAV headers")
+            logger.info(f"Verified {index}/{len(rows)} Hindi FLAC headers")
 
 
 def _write_manifest(rows: list[HindiASRRow], manifest_path: Path) -> None:
@@ -250,6 +260,8 @@ def _metadata() -> dict[str, object]:
     return {
         "audio_archive_filename": AUDIO_ARCHIVE_FILENAME,
         "audio_archive_sha256": AUDIO_ARCHIVE_SHA256,
+        "archive_audio_format": ARCHIVE_AUDIO_FORMAT,
+        "archive_audio_suffix": ARCHIVE_AUDIO_SUFFIX,
         "expected_num_rows": EXPECTED_NUM_ROWS,
         "expected_total_duration_ms": EXPECTED_TOTAL_DURATION_MS,
         "hf_repo_id": HF_REPO_ID,
@@ -257,6 +269,7 @@ def _metadata() -> dict[str, object]:
         "license": "Apache-2.0",
         "sample_rate": SAMPLE_RATE,
         "source_manifest_filename": SOURCE_MANIFEST_FILENAME,
+        "source_manifest_audio_suffix": SOURCE_MANIFEST_AUDIO_SUFFIX,
         "source_manifest_sha256": SOURCE_MANIFEST_SHA256,
         "split": HF_SPLIT,
     }
@@ -278,7 +291,7 @@ def _verify_manifest(rows: list[HindiASRRow], manifest_path: Path) -> None:
 
 
 def verify_dataset(output_path: Path) -> bool:
-    """Verify the complete pinned dataset and every WAV header."""
+    """Verify the complete pinned dataset and every FLAC header."""
     try:
         manifest_path = output_path / "manifest.jsonl"
         source_manifest_path = output_path / "source_manifest.jsonl"
@@ -315,24 +328,24 @@ def verify_dataset(output_path: Path) -> bool:
 def _publish_audio(rows: list[HindiASRRow], extracted_path: Path, audio_dir: Path) -> None:
     expected_filenames = {row.filename for row in rows}
     source_paths: dict[str, Path] = {}
-    for candidate in extracted_path.rglob("*.wav"):
+    for candidate in extracted_path.rglob(f"*{ARCHIVE_AUDIO_SUFFIX}"):
         if candidate.name not in expected_filenames:
             continue
         if candidate.name in source_paths:
-            msg = f"Duplicate Hindi WAV filename in source archive: {candidate.name}"
+            msg = f"Duplicate Hindi FLAC filename in source archive: {candidate.name}"
             raise RuntimeError(msg)
         source_paths[candidate.name] = candidate
 
     missing = expected_filenames - source_paths.keys()
     if missing:
-        msg = f"Hindi source archive is missing {len(missing)} manifest WAV files"
+        msg = f"Hindi source archive is missing {len(missing)} manifest-matched FLAC files"
         raise RuntimeError(msg)
 
     audio_dir.mkdir()
     for index, row in enumerate(rows, start=1):
         source_paths[row.filename].replace(audio_dir / row.filename)
         if index % 20_000 == 0:
-            logger.info(f"Published {index}/{len(rows)} Hindi WAV files")
+            logger.info(f"Published {index}/{len(rows)} Hindi FLAC files")
 
 
 def stage_dataset(output_path: Path, cache_dir: str) -> None:
