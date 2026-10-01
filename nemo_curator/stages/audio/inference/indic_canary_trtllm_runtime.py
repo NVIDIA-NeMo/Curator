@@ -138,8 +138,8 @@ def _require_tensorrt_llm() -> None:
     # the separately locked worker runtime provisioned by the audio profile.
     msg = (
         "tensorrt_llm is missing from the isolated Indic Canary runtime. "
-        "Install `nemo_curator[audio_canary_trtllm]`; stage prefetch provisions "
-        "the packaged, locked child runtime automatically."
+        "Install `nemo_curator[audio_canary_trtllm]`; benchmark preflight or "
+        "adapter setup provisions the packaged, locked child runtime automatically."
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 

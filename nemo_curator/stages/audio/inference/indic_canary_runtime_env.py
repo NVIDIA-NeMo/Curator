@@ -200,8 +200,8 @@ def ensure_runtime_python(configured: str | None = None) -> Path:
 
     Explicit paths remain strict: a misspelled stage value or environment
     override must fail instead of silently downloading and selecting another
-    interpreter.  With no override, audio-stage node prefetch installs the
-    frozen runtime once and subsequent workers reuse it.
+    interpreter. With no override, benchmark preflight or first adapter setup
+    installs the frozen runtime once and subsequent workers reuse it.
     """
     if configured is not None or os.environ.get(_RUNTIME_ENV_VAR):
         return resolve_runtime_python(configured)
@@ -304,10 +304,10 @@ def runtime_subprocess_environment(runtime_python: Path) -> dict[str, str]:
 def install_runtime(runtime_root: Path | None = None) -> Path:
     """Synchronize the exact locked runtime and return its Python executable.
 
-    Stage prefetch calls this automatically when no explicit runtime was
-    configured. It can also be invoked manually to prewarm a shared cache. A
-    file lock makes concurrent node preparation safe when multiple launchers
-    target the same cache.
+    Benchmark preflight and adapter setup call this automatically when no
+    explicit runtime was configured. It can also be invoked manually to
+    prewarm a shared cache. A file lock makes concurrent node preparation safe
+    when multiple launchers target the same cache.
     """
     if sys.platform != "linux" or platform.machine().lower() not in {"amd64", "x86_64"}:
         msg = "Indic Canary TensorRT-LLM runtime is supported only on Linux x86_64"

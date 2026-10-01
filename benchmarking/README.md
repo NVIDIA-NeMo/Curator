@@ -675,14 +675,14 @@ under its mounted dataset and model roots before launching this entry.
 
 The Curator environment must install the `audio_canary_trtllm` extra. The
 standard `all` profile includes this audio extra, so the benchmark follows the
-same pyproject/lock-driven environment path as other Curator jobs. During stage
-prefetch, Curator automatically provisions and reuses the separately locked
-Indic Canary child runtime. Parakeet uses TensorRT from the parent environment;
-Canary loads its compatible TensorRT-LLM stack only in the child process. The
-host or container runtime must independently provide a CUDA-13-capable NVIDIA
-driver, or NVIDIA forward-compatibility libraries on a supported data-center
-GPU. The benchmark validates both Python runtimes and the complete engine
-inventories before timing the processor chain.
+same pyproject/lock-driven environment path as other Curator jobs. Before its
+timer starts, benchmark preflight automatically provisions and reuses the
+separately locked Indic Canary child runtime. Parakeet uses TensorRT from the
+parent environment; Canary loads its compatible TensorRT-LLM stack only in the
+child process. The host or container runtime must independently provide a
+CUDA-13-capable NVIDIA driver, or NVIDIA forward-compatibility libraries on a
+supported data-center GPU. The benchmark validates both Python runtimes and the
+complete engine inventories before timing the processor chain.
 
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,
