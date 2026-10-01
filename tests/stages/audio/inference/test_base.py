@@ -16,12 +16,14 @@
 
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.inference.lid.stage import AudioLIDInferenceStage
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 
 
-def test_asr_and_sed_inherit_one_adapter_stage_base() -> None:
+def test_asr_sed_and_lid_inherit_one_adapter_stage_base() -> None:
     assert issubclass(ASRStage, AdapterInferenceStage)
     assert issubclass(SEDInferenceStage, AdapterInferenceStage)
+    assert issubclass(AudioLIDInferenceStage, AdapterInferenceStage)
 
 
 def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
@@ -35,6 +37,7 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
     }
     assert common_methods.isdisjoint(ASRStage.__dict__)
     assert common_methods.isdisjoint(SEDInferenceStage.__dict__)
+    assert common_methods.isdisjoint(AudioLIDInferenceStage.__dict__)
 
 
 def test_worker_sizing_uses_the_processing_stage_override() -> None:
@@ -44,9 +47,18 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
         model_id="model",
         max_audio_sec_per_actor=2400.0,
     )
+    lid = AudioLIDInferenceStage(
+        adapter_target="package.Adapter",
+        model_id="SpeechBrainLangID",
+        tag="primary",
+        num_workers_override=2,
+    )
 
     assert "num_workers_override" not in SEDInferenceStage.__dataclass_fields__
+    assert "num_workers_override" in AudioLIDInferenceStage.__dataclass_fields__
     assert sed.num_workers() is None
     assert asr.num_workers() is None
+    assert lid.num_workers() == 2
     assert sed.with_(num_workers=3).num_workers() == 3
     assert asr.with_(num_workers=3).num_workers() == 3
+    assert lid.with_(num_workers=3).num_workers() == 3
