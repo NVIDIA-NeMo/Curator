@@ -15,9 +15,12 @@
 """Unit tests for CreateInitialManifestAudioFolderStage (generic local-folder source)."""
 
 import os
+from pathlib import Path
 
 import pytest
 
+from nemo_curator.backends import base as backend_base
+from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
 from nemo_curator.tasks import EmptyTask
 
@@ -47,7 +50,7 @@ class TestCreateInitialManifestAudioFolderStage:
         tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
         ids = sorted(t.data["audio_item_id"] for t in tasks)
 
-        assert ids == ["spk1__utt1", "spk2__utt1"], ids
+        assert ids == ["spk1__utt1~ewav", "spk2__utt1~ewav"], ids
 
     def test_flattened_path_and_literal_separator_get_distinct_ids(self, tmp_path) -> None:  # noqa: ANN001
         root = str(tmp_path)
@@ -59,19 +62,19 @@ class TestCreateInitialManifestAudioFolderStage:
             os.path.relpath(task.data["audio_filepath"], root): task.data["audio_item_id"] for task in tasks
         }
 
-        assert ids_by_path[os.path.join("spk1", "utt1.wav")] == "spk1__utt1"
-        assert ids_by_path["spk1__utt1.wav"] == "spk1~u~uutt1"
+        assert ids_by_path[os.path.join("spk1", "utt1.wav")] == "spk1__utt1~ewav"
+        assert ids_by_path["spk1__utt1.wav"] == "spk1~u~uutt1~ewav"
         assert len(set(ids_by_path.values())) == 2
 
-    def test_a_flat_folder_keeps_the_plain_ids_it_always_had(self, tmp_path) -> None:  # noqa: ANN001
-        """relpath IS the basename for a flat corpus, so those ids must not move."""
+    def test_flat_folder_ids_include_the_extension(self, tmp_path) -> None:  # noqa: ANN001
+        """Identity includes extension regardless of other files in the selected cohort."""
         root = str(tmp_path)
         for rel in ["a.wav", "b.wav"]:
             _touch(root, rel)
 
         tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
 
-        assert sorted(t.data["audio_item_id"] for t in tasks) == ["a", "b"]
+        assert sorted(t.data["audio_item_id"] for t in tasks) == ["a~ewav", "b~ewav"]
 
     def test_same_stem_with_different_extensions_gets_two_ids(self, tmp_path) -> None:  # noqa: ANN001
         root = str(tmp_path)
@@ -79,12 +82,45 @@ class TestCreateInitialManifestAudioFolderStage:
             _touch(root, rel)
 
         tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
-        ids_by_name = {
-            os.path.basename(task.data["audio_filepath"]): task.data["audio_item_id"] for task in tasks
-        }
+        ids_by_name = {os.path.basename(task.data["audio_filepath"]): task.data["audio_item_id"] for task in tasks}
 
         assert ids_by_name == {"a.flac": "a~eflac", "a.wav": "a~ewav"}
         assert len(set(ids_by_name.values())) == 2
+
+    @pytest.mark.parametrize("suffix", [".flac", ".WAV", ".mp3"])
+    def test_ids_survive_full_delta_and_bounded_scans(self, tmp_path: Path, suffix: str) -> None:
+        wav = tmp_path / "a.wav"
+        wav.touch()
+        retained = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)[0]
+        added = tmp_path / f"a{suffix}"
+        added.touch()
+        full = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)
+        delta = CreateInitialManifestAudioFolderStage(str(tmp_path), include_files=[str(added)]).process(None)[0]
+        by_path = {row.data["audio_filepath"]: row.data["audio_item_id"] for row in full}
+        assert by_path[str(wav)] == retained.data["audio_item_id"]
+        assert by_path[str(added)] == delta.data["audio_item_id"]
+        assert by_path[str(wav)] != by_path[str(added)]
+        bounded = CreateInitialManifestAudioFolderStage(str(tmp_path), max_samples=1).process(None)[0]
+        assert bounded.data["audio_item_id"] == by_path[bounded.data["audio_filepath"]]
+
+    def test_resume_does_not_skip_a_new_earlier_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        later = tmp_path / "b.wav"
+        later.touch()
+        source = CreateInitialManifestAudioFolderStage(str(tmp_path))
+        source.is_source_stage = True
+        adapter = BaseStageAdapter(source)
+        parent = EmptyTask()
+        parent.task_id = "0"
+        first = adapter._post_process_task_ids([parent], source.process(parent))
+        completed = first[0].get_source_id()
+        earlier = tmp_path / "a.wav"
+        earlier.touch()
+        second = adapter._post_process_task_ids([parent], source.process(parent))
+        monkeypatch.setattr(backend_base, "completed_resumability_sources", lambda _ids: {completed})
+        monkeypatch.setattr(backend_base, "flush_resumability_deltas", lambda _deltas: None)
+        survivors = adapter._source_counters(second)
+        assert [row.data["audio_filepath"] for row in survivors] == [str(earlier)]
+        assert second[1].get_source_id() == completed
 
     def test_non_recursive_and_max_samples(self, tmp_path) -> None:  # noqa: ANN001
         root = str(tmp_path)
@@ -124,7 +160,8 @@ class TestCreateInitialManifestAudioFolderStage:
 
         [child] = CreateInitialManifestAudioFolderStage(data_dir=root).process(parent)
 
-        assert child._metadata == parent._metadata
+        assert child._metadata["trace"] == parent._metadata["trace"]
+        assert child._metadata["audio_folder_source_id"] == child.get_deterministic_id()
         assert child._stage_perf == parent._stage_perf
         assert child._stage_perf is not parent._stage_perf
 
@@ -132,3 +169,39 @@ class TestCreateInitialManifestAudioFolderStage:
         c = CreateInitialManifestAudioFolderStage(data_dir="/tmp").describe()  # noqa: S108
         assert "audio_filepath" in c.writes.data_keys
         assert c.gates.writes_to_disk is False  # references existing files; no disk write
+
+
+def test_full_delta_and_restricted_folder_ids_do_not_collide(tmp_path: Path) -> None:
+    (tmp_path / "a.wav").touch()
+    initial = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)[0]
+    (tmp_path / "a.flac").touch()
+    delta = CreateInitialManifestAudioFolderStage(str(tmp_path), include_files=[str(tmp_path / "a.flac")]).process(
+        None
+    )
+    full = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)
+    ids = {task.data["audio_filepath"]: task.data["audio_item_id"] for task in full}
+    assert len(set(ids.values())) == 2
+    assert initial.data["audio_item_id"] == ids[initial.data["audio_filepath"]]
+    assert delta[0].data["audio_item_id"] == ids[delta[0].data["audio_filepath"]]
+    assert initial.get_deterministic_id() != delta[0].get_deterministic_id()
+
+
+def test_added_earlier_file_does_not_reuse_completed_source_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.backends.base import BaseStageAdapter
+    from nemo_curator.tasks import EmptyTask
+
+    (tmp_path / "b.wav").touch()
+    stage = CreateInitialManifestAudioFolderStage(str(tmp_path))
+    stage.is_source_stage = True
+    adapter = BaseStageAdapter(stage)
+    initial = adapter._post_process_task_ids([EmptyTask()], stage.process(None))
+    completed_id = initial[0].get_source_id()
+    (tmp_path / "a.wav").touch()
+    rows = adapter._post_process_task_ids([EmptyTask()], stage.process(None))
+    assert rows[1].get_source_id() == completed_id
+    monkeypatch.setattr("nemo_curator.backends.base.completed_resumability_sources", lambda _: {completed_id})
+    monkeypatch.setattr("nemo_curator.backends.base.flush_resumability_deltas", lambda _: None)
+    survivors = adapter._source_counters(rows)
+    assert [Path(t.data["audio_filepath"]).name for t in survivors] == ["a.wav"]

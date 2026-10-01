@@ -26,6 +26,15 @@ MOCK_EXISTS = "nemo_curator.stages.audio.preprocessing.mono_conversion.os.path.e
 
 
 class TestMonoConversionStage:
+    def test_legacy_file_key_can_alias_inactive_waveform_input(self, tmp_path: Path) -> None:
+        wav = tmp_path / "mono.wav"
+        wav.touch()
+        with patch(MOCK_TARGET, return_value=(torch.ones(1, 16000), 16000)), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage(output_sample_rate=16000, audio_filepath_key="waveform")
+            result = stage.process(AudioTask(data={"waveform": str(wav)}))
+        assert torch.is_tensor(result.data["waveform"])
+        assert result.data["sample_rate"] == 16000
+
     def test_process_stereo_to_mono(self, tmp_path: Path) -> None:
         wav = tmp_path / "stereo.wav"
         wav.touch()

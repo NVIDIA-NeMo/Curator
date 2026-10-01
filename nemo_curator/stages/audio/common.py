@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
+import hashlib
 import json
 import math
 import os
+import tempfile
 import time
 import uuid
-from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from operator import eq, ge, gt, le, lt, ne
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
@@ -66,28 +67,10 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     name: str = "GetAudioDurationStage"
     audio_filepath_key: str = "audio_filepath"
     duration_key: str = "duration"
+    _: KW_ONLY
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     input_residency: Literal["file", "waveform", "auto"] = "file"
-
-    def __post_init__(self) -> None:
-        super().__init__()
-        # Lazy import avoids the module-level cycle (_residency imports helpers below).
-        from nemo_curator.stages.audio._agent._residency import (
-            validate_audio_key_configuration,
-            validate_input_residency,
-        )
-
-        validate_input_residency(self.input_residency, stage_name=self.name)
-        validate_audio_key_configuration(
-            self.name,
-            input_keys={
-                "audio_filepath_key": self.audio_filepath_key,
-                "waveform_key": self.waveform_key,
-                "sample_rate_key": self.sample_rate_key,
-            },
-            output_keys={"duration_key": self.duration_key},
-        )
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         import soundfile
@@ -117,53 +100,53 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             gates=Gates(per_row_independent=True),
         )
 
+    def __post_init__(self) -> None:
+        from nemo_curator.stages.audio._agent._residency import validate_input_residency
+
+        validate_input_residency(self.input_residency, stage_name=self.name)
+        if self.input_residency != "file":
+            from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+
+            inputs = {"waveform_key": self.waveform_key, "sample_rate_key": self.sample_rate_key}
+            if self.input_residency == "auto":
+                inputs["audio_filepath_key"] = self.audio_filepath_key
+            validate_audio_key_configuration(
+                self.name, input_keys=inputs, output_keys={"duration_key": self.duration_key}
+            )
+
     def validate_input(self, task: AudioTask) -> bool:
-        """Require the audio source implied by ``input_residency`` (default: file)."""
-        data = task.data
-        has_file = self.audio_filepath_key in data
-        if self.input_residency == "file":
-            return has_file
-        try:
-            has_waveform = self._resident_rate(data) is not None
-        except ValueError:
-            has_waveform = False
-        if self.input_residency == "waveform":
-            return has_waveform
-        return has_waveform or has_file  # auto
+        if not super().validate_input(task):
+            return False
+        return self.input_residency != "waveform" or self._resident_rate(task.data) is not None
+
+    def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
+        attrs, keys = super().input_spec_for_task(task)
+        if self.input_residency == "auto" and self._resident_rate(task.data) is not None:
+            keys = [key for key in keys if key != self.audio_filepath_key]
+            keys.extend([self.waveform_key, self.sample_rate_key])
+        return attrs, keys
 
     def _resident_rate(self, data: dict[str, Any]) -> int | None:
-        waveform = data.get(self.waveform_key)
-        sample_rate = data.get(self.sample_rate_key)
-        if waveform is None or sample_rate is None:
-            return None
-
-        # Lazy import avoids the module-level cycle (_residency imports helpers below).
         from nemo_curator.stages.audio._agent._residency import resident_sample_rate
 
-        return resident_sample_rate(
-            sample_rate,
-            sample_rate_key=self.sample_rate_key,
-            stage_name=self.name,
-        )
+        if data.get(self.waveform_key) is None or data.get(self.sample_rate_key) is None:
+            return None
+        try:
+            return resident_sample_rate(
+                data[self.sample_rate_key], sample_rate_key=self.sample_rate_key, stage_name=self.name
+            )
+        except ValueError:
+            return None
 
     def _resolve_duration(self, data: dict[str, Any]) -> float:
-        """Duration from an in-memory waveform (samples / sample_rate) or the file.
-
-        Default (``input_residency="file"``) reads the file exactly as before.
-        """
+        """Prefer valid resident audio only in the explicitly selected residency modes."""
         if self.input_residency != "file":
-            waveform = data.get(self.waveform_key)
-            try:
-                sample_rate = self._resident_rate(data)
-            except ValueError:
-                if self.input_residency == "waveform" or self.audio_filepath_key not in data:
-                    raise
-            else:
-                if sample_rate is not None:
-                    return ensure_waveform_2d(waveform).shape[-1] / sample_rate
+            rate = self._resident_rate(data)
+            if rate is not None:
+                return ensure_waveform_2d(data[self.waveform_key]).shape[-1] / rate
             if self.input_residency == "waveform":
-                logger.warning(f"Missing '{self.waveform_key}'+'{self.sample_rate_key}' (input_residency='waveform')")
-                return -1.0
+                msg = f"[{self.name}] Missing waveform or invalid resident sample rate"
+                raise ValueError(msg)
         return get_audio_duration(data[self.audio_filepath_key])
 
     def process(self, task: AudioTask) -> AudioTask:
@@ -405,7 +388,17 @@ class PreserveByValueConditionsStage(AgentReady, ProcessingStage[AudioTask, Audi
         logic = self.condition_logic.upper()
         if self.items_key is not None:
             return StageContract(
-                reads=IOSpec(data_keys=[self.items_key]),
+                reads=IOSpec(
+                    data_keys=[self.items_key],
+                    segment_data_keys=(
+                        [c.input_value_key for c in self._conditions] if self.missing_value_policy == "error" else []
+                    ),
+                ),
+                optional_reads=IOSpec(
+                    segment_data_keys=(
+                        [c.input_value_key for c in self._conditions] if self.missing_value_policy == "drop" else []
+                    )
+                ),
                 writes=IOSpec(data_keys=[self.items_key]),
                 cardinality="filter" if self.drop_parent_if_empty else "1:1 nested-list",
                 cardinality_options=["filter", "1:1 nested-list"],
@@ -552,6 +545,7 @@ class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask])
     """
 
     name: str = "manifest_reader_stage"
+    _: KW_ONLY
     include_files: list[str] | None = None
     include_files_key: str = "audio_filepath"
     # Declared statically as well as in describe(): a narrowable source has to be readable as
@@ -641,6 +635,7 @@ class ManifestReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
+    _: KW_ONLY
     include_files: list[str] | None = None
     include_files_key: str = "audio_filepath"
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
@@ -683,6 +678,13 @@ class ManifestReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
         )
 
 
+class _AudioFolderTask(AudioTask):
+    """Folder source identity independent of enumeration and the selected cohort."""
+
+    def get_deterministic_id(self) -> str:
+        return self._metadata["audio_folder_source_id"]
+
+
 @dataclass
 class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Create an initial manifest from any local folder of audio files.
@@ -714,8 +716,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
     audio_item_id_key: str = "audio_item_id"
     name: str = "CreateInitialManifestAudioFolder"
     batch_size: int = 1
-    # Static discovery cannot resolve max_samples. Be conservative there; configured
-    # contracts below recover True for the default unbounded scan.
+    # See ManifestReaderStage: the narrowing claim has to survive being read off the class.
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
 
     def __post_init__(self) -> None:
@@ -723,7 +724,6 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
         if not self.data_dir:
             msg = "data_dir is required for CreateInitialManifestAudioFolderStage"
             raise ValueError(msg)
-        # Lazy import avoids the module-level cycle (_residency imports helpers above).
         from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 
         validate_audio_key_configuration(
@@ -760,10 +760,11 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
         return 1
 
     @staticmethod
-    def _encode_item_id_path(relative_path: str) -> str:
-        """Flatten a relative path without confusing separators with filename text."""
+    def _item_id(relative_path: str) -> str:
+        """Flatten a relative stem without confusing separators with filename text."""
+        stem, extension = os.path.splitext(relative_path)
         encoded_components: list[str] = []
-        for component in relative_path.split(os.sep):
+        for component in stem.split(os.sep):
             encoded: list[str] = []
             last = len(component) - 1
             for index, char in enumerate(component):
@@ -780,16 +781,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
                 else:
                     encoded.append(char)
             encoded_components.append("".join(encoded))
-        return "__".join(encoded_components)
-
-    @classmethod
-    def _item_id(cls, relative_path: str, *, include_extension: bool = False) -> str:
-        """Return the legacy stem id, adding a reserved extension suffix on collisions."""
-        stem, extension = os.path.splitext(relative_path)
-        item_id = cls._encode_item_id_path(stem)
-        if include_extension:
-            item_id = f"{item_id}~e{cls._encode_item_id_path(extension[1:])}"
-        return item_id
+        return "__".join(encoded_components) + "~e" + extension[1:].replace("~", "~~")
 
     def _collect_audio_files(self) -> list[str]:
         exts = tuple((e if e.startswith(".") else f".{e}").lower() for e in self.extensions)
@@ -826,24 +818,24 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
         if not paths:
             logger.warning(f"[{self.name}] no audio files {self.extensions} under {self.data_dir}")
             return []
-        root = os.path.abspath(self.data_dir)
-        relative_paths = [os.path.relpath(os.path.abspath(path), root) for path in paths]
-        legacy_ids = [self._item_id(relative_path) for relative_path in relative_paths]
-        id_counts = Counter(legacy_ids)
         tasks: list[AudioTask] = []
-        for path, rel, legacy_id in zip(paths, relative_paths, legacy_ids, strict=True):
+        for path in paths:
             abspath = os.path.abspath(path)
             # Relpath, not basename: ``recursive`` defaults True and speaker-per-folder is the
             # standard layout, so a basename id gives spk1/utt1.wav and spk2/utt1.wav the same
             # id -- and downstream that id becomes an output filename. A flat corpus is
             # unaffected unless its name needs escaping to remain distinct from a path separator.
-            item_id = self._item_id(rel, include_extension=id_counts[legacy_id] > 1)
+            rel = os.path.relpath(abspath, os.path.abspath(self.data_dir))
+            item_id = self._item_id(rel)
             tasks.append(
-                AudioTask(
+                _AudioFolderTask(
                     dataset_name="local-audio-folder",
                     data={self.audio_filepath_key: abspath, self.audio_item_id_key: item_id},
                     filepath_key=self.audio_filepath_key,
-                    _metadata={} if task is None else task._metadata,
+                    _metadata={
+                        **({} if task is None else task._metadata),
+                        "audio_folder_source_id": hashlib.sha256(abspath.encode("utf-8")).hexdigest(),
+                    },
                     _stage_perf=[] if task is None else list(task._stage_perf),
                 )
             )
@@ -853,28 +845,11 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
 
 @dataclass
 class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
-    """Append a single AudioTask to a JSONL manifest file.
+    """Append AudioTasks to a driver-prepared JSONL manifest.
 
-    The output file is truncated in ``setup_on_node()`` so repeated pipeline
-    runs produce a clean output. Every executor runs ``setup_on_node()`` on each
-    node BEFORE any worker starts processing, and does not run it again when a
-    worker actor is replaced -- whereas ``setup()`` runs per worker actor, so a
-    replacement actor after a crash or a Ray Data/Xenna worker restart would
-    re-run it and erase every row the previous actor had already committed.
-    ``setup()`` therefore only prepares the filesystem handle and never
-    truncates.
-
-    .. note::
-       Because all nodes append to the same path, callers in multi-node
-       setups should either use a shared filesystem or provide a
-       node-unique ``output_path``. On a shared filesystem every node's
-       ``setup_on_node()`` truncation completes before the single writer
-       worker (``num_workers() == 1``) appends its first row.
-
-    Supports local and cloud paths via fsspec.
-
-    Args:
-        output_path: Destination JSONL path (local or cloud).
+    Audio-agent preparation truncates once before workers are serialized. Worker and
+    node setup only verify the shared run reservation. Standalone setup() retains
+    its historical truncate behavior when no driver reservation was prepared.
     """
 
     output_path: str
@@ -898,28 +873,82 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Prepare the filesystem handle for this worker. Never truncates (see class docstring)."""
+    def _resolve_output(self) -> None:
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
+
+    def prepare_on_driver(self, *, checkpoint_path: str | Path | None = None) -> None:
+        """Reserve once; preserve earlier rows when source resumability is enabled."""
+        self._resolve_output()
+        token = uuid.uuid4().hex
+        with self._fs.open(f"{self._path}._RUN", "x", encoding="utf-8") as owner:
+            owner.write(token)
+        self._run_token = token
+        try:
+            mode = "a" if checkpoint_path is not None else "w"
+            with self._fs.open(self._path, mode, encoding="utf-8"):
+                pass
+        except Exception:
+            self.abort_on_driver()
+            raise
+
+    def _verify_run(self) -> None:
+        try:
+            with self._fs.open(f"{self._path}._RUN", "r", encoding="utf-8") as owner:
+                token = owner.read()
+            if token == self._run_token and self._fs.exists(self._path):
+                return
+        except FileNotFoundError:
+            pass
+        msg = f"ManifestWriterStage cannot see its driver-prepared shared output at {self.output_path!r}"
+        raise RuntimeError(msg)
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        self._resolve_output()
+        if getattr(self, "_run_token", None) is not None:
+            self._verify_run()
+        else:
+            if self._fs.exists(f"{self._path}._RUN"):
+                msg = "ManifestWriterStage cannot truncate output owned by an active pipeline run"
+                raise RuntimeError(msg)
+            with self._fs.open(self._path, "w", encoding="utf-8"):
+                pass
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Create the parent directory and truncate the output once per run, before any worker writes."""
-        self._fs, self._path = url_to_fs(self.output_path)
-        parent_dir = "/".join(self._path.split("/")[:-1])
-        if parent_dir:
-            self._fs.makedirs(parent_dir, exist_ok=True)
-        with self._fs.open(self._path, "w", encoding="utf-8"):
-            pass
+        self._resolve_output()
+        if getattr(self, "_run_token", None) is not None:
+            self._verify_run()
+
+    def finalize(self) -> None:
+        if getattr(self, "_run_token", None) is not None:
+            self._verify_run()
+            self.abort_on_driver()
+
+    def reset_for_retry(self) -> None:
+        """Release this agent run before the driver prepares its next attempt."""
+        self.abort_on_driver()
+
+    def abort_on_driver(self) -> None:
+        """Release only this run's ownership; retain partial output on failure."""
+        if getattr(self, "_run_token", None) is None:
+            return
+        self._resolve_output()
+        owner_path = f"{self._path}._RUN"
+        if self._fs.exists(owner_path):
+            with self._fs.open(owner_path, "r", encoding="utf-8") as owner:
+                if owner.read() != self._run_token:
+                    return
+            self._fs.rm(owner_path)
+        self._run_token = None
 
     def process(self, task: AudioTask) -> AudioTask:
+        if getattr(self, "_run_token", None) is not None:
+            self._verify_run()
         with self._fs.open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return AudioTask(
@@ -1019,7 +1048,43 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
 
+    def prepare_on_driver(self, **_run_context: object) -> None:
+        self._reserve_checkpoint()
+        self._driver_prepared = True
+
+    def _verify_reservation(self) -> None:
+        self._resolve_output()
+        owner = self._read_retry_owner()
+        if owner is not None and owner.get("token") == self._reservation_token and self._fs.exists(self._path):
+            stat = os.stat(self._path)
+            # Device numbers can differ across hosts mounting the same shared filesystem.
+            if (stat.st_ino, stat.st_ctime_ns, stat.st_size) == (
+                owner.get("st_ino"),
+                owner.get("st_ctime_ns"),
+                owner.get("st_size"),
+            ):
+                self._reservation_owned = True
+                self._reservation_identity = (stat.st_dev, stat.st_ino, stat.st_ctime_ns)
+                return
+        msg = f"ManifestCheckpointStage cannot verify its shared reservation at {self.output_path!r}"
+        raise RuntimeError(msg)
+
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
+        if getattr(self, "_driver_prepared", False):
+            self._verify_reservation()
+
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        if getattr(self, "_driver_prepared", False):
+            self._verify_reservation()
+        else:
+            self._reserve_checkpoint()
+
+    def finalize(self) -> None:
+        self.release_retry_reservation()
+
+    def _reserve_checkpoint(self) -> None:
         """Atomically reserve a new checkpoint without overwriting retained work."""
         self._resolve_output()
         if self._reservation_owned:
@@ -1130,70 +1195,34 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         self._reset_retry_state()
 
     def release_retry_reservation(self) -> None:
-        """Publish completion, then remove this run's retry ownership sidecar."""
+        """Publish completion only after verifying this run's durable reservation."""
         self._resolve_output()
-        owner = self._read_retry_owner()
-        if owner is None or owner.get("token") != self._reservation_token:
-            msg = (
-                "ManifestCheckpointStage cannot publish completion for a checkpoint "
-                f"it does not own at {self.output_path!r}"
-            )
-            raise RuntimeError(msg)
-        if not self._fs.exists(self._path):
-            msg = f"ManifestCheckpointStage cannot publish completion for missing checkpoint {self.output_path!r}"
-            raise RuntimeError(msg)
-
-        stat = os.stat(self._path)
-        identity = (stat.st_dev, stat.st_ino, stat.st_ctime_ns)
-        recorded_identity = (
-            owner.get("st_dev"),
-            owner.get("st_ino"),
-            owner.get("st_ctime_ns"),
-        )
-        if identity != recorded_identity or stat.st_size != owner.get("st_size"):
-            msg = (
-                "ManifestCheckpointStage cannot publish completion because the checkpoint "
-                f"at {self.output_path!r} is no longer its exact reservation"
-            )
-            raise FileExistsError(msg)
-
         marker_path = f"{self._path}._COMPLETE"
-        marker = {
-            "st_dev": stat.st_dev,
-            "st_ino": stat.st_ino,
-            "st_ctime_ns": stat.st_ctime_ns,
-            "st_size": stat.st_size,
-        }
-        try:
-            with self._fs.open(marker_path, "xb") as complete:
-                complete.write(json.dumps(marker, sort_keys=True).encode("utf-8"))
-        except FileExistsError as exc:
+        if self._fs.exists(marker_path):
+            with self._fs.open(marker_path, encoding="utf-8") as marker:
+                if json.load(marker).get("token") == self._reservation_token:
+                    return
             msg = f"ManifestCheckpointStage refuses to replace completion marker at {self.output_path!r}"
-            raise FileExistsError(msg) from exc
-        except OSError:
-            with contextlib.suppress(OSError):
-                self._fs.rm(marker_path)
-            raise
-
-        try:
-            self._remove_retry_owner_if_owned()
-        except OSError as exc:
-            logger.warning(
-                "ManifestCheckpointStage could not remove its successful retry "
-                f"ownership record at {self.output_path!r}: {exc}"
-            )
+            raise FileExistsError(msg)
+        self._verify_reservation()
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(self._path),
+            prefix=os.path.basename(marker_path) + ".",
+            delete=False,
+        ) as marker:
+            temporary_path = marker.name
+            try:
+                json.dump(self._read_retry_owner(), marker)
+                marker.flush()
+                os.fsync(marker.fileno())
+                os.link(temporary_path, marker_path)
+            finally:
+                os.unlink(temporary_path)
+        self._remove_retry_owner_if_owned()
         self._reservation_owned = False
         self._reservation_identity = None
-
-    def finalize(self) -> None:
-        """Publish the completion marker after successful pipeline execution."""
-        self._resolve_output()
-        if self._read_retry_owner() is None and not self._fs.exists(self._path):
-            # A backend may never construct a worker when the upstream dataset
-            # is empty. A successful empty checkpoint is still a complete,
-            # reusable artifact, so reserve it on the driver before publishing.
-            self.setup()
-        self.release_retry_reservation()
 
     def _retry_owner_path(self) -> str:
         return f"{self._path}._RETRY_OWNER"
@@ -1227,21 +1256,16 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         self._fs.rm(self._retry_owner_path())
 
     def _reset_retry_state(self) -> None:
+        self._driver_prepared = False
         self._reservation_owned = False
         self._reservation_identity = None
         self._checkpoint_rows_written = 0
         self._checkpoint_bytes_written = 0
         self._custom_metrics = {}
 
-    def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
-    ) -> None:
-        """Ensure the local parent directory exists without truncating."""
-        self._resolve_output()
-
     def process(self, task: AudioTask) -> AudioTask:
+        if getattr(self, "_driver_prepared", False):
+            self._verify_reservation()
         if not self._reservation_owned:
             msg = "ManifestCheckpointStage cannot write without an owned setup reservation"
             raise RuntimeError(msg)

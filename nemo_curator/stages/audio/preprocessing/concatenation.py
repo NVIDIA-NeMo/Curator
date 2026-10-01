@@ -40,7 +40,7 @@ import torch
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._agent._residency import write_audio_stable
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration, write_audio_stable
 from nemo_curator.stages.audio.common import ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -124,6 +124,22 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         if self.write_to_disk and not self.output_dir:
             msg = "output_dir is required when write_to_disk=True"
             raise ValueError(msg)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={"waveform_key": self.waveform_key, "sample_rate_key": self.sample_rate_key},
+            output_keys={},
+        )
+        validate_audio_key_configuration(self.name, input_keys={"segments_key": self.segments_key}, output_keys={})
+        output_keys = {
+            "original_file_key": self.original_file_key,
+            "num_segments_key": self.num_segments_key,
+            "total_duration_sec_key": self.total_duration_sec_key,
+        }
+        if self.keep_waveform_in_task:
+            output_keys.update(waveform_key=self.waveform_key, sample_rate_key=self.sample_rate_key)
+        if self.write_to_disk:
+            output_keys["audio_filepath_key"] = self.audio_filepath_key
+        validate_audio_key_configuration(self.name, input_keys={}, output_keys=output_keys)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

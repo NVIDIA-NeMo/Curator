@@ -887,10 +887,10 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
         walk.available -= dropped_roles
         walk.segment_available_keys -= dropped_segment_keys
         walk.segment_available -= dropped_segment_roles
-        walk.possible_keys -= dropped_keys
-        walk.possible_segment_keys -= dropped_segment_keys
-        walk.possible_roles -= dropped_roles
-        walk.possible_segment_roles -= dropped_segment_roles
+        walk.possible_keys.clear()
+        walk.possible_segment_keys.clear()
+        walk.possible_roles.clear()
+        walk.possible_segment_roles.clear()
         walk.removed_roles |= dropped_roles
         for key in dropped_keys:
             walk.key_producer.pop(key, None)

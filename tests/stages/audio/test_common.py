@@ -16,8 +16,11 @@
 ManifestReaderStage, ManifestReader, ManifestWriterStage, and ManifestCheckpointStage."""
 
 import json
+import pickle
+from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import numpy as np
@@ -44,6 +47,112 @@ from nemo_curator.stages.audio.common import (
 )
 from nemo_curator.tasks import AudioTask, FileGroupTask
 from tests import FIXTURES_DIR
+
+
+@dataclass
+class _DurationSubclass(GetAudioDurationStage):
+    marker: str = "DEFAULT"
+
+
+@dataclass
+class _ReaderStageSubclass(ManifestReaderStage):
+    marker: str = "DEFAULT"
+
+
+@dataclass
+class _ReaderSubclass(ManifestReader):
+    marker: str = "DEFAULT"
+
+
+def test_legacy_subclass_positionals_keep_their_meaning() -> None:
+    duration = _DurationSubclass("duration", "audio_filepath", "duration", "LEGACY")
+    reader_stage = _ReaderStageSubclass("reader", "LEGACY")
+    reader = _ReaderSubclass("input.jsonl", "reader", 1, None, [".jsonl"], None, "LEGACY")
+    assert duration.marker == reader_stage.marker == reader.marker == "LEGACY"
+    assert duration.waveform_key == "waveform"
+    assert reader_stage.include_files is None
+    assert reader.include_files is None
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_duration_keeps_subclass_input_validation(residency: str) -> None:
+    class DurationWithTenant(GetAudioDurationStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            attributes, keys = super().inputs()
+            return attributes, [*keys, "tenant_id"]
+
+    stage = DurationWithTenant(input_residency=residency)
+    task = AudioTask(data={"audio_filepath": "unused.wav", "waveform": torch.ones(1, 8), "sample_rate": 8000})
+    assert not stage.validate_input(task)
+    task.data["tenant_id"] = "tenant"
+    assert stage.validate_input(task)
+    if residency == "auto":
+        del task.data["audio_filepath"]
+        assert stage.validate_input(task)
+
+
+def test_duration_legacy_path_alias_can_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nemo_curator.stages.audio.common.get_audio_duration", lambda _path: 1.0)
+    stage = GetAudioDurationStage(audio_filepath_key="waveform")
+    result = stage.process(AudioTask(data={"waveform": "unused.wav"}))
+    assert result.data["duration"] == 1.0
+
+
+@pytest.mark.parametrize("duration_key", ["waveform", "sample_rate"])
+def test_duration_file_mode_can_write_an_inactive_residency_key(
+    duration_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nemo_curator.stages.audio.common.get_audio_duration", lambda _path: 1.0)
+    stage = GetAudioDurationStage(duration_key=duration_key)
+    result = stage.process(AudioTask(data={"audio_filepath": "unused.wav"}))
+    assert result.data[duration_key] == 1.0
+
+
+@pytest.mark.parametrize("policy", ["error", "drop"])
+def test_nested_condition_contract_declares_child_reads(policy: str) -> None:
+    from nemo_curator.stages.audio.agent import validate_pipeline
+
+    stage = PreserveByValueConditionsStage({"mos": 3.0}, items_key="segments", missing_value_policy=policy)
+    contract = stage.describe()
+    if policy == "error":
+        assert contract.reads.segment_data_keys == ["mos"]
+        report = validate_pipeline([stage], initial_keys={"segments"})
+        assert not report.ok
+    else:
+        assert contract.optional_reads.segment_data_keys == ["mos"]
+        assert validate_pipeline([stage], initial_keys={"segments"}).ok
+        assert stage.process_batch([AudioTask(data={"segments": [{}]})]) == []
+
+
+def test_writer_actor_restart_retains_committed_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+    from nemo_curator.backends.ray_data import adapter
+
+    monkeypatch.setattr(adapter, "get_worker_metadata_and_node_id", lambda: (NodeInfo(), WorkerMetadata()))
+    path = tmp_path / "output.jsonl"
+    stage = ManifestWriterStage(str(path))
+    stage.prepare_on_driver()
+    first = adapter.create_actor_from_stage(pickle.loads(pickle.dumps(stage)))()  # noqa: S301
+    first.stage.process(AudioTask(data={"row": 1}))
+    restarted = adapter.create_actor_from_stage(pickle.loads(pickle.dumps(stage)))()  # noqa: S301
+    restarted.stage.process(AudioTask(data={"row": 2}))
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [{"row": 1}, {"row": 2}]
+    stage.reset_for_retry()
+    stage.prepare_on_driver()
+    fresh_attempt = adapter.create_actor_from_stage(pickle.loads(pickle.dumps(stage)))()  # noqa: S301
+    fresh_attempt.stage.process(AudioTask(data={"row": 3}))
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [{"row": 3}]
+
+
+def test_writer_direct_setup_replaces_existing_output(tmp_path: Path) -> None:
+    path = tmp_path / "output.jsonl"
+    path.write_text('{"old": true}\n')
+    writer = ManifestWriterStage(str(path))
+    writer.setup()
+    writer.process(AudioTask(data={"new": True}))
+    writer.setup()
+    assert path.read_text() == ""
+
 
 ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
 
@@ -401,7 +510,7 @@ def test_compound_preserve_nested_missing_condition_key_error_vs_drop() -> None:
     assert parent.data["candidates"] == [passing]
 
 
-def test_compound_preserve_nested_contract_uses_only_top_level_container_key() -> None:
+def test_compound_preserve_nested_contract_declares_child_condition_keys() -> None:
     from nemo_curator.stages.audio._agent._agent_registry import stage_params
 
     stage = PreserveByValueConditionsStage(
@@ -414,7 +523,7 @@ def test_compound_preserve_nested_contract_uses_only_top_level_container_key() -
 
     assert contract.reads.data_keys == ["candidates"]
     assert contract.writes.data_keys == ["candidates"]
-    assert contract.reads.segment_data_keys == []
+    assert contract.reads.segment_data_keys == ["score"]
     assert contract.writes.segment_data_keys == []
     assert contract.iteration_key == "candidates"
     assert contract.cardinality == "1:1 nested-list"
@@ -472,10 +581,23 @@ def test_get_audio_duration_rejects_unknown_residency(residency: str) -> None:
         GetAudioDurationStage(input_residency=residency)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("duration_key", ["audio_filepath", "waveform", "sample_rate"])
-def test_get_audio_duration_output_cannot_overwrite_an_audio_input(duration_key: str) -> None:
-    with pytest.raises(ValueError, match="must not collide"):
-        GetAudioDurationStage(duration_key=duration_key)
+@pytest.mark.parametrize(
+    ("input_residency", "duration_key"),
+    [
+        ("file", "audio_filepath"),
+        ("waveform", "waveform"),
+        ("waveform", "sample_rate"),
+        ("auto", "audio_filepath"),
+        ("auto", "waveform"),
+        ("auto", "sample_rate"),
+    ],
+)
+def test_get_audio_duration_output_cannot_overwrite_an_audio_input(input_residency: str, duration_key: str) -> None:
+    if input_residency == "file":
+        GetAudioDurationStage(duration_key=duration_key, input_residency=input_residency)
+    else:
+        with pytest.raises(ValueError, match="must not collide"):
+            GetAudioDurationStage(duration_key=duration_key, input_residency=input_residency)
 
 
 def test_get_audio_duration_process_batch_raises_on_missing_column() -> None:
@@ -524,7 +646,7 @@ def test_get_audio_duration_rejects_invalid_resident_rates(sample_rate: object) 
     task = AudioTask(data={"waveform": torch.zeros(1, 16000), "sample_rate": sample_rate})
 
     assert not stage.validate_input(task)
-    with pytest.raises(ValueError, match="positive, losslessly integral, non-boolean"):
+    with pytest.raises(ValueError, match="invalid resident sample rate"):
         stage.process(task)
 
 
@@ -861,26 +983,30 @@ class TestManifestWriterStage:
         assert len(lines) == 3
         assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
 
-    def test_setup_on_node_truncates_existing_file(self, tmp_path: Path) -> None:
+    def test_setup_on_node_preserves_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         out.write_text('{"old": "data"}\n')
 
         writer = ManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
 
+        assert out.read_text() == '{"old": "data"}\n'
+        writer.setup()
         assert out.read_text() == ""
 
     def test_worker_setup_never_truncates_committed_rows(self, tmp_path: Path) -> None:
         """``setup()`` runs per worker actor; a replacement actor must not erase earlier rows."""
         out = tmp_path / "output.jsonl"
         writer = ManifestWriterStage(output_path=str(out))
+        writer.prepare_on_driver()
+        replacement = pickle.loads(pickle.dumps(writer))  # noqa: S301 - only locally serialized stage objects
         writer.setup_on_node()
         writer.setup()
         writer.process(AudioTask(data={"audio_filepath": "a.wav"}, dataset_name="ds"))
         writer.process(AudioTask(data={"audio_filepath": "b.wav"}, dataset_name="ds"))
 
-        replacement = ManifestWriterStage(output_path=str(out))
-        replacement.setup()  # a restarted worker: no setup_on_node, no truncation
+        replacement.setup_on_node()
+        replacement.setup()
         replacement.process(AudioTask(data={"audio_filepath": "c.wav"}, dataset_name="ds"))
 
         assert [json.loads(line)["audio_filepath"] for line in out.read_text().splitlines()] == [
@@ -1015,11 +1141,49 @@ class TestManifestCheckpointStage:
         out = tmp_path / "checkpoint.jsonl"
         checkpoint = ManifestCheckpointStage(output_path=str(out))
 
+        checkpoint.setup()
         checkpoint.finalize()
 
         assert out.read_bytes() == b""
         assert Path(f"{out}._COMPLETE").exists()
         assert not Path(f"{out}._RETRY_OWNER").exists()
+
+    def test_driver_finalize_and_agent_release_are_idempotent(self, tmp_path: Path) -> None:
+        path = tmp_path / "checkpoint.jsonl"
+        driver = ManifestCheckpointStage(str(path))
+        worker = pickle.loads(pickle.dumps(driver))  # noqa: S301
+        worker.setup()
+        worker.process(AudioTask(data={"row": 1}))
+        driver.finalize()
+        marker_before = Path(f"{path}._COMPLETE").read_bytes()
+        driver.release_retry_reservation()
+        assert Path(f"{path}._COMPLETE").read_bytes() == marker_before
+        assert path.read_text() == '{"row": 1}\n'
+
+    def test_missing_driver_artifact_is_not_published_as_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import fsspec
+
+        from nemo_curator.stages.audio import common
+
+        namespace = {"name": "worker"}
+        filesystem = fsspec.filesystem("file")
+        monkeypatch.setattr(
+            common,
+            "url_to_fs",
+            lambda _path: (filesystem, str(tmp_path / namespace["name"] / "checkpoint.jsonl")),
+        )
+        checkpoint = ManifestCheckpointStage("/logical/checkpoint.jsonl")
+        worker = pickle.loads(pickle.dumps(checkpoint))  # noqa: S301
+        worker.setup()
+        worker.process(AudioTask(data={"row": 1}))
+        namespace["name"] = "driver"
+        with pytest.raises(RuntimeError, match="cannot verify"):
+            checkpoint.finalize()
+        assert (tmp_path / "worker" / "checkpoint.jsonl").read_text() == '{"row": 1}\n'
+        assert not (tmp_path / "driver" / "checkpoint.jsonl").exists()
+        assert not (tmp_path / "driver" / "checkpoint.jsonl._COMPLETE").exists()
 
     def test_successful_release_refuses_to_complete_a_replaced_checkpoint(self, tmp_path: Path) -> None:
         out = tmp_path / "checkpoint.jsonl"
@@ -1029,7 +1193,7 @@ class TestManifestCheckpointStage:
         out.unlink()
         out.write_text("replacement\n", encoding="utf-8")
 
-        with pytest.raises(FileExistsError, match="no longer its exact reservation"):
+        with pytest.raises(RuntimeError, match="cannot verify"):
             checkpoint.release_retry_reservation()
 
         assert out.read_text(encoding="utf-8") == "replacement\n"
@@ -1182,7 +1346,7 @@ def test_resolve_model_path(tmp_path: Path) -> None:
 
 # Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: ManifestWriterStage
 # lives in common.py, and this was its only truncate-on-rerun coverage.
-def test_agent_manifest_writer_truncates_on_setup_on_node(tmp_path: Path) -> None:
+def test_agent_manifest_writer_truncates_on_driver_preparation(tmp_path: Path) -> None:
     """A fresh run (setup_on_node) truncates the output so reruns do not accumulate duplicates."""
     out_path = tmp_path / "manifest.jsonl"
     writer = ManifestWriterStage(output_path=str(out_path))
@@ -1194,7 +1358,141 @@ def test_agent_manifest_writer_truncates_on_setup_on_node(tmp_path: Path) -> Non
     writer.process(task)
     assert len(out_path.read_text(encoding="utf-8").strip().splitlines()) == 2  # appends within a run
 
-    writer.setup_on_node()  # new run truncates
+    writer.prepare_on_driver()  # new run truncates
     writer.setup()
     writer.process(task)
     assert len(out_path.read_text(encoding="utf-8").strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_duration_input_spec_preserves_subclass_requirements(residency: str) -> None:
+    class TenantDuration(GetAudioDurationStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            attrs, keys = super().inputs()
+            return attrs, [*keys, "tenant_id"]
+
+    stage = TenantDuration(input_residency=residency)
+    data = {"audio_filepath": "source.wav", "waveform": torch.zeros(1, 16000), "sample_rate": 16000}
+    assert not stage.validate_input(AudioTask(data=data))
+    data["tenant_id"] = "tenant"
+    assert stage.validate_input(AudioTask(data=data))
+
+
+def test_duration_preserves_legacy_file_key_alias(tmp_path: Path) -> None:
+    source = tmp_path / "source.wav"
+    import soundfile
+
+    soundfile.write(source, np.zeros(16000, dtype=np.float32), 16000)
+    result = GetAudioDurationStage(audio_filepath_key="waveform").process_batch(
+        [AudioTask(data={"waveform": str(source)})]
+    )
+    assert result[0].data["duration"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("base", "args"),
+    [
+        (GetAudioDurationStage, ("duration", "audio_filepath", "duration")),
+        (ManifestReaderStage, ("reader",)),
+        (ManifestReader, ("manifest.jsonl", "reader", 1, None, [".jsonl"], None)),
+    ],
+)
+def test_additive_base_fields_preserve_subclass_positionals(base: type, args: tuple[Any, ...]) -> None:
+    @dataclass
+    class Extended(base):
+        marker: str = "default"
+
+    assert Extended(*args, "legacy").marker == "legacy"
+
+
+@pytest.mark.parametrize("policy", ["error", "drop"])
+def test_nested_condition_dependency_is_visible_to_planning(policy: str) -> None:
+    from nemo_curator.stages.audio.agent import validate_pipeline
+
+    stage = PreserveByValueConditionsStage({"mos": 3.0}, items_key="segments", missing_value_policy=policy)
+    missing = validate_pipeline([stage], initial_keys={"segments"}, initial_segment_keys=set())
+    seeded = validate_pipeline([stage], initial_keys={"segments"}, initial_segment_keys={"mos"})
+    assert seeded.ok
+    assert seeded.keys_ok
+    if policy == "error":
+        assert not missing.ok or not missing.keys_ok
+    else:
+        assert missing.ok
+        assert missing.keys_ok
+        assert stage.describe().optional_reads.segment_data_keys == ["mos"]
+
+
+@pytest.mark.parametrize("with_rows", [False, True])
+def test_checkpoint_driver_reservation_is_adopted_and_completed(tmp_path: Path, with_rows: bool) -> None:
+    out = tmp_path / "checkpoint.jsonl"
+    driver = ManifestCheckpointStage(str(out))
+    driver.prepare_on_driver()
+    worker = pickle.loads(pickle.dumps(driver))  # noqa: S301 - only locally serialized stage objects
+    worker.setup_on_node()
+    worker.setup()
+    if with_rows:
+        worker.process(AudioTask(data={"row": 1}))
+    replacement = pickle.loads(pickle.dumps(driver))  # noqa: S301 - only locally serialized stage objects
+    replacement.setup_on_node()
+    replacement.setup()
+    assert out.read_text() == ('{"row": 1}\n' if with_rows else "")
+    driver.finalize()
+    assert json.loads(Path(f"{out}._COMPLETE").read_text())["token"] == driver._reservation_token
+    assert not Path(f"{out}._RETRY_OWNER").exists()
+    driver.release_retry_reservation()  # idempotent audio-agent success hook
+
+
+def test_checkpoint_missing_driver_state_cannot_publish_completion(tmp_path: Path) -> None:
+    checkpoint = ManifestCheckpointStage(str(tmp_path / "unshared" / "checkpoint.jsonl"))
+    with pytest.raises(RuntimeError, match="cannot verify"):
+        checkpoint.finalize()
+    assert not Path(checkpoint.output_path).exists()
+    assert not Path(f"{checkpoint.output_path}._COMPLETE").exists()
+
+
+def test_checkpoint_worker_in_another_namespace_fails_without_reserving(tmp_path: Path) -> None:
+    driver = ManifestCheckpointStage(str(tmp_path / "driver" / "checkpoint.jsonl"))
+    driver.prepare_on_driver()
+    worker = pickle.loads(pickle.dumps(driver))  # noqa: S301 - only locally serialized stage objects
+    worker.output_path = str(tmp_path / "worker" / "checkpoint.jsonl")
+    with pytest.raises(RuntimeError, match="cannot verify"):
+        worker.setup_on_node()
+    assert not Path(worker.output_path).exists()
+    assert not Path(f"{worker.output_path}._COMPLETE").exists()
+
+
+def test_writer_worker_missing_run_reservation_preserves_output(tmp_path: Path) -> None:
+    writer = ManifestWriterStage(str(tmp_path / "output.jsonl"))
+    writer.prepare_on_driver()
+    worker = pickle.loads(pickle.dumps(writer))  # noqa: S301 - only locally serialized stage objects
+    writer.process(AudioTask(data={"row": 1}))
+    Path(f"{writer.output_path}._RUN").unlink()
+    with pytest.raises(RuntimeError, match="driver-prepared"):
+        worker.setup_on_node()
+    assert Path(writer.output_path).read_text() == '{"row": 1}\n'
+
+
+def test_resumable_writer_preparation_keeps_completed_source_rows(tmp_path: Path) -> None:
+    out = tmp_path / "manifest.jsonl"
+    out.write_text('{"audio_filepath": "b.wav"}\n')
+    driver = ManifestWriterStage(str(out))
+    driver.prepare_on_driver(checkpoint_path=tmp_path / "resume-state")
+    worker = pickle.loads(pickle.dumps(driver))  # noqa: S301 - only locally serialized stage objects
+    worker.setup_on_node()
+    worker.setup()
+    worker.process(AudioTask(data={"audio_filepath": "a.wav"}))
+    driver.finalize()
+    assert [json.loads(row)["audio_filepath"] for row in out.read_text().splitlines()] == ["b.wav", "a.wav"]
+    assert not Path(f"{out}._RUN").exists()
+
+
+def test_checkpoint_replaced_artifact_is_not_marked_complete(tmp_path: Path) -> None:
+    out = tmp_path / "checkpoint.jsonl"
+    checkpoint = ManifestCheckpointStage(str(out))
+    checkpoint.prepare_on_driver()
+    out.unlink()
+    out.write_text("unowned replacement")
+    with pytest.raises(RuntimeError, match="cannot verify"):
+        checkpoint.finalize()
+    assert not Path(f"{out}._COMPLETE").exists()
+    assert out.read_text() == "unowned replacement"

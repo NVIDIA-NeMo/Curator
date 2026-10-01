@@ -344,3 +344,25 @@ rules — if the test passes, the contract is internally consistent.
 
 Auto-derivation handles params/roles/dispatch/description; stage documentation supplies
 meaning only the author knows. Neither documentation step changes runtime defaults.
+
+
+## Driver lifecycle for durable agent outputs
+
+Before serializing workers, an audio-agent execution wrapper must call
+`prepare_on_driver(checkpoint_path=...)` on stages that implement it. This reserves
+shared manifest and checkpoint state, including for runs with no output rows.
+Worker and node setup adopt and verify that state without truncating committed rows.
+After successful execution, call every stage's `finalize()` on the original driver
+objects. Do not finalize checkpoints when the executor records failed tasks.
+On preparation or execution failure, call `abort_on_driver()` where available to
+release owned run bookkeeping while preserving partial output. A retry must use
+`reset_for_retry()` for checkpoints before preparing them again.
+
+These hooks belong to agent orchestration; the shared `Pipeline` does not call
+them. Outside agent execution, ManifestWriter's standalone worker `setup()` retains
+its legacy truncation behavior. Checkpoint completion requires durable ownership
+and artifact identity; absent driver-visible state must never imply empty input.
+
+Folder-source item IDs include escaped relative paths and extensions, and source
+resume IDs derive from canonical absolute file paths. Existing checkpoints produced
+with earlier identities should be regenerated before resuming a changed file listing.
