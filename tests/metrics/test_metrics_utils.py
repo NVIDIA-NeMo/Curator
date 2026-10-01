@@ -14,10 +14,12 @@
 
 import os
 import pathlib
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
 import yaml
+from loguru import logger
 
 from nemo_curator.metrics.constants import (
     DEFAULT_NEMO_CURATOR_METRICS_PATH,
@@ -256,6 +258,13 @@ class TestRemoveRayPrometheusMetricsServiceDiscovery:
 
 
 class TestWriteGrafanaConfigs:
+    @pytest.fixture(autouse=True)
+    def _loguru_to_caplog(self, caplog: pytest.LogCaptureFixture) -> Iterator[None]:
+        # loguru does not go through stdlib logging, so forward it to caplog.
+        handler_id = logger.add(caplog.handler, format="{message}")
+        yield
+        logger.remove(handler_id)
+
     @pytest.mark.parametrize(
         ("src_present", "dst_present", "expect_copy", "expect_warning"),
         [
@@ -265,7 +274,7 @@ class TestWriteGrafanaConfigs:
             (False, True, False, False),  # missing but provisioned -> silent
         ],
     )
-    def test_xenna_dashboard_provisioning(  # noqa: PLR0913
+    def test_xenna_dashboard_provisioning(  # noqa: PLR0913, PLR0917
         self,
         tmp_path: pathlib.Path,
         caplog: pytest.LogCaptureFixture,
