@@ -135,6 +135,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/about/release-notes/index.mdx
                 slug: ""
+              - page: 26.09 Migration Checklist
+                path: ./main/pages/about/release-notes/26-09-migration.mdx
+                slug: 26-09-migration
               - page: 26.07 Migration Checklist
                 path: ./main/pages/about/release-notes/26-07-migration.mdx
                 slug: 26-07-migration
