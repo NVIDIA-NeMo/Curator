@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lazy public API for audio segmentation stages.
+"""Speaker-diarization model adapters.
 
-Importing the Silero task stage must not import NeMo's diarization stack (and
-vice versa). Concrete stages are therefore resolved only when requested.
+Concrete adapters are intentionally not imported here. Hydra resolves them
+from their complete module paths without making a package import load NeMo,
+Hugging Face Hub, or a model checkpoint.
 """
 
 from __future__ import annotations
@@ -23,11 +24,22 @@ from __future__ import annotations
 from importlib import import_module
 
 _LAZY = {
-    "SpeakerSeparationStage": "nemo_curator.stages.audio.segmentation.speaker_separation",
-    "VADSegmentationStage": "nemo_curator.stages.audio.segmentation.vad_segmentation",
+    "DiarizationAdapter": "nemo_curator.models.audio.speaker_diarization.base",
+    "DiarizationResult": "nemo_curator.models.audio.speaker_diarization.base",
+    "DiarizationSegment": "nemo_curator.models.audio.speaker_diarization.base",
+    "NeMoSortformerAdapter": "nemo_curator.models.audio.speaker_diarization.sortformer",
+    "TensorRTSortformerAdapter": "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt",
+    "parse_sortformer_segments": "nemo_curator.models.audio.speaker_diarization.sortformer",
 }
 
-__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+__all__ = [
+    "DiarizationAdapter",
+    "DiarizationResult",
+    "DiarizationSegment",
+    "NeMoSortformerAdapter",
+    "TensorRTSortformerAdapter",
+    "parse_sortformer_segments",
+]
 
 
 def __getattr__(name: str) -> object:

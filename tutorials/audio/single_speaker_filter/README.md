@@ -1,6 +1,6 @@
 # Single-Speaker Filtering with Streaming Sortformer
 
-Filter an ASR manifest to keep only audio files containing exactly one speaker, using [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2) for diarization with NeMo Curator's `InferenceSortformerStage`.
+Filter an ASR manifest to keep only audio files containing exactly one speaker, using [Streaming Sortformer v2.1](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) for diarization with NeMo Curator's adapter-backed `InferenceSortformerStage`.
 
 The pipeline includes **per-task hash-based checkpointing** — if a run is interrupted, re-running with the same `--output-dir` resumes from where it left off.
 
@@ -53,7 +53,7 @@ python tutorials/audio/single_speaker_filter/run.py \
 |----------|---------|-------------|
 | `--manifest` | *(required)* | Input JSONL manifest |
 | `--output-dir` | `output` | Root for checkpoints and filtered manifest |
-| `--model` | `nvidia/diar_streaming_sortformer_4spk-v2` | HF Sortformer model id |
+| `--model` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face Sortformer model ID |
 | `--clean` | off | Remove output directory before running |
 | `--chunk-len` | `340` | Streaming chunk size (80ms frames) |
 | `--chunk-right-context` | `40` | Right context frames |
@@ -64,7 +64,7 @@ python tutorials/audio/single_speaker_filter/run.py \
 ## Pipeline Stages
 
 1. **ManifestReader** — Reads the JSONL manifest and emits one `AudioTask` per entry.
-2. **InferenceSortformerStage** — Runs Streaming Sortformer on each audio file (GPU). Adds `diar_segments` to each task.
+2. **InferenceSortformerStage** — The task-facing stage loads and normalizes each whole recording, then calls `NeMoSortformerAdapter` on the GPU. It adds `diar_segments` and `num_speakers` to each task.
 3. **SingleSpeakerFilterStage** — Counts unique speakers from `diar_segments`. Keeps only entries with exactly 1 speaker; multi-speaker or zero-speaker entries produce an empty task (no output rows).
 4. **ManifestWriterStage** — Writes the surviving entries to the output JSONL manifest.
 
@@ -78,6 +78,13 @@ python tutorials/audio/single_speaker_filter/run.py \
 
 `<output-dir>/checkpoints/` — per-stage checkpoint directories for resume support.
 
+The stage keeps Curator fields, errors, output assembly, and resume semantics
+separate from the model implementation. The tutorial passes streaming model
+settings through `adapter_kwargs`, while common executor controls use
+`.with_(resources=Resources(gpus=1), batch_size=1)`. To scale across GPUs,
+adjust `resources`, `batch_size`, or `num_workers` with `.with_()` rather than
+placing worker controls in `adapter_kwargs`.
+
 ## Troubleshooting
 
 | Issue | Solution |
@@ -87,6 +94,12 @@ python tutorials/audio/single_speaker_filter/run.py \
 ## Streaming Configuration
 
 All frame values are in 80ms units. See the [callhome_diar tutorial](../callhome_diar/README.md) for latency trade-off configurations.
+
+Each manifest row remains one whole-recording diarization item. Do not split a
+recording into arbitrary chunks before Sortformer: speaker clustering and
+speaker labels must remain coherent across the recording. Independent rows
+may still be batched and reordered internally; outputs are scattered back to
+their original row order.
 
 ## Model Limitations
 
