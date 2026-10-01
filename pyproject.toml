@@ -381,12 +381,6 @@ override-dependencies = [
 ]
 
 
-# Avoid downloading the TensorRT binary to resolve its wheel-stub metadata.
-[[tool.uv.dependency-metadata]]
-name = "tensorrt-cu12-libs"
-version = "10.9.0.34"
-requires-dist = ["nvidia-cuda-runtime-cu12"]
-
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.org/simple"

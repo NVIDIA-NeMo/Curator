@@ -92,11 +92,6 @@ overrides = [
     { name = "xgrammar", specifier = ">=0.1.32" },
 ]
 
-[[manifest.dependency-metadata]]
-name = "tensorrt-cu12-libs"
-version = "10.9.0.34"
-requires-dist = ["nvidia-cuda-runtime-cu12"]
-
 [[package]]
 name = "absl-py"
 version = "2.3.1"

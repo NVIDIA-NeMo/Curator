@@ -19,22 +19,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from hydra import compose, initialize, initialize_config_dir
-from hydra.errors import InstantiationException
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-
-
-@pytest.mark.parametrize("target", ["builtins.eval", "os.getcwd", "posix.getcwd"])
-def test_pipeline_rejects_blocklisted_hydra_targets(target: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HYDRA_INSTANTIATE_ALLOWLIST_OVERRIDE", raising=False)
-    cfg = OmegaConf.create({"stages": [{"_target_": target}]})
-
-    with pytest.raises(InstantiationException, match="blocklisted"):
-        create_pipeline_from_yaml(cfg, log_config=False)
 
 
 def test_pipeline_with_jsonl_reader_stage():

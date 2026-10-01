@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Replace any bundled Nsight Systems with the pinned, patched devtools release.
-# Keep the repository key scoped to this source (NVIDIA-NeMo/RL#4343).
+# Keep the repository key scoped to this source.
 RUN rm -rf /usr/local/cuda*/NsightSystems-cli-* /opt/nvidia/nsight-systems* && \
     installed_nsys=$(dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' \
         | awk '$1 ~ /^nsight-systems/ && $2 == "installed" {print $1}') && \
