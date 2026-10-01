@@ -30,8 +30,10 @@ def test_review_redirect_is_least_privilege_and_does_not_execute_review() -> Non
         "github.event_name == 'issue_comment' && "
         "github.event.issue.pull_request && "
         "github.event.comment.user.type != 'Bot' && "
-        "(contains(github.event.comment.body, '/claude review') || "
-        "contains(github.event.comment.body, '/claude strict-review'))"
+        'contains(fromJSON(\'["OWNER", "MEMBER", "COLLABORATOR"]\'), '
+        "github.event.comment.author_association) && "
+        "(github.event.comment.body == '/claude review' || "
+        "github.event.comment.body == '/claude strict-review')"
     )
     assert job["permissions"] == {"pull-requests": "write"}
     assert "uses" not in job
@@ -45,7 +47,7 @@ def test_review_redirect_is_least_privilege_and_does_not_execute_review() -> Non
     assert "model=codex" in step["env"]["NOTICE"]
     assert "/review help" in step["env"]["NOTICE"]
     assert job["env"]["REVIEW_COMMAND"] == (
-        "${{ contains(github.event.comment.body, '/claude strict-review') && '/review mode=strict' || '/review' }}"
+        "${{ github.event.comment.body == '/claude strict-review' && '/review mode=strict' || '/review' }}"
     )
 
 
