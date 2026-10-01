@@ -6,6 +6,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 - [Quick Start](#quick-start)
 - [Nightly Benchmark Ownership](#nightly-benchmark-ownership)
+- [GB200 EAI 10k PDF Sweep](#gb200-eai-10k-pdf-sweep)
 - [Concepts](#concepts)
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
@@ -116,6 +117,97 @@ Curator source ref or prebuilt Curator image being benchmarked, which is
 important for release-candidate and historical-image runs.
 
 ---
+
+## GB200 EAI 10k PDF Sweep
+
+`benchmarking/gb200-eai-10k.yaml` is an example PDF throughput sweep using
+one-GPU Dynamo replicas. Adapt the configuration before running on another
+cluster or corpus:
+
+- Update the YAML `paths` entries for the dataset, model snapshot, and results.
+  Keep long filesystem paths there and use named placeholders in entry args.
+- Match `ray.num_cpus`, `ray.num_gpus`, `object_store_size`, and
+  `--num-replicas` to the allocation. The supplied full entries target four
+  GPUs, 144 CPUs, and 920 GiB; these are example resources, not requirements
+  of the benchmark itself.
+- Set `--max-pdfs`, `--max-pages`, `--max-tokens`, and expected PDF/page
+  counts in `requirements` for the new corpus. Keep quality-related limits
+  fixed across configurations.
+- Set entry `timeout_s` for the workload and allow additional allocation time
+  for setup, startup, and cleanup. Choose partition, account, and QOS according
+  to the cluster's policy.
+
+Use a compatible benchmark container/SQSH for the worker's CPU architecture
+and GPU/CUDA stack. When using a preinstalled serving environment, set
+`--model-runtime-env` to its `py_executable`. It must contain Dynamo/vLLM,
+the model dependencies (including albumentations for Nemotron-Parse), and
+the same Ray version as the driver. This bypasses automatic actor package
+installation; it does not install missing packages.
+
+Required mounts for the container layout below:
+
+| Host source | Container destination | Mode |
+|---|---|---|
+| Curator checkout | `/opt/Curator` | read-write |
+| Common Git directory, for a linked worktree | Same absolute path | read-write |
+| Dataset containing `manifest.jsonl` and `pdfs/` | YAML dataset `container_path` | read-only |
+| Prepopulated Hugging Face cache | `/models/huggingface` | read-only |
+| Results directory | YAML results `container_path` | read-write |
+| Persistent shared-filesystem cache directory | `/cache` | read-write |
+| Task runtime directory | `/tmp` (short socket paths) | read-write |
+| Architecture-compatible uv installation, if absent | `/opt/uv-bin` | read-only |
+
+Set model path placeholders consistently with the mounted model cache.
+Persist CUDA/vLLM/Triton caches on Lustre or the cluster's shared filesystem;
+use short container paths for Ray and other Unix-domain sockets. Keep each
+concurrent node's Ray runtime directory distinct.
+
+Inside the benchmark container on a worker, from `/opt/Curator`:
+
+```bash
+export PATH=/opt/uv-bin:$PATH
+export UV_CACHE_DIR=/cache/uv HF_MODULES_CACHE=/cache/huggingface/modules
+export HF_HOME=/models/huggingface HF_HUB_OFFLINE=1
+export PYTHONPATH=/opt/Curator TMPDIR=/tmp RAY_TMPDIR=/tmp
+export NEMO_CURATOR_SLURM_ARRAY_ENABLED=0
+# Layer the PDF extra and benchmark tooling onto the container's driver venv.
+UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --inexact --extra cv2 --group test
+source /opt/venv/bin/activate
+python benchmarking/run.py --config /path/to/adapted-benchmark.yaml \
+  --session-name YOUR_SESSION --entries-exact YOUR_ENTRY
+```
+
+Adjust interpreter paths if the image uses a different layout. The driver
+needs OpenCV, GitPython, PyYAML, rich, pytest, and NVML bindings. `--inexact`
+preserves existing image packages; leave the separate serving environment
+unchanged. The example model runtime environment sets
+`VLLM_USE_FLASHINFER_SAMPLER=0` and cache locations
+`/cache/{cuda,vllm,triton}`; preserve these across comparable runs.
+
+Validate a one-PDF smoke first, then a representative pilot before full runs.
+Use the same session name and a unique entry per configuration on separate
+nodes to compare them in parallel. Never overwrite prior entry directories.
+Keep `delete_scratch: false` when comparing generated output.
+`NEMO_CURATOR_SLURM_ARRAY_ENABLED=0` prevents automatic input sharding when
+Slurm array indices select configurations rather than dataset shards.
+
+Tune `--pdfs-per-task`, `--inference-server-client-workers-per-replica`, and
+`--inference-batch-size` independently. The last is a per-client page-request
+semaphore, not the vLLM batch size. Their concurrency ceiling is replicas ×
+clients/replica × semaphore; task boundaries and page skew reduce actual
+concurrency. `--dynamo-router-mode=least-loaded` balances outstanding requests
+without disaggregation; `round_robin` selects round-robin routing.
+The mode is recorded in `results.json` under `params.dynamo_router_mode`.
+
+Compare only completed runs whose requirements and quality counters pass.
+The simple end-to-end rate is `num_pages_processed /
+(time_taken_s + inference_server_startup_s)`. Per-entry metadata describes
+each run; shared session metadata describes the most recent invocation.
+Inspect `ENTRY/gpustats.csv` and
+`ENTRY/ray_cluster/session_latest/nemo_curator_dynamo_*/Dynamo_{Frontend,DP*}.log`
+for GPU busy time, response latency, running/waiting requests, and KV-cache
+occupancy. Separate startup and drain from steady state. Tiny pilots with
+fewer tasks than clients cannot establish saturation.
 
 ## Concepts
 
