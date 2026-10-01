@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -35,7 +36,9 @@ from pathlib import Path
 _RUNTIME_ENV_VAR = "NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON"
 _SYSTEM_RUNTIME_ROOT = Path("/opt/nemo-curator-runtimes/indic-canary-trtllm")
 _LOCK_MARKER = ".nemo_curator_runtime_lock_sha256"
-_PYTHON_VERSION = "3.12"
+_RUNTIME_LAYOUT_VERSION = "2"
+_PYTHON_VERSION = "3.12.14"
+_PYTHON_SHARED_LIBRARY = "libpython3.12.so"
 _CUDA_FORWARD_COMPAT_DIRS = (
     Path("/usr/local/cuda-13.3/compat"),
     Path("/usr/local/cuda-13.0/compat"),
@@ -81,6 +84,7 @@ def runtime_project_dir() -> Path:
 def runtime_lock_digest() -> str:
     """Return a content identity for the runtime specification and lock."""
     digest = hashlib.sha256()
+    digest.update(f"runtime-layout={_RUNTIME_LAYOUT_VERSION}\0python={_PYTHON_VERSION}\0".encode())
     for filename in ("pyproject.toml", "uv.lock"):
         path = runtime_project_dir() / filename
         digest.update(filename.encode())
@@ -103,11 +107,83 @@ def _runtime_prefix(runtime_python: Path) -> Path:
     return runtime_python.parent.parent
 
 
+def _managed_python_root(runtime_root: Path) -> Path:
+    return runtime_root.parent / f".{runtime_root.name}.python"
+
+
+def _validate_managed_runtime_python(runtime_root: Path, runtime_python: Path) -> Path:
+    """Require a runtime venv backed by its adjacent uv-managed CPython."""
+    managed_python_root = _managed_python_root(runtime_root).resolve()
+    try:
+        runtime_python.resolve().relative_to(managed_python_root)
+    except ValueError as error:
+        msg = (
+            f"Indic Canary runtime Python is not backed by the shared managed-Python cache: {runtime_python.resolve()}"
+        )
+        raise RuntimeError(msg) from error
+    return _validate_runtime_python(runtime_python)
+
+
+def _runtime_python_shared_library(runtime_python: Path) -> Path:
+    """Return the exact shared library belonging to the runtime interpreter."""
+    discovery_script = """
+import json
+import platform
+import sys
+import sysconfig
+
+print(json.dumps({
+    "implementation": platform.python_implementation(),
+    "version": list(sys.version_info[:3]),
+    "libdir": sysconfig.get_config_var("LIBDIR"),
+    "ldlibrary": sysconfig.get_config_var("LDLIBRARY"),
+}))
+"""
+    completed = subprocess.run(  # noqa: S603
+        [str(runtime_python), "-I", "-c", discovery_script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip()
+        msg = f"Cannot inspect Indic Canary runtime Python: {runtime_python}"
+        if detail:
+            msg = f"{msg} ({detail})"
+        raise RuntimeError(msg)
+    try:
+        payload = json.loads(completed.stdout)
+        implementation = payload["implementation"]
+        version = tuple(payload["version"])
+        library_dir = Path(payload["libdir"])
+        library_name = payload["ldlibrary"]
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        msg = f"Indic Canary runtime Python reported invalid library metadata: {runtime_python}"
+        raise RuntimeError(msg) from error
+
+    expected_version = tuple(int(part) for part in _PYTHON_VERSION.split("."))
+    if implementation != "CPython" or version != expected_version:
+        msg = (
+            f"Indic Canary requires CPython {_PYTHON_VERSION}, found "
+            f"{implementation} {'.'.join(str(part) for part in version)}"
+        )
+        raise RuntimeError(msg)
+    if library_name != _PYTHON_SHARED_LIBRARY:
+        msg = f"Indic Canary runtime Python must provide {_PYTHON_SHARED_LIBRARY}, found {library_name!r}"
+        raise RuntimeError(msg)
+    shared_library = library_dir / library_name
+    if not shared_library.is_file():
+        msg = f"Indic Canary runtime Python shared library is missing: {shared_library}"
+        raise RuntimeError(msg)
+    return shared_library
+
+
 def _validate_runtime_layout(runtime_python: Path) -> None:
     """Require the native libraries needed by the packaged worker."""
     prefix = _runtime_prefix(runtime_python)
     site_packages = prefix / "lib" / "python3.12" / "site-packages"
     required_libraries = (
+        _runtime_python_shared_library(runtime_python),
         prefix / "lib" / "libmpi.so.40",
         site_packages / "nvidia" / "cu13" / "lib" / "libcublasLt.so.13",
         site_packages / "tensorrt_libs" / "libnvinfer.so.10",
@@ -132,10 +208,10 @@ import sys
 
 expected = {_RUNTIME_DISTRIBUTIONS!r}
 problems = []
-if platform.python_implementation() != "CPython" or sys.version_info[:2] != (3, 12):
+if platform.python_implementation() != "CPython" or sys.version_info[:3] != (3, 12, 14):
     problems.append(
-        f"expected CPython 3.12, found {{platform.python_implementation()}} "
-        f"{{sys.version_info.major}}.{{sys.version_info.minor}}"
+        f"expected CPython 3.12.14, found {{platform.python_implementation()}} "
+        f"{{sys.version_info.major}}.{{sys.version_info.minor}}.{{sys.version_info.micro}}"
     )
 for distribution, expected_version in expected.items():
     try:
@@ -245,6 +321,7 @@ def runtime_subprocess_environment(runtime_python: Path) -> dict[str, str]:
     runtime_python = _validate_runtime_python(runtime_python)
     prefix = _runtime_prefix(runtime_python)
     site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    python_library_dir = _runtime_python_shared_library(runtime_python).parent
     # Data-center GPUs can run this CUDA 13 user-space stack on an older host
     # driver through NVIDIA's forward-compatibility package. Keep those driver
     # libraries ahead of both the host driver and the child CUDA libraries.
@@ -260,6 +337,7 @@ def runtime_subprocess_environment(runtime_python: Path) -> dict[str, str]:
         prefix / "lib" / "openmpi",
     ]
     runtime_library_dirs.extend(sorted((site_packages / "nvidia").glob("*/lib")))
+    runtime_library_dirs.append(python_library_dir)
 
     # The worker is intentionally a one-process TensorRT-LLM runtime.  Do not
     # let an enclosing Slurm/mpirun/torchrun job make its bundled OpenMPI join
@@ -333,7 +411,7 @@ def install_runtime(runtime_root: Path | None = None) -> Path:
         reinstall = False
         if python.is_file() and marker.is_file() and marker.read_text().strip() == expected_digest:
             try:
-                return _validate_runtime_python(python)
+                return _validate_managed_runtime_python(root, python)
             except (FileNotFoundError, RuntimeError):
                 # A killed node-preparation process or external cache cleanup
                 # can invalidate files after the completion marker was written.
@@ -343,12 +421,16 @@ def install_runtime(runtime_root: Path | None = None) -> Path:
         environment = dict(os.environ)
         environment["UV_PROJECT_ENVIRONMENT"] = str(root)
         environment.setdefault("UV_LINK_MODE", "copy")
+        environment["UV_MANAGED_PYTHON"] = "1"
+        environment["UV_PYTHON_INSTALL_DIR"] = str(_managed_python_root(root))
+        environment.pop("UV_NO_MANAGED_PYTHON", None)
         command = [
             uv,
             "sync",
             "--frozen",
             "--no-dev",
             "--no-install-project",
+            "--managed-python",
             "--python",
             _PYTHON_VERSION,
             "--project",
@@ -362,7 +444,7 @@ def install_runtime(runtime_root: Path | None = None) -> Path:
             check=True,
             env=environment,
         )
-        validated_python = _validate_runtime_python(python)
+        validated_python = _validate_managed_runtime_python(root, python)
         marker.write_text(f"{expected_digest}\n")
         return validated_python
 
