@@ -47,9 +47,10 @@ source .venv/bin/activate
 ```
 
 That one audio extra installs the parent dependencies and the runtime manager.
-During pipeline stage prefetch, the runtime manager synchronizes the packaged
-child `pyproject.toml` and `uv.lock` into a lock-keyed cache. Concurrent workers
-share a file lock, and later runs reuse the validated environment. To use a
+At first adapter setup, the runtime manager synchronizes the packaged child
+`pyproject.toml` and `uv.lock` into a lock-keyed cache. Concurrent workers share
+a file lock, and later runs reuse the validated environment. The benchmark
+harness performs the same setup in preflight, before its timer starts. To use a
 pre-provisioned shared runtime instead, set:
 
 ```bash
@@ -201,8 +202,11 @@ Each JSONL row retains the input identity and includes:
 
 ## Troubleshooting
 
-- **No isolated runtime**: run the installer command above or set
-  `NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON` to its `bin/python`.
+- **No isolated runtime**: rerun the `uv sync` command above. Benchmark
+  preflight or first adapter setup creates the child automatically. To prewarm
+  it explicitly, run `python -m nemo_curator.stages.audio.inference.scripts.install_indic_canary_trtllm_runtime`,
+  or set `NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON` to an existing runtime's
+  `bin/python`.
 - **CUDA initialization error**: verify the driver supports CUDA 13 and the
   engine was built for the current GPU architecture.
 - **Missing audio**: `dataset_dir` must contain both `manifest.jsonl` and its
