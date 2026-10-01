@@ -18,6 +18,7 @@ import io
 import os
 import subprocess
 import threading
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import pandas as pd
@@ -40,20 +41,30 @@ HTTP_PARTIAL_CONTENT = 206
 
 class CommonCrawlWARCDownloader(DocumentDownloader):
     """
-    Downloads WARC files from the Common Crawl to a local directory
+    Downloads WARC files from the Common Crawl to a local directory or fsspec URL
     """
 
-    def __init__(self, download_dir: str, use_aws_to_download: bool = False, verbose: bool = False):
+    supports_remote_download_dir = True
+
+    def __init__(
+        self,
+        download_dir: str,
+        use_aws_to_download: bool = False,
+        verbose: bool = False,
+        storage_options: dict[str, Any] | None = None,
+    ):
         """
         Creates a downloader
 
         Args:
-          download_dir: Path to store raw compressed WARC files
+          download_dir: Local path or fsspec URL (for example s3://bucket/cc) to store raw compressed WARC files.
+            Remote files are staged in the local temporary directory, then uploaded.
           use_aws_to_download: If True, uses the s5cmd command to download from the Common Crawl's S3 bucket.
             If False, uses wget.
           verbose: If True, logs stdout and stderr of the download command (s5cmd/wget)
+          storage_options: Options forwarded to the fsspec filesystem inferred from download_dir
         """
-        super().__init__(download_dir, verbose)
+        super().__init__(download_dir=download_dir, verbose=verbose, storage_options=storage_options)
         self.use_aws_to_download = use_aws_to_download
         if self.use_aws_to_download and not check_s5cmd_installed():
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
