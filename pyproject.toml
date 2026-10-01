@@ -358,6 +358,7 @@ constraint-dependencies = [
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
+    "hydra-core==1.3.4", # Overrides nemo-toolkit[asr]'s <=1.3.2 cap for the security update
     "fsspec>=2025.3.0", # Overrides nemo-toolkit[asr]'s fsspec==2024.12.0 pin; data-designer-engine==0.9.1 requires >=2025.3.0
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
@@ -379,6 +380,12 @@ override-dependencies = [
     "cryptography>=50.0.1", # Override data-designer==0.9.1's 49.0.0 pin
 ]
 
+
+# Avoid downloading the TensorRT binary to resolve its wheel-stub metadata.
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+version = "10.9.0.34"
+requires-dist = ["nvidia-cuda-runtime-cu12"]
 
 [[tool.uv.index]]
 name = "pypi"

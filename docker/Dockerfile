@@ -33,6 +33,7 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 # gnupg upgrade Address CVE-2025-68973
+# Restrict the OpenSSL transaction to the two requested packages.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     curl \
@@ -46,6 +47,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.13-venv \
     python-is-python3 && \
     apt-get install -y --only-upgrade gnupg libunbound8 && \
+    apt-get install --simulate --only-upgrade --no-install-recommends --no-install-suggests --no-remove \
+        openssl=3.0.13-0ubuntu3.11 libssl3t64=3.0.13-0ubuntu3.11 > /tmp/openssl-upgrade-plan && \
+    cat /tmp/openssl-upgrade-plan && \
+    awk '$1 == "Inst" && $2 !~ /^(openssl|libssl3t64)(:[a-z0-9]+)?$/ { exit 1 } \
+         $1 == "Remv" { exit 1 }' /tmp/openssl-upgrade-plan && \
+    apt-get install -y --only-upgrade --no-install-recommends --no-install-suggests --no-remove \
+        openssl=3.0.13-0ubuntu3.11 libssl3t64=3.0.13-0ubuntu3.11 && \
+    test "$(dpkg-query -W -f='${Version}' openssl)" = "3.0.13-0ubuntu3.11" && \
+    test "$(dpkg-query -W -f='${Version}' libssl3t64)" = "3.0.13-0ubuntu3.11" && \
+    rm /tmp/openssl-upgrade-plan && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Replace any bundled Nsight Systems with the pinned, patched devtools release.
+# Keep the repository key scoped to this source (NVIDIA-NeMo/RL#4343).
+RUN rm -rf /usr/local/cuda*/NsightSystems-cli-* /opt/nvidia/nsight-systems* && \
+    installed_nsys=$(dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' \
+        | awk '$1 ~ /^nsight-systems/ && $2 == "installed" {print $1}') && \
+    if [ -n "${installed_nsys}" ]; then \
+        apt-get remove --purge -y --allow-change-held-packages ${installed_nsys}; \
+    fi && \
+    NSYS_VERSION="2026.5.1.161-265138896106v0" && \
+    NSYS_RELEASE=$(echo "${NSYS_VERSION}" | cut -d. -f1-3) && \
+    NSYS_REPO="https://developer.download.nvidia.com/devtools/repos/ubuntu$(. /etc/lsb-release; echo "${DISTRIB_RELEASE}" | tr -d .)/$(dpkg --print-architecture)" && \
+    curl -fsSL "${NSYS_REPO}/nvidia.pub" -o /usr/share/keyrings/nvidia-devtools.asc && \
+    echo "deb [signed-by=/usr/share/keyrings/nvidia-devtools.asc] ${NSYS_REPO}/ /" \
+        > /etc/apt/sources.list.d/nvidia-devtools.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends "nsight-systems-cli-${NSYS_RELEASE}=${NSYS_VERSION}" && \
+    nsys --version && \
+    test "$(dpkg-query -W -f='${Version}' "nsight-systems-cli-${NSYS_RELEASE}")" = "${NSYS_VERSION}" && \
+    rm -f /etc/apt/sources.list.d/nvidia-devtools.list /usr/share/keyrings/nvidia-devtools.asc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -84,6 +117,9 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
     fi && \
+    # Curator uses Python Ray workers only; remove Java/cross-language support.
+    # Remove the directory, not just JAR files, so Ray disables Java workers.
+    find /opt/venv -type d -path "*/site-packages/ray/jars" -prune -exec rm -rf {} + && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
     # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
     (uv pip uninstall opencv-python-headless || true)
@@ -107,7 +143,10 @@ export UV_LINK_MODE=copy
 export PATH="/root/.local/bin:$PATH"
 EOF
 
-RUN chmod +x /opt/venv/env.sh
+# Verify final package versions after every dependency installer has run.
+RUN test "$(dpkg-query -W -f='${Version}' openssl)" = "3.0.13-0ubuntu3.11" && \
+    test "$(dpkg-query -W -f='${Version}' libssl3t64)" = "3.0.13-0ubuntu3.11" && \
+    chmod +x /opt/venv/env.sh
 
 ARG NVIDIA_BUILD_ID
 ENV NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID:-<unknown>}
