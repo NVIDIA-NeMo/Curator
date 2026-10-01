@@ -170,8 +170,8 @@ def resolve_runtime_python(configured: str | None = None) -> Path:
     """Resolve a pre-provisioned isolated runtime Python executable.
 
     Resolution order is an explicit stage value, the environment variable,
-    the opt-in Curator Docker target, and the lock-keyed user cache created by
-    :func:`install_runtime`.
+    an optional system-wide prewarm, and the lock-keyed user cache created from
+    the packaged runtime project by :func:`install_runtime`.
     """
     candidates: list[Path] = []
     if configured:
@@ -304,9 +304,10 @@ def runtime_subprocess_environment(runtime_python: Path) -> dict[str, str]:
 def install_runtime(runtime_root: Path | None = None) -> Path:
     """Synchronize the exact locked runtime and return its Python executable.
 
-    This is intentionally an explicit image/setup operation, never a hidden
-    first-inference download.  A file lock makes concurrent node preparation
-    safe when multiple launchers target the same cache.
+    Stage prefetch calls this automatically when no explicit runtime was
+    configured. It can also be invoked manually to prewarm a shared cache. A
+    file lock makes concurrent node preparation safe when multiple launchers
+    target the same cache.
     """
     if sys.platform != "linux" or platform.machine().lower() not in {"amd64", "x86_64"}:
         msg = "Indic Canary TensorRT-LLM runtime is supported only on Linux x86_64"
@@ -367,7 +368,7 @@ def install_runtime(runtime_root: Path | None = None) -> Path:
 
 
 def main() -> int:
-    """CLI entry point used by image builders and node preparation."""
+    """CLI entry point for optional cache prewarming and node preparation."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--runtime-root",

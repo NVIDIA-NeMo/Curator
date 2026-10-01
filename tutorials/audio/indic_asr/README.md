@@ -31,7 +31,7 @@ recording, harness wall-clock timing, and its row/identity/coverage acceptance
 gates; a tutorial run is functional pipeline evidence, not EOS performance
 evidence.
 
-## Install the two runtime stacks
+## Install the audio environment
 
 Indic Canary uses a TensorRT encoder and a TensorRT-LLM decoder. TensorRT-LLM
 1.2.1 requires a CPython 3.12/CUDA 13/Torch 2.9 native stack that conflicts
@@ -44,21 +44,23 @@ From the repository root:
 ```bash
 uv sync --frozen --extra audio_canary_trtllm --no-default-groups
 source .venv/bin/activate
-python -m nemo_curator.stages.audio.inference.scripts.install_indic_canary_trtllm_runtime
 ```
 
-The last command prints the child runtime's Python path. The stage finds the
-lock-keyed cache automatically. To use a pre-provisioned shared runtime, set:
+That one audio extra installs the parent dependencies and the runtime manager.
+During pipeline stage prefetch, the runtime manager synchronizes the packaged
+child `pyproject.toml` and `uv.lock` into a lock-keyed cache. Concurrent workers
+share a file lock, and later runs reuse the validated environment. To use a
+pre-provisioned shared runtime instead, set:
 
 ```bash
 export NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON=/shared/indic-canary-runtime/bin/python
 ```
 
 The supported Canary runtime is Linux x86_64. Consumer GPUs require a native
-CUDA-13-capable NVIDIA driver. The benchmark image also installs NVIDIA's
-pinned CUDA 13 forward-compatibility package for supported data-center GPUs,
-including the EOS H100 runner. Parakeet stays in the Curator parent and uses
-plain TensorRT.
+CUDA-13-capable NVIDIA driver. Supported data-center GPUs can instead use
+NVIDIA CUDA 13 forward-compatibility libraries supplied by the execution
+environment. Those driver libraries are a system prerequisite, not a Python
+dependency. Parakeet stays in the Curator parent and uses plain TensorRT.
 
 ## Prepare the pinned public Hindi dataset
 
