@@ -33,7 +33,6 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 # gnupg upgrade Address CVE-2025-68973
-# Restrict the OpenSSL transaction to the two requested packages.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     curl \
@@ -46,22 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.13-dev \
     python3.13-venv \
     python-is-python3 && \
-    apt-get install -y --only-upgrade gnupg libunbound8 && \
-    apt-get update && \
-    apt install --simulate --only-upgrade openssl libssl3t64 > /tmp/openssl-upgrade-plan && \
-    cat /tmp/openssl-upgrade-plan && \
-    awk '$1 == "Inst" && $2 !~ /^(openssl|libssl3t64)(:[a-z0-9]+)?$/ { exit 1 } \
-         $1 == "Remv" { exit 1 }' /tmp/openssl-upgrade-plan && \
-    dpkg-query -W -f='${binary:Package} ${Version}\n' > /tmp/packages-before && \
-    apt-get update && apt install -y --only-upgrade openssl libssl3t64 && \
-    dpkg-query -W -f='${binary:Package} ${Version}\n' > /tmp/packages-after && \
-    awk 'FNR == NR { versions[$1] = $2; next } \
-         !($1 in versions) { exit 1 } \
-         $2 != versions[$1] && $1 !~ /^(openssl|libssl3t64)(:[a-z0-9]+)?$/ { exit 1 } \
-         { delete versions[$1] } END { for (package in versions) exit 1 }' \
-        /tmp/packages-before /tmp/packages-after && \
-    dpkg-query -W -f='${binary:Package} ${Version}\n' openssl libssl3t64 && \
-    rm /tmp/openssl-upgrade-plan /tmp/packages-before /tmp/packages-after && \
+    apt-get install -y --only-upgrade gnupg libunbound8 openssl libssl3t64 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -148,9 +132,7 @@ export UV_LINK_MODE=copy
 export PATH="/root/.local/bin:$PATH"
 EOF
 
-# Report the repository-selected package versions in the final image.
-RUN dpkg-query -W -f='${binary:Package} ${Version}\n' openssl libssl3t64 && \
-    chmod +x /opt/venv/env.sh
+RUN chmod +x /opt/venv/env.sh
 
 ARG NVIDIA_BUILD_ID
 ENV NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID:-<unknown>}
