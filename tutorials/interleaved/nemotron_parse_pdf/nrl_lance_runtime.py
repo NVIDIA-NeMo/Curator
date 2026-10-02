@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from nemo_curator.pipeline import Pipeline
 
 CONSUME_EXECUTORS = ("auto", "ray", "in_process")
-# Measured on a 32-core host: in-process was faster at 57,400 rows and Ray at 287,000.
+# Conservative row-count heuristic; callers can choose either executor explicitly.
 IN_PROCESS_MAX_ROWS = 50_000
 
 
@@ -771,8 +771,8 @@ def _collect_reconciliation_rows(
 def _resolve_consume_executor(choice: str, row_count: int) -> str:
     """Pick the executor for consume and the output reread.
 
-    ``auto`` runs in-process for tables up to ``IN_PROCESS_MAX_ROWS`` rows, where
-    Ray startup dominates, and uses Ray Data above that, where its parallelism pays off.
+    ``auto`` uses a row-count heuristic to avoid Ray startup on smaller tables.
+    Row count does not predict image memory or a universal performance crossover.
     """
     if choice not in CONSUME_EXECUTORS:
         msg = f"consume executor must be one of {CONSUME_EXECUTORS}, not {choice!r}"

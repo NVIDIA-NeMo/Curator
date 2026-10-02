@@ -39,6 +39,8 @@ from .test_nrl_lance_contract import _document, _element, _marker, _provenance, 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from nemo_curator.backends.base import WorkerMetadata
+
 TUTORIAL_DIR = Path(__file__).resolve().parents[4] / "tutorials" / "interleaved" / "nemotron_parse_pdf"
 sys.path.insert(0, str(TUTORIAL_DIR))
 
@@ -1175,3 +1177,47 @@ def test_report_sync_failure_preserves_visible_report_without_completion(
         runtime.run_consume(_consume_args(handoff, report.parent))
     contract._load_sealed_json(report, contract._REPORT_HASH_FIELD, label="consume report")
     assert not (handoff.parent / contract.COMPLETION_MANIFEST_FILE).exists()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_in_process_tears_down_stage_after_processing(fail: bool) -> None:
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import EmptyTask
+
+    events = []
+
+    class LifecycleStage(ProcessingStage):
+        def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+            events.append("setup")
+
+        def process(self, task: EmptyTask) -> EmptyTask:
+            events.append("process")
+            if fail:
+                msg = "processing failed"
+                raise RuntimeError(msg)
+            return task
+
+        def teardown(self) -> None:
+            events.append("teardown")
+
+        def inputs(self) -> tuple[list[str], list[str]]:
+            return [], []
+
+        def outputs(self) -> tuple[list[str], list[str]]:
+            return [], []
+
+    executor = runtime._consume_executor("in_process")
+    if fail:
+        with pytest.raises(RuntimeError, match="processing failed"):
+            executor.execute([LifecycleStage()])
+    else:
+        result = executor.execute([LifecycleStage()])
+        assert len(result) == 1
+        assert isinstance(result[0], EmptyTask)
+    assert events == ["setup", "process", "teardown"]
+
+
+def test_in_process_rejects_gpu_stage_before_setup() -> None:
+    stage = SimpleNamespace(name="gpu", resources=SimpleNamespace(gpus=1))
+    with pytest.raises(ValueError, match="cannot run GPU stage gpu"):
+        runtime._consume_executor("in_process").execute([stage])

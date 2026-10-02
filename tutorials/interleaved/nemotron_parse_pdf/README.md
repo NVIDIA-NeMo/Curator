@@ -209,6 +209,16 @@ table, a sealed `handoff_manifest.json`. `consume` writes Parquet and a sealed
 `completion_manifest.json` in the run directory. The completion manifest is the
 only signal that a run is published.
 
+`consume --consume-executor` selects the executor for the consume stages and
+the Parquet reread. `in_process` runs the existing CPU stages sequentially in
+the consume process; `ray` uses Ray Data. The default, `auto`, selects
+`in_process` for tables with at most 50,000 rows and `ray` for larger tables.
+This row-count threshold is a heuristic: compare both modes on representative
+inputs and hardware before selecting an override. Both modes retain image
+checks, schema and content reconciliation, and publication validation. The
+consume report records the selected executor. This option does not change
+`ingest` or run Parse again.
+
 `ingest` scheduling flags tune Ray without changing extraction or adding Parse
 replicas: `--parse-batch-size` (pages per Parse batch, default 64),
 `--parse-cpus` (CPUs reserved for the Parse actor, default 1),

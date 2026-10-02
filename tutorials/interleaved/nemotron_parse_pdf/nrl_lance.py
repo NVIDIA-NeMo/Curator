@@ -66,7 +66,7 @@ def create_parser() -> argparse.ArgumentParser:
         default="auto",
         help=(
             "Where the consume stages and the output reread run: in this process (in_process), "
-            "on Ray Data (ray), or in-process up to IN_PROCESS_MAX_ROWS rows and Ray above (auto)"
+            "on Ray Data (ray), or selected by table row count (auto)"
         ),
     )
     return parser
