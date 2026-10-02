@@ -20,6 +20,7 @@ Use the same `model_variant` in `CaptionPreparationStage` and `CaptionGeneration
 | --- | --- | --- |
 | `qwen2.5` | `Qwen/Qwen2.5-VL-7B-Instruct` | Default; BF16 unless `fp8=True` or `--captioning-use-fp8-weights` is set |
 | `qwen3` | `Qwen/Qwen3-VL-8B-Instruct` | Qwen3-VL; BF16 unless FP8 is enabled |
+| `qwen3.5` | `Qwen/Qwen3.5-9B` | Qwen3.5; BF16 unless FP8 is enabled |
 | `nemotron`, `nemotron-bf16` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` | `nemotron` is an alias for the BF16 checkpoint |
 | `nemotron-fp8` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8` | Pre-quantized FP8 checkpoint |
 | `nemotron-nvfp4` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD` | NVFP4 quantization-aware-distilled checkpoint |
@@ -84,7 +85,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   --preview-target-height 240
 ```
 
-`--captioning-algorithm` accepts `qwen2.5`, `qwen3`, `nemotron`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`, and `nemotron-3-nano-omni`.
+`--captioning-algorithm` accepts `qwen2.5`, `qwen3`, `qwen3.5`, `nemotron`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`, and `nemotron-3-nano-omni`.
 
 </Tab>
 </Tabs>
@@ -109,7 +110,7 @@ prep = CaptionPreparationStage(
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_variant` | str | `"qwen2.5"` | One of the seven variants in the model table. Must match the generation stage. |
+| `model_variant` | str | `"qwen2.5"` | One of the eight variants in the model table. Must match the generation stage. |
 | `prompt_variant` | `"default"`, `"av"`, `"av-surveillance"` | `"default"` | Built-in caption prompt used when `prompt_text` is not set. |
 | `prompt_text` | str \| None | `None` | Custom prompt that overrides `prompt_variant`. |
 | `sampling_fps` | float | 2.0 | Frames per second sampled from the source clip. |
@@ -140,7 +141,7 @@ gen = CaptionGenerationStage(
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `model_dir` | str | `"models/qwen"` | Base directory under which checkpoint-specific directories are created. |
-| `model_variant` | str | `"qwen2.5"` | One of the seven variants in the model table. |
+| `model_variant` | str | `"qwen2.5"` | One of the eight variants in the model table. |
 | `caption_batch_size` | int | 16 | Generation batch size. The example CLI defaults to 8. |
 | `fp8` | bool | `False` | Quantize Qwen weights to FP8. Select `nemotron-fp8` for the Nemotron FP8 checkpoint. |
 | `max_output_tokens` | int | 512 | Maximum tokens generated for each caption. |
@@ -171,9 +172,9 @@ enhance = CaptionEnhancementStage(
 )
 ```
 
-The enhancement model can be `qwen2.5` (`Qwen/Qwen2.5-14B-Instruct`) or `qwen3` (`Qwen/Qwen3-14B`). `captioning_model_variant` must identify the caption key produced by the earlier generation stage; it does not have to match the enhancement model.
+The enhancement model can be `qwen2.5` (`Qwen/Qwen2.5-14B-Instruct`), `qwen3` (`Qwen/Qwen3-14B`), or `qwen3.5` (`Qwen/Qwen3.5-27B`). Qwen3.5 has no 14B dense checkpoint, so `qwen3.5` uses the 27B one and runs with thinking disabled so enhanced captions exclude reasoning traces. At roughly 54 GB in BF16 it is much larger than the other two enhancement models: enable `--enhance-captions-use-fp8-weights` to fit it on a GPU with less than 80 GB. Note this differs from the `qwen3.5` captioning checkpoint (`Qwen/Qwen3.5-9B`), so selecting `qwen3.5` for both stages downloads two models. `captioning_model_variant` must identify the caption key produced by the earlier generation stage; it does not have to match the enhancement model.
 
-In the example script, `--enhance-captions-algorithm` selects `qwen2.5` or `qwen3`. The separate `--enhanced-caption-models` output selector currently accepts only `qwen_lm`.
+In the example script, `--enhance-captions-algorithm` selects `qwen2.5`, `qwen3`, or `qwen3.5`. The separate `--enhanced-caption-models` output selector currently accepts only `qwen_lm`.
 
 ```bash
 python tutorials/video/getting-started/video_split_clip_example.py \
@@ -188,7 +189,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `model_dir` | str | `"models/qwen"` | Base directory for Qwen language-model weights. |
-| `model_variant` | `"qwen2.5"`, `"qwen3"` | `"qwen2.5"` | Text-only model used for enhancement. |
+| `model_variant` | `"qwen2.5"`, `"qwen3"`, `"qwen3.5"` | `"qwen2.5"` | Text-only model used for enhancement. |
 | `captioning_model_variant` | str | `"qwen2.5"` | Key in `window.caption` to read. Set it to the earlier captioning variant. |
 | `prompt_variant` | `"default"`, `"av-surveillance"` | `"default"` | Built-in enhancement prompt used when `prompt_text` is not set. |
 | `prompt_text` | str \| None | `None` | Custom enhancement system prompt. |
