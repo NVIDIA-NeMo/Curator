@@ -51,6 +51,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
+| Run the Hindi Indic Canary + Parakeet benchmark processor graph with Xenna or Ray Data | [**indic_asr/**](indic_asr/) | Yes (8× H100 for benchmark-equivalent results) | Separate pinned Hugging Face data preparation; hardware-compatible TensorRT engines required |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
@@ -66,11 +67,23 @@ python nemo_curator/config/run.py \
 | `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
 | `qwen_asr/` | Model only | Two bundled audio files | Downloads Qwen3-ASR weights on first use |
 | `faster_whisper/` | Model only | Two bundled audio files | Downloads the configured Faster-Whisper checkpoint on first use |
+| `indic_asr/` | Separate preparation script | 216,164 retained clips / 531.75763 hours | Pins `ketav/parakeet-hindi-asr`; prebuilt Indic Canary and Parakeet TensorRT engines are separate |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
 | `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
+
+The Indic ASR source contract remains revision
+`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0`: 216,169 manifest rows /
+1,914,385,701 ms, source-manifest SHA-256
+`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`.
+Full decoding rejects five pinned corrupt members (`hindi_017643.flac`,
+`hindi_017655.flac`, `hindi_017656.flac`, `hindi_017666.flac`, and
+`hindi_018619.flac`) totaling 58,233 ms. The tutorial and both benchmark
+executors use the resulting 216,164-row / 1,914,327,468-ms canonical manifest
+(116,382,162 bytes; SHA-256
+`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`).
 
 ## System dependencies
 
@@ -93,6 +106,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
+| `indic_asr/` | CUDA 13-capable driver or supported forward-compat stack; TensorRT engine bundles | `audio_canary_trtllm` |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
