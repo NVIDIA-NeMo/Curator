@@ -22,12 +22,17 @@ The benchmark supports both input paths accepted by ``MinHashStage``:
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any, Literal
 
 import pyarrow.parquet as pq
 from loguru import logger
+
+# Import benchmark-owned adapters without adding any product source checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from release_compatibility import selected_profile
 from release_compatibility.curator_26_07 import create_minhash_stage
 from utils import load_dataset_files, setup_executor, write_benchmark_results
@@ -251,12 +256,16 @@ def run_minhash_benchmark(  # noqa: PLR0913
             "num_output_tasks": len(output_tasks),
             "num_documents_processed": num_documents_processed,
             "throughput_docs_per_sec": (num_documents_processed / run_time_taken if run_time_taken > 0 else 0),
-            "minhash_input_prep_worker_time_s_sum": task_metrics.get(f"{input_prep_metric_prefix}_sum", 0),
-            "minhash_compute_worker_time_s_sum": task_metrics.get("MinHashStage_custom.minhash_compute_time_sum", 0),
-            "minhash_write_worker_time_s_sum": task_metrics.get("MinHashStage_custom.minhash_write_time_sum", 0),
-            "minhash_input_prep_worker_time_s_mean": task_metrics.get(f"{input_prep_metric_prefix}_mean", 0),
-            "minhash_compute_worker_time_s_mean": task_metrics.get("MinHashStage_custom.minhash_compute_time_mean", 0),
-            "minhash_write_worker_time_s_mean": task_metrics.get("MinHashStage_custom.minhash_write_time_mean", 0),
+            **{
+                f"minhash_{phase}_worker_time_s_{stat}": task_metrics[source]
+                for phase, prefix in (
+                    ("input_prep", input_prep_metric_prefix),
+                    ("compute", "MinHashStage_custom.minhash_compute_time"),
+                    ("write", "MinHashStage_custom.minhash_write_time"),
+                )
+                for stat in ("sum", "mean")
+                if (source := f"{prefix}_{stat}") in task_metrics
+            },
         },
         "tasks": output_tasks,
     }

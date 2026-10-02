@@ -24,15 +24,19 @@ from typing import Any
 import git
 import pynvml
 from loguru import logger
+from release_compatibility import compatibility_config, selected_profile
 from runner.session import Session
 from runner.utils import get_obj_for_json, get_shm_usage, get_total_memory_bytes
-from scripts.release_compatibility import selected_profile
 
 
 def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
     env_data = get_env()
     if selected_profile():
         env_data["benchmark_compat_profile"] = selected_profile()
+        env_data["benchmark_compat_requirements_not_evaluated"] = {
+            entry["name"]: [req["metric"] for req in entry.get("requirements", []) if req.get("enabled") is False]
+            for entry in compatibility_config().get("entries", [])
+        }
     env_data["object_store_size"] = session_obj.object_store_size
     if session_obj.run_reason:
         env_data["run_reason"] = session_obj.run_reason

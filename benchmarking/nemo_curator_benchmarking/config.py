@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from release_compatibility import compatibility_config
 
 logger = logging.getLogger(__name__)
 _env_var_pattern = re.compile(r"\$\{([^}]+)\}")
@@ -92,7 +93,12 @@ def _update_list(config_list: list[Any], override_list: list[Any]) -> None:
             config_list.append(item)
             continue
 
-        match_key = "name" if "name" in item else next(iter(item.keys()))
+        if "name" in item:
+            match_key = "name"
+        elif "metric" in item:
+            match_key = "metric"
+        else:
+            match_key = next(iter(item.keys()))
         for config_item in config_list:
             if (
                 isinstance(config_item, dict)
@@ -107,7 +113,7 @@ def _update_list(config_list: list[Any], override_list: list[Any]) -> None:
 
 
 def merge_config_files(config_files: list[str | Path]) -> dict[str, Any]:
-    """Read and merge benchmark YAML config files in command-line order."""
+    """Merge files in command-line order, then the explicit release profile."""
 
     config: dict[str, Any] = {}
     for config_file in config_files:
@@ -115,6 +121,17 @@ def merge_config_files(config_files: list[str | Path]) -> dict[str, Any]:
             for config_part in yaml.full_load_all(f):
                 if config_part:
                     update_config(config, config_part)
+    profile_config = compatibility_config()
+    if profile_config:
+        # Profiles must not introduce entries missing from the selected suite
+        # (including exact-entry configs or older benchmark-suite revisions).
+        names = {entry["name"] for entry in config.get("entries", [])}
+        profile_config["entries"] = [entry for entry in profile_config.get("entries", []) if entry["name"] in names]
+        update_config(config, profile_config)
+        logger.info(
+            "Applied release compatibility config for entries: %s",
+            [entry["name"] for entry in profile_config["entries"]],
+        )
     return config
 
 

@@ -15,6 +15,8 @@
 """Explicit compatibility for benchmark scripts, never Curator-under-test."""
 
 import os
+from pathlib import Path
+from typing import Any
 
 
 def selected_profile() -> str | None:
@@ -23,6 +25,18 @@ def selected_profile() -> str | None:
         message = f"Unknown benchmark compatibility profile: {profile!r}"
         raise ValueError(message)
     return profile or None
+
+
+def compatibility_config() -> dict[str, Any]:
+    """Load the optional requirements override owned by the selected profile."""
+    profile = selected_profile()
+    if profile is None:
+        return {}
+    import yaml
+
+    path = Path(__file__).with_name(f"curator_{profile.replace('.', '_')}.yaml")
+    with path.open(encoding="utf-8") as config_file:
+        return yaml.safe_load(config_file)
 
 
 if __name__ == "__main__":

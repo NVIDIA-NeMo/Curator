@@ -212,7 +212,7 @@ install_environment() {
 
 prepare_benchmark_source
 source_root=$(benchmark_source_root)
-"$PYTHON" "$source_root/benchmarking/scripts/release_compatibility/__init__.py"
+"$PYTHON" "$source_root/benchmarking/release_compatibility/__init__.py"
 tools_dir=$(dependency_tools_dir)
 
 case "$ACTION" in
