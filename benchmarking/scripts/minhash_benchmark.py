@@ -28,6 +28,8 @@ from typing import Any, Literal
 
 import pyarrow.parquet as pq
 from loguru import logger
+from release_compatibility import selected_profile
+from release_compatibility.curator_26_07 import create_minhash_stage
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -108,20 +110,25 @@ def _build_pipeline(  # noqa: PLR0913
         )
         minhash_read_format = input_filetype
 
-    minhash_stage = MinHashStage(
-        output_path=str(output_path),
-        text_field=text_field,
-        minhash_field=minhash_field,
-        char_ngrams=char_ngrams,
-        num_hashes=num_hashes,
-        seed=seed,
-        use_64bit_hash=use_64bit_hash,
-        normalize_text=normalize_text,
-        read_format=minhash_read_format,
-        read_kwargs=read_kwargs,
-        write_kwargs=write_kwargs,
-        pool=pool,
-    )
+    minhash_kwargs = {
+        "output_path": str(output_path),
+        "text_field": text_field,
+        "minhash_field": minhash_field,
+        "char_ngrams": char_ngrams,
+        "num_hashes": num_hashes,
+        "seed": seed,
+        "use_64bit_hash": use_64bit_hash,
+        "normalize_text": normalize_text,
+        "read_format": minhash_read_format,
+        "read_kwargs": read_kwargs,
+        "write_kwargs": write_kwargs,
+        "pool": pool,
+    }
+    if selected_profile() == "26.07":
+        logger.warning("26.07 compatibility: using the normalization-disabled MinHash adapter")
+        minhash_stage = create_minhash_stage(MinHashStage, **minhash_kwargs)
+    else:
+        minhash_stage = MinHashStage(**minhash_kwargs)
     if minhash_num_workers is not None:
         minhash_stage = minhash_stage.with_(num_workers=minhash_num_workers)
     if minhash_ray_data_initial_workers is not None:
