@@ -168,9 +168,11 @@ environments:
 
 **Requirements:**
 
-- An NRL release that records `raw_output` in the `nemotron_parse_v1_2` page
-  metadata, installed with its local vLLM dependencies. `ingest` fails when Ray
-  cannot see a GPU; it never falls back to a remote endpoint.
+- An NRL release that records `raw_output` and finish reasons in the
+  `nemotron_parse_v1_2` page metadata and supports the `strict_rows_per_block`
+  executor option, installed with its local vLLM dependencies. `ingest` checks
+  both before extracting, fails when Ray cannot see a GPU, and never falls back
+  to a remote endpoint.
 - A Curator environment with the Lance and OpenCV extras:
 
 ```bash
@@ -220,7 +222,8 @@ consume report records the selected executor. This option does not change
 `ingest` or run Parse again.
 
 `ingest` scheduling flags tune Ray without changing extraction or adding Parse
-replicas: `--parse-batch-size` (pages per Parse batch, default 64),
+replicas: `--parse-batch-size` (pages per Parse batch, default 64; every batch
+except the last is full),
 `--parse-cpus` (CPUs reserved for the Parse actor, default 1),
 `--projection-workers` (CPU projection actors, 1 to 8, default 8), and
 `--projection-block-rows` (page rows per block before projection).
