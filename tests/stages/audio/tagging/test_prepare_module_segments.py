@@ -16,6 +16,8 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
@@ -190,7 +192,7 @@ def test_prepare_module_segments_stage_sdp_style_input(
         max_pause=2,
         text_key="text",
         words_key="words",
-        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001
+        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001 - fullwidth CJK punctuation is the test input
         full_utterance_ratio=1.0,
         punctuation_split_only=False,
     )
@@ -253,3 +255,116 @@ class TestPerEntryRandomSeed:
 
         assert len(seeds_used) == 2
         assert seeds_used[0] == seeds_used[1], "Same entry must always get the same seed"
+
+
+class TestPrepareModuleSegmentsReviewFixes:
+    """Regressions for the PR #2339 re-review safety fixes."""
+
+    def test_renamed_alignment_key_is_read_and_wordless_rows_match_default_keys(self) -> None:
+        # The renamed-key chain must produce exactly what the default-key chain produces:
+        # words under ``my_alignment`` are consumed, and a row with no aligned words leaves
+        # with ``segments == []`` (the pre-conversion behaviour) rather than keeping the raw
+        # diarization turns, which are neither split nor scored.
+        words = [
+            {"word": "hello", "start": 0.2, "end": 0.6},
+            {"word": "world.", "start": 0.7, "end": 1.1},
+        ]
+        renamed = PrepareModuleSegmentsStage(
+            module="tts", alignment_key="my_alignment", overlap_segments_key="my_overlap"
+        )
+        default = PrepareModuleSegmentsStage(module="tts")
+        renamed_entry = {
+            "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
+            "duration": 3.0,
+            "my_alignment": words,
+        }
+        default_entry = {
+            "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
+            "duration": 3.0,
+            "alignment": words,
+        }
+        renamed_result = renamed.process(AudioTask(data=renamed_entry)).data["segments"]
+        default_result = default.process(AudioTask(data=default_entry)).data["segments"]
+        assert renamed_result, "words under the configured alignment_key must be consumed"
+        assert renamed_result == default_result
+
+        wordless = renamed.process(
+            AudioTask(data={"segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}], "duration": 3.0})
+        )
+        assert wordless.data["segments"] == [], "a row with no aligned words leaves with an empty prepared list"
+
+    def test_all_rejected_segments_yield_an_empty_list_not_the_raw_input(self) -> None:
+        # One 25 s word with max_duration=20: nothing survives preparation, so the output must
+        # be ``[]`` -- the raw diarization turn (and the synthetic no-speaker turn) must not
+        # pass through as if it were a prepared segment.
+        stage = PrepareModuleSegmentsStage(module="tts", max_duration=20.0)
+        entry = {
+            "segments": [{"speaker": "spk0", "start": 0.0, "end": 25.0}],
+            "duration": 25.0,
+            "alignment": [{"word": "loooong.", "start": 0.0, "end": 25.0}],
+        }
+        assert stage.process(AudioTask(data=entry)).data["segments"] == []
+
+    def test_renamed_identity_key_yields_distinct_seeds(self) -> None:
+        stage = PrepareModuleSegmentsStage(module="asr", audio_filepath_key="my_path")
+        seeds_used: list[int] = []
+        orig_seed = stage._rng.seed
+
+        def capture_seed(s: int) -> None:
+            seeds_used.append(s)
+            orig_seed(s)
+
+        with patch.object(stage._rng, "seed", side_effect=capture_seed):
+            stage.process(AudioTask(data={"my_path": "file_a.wav", "segments": []}))
+            stage.process(AudioTask(data={"my_path": "file_b.wav", "segments": []}))
+
+        assert len(seeds_used) == 2
+        assert seeds_used[0] != seeds_used[1], "distinct renamed identity values must seed differently"
+
+    def test_legacy_positional_signature_still_binds(self) -> None:
+        stage = PrepareModuleSegmentsStage("asr", 3.0, 25.0, 1.5, "t", "w", ".", 0.5, True, "MyName")
+        assert stage.module == "asr"
+        assert stage.min_duration == 3.0
+        assert stage.max_duration == 25.0
+        assert stage.max_pause == 1.5
+        assert stage.text_key == "t"
+        assert stage.words_key == "w"
+        assert stage.terminal_punct_marks == "."
+        assert stage.full_utterance_ratio == 0.5
+        assert stage.punctuation_split_only is True
+        assert stage.name == "MyName"
+
+
+def test_prepare_module_segments_is_agent_ready() -> None:
+    """Conformance: contract shape/roles/serialization hold and declared writes appear at runtime."""
+    stage = PrepareModuleSegmentsStage(module="tts", min_duration=1.0, max_duration=20.0)
+
+    def fixture() -> AudioTask:
+        return AudioTask(
+            data={
+                "segments": [
+                    {
+                        "speaker": "s1",
+                        "start": 0.0,
+                        "end": 3.0,
+                        "text": "hi there",
+                        "words": [
+                            {"word": "hi", "start": 0.0, "end": 1.0, "speaker": "s1"},
+                            {"word": "there", "start": 1.0, "end": 2.5, "speaker": "s1"},
+                        ],
+                    }
+                ],
+                "overlap_segments": [],
+                "duration": 3.0,
+            }
+        )
+
+    contract = assert_agent_ready(stage, fixture, available_keys={"segments", "duration"})
+    assert contract.reads.data_keys == ["segments", "duration"]
+    assert contract.writes.data_keys == ["segments"]
+    assert set(contract.optional_reads.data_keys) == {
+        "alignment",
+        "overlap_segments",
+        "audio_filepath",
+        "audio_item_id",
+    }
