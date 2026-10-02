@@ -320,19 +320,22 @@ def test_build_projection_graph_reuses_nrl_graph_with_fixed_settings(
     assert isinstance(captured["operator"], recipe.CPUOperator)
 
 
-@pytest.mark.parametrize("incompatibility", ["prompt", "finish_reasons"])
+@pytest.mark.parametrize("incompatibility", ["prompt", "finish_reasons", "strict_blocks"])
 def test_nrl_compatibility_check_rejects_missing_page_contract(
     recipe: ModuleType, monkeypatch: pytest.MonkeyPatch, incompatibility: str
 ) -> None:
+    from nemo_retriever.graph import executor
     from nemo_retriever.models.local import NemotronParseV12
     from nemo_retriever.operators.extract.parse import nemotron_parse
 
     recipe.check_nrl_compatibility()
     if incompatibility == "prompt":
         monkeypatch.setattr(nemotron_parse, "NEMOTRON_PARSE_DEFAULT_TASK_PROMPT", "changed")
-    else:
+    elif incompatibility == "finish_reasons":
         monkeypatch.delattr(NemotronParseV12, "invoke_batch_with_finish_reasons")
-    with pytest.raises(RuntimeError, match=r"prompt|finish reasons"):
+    else:
+        monkeypatch.delattr(executor, "STRICT_ROWS_PER_BLOCK")
+    with pytest.raises(RuntimeError, match=r"prompt|finish reasons|strict_rows_per_block"):
         recipe.check_nrl_compatibility()
 
 
@@ -373,7 +376,12 @@ def test_batch_executor_keeps_one_parse_actor_and_bounds_projection_pool(
 
     assert isinstance(executor, recipe.RayDataExecutor)
     assert executor._node_overrides == {
-        "NemotronParseActor": {"batch_size": parse_batch_size, "num_cpus": parse_cpus},
+        "NemotronParseActor": {
+            "batch_size": parse_batch_size,
+            "num_cpus": parse_cpus,
+            "target_num_rows_per_block": parse_batch_size,
+            "strict_rows_per_block": True,
+        },
         "NRLCuratorProjectionOperator": {
             "concurrency": 4,
             "num_cpus": 1,

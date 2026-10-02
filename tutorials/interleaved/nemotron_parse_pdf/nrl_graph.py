@@ -395,6 +395,7 @@ class NRLCuratorProjectionOperator(AbstractOperator, CPUOperator):
 def check_nrl_compatibility() -> None:
     """Fail before any extraction work when the installed NRL cannot supply the page contract."""
 
+    from nemo_retriever.graph import executor
     from nemo_retriever.models.local import NemotronParseV12
     from nemo_retriever.operators.extract.parse.nemotron_parse import NEMOTRON_PARSE_DEFAULT_TASK_PROMPT
 
@@ -403,6 +404,9 @@ def check_nrl_compatibility() -> None:
         raise RuntimeError(msg)
     if not hasattr(NemotronParseV12, "invoke_batch_with_finish_reasons"):
         msg = "The installed NRL does not report Nemotron Parse finish reasons; install an NRL release that does"
+        raise RuntimeError(msg)
+    if getattr(executor, "STRICT_ROWS_PER_BLOCK", None) != "strict_rows_per_block":
+        msg = "The installed NRL does not support strict_rows_per_block; install an NRL release that does"
         raise RuntimeError(msg)
 
 
@@ -490,7 +494,13 @@ def build_projection_executor(
     return RayDataExecutor(
         graph,
         node_overrides={
-            "NemotronParseActor": {"batch_size": parse_batch_size, "num_cpus": parse_cpus},
+            "NemotronParseActor": {
+                "batch_size": parse_batch_size,
+                "num_cpus": parse_cpus,
+                # Exact blocks keep Ray from splitting each bundle into a full call plus a small one.
+                "target_num_rows_per_block": parse_batch_size,
+                "strict_rows_per_block": True,
+            },
             NRLCuratorProjectionOperator.__name__: projection_overrides,
         },
         auto_concurrency_nodes={NRLCuratorProjectionOperator.__name__},
