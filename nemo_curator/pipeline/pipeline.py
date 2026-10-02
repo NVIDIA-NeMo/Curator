@@ -339,6 +339,9 @@ class Pipeline:
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
 
+        for stage in self.stages:
+            stage.finalize()
+
         if completion_manifest is not None:
             if failed_task_manifest_exists():
                 logger.warning(
