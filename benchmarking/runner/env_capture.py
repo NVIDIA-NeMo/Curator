@@ -24,18 +24,26 @@ from typing import Any
 import git
 import pynvml
 from loguru import logger
-from release_compatibility import compatibility_config, selected_profile
+from release_compatibility import compatibility_config
 from runner.session import Session
 from runner.utils import get_obj_for_json, get_shm_usage, get_total_memory_bytes
 
 
-def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
+def dump_env(
+    session_obj: Session, output_path: Path, *, benchmark_compat_profile: str | None = None
+) -> dict[str, Any]:
+    """Write and return a run-environment and metadata snapshot, not an env-var dump.
+
+    Capture hardware, software versions, product provenance, and run settings in
+    env.json, plus installed packages in packages.txt when available. Compatibility
+    metadata describes the selected profile's policy, not per-entry check outcomes.
+    """
     env_data = get_env()
-    if selected_profile():
-        env_data["benchmark_compat_profile"] = selected_profile()
-        env_data["benchmark_compat_requirements_not_evaluated"] = {
+    if benchmark_compat_profile:
+        env_data["benchmark_compat_profile"] = benchmark_compat_profile
+        env_data["benchmark_compat_requirement_overrides"] = {
             entry["name"]: [req["metric"] for req in entry.get("requirements", []) if req.get("enabled") is False]
-            for entry in compatibility_config().get("entries", [])
+            for entry in compatibility_config(benchmark_compat_profile).get("entries", [])
         }
     env_data["object_store_size"] = session_obj.object_store_size
     if session_obj.run_reason:

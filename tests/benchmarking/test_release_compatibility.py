@@ -14,9 +14,12 @@
 
 """Check explicit selection and benchmark-only 26.07 argument adaptation."""
 
+import argparse
+import ast
 import importlib.util
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -35,13 +38,65 @@ def load_module(name: str):
 
 def test_profile_selection(monkeypatch: "MonkeyPatch"):
     compat = load_module("__init__.py")
-    monkeypatch.delenv("CURATOR_BENCHMARK_COMPAT_PROFILE", raising=False)
-    assert compat.selected_profile() is None
+    assert compat.validate_profile(None) is None
     monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "26.07")
-    assert compat.selected_profile() == "26.07"
-    monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "unknown")
+    assert compat.compatibility_config() == {}
+    assert compat.validate_profile("26.07") == "26.07"
     with pytest.raises(ValueError, match="Unknown"):
-        compat.selected_profile()
+        compat.validate_profile("unknown")
+
+
+def test_profile_is_passed_only_to_affected_scripts():
+    compat = load_module("__init__.py")
+    command = "python minhash_benchmark.py --seed 42"
+    name = "minhash_file_group_task_ray_actors"
+    assert compat.apply_script_profile(command, name, "26.07") == command + " --benchmark-compat-profile 26.07"
+    assert compat.apply_script_profile(command, name, None) == command
+    assert compat.apply_script_profile(command, "unrelated", "26.07") == command
+
+
+@pytest.mark.parametrize("script", ["run.py", "scripts/minhash_benchmark.py"])
+def test_profile_cli_argument(script: str, monkeypatch: "MonkeyPatch"):
+    # Exercise the real parsers without importing GPU-only product dependencies.
+    root = Path(__file__).resolve().parents[2] / "benchmarking"
+    tree = ast.parse((root / script).read_text())
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    statements = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in ("_dataset_ratio", "_parse_json_object")
+    ]
+    for statement in main.body:
+        statements.append(statement)
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "args" for target in statement.targets
+        ):
+            break
+    code = compile(ast.Module(body=statements, type_ignores=[]), str(root / script), "exec")
+    compat = load_module("__init__.py")
+    namespace = {
+        "argparse": argparse,
+        "Path": Path,
+        "validate_profile": compat.validate_profile,
+        "json": json,
+        "Any": Any,
+    }
+    required = (
+        ["--config", "test.yaml"]
+        if script == "run.py"
+        else ["--benchmark-results-path", "results", "--input-path", "input", "--output-path", "output"]
+    )
+    monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "26.07")
+    monkeypatch.setattr("sys.argv", [script, *required])
+    exec(code, namespace)  # noqa: S102
+    assert namespace["args"].benchmark_compat_profile is None
+    monkeypatch.setattr("sys.argv", [script, *required, "--benchmark-compat-profile", "26.07"])
+    exec(code, namespace)  # noqa: S102
+    assert namespace["args"].benchmark_compat_profile == "26.07"
+    monkeypatch.setattr("sys.argv", [script, *required, "--benchmark-compat-profile", "unknown"])
+    with pytest.raises(SystemExit) as error:
+        exec(code, namespace)  # noqa: S102
+    assert error.value.code == 2
 
 
 def test_minhash_preserves_arguments_and_rejects_normalization():
@@ -83,12 +138,11 @@ def test_profile_yaml_disables_only_unavailable_checks(monkeypatch: "MonkeyPatch
         )
     )
     paths = [base_path, override_path]
-    monkeypatch.delenv("CURATOR_BENCHMARK_COMPAT_PROFILE", raising=False)
+    monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "26.07")
     normal = merge_config_files(paths)
     assert len(remove_disabled_blocks(normal)["entries"][0]["requirements"]) == 5
-    monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "26.07")
-    generated = load_benchmark_config(paths)
-    runtime = merge_config_files(paths)
+    generated = load_benchmark_config(paths, benchmark_compat_profile="26.07")
+    runtime = merge_config_files(paths, benchmark_compat_profile="26.07")
     assert generated == runtime
     assert [entry["name"] for entry in runtime["entries"]] == [name]
     enabled = remove_disabled_blocks(runtime)["entries"][0]["requirements"]
@@ -100,8 +154,7 @@ def test_profile_yaml_does_not_change_unrelated_entries(monkeypatch: "MonkeyPatc
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "benchmarking"))
     from nemo_curator_benchmarking.config import merge_config_files
 
-    monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "26.07")
     base = {"entries": [{"name": "unrelated", "requirements": [{"metric": "count", "exact_value": 10}]}]}
     path = tmp_path / "base.yaml"
     path.write_text(yaml.safe_dump(base))
-    assert merge_config_files([path]) == base
+    assert merge_config_files([path], benchmark_compat_profile="26.07") == base

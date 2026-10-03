@@ -44,9 +44,6 @@ Environment:
   CURATOR_BENCHMARK_SOURCE_DIR
       Container-only runtime copy of benchmark source files. Default:
       /opt/curator-benchmark-source. Bare-metal users do not need this.
-  CURATOR_BENCHMARK_COMPAT_PROFILE
-      Optional release compatibility profile for benchmark-script adapters.
-      Never changes Curator-under-test. No adapters by default.
 EOF
 }
 
@@ -212,7 +209,6 @@ install_environment() {
 
 prepare_benchmark_source
 source_root=$(benchmark_source_root)
-"$PYTHON" "$source_root/benchmarking/release_compatibility/__init__.py"
 tools_dir=$(dependency_tools_dir)
 
 case "$ACTION" in

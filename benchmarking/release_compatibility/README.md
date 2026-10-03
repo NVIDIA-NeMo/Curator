@@ -2,8 +2,11 @@
 
 This folder contains explicit, temporary benchmark adapters for older Curator
 releases. It never patches or replaces Curator-under-test. Select a profile with
-`CURATOR_BENCHMARK_COMPAT_PROFILE=26.07`; without a selection, benchmarks use
-their normal API calls. Unknown profiles fail setup and affected scripts.
+`benchmarking/run.py --benchmark-compat-profile 26.07`; without a selection,
+benchmarks use their normal API calls. Unknown profiles fail argument validation.
+Config helpers receive an explicit `benchmark_compat_profile` keyword argument;
+the runner forwards the CLI option only to affected benchmark scripts. No
+environment variable selects a profile.
 
 Each profile may also supply an accompanying YAML file. The shared config loader
 merges it after all explicitly supplied workload, SKU, and CI configs, so CI job
@@ -11,7 +14,7 @@ generation and runtime execution use the same profile policy. Overrides only
 affect entries present in the suite; they do not add missing entries. Individual
 requirements use `enabled: false`, which the runner removes after merging.
 Document-count and throughput checks remain in force. The run's `env.json`
-records the profile's unavailable checks as not evaluated, never as passing.
+records the profile's requirement overrides, not per-entry check outcomes.
 
 Each release gets a plain Python module with focused functions, not a registry
 or class hierarchy. Scripts branch explicitly at the affected API call. Keep

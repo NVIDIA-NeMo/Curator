@@ -14,22 +14,20 @@
 
 """Explicit compatibility for benchmark scripts, never Curator-under-test."""
 
-import os
 from pathlib import Path
 from typing import Any
 
 
-def selected_profile() -> str | None:
-    profile = os.environ.get("CURATOR_BENCHMARK_COMPAT_PROFILE", "")
-    if profile not in ("", "26.07"):
+def validate_profile(profile: str | None) -> str | None:
+    if profile not in (None, "26.07"):
         message = f"Unknown benchmark compatibility profile: {profile!r}"
         raise ValueError(message)
-    return profile or None
+    return profile
 
 
-def compatibility_config() -> dict[str, Any]:
+def compatibility_config(profile: str | None = None) -> dict[str, Any]:
     """Load the optional requirements override owned by the selected profile."""
-    profile = selected_profile()
+    profile = validate_profile(profile)
     if profile is None:
         return {}
     import yaml
@@ -39,5 +37,9 @@ def compatibility_config() -> dict[str, Any]:
         return yaml.safe_load(config_file)
 
 
-if __name__ == "__main__":
-    print(f"Benchmark compatibility profile: {selected_profile() or 'none'}")
+def apply_script_profile(command: str, entry_name: str, profile: str | None) -> str:
+    """Pass the selected profile only to scripts covered by its overrides."""
+    config = compatibility_config(profile)
+    if any(entry["name"] == entry_name for entry in config.get("entries", [])):
+        return f"{command} --benchmark-compat-profile {profile}"
+    return command
