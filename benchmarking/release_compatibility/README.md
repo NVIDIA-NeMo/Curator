@@ -64,7 +64,25 @@ be considered in performance comparisons.
 Targeted release-image testing is required before considering these adapters
 validated end to end.
 
-Other audio, embedding, PDF, and semantic dedup compatibility remain
-to be reviewed separately. Do not omit behavior or precision controls without
-validating equivalence. Unsupported product features are not comparable and
-must not be backported into Curator-under-test just to obtain a result.
+## 26.07: workload limitations
+
+The baseline image records Curator revision
+`4ad90ff7ada6579f23bdbfd69f71695d113483e9`. Inspection of that revision explains
+these remaining failures beyond the first missing keyword or import. They are
+not passing results and the profile does not disable their entries or checks.
+
+| Entries | Release limitation | Why an argument/import shim is insufficient |
+| --- | --- | --- |
+| `minhash_document_batch_ray_data`, `minhash_document_batch_xenna` | `MinHashStage` processes `FileGroupTask`, not `DocumentBatch`. | Supplying a read format does not add the missing task interface. Substituting the file-group pipeline would measure a different execution mode. |
+| `embedding_generation_raydata`, `embedding_generation_xenna` | The vLLM stage embeds a whole input batch and lacks `model_inference_batch_size`. | Removing `metadata_fields` alone exposes another missing argument. Dropping the script's 1024-row inference limit changes batching and memory behavior; implementing it in the adapter would backport stage behavior. |
+| `audio_librispeech_xenna` | The newer `ASRStage` and NeMo adapter are absent. | The older `InferenceAsrNemoStage` lacks the requested local bucketing, duration limits, error policy, and decoder configuration. An import alias would silently omit those controls. |
+| `semdedup_identification_xenna_dataset_size_ratio`, `semdedup_identification_xenna_fit_data_fraction` | KMeans output precision and pairwise compute precision cannot be selected. | Both workloads explicitly request float16 storage and computation. The old stages retain input-derived precision; dropping the controls is not equivalent. |
+| `nemotron_parse_pdf_xenna`, `nemotron_parse_pdf_raydata` | The PDF reader lives in `composite.py`; inference hardcodes `max_tokens=9000`. | Fixing `DEFAULT_MAX_TOKENS` and the reader import alone cannot honor the current 8192-token default. Adapting the workload would require an explicitly different token budget. |
+| `nemotron_parse_pdf_inference_server_ray_serve`, `nemotron_parse_pdf_inference_server_dynamo` | The PDF composite has only in-process inference, with no inference-server client integration. | Substituting local inference would no longer exercise the named server workflow. |
+
+These limitations need an explicit decision about alternative release-specific
+workloads before further adapters are added. Do not omit behavior or precision
+controls without validating equivalence, or backport missing product features
+into Curator-under-test merely to obtain a result. Model download/cache errors
+and performance requirement misses are separate from these API limitations;
+retest and investigate them without arbitrarily weakening checks.
