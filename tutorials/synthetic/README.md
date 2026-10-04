@@ -4,7 +4,7 @@ Hands-on tutorials for generating synthetic data with NeMo Curator using Ray-bas
 
 ## Documentation
 
-For comprehensive documentation, refer to the [Synthetic Data Generation Guide](../../fern/versions/main/pages/curate-text/synthetic/index.mdx).
+For comprehensive documentation, refer to the [Synthetic Data Generation Guide](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic).
 
 ## Getting Started
 
@@ -162,6 +162,6 @@ python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipel
 
 ## Additional Resources
 
-- [LLM Client Configuration](../../fern/versions/main/pages/curate-text/synthetic/llm-client.mdx)
+- [LLM Client Configuration](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/llm-client)
 - [Nemotron-CC synthetic data generation code](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/recipes/data/curation/nemotron-cc/step_4-sdg.py) uses `Qwen/Qwen3-30B-A3B-Instruct-2507` by default.
-- [Task Reference](../../fern/versions/main/pages/curate-text/synthetic/nemotron-cc/tasks.mdx)
+- [Task Reference](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/nemotron-cc/tasks)
