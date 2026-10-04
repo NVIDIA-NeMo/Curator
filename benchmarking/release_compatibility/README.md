@@ -65,8 +65,8 @@ For Ray Data only, a benchmark subclass converts SQUIM's incoming array batch
 to a list before calling the unchanged release implementation. This avoids
 ambiguous array truth-value checks without dropping tasks or changing inference
 batching, models, metrics, or output validation.
-Targeted release-image testing is required before considering these adapters
-validated end to end.
+Targeted tests confirmed exact/fuzzy dedup pass. Both TTS executor paths now
+complete the pipeline but fail output validation; see the results below.
 
 ## 26.07: workload limitations
 
@@ -90,3 +90,31 @@ controls without validating equivalence, or backport missing product features
 into Curator-under-test merely to obtain a result. Model download/cache errors
 and performance requirement misses are separate from these API limitations;
 retest and investigate them without arbitrarily weakening checks.
+
+## 26.07: validation results, 2026-10-04
+
+EOS results root:
+`/lustre/fsw/coreai_dlalgo_ci/curator_ci/results/rratzel_curator-pr2441-source-benchmark-setup/`.
+All runs used PR 2441 benchmark sources, MR 2932 orchestration, the baseline
+image above, and `--benchmark-compat-profile 26.07`.
+
+| Session | Result |
+| --- | --- |
+| `curator-2607-compat-full-suite-eos-2026_10_03__17_39_15_UTC` | Full-suite baseline: 50 entries, 33 passed, 17 failed. |
+| `curator-2607-compat-dedup-tts-eos-2026_10_04__19_46_02_UTC` | Exact/fuzzy dedup passed with original requirements; TTS exposed the missing aligner graph argument. |
+| `curator-2607-compat-tts-eos-2026_10_04__21_45_34_UTC` | Xenna completed 56 meetings, then failed timestamp validation. Ray Data exposed the SQUIM array/list mismatch. |
+| `curator-2607-compat-recheck-eos-2026_10_04__21_46_56_UTC` | ReadSpeech/Xenna and NDD/Ray Serve passed unchanged. NDD measured 150.55 rows/s against the 150 rows/s minimum. |
+| `curator-2607-compat-tts-raydata-eos-2026_10_04__22_13_12_UTC` | After batch adaptation, Ray Data completed 56 tasks, then failed the same timestamp validation as Xenna. |
+
+Combined evidence covers all 50 entries: 37 have passing results, 11 have the
+workload/API limitations listed above, and two TTS entries have output-quality
+failures. This is evidence across a full-suite baseline and targeted retests,
+not a claim that a new single full-suite run passed.
+
+Both TTS outputs contain 5,988 segments, including 19 with `start == end`.
+For example, Xenna's `results/tagging_output.jsonl`, row index 1, segment index
+23 has `start=end=403.728` (a single aligned word). Row order differs between
+executors. Logs are in each entry's `logs/stdouterr.log`. The normal validator
+rejects these segments; the profile does not discard them, invent durations,
+or weaken validation. Resolving this requires an output-quality fix or an
+explicitly reviewed validation-policy change, not another constructor adapter.
