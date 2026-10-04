@@ -55,7 +55,16 @@ def test_profile_is_passed_only_to_affected_scripts():
     assert compat.apply_script_profile(command, "unrelated", "26.07") == command
 
 
-@pytest.mark.parametrize("script", ["run.py", "scripts/minhash_benchmark.py"])
+@pytest.mark.parametrize(
+    "script",
+    [
+        "run.py",
+        "scripts/minhash_benchmark.py",
+        "scripts/exact_dedup_identification_benchmark.py",
+        "scripts/fuzzy_dedup_identification_benchmark.py",
+        "scripts/audio_tagging_benchmark.py",
+    ],
+)
 def test_profile_cli_argument(script: str, monkeypatch: "MonkeyPatch"):
     # Exercise the real parsers without importing GPU-only product dependencies.
     root = Path(__file__).resolve().parents[2] / "benchmarking"
@@ -80,12 +89,23 @@ def test_profile_cli_argument(script: str, monkeypatch: "MonkeyPatch"):
         "validate_profile": compat.validate_profile,
         "json": json,
         "Any": Any,
+        "parse_memory_size": str,
+        "DEFAULT_AUDIO_TAGGING_CACHE_DIR": "cache",
     }
-    required = (
-        ["--config", "test.yaml"]
-        if script == "run.py"
-        else ["--benchmark-results-path", "results", "--input-path", "input", "--output-path", "output"]
-    )
+    required = ["--benchmark-results-path", "results", "--input-path", "input", "--output-path", "output"]
+    if script == "run.py":
+        required = ["--config", "test.yaml"]
+    elif script == "scripts/fuzzy_dedup_identification_benchmark.py":
+        required.extend(["--cache-path", "cache"])
+    elif script == "scripts/audio_tagging_benchmark.py":
+        required = [
+            "--benchmark-results-path",
+            "results",
+            "--scratch-output-path",
+            "scratch",
+            "--diarization-model-path",
+            "model",
+        ]
     monkeypatch.setenv("CURATOR_BENCHMARK_COMPAT_PROFILE", "26.07")
     monkeypatch.setattr("sys.argv", [script, *required])
     exec(code, namespace)  # noqa: S102
@@ -105,6 +125,27 @@ def test_minhash_preserves_arguments_and_rejects_normalization():
     assert compat.create_minhash_stage(dict, normalize_text=False, **kwargs) == kwargs
     with pytest.raises(ValueError, match="normalize_text=False"):
         compat.create_minhash_stage(dict, normalize_text=True, **kwargs)
+
+
+def test_dedup_preserves_workload_arguments_and_rejects_normalization():
+    compat = load_module("curator_26_07.py")
+    kwargs = {"input_path": "input", "output_path": "output", "text_field": "text", "rmm_pool_size": "auto"}
+    for use_async_memory in (False, True):
+        assert (
+            compat.create_dedup_workflow(dict, normalize_text=False, use_async_memory=use_async_memory, **kwargs)
+            == kwargs
+        )
+    with pytest.raises(ValueError, match="normalize_text=False"):
+        compat.create_dedup_workflow(dict, normalize_text=True, use_async_memory=True, **kwargs)
+
+
+def test_diarization_preserves_model_settings_and_supplies_auth(monkeypatch: "MonkeyPatch"):
+    compat = load_module("curator_26_07.py")
+    kwargs = {"model_name": "staged-model", "segmentation_batch_size": 128, "embedding_batch_size": 128}
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    assert compat.create_diarization_stage(dict, **kwargs) == {"hf_token": None, **kwargs}
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    assert compat.create_diarization_stage(dict, **kwargs) == {"hf_token": "test-token", **kwargs}
 
 
 def test_profile_yaml_disables_only_unavailable_checks(monkeypatch: "MonkeyPatch", tmp_path: Path):

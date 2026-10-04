@@ -45,7 +45,21 @@ requirements for all six currently named MinHash entries. The release lacks that
 instrumentation. MinHash scripts omit unavailable timing metrics rather than
 fabricating zeros; elapsed time, throughput, and document counts remain available.
 
-Audio, embedding, PDF, exact/fuzzy dedup, and semantic dedup compatibility remain
+## 26.07: dedup and TTS tagging
+
+Exact/fuzzy dedup adapters retain the input, hashing, partition, and memory-pool
+settings, reject normalization, and use the release's allocator implementation.
+The log warns that asynchronous allocator selection is unavailable; allocator
+differences must be considered in cross-release performance comparisons.
+No requirements are relaxed for these entries.
+
+TTS tagging supplies the older required `hf_token` argument from `HF_TOKEN`
+(or `None` for cached/local authentication). The model, batching, and workload
+are unchanged, and credentials are not added to benchmark parameters or logs.
+Targeted release-image testing is required before considering these adapters
+validated end to end.
+
+Other audio, embedding, PDF, and semantic dedup compatibility remain
 to be reviewed separately. Do not omit behavior or precision controls without
 validating equivalence. Unsupported product features are not comparable and
 must not be backported into Curator-under-test just to obtain a result.

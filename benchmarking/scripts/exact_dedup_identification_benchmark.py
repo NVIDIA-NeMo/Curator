@@ -19,11 +19,18 @@ and logs results to configured sinks.
 """
 
 import argparse
+import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
+
+# Import benchmark adapters without exposing checkout product sources.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from release_compatibility import validate_profile
+from release_compatibility.curator_26_07 import create_dedup_workflow
 from utils import parse_memory_size, write_benchmark_results
 
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
@@ -43,6 +50,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     spill_memory_limit: int | Literal["auto"] | None = "auto",
     use_async_memory: bool = True,
     normalize_text: bool = False,
+    benchmark_compat_profile: str | None = None,
 ) -> dict[str, Any]:
     """Run the exact duplicate identification benchmark and collect comprehensive metrics."""
 
@@ -52,9 +60,13 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     logger.info("Starting exact duplicate identification benchmark")
     run_start_time = time.perf_counter()
 
+    workflow_result = None
     try:
         # Create and run workflow-backed pipeline
-        workflow = ExactDeduplicationWorkflow(
+        workflow_factory = ExactDeduplicationWorkflow
+        if benchmark_compat_profile == "26.07":
+            workflow_factory = partial(create_dedup_workflow, ExactDeduplicationWorkflow)
+        workflow = workflow_factory(
             input_path=input_path,
             output_path=output_path,
             input_filetype=input_filetype,
@@ -180,6 +192,7 @@ def main() -> int:
         default=False,
         help="Normalize text before computing exact hashes",
     )
+    parser.add_argument("--benchmark-compat-profile", type=validate_profile, default=None)
     args = parser.parse_args()
 
     logger.info("=== Exact Duplicate Identification Benchmark Starting ===")
@@ -207,6 +220,7 @@ def main() -> int:
             spill_memory_limit=args.spill_memory_limit,
             use_async_memory=args.use_async_memory,
             normalize_text=args.normalize_text,
+            benchmark_compat_profile=args.benchmark_compat_profile,
         )
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
