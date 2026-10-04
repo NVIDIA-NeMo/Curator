@@ -31,7 +31,7 @@ from loguru import logger
 # Import benchmark adapters without exposing checkout product sources.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release_compatibility import validate_profile
-from release_compatibility.curator_26_07 import create_asr_aligner_stage, create_diarization_stage
+from release_compatibility.curator_26_07 import create_asr_aligner_stage, create_diarization_stage, create_squim_stage
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -402,9 +402,12 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     )
     diarization_factory = PyAnnoteDiarizationStage
     aligner_factory = NeMoASRAlignerStage
+    squim_factory = TorchSquimQualityMetricsStage
     if benchmark_compat_profile == "26.07":
         diarization_factory = partial(create_diarization_stage, PyAnnoteDiarizationStage)
         aligner_factory = partial(create_asr_aligner_stage, NeMoASRAlignerStage)
+        if executor == "ray_data":
+            squim_factory = partial(create_squim_stage, TorchSquimQualityMetricsStage)
     pipeline.add_stage(
         diarization_factory(
             name="PyAnnoteDiarization",
@@ -436,7 +439,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         )
     )
     pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
-    pipeline.add_stage(TorchSquimQualityMetricsStage(name="SquimMetrics", compute_batch_size=squim_compute_batch_size))
+    pipeline.add_stage(squim_factory(name="SquimMetrics", compute_batch_size=squim_compute_batch_size))
     pipeline.add_stage(
         PrepareModuleSegmentsStage(
             name="PrepareModuleSegments",

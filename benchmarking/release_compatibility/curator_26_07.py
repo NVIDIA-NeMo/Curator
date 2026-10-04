@@ -16,8 +16,8 @@
 
 import logging
 import os
-from collections.abc import Callable
-from typing import TypeVar
+from collections.abc import Callable, Sequence
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -62,3 +62,13 @@ def create_asr_aligner_stage(stage_class: Callable[..., T], *, use_cuda_graphs: 
         "Explicit graph enablement is not guaranteed; account for this in performance comparisons."
     )
     return stage_class(**kwargs)
+
+
+def create_squim_stage(stage_class: type[T], **kwargs) -> T:
+    """Translate Ray Data's array batch into the list expected by release SQUIM."""
+
+    class ListBatchSquimStage(stage_class):
+        def process_batch(self, tasks: Sequence[Any]) -> list[Any]:
+            return super().process_batch(list(tasks))
+
+    return ListBatchSquimStage(**kwargs)

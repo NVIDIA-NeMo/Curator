@@ -61,6 +61,10 @@ native NeMo decoding defaults and logs that explicit graph enablement is not
 guaranteed; it rejects requests to disable graphs. Model, input, batching, and
 output validation stay unchanged, but decoder implementation differences must
 be considered in performance comparisons.
+For Ray Data only, a benchmark subclass converts SQUIM's incoming array batch
+to a list before calling the unchanged release implementation. This avoids
+ambiguous array truth-value checks without dropping tasks or changing inference
+batching, models, metrics, or output validation.
 Targeted release-image testing is required before considering these adapters
 validated end to end.
 

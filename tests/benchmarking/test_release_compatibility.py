@@ -157,6 +157,26 @@ def test_asr_aligner_uses_release_defaults_without_changing_workload(caplog: pyt
         compat.create_asr_aligner_stage(dict, use_cuda_graphs=False, **kwargs)
 
 
+def test_squim_adapter_preserves_tasks_and_configuration():
+    compat = load_module("curator_26_07.py")
+
+    class ReleaseSquim:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def process_batch(self, tasks: list[object]) -> list[object]:
+            assert isinstance(tasks, list)
+            return tasks
+
+    stage = compat.create_squim_stage(ReleaseSquim, name="SquimMetrics", compute_batch_size=32)
+    assert stage.kwargs == {"name": "SquimMetrics", "compute_batch_size": 32}
+    tasks = (object(), object())
+    result = stage.process_batch(tasks)
+    assert result == list(tasks)
+    assert all(actual is expected for actual, expected in zip(result, tasks, strict=True))
+    assert stage.process_batch(()) == []
+
+
 def test_profile_yaml_disables_only_unavailable_checks(monkeypatch: "MonkeyPatch", tmp_path: Path):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "benchmarking"))
     from nemo_curator_benchmarking.config import load_benchmark_config, merge_config_files, remove_disabled_blocks
