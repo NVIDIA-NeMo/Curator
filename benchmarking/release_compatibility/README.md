@@ -56,6 +56,11 @@ No requirements are relaxed for these entries.
 TTS tagging supplies the older required `hf_token` argument from `HF_TOKEN`
 (or `None` for cached/local authentication). The model, batching, and workload
 are unchanged, and credentials are not added to benchmark parameters or logs.
+The old ASR aligner has no CUDA-graph toggle. The adapter uses the release's
+native NeMo decoding defaults and logs that explicit graph enablement is not
+guaranteed; it rejects requests to disable graphs. Model, input, batching, and
+output validation stay unchanged, but decoder implementation differences must
+be considered in performance comparisons.
 Targeted release-image testing is required before considering these adapters
 validated end to end.
 

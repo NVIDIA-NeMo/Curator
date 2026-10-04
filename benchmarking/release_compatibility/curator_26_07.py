@@ -50,3 +50,15 @@ def create_dedup_workflow(
 def create_diarization_stage(stage_class: Callable[..., T], **kwargs) -> T:
     """Supply the old required auth argument without changing models or logging credentials."""
     return stage_class(hf_token=os.environ.get("HF_TOKEN"), **kwargs)
+
+
+def create_asr_aligner_stage(stage_class: Callable[..., T], *, use_cuda_graphs: bool, **kwargs) -> T:
+    """Use the release's native decoder configuration, not a backported implementation."""
+    if not use_cuda_graphs:
+        message = "26.07 cannot honor --no-use-cuda-graphs; its aligner uses NeMo decoding defaults"
+        raise ValueError(message)
+    logger.warning(
+        "26.07 ASR aligner has no CUDA-graph toggle; using NeMo decoding defaults. "
+        "Explicit graph enablement is not guaranteed; account for this in performance comparisons."
+    )
+    return stage_class(**kwargs)

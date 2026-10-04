@@ -148,6 +148,15 @@ def test_diarization_preserves_model_settings_and_supplies_auth(monkeypatch: "Mo
     assert compat.create_diarization_stage(dict, **kwargs) == {"hf_token": "test-token", **kwargs}
 
 
+def test_asr_aligner_uses_release_defaults_without_changing_workload(caplog: pytest.LogCaptureFixture):
+    compat = load_module("curator_26_07.py")
+    kwargs = {"model_name": "staged-model", "batch_size": 1, "transcribe_batch_size": 32, "decoder_type": "rnnt"}
+    assert compat.create_asr_aligner_stage(dict, use_cuda_graphs=True, **kwargs) == kwargs
+    assert "Explicit graph enablement is not guaranteed" in caplog.text
+    with pytest.raises(ValueError, match="cannot honor"):
+        compat.create_asr_aligner_stage(dict, use_cuda_graphs=False, **kwargs)
+
+
 def test_profile_yaml_disables_only_unavailable_checks(monkeypatch: "MonkeyPatch", tmp_path: Path):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "benchmarking"))
     from nemo_curator_benchmarking.config import load_benchmark_config, merge_config_files, remove_disabled_blocks

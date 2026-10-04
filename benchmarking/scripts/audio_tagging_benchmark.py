@@ -31,7 +31,7 @@ from loguru import logger
 # Import benchmark adapters without exposing checkout product sources.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release_compatibility import validate_profile
-from release_compatibility.curator_26_07 import create_diarization_stage
+from release_compatibility.curator_26_07 import create_asr_aligner_stage, create_diarization_stage
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -401,8 +401,10 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=1))
     )
     diarization_factory = PyAnnoteDiarizationStage
+    aligner_factory = NeMoASRAlignerStage
     if benchmark_compat_profile == "26.07":
         diarization_factory = partial(create_diarization_stage, PyAnnoteDiarizationStage)
+        aligner_factory = partial(create_asr_aligner_stage, NeMoASRAlignerStage)
     pipeline.add_stage(
         diarization_factory(
             name="PyAnnoteDiarization",
@@ -418,7 +420,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         )
     )
     pipeline.add_stage(
-        NeMoASRAlignerStage(
+        aligner_factory(
             name="ASRAlignment",
             is_fastconformer=True,
             decoder_type="rnnt",
@@ -445,7 +447,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
-        NeMoASRAlignerStage(
+        aligner_factory(
             name="ASRAlignment2",
             model_name="nvidia/stt_en_conformer_ctc_large",
             is_fastconformer=False,
