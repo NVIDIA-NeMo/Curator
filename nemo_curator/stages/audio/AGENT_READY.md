@@ -358,8 +358,12 @@ On preparation or execution failure, call `abort_on_driver()` where available to
 release owned run bookkeeping while preserving partial output. A retry must use
 `reset_for_retry()` for checkpoints before preparing them again.
 
-These hooks belong to agent orchestration; the shared `Pipeline` does not call
-them. Outside agent execution, ManifestWriter's standalone worker `setup()` retains
+These stage-specific hooks belong to the separate audio-agent execution wrapper;
+they are not part of the generic `ProcessingStage` lifecycle. This Foundation slice
+provides the hooks but does not ship the wrapper. The shared `Pipeline.run()` calls
+neither preparation nor finalization. Direct callers using a checkpoint must prepare
+it before running their pipeline and finalize it only after verified success.
+Outside agent execution, ManifestWriter's standalone worker `setup()` retains
 its legacy truncation behavior. Checkpoint completion requires durable ownership
 and artifact identity; absent driver-visible state must never imply empty input.
 

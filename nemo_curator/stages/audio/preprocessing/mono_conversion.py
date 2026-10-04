@@ -128,10 +128,20 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             output_keys["output_audio_filepath_key"] = self.output_audio_filepath_key
         if self.update_audio_filepath:
             output_keys["original_audio_filepath_key"] = self.original_audio_filepath_key
+        # Legacy file mode permits empty dictionary keys; resident modes require named carriers.
+        legacy_empty_file_key = (
+            self.input_residency == "file"
+            and isinstance(self.audio_filepath_key, str)
+            and not self.audio_filepath_key.strip()
+        )
         validate_audio_key_configuration(
             self.name,
             input_keys={
-                **({"audio_filepath_key": self.audio_filepath_key} if self.input_residency != "waveform" else {}),
+                **(
+                    {"audio_filepath_key": self.audio_filepath_key}
+                    if self.input_residency != "waveform" and not legacy_empty_file_key
+                    else {}
+                ),
                 **(
                     {"waveform_key": self.waveform_key, "sample_rate_key": self.sample_rate_key}
                     if self.input_residency != "file"

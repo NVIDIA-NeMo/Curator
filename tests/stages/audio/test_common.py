@@ -1496,3 +1496,38 @@ def test_checkpoint_replaced_artifact_is_not_marked_complete(tmp_path: Path) -> 
         checkpoint.finalize()
     assert not Path(f"{out}._COMPLETE").exists()
     assert out.read_text() == "unowned replacement"
+
+
+@pytest.mark.parametrize("with_rows", [False, True])
+def test_checkpoint_driver_lifecycle_with_serialized_pipeline(tmp_path: Path, with_rows: bool) -> None:
+    from nemo_curator.tasks import EmptyTask
+
+    class SerializedExecutor:
+        def execute(self, stages, initial_tasks):  # noqa: ANN001, ANN202
+            current = initial_tasks or [EmptyTask()]
+            for stage in stages:
+                if not current:
+                    break
+                worker = pickle.loads(pickle.dumps(stage))  # noqa: S301 - only locally serialized stages
+                worker.setup_on_node()
+                worker.setup()
+                current = worker.process_batch(current)
+            return current
+
+    source = tmp_path / "source"
+    source.mkdir()
+    if with_rows:
+        (source / "a.wav").touch()
+    output = tmp_path / "checkpoint.jsonl"
+    checkpoint = ManifestCheckpointStage(str(output))
+    checkpoint.prepare_on_driver()
+    pipeline = Pipeline(
+        name="checkpoint-lifecycle", stages=[CreateInitialManifestAudioFolderStage(str(source)), checkpoint]
+    )
+    result = pipeline.run(SerializedExecutor())
+    assert len(result) == int(with_rows)
+    assert len(output.read_text().splitlines()) == int(with_rows)
+    assert not Path(f"{output}._COMPLETE").exists()
+    checkpoint.finalize()
+    assert Path(f"{output}._COMPLETE").exists()
+    assert not Path(f"{output}._RETRY_OWNER").exists()

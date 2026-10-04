@@ -26,6 +26,21 @@ MOCK_EXISTS = "nemo_curator.stages.audio.preprocessing.mono_conversion.os.path.e
 
 
 class TestMonoConversionStage:
+    @pytest.mark.parametrize("path_key", ["", " "])
+    def test_legacy_empty_file_key_processes_audio(self, wav_filepath: Path, path_key: str) -> None:
+        stage = MonoConversionStage(output_sample_rate=16000, audio_filepath_key=path_key)
+        result = stage.process(AudioTask(data={path_key: str(wav_filepath)}))
+        assert isinstance(result, AudioTask)
+        assert torch.is_tensor(result.data["waveform"])
+        assert result.data["waveform"].shape[0] == 1
+        assert result.data["sample_rate"] == 16000
+        assert result.data["duration"] > 0
+
+    @pytest.mark.parametrize("path_key", ["", " "])
+    def test_auto_residency_rejects_empty_file_key(self, path_key: str) -> None:
+        with pytest.raises(ValueError, match=r"audio_filepath_key.*non-empty"):
+            MonoConversionStage(audio_filepath_key=path_key, input_residency="auto")
+
     def test_legacy_file_key_can_alias_inactive_waveform_input(self, tmp_path: Path) -> None:
         wav = tmp_path / "mono.wav"
         wav.touch()
