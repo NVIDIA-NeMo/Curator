@@ -28,7 +28,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from dataclasses import KW_ONLY, dataclass, field
+from dataclasses import KW_ONLY, dataclass
 from typing import ClassVar
 
 import soundfile
@@ -112,7 +112,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             writes_to_disk=True,
             requires_ffmpeg=True,
             output_path_params=["resampled_audio_dir"],
-            per_row_independent=True,
+            per_row_independent=False,
         )
     )
 
@@ -176,24 +176,26 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
 
-    def validate_input(self, task: AudioTask) -> bool:
-        """Validate the configured file/waveform residency alternative.
+    def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
+        attrs, keys = super().input_spec_for_task(task)
+        if self.input_residency == "waveform" or (self.input_residency == "auto" and self._has_resident_audio(task)):
+            keys = [key for key in keys if key != self.audio_filepath_key]
+            keys.extend([self.waveform_key, self.sample_rate_key])
+        return attrs, keys
 
-        A resident waveform is only a usable alternative when its ``sample_rate`` is a
-        positive, non-boolean, losslessly-integer value: a missing/zero/negative rate cannot
-        time the audio, ``True`` is an accident of ``bool`` being an ``int`` subclass, and a
-        fractional rate (e.g. ``16000.5``) is not a frame rate the converter can honor.
-        """
-        data = task.data
-        has_file = bool(data.get(self.audio_filepath_key))
-        has_waveform = data.get(self.waveform_key) is not None and _is_usable_sample_rate(
-            data.get(self.sample_rate_key)
+    def _has_resident_audio(self, task: AudioTask) -> bool:
+        return task.data.get(self.waveform_key) is not None and _is_usable_sample_rate(
+            task.data.get(self.sample_rate_key)
         )
-        if self.input_residency == "file":
-            return has_file
+
+    def validate_input(self, task: AudioTask) -> bool:
+        if not super().validate_input(task):
+            return False
         if self.input_residency == "waveform":
-            return has_waveform
-        return has_file or has_waveform
+            return self._has_resident_audio(task)
+        if self.input_residency == "auto" and self._has_resident_audio(task):
+            return True
+        return bool(task.data.get(self.audio_filepath_key))
 
     def outputs(self) -> tuple[list[str], list[str]]:
         # Keep the pre-PR public tuple (audio_filepath, audio_item_id, resampled_audio_filepath,
@@ -250,7 +252,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 writes_to_disk=self.write_to_disk,
                 requires_ffmpeg=True,
                 output_path_params=["resampled_audio_dir"],
-                per_row_independent=True,
+                # Inherited ids claim a shared output namespace, so filenames can depend on
+                # the other rows already processed. Memory-only conversions have no such claim.
+                per_row_independent=not self.write_to_disk,
             ),
         )
 
@@ -430,9 +434,6 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 input_audio_path=input_audio_path,
                 output_audio_path=output_audio_path,
                 original_audio_filepath=original_audio_filepath,
-                # A materialized temp path means the source was a resident waveform, so the
-                # resident pair is now stale and must be dropped. The file route never is.
-                used_resident_source=bool(temp_paths),
                 started_at=started_at,
             )
 
@@ -442,20 +443,18 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 input_audio_path=input_audio_path,
                 output_audio_path=output_audio_path,
                 original_audio_filepath=original_audio_filepath,
-                used_resident_source=bool(temp_paths),
                 started_at=started_at,
             )
         finally:
             cleanup_temp_files([output_audio_path])
 
-    def _convert_and_update(  # noqa: PLR0913 - keyword-only per-conversion inputs, not unrelated knobs
+    def _convert_and_update(
         self,
         task: AudioTask,
         *,
         input_audio_path: str,
         output_audio_path: str,
         original_audio_filepath: str | None,
-        used_resident_source: bool,
         started_at: float,
     ) -> AudioTask:
         """Convert one resolved input and update its task metadata."""
@@ -520,10 +519,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             waveform, sample_rate = load_audio_file(output_audio_path, mono=False)
             data_entry[self.waveform_key] = waveform
             data_entry[self.sample_rate_key] = sample_rate
-        elif self.write_to_disk and used_resident_source:
-            # Drop the stale resident pair only when the conversion actually consumed a
-            # resident/materialized source; a plain file-route conversion leaves the row's
-            # own pre-existing pair (e.g. a carried sample_rate) untouched.
+        elif self.write_to_disk and self.input_residency != "file":
+            # Auto fallback may leave an incomplete resident pair. Disk-only non-file routes
+            # remove it too; the legacy file route preserves its upstream fields.
             drop_resident_audio(
                 data_entry,
                 waveform_key=self.waveform_key,

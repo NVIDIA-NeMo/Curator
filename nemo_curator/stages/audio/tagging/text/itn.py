@@ -74,9 +74,12 @@ class InverseTextNormalizationStage(AgentReady, ProcessingStage[AudioTask, Audio
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(data_keys=[self.segments_key]),
+            optional_reads=IOSpec(segment_data_keys=[self.text_key]),
+            key_roles={f"{self.text_key}{self.output_suffix}": "text"},
             conditional_writes=[
                 ConditionalWrite(
                     writes=IOSpec(segment_data_keys=[f"{self.text_key}{self.output_suffix}"]),
+                    requires_keys=[self.text_key],
                     condition=(f"an item in '{self.segments_key}' contains a truthy '{self.text_key}' value"),
                 )
             ],

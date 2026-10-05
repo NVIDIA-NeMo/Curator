@@ -25,7 +25,7 @@ import posixpath
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 from typing import Any, ClassVar
 
 import torchaudio
@@ -130,13 +130,12 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             ),
             cardinality="1:1 nested-list",
             iteration_key=self.split_metadata_key,
-            # A row splits by its own duration and segments. With an ``output_dir`` every file
-            # shares one flat namespace, so the stem carries the source and effective split-plan
-            # identity. Without one, splits land beside their source.
+            # Source-adjacent legacy names can collide across extensions and split plans.
+            # Shared-output names are hardened, but conservative reuse covers both routes.
             gates=Gates(
                 writes_to_disk=True,
                 output_path_params=["output_dir"],
-                per_row_independent=self.output_dir is None,
+                per_row_independent=False,
             ),
         )
 
@@ -449,6 +448,8 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
                 )
             ],
             removes_keys=[self.split_filepaths_key],
+            invalidates_keys=[self.split_metadata_key],
+            optional_reads=IOSpec(segment_data_keys=[self.text_key, self.alignment_key]),
             # Rejoins the chunks THIS row was split into, all of which came from its own file.
             gates=Gates(per_row_independent=True),
         )
@@ -550,6 +551,7 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
         compute_timestamps: Whether to compute word-level timestamps.
         timestamp_type: Timestamp granularity (``"word"`` or ``"char"``).
         text_key: Output key for predicted text.
+        alignment_key: Output key for joined word alignments.
         words_key: Output key for word-level alignments.
         disable_word_confidence: Whether to disable word confidence scores.
         segments_key: Key for the segments list in each manifest entry.
@@ -589,6 +591,8 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     # Additive agent-only routing knob. Keep it after every legacy field so
     # positional construction retains its historical argument order.
     output_dir: str | None = None
+    _: KW_ONLY
+    alignment_key: str = "alignment"
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -596,10 +600,8 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     def describe(self) -> StageContract:
         return StageContract(
             wrappable=False,
-            # Mirrors the delegate that decides it: the aligner and the join are per-row, so the
-            # composite is independent exactly when its ``SplitLongAudioStage`` is -- which is
-            # when no ``output_dir`` flattens every source's splits into one namespace.
-            gates=Gates(per_row_independent=self.output_dir is None),
+            # Preserve the splitter's conservative reuse guarantee.
+            gates=Gates(per_row_independent=False),
         )
 
     def decompose(self) -> list[ProcessingStage]:
@@ -628,9 +630,10 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
                 compute_timestamps=self.compute_timestamps,
                 timestamp_type=self.timestamp_type,
                 text_key=self.text_key,
+                alignment_key=self.alignment_key,
                 words_key=self.words_key,
                 disable_word_confidence=self.disable_word_confidence,
                 segments_key=self.segments_key,
             ),
-            JoinSplitAudioMetadataStage(),
+            JoinSplitAudioMetadataStage(text_key=self.text_key, alignment_key=self.alignment_key),
         ]

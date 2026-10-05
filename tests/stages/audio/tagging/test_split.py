@@ -408,7 +408,7 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         assert static.gates.writes_to_disk is True
         assert static.gates.output_path_params == ["output_dir"]
         assert static.gates.per_row_independent is False
-        assert configured_default.gates.per_row_independent is True
+        assert configured_default.gates.per_row_independent is False
         assert configured_shared.gates.per_row_independent is False
 
     def test_rejects_colliding_generated_split_keys(self) -> None:
@@ -460,6 +460,8 @@ class TestJoinSplitAudioMetadataStage:
         assert contract.writes.data_keys == []
         assert [cw.writes.data_keys for cw in contract.conditional_writes] == [["transcript", "word_alignment"]]
         assert contract.removes_keys == ["chunk_paths"]
+        assert contract.invalidates_keys == ["chunks"]
+        assert contract.optional_reads.segment_data_keys == ["transcript", "word_alignment"]
 
     def test_no_split_none_only_removes_the_sentinel(self, audio_task: Callable[..., AudioTask]) -> None:
         """split_filepaths=None with populated split_metadata: only strip the sentinel (legacy)."""
@@ -596,6 +598,10 @@ class TestJoinSplitAudioMetadataStage:
                 "split_filepaths",
                 MergeAlignmentDiarizationStage(alignment_key="split_filepaths"),
             ),
+            (
+                "split_metadata",
+                MergeAlignmentDiarizationStage(alignment_key="split_metadata"),
+            ),
         ],
     )
     def test_planner_does_not_carry_removed_temporary_key(
@@ -625,3 +631,26 @@ class TestJoinSplitAudioMetadataStage:
             issue.stage_index == 1 and issue.code == "dangling_key" and removed_key in issue.message
             for issue in report.issues
         )
+
+
+def test_composite_preserves_renamed_transcript_and_alignment() -> None:
+    stage = SplitASRAlignJoinStage(text_key="transcript", alignment_key="word_alignment")
+    splitter, aligner, joiner = stage.decompose()
+    assert aligner.text_key == joiner.text_key == "transcript"
+    assert aligner.alignment_key == joiner.alignment_key == "word_alignment"
+    assert not build_contract(stage).gates.per_row_independent
+    assert not build_contract(splitter).gates.per_row_independent
+    task = AudioTask(
+        data={
+            "split_filepaths": ["chunk.wav"],
+            "split_metadata": [
+                {"transcript": "hello", "word_alignment": [{"word": "hello", "start": 0.0, "end": 0.5}]}
+            ],
+            "split_offsets": [2.0],
+            "split_timestamps": [],
+        }
+    )
+    result = joiner.process_batch([task])[0]
+    assert result.data["transcript"] == "hello"
+    assert result.data["word_alignment"] == [{"word": "hello", "start": 2.0, "end": 2.5}]
+    assert "split_metadata" not in result.data

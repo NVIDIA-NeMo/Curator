@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -610,9 +611,7 @@ class TestExistingOutputIsVerifiedBeforeReuse:
         first_stage = ResampleAudioStage(resampled_audio_dir=str(output_dir), write_to_disk=True)
         second_stage = ResampleAudioStage(resampled_audio_dir=str(output_dir), write_to_disk=True)
 
-        first = first_stage.process(
-            AudioTask(data={"audio_filepath": str(first_source), "audio_item_id": "shared"})
-        )
+        first = first_stage.process(AudioTask(data={"audio_filepath": str(first_source), "audio_item_id": "shared"}))
         second = second_stage.process(
             AudioTask(data={"audio_filepath": str(second_source), "audio_item_id": "shared"})
         )
@@ -626,7 +625,7 @@ class TestExistingOutputIsVerifiedBeforeReuse:
         stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path), target_format="wav")
         item_id = stage._item_id(f"/dataset/{'a' * 240}.wav", from_scratch_file=False, source=None)
 
-        assert len(f"{item_id}.wav".encode("utf-8")) <= 255
+        assert len(f"{item_id}.wav".encode()) <= 255
         assert "~" in item_id
 
     def test_known_legacy_path_digest_collision_gets_distinct_ids(self, tmp_path: Path) -> None:
@@ -668,3 +667,71 @@ class TestExistingOutputIsVerifiedBeforeReuse:
 
         assert created
         assert all(not Path(path).exists() for path in created)
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+@pytest.mark.parametrize("resident", [False, True])
+@pytest.mark.parametrize("top_level", [False, True])
+def test_batch_retains_subclass_requirements(
+    tmp_path: Path,
+    residency: str,
+    resident: bool,
+    top_level: bool,
+) -> None:
+    class TenantResampler(ResampleAudioStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            attrs, keys = super().inputs()
+            if top_level:
+                return [*attrs, "tenant_id"], keys
+            return attrs, [*keys, "tenant_id"]
+
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    stage = TenantResampler(str(tmp_path), input_residency=residency)
+    data = {"audio_filepath": "source.wav"}
+    if resident or residency == "waveform":
+        data.update(waveform=torch.ones(1, 8), sample_rate=8000)
+    if residency == "waveform" or (residency == "auto" and resident):
+        data.pop("audio_filepath")
+    task = AudioTask(data=data)
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    if top_level:
+        task.tenant_id = "tenant"
+    else:
+        task.data["tenant_id"] = "tenant"
+    assert stage.process_batch([task]) == [task]
+
+
+@pytest.mark.parametrize("sample_rate", [None, 0, -1, True, 16000.5])
+def test_auto_file_fallback_removes_partial_resident_audio(
+    tmp_path: Path,
+    sample_rate: object,
+) -> None:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg is required for the real file-fallback boundary")
+    source = tmp_path / "source.wav"
+    sf.write(source, np.zeros((800, 1), dtype=np.float32), 8000)
+    data = {"audio_filepath": str(source), "waveform": torch.ones(1, 8)}
+    if sample_rate is not None:
+        data["sample_rate"] = sample_rate
+    stage = ResampleAudioStage(str(tmp_path / "out"), input_residency="auto")
+    result = stage.process_batch([AudioTask(data=data)])[0]
+    assert "waveform" not in result.data
+    assert "sample_rate" not in result.data
+    json.dumps(dict(result.data))
+    assert Path(result.data["resampled_audio_filepath"]).is_file()
+
+
+def test_output_claims_are_excluded_from_independent_reuse(tmp_path: Path) -> None:
+    alone = ResampleAudioStage(str(tmp_path / "alone"))
+    cohort = ResampleAudioStage(str(tmp_path / "cohort"))
+    first = alone._claim_inherited_stem("shared", "/source/x.wav")
+    cohort._claim_inherited_stem("shared", "/source/y.wav")
+    later = cohort._claim_inherited_stem("shared", "/source/x.wav")
+    assert first != later
+    assert not build_contract(alone).gates.per_row_independent
+    assert not build_contract(cohort).gates.per_row_independent
+    memory_only = ResampleAudioStage(str(tmp_path), write_to_disk=False, keep_waveform_in_task=True)
+    assert build_contract(memory_only).gates.per_row_independent
