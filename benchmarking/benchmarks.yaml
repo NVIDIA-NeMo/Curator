@@ -150,6 +150,15 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
+  # Pinned public Apache-2.0 Hindi ASR train split at revision
+  # 35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0. The source manifest has 216,169
+  # rows / 1,914,385,701 ms and SHA-256 407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4.
+  # Full decoding rejects corrupt hindi_017643, 017655, 017656, 017666, and
+  # 018619 FLACs; the runnable cohort retains 216,164 rows / 1,914,327,468 ms.
+  - name: "audio_indic_asr_hindi_531h"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -1056,6 +1065,156 @@ entries:
         exact_value: 450.0
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
+
+  # Paired 8-GPU runs over one immutable Hindi cohort. Only Xenna has a timing
+  # gate: the corpus size is calibrated for 10-15 minutes of full process wall
+  # time on the default EOS 8xH100 node. Ray Data remains a same-data comparison.
+  - name: audio_indic_asr_xenna
+    enabled: true
+    script: audio_indic_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_indic_asr_hindi_531h,jsonl}
+      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+      --regex-yaml={curator_repo_dir}/benchmarking/configs/audio_indic_asr_regex.yaml
+      --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
+      --executor=xenna
+      --expected-num-rows=216164
+      --expected-total-duration-ms=1914327468
+      --expected-manifest-bytes=116382162
+      --expected-manifest-sha256=0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
+      --read-concurrency=4
+      --prep-workers=24
+      --primary-workers=8
+      --fallback-workers=8
+    timeout_s: 1800
+    environment:
+      RAY_DATA_OP_RESERVATION_RATIO: "0"
+      RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB: "4096"
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_audio_hours_per_hour
+          - pipeline_time_s
+          - mean_wer_pct
+          - best_prediction_coverage_ratio
+          - primary_prediction_coverage_ratio
+          - fallback_prediction_coverage_ratio
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: exec_time_s
+        min_value: 600
+        max_value: 900
+      - metric: num_input_rows
+        exact_value: 216164
+      - metric: num_output_rows
+        exact_value: 216164
+      - metric: input_output_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_ms
+        exact_value: 1914327468
+      - metric: total_audio_duration_hours
+        min_value: 531.7576
+        max_value: 531.7577
+      - metric: input_manifest_bytes
+        exact_value: 116382162
+      - metric: input_manifest_sha256
+        exact_value: 0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
+      - metric: wer_output_coverage_ratio
+        exact_value: 1.0
+      - metric: best_prediction_coverage_ratio
+        exact_value: 1.0
+      - metric: primary_prediction_coverage_ratio
+        min_value: 0.9
+      - metric: fallback_prediction_coverage_ratio
+        min_value: 0.9
+      - metric: cleaned_text_coverage_ratio
+        min_value: 0.9
+      - metric: abbreviated_text_coverage_ratio
+        min_value: 0.9
+      - metric: num_skipped_rows
+        max_value: 21617
+      - metric: recognized_prediction_source_ratio
+        exact_value: 1.0
+      - metric: prediction_source_ground_truth_rows
+        exact_value: 0
+      - metric: prediction_source_other_rows
+        exact_value: 0
+
+  - name: audio_indic_asr_raydata
+    enabled: true
+    script: audio_indic_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_indic_asr_hindi_531h,jsonl}
+      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+      --regex-yaml={curator_repo_dir}/benchmarking/configs/audio_indic_asr_regex.yaml
+      --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
+      --executor=ray_data
+      --expected-num-rows=216164
+      --expected-total-duration-ms=1914327468
+      --expected-manifest-bytes=116382162
+      --expected-manifest-sha256=0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
+      --read-concurrency=4
+      --prep-workers=24
+      --primary-workers=8
+      --fallback-workers=8
+    timeout_s: 14340
+    environment:
+      RAY_DATA_OP_RESERVATION_RATIO: "0"
+      RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB: "4096"
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_audio_hours_per_hour
+          - pipeline_time_s
+          - mean_wer_pct
+          - best_prediction_coverage_ratio
+          - primary_prediction_coverage_ratio
+          - fallback_prediction_coverage_ratio
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_input_rows
+        exact_value: 216164
+      - metric: num_output_rows
+        exact_value: 216164
+      - metric: input_output_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_ms
+        exact_value: 1914327468
+      - metric: total_audio_duration_hours
+        min_value: 531.7576
+        max_value: 531.7577
+      - metric: input_manifest_bytes
+        exact_value: 116382162
+      - metric: input_manifest_sha256
+        exact_value: 0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727
+      - metric: wer_output_coverage_ratio
+        exact_value: 1.0
+      - metric: best_prediction_coverage_ratio
+        exact_value: 1.0
+      - metric: primary_prediction_coverage_ratio
+        min_value: 0.9
+      - metric: fallback_prediction_coverage_ratio
+        min_value: 0.9
+      - metric: cleaned_text_coverage_ratio
+        min_value: 0.9
+      - metric: abbreviated_text_coverage_ratio
+        min_value: 0.9
+      - metric: num_skipped_rows
+        max_value: 21617
+      - metric: recognized_prediction_source_ratio
+        exact_value: 1.0
+      - metric: prediction_source_ground_truth_rows
+        exact_value: 0
+      - metric: prediction_source_other_rows
+        exact_value: 0
 
   # Shared 750-hour workload; the executor selects workers.
   - name: audio_librispeech_xenna

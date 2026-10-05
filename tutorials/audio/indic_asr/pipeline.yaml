@@ -1,0 +1,141 @@
+# Hindi Indic Canary + Parakeet recovery pipeline.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/indic_asr \
+#     --config-name pipeline \
+#     dataset_dir=/data/audio_indic_asr_parakeet_hindi_531h_35376a11 \
+#     indic_canary_engine_dir=/models/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+#     parakeet_tensorrt_engine_dir=/models/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Hindi Indic ASR Pipeline
+  ########################
+  Runs the complete Indic Canary primary-ASR, Parakeet TensorRT recovery,
+  transcript selection, text cleanup, and WER processor graph used by the
+  audio_indic_asr benchmark entries.
+
+dataset_dir: ???
+manifest_path: ${dataset_dir}/manifest.jsonl
+output_path: ./indic_asr_output.jsonl
+indic_canary_engine_dir: ???
+parakeet_tensorrt_engine_dir: ???
+regex_yaml: benchmarking/configs/audio_indic_asr_regex.yaml
+hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
+
+backend: xenna
+execution_mode: streaming
+read_concurrency: 4
+prep_workers: 24
+primary_workers: 8
+fallback_workers: 8
+
+gpu_actor_runtime_env:
+  env_vars:
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+    stage_with:
+      manifest_reader_stage:
+        num_workers: ${read_concurrency}
+
+  - _target_: benchmarking.scripts.audio_indic_asr_benchmark.PrepareIndicASRInputStage
+    audio_root: ${dataset_dir}
+    stage_with:
+      num_workers: ${prep_workers}
+
+  - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
+    name: IndicCanary_primary
+    engine_dir: ${indic_canary_engine_dir}
+    num_beams: 4
+    max_new_tokens: 347
+    pnc: false
+    kv_cache_free_gpu_memory_fraction: 0.1
+    cross_kv_cache_fraction: 0.1
+    source_lang_key: source_lang
+    pred_text_key: primary_model_prediction
+    keep_waveform: true
+    batch_size: 64
+    num_workers_override: ${primary_workers}
+    resources:
+      gpu_memory_gb: 50
+    stage_with:
+      runtime_env: ${gpu_actor_runtime_env}
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_primary
+    common_hall_file: ${hall_phrases}
+    text_key: primary_model_prediction
+    language_key: source_lang
+
+  - _target_: nemo_curator.stages.audio.inference.parakeet.InferenceParakeetStage
+    name: ParakeetRiva_recovery
+    model_id: ${parakeet_tensorrt_engine_dir}/model.nemo
+    supported_langs:
+      _target_: builtins.set
+      _args_: [[hi]]
+    backend: tensorrt
+    tensorrt_engine_dir: ${parakeet_tensorrt_engine_dir}
+    chunking_mode: engine
+    source_lang_key: source_lang
+    pred_text_key: fallback_model_prediction
+    keep_waveform: false
+    batch_size: 64
+    num_workers_override: ${fallback_workers}
+    resources:
+      gpu_memory_gb: 24
+    stage_with:
+      runtime_env: ${gpu_actor_runtime_env}
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_asr
+    common_hall_file: ${hall_phrases}
+    text_key: fallback_model_prediction
+    language_key: source_lang
+    overwrite: true
+    recovery_value: Recovered:ASR
+
+  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    primary_text_key: primary_model_prediction
+    fallback_text_key: fallback_model_prediction
+    output_key: best_prediction
+    source_key: best_prediction_source
+    primary_source_label: primary
+    fallback_source_label: fallback
+    reference_text_key: granary_v1_prediction
+    use_ground_truth_for_short_audio: false
+    primary_model_type: indic_canary
+    language_key: source_lang
+
+  - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+    regex_params_yaml: ${regex_yaml}
+    text_key: best_prediction
+    output_text_key: cleaned_text
+
+  - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+    text_key: cleaned_text
+    output_text_key: abbreviated_text
+    source_lang_key: source_lang
+
+  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
+    text_key: reference_text
+    pred_text_key: abbreviated_text
+    wer_key: wer_pct
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}
+    stage_with:
+      num_workers: 1

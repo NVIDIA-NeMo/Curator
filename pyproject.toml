@@ -24,6 +24,10 @@ include = [
 
 [tool.setuptools.package-data]
 "nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
+"nemo_curator.stages.audio.inference" = [
+    "runtimes/indic_canary_trtllm/pyproject.toml",
+    "runtimes/indic_canary_trtllm/uv.lock",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
@@ -142,9 +146,18 @@ audio_cuda12 = [
     "torchlibrosa>=0.1.0",
 ]
 
+# TensorRT audio inference. Indic Canary's incompatible TensorRT-LLM stack is
+# provisioned from a separately packaged lock and launched as a child runtime.
 audio_tensorrt = [
     "nemo_curator[audio_cuda12]",
     "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+]
+
+# User-facing Indic Canary profile. TensorRT-LLM is not installed into this
+# parent environment; the stage provisions its separately locked child runtime.
+audio_canary_trtllm = [
+    "nemo_curator[audio_tensorrt]",
+    "uv>=0.12,<0.13; platform_machine == 'x86_64' and platform_system == 'Linux'",
 ]
 
 image_cpu = [
@@ -302,7 +315,7 @@ sdg_cuda12 = [
 
 # All dependencies
 all = [
-    "nemo_curator[audio_cuda12]",
+    "nemo_curator[audio_canary_trtllm]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
