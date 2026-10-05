@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import os
+from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
@@ -224,3 +226,25 @@ class TestSegmentConcatenationStage:
             "total_duration_sec",
             "audio_filepath",
         ]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"num_segments_key": "waveform"},
+        {"total_duration_sec_key": "sample_rate"},
+        {"original_file_key": "num_segments"},
+        {"waveform_key": "sample_rate"},
+        {"write_to_disk": True, "audio_filepath_key": "waveform"},
+    ],
+)
+def test_output_aliases_are_rejected_before_writing(tmp_path: Path, kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="keys must be distinct"):
+        SegmentConcatenationStage(output_dir=str(tmp_path / "output"), **kwargs)
+    assert not (tmp_path / "output").exists()
+
+
+def test_cross_scope_segment_container_alias_remains_supported() -> None:
+    stage = SegmentConcatenationStage(segments_key="waveform")
+    result = stage.process(AudioTask(data={"waveform": [_make_segment_dict()]}))
+    assert torch.is_tensor(result.data["waveform"])

@@ -887,8 +887,6 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
         walk.available -= dropped_roles
         walk.segment_available_keys -= dropped_segment_keys
         walk.segment_available -= dropped_segment_roles
-        # A rebuild drops possible-only state too. This stage's own conditional
-        # writes are added below, after their input reachability was evaluated.
         walk.possible_keys.clear()
         walk.possible_segment_keys.clear()
         walk.possible_roles.clear()
