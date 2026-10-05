@@ -190,7 +190,7 @@ pipeline.add_stage(
         prompt="Generate a Q&A pair about science in {language}.",
         languages=["English", "French", "German"],
         client=client,
-        model_name="meta/llama-3.3-70b-instruct",
+        model_name="nvidia/nemotron-3-super-120b-a12b",
         num_samples=100,
         generation_config=config,
     )
