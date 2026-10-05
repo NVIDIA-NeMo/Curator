@@ -858,6 +858,9 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     # ``output_path`` is required, so static discovery cannot instantiate this
     # stage. Publish invariant sink behavior so an agent never mistakes it for
     # a pure pass-through before it has configuration values.
+    # Agent runners stage terminal output and promote it only after verified success.
+    AGENT_ATOMIC_OUTPUT_PARAMS: ClassVar[tuple[str, ...]] = ("output_path",)
+
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(
             writes_to_disk=True,
@@ -1178,9 +1181,9 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
             except OSError as exc:
                 msg = f"ManifestCheckpointStage could not verify its retry reservation at {self.output_path!r}"
                 raise RuntimeError(msg) from exc
-            identity = (stat.st_dev, stat.st_ino, stat.st_ctime_ns)
+            # Match shared-file verification: device numbers are local to each host.
+            identity = (stat.st_ino, stat.st_ctime_ns)
             recorded_identity = (
-                owner.get("st_dev"),
                 owner.get("st_ino"),
                 owner.get("st_ctime_ns"),
             )

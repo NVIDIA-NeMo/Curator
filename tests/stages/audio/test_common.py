@@ -1106,6 +1106,30 @@ class TestManifestCheckpointStage:
         checkpoint.process(AudioTask(data={"attempt": 2}))
         assert out.read_text(encoding="utf-8") == '{"attempt": 2}\n'
 
+    def test_driver_retry_accepts_worker_device_id_for_same_shared_file(self, tmp_path: Path) -> None:
+        out = tmp_path / "checkpoint.jsonl"
+        driver = ManifestCheckpointStage(output_path=str(out))
+        driver.prepare_on_driver()
+        worker = pickle.loads(pickle.dumps(driver))  # noqa: S301
+        worker.setup()
+        worker.process(AudioTask(data={"attempt": 1}))
+        owner_path = Path(f"{out}._RETRY_OWNER")
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        owner["st_dev"] += 1
+        owner_path.write_text(json.dumps(owner), encoding="utf-8")
+
+        driver.reset_for_retry()
+
+        assert not out.exists()
+        assert not owner_path.exists()
+        driver.prepare_on_driver()
+        retry_worker = pickle.loads(pickle.dumps(driver))  # noqa: S301
+        retry_worker.setup()
+        retry_worker.process(AudioTask(data={"attempt": 2}))
+        driver.finalize()
+        assert out.read_text(encoding="utf-8") == '{"attempt": 2}\n'
+        assert Path(f"{out}._COMPLETE").exists()
+
     def test_retry_reset_refuses_completed_checkpoint(self, tmp_path: Path) -> None:
         out = tmp_path / "checkpoint.jsonl"
         checkpoint = ManifestCheckpointStage(output_path=str(out))
