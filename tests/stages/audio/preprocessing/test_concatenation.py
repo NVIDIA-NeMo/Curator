@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,31 @@ def _make_nested_task(segments: list[dict]) -> AudioTask:
 
 
 class TestSegmentConcatenationStage:
+    @pytest.mark.parametrize("write_to_disk", [False, True])
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        list(
+            combinations(
+                [
+                    "waveform_key",
+                    "sample_rate_key",
+                    "original_file_key",
+                    "num_segments_key",
+                    "total_duration_sec_key",
+                    "audio_filepath_key",
+                ],
+                2,
+            )
+        ),
+    )
+    def test_every_active_output_pair_must_be_distinct(self, left: str, right: str, write_to_disk: bool) -> None:
+        if not write_to_disk and "audio_filepath_key" in {left, right}:
+            return
+        with pytest.raises(ValueError, match="must be distinct"):
+            SegmentConcatenationStage(
+                **{left: "collision", right: "collision"}, write_to_disk=write_to_disk, output_dir="/unused"
+            )
+
     @pytest.mark.parametrize(
         "params",
         [

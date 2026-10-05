@@ -128,6 +128,17 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             output_keys["output_audio_filepath_key"] = self.output_audio_filepath_key
         if self.update_audio_filepath:
             output_keys["original_audio_filepath_key"] = self.original_audio_filepath_key
+        validate_audio_key_configuration(self.name, input_keys={}, output_keys=output_keys)
+        file_input_output_keys = dict(output_keys)
+        # Legacy file mode consumes the path before replacing these metadata fields.
+        if self.input_residency == "file" and not self.update_audio_filepath:
+            for field_name, legacy_key in (
+                ("is_mono_key", "is_mono"),
+                ("duration_key", "duration"),
+                ("num_samples_key", "num_samples"),
+            ):
+                if self.audio_filepath_key == legacy_key and output_keys[field_name] == legacy_key:
+                    del file_input_output_keys[field_name]
         # Legacy file mode permits empty dictionary keys; resident modes require named carriers.
         legacy_empty_file_key = (
             self.input_residency == "file"
@@ -151,7 +162,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # waveform/sample_rate and, conditionally, audio_filepath are intentional
             # in-place writes. Only the independently named metadata/path outputs belong
             # here, where collisions would erase an audio carrier or one another.
-            output_keys=output_keys,
+            output_keys=file_input_output_keys,
         )
         if self.keep_waveform_in_task:
             validate_audio_key_configuration(
