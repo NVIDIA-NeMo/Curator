@@ -47,6 +47,8 @@ _NEMOTRON_ELEMENT_RE = re.compile(
     r"<x_(\d+(?:\.\d+)?)><y_(\d+(?:\.\d+)?)><class_([^>]+)>",
     re.DOTALL,
 )
+# Element text may contain literal "<x_", "<y_" or "<class_"; only a full coordinate pair marks a lost boundary.
+_COORDINATE_PAIR_RE = re.compile(r"<x_\d+(?:\.\d+)?><y_\d+(?:\.\d+)?>")
 
 
 class IncompleteModelOutputError(ValueError):
@@ -60,25 +62,19 @@ def _validate_complete_raw_output(raw_output: str) -> int:
         msg = f"raw model output must be text, got {type(raw_output).__name__}"
         raise TypeError(msg)
     matches = list(_NEMOTRON_ELEMENT_RE.finditer(raw_output))
-    count = len(matches)
-    if (
-        raw_output.count("<x_") != count * 2
-        or raw_output.count("<y_") != count * 2
-        or raw_output.count("<class_") != count
-    ):
-        msg = "raw model output contains incomplete or unbalanced element tags"
-        raise IncompleteModelOutputError(msg)
-
     cursor = 0
     for match in matches:
         if raw_output[cursor : match.start()].strip():
             msg = f"raw model output has unparsed content at offset {cursor}"
             raise IncompleteModelOutputError(msg)
+        if _COORDINATE_PAIR_RE.search(match.group(3)):
+            msg = "raw model output contains incomplete or unbalanced element tags"
+            raise IncompleteModelOutputError(msg)
         cursor = match.end()
     if raw_output[cursor:].strip():
         msg = f"raw model output has unparsed content at offset {cursor}"
         raise IncompleteModelOutputError(msg)
-    return count
+    return len(matches)
 
 
 def _parse_raw_elements(raw_output: str) -> list[dict[str, Any]]:
