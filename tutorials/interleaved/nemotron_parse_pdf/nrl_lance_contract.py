@@ -990,7 +990,6 @@ class ElementTableWriter:
     def __init__(self, uri: Path) -> None:
         import lancedb
 
-        self.uri = uri
         self.connection = lancedb.connect(str(uri))
         if ELEMENT_TABLE in _table_names(self.connection):
             msg = f"Refusing to append to existing table {ELEMENT_TABLE!r} at {uri}"
