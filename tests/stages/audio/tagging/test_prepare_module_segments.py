@@ -16,11 +16,16 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
+from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -368,3 +373,69 @@ def test_prepare_module_segments_is_agent_ready() -> None:
         "audio_filepath",
         "audio_item_id",
     }
+
+
+@pytest.mark.parametrize("metrics_key", ["text", "words"])
+def test_remapped_metrics_cannot_overwrite_text_or_words(metrics_key: str) -> None:
+    with pytest.raises(ValueError, match="Remapped metrics_key must be distinct"):
+        PrepareModuleSegmentsStage(metrics_key=metrics_key)
+
+
+@pytest.mark.parametrize(("text_key", "words_key"), [("metrics", "words"), ("text", "metrics")])
+def test_fixed_legacy_metrics_alias_remains_constructible(text_key: str, words_key: str) -> None:
+    PrepareModuleSegmentsStage(text_key=text_key, words_key=words_key)
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_prepared_text_routes_into_normalization(populated: bool) -> None:
+    stage = PrepareModuleSegmentsStage(
+        module="tts", min_duration=0.1, text_key="transcript", words_key="tokens", metrics_key="scores"
+    )
+    normalization = ChineseConversionStage(text_key="transcript")
+
+    class NormalizedTextConsumer(AgentReady, ProcessingStage):
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+        def describe(self) -> StageContract:
+            return StageContract(
+                reads=IOSpec(segment_data_keys=["transcript_simplified"]),
+                key_roles={"transcript_simplified": "text"},
+            )
+
+    report = validate_pipeline(
+        [stage, normalization, NormalizedTextConsumer()],
+        initial_keys={"segments", "duration", "alignment"},
+        initial_roles={"segments", "duration", "alignment"},
+        initial_segment_keys=set(),
+        initial_task_type="AudioTask",
+    )
+    assert report.ok
+    assert report.keys_ok
+    assert any(issue.code == "conditional_read" for issue in report.issues)
+    assert "transcript_simplified" not in report.produced_keys
+
+    alignment = (
+        [
+            {"word": "漢字", "start": 0.1, "end": 0.5},
+            {"word": "測試。", "start": 0.7, "end": 1.1},
+        ]
+        if populated
+        else []
+    )
+    task = AudioTask(
+        data={"segments": [{"speaker": "s1", "start": 0.0, "end": 3.0}], "duration": 3.0, "alignment": alignment}
+    )
+    contract = assert_agent_ready(stage, lambda: task, available_keys={"segments", "duration", "alignment"})
+    assert contract.writes.segment_data_keys == []
+    normalization.setup()
+    normalization.process_batch([task])
+    if populated:
+        segment = task.data["segments"][0]
+        assert segment["transcript_simplified"] == "汉字 测试。"
+        assert segment["transcript"] == "漢字 測試。"
+        assert isinstance(segment["tokens"], list)
+        assert isinstance(segment["scores"], dict)
+        assert "metrics" not in segment
+    else:
+        assert task.data["segments"] == []

@@ -24,7 +24,7 @@ from typing import Any
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -101,8 +101,18 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
                     self.overlap_segments_key,
                     self.audio_filepath_key,
                     self.audio_item_id_key,
-                ]
+                ],
+                segment_data_keys=[self.text_key, self.words_key, self.metrics_key],
             ),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.text_key, self.words_key, self.metrics_key]),
+                    condition=(
+                        f"preparation emits a non-empty '{self.segments_key}' list; each prepared "
+                        "segment contains reconstructed text, word alignments, and metric lists"
+                    ),
+                )
+            ],
             # The ``asr`` module draws its per-segment length limit from ``self._rng``, which
             # ``process`` reseeds from a hash of the row's own id before touching it. So the draws
             # a row gets depend on that row alone, unlike PyAnnoteDiarizationStage's unseeded
@@ -111,6 +121,11 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         )
 
     def __post_init__(self):
+        # The fixed legacy metrics key could already alias a legacy text/words key. Only the
+        # new remapping option introduces a new collision that must be rejected here.
+        if self.metrics_key != "metrics" and self.metrics_key in {self.text_key, self.words_key}:
+            msg = "Remapped metrics_key must be distinct from text_key and words_key"
+            raise ValueError(msg)
         if self.module not in ("tts", "asr"):
             msg = "Module must be either 'tts' or 'asr'"
             raise ValueError(msg)
