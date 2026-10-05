@@ -47,8 +47,12 @@ _NEMOTRON_ELEMENT_RE = re.compile(
     r"<x_(\d+(?:\.\d+)?)><y_(\d+(?:\.\d+)?)><class_([^>]+)>",
     re.DOTALL,
 )
-# Element text may contain literal "<x_", "<y_" or "<class_"; only a full coordinate pair marks a lost boundary.
-_COORDINATE_PAIR_RE = re.compile(r"<x_\d+(?:\.\d+)?><y_\d+(?:\.\d+)?>")
+# Parse v1.2's coordinate and class tokens. Inside element text they mean a lost boundary; other "<x_" or
+# "<class_" text is content.
+_STRUCTURAL_TOKEN_RE = re.compile(
+    r"<[xy]_0\.\d+>|<class_(?:Bibliography|Caption|Code|Footnote|Formula|List-item|Page-footer|Page-header"
+    r"|Picture|Section-header|TOC|Table|Text|Title)>"
+)
 
 
 class IncompleteModelOutputError(ValueError):
@@ -67,7 +71,7 @@ def _validate_complete_raw_output(raw_output: str) -> int:
         if raw_output[cursor : match.start()].strip():
             msg = f"raw model output has unparsed content at offset {cursor}"
             raise IncompleteModelOutputError(msg)
-        if _COORDINATE_PAIR_RE.search(match.group(3)):
+        if _STRUCTURAL_TOKEN_RE.search(match.group(3)):
             msg = "raw model output contains incomplete or unbalanced element tags"
             raise IncompleteModelOutputError(msg)
         cursor = match.end()
