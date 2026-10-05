@@ -59,7 +59,7 @@ This approach is lightweight and portable — no additional frameworks are requi
 
 ### NeMo Data Designer (NDD)-based
 
-[NeMo Data Designer](https://developer.nvidia.com/nemo-data-designer) is NVIDIA's high-level synthetic data generation framework.
+[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) is NVIDIA's high-level synthetic data generation framework.
 Instead of hand-crafting prompt strings and managing API calls, you declare your data schema — samplers for structured fields (names, dates, UUIDs), Jinja-style expression columns, and LLM-generated text columns — using a `DataDesignerConfigBuilder`.
 NDD then orchestrates prompt rendering, batching, and concurrency automatically via its `ModelConfig` / `ModelProvider` / `ChatCompletionInferenceParams` API.
 
