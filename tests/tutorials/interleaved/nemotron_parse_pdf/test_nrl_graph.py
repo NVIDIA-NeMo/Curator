@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import base64
 import glob
-import hashlib
 import importlib.util
 import json
 import sys
@@ -95,7 +94,6 @@ def test_projection_preserves_order_and_textless_picture(recipe: ModuleType) -> 
     assert outcome["page_outcome"] == "parsed"
     assert outcome["element_count"] == 3
     assert outcome["issues_json"] == "[]"
-    assert outcome["raw_output_sha256"] == hashlib.sha256(raw_output.encode()).hexdigest()
     assert "raw_output" not in result.columns
 
     elements = result.iloc[1:].reset_index(drop=True)
@@ -153,7 +151,6 @@ def test_malformed_tail_fails_whole_page_without_partial_elements(recipe: Module
     assert outcome["page_outcome"] == "failed"
     assert outcome["element_count"] == 0
     assert json.loads(outcome["issues_json"])[0]["kind"] == "truncated_or_unparseable_model_output"
-    assert outcome["raw_output_sha256"] == hashlib.sha256(raw_output.encode()).hexdigest()
 
 
 @pytest.mark.parametrize("raw_output", [_raw_output(), ""], ids=["parseable", "empty"])
@@ -189,7 +186,6 @@ def test_empty_model_output_is_explicit_and_not_preclassified_as_valid_blank(rec
     assert outcome["page_outcome"] == "empty"
     assert outcome["element_count"] == 0
     assert outcome["issues_json"] == "[]"
-    assert outcome["raw_output_sha256"] == hashlib.sha256(b"").hexdigest()
 
 
 @pytest.mark.parametrize(
@@ -215,7 +211,6 @@ def test_projection_consumes_nrl_parse_page_metadata(
 
     assert marker["page_outcome"] == outcome
     assert marker["element_count"] == element_count
-    assert marker["raw_output_sha256"] == hashlib.sha256(completion.encode()).hexdigest()
     if outcome == "failed":
         assert json.loads(marker["issues_json"])[0]["error"]["stage"] == "nemotron_parse_pages_finish_reason"
 

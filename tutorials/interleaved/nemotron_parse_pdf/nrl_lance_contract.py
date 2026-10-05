@@ -68,7 +68,6 @@ PROJECTION_COLUMNS = (
     "page_outcome",
     "element_count",
     "issues_json",
-    "raw_output_sha256",
     "element_index",
     "element_class",
     "modality",
@@ -604,15 +603,6 @@ def validate_projection_envelope(data: object) -> pd.DataFrame:  # noqa: C901, P
             if (outcome == "failed") != bool(issues):
                 msg = f"row {index}: only failed outcomes may carry issues"
                 raise ValueError(msg)
-            raw_sha256 = row["raw_output_sha256"]
-            if raw_sha256 is not None and (
-                not isinstance(raw_sha256, str) or _SHA256_RE.fullmatch(raw_sha256) is None
-            ):
-                msg = f"row {index}: raw_output_sha256 must be a lowercase SHA-256"
-                raise ValueError(msg)
-            if outcome in {"parsed", "empty"} and raw_sha256 is None:
-                msg = f"row {index}: successful model outcomes require raw_output_sha256"
-                raise ValueError(msg)
             for column in (
                 "element_index",
                 "element_class",
@@ -632,7 +622,7 @@ def validate_projection_envelope(data: object) -> pd.DataFrame:  # noqa: C901, P
         if native_page_number == 0:
             msg = f"row {index}: element rows require a positive native page number"
             raise ValueError(msg)
-        for column in ("page_outcome", "element_count", "raw_output_sha256"):
+        for column in ("page_outcome", "element_count"):
             if row[column] is not None:
                 msg = f"row {index}: element field {column} must be null"
                 raise ValueError(msg)
