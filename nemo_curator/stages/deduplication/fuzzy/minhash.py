@@ -217,7 +217,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
     normalize_text : bool, default=False
         Whether to normalize text before computing minhashes
         Current normalization is limited to lowercase and trim whitespace
-    read_format : Literal["jsonl", "parquet"] | None, default=None
+    read_format : Literal['jsonl', 'parquet'] | None, default=None
         Format of input files. Only applies to FileGroupTask inputs; ignored for DocumentBatch
         inputs (which are already in memory). May be None when only DocumentBatch inputs are used.
     read_kwargs : dict[str, Any] | None, default=None
@@ -247,7 +247,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
         seed: int = 42,
         use_64bit_hash: bool = False,
         normalize_text: bool = False,
-        read_format: Literal["jsonl", "parquet"] | None = None,
+        read_format: Literal['jsonl', 'parquet'] | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
         pool: bool = True,
