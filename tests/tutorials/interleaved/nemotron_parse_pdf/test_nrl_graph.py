@@ -117,8 +117,9 @@ def test_projection_preserves_order_and_textless_picture(recipe: ModuleType) -> 
             "\\end{tabular}"
         ),
         "| A | B |\n| --- | --- |\n| 1 | 2 |",
+        "| <x_i> | <y_j> | <class_name> |\n| --- | --- | --- |\n| 1 | 2 | 3 |",
     ],
-    ids=["merged-latex", "markdown"],
+    ids=["merged-latex", "markdown", "tag-like-text"],
 )
 def test_projection_preserves_native_table_body(recipe: ModuleType, table_body: str) -> None:
     raw_output = (
@@ -140,9 +141,15 @@ def test_projection_preserves_native_table_body(recipe: ModuleType, table_body: 
     assert elements.iloc[1]["binary_content"] is None
 
 
-def test_malformed_tail_fails_whole_page_without_partial_elements(recipe: ModuleType) -> None:
-    raw_output = "<x_0.1><y_0.1>valid<x_0.4><y_0.2><class_Text>truncated tail"
-
+@pytest.mark.parametrize(
+    "raw_output",
+    [
+        "<x_0.1><y_0.1>valid<x_0.4><y_0.2><class_Text>truncated tail",
+        "<x_0.1><y_0.1>first<x_0.2><y_0.2>second<x_0.4><y_0.3><class_Text>",
+    ],
+    ids=["truncated-tail", "swallowed-coordinates"],
+)
+def test_malformed_output_fails_whole_page_without_partial_elements(recipe: ModuleType, raw_output: str) -> None:
     result = recipe.project_nrl_pages(pd.DataFrame([_page(raw_output)]))
 
     assert len(result) == 1
