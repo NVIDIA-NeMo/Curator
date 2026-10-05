@@ -39,7 +39,7 @@ or in-memory ``waveform`` + ``sample_rate`` on each row.
 
 Usage (from the Curator repo root)::
 
-    python tutorials/audio/tts_granary/run.py \\
+    python tutorials/audio/granary_hifi/run.py \\
         --input_manifest /path/to/text_pipeline.jsonl \\
         --output_manifest /path/to/tts_out.jsonl
 """
@@ -189,7 +189,7 @@ def main() -> None:
 
     stages.append(ManifestWriterStage(output_path=args.output_manifest))
 
-    pipeline = Pipeline(name="tts_granary_annotation", stages=stages)
+    pipeline = Pipeline(name="granary_hifi_annotation", stages=stages)
     if args.executor == "ray_data":
         from nemo_curator.backends.ray_data import RayDataExecutor
 

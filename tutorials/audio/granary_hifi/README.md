@@ -6,11 +6,11 @@ audio stages (Sortformer speaker ID, UTMOS, bandwidth, SED).
 
 ```bash
 # IPA only (CPU). Requires espeak-ng on PATH.
-python tutorials/audio/tts_granary/run.py \
+python tutorials/audio/granary_hifi/run.py \
   --input_manifest /path/to/manifest.jsonl \
   --output_manifest /tmp/tts_out.jsonl
 
-python tutorials/audio/tts_granary/run.py \
+python tutorials/audio/granary_hifi/run.py \
   --input_manifest /path/to/manifest.jsonl \
   --output_manifest /tmp/tts_out.jsonl \
   --enable_bandwidth --enable_mos --enable_speaker_id
