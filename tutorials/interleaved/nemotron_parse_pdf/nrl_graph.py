@@ -194,13 +194,13 @@ def _page_outcome_row(
     }
 
 
-def _failed_page_row(row: Mapping[str, Any], issue: Mapping[str, Any]) -> dict[str, Any]:
+def _failed_page_row(row: Mapping[str, Any], kind: str, **details: object) -> dict[str, Any]:
     return _page_outcome_row(
         source_path=_source_path(row),
         native_page_number=_native_page_number(row),
         outcome="failed",
         element_count=0,
-        issues=[issue],
+        issues=[{"kind": kind, **details}],
     )
 
 
@@ -214,30 +214,19 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
     raw_output = parser_metadata.get("raw_output") if isinstance(parser_metadata, Mapping) else None
 
     if extraction_error is not None or parse_error is not None:
-        return [
-            _failed_page_row(
-                row,
-                {"kind": "page_stage_error", "error": _compact_error(extraction_error or parse_error)},
-            )
-        ]
+        return [_failed_page_row(row, "page_stage_error", error=_compact_error(extraction_error or parse_error))]
     if native_page_number == 0:
         return [
             _failed_page_row(
-                row,
-                {"kind": "document_or_split_failure", "error": _compact_error(row.get("error") or "invalid page")},
+                row, "document_or_split_failure", error=_compact_error(row.get("error") or "invalid page")
             )
         ]
     if not isinstance(row.get("page_image"), Mapping):
-        return [_failed_page_row(row, {"kind": "missing_page_image"})]
+        return [_failed_page_row(row, "missing_page_image")]
     if raw_output is None:
-        return [_failed_page_row(row, {"kind": "missing_model_output"})]
+        return [_failed_page_row(row, "missing_model_output")]
     if not isinstance(raw_output, str):
-        return [
-            _failed_page_row(
-                row,
-                {"kind": "invalid_model_output", "type": type(raw_output).__name__},
-            )
-        ]
+        return [_failed_page_row(row, "invalid_model_output", type=type(raw_output).__name__)]
     if not raw_output.strip():
         return [
             _page_outcome_row(
@@ -252,19 +241,9 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
     try:
         elements = _parse_raw_elements(raw_output)
     except (IncompleteModelOutputError, TypeError, ValueError) as exc:
-        return [
-            _failed_page_row(
-                row,
-                {"kind": "truncated_or_unparseable_model_output", "detail": str(exc)},
-            )
-        ]
+        return [_failed_page_row(row, "truncated_or_unparseable_model_output", detail=str(exc))]
     if not elements:
-        return [
-            _failed_page_row(
-                row,
-                {"kind": "unparseable_model_output"},
-            )
-        ]
+        return [_failed_page_row(row, "unparseable_model_output")]
 
     projected: list[dict[str, Any]] = []
     for element_index, element in enumerate(elements):
@@ -273,12 +252,7 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
         if not element_class or bbox is None:
             return [
                 _failed_page_row(
-                    row,
-                    {
-                        "kind": "invalid_element",
-                        "element_index": element_index,
-                        "element_class": element_class or None,
-                    },
+                    row, "invalid_element", element_index=element_index, element_class=element_class or None
                 )
             ]
 
@@ -286,12 +260,7 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
         if element_class == "Picture":
             binary_content = _crop_picture_bytes(row["page_image"], bbox)
             if binary_content is None:
-                return [
-                    _failed_page_row(
-                        row,
-                        {"kind": "picture_crop_failure", "element_index": element_index},
-                    )
-                ]
+                return [_failed_page_row(row, "picture_crop_failure", element_index=element_index)]
             modality, content_type = "image", "image/png"
         elif element_class == "Table":
             modality, content_type = "table", "text/markdown"
@@ -338,12 +307,7 @@ def project_nrl_pages(data: object) -> pd.DataFrame:
         try:
             rows.extend(_project_page(row))
         except Exception as exc:  # noqa: BLE001
-            rows.append(
-                _failed_page_row(
-                    row,
-                    {"kind": "projection_error", "type": type(exc).__name__, "message": str(exc)},
-                )
-            )
+            rows.append(_failed_page_row(row, "projection_error", type=type(exc).__name__, message=str(exc)))
     return contract.validate_projection_envelope(pd.DataFrame(rows, columns=contract.PROJECTION_COLUMNS))
 
 
