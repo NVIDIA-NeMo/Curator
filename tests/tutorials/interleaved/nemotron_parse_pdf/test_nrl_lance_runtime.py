@@ -483,6 +483,25 @@ def test_ingest_graph_failure_never_creates_publication_marker(
     assert contract._load_json(run_dir / contract.RUN_STATE_FILE)["status"] == "unpublished"
 
 
+def test_ingest_rejects_a_malformed_projection_envelope_before_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(json.dumps({"path": str(source)}) + "\n", encoding="utf-8")
+    monkeypatch.setattr(contract, "_pdf_page_count", lambda _path: 1)
+    row = dict.fromkeys(contract.PROJECTION_COLUMNS)
+    row.update(record_type="unexpected", source_path=str(source), native_page_number=1, issues_json="[]")
+
+    with pytest.raises(ValueError, match="unsupported record_type"):
+        runtime.run_ingest(_ingest_args(tmp_path, manifest), graph_runner=lambda *_a, **_k: pd.DataFrame([row]))
+    run_dir = tmp_path / "runs" / "run"
+    assert not (run_dir / contract.HANDOFF_MANIFEST_FILE).exists()
+    assert contract._load_json(run_dir / contract.RUN_STATE_FILE)["status"] == "unpublished"
+
+
 def test_structural_vertical_slice_accounts_for_duplicate_blank_and_corrupt_input(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
