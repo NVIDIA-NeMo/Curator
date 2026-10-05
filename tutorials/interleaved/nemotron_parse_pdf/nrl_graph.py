@@ -516,7 +516,7 @@ def run_nrl_graph(
     parse_batch_size: int = contract.DEFAULT_PARSE_BATCH_SIZE,
     parse_cpus: int = contract.DEFAULT_PARSE_CPUS,
 ) -> pd.DataFrame:
-    """Run extraction once and return the validated projection envelope."""
+    """Run extraction once and return the projection envelope; ``run_ingest`` validates it."""
 
     normalized_paths = [os.fspath(paths)] if isinstance(paths, (str, os.PathLike)) else [os.fspath(p) for p in paths]
     executor = build_projection_executor(
@@ -530,4 +530,4 @@ def run_nrl_graph(
         return pd.DataFrame(columns=contract.PROJECTION_COLUMNS, dtype=object)
     _prepare_executor_for_local_parse(executor)
     # NRL expands every input as a glob pattern; escape literal file names such as "report[1].pdf".
-    return contract.validate_projection_envelope(executor.ingest([glob.escape(path) for path in normalized_paths]))
+    return executor.ingest([glob.escape(path) for path in normalized_paths])

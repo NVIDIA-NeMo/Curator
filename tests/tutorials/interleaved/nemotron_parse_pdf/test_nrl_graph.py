@@ -461,7 +461,7 @@ def test_preflight_pins_the_validated_gpu_resource_snapshot(
 
 @pytest.mark.parametrize(("parse_batch_size", "parse_cpus"), [(64, 1), (128, 4)])
 @pytest.mark.parametrize("projection_block_rows", [None, 16])
-def test_run_nrl_graph_validates_executor_result(
+def test_run_nrl_graph_returns_executor_result_with_recipe_settings(
     recipe: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     parse_batch_size: int,
