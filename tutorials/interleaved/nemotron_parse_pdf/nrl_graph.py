@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import base64
 import glob
-import hashlib
 import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -52,16 +51,6 @@ _NEMOTRON_ELEMENT_RE = re.compile(
 
 class IncompleteModelOutputError(ValueError):
     """The tagged response contains content outside complete elements."""
-
-
-def _raw_output_sha256(raw_output: str) -> str:
-    return hashlib.sha256(raw_output.encode("utf-8", errors="strict")).hexdigest()
-
-
-def _row_raw_output_sha256(row: Mapping[str, Any]) -> str | None:
-    parser_metadata = row.get("nemotron_parse_v1_2")
-    raw_output = parser_metadata.get("raw_output") if isinstance(parser_metadata, Mapping) else None
-    return _raw_output_sha256(raw_output) if isinstance(raw_output, str) else None
 
 
 def _validate_complete_raw_output(raw_output: str) -> int:
@@ -179,14 +168,13 @@ def _compact_error(error: object) -> dict[str, Any]:
     return {"message": str(error)}
 
 
-def _page_outcome_row(  # noqa: PLR0913
+def _page_outcome_row(
     *,
     source_path: str,
     native_page_number: int,
     outcome: str,
     element_count: int,
     issues: Sequence[Mapping[str, Any]],
-    raw_output_sha256: str | None,
 ) -> dict[str, Any]:
     return {
         "record_type": "page_outcome",
@@ -195,7 +183,6 @@ def _page_outcome_row(  # noqa: PLR0913
         "page_outcome": outcome,
         "element_count": element_count,
         "issues_json": contract._canonical_json(list(issues)),
-        "raw_output_sha256": raw_output_sha256,
         "element_index": None,
         "element_class": None,
         "modality": None,
@@ -207,19 +194,13 @@ def _page_outcome_row(  # noqa: PLR0913
     }
 
 
-def _failed_page_row(
-    row: Mapping[str, Any],
-    issue: Mapping[str, Any],
-    *,
-    raw_output_sha256: str | None = None,
-) -> dict[str, Any]:
+def _failed_page_row(row: Mapping[str, Any], issue: Mapping[str, Any]) -> dict[str, Any]:
     return _page_outcome_row(
         source_path=_source_path(row),
         native_page_number=_native_page_number(row),
         outcome="failed",
         element_count=0,
         issues=[issue],
-        raw_output_sha256=raw_output_sha256,
     )
 
 
@@ -231,14 +212,12 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
     parser_metadata = row.get("nemotron_parse_v1_2")
     parse_error = parser_metadata.get("error") if isinstance(parser_metadata, Mapping) else None
     raw_output = parser_metadata.get("raw_output") if isinstance(parser_metadata, Mapping) else None
-    raw_sha256 = _raw_output_sha256(raw_output) if isinstance(raw_output, str) else None
 
     if extraction_error is not None or parse_error is not None:
         return [
             _failed_page_row(
                 row,
                 {"kind": "page_stage_error", "error": _compact_error(extraction_error or parse_error)},
-                raw_output_sha256=raw_sha256,
             )
         ]
     if native_page_number == 0:
@@ -246,11 +225,10 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
             _failed_page_row(
                 row,
                 {"kind": "document_or_split_failure", "error": _compact_error(row.get("error") or "invalid page")},
-                raw_output_sha256=raw_sha256,
             )
         ]
     if not isinstance(row.get("page_image"), Mapping):
-        return [_failed_page_row(row, {"kind": "missing_page_image"}, raw_output_sha256=raw_sha256)]
+        return [_failed_page_row(row, {"kind": "missing_page_image"})]
     if raw_output is None:
         return [_failed_page_row(row, {"kind": "missing_model_output"})]
     if not isinstance(raw_output, str):
@@ -268,7 +246,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
                 outcome="empty",
                 element_count=0,
                 issues=[],
-                raw_output_sha256=raw_sha256,
             )
         ]
 
@@ -279,7 +256,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
             _failed_page_row(
                 row,
                 {"kind": "truncated_or_unparseable_model_output", "detail": str(exc)},
-                raw_output_sha256=raw_sha256,
             )
         ]
     if not elements:
@@ -287,7 +263,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
             _failed_page_row(
                 row,
                 {"kind": "unparseable_model_output"},
-                raw_output_sha256=raw_sha256,
             )
         ]
 
@@ -304,7 +279,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
                         "element_index": element_index,
                         "element_class": element_class or None,
                     },
-                    raw_output_sha256=raw_sha256,
                 )
             ]
 
@@ -316,7 +290,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
                     _failed_page_row(
                         row,
                         {"kind": "picture_crop_failure", "element_index": element_index},
-                        raw_output_sha256=raw_sha256,
                     )
                 ]
             modality, content_type = "image", "image/png"
@@ -333,7 +306,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
                 "page_outcome": None,
                 "element_count": None,
                 "issues_json": "[]",
-                "raw_output_sha256": None,
                 "element_index": element_index,
                 "element_class": element_class,
                 "modality": modality,
@@ -351,7 +323,6 @@ def _project_page(row: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: C901
         outcome="parsed",
         element_count=len(projected),
         issues=[],
-        raw_output_sha256=raw_sha256,
     )
     return [outcome, *projected]
 
@@ -371,7 +342,6 @@ def project_nrl_pages(data: object) -> pd.DataFrame:
                 _failed_page_row(
                     row,
                     {"kind": "projection_error", "type": type(exc).__name__, "message": str(exc)},
-                    raw_output_sha256=_row_raw_output_sha256(row),
                 )
             )
     return contract.validate_projection_envelope(pd.DataFrame(rows, columns=contract.PROJECTION_COLUMNS))
