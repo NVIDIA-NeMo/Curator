@@ -41,7 +41,7 @@ from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.alm.pretrain import SnippetExtractionStage
 from nemo_curator.stages.audio.alm.pretrain.utils import _PLAN_DATA_KEY
-from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -338,7 +338,9 @@ class TestSnippetExtractionStageDryRun:
         )
 
         normal = stage.process(task)[0]
-        stub = stage.process(AudioTask(dataset_name="ds", data={"id": source_id, "audio_filepath": "x", _PLAN_DATA_KEY: []}))[0]
+        stub = stage.process(
+            AudioTask(dataset_name="ds", data={"id": source_id, "audio_filepath": "x", _PLAN_DATA_KEY: []})
+        )[0]
 
         assert normal.data["id"] == source_id
         assert type(normal.data["id"]) is type(source_id)
@@ -370,6 +372,57 @@ class TestSnippetExtractionStageAgentContract:
     @staticmethod
     def _plan() -> list[dict]:
         return [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
+
+    def test_configured_outputs_match_normal_and_stub_rows(self, tmp_path: Path) -> None:
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            audio_filepath_key="source_path",
+            id_key="source_id",
+            snippet_id_key="clip_id",
+            duration_key="clip_duration",
+            segments_key="turns",
+            dry_run=True,
+        )
+        expected = ["source_path", "clip_id", "clip_duration", "turns"]
+        assert stage.outputs() == ([], expected)
+        for plan in [self._plan(), []]:
+            result = stage.process(
+                AudioTask(data={"source_id": "X", "source_path": "source.wav", _PLAN_DATA_KEY: plan})
+            )[0]
+            assert set(expected) <= result.data.keys()
+            assert not {"snippet_id", "duration", "segments"} & result.data.keys()
+
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "alignment",
+            "audio_size",
+            "resampled_audio_filepath",
+            "actual_duration",
+            "proposed_duration",
+            "audio_sample_rate",
+            "audio_num_channels",
+            "swift_audio_filepath",
+            "text",
+        ],
+    )
+    def test_source_identity_cannot_be_removed_or_transformed(self, tmp_path: Path, alias: str) -> None:
+        with pytest.raises(ValueError, match=r"id_key.*removed or transformed"):
+            SnippetExtractionStage(
+                output_dir=str(tmp_path / "snips"),
+                output_audio_tar_path=str(tmp_path / "snips.tar"),
+                id_key=alias,
+            )
+
+    def test_identity_collision_check_uses_configured_cleanup_key(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"id_key.*removed or transformed"):
+            SnippetExtractionStage(
+                output_dir=str(tmp_path / "snips"),
+                output_audio_tar_path=str(tmp_path / "snips.tar"),
+                id_key="source_id",
+                alignment_key="source_id",
+            )
 
     def test_contract_omits_tar_member_path_and_declares_removals(self, tmp_path: Path) -> None:
         real = SnippetExtractionStage(
@@ -534,7 +587,7 @@ class TestSnippetExtractionStageAgentContract:
             output_audio_tar_path=str(tmp_path / "snips.tar"),
         )
         report = validate_pipeline(
-            [extractor, MonoConversionStage()],
+            [extractor, GetAudioDurationStage()],
             initial_roles={"audio_filepath"},
             initial_keys={"id", "audio_filepath", _PLAN_DATA_KEY},
             initial_task_type="AudioTask",
@@ -543,9 +596,7 @@ class TestSnippetExtractionStageAgentContract:
         assert any(issue.stage_index == 1 and issue.code == "key_removed_upstream" for issue in report.issues)
 
     @pytest.mark.parametrize("alias", ["alignment", "audio_size", "resampled_audio_filepath"])
-    def test_audio_path_removal_aliases_are_readded_and_not_declared_removed(
-        self, tmp_path: Path, alias: str
-    ) -> None:
+    def test_audio_path_removal_aliases_are_readded_and_not_declared_removed(self, tmp_path: Path, alias: str) -> None:
         stage = SnippetExtractionStage(
             output_dir=str(tmp_path / "snips"),
             output_audio_tar_path=str(tmp_path / "snips.tar"),

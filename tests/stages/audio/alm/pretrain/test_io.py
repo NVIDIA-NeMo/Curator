@@ -261,6 +261,27 @@ class TestReadLongFormManifestStage:
 # ----------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("strict_schema", [False, True])
+def test_reader_configured_outputs_match_emitted_schema(tmp_path: Path, strict_schema: bool) -> None:
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text(
+        json.dumps({"source_id": "A", "source_path": "a.wav", "turns": [_ts(0, 1)]}) + "\n",
+        encoding="utf-8",
+    )
+    stage = ReadLongFormManifestStage(
+        input_manifest=str(manifest),
+        audio_dir=str(tmp_path),
+        audio_filepath_key="source_path",
+        id_key="source_id",
+        segments_key="turns",
+        strict_schema=strict_schema,
+    )
+    expected = ["source_path", "source_id", "turns"]
+    assert stage.outputs() == ([], expected)
+    result = stage.process(EmptyTask())[0]
+    assert set(expected) == result.data.keys()
+
+
 class TestSnippetManifestWriterStage:
     def test_new_key_parameter_preserves_legacy_positional_arguments(self, tmp_path: Path) -> None:
         stage = SnippetManifestWriterStage(str(tmp_path / "out.jsonl"), "legacy-name", 7)

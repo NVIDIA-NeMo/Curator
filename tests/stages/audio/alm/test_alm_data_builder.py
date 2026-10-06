@@ -22,7 +22,7 @@ from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
-from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -252,14 +252,14 @@ class TestALMDataBuilder:
             "initial_roles": {"audio_filepath", "segments", "sample_rate"},
             "initial_keys": {"audio_filepath", "segments", "audio_sample_rate"},
         }
-        default = validate_pipeline([ALMDataBuilderStage(), MonoConversionStage()], **seed)
+        default = validate_pipeline([ALMDataBuilderStage(), GetAudioDurationStage()], **seed)
         assert default.ok
         assert default.keys_ok
 
         custom = validate_pipeline(
             [
                 ALMDataBuilderStage(audio_filepath_key="source_path"),
-                MonoConversionStage(audio_filepath_key="source_path"),
+                GetAudioDurationStage(audio_filepath_key="source_path"),
             ],
             initial_roles={"audio_filepath", "segments", "sample_rate"},
             initial_keys={"source_path", "segments", "audio_sample_rate"},
@@ -270,7 +270,7 @@ class TestALMDataBuilder:
         dropped = validate_pipeline(
             [
                 ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath"),
-                MonoConversionStage(),
+                GetAudioDurationStage(),
             ],
             **seed,
         )

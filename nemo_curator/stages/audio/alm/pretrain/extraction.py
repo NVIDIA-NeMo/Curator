@@ -160,6 +160,20 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.snippet_plan_key in {self.audio_filepath_key, *stable_output_keys}:
             msg = "snippet_plan_key must be distinct from input and output keys"
             raise ValueError(msg)
+        source_specific_keys = {
+            self.alignment_key,
+            self.audio_size_key,
+            self.resampled_audio_filepath_key,
+            self.actual_duration_key,
+            self.proposed_duration_key,
+            self.audio_sample_rate_key,
+            self.audio_num_channels_key,
+            self.swift_audio_filepath_key,
+            self.text_key,
+        }
+        if self.id_key != self.audio_filepath_key and self.id_key in source_specific_keys:
+            msg = "id_key must be distinct from fields removed or transformed during extraction"
+            raise ValueError(msg)
         self._tar_shard_path: str | None = None
         self._tar: Any = None  # tarfile.TarFile, opened lazily in setup()
 
@@ -167,7 +181,7 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, self.snippet_plan_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "snippet_id", "duration", "segments"]
+        return [], [self.audio_filepath_key, self.snippet_id_key, self.duration_key, self.segments_key]
 
     def describe(self) -> StageContract:
         output_keys = [self.snippet_id_key, self.duration_key, self.segments_key]
@@ -305,9 +319,7 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._log_metrics(
             {
                 "extract_time": time.perf_counter() - t0,
-                "snippets_written": float(
-                    len(outputs) if not _is_origin_stub(outputs[0], self.snippet_id_key) else 0
-                ),
+                "snippets_written": float(len(outputs) if not _is_origin_stub(outputs[0], self.snippet_id_key) else 0),
                 "snippets_total_duration": float(total_dur),
             }
         )
