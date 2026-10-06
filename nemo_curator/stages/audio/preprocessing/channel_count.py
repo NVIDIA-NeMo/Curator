@@ -42,7 +42,7 @@ import soundfile as sf
 import torch
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
@@ -147,6 +147,8 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             preserve the original under original_audio_filepath_key.
         output_dir: Directory for written audio (action="convert", write_to_disk=True only).
     """
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(cardinality_options=["1:1", "filter"])
 
     action: ChannelAction = "annotate"
 
@@ -339,7 +341,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             cardinality="filter" if self.action == "filter" else "1:1",
             # The two row cardinalities this stage can take across its actions. ``convert``
             # names no third one: it is "1:1" for mono and "filter" for the targets it refuses.
-            cardinality_options=["filter", "annotate"],
+            cardinality_options=["1:1", "filter"],
             # Each row is judged against the configured counts, not against the corpus.
             gates=Gates(per_row_independent=True),
         )
@@ -367,14 +369,12 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # a filter for those configurations, and saying so is what puts a seam in the
             # semantic review packet for a reviewer to ask about.
             cardinality="filter" if self._target > 1 else "1:1",
-            cardinality_options=["filter", "annotate"],
+            cardinality_options=["1:1", "filter"],
             # Declared here, by the stage that owns the parameter, so a caller running
             # this in a sandbox knows what to redirect without a central table entry.
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 output_path_params=["output_dir"],
-                # Every row is converted on its own terms, so a delta run gives the changed
-                # files the same answer a full run would have given them.
                 per_row_independent=True,
             ),
         )

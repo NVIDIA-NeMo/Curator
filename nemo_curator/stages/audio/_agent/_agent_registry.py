@@ -29,12 +29,15 @@ from __future__ import annotations
 import ast
 import contextlib
 import dataclasses
+import hashlib
 import inspect
+import json
 import re
 import sys
 import textwrap
 import types
 import typing
+from pathlib import Path
 from typing import Any, Literal, Union, get_args, get_origin
 
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -595,3 +598,29 @@ def static_contract(cls: type) -> StageContract:
         accepts_task_type=accepts_tt,
         produces_task_type=produces_tt,
     )
+
+
+def pipeline_identity(stages: typing.Iterable[Any]) -> str:
+    """Fingerprint configured stage semantics for authenticating durable output reuse.
+
+    Unsupported or hidden constructor values fail closed: their identity cannot be
+    inferred safely from an address-bearing repr or from a class default.
+    """
+
+    def encode(value: object) -> str:
+        if isinstance(value, Path):
+            return str(value)
+        msg = f"Cannot fingerprint pipeline parameter of type {type(value).__name__}"
+        raise TypeError(msg)
+
+    configured = []
+    for stage in stages:
+        params = {}
+        for param in stage_params(stage):
+            if not hasattr(stage, param.name):
+                msg = f"Cannot fingerprint {type(stage).__name__}.{param.name}: configured value is unavailable"
+                raise ValueError(msg)
+            params[param.name] = getattr(stage, param.name)
+        configured.append({"stage": f"{type(stage).__module__}.{type(stage).__qualname__}", "params": params})
+    payload = json.dumps(configured, sort_keys=True, separators=(",", ":"), default=encode, allow_nan=False)
+    return hashlib.sha256(payload.encode()).hexdigest()

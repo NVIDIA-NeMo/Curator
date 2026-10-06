@@ -97,6 +97,7 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=[self.duration_key]),
+            key_roles={self.duration_key: "duration"},
             gates=Gates(per_row_independent=True),
         )
 
@@ -882,26 +883,141 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
 
-    def prepare_on_driver(self, *, checkpoint_path: str | Path | None = None) -> None:
-        """Reserve once; preserve earlier rows when source resumability is enabled."""
+    def _output_digest(self) -> str:
+        digest = hashlib.sha256()
+        with self._fs.open(self._path, "rb") as output:
+            for chunk in iter(lambda: output.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _checkpoint_digest(self) -> str | None:
+        from nemo_curator.utils.resumability_actor import METADATA_DIRNAME
+
+        files = sorted((Path(self._checkpoint_path) / METADATA_DIRNAME).glob("*.mdb"))
+        if not files:
+            return None
+        digest = hashlib.sha256()
+        for path in files:
+            digest.update(path.name.encode())
+            with path.open("rb") as state:
+                for chunk in iter(lambda: state.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        return digest.hexdigest()
+
+    def _bind_checkpoint(self) -> str:
+        from nemo_curator.utils.resumability_actor import METADATA_DIRNAME
+
+        marker = Path(self._checkpoint_path) / METADATA_DIRNAME / "audio_manifest_pipeline.json"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        binding = {"pipeline": self._pipeline_identity, "token": uuid.uuid4().hex}
+        try:
+            with marker.open("x", encoding="utf-8") as output:
+                json.dump(binding, output)
+                output.flush()
+                os.fsync(output.fileno())
+        except FileExistsError:
+            with marker.open(encoding="utf-8") as source:
+                binding = json.load(source)
+        if binding.get("pipeline") != self._pipeline_identity or not binding.get("token"):
+            msg = "ManifestWriterStage checkpoint belongs to a different pipeline"
+            raise RuntimeError(msg)
+        return binding["token"]
+
+    def _resume_provenance(self) -> dict[str, str | None]:
+        return {
+            "checkpoint": self._checkpoint_path,
+            "checkpoint_token": self._checkpoint_token,
+            "pipeline": self._pipeline_identity,
+            "state": self._checkpoint_digest(),
+            "output": self._output_digest(),
+        }
+
+    def prepare_on_driver(
+        self, *, checkpoint_path: str | Path | None = None, pipeline_identity: str | None = None
+    ) -> None:
+        """Reserve output; append only to a verified successful run of this pipeline."""
         self._resolve_output()
         token = uuid.uuid4().hex
         with self._fs.open(f"{self._path}._RUN", "x", encoding="utf-8") as owner:
             owner.write(token)
         self._run_token = token
+        self._checkpoint_path = str(Path(checkpoint_path).resolve()) if checkpoint_path is not None else None
+        self._pipeline_identity = pipeline_identity
         try:
-            mode = "a" if checkpoint_path is not None else "w"
-            with self._fs.open(self._path, mode, encoding="utf-8"):
+            resume = False
+            if checkpoint_path is not None:
+                state = self._checkpoint_digest()
+                exists = self._fs.exists(self._path)
+                occupied = exists and self._fs.size(self._path) > 0
+                if not pipeline_identity:
+                    msg = "ManifestWriterStage needs pipeline_identity with checkpoint_path"
+                    raise ValueError(msg)  # noqa: TRY301 - release the owned reservation
+                marker = Path(self._checkpoint_path) / ".nemo_curator_metadata" / "audio_manifest_pipeline.json"
+                self._checkpoint_token = None
+                if marker.exists():
+                    with marker.open(encoding="utf-8") as source:
+                        self._checkpoint_token = json.load(source).get("token")
+                if state is not None or occupied:
+                    provenance = None
+                    if self._fs.exists(f"{self._path}._RESUME"):
+                        with self._fs.open(f"{self._path}._RESUME", "r", encoding="utf-8") as record:
+                            provenance = json.load(record)
+                    if not exists or not pipeline_identity or state is None or provenance != self._resume_provenance():
+                        msg = "ManifestWriterStage cannot authenticate checkpoint, pipeline, and output for resume; use fresh output and checkpoint paths"
+                        raise RuntimeError(msg)  # noqa: TRY301 - release the owned reservation on failure
+                    resume = True
+                self._checkpoint_token = self._bind_checkpoint()
+            with self._fs.open(self._path, "a" if resume else "w", encoding="utf-8"):
                 pass
+            # A prior successful run must not authenticate partially rewritten output.
+            if self._fs.exists(f"{self._path}._RESUME"):
+                self._fs.rm(f"{self._path}._RESUME")
+            self._write_run_owner()
         except Exception:
             self.abort_on_driver()
             raise
 
-    def _verify_run(self) -> None:
+    def _output_identity(self) -> dict[str, str]:
+        protocols = self._fs.protocol
+        protocols = (protocols,) if isinstance(protocols, str) else protocols
+        if {"file", "local"}.intersection(protocols):
+            stat = os.stat(self._path)
+            # Shared mounts can expose different device numbers on different hosts.
+            return {"inode": str(stat.st_ino), "ctime_ns": str(stat.st_ctime_ns), "size": str(stat.st_size)}
+        self._fs.invalidate_cache(self._path)
+        info = self._fs.info(self._path)
+        identity = {
+            key: str(info[key])
+            for key in ("size", "etag", "ETag", "version_id", "VersionId", "generation", "created")
+            if key in info and info[key] not in (None, "")
+        }
+        if not set(identity) - {"size"}:
+            msg = "ManifestWriterStage filesystem lacks artifact identity metadata for driver-prepared output"
+            raise RuntimeError(msg)
+        return identity
+
+    def _read_run_owner(self) -> dict[str, Any]:
         try:
             with self._fs.open(f"{self._path}._RUN", "r", encoding="utf-8") as owner:
-                token = owner.read()
-            if token == self._run_token and self._fs.exists(self._path):
+                text = owner.read()
+        except FileNotFoundError:
+            return {}
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            # Initial reservation contains only the token, before output preparation.
+            return {"token": text}
+        return value if isinstance(value, dict) else {}
+
+    def _write_run_owner(self) -> None:
+        payload = {"token": self._run_token, "artifact": self._output_identity()}
+        with self._fs.open(f"{self._path}._RUN", "w", encoding="utf-8") as owner:
+            json.dump(payload, owner)
+
+    def _verify_run(self) -> None:
+        try:
+            owner = self._read_run_owner()
+            if owner.get("token") == self._run_token and owner.get("artifact") == self._output_identity():
                 return
         except FileNotFoundError:
             pass
@@ -930,6 +1046,11 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def finalize(self) -> None:
         if getattr(self, "_run_token", None) is not None:
             self._verify_run()
+            if self._checkpoint_path is not None and self._pipeline_identity is not None:
+                provenance = self._resume_provenance()
+                if provenance["state"] is not None:
+                    with self._fs.open(f"{self._path}._RESUME", "w", encoding="utf-8") as record:
+                        json.dump(provenance, record, sort_keys=True)
             self.abort_on_driver()
 
     def reset_for_retry(self) -> None:
@@ -943,9 +1064,8 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._resolve_output()
         owner_path = f"{self._path}._RUN"
         if self._fs.exists(owner_path):
-            with self._fs.open(owner_path, "r", encoding="utf-8") as owner:
-                if owner.read() != self._run_token:
-                    return
+            if self._read_run_owner().get("token") != self._run_token:
+                return
             self._fs.rm(owner_path)
         self._run_token = None
 
@@ -954,6 +1074,8 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._verify_run()
         with self._fs.open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+        if getattr(self, "_run_token", None) is not None:
+            self._write_run_owner()
         return AudioTask(
             dataset_name=task.dataset_name,
             data=task.data,

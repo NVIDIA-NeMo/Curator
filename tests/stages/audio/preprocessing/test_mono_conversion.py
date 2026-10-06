@@ -282,3 +282,69 @@ class TestMonoConversionPositionalCompatibility:
         # A 7th positional would be a keyword-only agent field -> TypeError.
         with pytest.raises(TypeError):
             MonoConversionStage(16000, "path_col", True, "Custom", 2, Resources(cpus=1.0), "wf")
+
+
+@pytest.mark.parametrize("stable_dir", [False, True])
+def test_disk_output_reuse_gate_matches_repeated_execution(
+    wav_filepath: Path, tmp_path: Path, stable_dir: bool
+) -> None:
+    stage = MonoConversionStage(
+        output_sample_rate=16000, write_to_disk=True, output_dir=str(tmp_path / "out") if stable_dir else None
+    )
+    paths = []
+    try:
+        for _ in range(2):
+            result = stage.process(AudioTask(data={"audio_filepath": str(wav_filepath)}))
+            paths.append(result.data[stage.output_audio_filepath_key])
+        assert (paths[0] == paths[1]) is stable_dir
+        assert stage.describe().gates.per_row_independent is stable_dir
+        assert all(Path(path).is_file() for path in paths)
+    finally:
+        for path in set(paths):
+            Path(path).unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("path_key", ["waveform", "duration"])
+def test_disk_conversion_uses_original_path_before_in_place_writes(tmp_path: Path, path_key: str) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    source = tmp_path / "original.wav"
+    sf.write(source, np.zeros((512, 2), dtype=np.float32), 16000)
+    stage = MonoConversionStage(
+        output_sample_rate=16000, audio_filepath_key=path_key, write_to_disk=True, output_dir=str(tmp_path / "output")
+    )
+    result = stage.process(AudioTask(data={path_key: str(source)}))
+    assert isinstance(result, AudioTask)
+    output = Path(result.data["mono_audio_filepath"])
+    assert output.name.startswith("original_mono_")
+    assert sf.info(output).channels == 1
+
+
+@pytest.mark.parametrize("output_field", ["duration_key", "output_audio_filepath_key"])
+def test_disk_only_outputs_cannot_alias_removed_resident_key(output_field: str) -> None:
+    with pytest.raises(ValueError, match="collide"):
+        MonoConversionStage(keep_waveform_in_task=False, write_to_disk=True, **{output_field: "waveform"})
+
+
+@pytest.mark.parametrize("carrier", ["waveform", "sample_rate"])
+def test_updated_filepath_cannot_overwrite_resident_or_removed_carrier(carrier: str) -> None:
+    with pytest.raises(ValueError, match="collide"):
+        MonoConversionStage(audio_filepath_key=carrier, write_to_disk=True, update_audio_filepath=True)
+
+
+def test_disk_only_conversion_allows_shared_inactive_resident_keys(wav_filepath: Path, tmp_path: Path) -> None:
+    import soundfile as sf
+
+    stage = MonoConversionStage(
+        output_sample_rate=16000,
+        keep_waveform_in_task=False,
+        write_to_disk=True,
+        output_dir=str(tmp_path),
+        waveform_key="unused",
+        sample_rate_key="unused",
+    )
+    result = stage.process(AudioTask(data={"audio_filepath": str(wav_filepath)}))
+    assert isinstance(result, AudioTask)
+    assert "unused" not in result.data
+    assert sf.info(result.data["mono_audio_filepath"]).channels == 1

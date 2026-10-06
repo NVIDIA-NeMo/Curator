@@ -135,9 +135,18 @@ class PipelineReport:
         return "\n".join(lines)
 
 
+def _read_role(contract: StageContract, spec: Any, key: str) -> str:  # noqa: ANN401 - IOSpec
+    # A conversion can read a path and replace that same literal key with a waveform.
+    # The contract's shared key_roles describes the output; the file-only read form
+    # establishes the input role for its sole carrier.
+    if set(spec.accepts) == {"file"} and len(spec.data_keys) + len(spec.segment_data_keys) == 1:
+        return "audio_filepath"
+    return contract.key_roles.get(key, "unknown")
+
+
 def _required_roles(contract: StageContract) -> set[str]:
     keys = [*contract.reads.data_keys, *contract.reads.segment_data_keys]
-    return {contract.key_roles.get(k, "unknown") for k in keys}
+    return {_read_role(contract, contract.reads, key) for key in keys}
 
 
 def _requirement_str(contract: StageContract, available: set[str]) -> str:
@@ -188,7 +197,7 @@ def _spec_satisfied_by_role(  # noqa: PLR0913 -- task and nested scopes each nee
 
     def scope_satisfied(keys: list[str], roles: set[str], literal_keys: set[str]) -> bool:
         return all(
-            key in literal_keys if (role := contract.key_roles.get(key, "unknown")) == "unknown" else role in roles
+            key in literal_keys if (role := _read_role(contract, spec, key)) == "unknown" else role in roles
             for key in keys
         )
 
@@ -571,11 +580,143 @@ class _Walk:
     possible_segment_keys: set[str] = field(default_factory=set)
     possible_roles: set[str] = field(default_factory=set)
     possible_segment_roles: set[str] = field(default_factory=set)
+    key_roles: dict[str, set[str]] = field(default_factory=dict)
+    segment_key_roles: dict[str, set[str]] = field(default_factory=dict)
+    possible_key_roles: dict[str, set[str]] = field(default_factory=dict)
+    possible_segment_key_roles: dict[str, set[str]] = field(default_factory=dict)
+    unkeyed_roles: set[str] = field(default_factory=set)
+    unkeyed_segment_roles: set[str] = field(default_factory=set)
     removed_roles: set[str] = field(default_factory=set)
     key_producer: dict[str, str] = field(default_factory=dict)
     segment_key_producer: dict[str, str] = field(default_factory=dict)
     past_composite: bool = False  # an UNEXPANDABLE composite hid its writes; reads past it can't be judged
     task_type: str | None = None  # task type the previous stage produces; None == not known
+
+
+def _literal_role_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:
+    """A live literal key must carry the role of its current producer, not a stale role."""
+    if walk.past_composite:
+        return []
+
+    def check(spec: Any) -> list[PipelineIssue]:  # noqa: ANN401 - IOSpec
+        issues = []
+        for keys, live_roles, possible_roles, scope in (
+            (spec.data_keys, walk.key_roles, walk.possible_key_roles, "task"),
+            (spec.segment_data_keys, walk.segment_key_roles, walk.possible_segment_key_roles, "nested"),
+        ):
+            for key in keys:
+                expected = _read_role(contract, spec, key)
+                actual = live_roles.get(key, set()) | possible_roles.get(key, set())
+                if expected == "unknown" or not actual or actual == {expected}:
+                    continue
+                uncertain = expected in actual or "unknown" in actual
+                issues.append(
+                    PipelineIssue(
+                        site.index,
+                        site.name,
+                        "warning" if uncertain or site.composite is not None else "error",
+                        "conditional_role" if uncertain else "key_role_conflict",
+                        f"{scope} key {key!r} requires role {expected!r}, but its current "
+                        f"producer can supply {sorted(actual)}",
+                    )
+                )
+        return issues
+
+    issues = check(contract.reads)
+    for group in _read_option_groups(contract, walk.available_keys, walk.possible_keys):
+        alternatives = [
+            check(option)
+            for option in group
+            if set(option.data_keys) <= walk.available_keys | walk.possible_keys
+            and set(option.segment_data_keys) <= walk.segment_available_keys | walk.possible_segment_keys
+        ]
+        if alternatives and all(alternatives):
+            issues.extend(alternatives[0])
+    return issues
+
+
+def _refresh_role_provenance(  # noqa: C901 - independent task and nested provenance updates
+    walk: _Walk,
+    contract: StageContract,
+    written: set[str],
+    segment_written: set[str],
+    conditionals: list[Any],
+) -> None:
+    """Rebuild role sets from live keys after writes, removals, and conditional overwrites."""
+    previous = set(walk.available)
+    if not contract.preserves_upstream_keys:
+        walk.key_roles.clear()
+        walk.segment_key_roles.clear()
+        walk.possible_key_roles.clear()
+        walk.possible_segment_key_roles.clear()
+        walk.unkeyed_roles.clear()
+        walk.unkeyed_segment_roles.clear()
+    scopes = (
+        (
+            written,
+            walk.available_keys,
+            walk.key_roles,
+            walk.possible_key_roles,
+            walk.possible_keys,
+            walk.unkeyed_roles,
+            "data_keys",
+        ),
+        (
+            segment_written,
+            walk.segment_available_keys,
+            walk.segment_key_roles,
+            walk.possible_segment_key_roles,
+            walk.possible_segment_keys,
+            walk.unkeyed_segment_roles,
+            "segment_data_keys",
+        ),
+    )
+    for writes, live_keys, live_map, possible_map, possible_keys, unkeyed, attr in scopes:
+        for key in writes:
+            role = contract.key_roles.get(key, role_for_value(key))
+            live_map[key] = {role} if role != "unknown" else set()
+            possible_map.pop(key, None)
+            possible_keys.discard(key)
+            unkeyed.discard(role)
+        for conditional in conditionals:
+            for key in getattr(conditional.writes, attr):
+                if key not in live_keys and key not in possible_keys:
+                    continue
+                role = contract.key_roles.get(key, role_for_value(key))
+                if role != "unknown":
+                    mapping = live_map if key in live_keys else possible_map
+                    prior = mapping.setdefault(key, set())
+                    if key in live_keys and not prior:
+                        prior.add("unknown")
+                    prior.add(role)
+        for key in set(live_map) - live_keys:
+            live_map.pop(key)
+        for key in set(possible_map) - possible_keys:
+            possible_map.pop(key)
+    walk.available = walk.unkeyed_roles | {
+        role for values in walk.key_roles.values() if len(values) == 1 for role in values
+    }
+    walk.segment_available = walk.unkeyed_segment_roles | {
+        role for values in walk.segment_key_roles.values() if len(values) == 1 for role in values
+    }
+    walk.possible_roles = {
+        role
+        for values in [
+            *walk.possible_key_roles.values(),
+            *(values for values in walk.key_roles.values() if len(values) > 1),
+        ]
+        for role in values
+    }
+    walk.possible_segment_roles = {
+        role
+        for values in [
+            *walk.possible_segment_key_roles.values(),
+            *(values for values in walk.segment_key_roles.values() if len(values) > 1),
+        ]
+        for role in values
+    }
+    walk.removed_roles |= previous - walk.available
+    walk.removed_roles -= walk.available
 
 
 def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:  # noqa: PLR0911 - one return per verdict
@@ -588,6 +729,9 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
     for now -- the expansion is new, and it earns the right to block only once it has been shown
     not to false-positive on pipelines known to work.
     """
+    conflicts = _literal_role_issues(walk, site, contract)
+    if conflicts:
+        return conflicts
     role_satisfied = _reads_satisfied_by_role(
         contract,
         walk.available,
@@ -676,8 +820,8 @@ def _read_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[Pipe
         ]
 
     option_groups = _read_option_groups(contract, walk.available_keys, walk.possible_keys)
-    needed = _roles_for_keys(contract, contract.reads.data_keys) | {
-        role for group in option_groups for option in group for role in _roles_for_keys(contract, option.data_keys)
+    needed = {_read_role(contract, contract.reads, key) for key in contract.reads.data_keys} | {
+        _read_role(contract, option, key) for group in option_groups for option in group for key in option.data_keys
     }
     removed_hit = (needed & walk.removed_roles) - walk.available
     if removed_hit:
@@ -711,17 +855,23 @@ def _reads_possibly_satisfied(walk: _Walk, contract: StageContract) -> bool:
     Guaranteed state keeps its normal role-or-literal tolerance.
     """
 
-    def key_ok(key: str, keys: set[str], possible: set[str], roles: set[str]) -> bool:
+    def key_ok(key: str, keys: set[str], possible: set[str], roles: set[str], role: str) -> bool:
         if key in keys or key in possible:
             return True
-        role = contract.key_roles.get(key, "unknown")
         return role != "unknown" and role in roles
 
     def spec_ok(spec: Any) -> bool:  # noqa: ANN401 - IOSpec
         return all(
-            key_ok(key, walk.available_keys, walk.possible_keys, walk.available) for key in spec.data_keys
+            key_ok(key, walk.available_keys, walk.possible_keys, walk.available, _read_role(contract, spec, key))
+            for key in spec.data_keys
         ) and all(
-            key_ok(key, walk.segment_available_keys, walk.possible_segment_keys, walk.segment_available)
+            key_ok(
+                key,
+                walk.segment_available_keys,
+                walk.possible_segment_keys,
+                walk.segment_available,
+                _read_role(contract, spec, key),
+            )
             for key in spec.segment_data_keys
         )
 
@@ -938,6 +1088,7 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
             walk.available.discard(role)
             walk.removed_roles.add(role)
     _advance_tensor_residency(walk, contract, written, segment_written, reachable_conditionals)
+    _refresh_role_provenance(walk, contract, written, segment_written, reachable_conditionals)
 
 
 def _reachable_conditional_writes(walk: _Walk, contract: StageContract) -> list[Any]:
@@ -967,6 +1118,19 @@ def _reachable_conditional_writes(walk: _Walk, contract: StageContract) -> list[
     return reachable
 
 
+def _discard_overwritten_tensor_carriers(
+    walk: _Walk, contract: StageContract, written: set[str], segment_written: set[str]
+) -> None:
+    # Guaranteed scalar/path writes replace that literal's previous tensor. Other carriers
+    # and conditional tensor branches survive; an unknown role is not proof of cleanup.
+    scalar_roles = {"duration", "sample_rate", "num_samples", "audio_filepath"}
+    if "tensor" not in contract.writes.produces:
+        for keys, tensor_keys in ((written, walk.tensor_keys), (segment_written, walk.segment_tensor_keys)):
+            for key in keys:
+                if contract.key_roles.get(key, role_for_value(key)) in scalar_roles:
+                    tensor_keys.discard(key)
+
+
 def _advance_tensor_residency(
     walk: _Walk,
     contract: StageContract,
@@ -975,6 +1139,7 @@ def _advance_tensor_residency(
     reachable_conditionals: list[Any] | None = None,
 ) -> None:
     """Fold one stage's tensor writes/sanitization into the per-scope residency sets."""
+    _discard_overwritten_tensor_carriers(walk, contract, written, segment_written)
     task_tensor_writes = set(written)
     segment_tensor_writes = set(segment_written)
     has_possible_tensor_write = "tensor" in contract.writes.produces
@@ -1010,6 +1175,17 @@ def _advance_tensor_residency(
         walk.segment_tensor_keys.clear()
 
 
+def _seed_key_roles(keys: set[str], roles: set[str] | None) -> dict[str, set[str]]:
+    mapped = {
+        key: {role_for_value(key)}
+        for key in keys
+        if role_for_value(key) != "unknown" and (roles is None or role_for_value(key) in roles)
+    }
+    if roles is not None and len(keys) == len(roles) == 1 and "unknown" not in roles:
+        mapped[next(iter(keys))] = set(roles)
+    return mapped
+
+
 def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one input task
     initial_roles: set[str] | None,
     initial_keys: set[str] | None,
@@ -1039,6 +1215,8 @@ def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one inpu
         segment_seed_keys = {r for r in initial_segment_roles if role_for_value(r) == r}
     else:
         segment_seed_keys = set()
+    seed_role_map = _seed_key_roles(seed_keys, initial_roles)
+    segment_seed_role_map = _seed_key_roles(segment_seed_keys, initial_segment_roles)
     # An input that arrives carrying a waveform is exactly as resident as one a stage
     # produced, so the serialization gate has to see it. Only writes used to seed this,
     # which left the gate blind to the resident-input case validate_pipeline documents:
@@ -1047,14 +1225,34 @@ def _seed_walk(  # noqa: PLR0913 -- top-level and nested seeds describe one inpu
     if initial_tensor_keys is not None:
         seed_tensors = set(initial_tensor_keys)
     else:
-        seed_tensors = {k for k in seed_keys if role_for_value(k) == _TENSOR_ROLE}
+        seed_tensors = {
+            key
+            for key in seed_keys
+            if role_for_value(key) == _TENSOR_ROLE
+            and not (initial_roles is not None and seed_role_map.get(key) and _TENSOR_ROLE not in seed_role_map[key])
+        }
     if initial_segment_tensor_keys is not None:
         seed_segment_tensors = set(initial_segment_tensor_keys)
     else:
-        seed_segment_tensors = {k for k in segment_seed_keys if role_for_value(k) == _TENSOR_ROLE}
+        seed_segment_tensors = {
+            key
+            for key in segment_seed_keys
+            if role_for_value(key) == _TENSOR_ROLE
+            and not (
+                initial_segment_roles is not None
+                and segment_seed_role_map.get(key)
+                and _TENSOR_ROLE not in segment_seed_role_map[key]
+            )
+        }
     return _Walk(
         available=set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES),
         available_keys=seed_keys,
+        key_roles=seed_role_map,
+        segment_key_roles=segment_seed_role_map,
+        unkeyed_roles=(set(initial_roles) if initial_roles is not None else set(_DEFAULT_INITIAL_ROLES))
+        - {role for values in seed_role_map.values() for role in values},
+        unkeyed_segment_roles=set(initial_segment_roles or ())
+        - {role for values in segment_seed_role_map.values() for role in values},
         segment_available=set(initial_segment_roles or ()),
         segment_available_keys=segment_seed_keys,
         tensor_keys=seed_tensors,
@@ -1255,4 +1453,4 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
 
 def _roles_of(spec: Any, contract: StageContract) -> set[str]:  # noqa: ANN401
     keys = [*spec.data_keys, *spec.segment_data_keys]
-    return {contract.key_roles.get(k, "unknown") for k in keys}
+    return {_read_role(contract, spec, k) for k in keys}

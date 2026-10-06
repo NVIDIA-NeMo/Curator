@@ -170,6 +170,12 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 input_keys={"waveform_key": self.waveform_key, "sample_rate_key": self.sample_rate_key},
                 output_keys=output_keys,
             )
+        elif self.write_to_disk and set(output_keys.values()) & {self.waveform_key, self.sample_rate_key}:
+            msg = "MonoConversionStage: output keys must not collide with removed resident audio keys"
+            raise ValueError(msg)
+        if self.update_audio_filepath and self.audio_filepath_key in {self.waveform_key, self.sample_rate_key}:
+            msg = "MonoConversionStage: updated audio_filepath_key must not collide with resident audio keys"
+            raise ValueError(msg)
         reject_sinkless_conversion(
             stage="MonoConversionStage",
             keep_waveform_in_task=self.keep_waveform_in_task,
@@ -226,7 +232,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 output_path_params=["output_dir"],
-                per_row_independent=True,
+                per_row_independent=not self.write_to_disk or self.output_dir is not None,
             ),
             # With ``strict_sample_rate`` -- the DEFAULT -- a row whose rate differs from
             # ``output_sample_rate`` returns ``[]``. That is row-dropping, and undeclared it
@@ -237,7 +243,12 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _write_audio(self, waveform: torch.Tensor, sample_rate: int, task: AudioTask) -> str:
-        stem = os.path.splitext(os.path.basename(str(task.data.get(self.audio_filepath_key, "audio"))))[0]
+        source = task.data.get(self.audio_filepath_key, "audio")
+        stem = (
+            os.path.splitext(os.path.basename(os.fsdecode(source)))[0]
+            if isinstance(source, (str, bytes, os.PathLike))
+            else "audio"
+        )
         return write_audio_stable(
             waveform,
             sample_rate,
@@ -291,6 +302,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             else:
                 mono_waveform = waveform
 
+            path = self._write_audio(mono_waveform, sample_rate, task) if self.write_to_disk else None
             if self.keep_waveform_in_task:
                 task.data[self.waveform_key] = mono_waveform
                 task.data[self.sample_rate_key] = sample_rate
@@ -299,7 +311,6 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             task.data[self.num_samples_key] = mono_waveform.shape[1]
 
             if self.write_to_disk:
-                path = self._write_audio(mono_waveform, sample_rate, task)
                 task.data[self.output_audio_filepath_key] = path
                 if self.update_audio_filepath:
                     produce_audio_filepath(

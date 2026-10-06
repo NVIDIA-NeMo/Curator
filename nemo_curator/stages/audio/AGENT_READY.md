@@ -349,7 +349,15 @@ meaning only the author knows. Neither documentation step changes runtime defaul
 ## Driver lifecycle for durable agent outputs
 
 Before serializing workers, an audio-agent execution wrapper must call
-`prepare_on_driver(checkpoint_path=...)` on stages that implement it. This reserves
+`prepare_on_driver(checkpoint_path=...)` on stages that implement it. For
+`ManifestWriterStage`, also pass `pipeline_identity=agent.pipeline_identity(pipeline.stages)`
+after building the pipeline. A manifest can be appended only when its provenance
+matches the checkpoint state, pipeline configuration, and output content from a
+successfully finalized run. Unproven or interrupted runs require fresh output and
+checkpoint paths; preparation refuses rather than retaining unrelated rows or
+discarding rows whose sources would be skipped. Driver-prepared manifests require
+local file identity or remote object version/creation metadata; size alone does
+not establish ownership. Standalone writer setup retains its legacy behavior. This reserves
 shared manifest and checkpoint state, including for runs with no output rows.
 Worker and node setup adopt and verify that state without truncating committed rows.
 After successful execution, call every stage's `finalize()` on the original driver

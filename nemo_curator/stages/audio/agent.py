@@ -59,7 +59,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     to_json_schema,
 )
-from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, pipeline_identity, static_contract
 from nemo_curator.stages.audio._agent._catalog import (
     audio_stage_catalog,
     catalog_as_json,
@@ -97,6 +97,7 @@ __all__ = [
     "find_producers",
     "get_agent_ready_stage_class",
     "list_agent_ready_stages",
+    "pipeline_identity",
     "produced_roles",
     "reads_satisfied_by_role",
     "role_index",

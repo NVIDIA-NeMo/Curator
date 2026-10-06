@@ -544,7 +544,7 @@ class TestRowDroppingIsDeclared:
         from nemo_curator.stages.audio import agent as foundation
 
         for stage in (ChannelCountStage(), ChannelCountStage(action="filter", allowed_channels=[1]), _convert()):
-            assert foundation.build_contract(stage).cardinality_options == ["filter", "annotate"]
+            assert foundation.build_contract(stage).cardinality_options == ["1:1", "filter"]
 
 
 class TestTheyCompose:

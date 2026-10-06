@@ -1498,9 +1498,14 @@ def test_writer_worker_missing_run_reservation_preserves_output(tmp_path: Path) 
 
 def test_resumable_writer_preparation_keeps_completed_source_rows(tmp_path: Path) -> None:
     out = tmp_path / "manifest.jsonl"
-    out.write_text('{"audio_filepath": "b.wav"}\n')
+    checkpoint = tmp_path / "resume-state"
     driver = ManifestWriterStage(str(out))
-    driver.prepare_on_driver(checkpoint_path=tmp_path / "resume-state")
+    driver.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity="same-pipeline")
+    driver.process(AudioTask(data={"audio_filepath": "b.wav"}))
+    _write_resume_state(checkpoint)
+    driver.finalize()
+    driver = ManifestWriterStage(str(out))
+    driver.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity="same-pipeline")
     worker = pickle.loads(pickle.dumps(driver))  # noqa: S301 - only locally serialized stage objects
     worker.setup_on_node()
     worker.setup()
@@ -1555,3 +1560,147 @@ def test_checkpoint_driver_lifecycle_with_serialized_pipeline(tmp_path: Path, wi
     checkpoint.finalize()
     assert Path(f"{output}._COMPLETE").exists()
     assert not Path(f"{output}._RETRY_OWNER").exists()
+
+
+def _write_resume_state(checkpoint: Path) -> None:
+    import lmdb
+
+    from nemo_curator.utils.resumability_actor import METADATA_DIRNAME
+
+    metadata = checkpoint / METADATA_DIRNAME
+    metadata.mkdir(parents=True, exist_ok=True)
+    with lmdb.open(str(metadata / "worker.mdb"), subdir=False, max_dbs=1) as env:
+        completed = env.open_db(b"completed_sources")
+        with env.begin(write=True) as txn:
+            txn.put(b"source-b", b"1", db=completed)
+
+
+@pytest.mark.parametrize(
+    "change", ["fresh", "pipeline", "checkpoint", "output", "missing-output", "state", "partial", "binding"]
+)
+def test_writer_rejects_unproven_resume_without_changing_output(tmp_path: Path, change: str) -> None:
+    output = tmp_path / "output.jsonl"
+    checkpoint = tmp_path / "state"
+    identity = "original"
+    if change == "fresh":
+        output.write_text('{"stale": true}\n')
+    else:
+        writer = ManifestWriterStage(str(output))
+        writer.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity=identity)
+        writer.process(AudioTask(data={"original": True}))
+        _write_resume_state(checkpoint)
+        if change == "partial":
+            writer.abort_on_driver()
+        else:
+            writer.finalize()
+    if change == "pipeline":
+        identity = "different"
+    elif change == "checkpoint":
+        checkpoint = tmp_path / "different-state"
+        _write_resume_state(checkpoint)
+    elif change == "output":
+        output.write_text('{"replaced": true}\n')
+    elif change == "missing-output":
+        output.unlink()
+    elif change == "state":
+        (checkpoint / ".nemo_curator_metadata" / "worker.mdb").unlink()
+    elif change == "binding":
+        (checkpoint / ".nemo_curator_metadata" / "audio_manifest_pipeline.json").unlink()
+    before = output.read_bytes() if output.exists() else None
+    writer = ManifestWriterStage(str(output))
+    with pytest.raises(RuntimeError, match="cannot authenticate"):
+        writer.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity=identity)
+    assert (output.read_bytes() if output.exists() else None) == before
+    assert not Path(f"{output}._RUN").exists()
+
+
+def test_fresh_checkpoint_cannot_be_claimed_by_a_different_pipeline(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "state"
+    first = ManifestWriterStage(str(tmp_path / "first.jsonl"))
+    first.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity="first")
+    second = ManifestWriterStage(str(tmp_path / "second.jsonl"))
+    with pytest.raises(RuntimeError, match="different pipeline"):
+        second.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity="second")
+    assert not Path(second.output_path).exists()
+    assert not Path(f"{second.output_path}._RUN").exists()
+    first.abort_on_driver()
+
+
+def test_checkpoint_writer_requires_pipeline_identity_before_altering_output(tmp_path: Path) -> None:
+    output = tmp_path / "output.jsonl"
+    writer = ManifestWriterStage(str(output))
+    with pytest.raises(ValueError, match="pipeline_identity"):
+        writer.prepare_on_driver(checkpoint_path=tmp_path / "state")
+    assert not output.exists()
+    assert not Path(f"{output}._RUN").exists()
+
+
+@pytest.mark.parametrize("phase", ["worker_setup", "write", "finalize"])
+def test_writer_replaced_output_is_rejected(tmp_path: Path, phase: str) -> None:
+    output = tmp_path / "output.jsonl"
+    driver = ManifestWriterStage(str(output))
+    driver.prepare_on_driver()
+    worker = pickle.loads(pickle.dumps(driver))  # noqa: S301 - only locally serialized stages
+    worker.setup()
+    worker.process(AudioTask(data={"owned": True}))
+    output.unlink()
+    output.write_text('{"replacement": true}\n')
+    actions = {
+        "worker_setup": worker.setup_on_node,
+        "write": lambda: worker.process(AudioTask(data={"must_not_append": True})),
+        "finalize": driver.finalize,
+    }
+    with pytest.raises(RuntimeError, match="driver-prepared"):
+        actions[phase]()
+    assert output.read_text() == '{"replacement": true}\n'
+    driver.abort_on_driver()
+
+
+def test_writer_same_size_memory_output_replacement_is_rejected(tmp_path: Path) -> None:
+    writer = ManifestWriterStage(f"memory://{tmp_path}/manifest.jsonl")
+    writer.prepare_on_driver()
+    writer.process(AudioTask(data={"a": 1}))
+    writer._fs.rm(writer._path)
+    with writer._fs.open(writer._path, "w", encoding="utf-8") as output:
+        output.write('{"b": 1}\n')
+    with pytest.raises(RuntimeError, match="driver-prepared"):
+        writer.finalize()
+    assert writer._fs.cat(writer._path) == b'{"b": 1}\n'
+    writer.abort_on_driver()
+    writer._fs.rm(writer._path)
+
+
+def test_writer_identity_lookup_failure_releases_owned_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "manifest.jsonl"
+    writer = ManifestWriterStage(str(output))
+
+    def metadata_unavailable() -> dict[str, str]:
+        msg = "metadata unavailable"
+        raise OSError(msg)
+
+    monkeypatch.setattr(writer, "_output_identity", metadata_unavailable)
+    with pytest.raises(OSError, match="metadata unavailable"):
+        writer.prepare_on_driver()
+    assert not Path(f"{output}._RUN").exists()
+    assert writer._run_token is None
+
+
+def test_writer_refuses_size_only_filesystem_and_cleans_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer = ManifestWriterStage(f"memory://{tmp_path}/manifest.jsonl")
+    writer._resolve_output()
+    original_info = writer._fs.info
+
+    def size_only_info(path, **kwargs):  # noqa: ANN001, ANN202 - fsspec info surface
+        info = original_info(path, **kwargs)
+        return {**info, "created": None, "etag": None, "version_id": None}
+
+    monkeypatch.setattr(writer._fs, "info", size_only_info)
+    with pytest.raises(RuntimeError, match="lacks artifact identity"):
+        writer.prepare_on_driver()
+    assert not writer._fs.exists(f"{writer._path}._RUN")
+    assert writer._run_token is None
+    writer._fs.rm(writer._path)

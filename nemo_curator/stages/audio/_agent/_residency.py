@@ -572,7 +572,12 @@ def write_audio_stable(
     if output_dir is None:
         fd, path = tempfile.mkstemp(prefix=f"{stem}{f'_{tag}' if tag else ''}_", suffix=".wav")
         os.close(fd)
-        sf.write(path, arr, int(sample_rate))
+        try:
+            sf.write(path, arr, int(sample_rate))
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            raise
         return path
 
     os.makedirs(output_dir, exist_ok=True)
