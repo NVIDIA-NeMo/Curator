@@ -16,6 +16,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
+from nemo_curator.stages.audio.text_filtering.text_metrics import (
+    character_error_rate_percent,
+    word_error_rate_percent,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -31,30 +36,8 @@ def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> N
     notes[stage] = value
 
 
-def _normalized_words(text: str) -> list[str]:
-    return _PUNCTUATION.sub("", text).lower().split()
-
-
-def _word_error_rate_percent(reference: str, hypothesis: str) -> float:
-    """Return word-level Levenshtein distance as a percentage."""
-    ref = _normalized_words(reference)
-    hyp = _normalized_words(hypothesis)
-    if not ref:
-        return 0.0 if not hyp else 100.0
-
-    previous = list(range(len(hyp) + 1))
-    for ref_index, ref_word in enumerate(ref, start=1):
-        current = [ref_index]
-        for hyp_index, hyp_word in enumerate(hyp, start=1):
-            current.append(
-                min(
-                    previous[hyp_index] + 1,
-                    current[hyp_index - 1] + 1,
-                    previous[hyp_index - 1] + (ref_word != hyp_word),
-                )
-            )
-        previous = current
-    return round(previous[-1] / len(ref) * 100.0, 2)
+def _normalize_for_error_rate(text: str) -> str:
+    return _PUNCTUATION.sub("", text).lower()
 
 
 @dataclass
@@ -67,6 +50,9 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     authoritative for datasets whose model output is not trusted. Otherwise,
     the stage handles unsupported languages, recovered fallback predictions,
     reference recovery, cross-model agreement, and the normal primary result.
+    Cross-model agreement uses character error rate (CER) for languages written
+    without word-separating spaces and word error rate (WER) otherwise. The
+    selected metric is recorded in ``metric_key``.
     ``asr_text_key`` is a compatibility alias that overrides
     ``fallback_text_key`` when supplied.
     """
@@ -79,8 +65,10 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     notes_key: str = "additional_notes"
     skip_me_key: str = "_skipme"
     duration_key: str = "duration"
+    language_key: str = "source_lang"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "primary_fallback_agreement_wer"
+    metric_key: str = "primary_fallback_agreement_metric"
     primary_source_label: str = "primary"
     fallback_source_label: str = "fallback"
     reference_text_key: str | None = None
@@ -101,10 +89,18 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
         return [], keys
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.output_key, self.source_key, self.skip_me_key, self.agreement_wer_key, self.notes_key]
+        return [], [
+            self.output_key,
+            self.source_key,
+            self.skip_me_key,
+            self.agreement_wer_key,
+            self.metric_key,
+            self.notes_key,
+        ]
 
     def process(self, task: AudioTask) -> AudioTask:  # noqa: C901, PLR0911, PLR0912, PLR0915
         task.data.pop(self.agreement_wer_key, None)
+        task.data.pop(self.metric_key, None)
 
         if (
             self.use_ground_truth_for_short_audio
@@ -198,16 +194,22 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 return task
 
         if skip_reason.startswith("Hallucination") and primary and fallback:
-            wer = _word_error_rate_percent(primary, fallback)
-            task.data[self.agreement_wer_key] = wer
-            if wer <= 100.0 - self.min_agreement_pct:
+            normalized_primary = _normalize_for_error_rate(primary)
+            normalized_fallback = _normalize_for_error_rate(fallback)
+            use_cer = is_scriptio_continua(task.data.get(self.language_key))
+            metric_name = "cer" if use_cer else "wer"
+            metric_fn = character_error_rate_percent if use_cer else word_error_rate_percent
+            error_rate = metric_fn(normalized_primary, normalized_fallback)
+            task.data[self.agreement_wer_key] = error_rate
+            task.data[self.metric_key] = metric_name
+            if error_rate <= 100.0 - self.min_agreement_pct:
                 task.data[self.output_key] = primary
                 task.data[self.source_key] = self.primary_source_label
                 task.data[self.skip_me_key] = ""
                 _set_note(
                     task.data,
                     self.name,
-                    f"recovered:cross_model_agreement (wer={wer:.1f}%)",
+                    f"recovered:cross_model_agreement ({metric_name}={error_rate:.1f}%)",
                     self.notes_key,
                 )
                 return task
