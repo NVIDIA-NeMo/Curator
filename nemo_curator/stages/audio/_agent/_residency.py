@@ -549,6 +549,21 @@ def _as_soundfile_array(waveform: Any) -> Any:  # noqa: ANN401
     return waveform
 
 
+def _bounded_audio_prefix(stem: str, tag: str, directory: str, suffix_bytes: int) -> str:
+    """Fit derived names within the destination filesystem's component limit."""
+    try:
+        limit = os.pathconf(directory, "PC_NAME_MAX")
+    except (OSError, ValueError):
+        limit = 255
+    if limit <= 0:
+        limit = 255
+    prefix = f"{stem}{f'_{tag}' if tag else ''}_"
+    budget = max(0, limit - suffix_bytes)
+    while len(os.fsencode(prefix)) > budget:
+        prefix = prefix[:-1]
+    return prefix
+
+
 def write_audio_stable(
     waveform: Any,  # noqa: ANN401 - a torch tensor or numpy array, same as _as_soundfile_array takes
     sample_rate: int,
@@ -570,7 +585,9 @@ def write_audio_stable(
     """
     arr = _as_soundfile_array(waveform)
     if output_dir is None:
-        fd, path = tempfile.mkstemp(prefix=f"{stem}{f'_{tag}' if tag else ''}_", suffix=".wav")
+        # mkstemp adds an eight-character random token before the extension.
+        prefix = _bounded_audio_prefix(stem, tag, tempfile.gettempdir(), 8 + len(".wav"))
+        fd, path = tempfile.mkstemp(prefix=prefix, suffix=".wav")
         os.close(fd)
         try:
             sf.write(path, arr, int(sample_rate))
@@ -587,7 +604,9 @@ def write_audio_stable(
     # representation SoundFile will write so distinct audio layouts cannot
     # claim the same stable path.
     digest.update(f"|{arr.shape!r}|{arr.dtype.str}|{int(sample_rate)}|wav".encode())
-    path = os.path.join(output_dir, f"{stem}{f'_{tag}' if tag else ''}_{digest.hexdigest()[:16]}.wav")
+    suffix = f"{digest.hexdigest()[:16]}.wav"
+    prefix = _bounded_audio_prefix(stem, tag, output_dir, len(suffix))
+    path = os.path.join(output_dir, f"{prefix}{suffix}")
     # Write beside the target and rename, so a killed or concurrent writer cannot leave a
     # half-written file at a name the next run treats as finished.
     staged_fd, staged = tempfile.mkstemp(prefix=".", suffix=".wav", dir=output_dir)

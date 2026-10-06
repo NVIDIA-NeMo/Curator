@@ -1389,11 +1389,10 @@ class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         self._custom_metrics = {}
 
     def process(self, task: AudioTask) -> AudioTask:
-        if getattr(self, "_driver_prepared", False):
-            self._verify_reservation()
         if not self._reservation_owned:
             msg = "ManifestCheckpointStage cannot write without an owned setup reservation"
             raise RuntimeError(msg)
+        self._verify_reservation()
         t0 = time.perf_counter()
         row = (json.dumps(task.data, ensure_ascii=False) + "\n").encode("utf-8")
         with self._fs.open(self._path, "ab") as f:

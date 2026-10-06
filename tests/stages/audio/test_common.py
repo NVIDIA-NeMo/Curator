@@ -1704,3 +1704,61 @@ def test_writer_refuses_size_only_filesystem_and_cleans_reservation(
     assert not writer._fs.exists(f"{writer._path}._RUN")
     assert writer._run_token is None
     writer._fs.rm(writer._path)
+
+
+@pytest.mark.parametrize("prepared", [False, True])
+def test_checkpoint_rejects_replaced_artifact_before_append(tmp_path: Path, prepared: bool) -> None:
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage
+
+    out = tmp_path / "checkpoint.jsonl"
+    stage = ManifestCheckpointStage(str(out))
+    if prepared:
+        stage.prepare_on_driver()
+    stage.setup()
+    replacement = tmp_path / "replacement.jsonl"
+    unrelated = '{"unrelated": true}\n'
+    replacement.write_text(unrelated)
+    replacement.replace(out)
+    with pytest.raises(RuntimeError):
+        stage.process(AudioTask(data={"audio_filepath": "clip.wav"}))
+    assert out.read_text() == unrelated
+    assert not Path(f"{out}._COMPLETE").exists()
+
+
+def test_standalone_checkpoint_completes_multiple_appends(tmp_path: Path) -> None:
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage
+
+    out = tmp_path / "checkpoint.jsonl"
+    stage = ManifestCheckpointStage(str(out))
+    stage.setup()
+    for name in ("one.wav", "two.wav"):
+        stage.process(AudioTask(data={"audio_filepath": name}))
+    stage.finalize()
+    assert len(out.read_text().splitlines()) == 2
+    assert Path(f"{out}._COMPLETE").exists()
+
+
+def test_value_filter_identity_supports_real_checkpoint_writer(tmp_path: Path) -> None:
+    import soundfile as sf
+
+    from nemo_curator.stages.audio.agent import pipeline_identity
+
+    source = tmp_path / "clip.wav"
+    sf.write(source, np.zeros(1600, dtype=np.float32), 16000)
+    output = tmp_path / "output.jsonl"
+    checkpoint = tmp_path / "state"
+    duration = GetAudioDurationStage()
+    selection = PreserveByValueStage("duration", 0.05, operator="gt")
+    writer = ManifestWriterStage(str(output))
+    identity = pipeline_identity([duration, selection, writer])
+    writer.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity=identity)
+    rows = selection.process_batch([duration.process(AudioTask(data={"audio_filepath": str(source)}))])
+    assert len(rows) == 1
+    writer.process(rows[0])
+    _write_resume_state(checkpoint)
+    writer.finalize()
+    assert json.loads(output.read_text())["duration"] == pytest.approx(0.1)
+    resumed = ManifestWriterStage(str(output))
+    resumed.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity=identity)
+    resumed.finalize()
+    assert len(output.read_text().splitlines()) == 1

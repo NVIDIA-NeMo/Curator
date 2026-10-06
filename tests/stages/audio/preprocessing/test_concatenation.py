@@ -274,3 +274,17 @@ def test_cross_scope_segment_container_alias_remains_supported() -> None:
     stage = SegmentConcatenationStage(segments_key="waveform")
     result = stage.process(AudioTask(data={"waveform": [_make_segment_dict()]}))
     assert torch.is_tensor(result.data["waveform"])
+
+
+def test_concatenation_cardinality_matches_independent_parent_batch() -> None:
+    stage = SegmentConcatenationStage(silence_duration_sec=0)
+    parents = []
+    for name in ("one.wav", "two.wav"):
+        segment = _make_segment_dict(duration_ms=10)
+        segment["original_file"] = name
+        parents.append(_make_nested_task([segment]))
+    parents.append(_make_nested_task([]))
+    outputs = stage.process_batch(parents)
+    assert stage.describe().cardinality == "filter"
+    assert len(outputs) == 2
+    assert [output.data["original_file"] for output in outputs] == ["one.wav", "two.wav"]

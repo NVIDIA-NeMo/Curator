@@ -173,7 +173,7 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
             ),
             writes=IOSpec(data_keys=writes, produces=produces),
             metadata_writes=["segment_mappings"],
-            cardinality="N:1",
+            cardinality="filter",
             iteration_key=self.segments_key,
             # process returns a NEW AudioTask built from a fresh dict: the segments it
             # consumed and every unrelated upstream column (transcripts, ids, scores) are gone,
@@ -184,11 +184,8 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
                 writes_to_disk=self.write_to_disk,
                 output_path_params=["output_dir"],
                 sanitizes_output=not self.keep_waveform_in_task,
-                # The ``N`` this stage collapses is the segments of ONE row's own file, so no
-                # other file's audio reaches the combined waveform -- the ``N:1`` cardinality
-                # counts tasks, not the origins of the values. ``write_to_disk`` does not change
-                # that: ``write_audio_stable`` names the WAV after a digest of its own bytes, so
-                # two rows can only land on one path by carrying identical audio.
+                # Segments are reduced within one parent; empty/unusable parents are dropped.
+                # Stable disk names depend only on that parent's resulting audio.
                 per_row_independent=True,
             ),
         )

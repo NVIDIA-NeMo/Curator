@@ -32,3 +32,26 @@ def test_pipeline_identity_tracks_configured_semantics() -> None:
 def test_pipeline_identity_rejects_unserializable_configuration() -> None:
     with pytest.raises(TypeError, match="Cannot fingerprint"):
         pipeline_identity([GetAudioDurationStage(duration_key=object())])
+
+
+@pytest.mark.parametrize("comparison", ["lt", "le", "eq", "ne", "ge", "gt"])
+def test_pipeline_identity_supports_value_filters(comparison: str) -> None:
+    from nemo_curator.stages.audio.common import ManifestWriterStage, PreserveByValueStage
+
+    def identity(operator: str, target: float = 1) -> str:
+        return pipeline_identity(
+            [
+                GetAudioDurationStage(),
+                PreserveByValueStage("duration", target, operator=operator),
+                ManifestWriterStage("output.jsonl"),
+            ]
+        )
+
+    assert identity(comparison) == identity(comparison)
+    assert identity(comparison) != identity(comparison, 2)
+    assert identity(comparison) != identity("ne" if comparison == "eq" else "eq")
+
+
+def test_pipeline_identity_rejects_arbitrary_callable() -> None:
+    with pytest.raises(TypeError, match="Cannot fingerprint"):
+        pipeline_identity([GetAudioDurationStage(duration_key=lambda: "duration")])

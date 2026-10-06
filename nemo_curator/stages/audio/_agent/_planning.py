@@ -481,13 +481,8 @@ def _forwarding_param(inner: Any, composite: Any, missing: set[str]) -> str | No
 def _unreadable_child(group: list[Any]) -> str | None:
     """Why this composite's expansion cannot be reasoned about, or ``None`` if it can.
 
-    A composite is only as legible as its least legible child. Composites routinely contain
-    plumbing that was never annotated for the agent -- ``ManifestReader`` expands through
-    ``FilePartitioningStage``, which has no ``describe()`` at all -- and a child whose reads and
-    writes are unknown leaves a hole in the role bookkeeping that makes every later stage's
-    verdict unsound. Blaming the caller for that with a hard error would fail pipelines that run
-    perfectly well, on the name of a stage they never wrote. So the composite reverts to being
-    opaque, which is exactly how it was treated before it could be expanded at all.
+    Composites may contain unannotated plumbing such as FilePartitioningStage. Its
+    unknown effects require advisory handling, while known siblings remain checkable.
     """
     for item in group:
         if not item.composite_ref:
@@ -593,10 +588,23 @@ class _Walk:
     task_type: str | None = None  # task type the previous stage produces; None == not known
 
 
+def _forget_role_provenance(walk: _Walk) -> None:
+    """Unknown writes invalidate earlier role evidence; later known writes remain usable."""
+    walk.past_composite = True
+    walk.key_roles.clear()
+    walk.segment_key_roles.clear()
+    walk.possible_key_roles.clear()
+    walk.possible_segment_key_roles.clear()
+    walk.unkeyed_roles.clear()
+    walk.unkeyed_segment_roles.clear()
+    walk.available.clear()
+    walk.segment_available.clear()
+    walk.possible_roles.clear()
+    walk.possible_segment_roles.clear()
+
+
 def _literal_role_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:
     """A live literal key must carry the role of its current producer, not a stale role."""
-    if walk.past_composite:
-        return []
 
     def check(spec: Any) -> list[PipelineIssue]:  # noqa: ANN401 - IOSpec
         issues = []
@@ -1328,15 +1336,8 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
     opaque = dict(expansion.opaque)
     # A composite with one illegible child is not a composite nobody could open. Discarding the
     # whole group left an eight-stage composite unchecked because one piece of plumbing lacks
-    # describe() -- ``ManifestReader`` expands through ``FilePartitioningStage``, so the reader
-    # starting most recipes contributed no keys at all. Legible siblings are kept; only the
-    # unknown part is treated as unknown, via ``past_composite``.
-    partly_opaque: dict[int, str] = {}
-    for index, group in list(leaves.items()):
-        reason = _unreadable_child(group)
-        if reason:
-            partly_opaque[index] = reason
-            leaves[index] = [item for item in group if _describes_itself(item.stage)]
+    # describe(). Keep child order so only evidence preceding an unknown child is invalidated.
+    partly_opaque = {index: reason for index, group in leaves.items() if (reason := _unreadable_child(group))}
     issues: list[PipelineIssue] = []
 
     for index, recipe_stage in enumerate(stages):
@@ -1350,7 +1351,7 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
                     f"the executor will refuse this stage: {expansion.unrunnable[index]}",
                 )
             )
-            walk.past_composite = True
+            _forget_role_provenance(walk)
             walk.task_type = _declared_produces(recipe_stage)
             continue
         if index in opaque:
@@ -1364,7 +1365,7 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
                     f"so reads after it cannot be judged by role",
                 )
             )
-            walk.past_composite = True
+            _forget_role_provenance(walk)
             walk.task_type = _declared_produces(recipe_stage)
             continue
         if index in partly_opaque:
@@ -1379,20 +1380,14 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
                     f"still checked",
                 )
             )
-            # Set BEFORE its own legible children are walked, not after. One child's writes
-            # are unknown, and this composite's later children may be the very readers of
-            # them -- judging those reads against a key set that is missing exactly the
-            # unknown part is how a working pipeline gets failed on the name of a stage the
-            # caller never wrote.
-            walk.past_composite = True
-            # The unreadable child is DROPPED from the walk rather than walked and skipped, so
-            # the type chain has a hole in it exactly here: ManifestReader's FilePartitioningStage
-            # has no describe(), and carrying EmptyTask across it made its own ManifestReaderStage
-            # -- which correctly accepts the FileGroupTask that child produces -- look mismatched.
-            walk.task_type = None
 
         for item in leaves.get(index, []):
             stage = item.stage
+            if item.composite_ref and not _describes_itself(stage):
+                # Invalidate at the actual unknown child, preserving its siblings' order.
+                _forget_role_provenance(walk)
+                walk.task_type = None
+                continue
             try:
                 contract = build_contract(stage)
             except Exception as e:  # noqa: BLE001 - a stage that can't describe itself is an error
@@ -1422,7 +1417,7 @@ def validate_pipeline(  # noqa: PLR0913 -- keyword-only seeds of one input task,
                         "composite stage — decompose before validating its data flow",
                     )
                 )
-                walk.past_composite = True
+                _forget_role_provenance(walk)
                 walk.task_type = contract.produces_task_type
                 continue
 

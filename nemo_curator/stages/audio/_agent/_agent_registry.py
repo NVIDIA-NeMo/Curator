@@ -32,6 +32,7 @@ import dataclasses
 import hashlib
 import inspect
 import json
+import operator
 import re
 import sys
 import textwrap
@@ -610,6 +611,9 @@ def pipeline_identity(stages: typing.Iterable[Any]) -> str:
     def encode(value: object) -> str:
         if isinstance(value, Path):
             return str(value)
+        for name in ("lt", "le", "eq", "ne", "ge", "gt"):
+            if value is getattr(operator, name):
+                return name
         msg = f"Cannot fingerprint pipeline parameter of type {type(value).__name__}"
         raise TypeError(msg)
 

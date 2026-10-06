@@ -178,3 +178,41 @@ def test_scalar_overwrite_releases_only_its_tensor_carrier(
         sink.setup()
         sink.process(result)
         assert (tmp_path / "rows.jsonl").is_file()
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_manifest_reader_checks_fresh_downstream_roles(tmp_path: Path, overwrite: bool) -> None:
+    from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader
+    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text('{"audio_filepath": "clip.wav"}\n')
+    stages = [ManifestReader(str(manifest)), MonoConversionStage(output_sample_rate=16000)]
+    if overwrite:
+        stages.append(GetAudioDurationStage(duration_key="waveform"))
+    stages.append(GetAudioDurationStage(input_residency="waveform"))
+    report = validate_pipeline(stages)
+    conflicts = [issue for issue in report.issues if issue.code == "key_role_conflict"]
+    assert bool(conflicts) is overwrite
+    assert report.ok is not overwrite
+
+
+@pytest.mark.parametrize("fresh_write", [False, True])
+def test_unknown_child_invalidates_only_prior_role_evidence(fresh_write: bool) -> None:
+    from nemo_curator.stages.base import CompositeStage
+
+    class UnknownAudioStage(ProcessingStage[AudioTask, AudioTask]):
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    producer = _ContractStage(StageContract(writes=IOSpec(data_keys=["payload"]), key_roles={"payload": "duration"}))
+    consumer = _ContractStage(StageContract(reads=IOSpec(data_keys=["payload"]), key_roles={"payload": "waveform"}))
+
+    class MixedAudioComposite(CompositeStage[AudioTask, AudioTask]):
+        def decompose(self) -> list[ProcessingStage]:
+            return [producer, UnknownAudioStage(), *([producer] if fresh_write else []), consumer]
+
+    report = validate_pipeline([MixedAudioComposite(), consumer])
+    conflicts = [issue for issue in report.issues if issue.code == "key_role_conflict"]
+    assert bool(conflicts) is fresh_write
+    assert report.ok is not fresh_write
