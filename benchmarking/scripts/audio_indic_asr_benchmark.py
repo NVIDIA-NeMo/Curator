@@ -377,7 +377,7 @@ def _build_pipeline(  # noqa: PLR0913
                 common_hall_file=str(hall_phrases),
                 text_key="primary_model_prediction",
                 language_key="source_lang",
-            ),
+            ).with_(batch_size=64),
             InferenceParakeetStage(
                 name="ParakeetRiva_recovery",
                 model_id=str(parakeet_tensorrt_engine_dir / "model.nemo"),
@@ -399,7 +399,7 @@ def _build_pipeline(  # noqa: PLR0913
                 language_key="source_lang",
                 overwrite=True,
                 recovery_value="Recovered:ASR",
-            ),
+            ).with_(batch_size=64),
             SelectBestPredictionStage(
                 primary_text_key="primary_model_prediction",
                 fallback_text_key="fallback_model_prediction",
@@ -411,23 +411,23 @@ def _build_pipeline(  # noqa: PLR0913
                 use_ground_truth_for_short_audio=False,
                 primary_model_type="indic_canary",
                 language_key="source_lang",
-            ),
+            ).with_(batch_size=64),
             RegexSubstitutionStage(
                 regex_params_yaml=str(regex_yaml),
                 text_key="best_prediction",
                 output_text_key="cleaned_text",
-            ),
+            ).with_(batch_size=64),
             AbbreviationConcatStage(
                 text_key="cleaned_text",
                 output_text_key="abbreviated_text",
                 source_lang_key="source_lang",
-            ),
+            ).with_(batch_size=64),
             GetPairwiseWerStage(
                 text_key="reference_text",
                 pred_text_key="abbreviated_text",
                 wer_key="wer_pct",
-            ),
-            ManifestWriterStage(output_path=str(output_manifest)).with_(num_workers=1),
+            ).with_(batch_size=64),
+            ManifestWriterStage(output_path=str(output_manifest)).with_(batch_size=64, num_workers=1),
         ],
     )
 

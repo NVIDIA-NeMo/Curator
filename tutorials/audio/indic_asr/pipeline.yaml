@@ -80,6 +80,8 @@ stages:
     common_hall_file: ${hall_phrases}
     text_key: primary_model_prediction
     language_key: source_lang
+    stage_with:
+      batch_size: 64
 
   - _target_: nemo_curator.stages.audio.inference.parakeet.InferenceParakeetStage
     name: ParakeetRiva_recovery
@@ -107,6 +109,8 @@ stages:
     language_key: source_lang
     overwrite: true
     recovery_value: Recovered:ASR
+    stage_with:
+      batch_size: 64
 
   - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
     primary_text_key: primary_model_prediction
@@ -119,23 +123,32 @@ stages:
     use_ground_truth_for_short_audio: false
     primary_model_type: indic_canary
     language_key: source_lang
+    stage_with:
+      batch_size: 64
 
   - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
     regex_params_yaml: ${regex_yaml}
     text_key: best_prediction
     output_text_key: cleaned_text
+    stage_with:
+      batch_size: 64
 
   - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
     text_key: cleaned_text
     output_text_key: abbreviated_text
     source_lang_key: source_lang
+    stage_with:
+      batch_size: 64
 
   - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
     text_key: reference_text
     pred_text_key: abbreviated_text
     wer_key: wer_pct
+    stage_with:
+      batch_size: 64
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${output_path}
     stage_with:
+      batch_size: 64
       num_workers: 1
