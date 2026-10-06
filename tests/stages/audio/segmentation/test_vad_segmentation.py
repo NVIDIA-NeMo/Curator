@@ -19,10 +19,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import soundfile as sf
 import torch
-from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
-from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
@@ -622,3 +622,53 @@ def test_nested_vad_to_memory_concat_is_rejected_before_manifest(tmp_path) -> No
     assert not report.ok
     assert any(issue.code == "tensor_into_sink" for issue in report.issues)
     assert stages[1].describe().gates.sanitizes_output is False
+
+
+@pytest.mark.parametrize("segments", [[], [{"start": 0.01, "end": 0.05}]])
+def test_nested_vad_does_not_guarantee_parent_waveform_to_consumers(segments: list[dict[str, float]]) -> None:
+    stage = _stubbed_vad_stage(nested=True, input_residency="waveform", segments=segments)
+    task = AudioTask(dataset_name="t", data={"waveform": torch.zeros(1, 1600), "sample_rate": 16000})
+
+    report = validate_pipeline(
+        [stage, VADSegmentationStage(input_residency="waveform")],
+        initial_keys=set(task.data),
+        initial_roles={"waveform", "sample_rate"},
+    )
+
+    assert not report.ok, report.issues
+    result = stage.process(task)
+    assert ("waveform" in result.data) is (not segments)
+
+
+def test_nested_vad_replaces_previous_segment_container_without_embedding_it() -> None:
+    previous_segments = [{"waveform": torch.ones(1, 100), "sample_rate": 16000}]
+    stage = _stubbed_vad_stage(nested=True, segments_key="speech", keep_segment_waveform_in_task=False)
+    task = AudioTask(
+        dataset_name="t",
+        data={"waveform": torch.zeros(1, 16000), "sample_rate": 16000, "speech": previous_segments},
+    )
+
+    result = stage.process(task)
+
+    assert "speech" not in result.data["speech"][0]
+    json.dumps(result.data)
+    assert previous_segments[0]["waveform"].shape == (1, 100)
+
+
+@pytest.mark.parametrize("sample_rate", [8000, 16000, 44100, 48000])
+@pytest.mark.parametrize("nested", [False, True])
+def test_bundled_silero_silence_smoke(sample_rate: int, nested: bool) -> None:
+    stage = VADSegmentationStage(nested=nested, keep_segment_waveform_in_task=False)
+    task = AudioTask(dataset_name="t", data={"waveform": torch.zeros(1, sample_rate), "sample_rate": sample_rate})
+    stage.setup()
+    try:
+        result = stage.process(task)
+        if nested:
+            assert result is task
+            assert result.data[stage.segments_key] == []
+            assert stage.waveform_key not in result.data
+            json.dumps(result.data)
+        else:
+            assert result == []
+    finally:
+        stage.teardown()

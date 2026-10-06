@@ -30,7 +30,7 @@ Example:
     )
 """
 
-import contextlib
+import filecmp
 import hashlib
 import os
 import shutil
@@ -226,7 +226,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             removes.add("sample_rate")
         if self.duration_key != "duration":
             removes.add("duration")
-        return sorted(removes)
+        return sorted(removes - set(self.outputs()[1]))
 
     def describe(self) -> StageContract:
         forms = accepts_for_residency(self.input_residency)
@@ -253,7 +253,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.write_to_disk:
             writes.append(self.audio_filepath_key)
             produces.append("disk")
-        invalidates = [] if self.write_to_disk else list(dict.fromkeys([self.audio_filepath_key, "audio_filepath"]))
+        invalidates = [] if self.write_to_disk else sorted({self.audio_filepath_key, "audio_filepath"} - set(writes))
         return StageContract(
             reads_one_of=reads_one_of,
             writes=IOSpec(data_keys=writes, produces=produces),
@@ -378,11 +378,15 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 staged.append((speaker_data, staged_path, final_path))
 
             for speaker_data, staged_path, final_path in staged:
-                with contextlib.suppress(FileExistsError):
+                try:
                     # The staging directory is inside output_dir, so a hard link is an
                     # atomic no-clobber publish. A pre-existing content-addressed output
-                    # is already the complete desired artifact and must not be replaced.
+                    # must be verified before it can be reused as the desired artifact.
                     os.link(staged_path, final_path)
+                except FileExistsError:
+                    if os.path.islink(final_path) or not filecmp.cmp(staged_path, final_path, shallow=False):
+                        msg = f"Speaker output conflicts with an existing file: {final_path}"
+                        raise FileExistsError(msg) from None
                 speaker_data[self.audio_filepath_key] = final_path
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)

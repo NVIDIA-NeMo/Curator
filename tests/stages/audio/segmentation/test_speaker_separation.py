@@ -23,10 +23,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import soundfile as sf
 import torch
-from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
-from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from pydub import AudioSegment
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import (
@@ -651,6 +651,50 @@ def test_long_source_stem_fits_filesystem_component_limit(tmp_path: Path) -> Non
     assert Path(output).exists()
     assert len(Path(output).name.encode("utf-8")) <= 255
     assert "~" in Path(output).stem
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"waveform_key": "audio"},
+        {"duration_key": "num_samples"},
+        {"audio_filepath_key": "source_path", "waveform_key": "audio_filepath"},
+        {"waveform_key": "samples", "sample_rate_key": "waveform"},
+    ],
+)
+def test_replaced_parent_keys_remain_available_in_speaker_contract(kwargs: dict[str, str]) -> None:
+    stage = _stubbed_speaker_stage(input_residency="waveform", **kwargs)
+    task = AudioTask(dataset_name="t", data={stage.waveform_key: torch.zeros(1, 1600), stage.sample_rate_key: 16000})
+
+    contract = assert_agent_ready(stage, lambda: task, available_keys=set(task.data))
+
+    assert not (set(contract.writes.data_keys) & {*contract.removes_keys, *contract.invalidates_keys})
+
+
+def test_speaker_persistence_rejects_damaged_existing_output_without_replacing_it(tmp_path: Path) -> None:
+    stage = _stubbed_speaker_stage(write_to_disk=True, separated_audio_dir=str(tmp_path))
+    child = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0]
+    output = Path(child.data[stage.audio_filepath_key])
+    output.write_bytes(b"damaged existing output")
+
+    with pytest.raises(FileExistsError, match="existing"):
+        stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
+
+    assert output.read_bytes() == b"damaged existing output"
+    assert not list(tmp_path.glob(".speaker-separation-*"))
+
+
+def test_speaker_persistence_reuses_identical_existing_output(tmp_path: Path) -> None:
+    stage = _stubbed_speaker_stage(write_to_disk=True, separated_audio_dir=str(tmp_path))
+    first = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0]
+    output = Path(first.data[stage.audio_filepath_key])
+    original_stat = output.stat()
+
+    second = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0]
+
+    assert second.data[stage.audio_filepath_key] == str(output)
+    assert output.stat().st_ino == original_stat.st_ino
+    assert output.stat().st_mtime_ns == original_stat.st_mtime_ns
 
 
 def test_multi_speaker_publish_failure_retains_immutable_outputs(tmp_path, monkeypatch) -> None:  # noqa: ANN001

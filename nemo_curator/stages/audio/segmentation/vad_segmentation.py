@@ -102,6 +102,8 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Note:
         Default resources: cpus=1.0, gpus=0.0 (CPU). Silero VAD is lightweight.
         Use .with_(resources=Resources(gpus=X)) to opt into GPU execution.
+        Nested output replaces any existing segments_key container. Consume the
+        segment waveforms downstream; the parent waveform is not guaranteed.
     """
 
     min_interval_ms: int = 500
@@ -221,7 +223,9 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             removes = set()
             if not self.keep_segment_waveform_in_task:
                 removes.update({self.waveform_key, "waveform"})
-            invalidates = []
+            # Nonempty nested results drop the parent waveform; the legacy empty
+            # branch retains it, so it is never a guaranteed downstream carrier.
+            invalidates = sorted({self.waveform_key, "waveform"} - removes)
         else:
             writes = IOSpec(data_keys=segment_writes, produces=produces)
             produced_keys = set(segment_writes)
@@ -341,6 +345,8 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "num_samples",
             }
         }
+        if self.nested:
+            segment_data.pop(self.segments_key, None)
         if not self.keep_segment_waveform_in_task:
             segment_waveform = None
         segment_data.update(
