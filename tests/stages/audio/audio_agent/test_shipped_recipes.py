@@ -59,6 +59,8 @@ def _keys_the_recipe_writes(recipe: dict) -> set[str]:
         with contextlib.suppress(Exception):  # plumbing without a contract writes nothing we can name
             contract = build_contract(leaf.stage)
             written |= set(contract.writes.data_keys) | set(contract.writes.segment_data_keys)
+            for conditional in contract.conditional_writes:
+                written |= set(conditional.writes.data_keys) | set(conditional.writes.segment_data_keys)
     return written
 
 

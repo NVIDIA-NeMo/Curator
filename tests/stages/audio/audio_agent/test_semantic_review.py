@@ -170,7 +170,7 @@ def test_latest_contract_writer_wins_and_earlier_history_is_retained() -> None:
     assert [writer["stage_index"] for writer in edge["earlier_contract_writers"]] == [0]
 
 
-def test_cardinality_packet_reports_aggregation_and_nested_collection_generically() -> None:
+def test_cardinality_packet_reports_filter_and_nested_collection_generically() -> None:
     recipe, stages = _build(
         [
             {"ref": "VADSegmentationStage", "params": {"nested": True}},
@@ -182,7 +182,7 @@ def test_cardinality_packet_reports_aggregation_and_nested_collection_genericall
 
     assert [(seam["stage_index"], seam["kind"]) for seam in packet["cardinality_seams"]] == [
         (0, "nested_collection"),
-        (1, "aggregation"),
+        (1, "filter"),
     ]
     assert all(seam["semantic_material"]["available"] for seam in packet["cardinality_seams"])
 
