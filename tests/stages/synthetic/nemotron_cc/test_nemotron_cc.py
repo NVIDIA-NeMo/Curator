@@ -122,6 +122,13 @@ def test_diverseqa_post_processing_basic() -> None:
     assert out == expected
 
 
+def test_diverseqa_post_processing_preserves_empty_batch_schema() -> None:
+    df = pd.DataFrame({"text": ["DOC"], "diverse_qa": ["Question: Q?\nAnswer: A."], "score": [0.1]})
+    empty = df[df["score"] > 9]
+    out_batch = DiverseQAPostProcessingStage().process(DocumentBatch(data=empty, dataset_name="ds"))
+    pd.testing.assert_frame_equal(out_batch.data, empty)
+
+
 def test_diverseqa_sync_end_to_end() -> None:
     raw = _build_diverseqa_response(DiverseQAPostProcessingStage.prefix)
     stage = DiverseQAStage(

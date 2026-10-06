@@ -27,6 +27,19 @@ from nemo_curator.tasks import AudioTask
 class TestResampleAudioStage:
     """Tests for ResampleAudioStage."""
 
+    def test_setup_on_node_reports_rootless_ffmpeg_install(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.shutil, "which", lambda _: None)
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+
+        with pytest.raises(RuntimeError) as exc_info:
+            stage.setup_on_node()
+
+        message = str(exc_info.value)
+        assert "conda install -c conda-forge ffmpeg" in message
+        assert "every executor node" in message
+
     def test_process(self, audio_task: Callable[..., AudioTask], audio_filepath: Path) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             stage = ResampleAudioStage(resampled_audio_dir=tmpdir)

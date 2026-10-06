@@ -13,14 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fern docs publish workflow (NeMo Curator)
-# Publishes the Fern documentation site when a docs tag is pushed or manually triggered.
-#
-# To publish:  git tag docs/v1.2.0 && git push origin docs/v1.2.0
-# Or use the "Run workflow" button in the Actions tab.
-#
-# Required configuration:
-# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
 
 name: Publish Fern Docs
 
@@ -33,31 +25,37 @@ on:
 permissions:
   contents: read
 
+env:
+  FERN_NO_VERSION_REDIRECTION: "true"
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '20'
 
-      - name: Install Fern CLI
-        run: npm install -g fern-api
+      - name: Install fixed Fern CLI
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/fern-cli" --ignore-scripts --no-audit --no-fund fern-api@5.123.0
+          printf '%s\n' '{"organization":"nvidia","version":"5.123.0"}' > fern/fern.config.json
 
-      # Libraries in docs.yml write under fern/product-docs/ (gitignored).
-      # Run before publish so the Full Library Reference is included in the site.
       - name: Generate library reference MDX (autodocs)
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
-        run: fern docs md generate --library nemo-curator
+        run: '"$RUNNER_TEMP/fern-cli/node_modules/.bin/fern" docs md generate --library nemo-curator'
 
       - name: Publish Docs
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
-        run: fern generate --docs
+        run: '"$RUNNER_TEMP/fern-cli/node_modules/.bin/fern" generate --docs'

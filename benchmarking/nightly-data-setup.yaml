@@ -44,3 +44,13 @@ data_setups:
       --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
       --cache-dir {datasets_path}/_hf_cache/audio_sortformer
       --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+  - name: read_speech
+    enabled: true
+    script: prepare_readspeech_data.py
+    args: >-
+      --output-path {datasets_path}/read_speech
+      --num-parts 3
+      --expected-wav-count 43354
+      --expected-wav-bytes 20011661694
+      --expected-inventory-sha256 ac097a3d4187d8e0e82fab14c8d0a59c0ab6f9de47f8784f2638054580232c20

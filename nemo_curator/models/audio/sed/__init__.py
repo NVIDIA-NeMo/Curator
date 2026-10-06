@@ -45,6 +45,6 @@ def get_model_class(model_type: str) -> type[nn.Module]:
         msg = f"Unknown SED model_type {model_type!r}; expected one of {list(_MODEL_CLASS_NAMES)}"
         raise ValueError(msg)
 
-    from nemo_curator.models.sed import cnn14
+    from . import cnn14
 
     return getattr(cnn14, class_name)
