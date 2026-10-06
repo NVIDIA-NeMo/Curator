@@ -26,6 +26,9 @@ ManifestReader
 
 The YAML matches the benchmark's model parameters, batch sizes, text fields,
 worker counts, GPU-memory reservations, cleanup stages, and writer count.
+CPU cleanup and writer calls group up to 64 rows to amortize scheduling
+overhead; each row still receives the same transformations. The writer remains
+a single worker appending to one output manifest.
 The benchmark harness remains responsible for four-way input sharding, GPU
 recording, harness wall-clock timing, and its row/identity/coverage acceptance
 gates; a tutorial run is functional pipeline evidence, not EOS performance
