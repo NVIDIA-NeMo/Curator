@@ -13,7 +13,7 @@ There is no tutorial-specific Python wrapper.
 ```text
 ManifestReader
   -> PrepareIndicASRInputStage
-  -> InferenceIndicCanaryStage (primary; isolated TensorRT-LLM runtime)
+  -> InferenceIndicCanaryStage (primary; TensorRT-LLM)
   -> WhisperHallucinationStage
   -> InferenceParakeetStage (TensorRT recovery)
   -> WhisperHallucinationStage
@@ -33,36 +33,38 @@ evidence.
 
 ## Install the audio environment
 
-Indic Canary uses a TensorRT encoder and a TensorRT-LLM decoder. TensorRT-LLM
-1.2.1 requires a CPython 3.12/CUDA 13/Torch 2.9 native stack that conflicts
-with Curator's parent audio environment. The `audio_canary_trtllm` extra keeps
-the parent on `audio_tensorrt` and ships a second, independently locked runtime
-specification for Canary.
+Indic Canary uses a TensorRT encoder and a TensorRT-LLM decoder. The root
+`trt_llm` audio profile inherits `audio_cuda12` and selects Python 3.12-compatible
+TensorRT-LLM 1.2.1 / Torch 2.9.1 dependencies. Curator, Canary, Parakeet TensorRT,
+and WER run in one environment, resolved entirely by the root `pyproject.toml`
+and `uv.lock`.
 
 From the repository root:
 
 ```bash
-uv sync --frozen --extra audio_canary_trtllm --no-default-groups
+uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
 source .venv/bin/activate
 ```
 
-That one audio extra installs the parent dependencies and the runtime manager.
-At first adapter setup, the runtime manager synchronizes the packaged child
-`pyproject.toml` and `uv.lock` into a lock-keyed cache. Concurrent workers share
-a file lock, and later runs reuse the validated environment. NeMo-CI preflight
-prewarms this cache before a timed benchmark entry; a standalone first run
-performs the setup inside that invocation. To use a pre-provisioned shared
-runtime instead, set:
+For `indic_asr_tutorial.ipynb`, include the existing development group to install
+Jupyter in that same environment:
 
 ```bash
-export NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON=/shared/indic-canary-runtime/bin/python
+uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups --group dev
+source .venv/bin/activate
 ```
 
-The supported Canary runtime is Linux x86_64. Consumer GPUs require a native
+Do not combine `trt_llm` with `all`, `vllm`, or the other incompatible profiles
+declared in `pyproject.toml`. The standard `all` profile retains Torch 2.11 and
+does not include `trt_llm`. No child environment is created at adapter setup,
+and no packages are installed during inference. Use the selected environment's
+Python for the tutorial and its notebook kernel.
+
+The supported profile is Python 3.12 on Linux x86_64. Consumer GPUs require a native
 CUDA-13-capable NVIDIA driver. Supported data-center GPUs can instead use
 NVIDIA CUDA 13 forward-compatibility libraries supplied by the execution
 environment. Those driver libraries are a system prerequisite, not a Python
-dependency. Parakeet stays in the Curator parent and uses plain TensorRT.
+dependency. Parakeet uses plain TensorRT in the same Curator environment.
 
 ## Prepare the pinned public Hindi dataset
 
@@ -212,6 +214,13 @@ Both entries require one output per input identity, unchanged audio paths and
 durations, finite WER, a recognized primary/fallback provenance, and complete
 selected prediction text.
 
+Selecting those benchmark names does not install `trt_llm`. The benchmark
+harness invokes `python` from its existing launch environment. NeMo-CI must
+select the root Python 3.12 `trt_llm` environment before the harness starts;
+the stock Python 3.13 / `all` image and older child-runtime launch support do
+not meet this contract. See the environment requirements in
+[`benchmarking/README.md`](../../../benchmarking/README.md).
+
 ## Output fields
 
 Each JSONL row retains the input identity and includes:
@@ -224,11 +233,10 @@ Each JSONL row retains the input identity and includes:
 
 ## Troubleshooting
 
-- **No isolated runtime**: rerun the `uv sync` command above. Benchmark
-  preflight or first adapter setup creates the child automatically. To prewarm
-  it explicitly, run `python -m nemo_curator.stages.audio.inference.scripts.install_indic_canary_trtllm_runtime`,
-  or set `NEMO_CURATOR_INDIC_CANARY_RUNTIME_PYTHON` to an existing runtime's
-  `bin/python`.
+- **Missing TensorRT-LLM or native import failure**: rerun the root `uv sync`
+  command above and activate its environment. Confirm `python --version` is
+  Python 3.12; do not install this profile into an active `all` / Torch 2.11
+  environment with `uv pip install`.
 - **CUDA initialization error**: verify the driver supports CUDA 13 and the
   engine was built for the current GPU architecture.
 - **Missing audio**: `dataset_dir` must contain both `manifest.jsonl` and its

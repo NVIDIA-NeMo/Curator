@@ -687,17 +687,38 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 `nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
-The Curator environment must install the `audio_canary_trtllm` extra. The
-standard `all` profile includes this audio extra, so the benchmark follows the
-same pyproject/lock-driven environment path as other Curator jobs. Before its
-timed entry starts, NeMo-CI preflight must provision and validate the separately
-locked Indic Canary child runtime. A standalone first invocation provisions it
-inside that invocation; later runs reuse the lock-keyed environment. Parakeet
-uses TensorRT from the parent environment; Canary loads its compatible
-TensorRT-LLM stack only in the child process. The host or container runtime must independently provide a
-CUDA-13-capable NVIDIA driver, or NVIDIA forward-compatibility libraries on a
-supported data-center GPU. The benchmark validates both Python runtimes and the
-complete engine inventories before timing the processor chain.
+The benchmark requires the root `trt_llm` dependency profile in one Python 3.12
+environment on Linux x86_64:
+
+```bash
+uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
+source .venv/bin/activate
+```
+
+This profile inherits `audio_cuda12` and selects the compatible TensorRT-LLM
+1.2.1 / Torch 2.9.1 native stack from the root `pyproject.toml` and `uv.lock`.
+Curator, Indic Canary, Parakeet TensorRT, and WER run in that same environment;
+there is no child environment or dependency installation during inference.
+`trt_llm` is mutually exclusive with `all`, `vllm`, and the other declared
+incompatible profiles. The normal `all` environment remains on Torch 2.11 and
+does not include `trt_llm`.
+
+Benchmark entry selection does not select a dependency profile: the harness
+runs each script with `python` from the launch environment. NeMo-CI must select
+the Python 3.12 `trt_llm` environment before invoking `benchmarking/run.py`.
+The stock Docker environment uses Python 3.13 and `all`, so choosing these
+entries or setting only `CURATOR_EXTRA=trt_llm` is insufficient. Existing
+NeMo-CI support that provisions an Indic Canary child runtime must also be
+updated before launching these entries; this PR does not add a Dockerfile or
+separate packaging specification.
+
+The host or container runtime must independently provide a CUDA-13-capable
+NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported
+data-center GPU. The benchmark imports the actual TensorRT-LLM native bindings,
+NeMo ASR, the Parakeet adapter, and text normalization, then validates complete
+engine inventories before its processor-chain timer starts. Harness
+`exec_time_s` still includes the entire benchmark subprocess, including those
+preflight checks; environment creation and data staging belong before it.
 
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,

@@ -106,7 +106,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
-| `indic_asr/` | CUDA 13-capable driver or supported forward-compat stack; TensorRT engine bundles | `audio_canary_trtllm` |
+| `indic_asr/` | CUDA 13-capable driver or supported forward-compat stack; TensorRT engine bundles | `trt_llm` (Python 3.12, Linux x86_64) |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
@@ -122,6 +122,17 @@ uv sync --extra audio_cuda12
 # CPU only
 uv sync --extra audio_cpu
 ```
+
+Indic ASR uses the mutually exclusive `trt_llm` audio profile instead:
+
+```bash
+uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
+source .venv/bin/activate
+```
+
+It inherits `audio_cuda12` and runs Curator, Canary TensorRT-LLM, and Parakeet
+TensorRT in one environment. Do not combine it with `all` or `vllm`; those
+profiles retain Curator's normal Torch stack.
 
 ## Troubleshooting: is my pipeline hung?
 

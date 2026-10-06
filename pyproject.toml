@@ -24,10 +24,6 @@ include = [
 
 [tool.setuptools.package-data]
 "nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
-"nemo_curator.stages.audio.inference" = [
-    "runtimes/indic_canary_trtllm/pyproject.toml",
-    "runtimes/indic_canary_trtllm/uv.lock",
-]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
@@ -146,18 +142,33 @@ audio_cuda12 = [
     "torchlibrosa>=0.1.0",
 ]
 
-# TensorRT audio inference. Indic Canary's incompatible TensorRT-LLM stack is
-# provisioned from a separately packaged lock and launched as a child runtime.
+# TensorRT audio inference for the regular CUDA 12 stack. Indic Canary's
+# incompatible TensorRT-LLM stack is selected separately below.
 audio_tensorrt = [
     "nemo_curator[audio_cuda12]",
     "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
 ]
 
-# User-facing Indic Canary profile. TensorRT-LLM is not installed into this
-# parent environment; the stage provisions its separately locked child runtime.
-audio_canary_trtllm = [
-    "nemo_curator[audio_tensorrt]",
-    "uv>=0.12,<0.13; platform_machine == 'x86_64' and platform_system == 'Linux'",
+# TensorRT-LLM audio inference uses its supported native Torch 2.9/CUDA ABI.
+# This root-environment profile preserves the ordinary audio dependencies and
+# is mutually exclusive with extras that require Curator's Torch 2.11 stack.
+trt_llm = [
+    "nemo_curator[audio_cuda12]",
+    "cuda-bindings==13.3.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-core==1.0.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-pathfinder==1.5.6; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-python==13.3.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "cuda-toolkit[cudart]==13.3.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "mpi4py==4.1.2; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "nvidia-cublas==13.3.0.5; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "openmpi==4.1.8; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "tensorrt==10.14.1.48.post1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "tensorrt-llm==1.2.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torch==2.9.1+cu128; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchaudio==2.9.1+cu128; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchcodec==0.9.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchvision==0.24.1+cu128; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "triton==3.5.1; python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
 ]
 
 image_cpu = [
@@ -315,7 +326,7 @@ sdg_cuda12 = [
 
 # All dependencies
 all = [
-    "nemo_curator[audio_canary_trtllm]",
+    "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
@@ -354,6 +365,22 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
+conflicts = [
+    [{ extra = "trt_llm" }, { extra = "vllm" }],
+    [{ extra = "trt_llm" }, { extra = "deduplication_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "audio_tensorrt" }],
+    [{ extra = "trt_llm" }, { extra = "image_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "inference_server" }],
+    [{ extra = "trt_llm" }, { extra = "text_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "video_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "video_media" }],
+    [{ extra = "trt_llm" }, { extra = "math_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "interleaved_cpu" }],
+    [{ extra = "trt_llm" }, { extra = "interleaved_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "sdg_cpu" }],
+    [{ extra = "trt_llm" }, { extra = "sdg_cuda12" }],
+    [{ extra = "trt_llm" }, { extra = "all" }],
+]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
@@ -365,13 +392,31 @@ constraint-dependencies = [
     "pyopenssl>=26.0.0", # Address CVE GHSA-5pwr-322w-8jr4
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
-    "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
+    "torch==2.11.0+cu129; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'trt_llm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')",
+    "torchaudio==2.11.0+cu129; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'trt_llm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')",
+    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin' and (extra != 'trt_llm' or python_version != '3.12' or platform_system != 'Linux')",
+    "torchvision==0.26.0+cu129; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'trt_llm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')",
+    # The global Linux-only overrides below intentionally erase dependency
+    # version specifiers, so restore Canary's exact ABI in its resolver fork.
+    "torch==2.9.1+cu128; extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchaudio==2.9.1+cu128; extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchcodec==0.9.1; extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "torchvision==0.24.1+cu128; extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "urllib3>=2.8.0", # Address CVE GHSA-vxq7-64xx-v4gw
     "wandb>=0.30.0", # prebuilt wandb-core ships patched Go and dependency versions
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
+    "hydra-core==1.3.4", # Overrides nemo-toolkit[asr]'s <=1.3.2 cap for the security update
     "fsspec>=2025.3.0", # Overrides nemo-toolkit[asr]'s fsspec==2024.12.0 pin; data-designer-engine==0.9.1 requires >=2025.3.0
+    # Preserve main's Linux-only Torch-family behavior. These marker-only overrides
+    # let the trt_llm constraints select its alternate native stack.
+    "torch; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "torchaudio; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "torchvision; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    # TRT-LLM 1.2.1 declares older pure-Python pins; relax only this audio dependency.
+    { package = { name = "tensorrt-llm", version = "1.2.1" }, dependencies = ["datasets>=4.0.0", "numpy>=2.0.0", "setuptools>=80.10.1", "transformers>=4.57.6,<5.0"] },
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Overrides Transformers' <1 cap and data-designer==0.9.1's >=1.0.1 requirement
@@ -381,10 +426,7 @@ override-dependencies = [
     "packaging>=25", # Required by data-designer==0.9.1; overrides Lightning's packaging<25 cap from nemo-toolkit[asr]
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
-    "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
-    "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
-    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
+    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'", # Version constraints above select the ABI-compatible series for the regular and Canary Torch families.
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "pandas>=3.0.0, <= 3.0.4", # Override data-designers constraint of <3
@@ -408,25 +450,35 @@ name = "vllm-cu129"
 url = "https://wheels.vllm.ai/0.22.0/cu129"
 explicit = true
 
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
 [tool.uv.sources]
 torch = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'trt_llm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchaudio = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'trt_llm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchvision = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.24.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "extra == 'trt_llm' and python_version == '3.12' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64') and (extra != 'trt_llm' or python_version != '3.12' or platform_machine != 'x86_64' or platform_system != 'Linux')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchcodec = [
     { index = "pypi", extra = "audio-common" },
+    { index = "pypi", extra = "trt-llm" },
 ]
 vllm = [
     { index = "vllm-cu129", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
 ]
+tensorrt-llm = { index = "nvidia", extra = "trt_llm" }
 nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
