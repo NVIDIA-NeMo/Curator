@@ -44,8 +44,11 @@ import secrets
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 _SMOKE_SECRET_ENV = "AUDIO_AGENT_SMOKE_SECRET"  # noqa: S105
 # Same variable ``run_store`` reads; the smoke secret prefers the agent's own state dir
@@ -384,12 +387,25 @@ def is_secret_key(name: Any) -> bool:  # noqa: ANN401 - any key a caller wants t
     return any(pair in _SECRET_WORD_PAIRS for pair in itertools.pairwise(words))
 
 
-def redact(obj: Any, *, redact_transcripts: bool = True) -> Any:  # noqa: ANN401, C901
+def redact(  # noqa: C901
+    obj: Any,  # noqa: ANN401
+    *,
+    redact_transcripts: bool = True,
+    transcript_keys: Collection[str] = (),
+    safe_text_keys: Collection[str] | None = None,
+) -> Any:  # noqa: ANN401
     """Recursively strip secret-keyed values and (optionally) transcript text.
+
+    Configured transcript aliases supplement the defaults. ``safe_text_keys``
+    restricts previews to known non-transcript string fields; unknown fields stay
+    private without requiring a recipe or assuming every manifest uses default keys.
 
     Applied to verb return values so tokens never leak and transcripts don't enter
     the host LLM's context. Full transcripts remain in the output files on disk.
     """
+
+    sensitive_keys = _TRANSCRIPT_KEYS | {key.lower() for key in transcript_keys}
+    safe_keys = None if safe_text_keys is None else {key.lower() for key in safe_text_keys}
 
     def _is_secret(k: Any) -> bool:  # noqa: ANN401
         return is_secret_key(k)
@@ -424,7 +440,9 @@ def redact(obj: Any, *, redact_transcripts: bool = True) -> Any:  # noqa: ANN401
                 key = str(k).lower()
                 if _is_secret(k) or (in_storage_options and key in _STORAGE_OPTION_SECRET_KEYS):
                     out[k] = "<redacted-secret>"
-                elif redact_transcripts and str(k).lower() in _TRANSCRIPT_KEYS:
+                elif redact_transcripts and (
+                    key in sensitive_keys or (safe_keys is not None and key not in safe_keys)
+                ):
                     out[k] = _redacted_transcript(v)
                 else:
                     out[k] = _r(v, in_storage_options=in_storage_options or key == "storage_options")

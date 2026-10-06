@@ -1447,24 +1447,32 @@ def _output_targets(rec: Recipe) -> list[dict[str, Any]]:
     Reporting an occupied path is the whole point; deciding what to do about it belongs to the
     user, and clearing it belongs to nobody (the pipeline replaces its own manifest output).
     """
+    from fsspec.core import url_to_fs
+
     targets: list[dict[str, Any]] = []
     for path in _recipe_outputs(rec, None):
-        expanded = os.path.expanduser(path)
-        entry: dict[str, Any] = {"path": path, "exists": os.path.exists(expanded)}
-        if not entry["exists"]:
-            targets.append(entry)
-            continue
-        if os.path.isdir(expanded):
-            entry["kind"] = "directory"
-            with contextlib.suppress(OSError):
-                entry["files"] = sum(len(fs) for _r, _d, fs in os.walk(expanded))
-        else:
-            entry["kind"] = "file"
-            with contextlib.suppress(OSError):
-                entry["bytes"] = os.path.getsize(expanded)
-            if expanded.endswith((".jsonl", ".json")):
-                entry["rows"] = _count_output_rows(expanded)
-        entry["note"] = "already present; the run writes here. Report this -- do not clear it yourself."
+        options = next(
+            (stage.params.get("storage_options") or {} for stage in rec.stages if path in stage.params.values()),
+            {},
+        )
+        entry: dict[str, Any] = {"path": path, "exists": None}
+        try:
+            fs, resolved = url_to_fs(os.path.expanduser(path), **options)
+            entry["exists"] = fs.exists(resolved)
+            if entry["exists"]:
+                if fs.isdir(resolved):
+                    entry["kind"] = "directory"
+                    entry["files"] = len(fs.find(resolved, withdirs=False))
+                else:
+                    entry["kind"] = "file"
+                    entry["bytes"] = fs.info(resolved).get("size")
+                    if resolved.endswith((".jsonl", ".json")):
+                        with fs.open(resolved, "rt", encoding="utf-8") as handle:
+                            entry["rows"] = sum(1 for line in handle if line.strip())
+                entry["note"] = "already present; the run writes here. Report this -- do not clear it yourself."
+        except Exception as exc:  # noqa: BLE001 - an inaccessible target is unknown, never proven absent
+            entry["probe_error"] = _safety.redact_secret_text(f"{type(exc).__name__}: {exc}")
+            entry["note"] = "output occupancy could not be fully inspected; verify before approving replacement."
         targets.append(entry)
     return targets
 
@@ -2079,7 +2087,7 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
                 machine_fingerprint=rplan.machine_fingerprint,
             )
         )
-    redacted = _safety.redact(out)
+    redacted = _redact_result(out, rec)
     if output_dir:
         redacted["warnings"] = [
             "output_dir is a legacy no-op; smoke outputs are always redirected "
@@ -2640,7 +2648,7 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
         result["ray_bootstrap_cleanup"] = ray_cleanup
         if not ray_cleanup:
             result.setdefault("warnings", []).append("the locally bootstrapped Ray head could not be stopped safely")
-    return _safety.redact(result)
+    return _redact_result(result, rec)
 
 
 def _utc_now() -> str:
@@ -3274,7 +3282,7 @@ def report(output: str, *, recipe: Recipe | dict[str, Any] | None = None, data: 
                 )
             if binding is not None:
                 d["data_binding"] = binding.to_dict()
-            return _safety.redact(d)
+            return _redact_result(d, rec)
     if locate_status in {"missing", "no_manifest", "unreadable", "unavailable"}:
         return _safety.redact(
             {
@@ -3347,7 +3355,7 @@ def report(output: str, *, recipe: Recipe | dict[str, Any] | None = None, data: 
         )
     if binding is not None:
         d["data_binding"] = binding.to_dict()
-    return _safety.redact(d)
+    return _redact_result(d, rec)
 
 
 def verify(
@@ -5637,12 +5645,15 @@ def _apply_ray_cluster_capacity(env: Any, address: str | None) -> Any:  # noqa: 
 def _run_pipeline(stages: list[Any], executor: Any, *, checkpoint_path: str | None = None) -> list[Any] | None:  # noqa: ANN401
     from nemo_curator.pipeline import Pipeline
 
+    executor_config = getattr(executor, "config", None)
+    if isinstance(executor_config, Mapping) and executor_config.get("ignore_failures"):
+        msg = "Audio agent execution requires ignore_failures=False to prove output completeness"
+        raise ValueError(msg)
     pipeline = Pipeline(name="audio_agent_run", stages=list(stages))
     # Keep the verb's stdout pure JSON: backend/worker logs (Ray forwards them to the
     # driver's stdout, e.g. verbose NeMo output) go to stderr during execution, so a
     # host parsing the CLI's stdout never sees them interleaved with the result.
     with contextlib.redirect_stdout(sys.stderr):
-        from nemo_curator.backends.failed_task_markers import failed_task_manifest_exists
         from nemo_curator.stages.audio import agent as foundation
         from nemo_curator.stages.audio.common import ManifestWriterStage
 
@@ -5662,15 +5673,72 @@ def _run_pipeline(stages: list[Any], executor: Any, *, checkpoint_path: str | No
                     else:
                         prepare(checkpoint_path=checkpoint_path)
                     prepared.append(stage)
-            result = pipeline.run(executor, checkpoint_path=checkpoint_path)
-            if failed_task_manifest_exists():
-                msg = "Audio pipeline recorded failed tasks; partial outputs are not complete"
-                raise RuntimeError(msg)  # noqa: TRY301 - route backend failures through driver cleanup
+            with _raise_on_failed_tasks(pipeline.stages):
+                result = pipeline.run(executor, checkpoint_path=checkpoint_path)
             _finalize_audio_stages(pipeline.stages)
         except Exception:
             _abort_prepared_audio_stages(prepared)
             raise
         return result
+
+
+@dataclass
+class _CompleteOutputBatch:
+    """Serializable guard around a configured stage's original batch method."""
+
+    method: Callable[..., Any]
+    owner: Any
+    stage: Any
+    stage_name: str
+
+    def __call__(self, tasks: list[Any]) -> list[Any]:
+        from nemo_curator.tasks import FailedTask
+        from nemo_curator.utils.performance_utils import begin_resource_probe, resource_probe_metrics
+
+        probe_enabled = getattr(self.stage, "RESOURCE_PROBE", False)
+        gpu_probe_started = begin_resource_probe(self.stage) if probe_enabled else False
+        input_size = sum(task.num_items for task in tasks) if probe_enabled else 0
+        started = time.perf_counter()
+        result = list(self.method(self.owner, tasks) if self.owner is not None else self.method(tasks))
+        elapsed = time.perf_counter() - started
+        if probe_enabled:
+            metrics = resource_probe_metrics(
+                gpu_probe_started=gpu_probe_started,
+                process_time=elapsed,
+                num_items=input_size,
+            )
+            # Explicit stage metrics take precedence over observational probes.
+            metrics.update(self.stage._consume_custom_metrics())
+            self.stage._log_metrics(metrics)
+        if any(isinstance(task, FailedTask) for task in result):
+            msg = f"Pipeline recorded failed tasks in stage {self.stage_name}; partial outputs are not complete"
+            raise RuntimeError(msg)
+        return result
+
+
+@contextlib.contextmanager
+def _raise_on_failed_tasks(stages: list[Any]) -> Iterator[None]:
+    """Check stage outputs before shared adapters remove failure sentinels.
+
+    Store the unbound function and its owner separately: pickling a bound method
+    after replacing that method would otherwise resolve back to this guard.
+    """
+    prior = [(stage, "process_batch" in vars(stage), stage.process_batch) for stage in stages]
+    try:
+        for stage, _had_override, method in prior:
+            stage.process_batch = _CompleteOutputBatch(
+                method=getattr(method, "__func__", method),
+                owner=getattr(method, "__self__", None),
+                stage=stage,
+                stage_name=stage.name,
+            )
+        yield
+    finally:
+        for stage, had_override, method in prior:
+            if had_override:
+                stage.process_batch = method
+            else:
+                vars(stage).pop("process_batch", None)
 
 
 def _finalize_audio_stages(stages: list[Any]) -> None:
@@ -6211,6 +6279,42 @@ def _result_rows(results: list[Any] | None) -> Iterator[dict[str, Any]]:
         for row in records:
             if isinstance(row, dict):
                 yield row
+
+
+def _preview_roles(recipe: Recipe | None) -> dict[str, set[str]]:
+    from nemo_curator.stages.audio.audio_agent._resolve import resolved_contract_for
+
+    roles: dict[str, set[str]] = {}
+    for stage in recipe.stages if recipe is not None else []:
+        # Unavailable optional stages leave their string fields private.
+        with contextlib.suppress(Exception):
+            resolved = resolved_contract_for(stage.ref, stage.params)
+            for key, role in resolved.contract.key_roles.items():
+                roles.setdefault(key, set()).add(role)
+    return roles
+
+
+def _redact_result(payload: dict[str, Any], recipe: Recipe | None) -> dict[str, Any]:
+    """Bind preview privacy to configured roles; unknown string fields stay private."""
+    roles = _preview_roles(recipe)
+    text_roles = {"text", "pred_text", "reference_text", "words", "alignment"}
+    transcript_keys = {key for key, values in roles.items() if values & text_roles}
+    safe_keys = {key for key, values in roles.items() if values and not values & (text_roles | {"unknown"})}
+    result = _safety.redact(payload)
+
+    def protect_previews(original: Any, redacted: Any) -> None:  # noqa: ANN401
+        if isinstance(original, dict) and isinstance(redacted, dict):
+            for key, value in original.items():
+                if key == "examples" and isinstance(value, list):
+                    redacted[key] = _safety.redact(value, transcript_keys=transcript_keys, safe_text_keys=safe_keys)
+                else:
+                    protect_previews(value, redacted.get(key))
+        elif isinstance(original, list) and isinstance(redacted, list):
+            for value, clean in zip(original, redacted, strict=True):
+                protect_previews(value, clean)
+
+    protect_previews(payload, result)
+    return result
 
 
 def _examples_from_rows(

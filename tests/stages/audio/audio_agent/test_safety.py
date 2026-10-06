@@ -615,3 +615,17 @@ def test_no_home_still_never_proposes_a_tilde_directory(monkeypatch: pytest.Monk
     monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", "~/agent_runs")
 
     assert [c for c in _safety._secret_dir_candidates() if "~" in c] == []
+
+
+@pytest.mark.parametrize("value", ["private text", ["private text"], {"nested": "private text"}])
+def test_configured_transcript_keys_are_redacted(value) -> None:  # noqa: ANN001
+    result = _safety.redact({"utterance": value, "score": 0.8}, transcript_keys={"utterance"})
+    assert "private text" not in json.dumps(result)
+    assert result["score"] == 0.8
+
+
+def test_preview_policy_hides_unknown_strings_and_preserves_known_paths() -> None:
+    result = _safety.redact({"audio": "fixture.wav", "custom": "private text", "score": 0.8}, safe_text_keys={"audio"})
+    assert result["audio"] == "fixture.wav"
+    assert "private text" not in json.dumps(result)
+    assert result["score"] == 0.8

@@ -27,6 +27,29 @@ from nemo_curator.stages.audio import audio_agent as aa
 from nemo_curator.stages.audio.audio_agent import cli, run_store, verbs
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 from nemo_curator.stages.audio.audio_agent.report import _row_count
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import FailedTask
+
+
+class _ReviewSourceStage(ProcessingStage):
+    name = "review_source"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task):  # noqa: ANN001, ANN202
+        return task
+
+
+class _ReviewFailureStage(_ReviewSourceStage):
+    name = "review_failure"
+
+    def process(self, task):  # noqa: ANN001, ANN202
+        return FailedTask() if task.data.get("fail") else task
+
 
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
 _WRITER = {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/out.jsonl"}}  # noqa: S108
@@ -180,27 +203,82 @@ def test_batch_fallback_prepares_a_clean_second_attempt(tmp_path: Path, monkeypa
     assert checkpoint_path.read_text() == manifest_path.read_text() == '{"attempt": "batch"}\n'
 
 
-@pytest.mark.parametrize("fallback", [False, True])
-def test_failed_tasks_never_publish_checkpoint_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool
+@pytest.mark.parametrize("probe_enabled", [False, True])
+def test_serialized_agent_guard_attaches_resource_metrics_via_stage_api(
+    monkeypatch: pytest.MonkeyPatch, probe_enabled: bool
 ) -> None:
+    from nemo_curator.backends.base import BaseStageAdapter
+    from nemo_curator.tasks import AudioTask
+    from nemo_curator.utils import performance_utils
+
+    starts = []
+    readings = []
+
+    def begin(stage):  # noqa: ANN001, ANN202
+        starts.append(stage.name)
+        return True
+
+    def metrics(**kwargs):  # noqa: ANN202
+        readings.append(kwargs)
+        return {"worker_lifetime_peak_host_mem_gb": 0.25, "throughput": 123.0}
+
+    monkeypatch.setattr(performance_utils, "begin_resource_probe", begin)
+    monkeypatch.setattr(performance_utils, "resource_probe_metrics", metrics)
+    stage = _ReviewSourceStage()
+    stage.RESOURCE_PROBE = probe_enabled
+    with verbs._raise_on_failed_tasks([stage]):
+        worker = pickle.loads(pickle.dumps(stage))  # noqa: S301
+        worker._log_metrics({"throughput": 7.0, "own_metric": 2.0})
+        results = BaseStageAdapter(worker).process_batch([AudioTask(data={"kept": 1})])
+        attached = results[0]._stage_perf[-1].custom_metrics
+        assert attached["throughput"] == 7.0
+        assert attached["own_metric"] == 2.0
+        assert worker._consume_custom_metrics() == {}
+        if probe_enabled:
+            assert attached["worker_lifetime_peak_host_mem_gb"] == 0.25
+            assert starts == [stage.name]
+            assert readings[0]["gpu_probe_started"] is True
+            assert readings[0]["num_items"] == 1
+            assert readings[0]["process_time"] >= 0
+        else:
+            assert "worker_lifetime_peak_host_mem_gb" not in attached
+            assert starts == readings == []
+    assert "process_batch" not in vars(stage)
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("stale_marker", [False, True])
+def test_failed_tasks_never_publish_checkpoint_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool, stale_marker: bool
+) -> None:
+    from nemo_curator.backends.base import BaseStageAdapter
     from nemo_curator.backends.failed_task_markers import FAILED_TASKS_DIR_ENV_VAR, record_failed_tasks
     from nemo_curator.stages.audio.common import ManifestCheckpointStage, ManifestWriterStage
     from nemo_curator.tasks import AudioTask
 
     checkpoint_path = tmp_path / "checkpoint.jsonl"
     manifest_path = tmp_path / "manifest.jsonl"
-    stages = [ManifestCheckpointStage(str(checkpoint_path)), ManifestWriterStage(str(manifest_path))]
-    monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(tmp_path / "failures"))
+    stages = [
+        _ReviewSourceStage(),
+        _ReviewFailureStage(),
+        ManifestCheckpointStage(str(checkpoint_path)),
+        ManifestWriterStage(str(manifest_path)),
+    ]
+    monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
+    if stale_marker:
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(tmp_path / "old_attempt"))
+        record_failed_tasks()
 
     class Executor:
         def execute(self, execution_stages, _initial_tasks):  # noqa: ANN001, ANN202
             workers = pickle.loads(pickle.dumps(execution_stages))  # noqa: S301
             for worker in workers:
                 worker.setup()
-            workers[1].process(workers[0].process(AudioTask(data={"kept": 1})))
-            record_failed_tasks()
-            return []
+            tasks = [AudioTask(data={"kept": 1})]
+            for worker in workers:
+                tasks = BaseStageAdapter(worker).process_batch(tasks)
+            BaseStageAdapter(workers[1]).process_batch([AudioTask(data={"fail": True})])
+            return tasks
 
     execute = (
         (lambda: verbs._run_pipeline_autofallback(stages, "batch", Executor()))
@@ -213,6 +291,8 @@ def test_failed_tasks_never_publish_checkpoint_completion(
     assert not Path(f"{checkpoint_path}._COMPLETE").exists()
     assert Path(f"{checkpoint_path}._RETRY_OWNER").exists()
     assert not Path(f"{manifest_path}._RUN").exists()
+
+    assert all("process_batch" not in vars(stage) for stage in stages)
 
 
 @pytest.mark.parametrize("writer_ref", ["ManifestWriterStage", "DocumentBatchJsonlWriterStage"])
@@ -1139,3 +1219,189 @@ def test_run_pipeline_binds_manifest_resume_to_configured_pipeline(
     assert len(calls) == 2
     assert output.read_text() == '{"finished_source": true}\n'
     assert not Path(f"{output}._RUN").exists()
+
+
+def test_success_does_not_consume_a_previous_attempt_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.backends.base import BaseStageAdapter
+    from nemo_curator.backends.failed_task_markers import FAILED_TASKS_DIR_ENV_VAR, record_failed_tasks
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage, ManifestWriterStage
+    from nemo_curator.tasks import AudioTask
+
+    previous = tmp_path / "previous_attempt"
+    monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(previous))
+    record_failed_tasks()
+    checkpoint = tmp_path / "checkpoint.jsonl"
+    stages = [ManifestCheckpointStage(str(checkpoint)), ManifestWriterStage(str(tmp_path / "output.jsonl"))]
+
+    class Executor:
+        def execute(self, execution_stages, _initial_tasks):  # noqa: ANN001, ANN202
+            workers = pickle.loads(pickle.dumps(execution_stages))  # noqa: S301
+            tasks = [AudioTask(data={"kept": 1})]
+            for worker in workers:
+                worker.setup()
+                tasks = BaseStageAdapter(worker).process_batch(tasks)
+            return tasks
+
+    assert len(verbs._run_pipeline(stages, Executor())) == 1
+    assert Path(f"{checkpoint}._COMPLETE").exists()
+    assert (previous / "failed_tasks.json").exists()
+    assert all("process_batch" not in vars(stage) for stage in stages)
+
+
+@pytest.mark.parametrize("with_recipe", [False, True])
+@pytest.mark.parametrize("transcript_key", ["utterance", "output_paths"])
+def test_report_redacts_configured_transcript_aliases(tmp_path: Path, with_recipe: bool, transcript_key: str) -> None:
+    output = tmp_path / "output.jsonl"
+    output.write_text(
+        json.dumps(
+            {
+                "audio_filepath": "fixture.wav",
+                transcript_key: "private transcription",
+                "nested": {"custom_words": ["private nested words"]},
+                "score": 0.8,
+            }
+        )
+        + "\n"
+    )
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(output)}},
+                {
+                    "ref": "ASRStage",
+                    "params": {
+                        "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                        "model_id": "fixture",
+                        "max_audio_sec_per_actor": 240,
+                        "pred_text_key": transcript_key,
+                    },
+                },
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(output)}},
+            ]
+        }
+    )
+    result = verbs.report(str(output), recipe=recipe if with_recipe else None)
+    assert result["status"] == "ok"
+    assert result["output_paths"] == [str(output)]
+    example = result["examples"][0]
+    assert "private" not in json.dumps(example)
+    assert example["score"] == 0.8
+    if with_recipe:
+        assert example["audio_filepath"] == "fixture.wav"
+    assert "private transcription" in output.read_text()
+
+
+@pytest.mark.parametrize("surface", ["smoke", "run"])
+def test_execution_results_keep_unknown_transcripts_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, surface: str
+) -> None:
+    from nemo_curator.backends.base import BaseStageAdapter
+    from nemo_curator.tasks import EmptyTask
+
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("AUDIO_AGENT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
+    monkeypatch.delenv("AUDIO_AGENT_WORKSPACE", raising=False)
+    source = tmp_path / "input.jsonl"
+    source.write_text(
+        json.dumps({"utterance": "private utterance", "nested": {"tokens": ["private words"]}, "score": 0.9}) + "\n"
+    )
+    output = tmp_path / "output.jsonl"
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(source)}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(output)}},
+            ]
+        }
+    ).freeze()
+
+    class Executor:
+        def execute(self, execution_stages, initial_tasks):  # noqa: ANN001, ANN202
+            workers = pickle.loads(pickle.dumps(execution_stages))  # noqa: S301
+            tasks = initial_tasks or [EmptyTask()]
+            for worker in workers:
+                worker.setup_on_node()
+                worker.setup()
+                tasks = BaseStageAdapter(worker).process_batch(tasks)
+            return tasks
+
+    result = (
+        verbs.smoke(recipe, sample=1, executor=Executor())
+        if surface == "smoke"
+        else verbs.run(recipe, confirm=recipe.config_hash, executor=Executor())
+    )
+    assert result["status"] == "completed", result
+    assert "private utterance" not in json.dumps(result)
+    assert "private words" not in json.dumps(result)
+    preview = result if surface == "smoke" else result["report"]
+    assert preview["examples"][0]["score"] == 0.9
+    if surface == "run":
+        assert "private utterance" in output.read_text()
+
+
+@pytest.mark.parametrize("scheme", ["plain", "file", "memory"])
+def test_output_targets_inspect_the_writers_filesystem(tmp_path: Path, scheme: str) -> None:
+    from fsspec.core import url_to_fs
+
+    output = tmp_path / "occupied.jsonl"
+    path = (
+        str(output)
+        if scheme == "plain"
+        else output.as_uri()
+        if scheme == "file"
+        else f"memory://{tmp_path.name}/occupied.jsonl"
+    )
+    fs, resolved = url_to_fs(path)
+    content = '{"kept": 1}\n'
+    with fs.open(resolved, "wt") as handle:
+        handle.write(content)
+    recipe = Recipe.from_dict({"stages": [{"ref": "ManifestWriterStage", "params": {"output_path": path}}]})
+    target = verbs._output_targets(recipe)[0]
+    assert target["exists"] is True
+    assert target["kind"] == "file"
+    assert target["rows"] == 1
+    assert target["bytes"] == len(content)
+    assert fs.cat(resolved).decode() == content
+    assert verbs.validate(recipe)["output_targets"] == [target]
+
+
+def test_output_target_probe_failure_is_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import fsspec.core
+
+    def unavailable(*_args, **_kwargs):  # noqa: ANN202
+        raise PermissionError("denied")  # noqa: EM101
+
+    monkeypatch.setattr(fsspec.core, "url_to_fs", unavailable)
+    recipe = Recipe.from_dict(
+        {"stages": [{"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "output.jsonl")}}]}
+    )
+    target = verbs._output_targets(recipe)[0]
+    assert target["exists"] is None
+    assert "PermissionError" in target["probe_error"]
+
+
+def test_partial_success_executor_is_refused_before_output_preparation(tmp_path: Path) -> None:
+    from nemo_curator.stages.audio.common import ManifestWriterStage
+
+    output = tmp_path / "output.jsonl"
+    stage = ManifestWriterStage(str(output))
+    executor = SimpleNamespace(config={"ignore_failures": True})
+    with pytest.raises(ValueError, match="ignore_failures=False"):
+        verbs._run_pipeline([stage], executor)
+    assert not output.exists()
+
+
+def test_failure_guard_serializes_and_restores_an_instance_batch_override() -> None:
+    from nemo_curator.tasks import AudioTask
+
+    stage = _ReviewFailureStage()
+    original = stage.process_batch
+    stage.process_batch = original
+    with verbs._raise_on_failed_tasks([stage]):
+        worker = pickle.loads(pickle.dumps(stage))  # noqa: S301
+        with pytest.raises(RuntimeError, match="recorded failed tasks"):
+            worker.process_batch([AudioTask(data={"fail": True})])
+        assert worker.process_batch([AudioTask(data={"kept": 1})])[0].data == {"kept": 1}
+    assert stage.process_batch is original
+    assert isinstance(stage.process_batch([AudioTask(data={"fail": True})])[0], FailedTask)
