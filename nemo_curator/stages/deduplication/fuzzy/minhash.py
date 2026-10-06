@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -217,7 +217,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
     normalize_text : bool, default=False
         Whether to normalize text before computing minhashes
         Current normalization is limited to lowercase and trim whitespace
-    read_format : Literal["jsonl", "parquet"] | None, default=None
+    read_format : Literal['jsonl', 'parquet'] | None, default=None
         Format of input files. Only applies to FileGroupTask inputs; ignored for DocumentBatch
         inputs (which are already in memory). May be None when only DocumentBatch inputs are used.
     read_kwargs : dict[str, Any] | None, default=None

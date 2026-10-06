@@ -102,3 +102,20 @@ To stop Prometheus and Grafana, use the PID files written to your metrics direct
 kill $(cat /shared/metrics/user_a/prometheus.pid)
 kill $(cat /shared/metrics/user_a/grafana.pid)
 ```
+
+## Ray Data Scheduler Diagnostics
+
+For Ray Data pipelines, enable optional scheduler diagnostics before starting the driver:
+
+```bash
+export NEMO_CURATOR_RAY_DATA_DIAGNOSTICS=1
+```
+
+The diagnostics write state-change events to `ray-data.log` in the Ray session log directory:
+`<ray_temp_dir>/session_latest/logs/ray-data/ray-data.log`. The default `ray_temp_dir` for `RayClient` is `/tmp/ray`.
+Set `RayClient(ray_temp_dir=...)` or `SlurmRayClient(ray_temp_dir=...)` when you need a shared or persistent location.
+This setting applies when Curator starts the Ray cluster. For an existing cluster, use the temporary directory configured when that cluster started.
+
+Curator installs a compatibility shim for Ray 2.57.0. If a supported Ray release provides the diagnostics natively, Curator leaves the native implementation in place. Other Ray versions continue without these diagnostics, so check the Ray version before interpreting a missing log.
+
+Use the events to distinguish scheduler causes. Resource admission events describe whether an operator can accept work within its current resource budget. Downstream-capacity events describe producer backpressure from queued output. A blocked producer can coexist with progress in other operators. Events record transitions, so pair them with Ray operator timing and GPU metrics rather than treating them as continuous telemetry.
