@@ -14,8 +14,11 @@
 
 from __future__ import annotations
 
+import shutil
+from dataclasses import replace
 from pathlib import Path  # noqa: TC003
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -28,6 +31,9 @@ from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import (
 )
 from nemo_curator.tasks import AudioTask
 from tests.stages.audio.inference import review_helpers as rh
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 class TestParseSortformerSegments:
@@ -376,3 +382,101 @@ def test_source_hash_export_preserves_agent_contract_at_runtime(
     contract = rh.assert_agent_ready(stage, fixture_factory=lambda: AudioTask(data=dict(data)))
     assert contract.cardinality == ("1:N fan-out" if fanout else "1:1")
     assert len(list((tmp_path / "rttm").glob("*.rttm"))) == 1
+
+
+@pytest.fixture(scope="module")
+def gpu_sortformer_stage() -> Iterator[InferenceSortformerStage]:
+    if not rh.torch.cuda.is_available():
+        pytest.skip("CUDA is required for real Sortformer inference")
+    stage = InferenceSortformerStage()
+    stage.setup_on_node()
+    stage.setup()
+    assert next(stage.diar_model.parameters()).is_cuda
+    yield stage
+    stage.diar_model = None
+    rh.torch.cuda.empty_cache()
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("session", [None, "../shard/clip"])
+def test_gpu_sortformer_legacy_exports(
+    session: str | None, gpu_sortformer_stage: InferenceSortformerStage, wav_filepath: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "rttm"
+    stage = replace(gpu_sortformer_stage, rttm_out_dir=str(output))
+    data = {"audio_filepath": str(wav_filepath)}
+    if session is not None:
+        data["session_name"] = session
+    result = stage.process(AudioTask(data=data))
+    segments = result.data[stage.diar_segments_key]
+    assert segments
+    duration = rh.sf.info(wav_filepath).duration
+    assert all(0 <= segment["start"] < segment["end"] <= duration + 0.1 for segment in segments)
+    files = list(tmp_path.rglob("*.rttm"))
+    assert len(files) == 1
+    assert files[0].parent == output
+    if session is None:
+        assert files[0].name == f"{wav_filepath.stem}.rttm"
+    lines = files[0].read_text().splitlines()
+    assert len(lines) == len(segments)
+    assert all(line.split()[1] == (session or wav_filepath.stem) for line in lines)
+    assert "num_speakers" not in result.data
+
+
+@pytest.mark.gpu
+def test_gpu_sortformer_source_hash_exports_and_subset_retry(
+    gpu_sortformer_stage: InferenceSortformerStage, wav_filepath: Path, tmp_path: Path
+) -> None:
+    inputs = []
+    for shard in ("a", "b"):
+        path = tmp_path / shard / "utt1.wav"
+        path.parent.mkdir()
+        shutil.copyfile(wav_filepath, path)
+        inputs.append(path)
+    baseline = gpu_sortformer_stage.process(AudioTask(data={"audio_filepath": str(inputs[0])}))
+    output = tmp_path / "rttm"
+    stage = replace(gpu_sortformer_stage, rttm_out_dir=str(output), rttm_naming="source_hash")
+    for path in inputs:
+        result = stage.process(AudioTask(data={"audio_filepath": str(path)}))
+        assert result.data[stage.diar_segments_key] == baseline.data[stage.diar_segments_key]
+    before = {path.name: path.read_bytes() for path in output.glob("*.rttm")}
+    assert len(before) == 2
+    assert all(name.startswith("utt1~") for name in before)
+    result = replace(stage).process(AudioTask(data={"audio_filepath": str(inputs[0])}))
+    assert result.data[stage.diar_segments_key] == baseline.data[stage.diar_segments_key]
+    assert {path.name: path.read_bytes() for path in output.glob("*.rttm")} == before
+
+
+@pytest.mark.gpu
+def test_gpu_sortformer_resident_fanout_with_source_hash(
+    gpu_sortformer_stage: InferenceSortformerStage, wav_filepath: Path, tmp_path: Path
+) -> None:
+    decoded, sample_rate = rh.sf.read(wav_filepath, dtype="float32")
+    waveform = decoded[np.newaxis, :]
+    data = {
+        "waveform": waveform,
+        "sample_rate": sample_rate,
+        "audio_item_id": "shard/clip",
+        "audio_filepath": "/stale/ignored.wav",
+    }
+    baseline = replace(gpu_sortformer_stage, input_residency="waveform").process(AudioTask(data=dict(data)))
+    output = tmp_path / "rttm"
+    stage = replace(
+        gpu_sortformer_stage,
+        input_residency="waveform",
+        fanout=True,
+        rttm_out_dir=str(output),
+        rttm_naming="source_hash",
+    )
+    children = stage.process(AudioTask(data=dict(data)))
+    assert isinstance(children, list)
+    assert len(children) == len(baseline.data[stage.diar_segments_key]) > 0
+    assert stage.is_resumable is False
+    for child, segment in zip(children, baseline.data[stage.diar_segments_key], strict=True):
+        assert "audio_filepath" not in child.data
+        assert child.data[stage.speaker_key] == segment["speaker"]
+        assert child.data[stage.sample_rate_key] == sample_rate
+        assert child.data[stage.original_file_key] == "shard/clip"
+        assert child.data[stage.waveform_key].shape[1] > 0
+        assert not np.shares_memory(child.data[stage.waveform_key], waveform)
+    assert len(list(output.glob("*.rttm"))) == 1
