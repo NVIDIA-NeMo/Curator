@@ -13,10 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Validates Fern docs configuration on pull requests.
-# Cheap config-only validation (no upstream content fetch) so this runs cleanly
-# on fork PRs where repo secrets are unavailable.
-# See fern/AUTODOCS_GUIDE.md and docs.yml `libraries`.
 
 name: Fern docs (check)
 
@@ -25,9 +21,13 @@ on:
     paths:
       - 'fern/**'
       - '.github/workflows/fern-docs-ci.yml'
+      - '.github/workflows/fern-docs-preview.yml'
 
 permissions:
   contents: read
+
+env:
+  FERN_NO_VERSION_REDIRECTION: "true"
 
 jobs:
   check:
@@ -35,14 +35,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '20'
 
-      - name: Validate Fern configuration
+      - name: Validate Fern configuration without credentials
         working-directory: ./fern
-        env:
-          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
-        run: npm run check
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"organization":"nvidia","version":"5.123.0"}' > fern.config.json
+          npm exec --yes --ignore-scripts --package=fern-api@5.123.0 -- fern check

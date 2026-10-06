@@ -99,7 +99,7 @@ For prose-only iteration, `fern docs dev` is enough. Library reference (`product
 
 ### Library reference without Fern login
 
-CI and deploy previews use the `nemo-curator` library (`input.git`) and require `fern login` or `FERN_TOKEN`. For local iteration on the Python API reference without Fern authentication, run:
+Deploy previews and publication use the `nemo-curator` library (`input.git`) and require `fern login` or `FERN_TOKEN`. PR configuration checks are token-free and do not generate authenticated autodocs. For local iteration on the Python API reference without Fern authentication, run:
 
 ```bash
 npm run generate:library:local   # runs scripts/generate-library-local.sh; requires Docker
@@ -186,14 +186,17 @@ When the next GA cuts (e.g. `v26.10` / `v1.2.0`):
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `fern-docs-ci.yml` | PR touching `fern/**` | Validates autodocs (`libraries:`) generation |
-| `fern-docs-preview-build.yml` | `pull_request` (fork-safe; no secrets) | Untrusted half: collect `fern/` artifact |
-| `fern-docs-preview-comment.yml` | `workflow_run` after build | Trusted half: build preview with `DOCS_FERN_TOKEN`, post 🌿 comment |
+| `fern-docs-ci.yml` | PR touching Fern docs or preview/check code | Token-free `fern check`; no staging regression tests or authenticated autodocs generation |
+| `fern-docs-preview.yml` | Push to an approved upstream `pull-request/<number>` mirror | Verify the current PR head, generate a preview with trusted configuration and pinned tooling, and post a comment; remove stale preview comments when docs changes are reverted |
 | `publish-fern-docs.yml` | push of `docs/v*` tag, or manual dispatch | Publish to docs.nvidia.com/nemo/curator |
 
 Required org secret: **`DOCS_FERN_TOKEN`** (issued via `fern token` on a privileged dashboard account).
 
-PRs that touch `fern/**` get an automatic preview URL posted as a 🌿 comment.
+PRs that touch `fern/**` get a preview after their current head is approved and mirrored upstream, including vetted fork PRs. Direct fork runs do not receive the publishing token. This workflow has no `PUBLISH_FERN` feature-flag gate.
+
+Preview navigation, components, organization and tooling come from `main`; PRs supply only documentation content and assets. Existing unchanged trusted symlinks (such as `versions/latest.yml`) are allowed; new or retargeted PR symlinks are rejected. Explicit page/asset deletions relative to the PR merge base are applied, while pages added only on newer `main` remain available. Navigation changes are not previewed until they land on `main`; deleting a still-referenced page can therefore fail the build rather than silently showing its old content.
+
+Fern CLI **5.123.0** is pinned in workflow code with `FERN_NO_VERSION_REDIRECTION=true`. Preview token access is limited to library generation and publication. The comment URL must match the exact expected Fern preview host; no authenticated page-link request is made. Reverting all docs changes removes existing bot preview comments without publishing or accessing the Fern token.
 
 ### Publishing to production
 
