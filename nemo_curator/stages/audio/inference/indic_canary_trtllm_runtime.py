@@ -83,6 +83,8 @@ def _prepare_tensorrt_llm_native_runtime() -> None:
         # The openmpi wheel retains its build-time /opt/openmpi prefix. Point
         # OpenMPI at the active Curator environment before mpi4py initializes.
         os.environ.setdefault("OPAL_PREFIX", str(prefix))
+        # Canary uses one MPI rank per GPU worker; no SSH launcher is needed.
+        os.environ.setdefault("OMPI_MCA_plm", "isolated")
 
     site_packages = Path(torch.__file__).resolve().parent.parent
     native_libraries = (
