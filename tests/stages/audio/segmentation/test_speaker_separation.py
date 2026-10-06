@@ -23,10 +23,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import soundfile as sf
 import torch
-from pydub import AudioSegment
-
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+from pydub import AudioSegment
+
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import (

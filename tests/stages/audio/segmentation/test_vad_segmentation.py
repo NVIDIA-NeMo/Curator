@@ -19,10 +19,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import soundfile as sf
 import torch
-
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
