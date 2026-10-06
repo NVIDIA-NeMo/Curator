@@ -1,176 +1,150 @@
 ---
-description: "Release notes for NeMo Curator 26.07 (v1.3.0), including new features, fixes, breaking changes, and dependency updates"
+description: "Release notes for NeMo Curator 26.09 (v1.4.0), including new features, improvements, fixes, and dependency updates"
 categories: ["reference"]
-tags: ["release-notes", "changelog", "updates", "26.07", "v1.3.0"]
+tags: ["release-notes", "changelog", "updates", "26.09", "v1.4.0"]
 personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
 difficulty: "reference"
 content_type: "reference"
 modality: "universal"
 ---
 
-# NeMo Curator Release Notes: 26.07 (v1.3.0)
+# NeMo Curator Release Notes: 26.09 (v1.4.0)
 
-NeMo Curator 26.07 expands text, audio, video, and synthetic-data curation, and makes pipeline resource configuration more consistent across execution backends.
+NeMo Curator 26.09 expands audio inference and evaluation, adds Lance and remote WARC data sources, tightens semantic-deduplication memory use, and delivers pipeline scheduling improvements.
 
 <Warning>
-**Python 3.11 or later is required.** NeMo Curator 26.07 supports Python 3.11 through 3.13. Before upgrading, review the [26.07 migration checklist](/about/release-notes/26-07-migration), especially framework-owned task IDs, sentinel task construction, pipeline resumability, video caption variant names, typed inference-server configuration, the removed video preprocessing option, the audio ASR worker rename, and architecture-specific dependency changes. The Python range changed in [#1855](https://github.com/NVIDIA-NeMo/Curator/pull/1855).
+Before upgrading, review the [26.09 migration checklist](/about/release-notes/migration-checklist) for the OpenCV packaging change and the semantic-deduplication precision defaults.
 </Warning>
 
 ## What's New
 
-### Nemotron-CLIMB Data Curation
+### New ASR Adapters
 
-The new [Nemotron-CLIMB tutorial](/curate-text/tutorials/nemotron-climb) implements the data-mixture optimization workflow introduced in [#1727](https://github.com/NVIDIA-NeMo/Curator/pull/1727) and completed in [#2072](https://github.com/NVIDIA-NeMo/Curator/pull/2072). The workflow:
+Four new in-process automatic speech recognition (ASR) adapters expand the adapter surface for `ASRStage`:
 
-- Embeds and clusters candidate documents.
-- Prunes and merges clusters with FastText classifiers.
-- Produces Megatron-compatible `.bin` and `.idx` token files.
-- Samples Dirichlet data mixtures, trains and evaluates proxy models, and fits a LightGBM predictor.
-- Narrows the mixture search from 64 candidates to 32, 16, and a final selected mixture.
+- **`QwenOmniASRAdapter`**: Qwen-Omni in-process transcription added in [#1967](https://github.com/NVIDIA-NeMo/Curator/pull/1967).
+- **`Qwen3ASRAdapter`**: Qwen3-ASR in-process transcription added in [#2257](https://github.com/NVIDIA-NeMo/Curator/pull/2257).
+- **`NeMoASRAdapter`**: NeMo FastConformer family transcription added in [#2254](https://github.com/NVIDIA-NeMo/Curator/pull/2254).
+- **`FasterWhisperASRAdapter`**: Faster-Whisper in-process transcription added in [#2271](https://github.com/NVIDIA-NeMo/Curator/pull/2271).
 
-The output workflow also includes the [#1427](https://github.com/NVIDIA-NeMo/Curator/pull/1427) utility for merging multiple file prefixes produced by `MegatronTokenizerWriter` into one Megatron dataset.
+See [ASR Inference](/curate-audio/process-data/asr-inference) for adapter configuration and resource requirements.
 
-See [Nemotron-CLIMB stages](/curate-text/tutorials/nemotron-climb/stages) for the stage-by-stage API.
+### Audio Transcript Processing Stages
 
-### Audio Tagging, Quality, and Punctuation-and-Capitalization Preparation
+Three new stages extend the audio transcript processing pipeline documented in [Audio Text Integration](/curate-audio/process-data/text-integration):
 
-The generic ASR and TTS preparation pipeline from [#1679](https://github.com/NVIDIA-NeMo/Curator/pull/1679) and the [audio tagging tutorial](/curate-audio/tutorials/audio-tagging) added in [#1863](https://github.com/NVIDIA-NeMo/Curator/pull/1863) compose resampling, diarization, long-segment splitting, ASR alignment, bandwidth estimation, SQUIM quality metrics, and TTS or ASR manifest preparation. Optional second-pass ASR enables pairwise WER scoring. The pipeline can also apply inverse text normalization and Chinese text conversion when their optional dependencies are available.
+- **`SelectBestPredictionStage`**: Compares predictions from multiple ASR adapters and writes the highest-scoring prediction to a configurable output key ([#2266](https://github.com/NVIDIA-NeMo/Curator/pull/2266)).
+- **`WhisperHallucinationStage`** and **`TranscriptNormalizationStage`**: Rule-based hallucination filtering and text normalization for ASR output, including language-aware long-word thresholding ([#2258](https://github.com/NVIDIA-NeMo/Curator/pull/2258), [#2267](https://github.com/NVIDIA-NeMo/Curator/pull/2267)).
 
-New public stages include `BandwidthEstimationStage`, `TorchSquimQualityMetricsStage`, `ComputeWERStage`, `GetPairwiseWerStage`, and `PrepareModuleSegmentsStage`.
+### Sound Event Detection
 
-### Interactive DNS Challenge Read Speech Tutorial
+Two new stages add sound event detection to audio pipelines:
 
-The [Read Speech tutorial](/curate-audio/tutorials/readspeech) now includes an interactive notebook for exploring the DNS Challenge workflow before running the complete Hydra pipeline ([#1870](https://github.com/NVIDIA-NeMo/Curator/pull/1870)).
+- **`SoundEventDetectionStage`**: Runs inference to detect sound events within audio segments ([#2260](https://github.com/NVIDIA-NeMo/Curator/pull/2260)).
+- **`SoundEventPostprocessingStage`**: Applies postprocessing to raw detection outputs, including filtering and formatting ([#2261](https://github.com/NVIDIA-NeMo/Curator/pull/2261)).
 
-### Long-Form Audio Pretraining Pipeline
+### LLM Judge Evaluation Suite
 
-The [audio pretraining tutorial](/curate-audio/tutorials/audio-pretrain) from [#1898](https://github.com/NVIDIA-NeMo/Curator/pull/1898) turns diarized and transcribed long-form recordings into bounded, mono training snippets. It includes overlap filtering, snippet cut planning, repeated-content filtering, extraction, tar and JSONL writers, metrics, and a dry-run mode through `build_audio_pretrain_pipeline()`.
+`LLMJudgeWorkflow` in `nemo_curator.eval.llm_judge` turns large language model (LLM) evaluation into a Curator data pipeline ([#2324](https://github.com/NVIDIA-NeMo/Curator/pull/2324)). You define judges, rubrics, and score filters in YAML and Jinja; the workflow starts a local Dynamo or vLLM inference server, runs NeMo Data Designer for structured judgment, and writes or filters results at dataset scale. See [LLM Judge Workflow](/curate-text/process-data/quality-assessment/llm-judge) and the [LLM Judge Runner tutorial](/curate-text/tutorials/llm-judge).
 
-### Nemotron OCR Synthetic Data Generation
+### Lance Data Sources
 
-The [Nemotron OCR pipeline](/curate-text/synthetic/nemotron-ocr) added in [#1899](https://github.com/NVIDIA-NeMo/Curator/pull/1899) generates OCR training records from Hugging Face datasets with `OCRNemotronV2Stage`. An optional `OCRScoringQAStage` uses Nemotron Nano Omni to score generated records and create question-answer data. See the [OCR tutorial](/curate-text/synthetic/nemotron-ocr/tutorial) for an end-to-end example.
+Two new stages add support for the Lance columnar format:
 
-### Interleaved Image-Text Getting Started Workflow
+- **`LanceReaderStage`**: Reads Lance datasets ([#2111](https://github.com/NVIDIA-NeMo/Curator/pull/2111)).
+- **`LanceWriterStage`**: Writes Lance datasets ([#2112](https://github.com/NVIDIA-NeMo/Curator/pull/2112)).
+- **`InterleavedLanceReaderStage`**: Reads Lance datasets in interleaved mode for image-text and multimodal pipelines ([#2232](https://github.com/NVIDIA-NeMo/Curator/pull/2232)).
 
-The interleaved data quickstart moved into a dedicated getting-started workflow in [#1774](https://github.com/NVIDIA-NeMo/Curator/pull/1774). It demonstrates reading, transforming, filtering, and writing MINT-1T-style image-text records. Start with [Interleaved Data](/curate-text/process-data/interleaved), then use the linked I/O and filter guides for production configuration.
+### Remote WARC Support
 
-### Pipeline Resumability
+Common Crawl WARC iterators now accept remote URLs in addition to local paths ([#2300](https://github.com/NVIDIA-NeMo/Curator/pull/2300)), enabling direct streaming from S3 or HTTPS sources without a local download step.
 
-Pipelines can now pass a local `checkpoint_path` to `Pipeline.run()` to track completed source partitions in LMDB and skip them when a run is restarted ([#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063)). Resumability requires a pre-existing Ray cluster and every stage in the pipeline to be marked resumability-safe. `NoneTask` records intentionally filtered branches, while `FailedTask` keeps a source pending for retry. See [Resumable Processing](/reference/infra/resumable-processing).
+### GlotLID Language and Script Identification
 
-### SLURM Job Arrays
-
-NeMo Curator can shard deterministic source tasks across independent SLURM array jobs, record one durable completion manifest per successful shard, and discover only the shards that require retry ([#2059](https://github.com/NVIDIA-NeMo/Curator/pull/2059)). The reference workflow supports JSONL and Parquet, single-node or multi-node Ray within each array task, logical shard counts larger than the scheduler array limit, and downstream `FailedTask` recovery. See [SLURM Job Arrays](/admin/deployment/slurm-arrays).
-
-### Video Caption Quality Evaluation
-
-The [caption evaluation workflow](/curate-video/process-data/caption-evaluation) from [#1980](https://github.com/NVIDIA-NeMo/Curator/pull/1980) builds a diverse benchmark from sampled OpenVid clips, summarizes captions to the model's token budget, and uses Cosmos-Embed1 cosine similarity to evaluate video-text alignment. Summaries are cached so repeated evaluations do not regenerate them.
-
-<Note>
-The removed `--captioning-model-does-preprocess` option appears in an older benchmark README. Do not use it with 26.07; follow the [video preprocessing migration](/about/release-notes/26-07-migration#4-remove-the-video-model-preprocessing-option).
-</Note>
-
-### Expanded Video Caption Models
-
-Video captioning now supports Qwen2.5-VL, Qwen3-VL, NVIDIA Nemotron Nano 12B V2 VL in BF16, FP8, and NVFP4 variants, and Nemotron 3 Nano Omni ([#1827](https://github.com/NVIDIA-NeMo/Curator/pull/1827), [#1883](https://github.com/NVIDIA-NeMo/Curator/pull/1883)). The [captions and preview guide](/curate-video/process-data/captions-preview) provides the model matrix, precision behavior, preparation and generation controls, and second-pass refinement options.
-
-The unversioned `qwen` variant was removed. Existing pipelines must select `qwen2.5` to preserve the former behavior or choose `qwen3` explicitly; see the [caption variant migration](/about/release-notes/26-07-migration#5-replace-the-unversioned-video-caption-variant).
-
-### Typed Inference Server Backends
-
-`InferenceServer` now uses typed backend configuration for Ray Serve and NVIDIA Dynamo. Use `RayServeModelConfig` for Ray Serve, or combine `DynamoVLLMModelConfig` and `DynamoServerConfig` for aggregated or disaggregated Dynamo serving. The expanded [Inference Server guide](/curate-text/synthetic/inference-server) covers model replicas, routing, runtime environments, resource placement, HAProxy ingress, pipeline coexistence, and troubleshooting ([#1813](https://github.com/NVIDIA-NeMo/Curator/pull/1813), [#1820](https://github.com/NVIDIA-NeMo/Curator/pull/1820), [#1833](https://github.com/NVIDIA-NeMo/Curator/pull/1833), [#1834](https://github.com/NVIDIA-NeMo/Curator/pull/1834), [#1861](https://github.com/NVIDIA-NeMo/Curator/pull/1861), [#1895](https://github.com/NVIDIA-NeMo/Curator/pull/1895), [#1957](https://github.com/NVIDIA-NeMo/Curator/pull/1957)).
-
-`InferenceModelConfig` was removed. Migrate existing Ray Serve configuration to `RayServeModelConfig`, or select a Dynamo model and server configuration explicitly; see the [inference-server migration](/about/release-notes/26-07-migration#6-replace-inferencemodelconfig).
-
-### Expanded Translation Controls
-
-The translation workflow introduced in [#1844](https://github.com/NVIDIA-NeMo/Curator/pull/1844) gained production-oriented `TranslationStage` controls in [#2038](https://github.com/NVIDIA-NeMo/Curator/pull/2038), including segmentation mode and minimum segment length, prompt and generation configuration, concurrency and health checks, FAITH quality scoring and filtering, output modes, message reconstruction, and already-translated record handling. See [Translation](/curate-text/process-data/language-management/translation) for the complete configuration surface.
-
-### Nemotron-Parse Throughput Tuning and Metrics
-
-Nemotron-Parse now forwards `engine_kwargs` such as `max_num_seqs` and `enforce_eager` to vLLM and reports per-task inference time, pages, prompt and output tokens and characters, truncation, empty results, and retry counts. PDF partitioning also fans work out across workers. These changes landed in [#2054](https://github.com/NVIDIA-NeMo/Curator/pull/2054); see [Parse PDFs with Nemotron-Parse](/curate-text/load-data/nemotron-parse-pdf).
-
-### Consistent Stage Scheduling and `with_()` Overrides
-
-Stage scheduling was standardized in [#2077](https://github.com/NVIDIA-NeMo/Curator/pull/2077) and [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086):
-
-- Use fixed `ActorPoolStrategy` or `TaskPoolStrategy` worker counts for Ray Data.
-- Use minimum, maximum, and initial worker bounds for autoscaling actor pools.
-- Describe Xenna resources per worker or per node.
-- Apply per-instance scheduling overrides with `stage.with_(...)`.
-
-See [Stage worker sizing](/reference/infra/stage-worker-sizing) before carrying custom worker settings forward.
+`GlotLIDStage` adds language and script identification using the GlotLID model, which supports over 1,600 language varieties ([#2281](https://github.com/NVIDIA-NeMo/Curator/pull/2281)). Use it alongside or as an alternative to `FastTextLangId` when finer language or script granularity is required.
 
 ## Improvements
 
-### Memory-Efficient Semantic Deduplication Fitting
+### Bounded Semantic Deduplication Pairwise Processing
 
-K-means can fit centroids from a file-level sample and then assign the full dataset in a memory-bounded second pass ([#1927](https://github.com/NVIDIA-NeMo/Curator/pull/1927)). Configure `KMeansStage.fit_data_fraction`, `SemanticDeduplicationWorkflow.fit_data_fraction`, or `TextSemanticDeduplicationWorkflow.kmeans_fit_data_fraction`. A directly constructed `KMeansStage` can also save `kmeans_centroids.npy` through `cache_path`. See [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup) for sampling, memory, and I/O tradeoffs.
+Pairwise similarity now uses bounded batch sizes and defaults to `float16` compute ([#2318](https://github.com/NVIDIA-NeMo/Curator/pull/2318), [#2388](https://github.com/NVIDIA-NeMo/Curator/pull/2388)):
 
-### Faster Optional-Dependency Imports
+- `pairwise_batch_size` defaults to `1024`, capping GPU memory consumption per batch.
+- `pairwise_compute_dtype` defaults to `"float16"`, reducing memory use at the cost of reduced precision.
 
-- Text classifier modules now load their implementations lazily, reducing cold-import cost and avoiding eager loading of unused optional dependencies ([#1888](https://github.com/NVIDIA-NeMo/Curator/pull/1888)).
-- `AsyncOpenAIClient` now creates its OpenAI client lazily, so constructing stages does not initialize a network client until it is needed ([#1890](https://github.com/NVIDIA-NeMo/Curator/pull/1890)).
+If you set `pairwise_compute_dtype="float32"`, also set `kmeans_embedding_output_dtype="float32"`. See the [26.09 migration checklist](/about/release-notes/migration-checklist) for the required configuration change.
 
-### Repository Getting Started Agent Skill
+### KMeans Fit Memory Reduction
 
-The repository includes a Getting Started agent skill with modality-specific environment and pipeline verification scripts ([#1746](https://github.com/NVIDIA-NeMo/Curator/pull/1746)). It helps coding agents select installation extras and validate text, image, video, audio, Ray, and CPU pipeline setup directly from a source checkout.
+`KMeansStage` reduces memory overhead during centroid fitting by reading Parquet files in bounded batches before full-dataset assignment ([#2386](https://github.com/NVIDIA-NeMo/Curator/pull/2386)). This extends the file-level sampling introduced in 26.07 to the full fit path.
 
-### Deduplication Input Extension Discovery
+### Text Normalization in Deduplication
 
-Deduplication workflows now infer input extensions from `input_filetype` in [#2045](https://github.com/NVIDIA-NeMo/Curator/pull/2045): Parquet scans `.parquet`, while JSONL scans both `.jsonl` and `.json`. Explicit `input_file_extensions` still takes precedence, and unsupported file types fail early. See [Deduplication](/curate-text/process-data/deduplication).
+Exact and fuzzy deduplication workflows now support optional text normalization before signature generation ([#2247](https://github.com/NVIDIA-NeMo/Curator/pull/2247)). Normalization removes case and punctuation variation before hashing, so near-identical records that differ only in formatting are treated as duplicates.
 
-### Reliable FLEURS Downloads
+### Custom MinHash Metrics
 
-The FLEURS tutorial now uses the Hugging Face content cache and retry behavior through `hf_hub_download`, supports `cache_dir`, and lets benchmarks set `auto_download=False`. This reduces rate-limit failures and repeated downloads ([#2057](https://github.com/NVIDIA-NeMo/Curator/pull/2057)).
+`MinhashStage` exposes additional cardinality and similarity metrics ([#2274](https://github.com/NVIDIA-NeMo/Curator/pull/2274)). Pass `extra_metrics` to collect per-document and per-cluster statistics without a separate stage.
 
-### Safer ArXiv Extraction
+### FastText Language ID Language Parameter
 
-`ArxivIterator(extract_tmp_dir=None)` now extracts into the system temporary directory by default instead of the download directory. Set `extract_tmp_dir` to retain explicit placement ([#2055](https://github.com/NVIDIA-NeMo/Curator/pull/2055)).
+`FastTextLangIdStage` now accepts an optional `language` parameter ([#2199](https://github.com/NVIDIA-NeMo/Curator/pull/2199)). Set it to filter records to a target language code at the identification stage rather than adding a downstream filter.
 
-### Dynamo Server Configuration
+### Deduplication ID Field Control
 
-[Dynamo fixes in #2053](https://github.com/NVIDIA-NeMo/Curator/pull/2053) propagate `DynamoServerConfig.subprocess_env` to the frontend and workers, support explicit `dyn_chat_processor="vllm"` routing for pass-through multimodal requests, validate hybrid KV-cache settings, and render false-valued CLI options as `--no-*` flags.
+Exact and fuzzy deduplication workflows accept `drop_id_field=True` to remove the deduplication ID column from the output when downstream stages do not require it ([#2078](https://github.com/NVIDIA-NeMo/Curator/pull/2078)).
 
-### NeMo Data Designer Tutorial Guidance
+### Multiple Input Task Types Per Stage
 
-The NDD tutorial now configures stage workers with `.with_(num_workers=2)` rather than a Xenna-only stage spec ([#2104](https://github.com/NVIDIA-NeMo/Curator/pull/2104)). It also documents a workaround for local multi-GPU `InferenceServer` startup hangs on PCIe systems: restart Ray or the kernel and either set `NCCL_P2P_DISABLE=1` or use `tensor_parallel_size=1` ([#2114](https://github.com/NVIDIA-NeMo/Curator/pull/2114)). See [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer).
+`ProcessingStage` now allows its `process` method to declare more than one accepted input task type ([#2239](https://github.com/NVIDIA-NeMo/Curator/pull/2239)). This removes the need for wrapper stages that unify input types before a shared processing step.
 
-### Video CPU Stage Scheduling
+### Per-Node Stage Worker Sizing
 
-`VideoFrameExtractionStage` and `ClipTranscodingStage` now request one Ray Data CPU so adjacent CPU stages can be fused more effectively ([#2110](https://github.com/NVIDIA-NeMo/Curator/pull/2110)). Their Xenna resource declarations remain larger because they describe worker capacity for FFmpeg work; the Ray reservation does not reduce the computation performed by the stage.
+Stages can opt into per-node worker counts with `num_workers_per_node` ([#2354](https://github.com/NVIDIA-NeMo/Curator/pull/2354)). When set, the executor scales workers proportionally to the number of nodes in the cluster rather than using a fixed count. Refer to [Stage Worker Sizing](/reference/infra/stage-worker-sizing).
+
+### Ray Data Scheduler Observability
+
+Ray Data pipelines now emit scheduler diagnostics that report queue depth, stall causes, and resource wait times ([#2293](https://github.com/NVIDIA-NeMo/Curator/pull/2293)). Use these to distinguish underprovisioned resources from slow stages.
+
+### Configurable Resource Waits Between Actor Pool Stages
+
+`RayActorPoolExecutor` stages now wait for required resources to become available before launching the next stage ([#2357](https://github.com/NVIDIA-NeMo/Curator/pull/2357)). Configure `resource_wait_timeout_s` to set the maximum wait before an error is raised.
+
+### Arrow Schema Preservation Through Parquet
+
+Parquet writers now preserve the Arrow schema from the input task, including field metadata and nested type annotations ([#2360](https://github.com/NVIDIA-NeMo/Curator/pull/2360)). Previously, schemas could be inferred at write time, which dropped metadata.
+
+### Bounded vLLM Embedding Generation
+
+`VLLMEmbeddingStage` now processes inputs in bounded batches ([#2317](https://github.com/NVIDIA-NeMo/Curator/pull/2317)), preventing out-of-memory conditions when embedding large partitions.
+
+### Nemotron-Parse Triton Attention
+
+In-process and Ray Serve Nemotron-Parse inference now uses Triton-based attention by default on Ampere and Blackwell GPUs ([#2393](https://github.com/NVIDIA-NeMo/Curator/pull/2393)). This replaces the FlashAttention path and removes the `flash-attn` runtime requirement for PDF parsing. See [Nemotron-Parse PDF processing](/curate-text/load-data/nemotron-parse-pdf).
 
 ## Fixes
 
-- **Full TCP port range:** Automatic port selection now includes port 65535 ([#2024](https://github.com/NVIDIA-NeMo/Curator/pull/2024)).
-- **UTF-8 JSONL output:** `JsonlWriter` preserves non-ASCII characters by default instead of escaping them as Unicode sequences ([#1762](https://github.com/NVIDIA-NeMo/Curator/pull/1762)).
-- **Distinct Nemotron-CC stage metrics:** The five Nemotron-CC task stages now use distinct stage names in metrics and diagnostics ([#1763](https://github.com/NVIDIA-NeMo/Curator/pull/1763)).
-- **URL filter matching:** URL-ratio and repetition filters correctly treat `-` as a literal character in their URL-matching character class ([#1880](https://github.com/NVIDIA-NeMo/Curator/pull/1880)).
-
-## Breaking Changes
-
-The [26.07 migration checklist](/about/release-notes/26-07-migration) provides before-and-after examples for every item below.
-
-- **Framework-owned task IDs:** `Task.task_id` is no longer accepted by task constructors. Executors assign deterministic IDs at stage boundaries ([#2036](https://github.com/NVIDIA-NeMo/Curator/pull/2036), [#2058](https://github.com/NVIDIA-NeMo/Curator/pull/2058)).
-- **Sentinel task classes:** Construct empty sentinels with `EmptyTask()` and check them with `isinstance`. `SentinelTask` is the payloadless base class ([#2062](https://github.com/NVIDIA-NeMo/Curator/pull/2062), [#2070](https://github.com/NVIDIA-NeMo/Curator/pull/2070)).
-- **Video preprocessing option removed:** Remove `model_does_preprocess` and `--captioning-model-does-preprocess`; video models now use vLLM or Hugging Face preprocessing ([#2109](https://github.com/NVIDIA-NeMo/Curator/pull/2109)).
-- **Video caption variant renamed:** Replace the removed `qwen` variant with `qwen2.5` for equivalent behavior, or select `qwen3` explicitly ([#1827](https://github.com/NVIDIA-NeMo/Curator/pull/1827), [#1883](https://github.com/NVIDIA-NeMo/Curator/pull/1883)).
-- **Inference server configuration is typed:** Replace the removed `InferenceModelConfig` with `RayServeModelConfig` or Dynamo's `DynamoVLLMModelConfig` and `DynamoServerConfig`.
-- **Audio ASR worker rename:** Replace stage argument `num_workers` with `dataloader_num_workers`. `num_workers` is now reserved for execution-worker configuration through `with_()` ([#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086)).
+- **GB300 and large-memory GPU support:** `Resources(gpu_memory_gb=N)` now floors the derived fractional GPU count at `0.1`, preventing stages from resolving to `0` GPUs on devices with more than approximately 200 GB of total memory such as GB300 ([#2421](https://github.com/NVIDIA-NeMo/Curator/pull/2421)).
+- **Semantic deduplication storage options:** Parquet storage options passed to `TextSemanticDeduplicationWorkflow` are now forwarded to the output writer ([#2316](https://github.com/NVIDIA-NeMo/Curator/pull/2316)).
+- **Semantic deduplication ID preservation:** Semantic deduplication ID fields are preserved in the output when `drop_id_field` is not set ([#2358](https://github.com/NVIDIA-NeMo/Curator/pull/2358)).
+- **Partial rerun routing:** Partial pipeline reruns now route tasks to the current attempt instead of a prior completed attempt ([#2381](https://github.com/NVIDIA-NeMo/Curator/pull/2381)).
+- **Nemotron OCR API key:** The Nemotron OCR pipeline now uses a standardized API key field across in-process and remote serving configurations ([#2405](https://github.com/NVIDIA-NeMo/Curator/pull/2405)).
+- **Empty QA batch handling:** Diverse QA stages handle empty batches without raising an exception ([#2450](https://github.com/NVIDIA-NeMo/Curator/pull/2450)).
+- **Interleaved batch string operations:** Interleaved pipeline stages correctly apply pandas string operations across heterogeneous batch types ([#2434](https://github.com/NVIDIA-NeMo/Curator/pull/2434)).
+- **Null WebDataset content types:** Interleaved readers handle null or missing content-type fields in WebDataset shards without failing ([#2438](https://github.com/NVIDIA-NeMo/Curator/pull/2438)).
+- **Hosted LLM tutorial default:** Tutorial examples replace the retired `meta/llama-3.3-70b-instruct` default with `nvidia/nemotron-3-super-120b-a12b` across CLI defaults, notebooks, and README references ([#2461](https://github.com/NVIDIA-NeMo/Curator/pull/2461)).
 
 ## Dependency Changes
 
-- **Final CUDA and serving stack:** The release container uses CUDA 12.9.1. Core Ray dependencies require `ray[default,data]>=2.55.1`; the inference-server extra adds `ray[serve,llm]>=2.55.1`, `vllm>=0.14.1,<0.19`, and `ai-dynamo==1.1.0` on supported x86_64 non-macOS systems. The 26.07 lock resolves Ray 2.55.1, vLLM 0.18.1, and AI-Dynamo 1.1.0. The container builds HAProxy 2.8.20 for Ray Serve HAProxy ingress ([#1895](https://github.com/NVIDIA-NeMo/Curator/pull/1895), [#1957](https://github.com/NVIDIA-NeMo/Curator/pull/1957)).
-- **PyTorch and CUDA wheels:** Dependency resolution pins PyTorch and torchaudio 2.10.0 and torchvision 0.25.0. Linux x86_64 and aarch64 installations resolve the CUDA 12.9 builds (`torch==2.10.0+cu129`, `torchaudio==2.10.0+cu129`, and `torchvision==0.25.0+cu129`).
-- **`nemo_text_processing` on Arm:** The audio extra installs `nemo_text_processing` on x86_64 Linux, but no longer installs it on aarch64 or macOS because its `pynini` dependency is not supported there. Audio stages that import it, including inverse text normalization and WER processing, must be omitted or supplied through a separately supported environment on those platforms ([#2049](https://github.com/NVIDIA-NeMo/Curator/pull/2049)).
-- **`flash-attn` is no longer a direct video dependency:** The `video_cuda12` extra no longer pins or installs `flash-attn`. Built-in video pipelines use their declared dependencies; custom code that imports FlashAttention must install a compatible build explicitly ([#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107)). This applies to both x86_64 and aarch64.
-
-See the [architecture dependency matrix](/about/release-notes/26-07-migration#8-review-architecture-specific-dependencies) for upgrade actions.
+- **OpenCV is now an optional extra:** The `all` extra no longer includes `cv2` directly. Install the `cv2` extra for workflows that require OpenCV explicitly. OpenCV may still be installed transitively through vLLM. See the [26.09 migration checklist](/about/release-notes/migration-checklist) and [Install NeMo Curator](/get-started/installation).
+- **`datasets` is a core dependency:** `huggingface_hub`-based dataset access via the `datasets` library is now included in all installation extras ([#2164](https://github.com/NVIDIA-NeMo/Curator/pull/2164)).
+- **RAPIDS 26.08:** The 26.09 release uses RAPIDS 26.08 for GPU-accelerated text and semantic deduplication ([#2303](https://github.com/NVIDIA-NeMo/Curator/pull/2303)).
+- **vLLM GB200 startup fix:** The vLLM extra requires `quack-kernels>=0.4.1` for GB200 startup compatibility ([#2391](https://github.com/NVIDIA-NeMo/Curator/pull/2391)).
 
 ## Upgrade Checklist
 
-1. Create a Python 3.11, 3.12, or 3.13 environment.
-2. Apply every relevant code change in the [26.07 migration checklist](/about/release-notes/26-07-migration).
-3. Reinstall the modality extras used by your pipeline and verify the architecture-specific dependency matrix.
-4. Run a representative pipeline with a small input set and inspect generated task IDs, worker counts, and output manifests.
-5. For resumable runs, start Ray before calling `Pipeline.run(checkpoint_path=...)`, use a local checkpoint directory, and verify that every stage is resumability-safe.
+1. Apply every relevant code change in the [26.09 migration checklist](/about/release-notes/migration-checklist).
+2. If your pipeline uses OpenCV features, add the `cv2` extra: `nemo-curator[text_cuda12,cv2]`.
+3. If you use `pairwise_compute_dtype="float32"`, also set `kmeans_embedding_output_dtype="float32"` to avoid a `ValueError` at construction time.
+4. Reinstall the modality extras used by your pipeline and verify RAPIDS 26.08 compatibility.
+5. Run a representative pipeline with a small input set and inspect output schemas, deduplication IDs, and worker counts.
