@@ -288,3 +288,13 @@ def test_concatenation_cardinality_matches_independent_parent_batch() -> None:
     assert stage.describe().cardinality == "filter"
     assert len(outputs) == 2
     assert [output.data["original_file"] for output in outputs] == ["one.wav", "two.wav"]
+
+
+def test_parent_filter_contract_passes_real_conformance() -> None:
+    from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+
+    assert_agent_ready(
+        SegmentConcatenationStage(),
+        fixture_factory=lambda: _make_nested_task([_make_segment_dict(duration_ms=10)]),
+        expected_cardinality="filter",
+    )

@@ -65,3 +65,27 @@ def test_audio_export_bounds_filename_and_preserves_audio(
         assert Path(path).name.startswith("ordinary_mono_")
     if explicit_dir:
         assert path == _residency.write_audio_stable(waveform, 16000, output_dir=str(tmp_path), stem=stem, tag="mono")
+
+
+def test_dtype_preservation_is_opt_in_for_normalizing_consumers() -> None:
+    import torch
+
+    data = {"waveform": np.array([32767, -32768], dtype=np.int16), "sample_rate": 16000}
+    ordinary, _ = _residency.resolve_audio(data, residency="waveform")
+    pcm, _ = _residency.resolve_audio(data, residency="waveform", preserve_pcm_dtype=True)
+    assert ordinary.dtype == torch.float32
+    assert pcm.dtype == torch.int16
+    torch.testing.assert_close(ordinary, pcm.float())
+
+
+def test_pcm_preservation_keeps_untyped_lists_as_float_samples() -> None:
+    import torch
+
+    waveform, rate = _residency.resolve_audio(
+        {"waveform": [0, 1, -1], "sample_rate": 16000},
+        residency="waveform",
+        preserve_pcm_dtype=True,
+    )
+    assert rate == 16000
+    assert waveform.dtype == torch.float32
+    assert waveform.tolist() == [[0.0, 1.0, -1.0]]

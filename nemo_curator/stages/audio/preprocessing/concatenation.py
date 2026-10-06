@@ -174,7 +174,6 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
             writes=IOSpec(data_keys=writes, produces=produces),
             metadata_writes=["segment_mappings"],
             cardinality="filter",
-            iteration_key=self.segments_key,
             # process returns a NEW AudioTask built from a fresh dict: the segments it
             # consumed and every unrelated upstream column (transcripts, ids, scores) are gone,
             # not carried through. Left at the default True, a downstream reader of any of them

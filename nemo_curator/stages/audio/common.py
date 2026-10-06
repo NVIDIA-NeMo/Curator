@@ -90,6 +90,11 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         from nemo_curator.stages.audio._agent._residency import residency_read_specs
 
         return StageContract(
+            preferred_reads=(
+                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+                if self.input_residency == "auto"
+                else None
+            ),
             reads_one_of=residency_read_specs(
                 self.input_residency,
                 audio_filepath_key=self.audio_filepath_key,
@@ -201,8 +206,8 @@ class PreserveByValueStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=[self.input_value_key]),
-            writes=IOSpec(data_keys=[self.input_value_key]),
+            reads=IOSpec(data_keys=[self.input_value_key] if self.missing_value_policy == "error" else []),
+            optional_reads=IOSpec(data_keys=[self.input_value_key] if self.missing_value_policy == "drop" else []),
             cardinality="filter",
             # Compares one row against a fixed target value, so batching changes throughput
             # rather than the verdict -- no row's fate depends on the rows beside it.
@@ -289,7 +294,6 @@ class PreserveByValueConditionsStage(AgentReady, ProcessingStage[AudioTask, Audi
         if condition_logic not in {"and", "or"}:
             msg = "condition_logic must be 'and' or 'or'"
             raise ValueError(msg)
-        self.conditions = conditions
         self.missing_value_policy = missing_value_policy
         self.items_key = items_key
         self.drop_parent_if_empty = drop_parent_if_empty
@@ -364,6 +368,11 @@ class PreserveByValueConditionsStage(AgentReady, ProcessingStage[AudioTask, Audi
         return tuple(normalized)
 
     @property
+    def conditions(self) -> list[dict[str, Any]]:
+        """Configured comparisons as an independent snapshot of the executed semantics."""
+        return list(self.normalized_conditions)
+
+    @property
     def normalized_conditions(self) -> tuple[dict[str, Any], ...]:
         """Canonical conditions for deterministic planning and comparison."""
         return tuple(
@@ -412,8 +421,8 @@ class PreserveByValueConditionsStage(AgentReady, ProcessingStage[AudioTask, Audi
             )
         keys = [condition.input_value_key for condition in self._conditions]
         return StageContract(
-            reads=IOSpec(data_keys=keys),
-            writes=IOSpec(data_keys=keys),
+            reads=IOSpec(data_keys=keys if self.missing_value_policy == "error" else []),
+            optional_reads=IOSpec(data_keys=keys if self.missing_value_policy == "drop" else []),
             cardinality="filter",
             description=f"Filter top-level AudioTask rows with {logic} conditions.",
             gates=Gates(per_row_independent=True),

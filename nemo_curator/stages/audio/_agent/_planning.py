@@ -28,9 +28,8 @@ that run.
 
 Composites are expanded (see :mod:`nemo_curator.stages.audio._agent._composite`) so the
 stages inside them are checked too — the requirements of the stages that do the
-work, rather than the empty contract the composite advertises. Reads that fail
-inside a composite are warnings, not errors, until the expansion has proven it
-does not false-positive. A composite that cannot be expanded, or whose children
+work, rather than the empty contract the composite advertises. Missing reads inside
+composites remain advisory; a proven incompatible live value is an error. A composite that cannot be expanded, or whose children
 include something with no contract at all, falls back to being treated as opaque:
 it is reported, and reads after it are no longer judged by role.
 
@@ -603,6 +602,36 @@ def _forget_role_provenance(walk: _Walk) -> None:
     walk.possible_segment_roles.clear()
 
 
+def _read_role_accepts(expected: str, actual: str) -> bool:
+    """Generic list/text readers accept their specialized role variants."""
+    variants = {
+        "segments": {"diar_segments", "vad_segments", "overlap_segments"},
+        "text": {"pred_text", "reference_text"},
+    }
+    return expected == actual or actual in variants.get(expected, set())
+
+
+def _preferred_read_is_known(walk: _Walk, contract: StageContract) -> bool:
+    """A preferred resident input is selected only with proven companion roles."""
+    spec = contract.preferred_reads
+    if spec is None:
+        return False
+    for keys, available, roles in (
+        (spec.data_keys, walk.available_keys, walk.key_roles),
+        (spec.segment_data_keys, walk.segment_available_keys, walk.segment_key_roles),
+    ):
+        for key in keys:
+            actual = roles.get(key, set())
+            expected = _read_role(contract, spec, key)
+            if key not in available or not actual or "unknown" in actual:
+                return False
+            # A bad rate can make auto fall back; a known non-waveform value with a valid
+            # rate instead reaches the preferred branch and fails there.
+            if expected != "waveform" and actual != {expected}:
+                return False
+    return True
+
+
 def _literal_role_issues(walk: _Walk, site: _Site, contract: StageContract) -> list[PipelineIssue]:
     """A live literal key must carry the role of its current producer, not a stale role."""
 
@@ -615,14 +644,14 @@ def _literal_role_issues(walk: _Walk, site: _Site, contract: StageContract) -> l
             for key in keys:
                 expected = _read_role(contract, spec, key)
                 actual = live_roles.get(key, set()) | possible_roles.get(key, set())
-                if expected == "unknown" or not actual or actual == {expected}:
+                if expected == "unknown" or not actual or all(_read_role_accepts(expected, role) for role in actual):
                     continue
-                uncertain = expected in actual or "unknown" in actual
+                uncertain = any(_read_role_accepts(expected, role) for role in actual) or "unknown" in actual
                 issues.append(
                     PipelineIssue(
                         site.index,
                         site.name,
-                        "warning" if uncertain or site.composite is not None else "error",
+                        "warning" if uncertain else "error",
                         "conditional_role" if uncertain else "key_role_conflict",
                         f"{scope} key {key!r} requires role {expected!r}, but its current "
                         f"producer can supply {sorted(actual)}",
@@ -631,6 +660,8 @@ def _literal_role_issues(walk: _Walk, site: _Site, contract: StageContract) -> l
         return issues
 
     issues = check(contract.reads)
+    if _preferred_read_is_known(walk, contract):
+        issues.extend(check(contract.preferred_reads))
     for group in _read_option_groups(contract, walk.available_keys, walk.possible_keys):
         alternatives = [
             check(option)

@@ -50,3 +50,21 @@ def test_converted_disk_output_is_stable_with_and_without_output_dir(
     finally:
         for path in set(paths):
             Path(path).unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("stale", [float("nan"), float("inf"), float("-inf"), True, 1.5, 999])
+def test_header_observation_ignores_bad_stale_count(tmp_path: Path, stale: object) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / "clip.wav"
+    sf.write(path, np.zeros(160, dtype=np.float32), 16000)
+    stage = ChannelCountStage(input_residency="file")
+    output = stage.process(AudioTask(data={"audio_filepath": str(path), "num_channels": stale}))
+    assert isinstance(output, AudioTask)
+    assert output.data["num_channels"] == 1
+
+
+@pytest.mark.parametrize("stale", [float("nan"), float("inf"), True, 1.5])
+def test_invalid_unverified_channel_metadata_drops_cleanly(stale: object) -> None:
+    assert ChannelCountStage().process(AudioTask(data={"num_channels": stale})) == []

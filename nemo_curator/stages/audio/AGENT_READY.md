@@ -18,6 +18,10 @@ the framework auto-derives the rest, and one test tells you if anything is missi
    literals in `process()`).
 3. Add one test: **`assert_agent_ready(MyStage(...), fixture_factory=...)`**.
 
+Define `describe()` on the concrete stage class itself. Inheriting a parent's
+contract alone does not enroll a subclass in agent discovery; review the subclass's
+configuration and behavior before explicitly declaring its contract.
+
 Those three items make the stage mechanically composable. Also document the meaning of
 externally consumed outputs, especially filterable fields and anything crossing a
 fan-out/aggregation boundary. `assert_agent_ready` can prove keys and cardinality; it
@@ -145,6 +149,15 @@ Conditions must describe actual code branches using configured key values. They
 are not an intent checker, a module-specific validator, or a centralized
 field-scope ontology. The host LLM still decides whether a conditional field's
 meaning and granularity fit the request.
+
+### Preferred resident inputs
+
+A configured `auto` consumer can declare `preferred_reads` as one of its
+`reads_one_of` alternatives. It describes the resident pair selected before the
+file fallback. Validation checks conflicts in this pair when upstream role
+evidence establishes its selection inputs; missing, conditional, or unknown
+inputs remain subject to the ordinary alternative checks. Explicit file mode
+must not declare a resident preference.
 
 ### `gates.per_row_independent` — usually nothing to do
 

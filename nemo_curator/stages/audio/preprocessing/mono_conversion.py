@@ -32,7 +32,7 @@ from dataclasses import KW_ONLY, dataclass, field
 import torch
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     drop_resident_audio,
@@ -218,6 +218,11 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if self.update_audio_filepath:
                 writes.append(self.audio_filepath_key)
         return StageContract(
+            preferred_reads=(
+                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+                if self.input_residency == "auto"
+                else None
+            ),
             reads_one_of=residency_read_specs(
                 self.input_residency,
                 audio_filepath_key=self.audio_filepath_key,
@@ -225,6 +230,17 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=writes, produces=produces),
+            conditional_writes=(
+                [
+                    ConditionalWrite(
+                        writes=IOSpec(data_keys=[self.original_audio_filepath_key]),
+                        condition="a prior audio path is present and no original path has already been preserved",
+                        requires_keys=[self.audio_filepath_key],
+                    )
+                ]
+                if self.update_audio_filepath
+                else []
+            ),
             # A disk-only conversion ends the resident audio rather than replacing it, so the
             # keys leave the task. Declared so validation can fail a downstream waveform reader
             # here, instead of letting it read the pre-conversion tensor at runtime.
@@ -272,6 +288,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
                 mono=False,
+                preserve_pcm_dtype=True,
                 loader=load_audio_file,  # module-level symbol: patchable at this module, as pre-residency
             )
         except (OSError, RuntimeError) as e:  # corrupt/unreadable audio -> skip the row, don't crash the batch

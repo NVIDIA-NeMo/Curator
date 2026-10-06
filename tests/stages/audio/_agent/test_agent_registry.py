@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from pathlib import Path
+
 import pytest
 
 from nemo_curator.stages.audio.agent import pipeline_identity
@@ -55,3 +57,26 @@ def test_pipeline_identity_supports_value_filters(comparison: str) -> None:
 def test_pipeline_identity_rejects_arbitrary_callable() -> None:
     with pytest.raises(TypeError, match="Cannot fingerprint"):
         pipeline_identity([GetAudioDurationStage(duration_key=lambda: "duration")])
+
+
+def test_composite_identity_follows_resolved_configuration(tmp_path: Path) -> None:
+    module = pytest.importorskip("nemo_curator.stages.audio.advanced_pipelines.audio_data_filter")
+    cls = module.AudioDataFilterStage
+    config = tmp_path / "config.yaml"
+    config.write_text("mono_conversion:\n  output_sample_rate: 16000\n")
+    first = pipeline_identity([cls(config_path=config)])
+    assert first == pipeline_identity([cls(config={"mono_conversion": {"output_sample_rate": 16000}})])
+    config.write_text("mono_conversion:\n  output_sample_rate: 48000\n")
+    assert first != pipeline_identity([cls(config_path=config)])
+
+
+def test_identity_rejects_unrunnable_composite() -> None:
+    from nemo_curator.stages.base import CompositeStage, ProcessingStage
+    from nemo_curator.tasks import AudioTask
+
+    class SingleChildAudioComposite(CompositeStage[AudioTask, AudioTask]):
+        def decompose(self) -> list[ProcessingStage]:
+            return [GetAudioDurationStage()]
+
+    with pytest.raises(ValueError, match="unresolved composite"):
+        pipeline_identity([SingleChildAudioComposite()])

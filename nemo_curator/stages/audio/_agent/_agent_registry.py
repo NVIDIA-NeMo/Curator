@@ -339,6 +339,9 @@ def _contract_referenced_keys(contract: StageContract) -> set[str]:
     for spec in [contract.reads, contract.writes, contract.optional_reads, *contract.reads_one_of]:
         keys.update(spec.data_keys)
         keys.update(spec.segment_data_keys)
+    if contract.preferred_reads is not None:
+        keys.update(contract.preferred_reads.data_keys)
+        keys.update(contract.preferred_reads.segment_data_keys)
     keys.update(contract.metadata_reads)
     keys.update(contract.metadata_writes)
     for conditional in contract.conditional_writes:
@@ -617,8 +620,23 @@ def pipeline_identity(stages: typing.Iterable[Any]) -> str:
         msg = f"Cannot fingerprint pipeline parameter of type {type(value).__name__}"
         raise TypeError(msg)
 
+    from nemo_curator.stages.audio._agent._composite import expand_composites
+    from nemo_curator.stages.base import CompositeStage
+
     configured = []
     for stage in stages:
+        if isinstance(stage, CompositeStage):
+            expansion = expand_composites([stage])
+            if not expansion.fully_resolved:
+                msg = f"Cannot fingerprint unresolved composite {type(stage).__name__}"
+                raise ValueError(msg)
+            configured.append(
+                {
+                    "stage": f"{type(stage).__module__}.{type(stage).__qualname__}",
+                    "children": pipeline_identity(item.stage for item in expansion.stages),
+                }
+            )
+            continue
         params = {}
         for param in stage_params(stage):
             if not hasattr(stage, param.name):
