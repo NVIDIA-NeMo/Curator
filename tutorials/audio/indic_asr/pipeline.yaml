@@ -55,6 +55,7 @@ stages:
   - _target_: benchmarking.scripts.audio_indic_asr_benchmark.PrepareIndicASRInputStage
     audio_root: ${dataset_dir}
     stage_with:
+      batch_size: 64
       num_workers: ${prep_workers}
 
   - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
