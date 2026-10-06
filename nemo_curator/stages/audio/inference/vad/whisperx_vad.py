@@ -169,8 +169,8 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
-        self.is_resumable = not self.fanout
         if self.fanout:
+            self.is_resumable = False
             _validate_fanout_key_contract(
                 stage_name=self.name,
                 audio_filepath_key=self.audio_filepath_key,

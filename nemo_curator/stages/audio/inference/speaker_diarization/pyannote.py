@@ -172,7 +172,6 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
-        self.is_resumable = not self.fanout
         if self.num_speakers_key is not None and self.num_speakers_key in {
             self.audio_filepath_key,
             self.segments_key,
@@ -181,6 +180,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             msg = "num_speakers_key must be distinct from path and segment output keys when enabled"
             raise ValueError(msg)
         if self.fanout:
+            self.is_resumable = False
             _validate_fanout_key_contract(
                 stage_name=self.name,
                 audio_filepath_key=self.audio_filepath_key,

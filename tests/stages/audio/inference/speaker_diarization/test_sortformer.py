@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import (
     InferenceSortformerStage,
@@ -79,8 +80,38 @@ class TestWriteRttm:
         assert lines[1].startswith("SPEAKER test_session 1 3.000 2.000")
         assert "speaker_1" in lines[1]
 
+    @pytest.mark.parametrize("session", ["shard/clip", r"shard\clip", "../escaped", "/absolute", "日本" * 100])
+    def test_unsafe_names_stay_inside_export_directory(self, session: str, tmp_path: Path) -> None:
+        output = tmp_path / "rttm"
+        _write_rttm([{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}], session, str(output))
+        files = list(tmp_path.rglob("*.rttm"))
+        assert len(files) == 1
+        assert files[0].parent == output
+        assert len(files[0].name.encode("utf-8")) <= 255
+        assert files[0].read_text().startswith(f"SPEAKER {session} 1 ")
+
+    def test_sanitized_labels_cannot_alias_each_other_or_literal_names(self, tmp_path: Path) -> None:
+        segments = [{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}]
+        _write_rttm(segments, "shard/clip", str(tmp_path))
+        encoded_name = next(tmp_path.glob("*.rttm")).stem
+        for name in ("shard_clip", r"shard\clip", encoded_name):
+            _write_rttm(segments, name, str(tmp_path))
+        assert len(list(tmp_path.glob("*.rttm"))) == 4
+
+    def test_ordinary_names_remain_unchanged(self, tmp_path: Path) -> None:
+        _write_rttm([], "_clip-01.v2", str(tmp_path))
+        assert (tmp_path / "_clip-01.v2.rttm").is_file()
+
 
 class TestInferenceSortformerStage:
+    def test_preserves_explicit_non_resumable_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(InferenceSortformerStage, "is_resumable", False)
+        assert InferenceSortformerStage().is_resumable is False
+
+    def test_rejects_unknown_rttm_naming_policy(self) -> None:
+        with pytest.raises(ValueError, match="rttm_naming"):
+            InferenceSortformerStage(rttm_naming="shard")
+
     def test_setup_on_node_pre_caches_model(self) -> None:
         stage = InferenceSortformerStage(model_name="nvidia/diar_streaming_sortformer_4spk-v2")
         with patch("nemo_curator.stages.audio.inference.speaker_diarization.sortformer.snapshot_download") as mock_dl:
@@ -230,3 +261,118 @@ def test_cpu_injected_sortformer_does_not_claim_gpu_requirement() -> None:
     )
     assert cpu_injected.gates.requires_gpu is False
     assert restored.gates.requires_gpu is True
+
+
+@pytest.mark.parametrize("session_name", [None, "shared-session"])
+def test_source_hash_exports_duplicate_basenames_without_overwriting_and_retries_subset(
+    session_name: str | None, tmp_path: Path
+) -> None:
+    model = MagicMock()
+
+    def diarize(*, audio: list[str], batch_size: int) -> list[list[str]]:
+        assert batch_size == 1
+        return [["0.00 1.00 speaker_0"]] if audio[0] == "/corpus/a/utt1.wav" else [["0.00 1.00 speaker_1"]]
+
+    model.diarize.side_effect = diarize
+    params = {"diar_model": model, "rttm_out_dir": str(tmp_path), "rttm_naming": "source_hash"}
+    stage = InferenceSortformerStage(**params)
+    tasks = [AudioTask(data={"audio_filepath": f"/corpus/{shard}/utt1.wav"}) for shard in ("a", "b")]
+    if session_name is not None:
+        for task in tasks:
+            task.data["session_name"] = session_name
+    for task in tasks:
+        result = stage.process(task)
+        assert result.data["audio_filepath"] == task.data["audio_filepath"]
+        assert result.data["diar_segments"]
+        assert "num_speakers" not in result.data
+    before = {path.name: path.read_text() for path in tmp_path.glob("*.rttm")}
+    assert len(before) == 2
+    assert any("speaker_0" in text for text in before.values())
+    assert any("speaker_1" in text for text in before.values())
+    # New workers, new task IDs, and reversed order must preserve artifact identities.
+    for task in reversed(tasks):
+        InferenceSortformerStage(**params).process(AudioTask(data=dict(task.data)))
+    assert {path.name: path.read_text() for path in tmp_path.glob("*.rttm")} == before
+    model.diarize.side_effect = None
+    model.diarize.return_value = [["0.00 1.00 speaker_2"]]
+    InferenceSortformerStage(**params).process(AudioTask(data=dict(tasks[0].data)))
+    after = {path.name: path.read_text() for path in tmp_path.glob("*.rttm")}
+    assert set(after) == set(before)
+    for name, content in before.items():
+        assert ("speaker_2" in after[name]) if "speaker_0" in content else after[name] == content
+
+
+@pytest.mark.parametrize("residency", ["waveform", "auto"])
+@pytest.mark.parametrize("identity_key", ["session_name", "audio_item_id"])
+def test_source_hash_resident_inputs_use_content_not_stale_or_temporary_paths(
+    residency: str, identity_key: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage, seen = rh._make_stage("sortformer", monkeypatch, input_residency=residency, rttm_out_dir=str(tmp_path))
+    stage.rttm_naming = "source_hash"
+    data = {
+        "audio_filepath": "/stale/utt1.wav",
+        "original_file": "/stale/utt1.wav",
+        identity_key: "shared/clip",
+        "sample_rate": rh._SAMPLE_RATE,
+    }
+    for value in (0.0, 1.0):
+        stage.process(AudioTask(data={**data, "waveform": np.full((1, 12), value, dtype=np.float32)}))
+    before = {path.name: path.read_text() for path in tmp_path.glob("*.rttm")}
+    assert len(before) == 2
+    retry, _ = rh._make_stage("sortformer", monkeypatch, input_residency=residency, rttm_out_dir=str(tmp_path))
+    retry.rttm_naming = "source_hash"
+    retry.process(AudioTask(data={**data, "waveform": np.zeros((1, 12), dtype=np.float32)}))
+    assert {path.name: path.read_text() for path in tmp_path.glob("*.rttm")} == before
+    assert seen == [12, 12]
+
+
+def test_unsafe_audio_item_id_is_sanitized_through_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, _ = rh._make_stage(
+        "sortformer", monkeypatch, input_residency="waveform", rttm_out_dir=str(tmp_path / "rttm")
+    )
+    result = stage.process(
+        AudioTask(
+            data={
+                "waveform": np.zeros((1, 12), dtype=np.float32),
+                "sample_rate": rh._SAMPLE_RATE,
+                "audio_item_id": "../clip",
+            }
+        )
+    )
+    assert result.data["diar_segments"]
+    assert len(list((tmp_path / "rttm").glob("*.rttm"))) == 1
+    assert not (tmp_path / "clip.rttm").exists()
+
+
+@pytest.mark.parametrize(("naming", "independent"), [("legacy", False), ("source_hash", True)])
+def test_rttm_reuse_gate_matches_naming_policy(naming: str, independent: bool, tmp_path: Path) -> None:
+    stage = InferenceSortformerStage(rttm_out_dir=str(tmp_path), rttm_naming=naming)
+    contract = rh.build_contract(stage)
+    assert contract.gates.per_row_independent is independent
+    assert contract.gates.writes_to_disk is True
+    assert contract.gates.output_path_params == ["rttm_out_dir"]
+    policy = next(param for param in contract.params if param.name == "rttm_naming")
+    assert policy.default == "legacy"
+    assert policy.choices == ["legacy", "source_hash"]
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform"])
+@pytest.mark.parametrize("fanout", [False, True])
+def test_source_hash_export_preserves_agent_contract_at_runtime(
+    residency: str, fanout: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audio_path = tmp_path / "input.wav"
+    waveform = np.zeros((1, 12), dtype=np.float32)
+    rh._write_audio(audio_path, waveform)
+    stage, _ = rh._make_stage(
+        "sortformer", monkeypatch, input_residency=residency, fanout=fanout, rttm_out_dir=str(tmp_path / "rttm")
+    )
+    stage.rttm_naming = "source_hash"
+    data = (
+        {"audio_filepath": str(audio_path)}
+        if residency == "file"
+        else {"waveform": waveform, "sample_rate": rh._SAMPLE_RATE}
+    )
+    contract = rh.assert_agent_ready(stage, fixture_factory=lambda: AudioTask(data=dict(data)))
+    assert contract.cardinality == ("1:N fan-out" if fanout else "1:1")
+    assert len(list((tmp_path / "rttm").glob("*.rttm"))) == 1

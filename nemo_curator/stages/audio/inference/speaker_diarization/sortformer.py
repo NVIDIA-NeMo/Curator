@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import soundfile as sf
 from huggingface_hub import snapshot_download
@@ -99,10 +102,25 @@ def _count_distinct_speakers(segments: list[dict[str, Any]]) -> int:
     return len({seg.get("speaker") for seg in segments} - {None, "unknown"})
 
 
-def _write_rttm(segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: str) -> None:
+def _safe_rttm_basename(sess_name: str, *, source_identity: str | None = None) -> str:
+    """Keep ordinary names; disambiguate encoded labels and optional source identities."""
+    safe = re.sub(r"[^\w.-]+", "_", sess_name) or "audio"
+    max_bytes = 255 - len(".rttm")
+    if source_identity is None and safe == sess_name and len(safe.encode("utf-8")) <= max_bytes:
+        return safe
+    identity = json.dumps([sess_name, source_identity], ensure_ascii=False)
+    # '~' is excluded from canonical names so an encoded label cannot alias a literal one.
+    suffix = "~" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    prefix = safe.encode("utf-8")[: max_bytes - len(suffix)].decode("utf-8", errors="ignore") or "audio"
+    return prefix + suffix
+
+
+def _write_rttm(
+    segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: str, *, source_identity: str | None = None
+) -> None:
     """Write diarization segments to an RTTM file."""
     os.makedirs(rttm_out_dir, exist_ok=True)
-    rttm_path = os.path.join(rttm_out_dir, f"{sess_name}.rttm")
+    rttm_path = os.path.join(rttm_out_dir, f"{_safe_rttm_basename(sess_name, source_identity=source_identity)}.rttm")
     with open(rttm_path, "w") as f:
         for seg in segments:
             duration = seg["end"] - seg["start"]
@@ -130,6 +148,10 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         num_speakers_key: Optional output key for the distinct-speaker count derived
             from diar_segments. Disabled by default for legacy compatibility.
         rttm_out_dir: Optional directory to write RTTM files. Defaults to None.
+        rttm_naming: "legacy" (default) retains ordinary session/basename filenames.
+            "source_hash" includes a stable source digest to separate duplicate names
+            in a shared directory. File identity uses the full real path; resident
+            identity uses waveform content and sample rate, never a temporary path.
         chunk_len: Streaming chunk size in 80 ms frames. Defaults to 340 (~30.4 s latency).
         chunk_left_context: Left context frames. Defaults to 1.
         chunk_right_context: Right context frames. Defaults to 40.
@@ -160,6 +182,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     speaker_key: str = field(default="speaker", kw_only=True)
     original_file_key: str = field(default="original_file", kw_only=True)
     rttm_out_dir: str | None = None
+    rttm_naming: Literal["legacy", "source_hash"] = field(default="legacy", kw_only=True)
     chunk_len: int = 340
     chunk_left_context: int = 1
     chunk_right_context: int = 40
@@ -184,7 +207,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
-        self.is_resumable = not self.fanout
+        if self.rttm_naming not in {"legacy", "source_hash"}:
+            msg = f"rttm_naming must be 'legacy' or 'source_hash', got {self.rttm_naming!r}"
+            raise ValueError(msg)
         if self.num_speakers_key is not None and self.num_speakers_key in {
             self.filepath_key,
             self.diar_segments_key,
@@ -192,6 +217,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             msg = "num_speakers_key must be distinct from path and segment output keys when enabled"
             raise ValueError(msg)
         if self.fanout:
+            self.is_resumable = False
             _validate_fanout_key_contract(
                 stage_name=self.name,
                 audio_filepath_key=self.filepath_key,
@@ -354,13 +380,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu or self.diar_model is None,
                 writes_to_disk=self.rttm_out_dir is not None or self.input_residency != "file",
-                # The ROW is per-file: ``process`` handles one task and calls ``diarize`` with a
-                # single-element list, so the model never sees another file whatever
-                # ``inference_batch_size`` says. The RTTM is not: its name falls back to the audio
-                # BASENAME, so with a shared ``rttm_out_dir`` two files called ``utt1.wav`` in
-                # different folders write the same ``utt1.rttm``. Drop the directory and the whole
-                # stage is safe to run over a subset.
-                per_row_independent=self.rttm_out_dir is None,
+                # Legacy filenames can collide across rows; source hashes need no shared
+                # ownership state and retain their names when processing only a subset.
+                per_row_independent=self.rttm_out_dir is None or self.rttm_naming == "source_hash",
                 requires_internet_first_run=self.model_path is None and self.diar_model is None,
                 output_path_params=(
                     ["rttm_out_dir"]
@@ -504,7 +526,16 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             segments = all_segments[0]
 
             if self.rttm_out_dir is not None:
-                _write_rttm(segments, stable_identity, self.rttm_out_dir)
+                source_identity = None
+                if self.rttm_naming == "source_hash":
+                    source_identity = (
+                        f"file:{os.path.realpath(source_path)}"
+                        if resident_waveform is None
+                        else _stable_audio_identity(
+                            {}, resident_waveform, resident_sample_rate, source_path=None, explicit_keys=()
+                        )
+                    )
+                _write_rttm(segments, stable_identity, self.rttm_out_dir, source_identity=source_identity)
 
             if self.fanout:
                 if resident_waveform is None:

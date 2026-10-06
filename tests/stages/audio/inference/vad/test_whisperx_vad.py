@@ -25,6 +25,10 @@ from tests.stages.audio.inference import review_helpers as rh
 
 
 class TestWhisperXVADStage:
+    def test_preserves_explicit_non_resumable_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(WhisperXVADStage, "is_resumable", False)
+        assert WhisperXVADStage().is_resumable is False
+
     @pytest.mark.gpu
     def test_process(self, wav_filepath: Path) -> None:
         stage = WhisperXVADStage(
