@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 import nrl_lance_contract as contract
 import pandas as pd
-from nemo_retriever.common.params import ExtractParams
+from nemo_retriever.common.params import BatchTuningParams, ExtractParams
 from nemo_retriever.graph.executor import RayDataExecutor
 from nemo_retriever.graph.ingestor_runtime import build_graph
 from nemo_retriever.operators.abstract_operator import AbstractOperator
@@ -326,7 +326,7 @@ class NRLCuratorProjectionOperator(AbstractOperator, CPUOperator):
         return data
 
 
-def check_nrl_compatibility() -> None:
+def check_nrl_compatibility(parse_batches_in_flight: int = contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT) -> None:
     """Fail before any extraction work when the installed NRL cannot supply the page contract."""
 
     from nemo_retriever.graph import executor
@@ -342,13 +342,28 @@ def check_nrl_compatibility() -> None:
     if getattr(executor, "STRICT_ROWS_PER_BLOCK", None) != "strict_rows_per_block":
         msg = "The installed NRL does not support strict_rows_per_block; install an NRL release that does"
         raise RuntimeError(msg)
+    if (
+        parse_batches_in_flight > 1
+        and getattr(executor, "MAX_TASKS_IN_FLIGHT_PER_ACTOR", None) != "max_tasks_in_flight_per_actor"
+    ):
+        msg = (
+            "The installed NRL cannot run Parse batches concurrently; install an NRL release that supports "
+            "max_tasks_in_flight_per_actor or use parse_batches_in_flight=1"
+        )
+        raise RuntimeError(msg)
 
 
-def build_projection_graph() -> Graph:
+def build_projection_graph(parse_batches_in_flight: int = contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT) -> Graph:
     """Build the existing NRL PDF graph plus one terminal CPU projection."""
 
-    check_nrl_compatibility()
+    check_nrl_compatibility(parse_batches_in_flight)
 
+    # Older NRL releases reject this field, so the default run leaves it unset.
+    tuning = (
+        {"batch_tuning": BatchTuningParams(nemotron_parse_batches_in_flight=parse_batches_in_flight)}
+        if parse_batches_in_flight > 1
+        else {}
+    )
     extract_params = ExtractParams(
         method="nemotron_parse",
         extract_text=False,
@@ -363,6 +378,7 @@ def build_projection_graph() -> Graph:
         image_format="png",
         render_mode="full_dpi",
         nemotron_parse_model=contract.PARSE_MODEL,
+        **tuning,
     )
     graph = build_graph(
         extraction_mode="pdf",
@@ -409,32 +425,36 @@ def _prepare_executor_for_local_parse(executor: RayDataExecutor) -> None:
     preflight_executors([executor], resources)
 
 
-def build_projection_executor(
+def build_projection_executor(  # noqa: PLR0913
     graph: Graph,
     *,
     projection_workers: int = contract.MAX_PROJECTION_WORKERS,
     projection_block_rows: int | None = None,
     parse_batch_size: int = contract.DEFAULT_PARSE_BATCH_SIZE,
     parse_cpus: int = contract.DEFAULT_PARSE_CPUS,
+    parse_batches_in_flight: int = contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT,
 ) -> RayDataExecutor:
     """Schedule one Parse actor and a bounded projection pool without changing model settings."""
 
     contract.validate_projection_workers(projection_workers)
-    contract.validate_parse_scheduling(parse_batch_size, parse_cpus)
+    contract.validate_parse_scheduling(parse_batch_size, parse_cpus, parse_batches_in_flight)
     contract.validate_projection_block_rows(projection_block_rows)
     projection_overrides: dict[str, Any] = {"concurrency": projection_workers, "num_cpus": 1}
     if projection_block_rows is not None:
         projection_overrides["target_num_rows_per_block"] = projection_block_rows
+    parse_overrides: dict[str, Any] = {
+        "batch_size": parse_batch_size,
+        "num_cpus": parse_cpus,
+        # Exact blocks keep Ray from splitting each bundle into a full call plus a small one.
+        "target_num_rows_per_block": parse_batch_size,
+        "strict_rows_per_block": True,
+    }
+    if parse_batches_in_flight > 1:
+        parse_overrides["max_tasks_in_flight_per_actor"] = parse_batches_in_flight
     return RayDataExecutor(
         graph,
         node_overrides={
-            "NemotronParseActor": {
-                "batch_size": parse_batch_size,
-                "num_cpus": parse_cpus,
-                # Exact blocks keep Ray from splitting each bundle into a full call plus a small one.
-                "target_num_rows_per_block": parse_batch_size,
-                "strict_rows_per_block": True,
-            },
+            "NemotronParseActor": parse_overrides,
             NRLCuratorProjectionOperator.__name__: projection_overrides,
         },
         auto_concurrency_nodes={NRLCuratorProjectionOperator.__name__},
@@ -442,23 +462,26 @@ def build_projection_executor(
     )
 
 
-def run_nrl_graph(
+def run_nrl_graph(  # noqa: PLR0913
     paths: str | os.PathLike[str] | Iterable[str | os.PathLike[str]],
     *,
     projection_workers: int = contract.MAX_PROJECTION_WORKERS,
     projection_block_rows: int | None = None,
     parse_batch_size: int = contract.DEFAULT_PARSE_BATCH_SIZE,
     parse_cpus: int = contract.DEFAULT_PARSE_CPUS,
+    parse_batches_in_flight: int = contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT,
 ) -> pd.DataFrame:
     """Run extraction once and return the projection envelope; ``run_ingest`` validates it."""
 
+    contract.validate_parse_scheduling(parse_batch_size, parse_cpus, parse_batches_in_flight)
     normalized_paths = [os.fspath(paths)] if isinstance(paths, (str, os.PathLike)) else [os.fspath(p) for p in paths]
     executor = build_projection_executor(
-        build_projection_graph(),
+        build_projection_graph(parse_batches_in_flight),
         projection_workers=projection_workers,
         projection_block_rows=projection_block_rows,
         parse_batch_size=parse_batch_size,
         parse_cpus=parse_cpus,
+        parse_batches_in_flight=parse_batches_in_flight,
     )
     if not normalized_paths:
         return pd.DataFrame(columns=contract.PROJECTION_COLUMNS, dtype=object)

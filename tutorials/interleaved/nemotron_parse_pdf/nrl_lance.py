@@ -64,6 +64,12 @@ def create_parser() -> argparse.ArgumentParser:
         default=contract.DEFAULT_PARSE_CPUS,
         help="CPU reservation for the single Parse actor (>=1)",
     )
+    ingest.add_argument(
+        "--parse-batches-in-flight",
+        type=int,
+        default=contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT,
+        help="Parse batches the actor runs at once on one async engine (>=1); read the README before raising it",
+    )
 
     consume = commands.add_parser(
         "consume",
@@ -91,7 +97,7 @@ def main() -> None:
         return
     try:
         contract.validate_projection_workers(args.projection_workers)
-        contract.validate_parse_scheduling(args.parse_batch_size, args.parse_cpus)
+        contract.validate_parse_scheduling(args.parse_batch_size, args.parse_cpus, args.parse_batches_in_flight)
         contract.validate_projection_block_rows(args.projection_block_rows)
         if args.run_id is not None:
             contract.validate_run_id(args.run_id)

@@ -342,8 +342,23 @@ def test_nrl_compatibility_check_rejects_missing_page_contract(
         recipe.check_nrl_compatibility()
 
 
-def test_real_graph_is_existing_pdf_chain_plus_one_projection(recipe: ModuleType) -> None:
-    graph = recipe.build_projection_graph()
+def test_concurrent_parse_batches_require_nrl_support_only_when_requested(
+    recipe: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nemo_retriever.graph import executor
+
+    recipe.check_nrl_compatibility(4)
+    monkeypatch.delattr(executor, "MAX_TASKS_IN_FLIGHT_PER_ACTOR")
+    recipe.check_nrl_compatibility(1)
+    with pytest.raises(RuntimeError, match="cannot run Parse batches concurrently"):
+        recipe.check_nrl_compatibility(4)
+
+
+@pytest.mark.parametrize(("parse_batches_in_flight", "async_engine"), [(1, None), (4, True)])
+def test_real_graph_is_existing_pdf_chain_plus_one_projection(
+    recipe: ModuleType, parse_batches_in_flight: int, async_engine: bool | None
+) -> None:
+    graph = recipe.build_projection_graph(parse_batches_in_flight)
     nodes = []
     node = graph.roots[0]
     while node is not None:
@@ -359,13 +374,20 @@ def test_real_graph_is_existing_pdf_chain_plus_one_projection(recipe: ModuleType
     ]
     assert nodes[3].operator_kwargs["nemotron_parse_model"] == recipe.contract.PARSE_MODEL
     assert nodes[3].operator_kwargs["task_prompt"] == recipe.contract.PARSE_TASK_PROMPT
+    assert nodes[3].operator_kwargs.get("async_engine") is async_engine
     assert isinstance(nodes[-1].operator, recipe.CPUOperator)
 
 
-@pytest.mark.parametrize(("parse_batch_size", "parse_cpus"), [(64, 1), (64, 4), (128, 1)])
+@pytest.mark.parametrize(
+    ("parse_batch_size", "parse_cpus", "parse_batches_in_flight"), [(64, 1, 1), (64, 4, 1), (128, 1, 1), (64, 1, 4)]
+)
 @pytest.mark.parametrize("projection_block_rows", [None, 16])
 def test_batch_executor_keeps_one_parse_actor_and_bounds_projection_pool(
-    recipe: ModuleType, parse_batch_size: int, parse_cpus: int, projection_block_rows: int | None
+    recipe: ModuleType,
+    parse_batch_size: int,
+    parse_cpus: int,
+    parse_batches_in_flight: int,
+    projection_block_rows: int | None,
 ) -> None:
     from nemo_retriever.graph.pipeline_graph import Graph
 
@@ -375,6 +397,7 @@ def test_batch_executor_keeps_one_parse_actor_and_bounds_projection_pool(
         projection_block_rows=projection_block_rows,
         parse_batch_size=parse_batch_size,
         parse_cpus=parse_cpus,
+        parse_batches_in_flight=parse_batches_in_flight,
     )
 
     assert isinstance(executor, recipe.RayDataExecutor)
@@ -384,6 +407,7 @@ def test_batch_executor_keeps_one_parse_actor_and_bounds_projection_pool(
             "num_cpus": parse_cpus,
             "target_num_rows_per_block": parse_batch_size,
             "strict_rows_per_block": True,
+            **({"max_tasks_in_flight_per_actor": parse_batches_in_flight} if parse_batches_in_flight > 1 else {}),
         },
         "NRLCuratorProjectionOperator": {
             "concurrency": 4,
@@ -397,7 +421,7 @@ def test_batch_executor_keeps_one_parse_actor_and_bounds_projection_pool(
         recipe.build_projection_executor(Graph(), projection_workers=9)
 
 
-@pytest.mark.parametrize("option", ["parse_batch_size", "parse_cpus"])
+@pytest.mark.parametrize("option", ["parse_batch_size", "parse_cpus", "parse_batches_in_flight"])
 @pytest.mark.parametrize("value", [True, False, 0, -1, 1.5, "4"])
 def test_parse_scheduling_rejects_invalid_values_before_empty_execution(
     recipe: ModuleType, option: str, value: object
@@ -462,13 +486,14 @@ def test_preflight_pins_the_validated_gpu_resource_snapshot(
     assert pinned[0][1].gpu_count == 1
 
 
-@pytest.mark.parametrize(("parse_batch_size", "parse_cpus"), [(64, 1), (128, 4)])
+@pytest.mark.parametrize(("parse_batch_size", "parse_cpus", "parse_batches_in_flight"), [(64, 1, 1), (128, 4, 4)])
 @pytest.mark.parametrize("projection_block_rows", [None, 16])
-def test_run_nrl_graph_returns_executor_result_with_recipe_settings(
+def test_run_nrl_graph_returns_executor_result_with_recipe_settings(  # noqa: PLR0913
     recipe: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     parse_batch_size: int,
     parse_cpus: int,
+    parse_batches_in_flight: int,
     projection_block_rows: int | None,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -480,16 +505,21 @@ def test_run_nrl_graph_returns_executor_result_with_recipe_settings(
             captured["paths"] = paths
             return valid
 
-    monkeypatch.setattr(recipe, "build_projection_graph", lambda: graph)
+    def fake_graph(graph_batches_in_flight: int) -> object:
+        captured["graph_batches_in_flight"] = graph_batches_in_flight
+        return graph
+
+    monkeypatch.setattr(recipe, "build_projection_graph", fake_graph)
     monkeypatch.setattr(recipe, "_prepare_executor_for_local_parse", lambda *_args, **_kwargs: None)
 
-    def fake_executor(
+    def fake_executor(  # noqa: PLR0913
         received_graph: object,
         *,
         projection_workers: int,
         projection_block_rows: int | None,
         parse_batch_size: int,
         parse_cpus: int,
+        parse_batches_in_flight: int,
     ) -> FakeExecutor:
         captured.update(
             graph=received_graph,
@@ -497,6 +527,7 @@ def test_run_nrl_graph_returns_executor_result_with_recipe_settings(
             projection_block_rows=projection_block_rows,
             parse_batch_size=parse_batch_size,
             parse_cpus=parse_cpus,
+            parse_batches_in_flight=parse_batches_in_flight,
         )
         return FakeExecutor()
 
@@ -508,15 +539,18 @@ def test_run_nrl_graph_returns_executor_result_with_recipe_settings(
         projection_block_rows=projection_block_rows,
         parse_batch_size=parse_batch_size,
         parse_cpus=parse_cpus,
+        parse_batches_in_flight=parse_batches_in_flight,
     )
 
     assert result.equals(valid)
     assert captured == {
         "graph": graph,
+        "graph_batches_in_flight": parse_batches_in_flight,
         "projection_workers": 3,
         "projection_block_rows": projection_block_rows,
         "parse_batch_size": parse_batch_size,
         "parse_cpus": parse_cpus,
+        "parse_batches_in_flight": parse_batches_in_flight,
         "paths": ["/data/report[[]1].pdf"],
     }
 
