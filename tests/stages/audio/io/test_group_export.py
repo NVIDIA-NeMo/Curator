@@ -17,12 +17,14 @@
 import csv
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.stages.audio.io.group_export import ManifestGroupExportStage
 from nemo_curator.tasks import AudioTask
 
@@ -47,6 +49,29 @@ def _unsafe_group_file(directory: Path, prefix: str, extension: str) -> Path:
 
 
 class TestGroupExport:
+    def test_unencodable_nested_value_is_dropped_without_changing_the_input(self, tmp_path: Path) -> None:
+        nested = []
+        for _ in range(sys.getrecursionlimit() + 20):
+            nested = [nested]
+        task = AudioTask(dataset_name="test", data={"speaker_id": "a", "text": "kept", "custom": nested})
+        stage = ManifestGroupExportStage(output_dir=str(tmp_path), format="json")
+        stage.setup()
+        assert stage.process_batch([task]) == [task]
+        assert json.loads((tmp_path / "a.jsonl").read_text()) == {"speaker_id": "a", "text": "kept"}
+        assert task.data["custom"] is nested
+
+    def test_ray_data_batches_persist_final_timeline_without_teardown(self, tmp_path: Path) -> None:
+        stage = ManifestGroupExportStage(output_dir=str(tmp_path), write_timeline=True, timeline_flush_rows=100)
+        stage.setup()
+        adapter = RayDataStageAdapter(stage)
+        later = AudioTask(dataset_name="test", data={"speaker_id": "b", "text": "later", "start": 2, "end": 3})
+        earlier = AudioTask(dataset_name="test", data={"speaker_id": "a", "text": "earlier", "start": 0, "end": 1})
+        assert adapter._process_batch_internal({"item": [later]})["item"] == [later]
+        timeline = tmp_path / "timeline.txt"
+        assert timeline.read_text().splitlines() == ["[2.00 - 3.00] b: later"]
+        assert adapter._process_batch_internal({"item": [earlier]})["item"] == [earlier]
+        assert timeline.read_text().splitlines() == ["[0.00 - 1.00] a: earlier", "[2.00 - 3.00] b: later"]
+
     def test_txt_one_file_per_group_with_timestamps(self, tmp_path) -> None:  # noqa: ANN001
         out = str(tmp_path / "by_speaker")
         _run(ManifestGroupExportStage(output_dir=out), _ROWS)

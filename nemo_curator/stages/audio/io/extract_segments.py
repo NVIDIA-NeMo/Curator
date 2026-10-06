@@ -80,6 +80,7 @@ from nemo_curator.tasks import AudioTask
 DEFAULT_OUTPUT_FORMAT = "wav"
 _LOCK_FILENAME = ".segment_extraction.lock"
 _STATE_FILENAME = ".segment_extraction_state.json"
+_WAL_VERSION = 2
 
 SOUNDFILE_FORMATS = {
     "wav": "PCM_16",
@@ -137,11 +138,16 @@ def _get_speaker_label(entry: dict) -> tuple[str, str]:
     return speaker_id, speaker_num
 
 
-def _read_segment(filepath: str, start_ms: int, end_ms: int, sample_rate: int) -> np.ndarray:
+def _read_segment(
+    filepath: str, start_ms: int, end_ms: int, sample_rate: int, *, reject_empty: bool = False
+) -> np.ndarray:
     """Read a slice of audio from a file."""
     start_sample = int(start_ms * sample_rate / 1000)
     end_sample = int(end_ms * sample_rate / 1000)
     audio, _ = sf.read(filepath, start=start_sample, stop=end_sample, dtype="float32")
+    if reject_empty and len(audio) == 0:
+        msg = f"Cannot extract empty audio interval {start_ms}-{end_ms}ms from {filepath}"
+        raise ValueError(msg)
     return audio
 
 
@@ -178,9 +184,20 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
                 continue
         except TypeError:
             start, end = start_value, end_value
-        valid_segments.append((start, end))
+        valid_segments.append((start, end, isinstance(segment, Mapping)))
     valid_segments.sort(key=lambda bounds: bounds[0])
-    return [(int(start * 1000), int(end * 1000), end - start) for start, end in valid_segments]
+    return [
+        _diar_interval(start, end, dictionary_turn=dictionary_turn) for start, end, dictionary_turn in valid_segments
+    ]
+
+
+def _diar_interval(start: Any, end: Any, *, dictionary_turn: bool) -> Interval:  # noqa: ANN401
+    if dictionary_turn:
+        # Dictionary turns are expressed in seconds; round outwards so a
+        # positive sub-millisecond turn cannot become an empty interval.
+        start_ms, end_ms = math.floor(start * 1000), math.ceil(end * 1000)
+        return start_ms, end_ms, (end_ms - start_ms) / 1000
+    return int(start * 1000), int(end * 1000), end - start
 
 
 def _expand_nested_speaker_entries(entries: list[dict]) -> tuple[list[dict], list[tuple[dict, list[dict]]]]:
@@ -406,6 +423,9 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not isinstance(self.output_key, str) or not self.output_key:
             msg = "output_key must be a non-empty string"
             raise ValueError(msg)
+        if self.output_key in _CSV_STRUCTURAL_KEYS | {"audio_filepath", "waveform", "sample_rate", "segments"}:
+            msg = f"output_key {self.output_key!r} conflicts with an extraction input or structural field"
+            raise ValueError(msg)
         self._metadata_by_filename: dict[str, dict] = {}
         self._segment_reservations: dict[str, dict[str, Any]] = {}
         self._state_is_wal = True
@@ -533,47 +553,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         try:
             with open(self._state_path, encoding="utf-8") as state_file:
                 content = state_file.read()
-            try:
-                state = json.loads(content)
-            except json.JSONDecodeError:
-                state = None
-            if isinstance(state, dict) and state.get("version") == 1:
-                segments = state.get("segments", {})
-                if not isinstance(segments, dict):
-                    message = f"[{self.name}] Cannot safely resume from malformed extraction state"
-                    raise TypeError(message)
-                self._state_is_wal = False
-            else:
-                segments = {}
-                lines = content.splitlines(keepends=True)
-                for line_index, line in enumerate(lines):
-                    if not line.strip():
-                        continue
-                    try:
-                        payload = json.loads(line)
-                    except json.JSONDecodeError:
-                        is_torn_tail = (
-                            bool(segments)
-                            and line_index == len(lines) - 1
-                            and not content.endswith(("\n", "\r"))
-                        )
-                        if not is_torn_tail:
-                            raise
-                        logger.warning(
-                            f"[{self.name}] Ignoring an incomplete final extraction reservation; "
-                            "the valid prefix will be rewritten before the next reservation"
-                        )
-                        self._state_is_wal = False
-                        break
-                    if not isinstance(payload, dict) or payload.get("version") != 2:
-                        message = f"[{self.name}] Cannot safely resume from malformed extraction state"
-                        raise TypeError(message)
-                    resume_key = payload.get("resume_key")
-                    record = payload.get("record")
-                    if not isinstance(resume_key, str) or not isinstance(record, dict):
-                        message = f"[{self.name}] Cannot safely resume from malformed extraction reservation"
-                        raise TypeError(message)
-                    segments[resume_key] = record
+            segments = self._parse_output_state(content)
         except (OSError, json.JSONDecodeError, TypeError) as error:
             message = f"[{self.name}] Cannot safely resume from unreadable extraction state: {error}"
             raise RuntimeError(message) from error
@@ -587,6 +567,53 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 raise TypeError(message)
             self._segment_reservations[resume_key] = record
             self._advance_counter(record)
+
+    def _parse_output_state(self, content: str) -> dict[str, dict[str, Any]]:
+        try:
+            state = json.loads(content)
+        except json.JSONDecodeError:
+            state = None
+        if isinstance(state, dict) and state.get("version") == 1:
+            segments = state.get("segments", {})
+            if not isinstance(segments, dict):
+                message = f"[{self.name}] Cannot safely resume from malformed extraction state"
+                raise TypeError(message)
+            self._state_is_wal = False
+            return segments
+        return self._parse_reservation_log(content)
+
+    def _parse_reservation_log(self, content: str) -> dict[str, dict[str, Any]]:
+        segments = {}
+        lines = content.splitlines(keepends=True)
+        for line_index, line in enumerate(lines):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                is_torn_tail = bool(segments) and line_index == len(lines) - 1 and not content.endswith(("\n", "\r"))
+                if not is_torn_tail:
+                    raise
+                logger.warning(
+                    f"[{self.name}] Ignoring an incomplete final extraction reservation; "
+                    "the valid prefix will be rewritten before the next reservation"
+                )
+                self._state_is_wal = False
+                break
+            resume_key, record = self._reservation_from_payload(payload)
+            segments[resume_key] = record
+        return segments
+
+    def _reservation_from_payload(self, payload: object) -> tuple[str, dict[str, Any]]:
+        if not isinstance(payload, dict) or payload.get("version") != _WAL_VERSION:
+            message = f"[{self.name}] Cannot safely resume from malformed extraction state"
+            raise TypeError(message)
+        resume_key = payload.get("resume_key")
+        record = payload.get("record")
+        if not isinstance(resume_key, str) or not isinstance(record, dict):
+            message = f"[{self.name}] Cannot safely resume from malformed extraction reservation"
+            raise TypeError(message)
+        return resume_key, record
 
     def _advance_counter(self, record: dict[str, Any]) -> None:
         filename = record.get("filename")
@@ -616,7 +643,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as state_file:
                 for resume_key, record in self._segment_reservations.items():
-                    payload = {"version": 2, "resume_key": resume_key, "record": record}
+                    payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
                     state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
                 state_file.flush()
                 os.fsync(state_file.fileno())
@@ -632,7 +659,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not self._state_is_wal:
             self._rewrite_output_state_as_wal()
             return
-        payload = {"version": 2, "resume_key": resume_key, "record": record}
+        payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
         with open(self._state_path, "a", encoding="utf-8") as state_file:
             state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
             state_file.flush()
@@ -859,7 +886,9 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     output_path = os.path.join(self.output_dir, out_filename)
 
                     try:
-                        audio = _read_segment(original_file, start_ms, end_ms, info.samplerate)
+                        audio = _read_segment(
+                            original_file, start_ms, end_ms, info.samplerate, reject_empty=record_output_paths
+                        )
                         self._write_audio_atomically(
                             output_path,
                             audio,

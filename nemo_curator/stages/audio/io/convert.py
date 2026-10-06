@@ -328,6 +328,9 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         dataframe = task.to_pandas()
+        if len(dataframe.index) and not len(dataframe.columns):
+            msg = "DocumentBatchJsonlWriterStage cannot write a nonempty batch with no columns"
+            raise ValueError(msg)
         if not dataframe.empty:
             with self._fs.open(self._path, "a", encoding="utf-8") as stream:
                 dataframe.to_json(

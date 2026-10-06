@@ -37,6 +37,17 @@ def _batch(rows: list[dict], *, dataset_name: str = "audio") -> DocumentBatch:
     )
 
 
+def test_nonempty_zero_column_batch_fails_without_discarding_rows(tmp_path) -> None:  # noqa: ANN001
+    output = tmp_path / "curated.jsonl"
+    output.write_text('{"id":1}\n')
+    stage = DocumentBatchJsonlWriterStage(output_path=str(output))
+    stage.setup()
+    task = DocumentBatch(dataset_name="audio", data=pd.DataFrame(index=range(2)))
+    with pytest.raises(ValueError, match="nonempty batch with no columns"):
+        stage.process(task)
+    assert output.read_text() == '{"id":1}\n'
+
+
 def test_writes_one_jsonl_line_per_document_row_and_preserves_task(tmp_path) -> None:  # noqa: ANN001
     output = tmp_path / "curated.jsonl"
     stage = DocumentBatchJsonlWriterStage(output_path=str(output))

@@ -62,8 +62,11 @@ def _group_name(
     """Return a name determined only by a group's value and typed identity."""
     raw = str(value)
     safe = _safe_name(value)
-    if canonical and raw == safe and safe not in (reserved or set()) and (
-        max_bytes is None or len(safe.encode("utf-8")) <= max_bytes
+    if (
+        canonical
+        and raw == safe
+        and safe not in (reserved or set())
+        and (max_bytes is None or len(safe.encode("utf-8")) <= max_bytes)
     ):
         return safe
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
@@ -100,8 +103,11 @@ def _jsonable(value: Any) -> bool:  # noqa: ANN401
     if isinstance(value, (str, int, float, bool, type(None))):
         return True
     try:
-        json.dumps(value)
-    except (TypeError, ValueError):
+        # Match json.dump's streaming encoder and include the containing row's
+        # nesting level; json.dumps may accept depths the streaming writer cannot.
+        for _chunk in json.JSONEncoder().iterencode({"value": value}):
+            pass
+    except (TypeError, ValueError, RecursionError):
         return False
     return True
 
@@ -118,7 +124,8 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     With ``write_timeline`` it also writes a single who-spoke-when ``timeline.txt`` ordered by
     start time across all groups. The timeline is rewritten every ``timeline_flush_rows`` rows
-    and finalized in ``teardown``, so it is always a correct ordering of what has been flushed.
+    and at each successful batch boundary. ``teardown`` also flushes direct
+    ``process`` calls, so batch execution does not depend on worker shutdown.
 
     Rows pass through unchanged, so this can sit anywhere after the data exists -- it is a
     tee, not a sink. Non-serializable values (e.g. a resident ``waveform`` tensor) are dropped
@@ -154,6 +161,9 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     # output_dir is required, so discovery cannot instantiate this stage; declare the gates
     # instance-free too or a planner would see a disk writer with no disk gate.
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        # Batching only adds a durability boundary; each row still supports
+        # process(), so preserve the public per-row dispatch contract.
+        dispatch="process",
         gates=Gates(
             writes_to_disk=True,
             output_path_params=["output_dir"],
@@ -203,6 +213,12 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def num_workers(self) -> int | None:
         return 1  # every group file is appended to from one place; keeps ordering sane
 
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        results = super().process_batch(tasks)
+        if self.write_timeline and self._pending:
+            self._flush_timeline()
+        return results
+
     # ------------------------------------------------------------------ contract
     def _required_data_keys(self) -> list[str]:
         required: list[str] = []
@@ -220,6 +236,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def describe(self) -> StageContract:
         return StageContract(
+            dispatch="process",
             reads=IOSpec(data_keys=self._required_data_keys()),
             optional_reads=IOSpec(data_keys=[self.group_by]),
             writes=IOSpec(produces=["disk"]),
@@ -254,7 +271,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 identity,
                 canonical=missing or isinstance(group_value, str),
                 reserved=reserved,
-                max_bytes=_NAME_MAX_BYTES - len(f".{_EXT[self.format]}".encode("utf-8")),
+                max_bytes=_NAME_MAX_BYTES - len(f".{_EXT[self.format]}".encode()),
             ),
         )
         self._append(stem, row)

@@ -310,6 +310,27 @@ class TestWriteMetadataCsv:
 
 
 class TestSegmentExtractionStageInit:
+    @pytest.mark.parametrize(
+        "output_key",
+        [
+            "original_file",
+            "original_start_ms",
+            "original_end_ms",
+            "diar_segments",
+            "speaker_id",
+            "duration",
+            "audio_filepath",
+            "waveform",
+            "sample_rate",
+            "segments",
+        ],
+    )
+    def test_output_key_cannot_replace_source_fields(self, tmp_path: Path, output_key: str) -> None:
+        output_dir = tmp_path / "extracted"
+        with pytest.raises(ValueError, match="conflicts"):
+            SegmentExtractionStage(output_dir=str(output_dir), output_key=output_key)
+        assert not output_dir.exists()
+
     def test_valid_construction(self, tmp_path: Path) -> None:
         stage = SegmentExtractionStage(output_dir=str(tmp_path), output_format="flac")
         assert stage.name == "SegmentExtraction"
@@ -380,6 +401,39 @@ class TestSegmentExtractionStageInit:
 
 
 class TestSegmentExtractionStageProcessBatch:
+    def test_dictionary_submillisecond_turn_writes_nonempty_audio(self, wav_dir: Path, tmp_path: Path) -> None:
+        stage = SegmentExtractionStage(output_dir=str(tmp_path / "extracted"))
+        task = AudioTask(
+            dataset_name="test",
+            data={
+                "original_file": _wav_path(wav_dir),
+                "speaker_id": "speaker_0",
+                "diar_segments": [{"start": 0.0001, "end": 0.0002}],
+            },
+        )
+        stage.process_batch([task])
+        info = sf.info(task.data["extracted_path"][0])
+        assert info.frames == 16
+        with (tmp_path / "extracted" / "metadata.csv").open() as stream:
+            row = next(csv.DictReader(stream))
+        assert float(row["duration"]) == pytest.approx(info.duration)
+
+    def test_empty_slice_does_not_publish_a_successful_output(self, wav_dir: Path, tmp_path: Path) -> None:
+        output_dir = tmp_path / "extracted"
+        task = AudioTask(
+            dataset_name="test",
+            data={
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 100,
+                "original_end_ms": 100,
+                "duration": 0,
+            },
+        )
+        with pytest.raises(ValueError, match="empty audio interval"):
+            SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+        assert not list(output_dir.glob("*.wav"))
+        assert "extracted_path" not in task.data
+
     def test_empty_batch(self, tmp_path: Path) -> None:
         stage = SegmentExtractionStage(output_dir=str(tmp_path / "out"))
         assert stage.process_batch([]) == []
@@ -719,9 +773,7 @@ class TestSegmentExtractionStageProcessBatch:
 
         assert sorted(path.name for path in output_dir.glob("*.wav")) == ["file_a_segment_000.wav"]
 
-    def test_retry_recovers_valid_reservations_before_a_torn_wal_tail(
-        self, wav_dir: Path, tmp_path: Path
-    ) -> None:
+    def test_retry_recovers_valid_reservations_before_a_torn_wal_tail(self, wav_dir: Path, tmp_path: Path) -> None:
         output_dir = tmp_path / "extracted"
         first_data = {
             "original_file": _wav_path(wav_dir),
