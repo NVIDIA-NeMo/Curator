@@ -63,7 +63,7 @@ The default OCR stage downloads `nvidia/nemotron-ocr-v2` from Hugging Face and u
 
 The repository Dockerfile compiles for CUDA architectures 8.0, 8.6, 8.9, and 9.0. GPU memory requirements depend on image size, model version, and worker concurrency; the stage does not enforce a VRAM minimum.
 
-The optional verifier reads `NVINFERENCE_API_KEY` from each worker's environment during setup. Do not place the key in source, CLI arguments, or serialized stage configuration. Obtain a key from [NVIDIA Build](https://build.nvidia.com/settings/api-keys) and ensure Ray workers inherit it.
+The optional verifier reads `NVIDIA_API_KEY` from each worker's environment during setup. The legacy `NVINFERENCE_API_KEY` remains supported for compatibility. Do not place the key in source, CLI arguments, or serialized stage configuration. Obtain a key from [NVIDIA Build](https://build.nvidia.com/settings/api-keys) and ensure Ray workers inherit it.
 
 ## Input sources
 
@@ -120,7 +120,7 @@ Stored OCR boxes use `[x0, y0, x1, y1]`. The verifier prompt and `ocr_scoring_mi
 
 The verifier returns `ocr_mode`, indexed box scores, and `missing_text`. Missing or nonnumeric scores invalidate a box. If every original box is invalid, the image is invalid. Empty or unparseable responses also invalidate the image.
 
-`NVInferenceClient` uses the NVIDIA integration endpoint, reads `NVINFERENCE_API_KEY`, streams final-answer content, allows 10 concurrent requests per worker, uses a 120-second timeout, and retries rate-limit and connection failures three times with exponential backoff and jitter.
+`NVInferenceClient` uses the NVIDIA integration endpoint, reads `NVIDIA_API_KEY` (with `NVINFERENCE_API_KEY` as a compatibility fallback), streams final-answer content, allows 10 concurrent requests per worker, uses a 120-second timeout, and retries rate-limit and connection failures three times with exponential backoff and jitter.
 
 ## QA interaction shapes
 

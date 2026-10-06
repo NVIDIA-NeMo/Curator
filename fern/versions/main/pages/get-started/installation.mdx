@@ -45,7 +45,7 @@ For comprehensive system requirements and production deployment specifications, 
 Choose one of the following installation methods based on your needs:
 
 <Tip>
-**Docker is the recommended installation method** for video and audio workflows. The NeMo Curator container includes FFmpeg (with NVENC support) pre-configured, avoiding manual dependency setup. Refer to the [Container Installation](#container-installation) tab below.
+**Docker is the recommended installation method** for video and audio workflows because it provides the Curator Python and CUDA dependency stack. Workflows that invoke the `ffmpeg` command-line executable must still verify that it is available in the image. Refer to the [Container Installation](#container-installation) tab below.
 </Tip>
 
 <Tabs>
@@ -56,7 +56,7 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
 1. Install uv:
 
    ```bash
-   curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+   curl -LsSf https://astral.sh/uv/0.12.1/install.sh | sh
    source $HOME/.local/bin/env
    ```
 
@@ -105,7 +105,7 @@ uv sync --all-extras --all-groups
 
 <Tab title="Container Installation (Recommended for Video/Audio)">
 
-NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support.
+NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator and its Python and CUDA dependencies.
 
 ```bash
 # Pull the container from NGC
@@ -137,7 +137,7 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 **Benefits:**
 
-- Pre-configured environment with all dependencies (FFmpeg, CUDA libraries)
+- Pre-configured Python environment and CUDA libraries
 - Consistent runtime across different systems
 - Ideal for production deployments
 
@@ -145,14 +145,63 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 </Tabs>
 
-### Install FFmpeg and Encoders (Required for Video)
+### Install FFmpeg for Audio and Video Source Installs
 
-Curator's video pipelines rely on `FFmpeg` for command-line decoding, encoding, and metadata extraction. The default container does not include system `ffmpeg`; install it only for video or audio workflows that need it.
+Some Curator audio and video stages invoke the `ffmpeg` command-line executable for resampling, decoding, encoding, or metadata extraction. The Python extras do not install that executable, and you should not assume that a container image provides it. Verify that `ffmpeg` is on `PATH` on every executor node or install it using one of the following options.
 
 <Tabs>
-<Tab title="Debian/Ubuntu (Script)">
+<Tab title="User-local (Audio)">
 
-Use the maintained script in the repository to build and install a strict-allowlist `FFmpeg` with NVIDIA NVENC/NVDEC and VP9 support. The default build excludes software H.264/HEVC/AV1 decoders and software H.264 encoders.
+If you do not have root access, install an organization-approved FFmpeg package in a user-managed Conda or Mamba environment. For example:
+
+```bash
+conda install -c conda-forge ffmpeg
+command -v ffmpeg
+ffmpeg -version
+```
+
+Activate the same environment on every executor node before starting the pipeline. A standard FFmpeg build is sufficient for audio resampling. The video script tab below describes the maintained encoder-focused build.
+
+</Tab>
+
+<Tab title="Debian/Ubuntu (Audio)">
+
+Install the distribution FFmpeg build for audio decoding, resampling, PCM encoding, and WAV output:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+command -v ffmpeg
+ffmpeg -version
+```
+
+Install the package on every executor node, or include it in the image used by every worker.
+
+</Tab>
+
+<Tab title="Verify Audio">
+
+Run a short PCM/WAV resampling smoke test that exercises the operations used by `ResampleAudioStage`:
+
+```bash
+ffmpeg -v error \
+  -f lavfi -i "sine=frequency=1000:duration=0.1" \
+  -ar 16000 -ac 1 -acodec pcm_s16le -y \
+  /tmp/nemo-curator-audio-smoke.wav
+ffprobe -v error \
+  -show_entries stream=codec_name,sample_rate,channels \
+  -of default=noprint_wrappers=1 \
+  /tmp/nemo-curator-audio-smoke.wav
+rm /tmp/nemo-curator-audio-smoke.wav
+```
+
+</Tab>
+
+<Tab title="Debian/Ubuntu (Video Script)">
+
+Use the maintained script in the repository to build and install a strict-allowlist `FFmpeg` with NVIDIA NVENC/NVDEC and VP9 support. This system-wide installation requires root access. The default build excludes software H.264/HEVC/AV1 decoders and software H.264 encoders.
+
+This strict build is for Curator video workflows. It starts from `--disable-everything` and does not enable the audio codecs, WAV muxer, or audio filters required by `ResampleAudioStage`; install an audio-capable distribution or Conda build from one of the audio tabs when processing audio.
 
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
@@ -164,7 +213,7 @@ sudo bash install_ffmpeg.sh
 
 </Tab>
 
-<Tab title="Verify Installation">
+<Tab title="Verify Video">
 
 Confirm that `FFmpeg` is on your `PATH` and that the expected encoders are available:
 
@@ -173,13 +222,13 @@ ffmpeg -hide_banner -version | head -n 5
 ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9|libopenh264" | cat
 ```
 
-If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above. `libopenh264` appears only after opting in with `install_h264_support.sh --with-libopenh264`.
+If encoders are missing, reinstall the video build with the required options or use the Debian/Ubuntu video script above. `libopenh264` appears only after opting in with `install_h264_support.sh --with-libopenh264`.
 
 </Tab>
 </Tabs>
 
 <Note>
-**FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`.
+**The repository video build requires the CUDA toolkit (`nvcc`):** If you encounter `ERROR: failed checking for nvcc` while running the video script, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`.
 </Note>
 
 #### Software H.264/HEVC/AV1 Codec Support (Advanced)
