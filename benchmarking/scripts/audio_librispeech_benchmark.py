@@ -177,6 +177,9 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
                 model_id=model_name,
                 audio_filepath_key="audio_filepath",
                 batch_size=asr_batch_size,
+                max_audio_sec_per_actor=240.0,
+                max_inference_duration_s=120.0,
+                local_bucketing=True,
                 fail_on_audio_error=True,
                 adapter_kwargs={"use_cuda_graph_decoder": False},
             )

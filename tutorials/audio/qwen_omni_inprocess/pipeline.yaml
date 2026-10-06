@@ -28,6 +28,9 @@ prompt_text: Transcribe the audio.
 prompt_file: null
 pred_text_key: pred_text
 gpus_per_actor: 2
+max_audio_sec_per_actor: 2400.0
+max_inference_duration_s: 2400.0
+local_bucketing: true
 backend: ray_data
 execution_mode: streaming
 
@@ -50,6 +53,9 @@ stages:
     supported_language_codes: ${supported_language_codes}
     pred_text_key: ${pred_text_key}
     batch_size: 32
+    max_audio_sec_per_actor: ${max_audio_sec_per_actor}
+    max_inference_duration_s: ${max_inference_duration_s}
+    local_bucketing: ${local_bucketing}
     resources:
       _target_: nemo_curator.stages.resources.Resources
       gpus: ${gpus_per_actor}

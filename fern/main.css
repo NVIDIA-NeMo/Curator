@@ -128,7 +128,7 @@ html[data-theme=dark] {
     --pst-color-accent: var(--nv-color-green);
 }
 
-/* Product and verion selector styling */
+/* Product and version selector styling */
 
 .fern-product-selector {
   border-radius: 8px;
