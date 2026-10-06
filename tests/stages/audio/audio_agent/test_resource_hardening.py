@@ -29,6 +29,7 @@ from nemo_curator.stages.audio.audio_agent import _ray, calibration, calibration
 from nemo_curator.stages.audio.audio_agent.contracts import EnvProfile
 from nemo_curator.stages.audio.audio_agent.report import _dedup_stage_perf
 from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.utils.performance_utils import (
     StagePerfStats,
@@ -431,6 +432,60 @@ def test_fixed_workers_multiply_cpu_and_gpu_scheduling_footprints() -> None:
     assert result.mode == "batch"
     assert result.feasible is False
     assert any("reserves 1.5 Ray GPU" in item for item in result.escalations)
+
+
+def test_unsized_cpu_model_stage_is_pinned_to_one_worker() -> None:
+    stages = [
+        ASRStage(
+            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            model_id="nvidia/parakeet-tdt-0.6b-v2",
+            max_audio_sec_per_actor=2400.0,
+            resources=Resources(cpus=1, gpus=0),
+        )
+    ]
+
+    notes = planner.pin_cpu_model_workers(stages)
+
+    assert stages[0].num_workers() == 1
+    assert "pinned num_workers=1" in notes[0]
+
+
+def test_explicit_cpu_model_worker_count_is_preserved() -> None:
+    stage = ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/parakeet-tdt-0.6b-v2",
+        max_audio_sec_per_actor=2400.0,
+        resources=Resources(cpus=1, gpus=0),
+    ).with_(num_workers=2)
+    stages = [stage]
+
+    notes = planner.pin_cpu_model_workers(stages)
+
+    assert stages[0].num_workers() == 2
+    assert notes == []
+
+
+def test_resource_planning_does_not_silently_convert_a_gpu_recipe_to_cpu() -> None:
+    stages = [
+        ASRStage(
+            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            model_id="nvidia/parakeet-tdt-0.6b-v2",
+            max_audio_sec_per_actor=2400.0,
+            resources=Resources(cpus=1, gpus=1),
+        )
+    ]
+
+    result = verbs._plan_resources(
+        stages,
+        EnvProfile(gpu_count=0, total_cpus=8, total_ram_gb=64),
+        None,
+    )
+
+    assert stages[0].resources.gpus == 1
+    assert stages[0].num_workers() is None
+    assert result.feasible is False
+    assert any("but no GPU is available" in item for item in result.escalations)
+    assert not any("cpu_fallback" in note for note in result.notes)
 
 
 def test_positive_gpu_reservation_needs_a_gpu_even_when_card_says_optional() -> None:

@@ -784,8 +784,11 @@ def republish(  # noqa: PLR0913 - an artifact record's fields, none of them deri
             impl_version=step.impl_version,
             code_version=art_mod.code_version(),
             model_version=step.model_version,
-            deterministic=step.deterministic,
+            deterministic=step.deterministic and bool(getattr(prior, "deterministic", True)),
             ttl_sec=step.ttl_sec,
+            dependencies={
+                uri: art_mod.content_digest(uri) or "" for uri in (getattr(prior, "dependencies", {}) or {})
+            },
             run_id=run_id,
         )
         try:

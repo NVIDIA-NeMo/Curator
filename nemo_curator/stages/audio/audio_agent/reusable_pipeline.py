@@ -926,33 +926,50 @@ def _score_lineage_reason(
 ) -> str:
     """Prove the selector still reads the exact producer value.
 
-    Adjacency is the primary contract. The only currently supported intervening
-    stage is this feature's checkpoint, whose configured contract is explicitly
-    1:1, preserves upstream keys, and does not write the score key.
+    Cross only independent, key-preserving annotations. Row filters are safe
+    only after a checkpoint already preserves the unfiltered score population.
+    Unknown effects, score replacement and changes of entity remain barriers.
     """
     intervening = list(range(producer_index + 1, selector_index))
     if not intervening:
         return ""
-    if any(recipe.stages[index].ref != _CHECKPOINT_REF for index in intervening):
-        names = [recipe.stages[index].ref for index in intervening]
-        return (
-            "the declared selector is not adjacent to its producer and exact score "
-            f"lineage across {names!r} is not proven"
-        )
-
     from nemo_curator.stages.audio._agent._agent_registry import build_contract
 
+    protected = set(score_keys)
+    producer_contract = build_contract(built[producer_index])
+    if producer_contract.writes.segment_data_keys:
+        protected.update(producer_contract.writes.data_keys)
+    checkpoint_seen = False
     for index in intervening:
         contract = build_contract(built[index])
         writes = set(contract.writes.data_keys) | set(contract.writes.segment_data_keys)
         for conditional in contract.conditional_writes:
             writes.update(conditional.writes.data_keys)
             writes.update(conditional.writes.segment_data_keys)
-        if contract.cardinality != "1:1" or not contract.preserves_upstream_keys or set(score_keys) & writes:
+        affected = writes | set(contract.removes_keys) | set(contract.invalidates_keys)
+        is_checkpoint = recipe.stages[index].ref == _CHECKPOINT_REF
+        safe_shape = contract.cardinality == "1:1" or (
+            checkpoint_seen and not is_checkpoint and contract.cardinality == "filter"
+        )
+        safe_effects = is_checkpoint or (
+            contract.gates.per_row_independent is True
+            and not contract.gates.writes_to_disk
+            and not contract.gates.lifecycle_side_effects
+        )
+        if (
+            contract.contract_resolution != "configured"
+            or not contract.wrappable
+            or not safe_shape
+            or not safe_effects
+            or not contract.preserves_upstream_keys
+            or protected & affected
+        ):
             return (
-                f"{_CHECKPOINT_REF} at index {index} does not mechanically prove "
-                f"1:1 preservation of {list(score_keys)!r}"
+                f"exact score lineage across {recipe.stages[index].ref} at index {index} "
+                f"is not proven for {sorted(protected)!r}; requires independent key preservation "
+                "and a checkpoint before any intervening row filter"
             )
+        checkpoint_seen |= is_checkpoint
     return ""
 
 

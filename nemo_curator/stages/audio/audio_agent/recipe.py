@@ -57,10 +57,8 @@ PLANNING_PREFERENCE_SCHEMA_VERSION = 1
 CURATION_MODES = frozenset({"refine_later", "fast_first"})
 PLANNING_PREFERENCE_SOURCES = frozenset({"explicit_user_choice", "inferred_from_request"})
 
-# Params that name WHERE a stage writes, not WHAT it computes. Changing one moves the
-# bytes; it does not change them. Excluded from ``semantic_hash`` (so a re-run into a new
-# directory can reuse prior work) and scanned by output discovery (so resampled/per-speaker/
-# RTTM directories stop being invisible side effects). See REUSE_ARCHITECTURE.md.
+# Output locations used for discovery. Generated asset paths also enter semantic identity
+# because downstream manifests serialize them; terminal manifest locations can be relocated.
 OUTPUT_LOCATION_PARAMS = frozenset(
     {
         "output_path",  # ManifestWriterStage, Snippet*/PretrainMetrics* writers
@@ -72,6 +70,9 @@ OUTPUT_LOCATION_PARAMS = frozenset(
         "rttm_out_dir",  # InferenceSortformerStage
     }
 )
+
+
+GENERATED_ASSET_PARAMS = OUTPUT_LOCATION_PARAMS - {"output_path", "output_manifest"}
 
 
 def _criteria(raw: Any) -> list[dict[str, Any]]:  # noqa: ANN401 - shape-checking untrusted input IS the job
@@ -187,9 +188,8 @@ class StageRef:
         return {"ref": self.ref, "params": dict(self.params)}
 
     def semantic_params(self) -> dict[str, Any]:
-        """Params that change the stage's OUTPUT BYTES — execution knobs and output
-        locations removed. This is the reuse identity of the stage's configuration."""
-        skip = EXECUTION_KNOB_PARAMS | OUTPUT_LOCATION_PARAMS | NON_SEMANTIC_POLICY_PARAMS
+        """Byte-affecting params, including generated asset paths serialized downstream."""
+        skip = EXECUTION_KNOB_PARAMS | (OUTPUT_LOCATION_PARAMS - GENERATED_ASSET_PARAMS) | NON_SEMANTIC_POLICY_PARAMS
         return {k: v for k, v in self.params.items() if k not in skip}
 
     def semantic_dict(self) -> dict[str, Any]:

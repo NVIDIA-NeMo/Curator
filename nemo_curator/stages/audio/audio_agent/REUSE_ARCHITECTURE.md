@@ -103,7 +103,7 @@ flowchart TD
 
 | Hash | Covers | Used for |
 | --- | --- | --- |
-| `semantic_hash` | stages + inputs + preset, with execution knobs and output locations stripped | reuse identity — "would this produce the same bytes?" |
+| `semantic_hash` | stages + inputs + preset, with execution knobs and terminal manifest locations stripped | reuse identity — "would this produce the same bytes?" |
 | `contract_hash` | `acceptance_criteria` only | re-verification — a stricter bar re-judges data, it does not recompute it |
 | `config_hash` | everything (unchanged) | the confirm gate — "what was approved is what runs" |
 
@@ -112,11 +112,16 @@ covering every byte a user approved, including the batch size they saw. Reuse si
 it as the identity test.
 
 Excluded from `semantic_hash` (in `recipe.EXECUTION_KNOB_PARAMS` and
-`recipe.OUTPUT_LOCATION_PARAMS`):
+`recipe.OUTPUT_LOCATION_PARAMS - recipe.GENERATED_ASSET_PARAMS`):
 
 - execution knobs — `resources`, `batch_size`, `num_workers`, `runtime_env`
-- output locations — `output_path`, `output_manifest`, `output_dir`, `resampled_audio_dir`,
-  `separated_audio_dir`, `rttm_out_dir`, `output_audio_tar_path`, `raw_data_dir`, `path`
+- terminal manifest locations — `output_path`, `output_manifest`
+
+Generated asset locations (`output_dir`, `resampled_audio_dir`, `separated_audio_dir`,
+`rttm_out_dir`, `output_audio_tar_path`) remain in semantic identity because manifests
+serialize their paths. Persisted artifacts bind digests of these generated dependencies,
+and downstream writers inherit prefix determinism and freshness constraints. The v4 step
+key namespace recomputes older artifacts that lack this evidence.
 
 The same `OUTPUT_LOCATION_PARAMS` set is what output discovery now scans, so resampled dirs,
 per-speaker dirs and RTTM dirs stop being invisible side effects.

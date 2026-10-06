@@ -33,7 +33,7 @@ params_of_note:
   write_timeline: "also write a single time-ordered timeline.txt across all groups (default false)"
 param_dependencies:
   group_by: "must be a column some upstream stage actually writes -- e.g. speaker_id from a diarizer, or lang from a language-ID stage. If no row has it, everything lands in one 'unknown' file."
-  text_key: "only used by format: txt; pair it with an ASR/alignment stage upstream or the lines will be empty."
+  text_key: "required for format: txt and for write_timeline: true; pair it with an ASR/alignment stage upstream."
   write_timeline: "ordering uses start/end; without those columns rows fall back to arrival order."
 notes:
   - "Pass-through: rows are returned unchanged, so this is a tee and can be followed by ManifestWriterStage."
@@ -41,6 +41,7 @@ notes:
   - "Group files are truncated on first write in a run, so a re-run replaces its own output rather than appending to the previous one."
   - "Group-derived filenames and timeline labels are sanitized, length-bounded, and disambiguated with a typed stable identity so distinct values do not collapse onto one output name."
   - "Non-serializable selected values are omitted as documented; unexpected naming, formatting, or write failures are fail-fast rather than silently annotated."
+  - "The timeline is persisted at every successful process_batch boundary, including a final partial batch; direct process calls also flush at the configured threshold and teardown."
   - "Exists so output shaping never needs ad-hoc Python; if you find yourself scripting a regroup, that is a capability gap to report."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
 provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

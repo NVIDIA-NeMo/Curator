@@ -111,11 +111,14 @@ def _execution_requirements(stages: list[Any]) -> list[StageEnvironmentRequireme
     out: list[StageEnvironmentRequirement] = []
 
     def leaf(stage: Any, recipe_index: int, *, known: bool = True, note: str = "") -> None:  # noqa: ANN401
+        from nemo_curator.stages.audio.audio_agent._device_capabilities import (
+            gpu_optional as configured_gpu_optional,
+        )
+
         name = type(stage).__name__
         card = idx.card(name) or {}
         resource = card.get("resource") or {}
-        gpu_optional_raw = resource.get("gpu_optional")
-        gpu_optional = gpu_optional_raw if isinstance(gpu_optional_raw, bool) else None
+        gpu_optional = configured_gpu_optional(stage, card)
         hard_gpu = resource.get("bound") == "gpu" and gpu_optional is False
         resources = getattr(stage, "resources", None)
         reservation = float(getattr(resources, "gpus", 0.0) or 0.0)

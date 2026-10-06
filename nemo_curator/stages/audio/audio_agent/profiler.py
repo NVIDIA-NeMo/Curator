@@ -159,6 +159,11 @@ def profile_data(  # noqa: PLR0913
     else:
         prof.notes.append(f"could not interpret source {source!r} as a manifest or an audio folder")
 
+    if prof.kind == "folder":
+        prof.notes.append(
+            "transcript_presence=not_inspected: this profile covers audio files, not sibling "
+            "transcript manifests; has_transcripts=false does not establish that the corpus has no transcripts"
+        )
     if identity_files:
         _fold_identity_files(prof, identity_files)
     if prof.num_files:

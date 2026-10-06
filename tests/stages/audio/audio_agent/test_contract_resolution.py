@@ -222,7 +222,7 @@ class TestAnUnresolvedContractSaysSoAndSaysWhatWouldFixIt:
     def test_asr_stage_reports_its_required_adapter_and_model(self) -> None:
         detail = aa.describe("ASRStage")["contract_unresolved"]
 
-        assert detail["required_params"] == ["adapter_target", "model_id"]
+        assert detail["required_params"] == ["adapter_target", "model_id", "max_audio_sec_per_actor"]
         assert "adapter_target" in detail["retry_with"]
         assert "model_id" in detail["retry_with"]
 
@@ -440,3 +440,20 @@ class TestConstructingAStageTouchesNothing:
             "the known-exception list is stale -- these no longer do I/O and should be removed "
             f"from _KNOWN_IO_IN_INIT: {sorted(set(self._KNOWN_IO_IN_INIT) - still_offending)}"
         )
+
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [
+        ("nemo_curator.stages.audio.inference.indic_canary", "InferenceIndicCanaryStage"),
+        ("nemo_curator.stages.audio.inference.indic_conformer_hybrid", "InferenceIndicConformerHybridStage"),
+        ("nemo_curator.stages.audio.inference.parakeet", "InferenceParakeetStage"),
+    ],
+)
+def test_upstream_asr_wrappers_remain_importable_but_not_agent_selectable(module: str, name: str) -> None:
+    import importlib
+
+    assert hasattr(importlib.import_module(module), name)
+    assert name not in {entry["stage"] for entry in verbs.discover()["stages"]}
+    with pytest.raises(KeyError, match="not a registered agent-ready audio stage"):
+        resolve_stage_class(name)

@@ -40,6 +40,7 @@ params_of_note:
   chunk_len: "streaming chunk size in 80 ms frames (default 340 ~= 27.2 s); larger = more context/accuracy but higher latency + VRAM"
   inference_batch_size: "internal batch size passed to diarize() (default 1; streaming state is per-clip)"
   rttm_out_dir: "optional dir to also write RTTM files (sets writes_to_disk when provided)"
+  rttm_naming: "legacy (default) keeps ordinary session/basename filenames; source_hash adds a deterministic source digest. Select source_hash for shared-directory exports, duplicate basenames/session labels, or per-file delta reuse."
 semantic_facts:
   diar_segments:
     meaning: "Who-spoke-when as SPEECH TURNS ONLY: a list of {start, end, speaker} for ONE recording. Silence between turns is omitted (not written as placeholder rows)."
@@ -76,6 +77,8 @@ comparison:
   known_limitations: "4-speaker cap; batch_size=1; 16 kHz mono; English-conversational; GPU required; no overlap_segments list"
 conflicts_with: [PyAnnoteDiarizationStage]   # alternative diarizer
 notes:
+  - "RTTM filenames encode unsafe or overlong session labels with a digest; the session label inside the RTTM is retained. Legacy naming can overwrite exports for duplicate basenames or identical session labels, so it disables per-row independence with rttm_out_dir."
+  - "With rttm_naming=source_hash, the digest includes the session label and the full real source path for file input, or selected waveform content/shape/dtype/sample rate for resident input. Temporary paths, task IDs, shard metadata, and processing order do not affect it. Identical content and labels can share a resident export; moving a file changes its path-based name."
   - "Output key is `diar_segments`; MergeAlignmentDiarizationStage defaults to reading `segments` -- set its segments_key=diar_segments (or rename) when chaining."
   - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains the source path or deterministic waveform identity under `original_file`. File-only downstream stages are intentionally incompatible unless audio is materialized separately."
   - "ResampleAudioStage leaves audio_filepath unchanged by default. Route the converted input through filepath_key=resampled_audio_filepath, resident waveform input, or update_audio_filepath=True on the resampler."
@@ -91,4 +94,4 @@ versions:   # verified interchangeable via model_name -- load + run + IDENTICAL 
   "nvidia/diar_sortformer_4spk-v1": "WHEN: batch/offline diarization of short-to-medium clips (non-streaming). Also the checkpoint used by SpeakerSeparationStage. Preset: offline_v1."
   "nvidia/diar_streaming_sortformer_4spk-v2": "WHEN: long or streaming audio / low-latency. Tune chunk_len for latency vs accuracy. Preset: streaming_v2. (The stage's default model_name is the -v2.1 point-release of this same streaming family -- not independently tested here.)"
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 9, last_validated: "2026-09-22"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 10, last_validated: "2026-10-06"}

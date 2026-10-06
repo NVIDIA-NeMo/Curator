@@ -41,6 +41,7 @@ _ASR = {
     "params": {
         "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         "model_id": "nvidia/parakeet-tdt-0.6b-v2",
+        "max_audio_sec_per_actor": 2400.0,
         "audio_filepath_key": "audio_filepath",
     },
 }
@@ -886,8 +887,8 @@ class TestMaterializer:
         )
 
         assert result["status"] == "refused"
-        assert "does not validate" in result["reason"]
-        assert any(issue["code"] == "unsatisfied_reads" for issue in result["verdict"]["issues"])
+        assert "audio-directory source cannot restore suffix inputs" in result["reason"]
+        assert "text" in result["reason"]
 
     def test_physical_artifact_replaces_conflicting_source_assertions(
         self,
@@ -2778,7 +2779,9 @@ class TestArtifactKindComesFromTheOutput:
         # audio_dir -- and a continuation then fed a tarball to a stage that lists a directory.
         from nemo_curator.stages.audio.audio_agent.recipe import StageRef
 
-        stage = StageRef(ref="SnippetExtractionStage", params={"output_audio_tar_path": "/x/snips.tar"})
+        stage = StageRef(
+            ref="SnippetExtractionStage", params={"output_dir": "", "output_audio_tar_path": "/x/snips.tar"}
+        )
         assert artifacts.output_uri(stage) == ("/x/snips.tar", "archive")
         assert artifacts._kind_of("/x/snips.tar.gz") == "archive"
 
@@ -2912,3 +2915,125 @@ class TestEveryWritingStageIsReusable:
         from nemo_curator.stages.audio.audio_agent.recipe import OUTPUT_LOCATION_PARAMS
 
         assert set(artifacts._URI_PREFERENCE) == set(OUTPUT_LOCATION_PARAMS)
+
+
+class TestGeneratedOutputIntegrity:
+    def test_generated_locations_change_identity_but_manifest_locations_do_not(self, store: Path) -> None:
+        def recipe(audio_dir: str, manifest: str) -> Recipe:
+            return _frozen(
+                [
+                    _READER,
+                    {"ref": "ResampleAudioStage", "params": {"resampled_audio_dir": audio_dir}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": manifest}},
+                ]
+            )
+
+        first = recipe(str(store / "audio"), str(store / "out.jsonl"))
+        moved_manifest = recipe(str(store / "audio"), str(store / "new.jsonl"))
+        moved_audio = recipe(str(store / "new-audio"), str(store / "out.jsonl"))
+        assert artifacts.step_keys(first, _KEY) == artifacts.step_keys(moved_manifest, _KEY)
+        assert first.semantic_hash == moved_manifest.semantic_hash
+        assert artifacts.step_keys(first, _KEY)[-1] != artifacts.step_keys(moved_audio, _KEY)[-1]
+        assert first.semantic_hash != moved_audio.semantic_hash
+
+    def test_published_writer_checks_generated_assets(self, store: Path) -> None:
+        from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+        audio_dir = store / "audio"
+        audio_dir.mkdir()
+        generated = audio_dir / "clip.wav"
+        generated.write_bytes(b"generated fixture")
+        manifest = store / "out.jsonl"
+        manifest.write_text(json.dumps({"resampled_audio_filepath": str(generated)}) + "\n")
+        rec = _frozen(
+            [
+                _READER,
+                {"ref": "ResampleAudioStage", "params": {"resampled_audio_dir": str(audio_dir)}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
+            ]
+        )
+        stages, issues = build_stages(rec)
+        assert stages, issues
+        verbs._publish_artifacts(
+            rec,
+            stages,
+            dataset_key=_KEY,
+            fingerprint_tier="stat",
+            per_stage={},
+            run_id="fixture",
+            input_count=1,
+            data_profile=None,
+            started_at="",
+            ended_at="",
+        )
+        assert reuse.scan(rec, dataset_key=_KEY)["decision"] == "already_done"
+        generated.unlink()
+        result = reuse.scan(rec, dataset_key=_KEY)
+        assert result["decision"] == "fresh"
+        assert "dependency" in result["rationale"]
+
+    def test_writer_inherits_prefix_trust(self, store: Path) -> None:
+        from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+        manifest = store / "out.jsonl"
+        manifest.write_text('{"diar_segments": []}\n')
+        rec = _frozen(
+            [
+                _READER,
+                {"ref": "PyAnnoteDiarizationStage", "params": {"write_rttm": False}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
+            ]
+        )
+        stages, issues = build_stages(rec)
+        assert stages, issues
+        verbs._publish_artifacts(
+            rec,
+            stages,
+            dataset_key=_KEY,
+            fingerprint_tier="stat",
+            per_stage={},
+            run_id="fixture",
+            input_count=1,
+            data_profile=None,
+            started_at="",
+            ended_at="",
+        )
+        result = reuse.scan(rec, dataset_key=_KEY)
+        assert result["decision"] == "already_done"
+        assert result["recommended"] == "fresh"
+        assert result["candidates"][0]["trust"] != "high"
+
+    def test_continued_writer_preserves_reused_prefix_dependencies_and_trust(self, store: Path) -> None:
+        from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+        rec, mid, final = _pipeline(store)
+        asset = store / "asset.bin"
+        asset.write_bytes(b"generated fixture")
+        inherited = _publish(rec, 1, deterministic=False)
+        inherited.dependencies = {str(asset): artifacts.content_digest(str(asset))}
+        artifacts.save(inherited)
+        materialized, error = continuation.materialize(rec, uri=mid, kind="manifest", prefix=2)
+        assert materialized is not None, error
+        stages, issues = build_stages(materialized)
+        assert stages, issues
+        Path(final).write_text('{"duration": 1}\n')
+        plans = artifacts.plan_steps(rec, _KEY)
+        verbs._publish_artifacts(
+            materialized,
+            stages,
+            dataset_key=_KEY,
+            fingerprint_tier="stat",
+            per_stage={},
+            run_id="continued",
+            input_count=1,
+            data_profile=None,
+            started_at="",
+            ended_at="",
+            step_identity=[(p.step_key, p.input_key, p.index) for p in plans[1:]],
+        )
+        final_artifact = artifacts.load(plans[-1].step_key)
+        assert final_artifact is not None
+        assert not final_artifact.deterministic
+        assert final_artifact.dependencies == inherited.dependencies
+        asset.unlink()
+        assert reuse.scan(rec, dataset_key=_KEY)["decision"] == "fresh"

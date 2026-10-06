@@ -23,6 +23,8 @@ drift (the exact ``resample`` / ``audio_to_document`` failure class):
   ``supported_sample_rates`` / ``max_speakers`` -- NOT constructor params -- so they
   are intentionally not checked against the signature.)
 * ``resource`` uses only known keys with numeric values where numeric is expected.
+* ``adapter_capabilities``, if present, maps configured adapter targets to a
+  non-empty set of supported devices and covers every adapter named by a preset.
 * ``model_version`` is NOT required, even on a model stage: nothing compares it between runs,
   so demanding it only produced pin-shaped strings that were not pins. Say how far to trust it
   in ``verified`` instead.
@@ -56,6 +58,8 @@ _KNOWN_RESOURCE_KEYS = frozenset(
 )
 _NUMERIC_RESOURCE_KEYS = frozenset({"cpus", "gpu_mem_gb", "host_mem_gb", "disk_expansion"})
 _KNOWN_BOUND = frozenset({"cpu", "gpu", "io"})
+_KNOWN_DEVICES = frozenset({"cpu", "cuda"})
+_ADAPTER_CAPABILITY_FIELDS = frozenset({"supported_devices"})
 _VERIFIED_TIERS = frozenset({"mechanical", "measured", "best_guess"})
 _DIRECTIONS = frozenset({"higher_better", "lower_better"})
 _SEMANTIC_PROSE_FIELDS = frozenset({"meaning", "unit", "provenance", "scope", "propagation"})
@@ -743,8 +747,58 @@ _KNOWN_CARD_FIELDS = frozenset(
         "versions",
         "deterministic",
         "decision",
+        "adapter_capabilities",
     }
 )
+
+
+def _adapter_capability_violations(  # noqa: C901 - independent capability-schema field checks
+    stage_id: str,
+    card: dict[str, Any],
+    params: set[str],
+) -> list[str]:
+    """Validate card-owned device support for pluggable implementations."""
+    capabilities = card.get("adapter_capabilities")
+    if capabilities is None:
+        return []
+    prefix = f"{stage_id}: adapter_capabilities"
+    if "adapter_target" not in params:
+        return [f"{prefix} requires a real adapter_target constructor parameter"]
+    if not isinstance(capabilities, dict) or not capabilities:
+        return [f"{prefix} must be a non-empty mapping of adapter target -> capability mapping"]
+
+    violations: list[str] = []
+    for target, entry in capabilities.items():
+        target_prefix = f"{prefix}[{target!r}]"
+        if not isinstance(target, str) or not target.strip():
+            violations.append(f"{prefix} keys must be non-empty adapter target strings")
+        if not isinstance(entry, dict):
+            violations.append(f"{target_prefix} must be a mapping")
+            continue
+        unknown = sorted(set(entry) - _ADAPTER_CAPABILITY_FIELDS)
+        if unknown:
+            violations.append(
+                f"{target_prefix} has unknown fields {unknown}; allowed: {sorted(_ADAPTER_CAPABILITY_FIELDS)}"
+            )
+        devices = entry.get("supported_devices")
+        if not isinstance(devices, list) or not devices:
+            violations.append(f"{target_prefix}.supported_devices must be a non-empty list")
+            continue
+        normalized = [str(device).strip().lower() for device in devices]
+        invalid = sorted(set(normalized) - _KNOWN_DEVICES)
+        if invalid:
+            violations.append(
+                f"{target_prefix}.supported_devices contains unsupported values {invalid}; "
+                f"allowed: {sorted(_KNOWN_DEVICES)}"
+            )
+        if len(normalized) != len(set(normalized)):
+            violations.append(f"{target_prefix}.supported_devices must not contain duplicates")
+
+    for preset, values in (card.get("presets") or {}).items():
+        adapter_target = values.get("adapter_target") if isinstance(values, dict) else None
+        if isinstance(adapter_target, str) and adapter_target not in capabilities:
+            violations.append(f"{prefix} does not declare preset {preset!r} adapter_target {adapter_target!r}")
+    return violations
 
 
 def _composition_violations(stage_id: str, card: dict[str, Any]) -> list[str]:
@@ -885,6 +939,7 @@ def check_card(  # noqa: C901, PLR0912, PLR0915 - one branch per card section
             elif k == "bound" and val is not None and val not in _KNOWN_BOUND:
                 v.append(f"{stage_id}: resource.bound must be one of {sorted(_KNOWN_BOUND)} or null, got {val!r}")
 
+    v.extend(_adapter_capability_violations(stage_id, card, params))
     v.extend(_composition_violations(stage_id, card))
     v.extend(_composite_legibility(stage_id))
     if "decision" in card:
@@ -975,6 +1030,15 @@ def check_card(  # noqa: C901, PLR0912, PLR0915 - one branch per card section
             )
         if "decision" not in card and "decision" in verified:
             v.append(f"{stage_id}: verified.decision is set but the card has no decision block")
+        if "adapter_capabilities" in card and verified.get("adapter_capabilities") != "mechanical":
+            v.append(
+                f"{stage_id}: adapter_capabilities must declare mechanically checked evidence as "
+                "verified.adapter_capabilities: mechanical"
+            )
+        if "adapter_capabilities" not in card and "adapter_capabilities" in verified:
+            v.append(
+                f"{stage_id}: verified.adapter_capabilities is set but the card has no adapter_capabilities block"
+            )
 
     # tag <-> default-gate consistency (M5b): a capability tag must reflect DEFAULT behavior.
     v.extend(_tag_gate_violations(stage_id, card))

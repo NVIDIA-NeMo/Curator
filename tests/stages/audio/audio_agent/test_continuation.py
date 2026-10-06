@@ -14,7 +14,10 @@
 
 """Unit tests for incremental continuation planning."""
 
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from nemo_curator.stages.audio import audio_agent as aa
 from nemo_curator.stages.audio.audio_agent import _safety, continuation
@@ -114,3 +117,105 @@ class TestResumeSafety:
         assert result["mode"] == "full_rerun"
         assert "stable framework task.task_id" in result["reason"]
         assert "SnippetExtractionStage" in result["reason"]
+
+
+class TestAudioDirectoryBoundary:
+    @staticmethod
+    def _recipe(tmp_path: Path, *, update_audio_filepath: bool = False, suffix: dict | None = None) -> Recipe:
+        return Recipe.from_dict(
+            {
+                "stages": [
+                    _READER,
+                    {
+                        "ref": "MonoConversionStage",
+                        "params": {
+                            "write_to_disk": True,
+                            "keep_waveform_in_task": False,
+                            "strict_sample_rate": False,
+                            "output_dir": str(tmp_path / "mono"),
+                            "update_audio_filepath": update_audio_filepath,
+                        },
+                    },
+                    suffix or {"ref": "ChannelCountStage", "params": {"input_residency": "file"}},
+                    _WRITER,
+                ]
+            }
+        ).freeze()
+
+    def test_directory_cannot_replace_original_audio_binding(self, tmp_path: Path) -> None:
+        recipe = self._recipe(tmp_path)
+        directory = tmp_path / "mono"
+        directory.mkdir()
+        (directory / "converted.wav").write_bytes(b"fixture")
+
+        broken = continuation._resume_breaks_on_disk_boundary(recipe, 2)
+        assert "rebind 'audio_filepath'" in broken
+        materialized, error = continuation.materialize(recipe, uri=str(directory), kind="audio_dir", prefix=2)
+        assert materialized is None
+        assert "persist a manifest" in error
+
+    def test_reuse_scan_refuses_unsafe_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from nemo_curator.stages.audio.audio_agent import artifacts, reuse, verbs
+        from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+        monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+        monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(tmp_path))
+        recipe = self._recipe(tmp_path)
+        directory = tmp_path / "mono"
+        directory.mkdir()
+        (directory / "converted.wav").write_bytes(b"fixture")
+        stages, issues = build_stages(recipe)
+        assert not issues
+        verbs._publish_artifacts(
+            recipe,
+            stages,
+            dataset_key="directory-binding-test",
+            fingerprint_tier="stat",
+            per_stage={},
+            run_id="fixture",
+            input_count=1,
+            data_profile=None,
+            started_at="",
+            ended_at="",
+        )
+        assert artifacts.list_artifacts()
+        scan = reuse.scan(recipe, dataset_key="directory-binding-test")
+        assert scan["decision"] == "fresh"
+        assert "rebind 'audio_filepath'" in scan["rationale"]
+
+    def test_rebound_file_suffix_can_resume_from_directory(self, tmp_path: Path) -> None:
+        from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+        recipe = self._recipe(tmp_path, update_audio_filepath=True)
+        directory = tmp_path / "mono"
+        directory.mkdir()
+        generated = directory / "converted.wav"
+        generated.write_bytes(b"fixture")
+
+        assert continuation._resume_breaks_on_disk_boundary(recipe, 2) is None
+        materialized, error = continuation.materialize(recipe, uri=str(directory), kind="audio_dir", prefix=2)
+        assert materialized is not None, error
+        stages, issues = build_stages(materialized)
+        assert not issues
+        assert stages[0].process(None)[0].data["audio_filepath"] == str(generated)
+
+    def test_directory_does_not_restore_conversion_metadata(self, tmp_path: Path) -> None:
+        recipe = self._recipe(
+            tmp_path,
+            update_audio_filepath=True,
+            suffix={
+                "ref": "PreserveByValueStage",
+                "params": {"input_value_key": "is_mono", "target_value": True, "operator": "eq"},
+            },
+        )
+        materialized, error = continuation.materialize(recipe, uri=str(tmp_path / "mono"), kind="audio_dir", prefix=2)
+        assert materialized is None
+        assert "cannot restore suffix inputs" in error
+
+    def test_manifest_preserves_original_binding(self, tmp_path: Path) -> None:
+        recipe = self._recipe(tmp_path)
+        materialized, error = continuation.materialize(
+            recipe, uri=str(tmp_path / "checkpoint.jsonl"), kind="manifest", prefix=2
+        )
+        assert materialized is not None, error
+        assert materialized.stages[0].ref == "ManifestReader"

@@ -40,6 +40,7 @@ import sys
 import tempfile
 import time
 import types
+import uuid
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -52,6 +53,7 @@ from nemo_curator.stages.audio.audio_agent.index import get_index
 from nemo_curator.stages.audio.audio_agent.profiler import probe_env, profile_data
 from nemo_curator.stages.audio.audio_agent.recipe import (
     EXECUTION_KNOB_PARAMS,
+    GENERATED_ASSET_PARAMS,
     OUTPUT_LOCATION_PARAMS,
     REUSABLE_CHECKPOINT_PROVENANCE,
     Recipe,
@@ -77,6 +79,254 @@ _EVIDENCE_ROWS = 2000
 # instead (``_bound_recipe``), keeping pre-staged roots read-only.
 _SMOKE_FILE_OUTPUT_PARAMS = frozenset({"output_path", "output_manifest", "output_audio_tar_path"})
 _SMOKE_DIR_OUTPUT_PARAMS = frozenset(OUTPUT_LOCATION_PARAMS - _SMOKE_FILE_OUTPUT_PARAMS - {"raw_data_dir"})
+
+
+@dataclass
+class _StagedFileOutput:
+    """One fixed-file sink redirected until the full pipeline succeeds."""
+
+    stage: Any
+    param: str
+    final_path: str
+    staged_path: str
+
+
+@dataclass
+class _ResolvedStagedFileOutput:
+    """Filesystem paths and prior-state facts needed for transactional promotion."""
+
+    index: int
+    fs: Any
+    staged_path: str
+    final_path: str
+    backup_path: str
+    local: bool
+    had_final: bool
+    destination_key: tuple[tuple[str, ...], str]
+
+
+def _atomic_source_resume_sinks(stages: list[Any]) -> list[str]:
+    """Sinks whose unpublished output cannot survive source-completion resume."""
+    from nemo_curator.stages.audio._agent._composite import expand_composites
+
+    return [
+        type(item.stage).__name__
+        for item in expand_composites(stages).stages
+        if getattr(item.stage, "AGENT_ATOMIC_OUTPUT_PARAMS", ())
+    ]
+
+
+def _prepare_staged_file_outputs(stages: list[Any], *, checkpoint_path: str | None = None) -> list[_StagedFileOutput]:
+    """Redirect opted-in sinks to unique sibling files owned by this run."""
+    if checkpoint_path is not None and _atomic_source_resume_sinks(stages):
+        # Source completion is durable before file promotion; discarding staging
+        # would make a resumed source skip rows that no longer exist.
+        msg = "source checkpoint resume is unsupported with atomically staged outputs"
+        raise ValueError(msg)
+
+    outputs: list[_StagedFileOutput] = []
+    token = uuid.uuid4().hex
+    try:
+        for stage_index, stage in enumerate(stages):
+            params = getattr(stage, "AGENT_ATOMIC_OUTPUT_PARAMS", ())
+            for param in params:
+                final_path = getattr(stage, param, None)
+                if not isinstance(final_path, str) or not final_path:
+                    continue
+                staged_path = f"{final_path}.audio-agent-{token}-{stage_index}.tmp"
+                setattr(stage, param, staged_path)
+                outputs.append(
+                    _StagedFileOutput(
+                        stage=stage,
+                        param=param,
+                        final_path=final_path,
+                        staged_path=staged_path,
+                    )
+                )
+    except Exception:
+        _restore_staged_file_outputs(outputs)
+        _discard_staged_file_outputs(outputs)
+        raise
+    return outputs
+
+
+def _restore_staged_file_outputs(outputs: list[_StagedFileOutput]) -> None:
+    for output in outputs:
+        setattr(output.stage, output.param, output.final_path)
+
+
+def _discard_staged_file_outputs(outputs: list[_StagedFileOutput]) -> None:
+    """Delete only temporary files named and owned by this run."""
+    from fsspec.core import url_to_fs
+
+    for output in outputs:
+        with contextlib.suppress(Exception):
+            fs, path = url_to_fs(output.staged_path)
+            if fs.exists(path):
+                fs.rm(path)
+
+
+def _local_protocol(fs: Any) -> bool:  # noqa: ANN401
+    protocol = fs.protocol
+    protocols = {protocol} if isinstance(protocol, str) else set(protocol)
+    return bool(protocols & {"file", "local"})
+
+
+def _filesystem_protocols(fs: Any) -> tuple[str, ...]:  # noqa: ANN401
+    protocol = fs.protocol
+    return (protocol,) if isinstance(protocol, str) else tuple(protocol)
+
+
+def _move_staged_output(output: _ResolvedStagedFileOutput, source: str, destination: str) -> None:
+    if output.local:
+        os.replace(source, destination)
+    else:
+        output.fs.mv(source, destination)
+
+
+def _remove_staged_output(output: _ResolvedStagedFileOutput, path: str) -> None:
+    if not output.fs.exists(path):
+        return
+    if output.local:
+        os.unlink(path)
+    else:
+        output.fs.rm(path)
+
+
+def _sync_staged_output_parent(output: _ResolvedStagedFileOutput) -> None:
+    if not output.local:
+        return
+    from nemo_curator.utils.atomic_io import fsync_directory
+
+    final_parent = os.path.abspath(os.path.dirname(output.final_path) or ".")
+    with contextlib.suppress(OSError):
+        fsync_directory(final_parent)
+
+
+def _rollback_staged_file_outputs(
+    outputs: list[_ResolvedStagedFileOutput],
+    *,
+    backed_up: set[int],
+    promoted: set[int],
+) -> list[str]:
+    """Restore every prior destination after an incomplete group promotion."""
+    errors: list[str] = []
+    for output in reversed(outputs):
+        try:
+            if output.index in backed_up:
+                if not output.fs.exists(output.backup_path):
+                    errors.append(f"{output.final_path!r}: backup {output.backup_path!r} is missing")
+                    continue
+                if not output.local:
+                    _remove_staged_output(output, output.final_path)
+                _move_staged_output(output, output.backup_path, output.final_path)
+                _sync_staged_output_parent(output)
+            elif output.index in promoted:
+                _remove_staged_output(output, output.final_path)
+                _sync_staged_output_parent(output)
+        except Exception as exc:  # noqa: BLE001 - attempt every restore before reporting all failures
+            errors.append(f"{output.final_path!r}: {type(exc).__name__}: {exc}")
+    return errors
+
+
+def _resolve_staged_file_output(index: int, output: _StagedFileOutput) -> _ResolvedStagedFileOutput:
+    """Resolve and validate one staged/final sibling pair without mutating either."""
+    from fsspec.core import url_to_fs
+
+    staged_fs, staged_path = url_to_fs(output.staged_path)
+    final_fs, final_path = url_to_fs(output.final_path)
+    staged_protocols = _filesystem_protocols(staged_fs)
+    if set(staged_protocols) != set(_filesystem_protocols(final_fs)):
+        msg = f"staged and final output use different filesystems: {output.staged_path!r}, {output.final_path!r}"
+        raise ValueError(msg)
+    if not staged_fs.exists(staged_path):
+        msg = f"pipeline completed without creating staged output {output.staged_path!r}"
+        raise FileNotFoundError(msg)
+    if staged_fs.isdir(staged_path):
+        msg = f"pipeline created a directory where a staged file was required: {output.staged_path!r}"
+        raise IsADirectoryError(msg)
+    had_final = staged_fs.exists(final_path)
+    if had_final and staged_fs.isdir(final_path):
+        msg = f"final file output is an existing directory: {output.final_path!r}"
+        raise IsADirectoryError(msg)
+    backup_path = f"{staged_path}.previous"
+    if staged_fs.exists(backup_path):
+        msg = f"run-owned output backup already exists: {backup_path!r}"
+        raise FileExistsError(msg)
+    local = _local_protocol(staged_fs)
+    if local:
+        final_parent = os.path.dirname(final_path) or "."
+        os.makedirs(final_parent, exist_ok=True)
+        with open(staged_path, "rb") as stream:
+            os.fsync(stream.fileno())
+    return _ResolvedStagedFileOutput(
+        index=index,
+        fs=staged_fs,
+        staged_path=staged_path,
+        final_path=final_path,
+        backup_path=backup_path,
+        local=local,
+        had_final=had_final,
+        destination_key=(tuple(sorted(staged_protocols)), final_path),
+    )
+
+
+def _resolve_staged_file_outputs(outputs: list[_StagedFileOutput]) -> list[_ResolvedStagedFileOutput]:
+    """Preflight every destination before publication changes any of them."""
+    resolved: list[_ResolvedStagedFileOutput] = []
+    destinations: set[tuple[tuple[str, ...], str]] = set()
+    for index, output in enumerate(outputs):
+        candidate = _resolve_staged_file_output(index, output)
+        if candidate.destination_key in destinations:
+            msg = f"multiple stages publish to the same final output {output.final_path!r}"
+            raise ValueError(msg)
+        destinations.add(candidate.destination_key)
+        resolved.append(candidate)
+    return resolved
+
+
+def _promote_staged_file_outputs(outputs: list[_StagedFileOutput]) -> None:
+    """Replace all final files as one rollback-protected publication group."""
+    resolved = _resolve_staged_file_outputs(outputs)
+
+    backed_up: set[int] = set()
+    promoted: set[int] = set()
+    try:
+        for output in resolved:
+            if output.had_final:
+                _move_staged_output(output, output.final_path, output.backup_path)
+                backed_up.add(output.index)
+            _move_staged_output(output, output.staged_path, output.final_path)
+            promoted.add(output.index)
+            _sync_staged_output_parent(output)
+    except BaseException as exc:
+        for output in resolved:
+            if (
+                output.had_final
+                and output.index not in backed_up
+                and output.fs.exists(output.backup_path)
+                and not output.fs.exists(output.final_path)
+            ):
+                backed_up.add(output.index)
+            elif not output.had_final and output.fs.exists(output.final_path):
+                promoted.add(output.index)
+        rollback_errors = _rollback_staged_file_outputs(
+            resolved,
+            backed_up=backed_up,
+            promoted=promoted,
+        )
+        if rollback_errors:
+            details = "; ".join(rollback_errors)
+            msg = f"output publication failed and rollback was incomplete: {details}"
+            raise RuntimeError(msg) from exc
+        raise
+
+    for output in resolved:
+        if output.index in backed_up:
+            # Finals are committed; stale-backup cleanup must not turn success into failure.
+            with contextlib.suppress(Exception):
+                _remove_staged_output(output, output.backup_path)
+                _sync_staged_output_parent(output)
 
 
 # --------------------------------------------------------------------------- #
@@ -1358,6 +1608,7 @@ def _automatic_retry_reset_hook(
     stages: list[Any],
     *,
     extra_reset: Callable[[], Any] | None = None,
+    staged_outputs: list[_StagedFileOutput] | None = None,
 ) -> Callable[[], None] | None:
     """Compose stage-owned reset hooks with existing pipeline finalizer cleanup."""
     stage_resets = [reset for stage in stages if callable(reset := getattr(stage, "reset_for_retry", None))]
@@ -1367,18 +1618,24 @@ def _automatic_retry_reset_hook(
     def _reset() -> None:
         for reset in stage_resets:
             reset()
+        if staged_outputs:
+            from fsspec.core import url_to_fs
+
+            from nemo_curator.stages.audio.common import ManifestWriterStage
+
+            for output in staged_outputs:
+                if isinstance(output.stage, ManifestWriterStage):
+                    fs, source = url_to_fs(output.final_path)
+                    _, destination = url_to_fs(output.staged_path)
+                    if fs.exists(source):
+                        fs.cp_file(source, destination)
+                    else:
+                        with fs.open(destination, "wb"):
+                            pass
         if extra_reset is not None:
             extra_reset()
 
     return _reset
-
-
-def _release_retry_reservations(stages: list[Any]) -> None:
-    """Discard cross-process retry ownership records after a successful attempt."""
-    for stage in stages:
-        release = getattr(stage, "release_retry_reservation", None)
-        if callable(release):
-            release()
 
 
 def _run_pipeline_autofallback(  # noqa: PLR0913
@@ -1397,7 +1654,6 @@ def _run_pipeline_autofallback(  # noqa: PLR0913
     executor = caller_executor if caller_executor is not None else _make_executor(mode)
     try:
         results = _run_pipeline(stages, executor, checkpoint_path=checkpoint_path)
-        _release_retry_reservations(stages)
         return results, mode  # noqa: TRY300
     except Exception as e:
         if caller_executor is None and mode != "batch" and _is_streaming_infeasible(e):
@@ -1414,7 +1670,6 @@ def _run_pipeline_autofallback(  # noqa: PLR0913
                 _make_executor("batch"),
                 checkpoint_path=checkpoint_path,
             )
-            _release_retry_reservations(stages)
             return results, "batch"
         raise
 
@@ -1758,7 +2013,13 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
         rpt.per_stage_metrics = _stage_metrics(results)
         sampled_rows = list(_result_rows(results))
         rpt.examples = _examples_from_rows(sampled_rows, limit=3)
-        rpt.goals_met = rpt.retained > 0
+        from nemo_curator.stages.audio.audio_agent.acceptance import parse_criteria, permits_empty_result
+
+        rpt.goals_met = rpt.retained > 0 or permits_empty_result(
+            parse_criteria(rec.acceptance_criteria), input_count=min(sample, rpt.input_count)
+        )
+        if rpt.retained == 0 and rpt.goals_met:
+            rpt.notes.append("empty_sample_permitted_by_acceptance_contract; full-dataset yield is not established")
         incomplete_outputs = _empty_required_outputs(rec, sampled_rows)
         if incomplete_outputs:
             # A stage may retain rows while omitting a required field or filling it
@@ -1856,6 +2117,8 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     was approved is what runs). Returns a refusal-with-estimate until confirmed.
     ``checkpoint_path`` enables partial-run recovery (resume completed source
     partitions on a rerun) when the pipeline's stages are resumability-safe.
+    Atomically staged sinks refuse source resume because completed-source state
+    is not transactional with publication of their output.
     ``bootstrap_ray`` opts into auto-starting a local Ray head when none is reachable.
     ``calibration`` is optional because a prior ``smoke`` of this exact recipe already
     stored its measurements: they are applied when none is passed, and the resource plan
@@ -2010,6 +2273,24 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
                 "data_binding": binding.to_dict(),
             }
         )
+    resume_sinks = _atomic_source_resume_sinks(stages) if checkpoint_path is not None else []
+    if resume_sinks:
+        return _safety.redact(
+            {
+                "status": "refused",
+                "reason_code": "source_resume_atomic_output_unsupported",
+                "reason": (
+                    "source checkpoint resume is unsupported with atomically staged outputs: "
+                    "completed sources can outlive discarded output after failure. "
+                    "Use a fresh run without checkpoint_path; "
+                    "metadata checkpoint continuation is independent of source resume."
+                ),
+                "stages": resume_sinks,
+                "recipe_id": rec.recipe_id,
+                "config_hash": rec.config_hash,
+                "data_binding": binding.to_dict(),
+            }
+        )
     pretrain_finalizer, pretrain_error = _pretrain_finalizer(stages)
     if pretrain_error:
         return _safety.redact(
@@ -2154,9 +2435,11 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     results: list[Any] | None = None
     used_mode: str | None = None
     pretrain_output_rows: int | None = None
+    staged_file_outputs: list[_StagedFileOutput] = []
     started_at = _utc_now()
     t0 = time.perf_counter()
     try:
+        staged_file_outputs = _prepare_staged_file_outputs(stages, checkpoint_path=checkpoint_path)
         if pretrain_finalizer is not None:
             pretrain_finalizer.prepare()
         results, used_mode = _run_pipeline_autofallback(
@@ -2166,6 +2449,7 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
             checkpoint_path=checkpoint_path,
             before_retry=_automatic_retry_reset_hook(
                 stages,
+                staged_outputs=staged_file_outputs if checkpoint_path is not None else None,
                 extra_reset=(pretrain_finalizer.prepare if pretrain_finalizer is not None else None),
             ),
         )
@@ -2173,6 +2457,7 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
             finalized_rows = pretrain_finalizer.finalize()
             if isinstance(finalized_rows, int) and not isinstance(finalized_rows, bool):
                 pretrain_output_rows = max(0, finalized_rows)
+        _promote_staged_file_outputs(staged_file_outputs)
     except Exception as e:  # noqa: BLE001 - classify + report, do not crash the caller
         # No finalize on the failure path: merging unconditionally would overwrite a prior
         # completed output bundle with empty files when this attempt produced no shards.
@@ -2187,6 +2472,9 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
             execution_target=execution_target,
         )
         failures.append(dict(runtime_diagnosis.get("failure") or {}))
+        _discard_staged_file_outputs(staged_file_outputs)
+    finally:
+        _restore_staged_file_outputs(staged_file_outputs)
     elapsed = time.perf_counter() - t0
     ended_at = _utc_now()
     if used_mode is not None and used_mode != rplan.mode:
@@ -2268,6 +2556,9 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
         keys,
         list(getattr(report_obj, "output_paths", []) or []),
         output_scan=output_scan,
+        finalized_output=(pretrain_finalizer.manifest_path, pretrain_output_rows)
+        if pretrain_finalizer is not None and pretrain_output_rows is not None
+        else None,
     )
     published: list[dict[str, Any]] = []
     if not failures:
@@ -2488,19 +2779,37 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
     roles, keys = _derive_initial(data_profile)
     rows_in = input_count
     cumulative = 0.0
-    # A dedicated metadata checkpoint stands for the whole prefix, not merely for its
-    # deterministic writer. Preserve the existing trust behavior for every other artifact:
-    # this cumulative view is opt-in and applies only to ManifestCheckpointStage.
+    # Persisted results inherit the trust and generated assets of their entire prefix.
+    dependencies: dict[str, str] = {}
+    generated_audio_keys: set[str] = set()
     prefix_deterministic = True
     prefix_ttl_sec = 0
+    if step_identity:
+        inherited = art_mod.load(step_identity[0][0])
+        if inherited is not None:
+            prefix_deterministic = inherited.deterministic
+            prefix_ttl_sec = inherited.ttl_sec
+            dependencies.update(inherited.dependencies)
     for i, (plan, st) in enumerate(zip(plans, stages, strict=False)):
         prefix_deterministic = prefix_deterministic and plan.deterministic
         if plan.ttl_sec:
             prefix_ttl_sec = min(prefix_ttl_sec, plan.ttl_sec) if prefix_ttl_sec else plan.ttl_sec
+        writes_assets = getattr(st, "write_to_disk", True) and getattr(st, "write_rttm", True)
+        if writes_assets:
+            for name in GENERATED_ASSET_PARAMS:
+                uri = getattr(st, name, None) or rec.stages[i].params.get(name)
+                if isinstance(uri, str) and uri:
+                    dependencies[uri] = art_mod.content_digest(uri) or ""
         with contextlib.suppress(Exception):
             c = foundation.build_contract(st)
             roles |= _roles_of(c)
             keys |= set(c.writes.data_keys) | set(c.writes.segment_data_keys)
+            if c.gates.writes_to_disk:
+                generated_audio_keys.update(
+                    key
+                    for key in [*c.writes.data_keys, *c.writes.segment_data_keys]
+                    if c.key_roles.get(key) == "audio_filepath"
+                )
         duration, gpu_seconds = _stage_cost(per_stage, st)
         cumulative += duration  # every step so far, persisting or not: that is the true saving
         if not plan.persists():
@@ -2518,6 +2827,16 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
                     f"{plan.stage_ref} was not published for reuse"
                 )
             continue
+        if generated_audio_keys and (art_mod.classify_output(plan.uri) or plan.kind) == "manifest":
+            try:
+                dependencies.update(_manifest_asset_dependencies(plan.uri, generated_audio_keys))
+            except (OSError, ValueError, UnicodeError) as exc:
+                if persistence_warnings is not None:
+                    persistence_warnings.append(
+                        f"generated audio dependencies could not be verified for {plan.uri!r}: {exc}; "
+                        "artifact was not published for reuse"
+                    )
+                continue
         # Reusing the LAST step skips the run outright, so its true cost is the wall clock,
         # not the sum of stage timers (which misses setup, scheduling and teardown).
         through_here = max(cumulative, elapsed_sec) if plan.index == len(plans) - 1 else cumulative
@@ -2576,12 +2895,9 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
             impl_version=plan.impl_version,
             code_version=art_mod.code_version(),
             model_version=plan.model_version,
-            # Checkpoint bytes encode every result above this boundary. A deterministic
-            # writer after a non-deterministic model must not launder that prefix into a
-            # high-trust artifact. Other artifact types retain their historical stage-local
-            # trust declaration for backward compatibility.
-            deterministic=prefix_deterministic if is_checkpoint else plan.deterministic,
-            ttl_sec=prefix_ttl_sec if is_checkpoint else plan.ttl_sec,
+            deterministic=prefix_deterministic,
+            ttl_sec=prefix_ttl_sec,
+            dependencies=dict(dependencies),
             metrics={"checkpoint_policy": checkpoint_policy} if checkpoint_policy else {},
             run_id=run_id,
             origin_config_hash=rec.config_hash or "",
@@ -2718,6 +3034,7 @@ def _acceptance_result(  # noqa: PLR0913
     outputs: list[str] | None = None,
     *,
     output_scan: dict[str, Any] | None = None,
+    finalized_output: tuple[str, int] | None = None,
 ) -> dict[str, Any]:
     """Verify the run's own success contract against the evidence it just produced.
 
@@ -2734,6 +3051,10 @@ def _acceptance_result(  # noqa: PLR0913
     paying for a second pass. It is accepted only if it names the same terminal output this
     contract would have scanned; anything else is re-read, so passing the wrong scan costs
     time rather than judging one run's contract against another run's bytes.
+
+    ``finalized_output`` is the successful driver's (manifest path, serialized row
+    count) receipt after ALM merge and reconciliation. It proves coverage of those
+    serialized rows; it does not establish retention relative to the source items.
     """
     if not rec.acceptance_criteria:
         return {}
@@ -2748,6 +3069,18 @@ def _acceptance_result(  # noqa: PLR0913
         elif not _scan_covers(output_scan, evidence_outputs):
             per_item, output_scan = _scan_terminal_output(evidence_outputs, limit=0)
         expected_output_rows = int(getattr(report, "accepted", 0)) if cardinality_proven else None
+        # ALM reconciliation removes origin stubs and snippets without usable audio.
+        # Its completed finalizer proves serialized coverage for its own manifest,
+        # independently of the number of in-memory tasks returned by the pipeline.
+        if (
+            finalized_output is not None
+            and evidence_outputs
+            and _same_output_target(finalized_output[0], evidence_outputs[-1])
+            and isinstance(finalized_output[1], int)
+            and not isinstance(finalized_output[1], bool)
+            and finalized_output[1] >= 0
+        ):
+            expected_output_rows = finalized_output[1]
         return verify(
             list(rec.acceptance_criteria),
             {
@@ -5309,7 +5642,60 @@ def _run_pipeline(stages: list[Any], executor: Any, *, checkpoint_path: str | No
     # driver's stdout, e.g. verbose NeMo output) go to stderr during execution, so a
     # host parsing the CLI's stdout never sees them interleaved with the result.
     with contextlib.redirect_stdout(sys.stderr):
-        return pipeline.run(executor, checkpoint_path=checkpoint_path)
+        from nemo_curator.backends.failed_task_markers import failed_task_manifest_exists
+        from nemo_curator.stages.audio import agent as foundation
+        from nemo_curator.stages.audio.common import ManifestWriterStage
+
+        pipeline.build()
+        writer_identity = (
+            foundation.pipeline_identity(pipeline.stages)
+            if checkpoint_path is not None and any(isinstance(stage, ManifestWriterStage) for stage in pipeline.stages)
+            else None
+        )
+        prepared = []
+        try:
+            for stage in pipeline.stages:
+                prepare = getattr(stage, "prepare_on_driver", None)
+                if callable(prepare):
+                    if isinstance(stage, ManifestWriterStage):
+                        prepare(checkpoint_path=checkpoint_path, pipeline_identity=writer_identity)
+                    else:
+                        prepare(checkpoint_path=checkpoint_path)
+                    prepared.append(stage)
+            result = pipeline.run(executor, checkpoint_path=checkpoint_path)
+            if failed_task_manifest_exists():
+                msg = "Audio pipeline recorded failed tasks; partial outputs are not complete"
+                raise RuntimeError(msg)  # noqa: TRY301 - route backend failures through driver cleanup
+            _finalize_audio_stages(pipeline.stages)
+        except Exception:
+            _abort_prepared_audio_stages(prepared)
+            raise
+        return result
+
+
+def _finalize_audio_stages(stages: list[Any]) -> None:
+    errors = []
+    for stage in stages:
+        finalize = getattr(stage, "finalize", None)
+        if callable(finalize):
+            try:
+                finalize()
+            except Exception as exc:  # noqa: BLE001 - attempt every durable output finalizer
+                errors.append(exc)
+    if errors:
+        raise errors[0]
+
+
+def _abort_prepared_audio_stages(stages: list[Any]) -> None:
+    from loguru import logger
+
+    for stage in stages:
+        abort = getattr(stage, "abort_on_driver", None)
+        if callable(abort):
+            try:
+                abort()
+            except Exception as exc:  # noqa: BLE001 - preserve the original execution failure
+                logger.error(f"Audio stage {stage.name} driver cleanup failed: {exc}")
 
 
 def _calibration_for_run(
@@ -5350,10 +5736,10 @@ def _plan_resources(  # noqa: ANN202
     from nemo_curator.stages.audio import agent as foundation
     from nemo_curator.stages.audio.audio_agent import planner
 
-    # Release GPU reservations held by gpu-OPTIONAL stages when this host has none, so a
-    # supported CPU-only (audio_cpu) install plans and runs instead of being refused.
-    # Mutates `stages` in place, which is the same list the caller then executes.
-    cpu_notes = planner.cpu_fallback(stages, env_obj)
+    # Explicit CPU recipes keep their CPU resource request and get conservative
+    # worker sizing. A GPU reservation is never rewritten after confirmation;
+    # an unavailable GPU remains an infeasible plan that requires a new recipe.
+    worker_notes = planner.pin_cpu_model_workers(stages)
     contracts: list[Any] = []
     for st in stages:
         try:
@@ -5361,8 +5747,8 @@ def _plan_resources(  # noqa: ANN202
         except Exception:  # noqa: BLE001 - a stage that can't describe itself gets conservative defaults
             contracts.append(None)
     rplan = planner.plan(stages, contracts, env_obj, data_profile, calibration=calibration)
-    for note in cpu_notes:
-        rplan.notes.append("cpu_fallback: " + note)
+    for note in worker_notes:
+        rplan.notes.append("worker_sizing: " + note)
     return rplan
 
 
@@ -5903,6 +6289,44 @@ def _jsonable(v: Any) -> bool:  # noqa: ANN401
             return False
         return True
     return False
+
+
+def _generated_audio_paths(value: Any, audio_keys: set[str]) -> Iterator[str]:  # noqa: ANN401
+    """Read contract-bound paths from ordinary rows and nested segment records."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in audio_keys and isinstance(item, str) and item:
+                yield item
+            else:
+                yield from _generated_audio_paths(item, audio_keys)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _generated_audio_paths(item, audio_keys)
+
+
+def _manifest_asset_dependencies(output: str, audio_keys: set[str]) -> dict[str, str]:
+    """Bind serialized generated audio paths, including implicitly allocated files."""
+    from nemo_curator.stages.audio.audio_agent import artifacts
+
+    fs, files, status = _locate_manifest_files(output)
+    if fs is None or status != "ok":
+        message = f"manifest readback is {status}"
+        raise ValueError(message)
+    dependencies: dict[str, str] = {}
+    for path in files:
+        with fs.open(path, "rt", encoding="utf-8") as handle:
+            for raw in handle:
+                if not raw.strip():
+                    continue
+                for asset in _generated_audio_paths(json.loads(raw), audio_keys):
+                    if asset in dependencies:
+                        continue
+                    digest = artifacts.content_digest(asset)
+                    if not digest:
+                        message = f"generated audio is missing or unreadable: {asset!r}"
+                        raise ValueError(message)
+                    dependencies[asset] = digest
+    return dependencies
 
 
 def _locate_manifest_files(

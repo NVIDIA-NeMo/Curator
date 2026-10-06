@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -115,6 +116,28 @@ class TestSourceBoundary:
 
 
 class TestManifestReader:
+    @pytest.mark.parametrize("audio_key", ["audio_filepath", "recording_path"])
+    def test_referenced_audio_changes_invalidate_identity(self, tmp_path: Path, audio_key: str) -> None:
+        from nemo_curator.stages.audio.audio_agent.profiler import profile_data
+
+        audio = tmp_path / "payload.wav"
+        audio.write_bytes(b"source identity fixture")
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text(json.dumps({audio_key: str(audio)}) + "\n", encoding="utf-8")
+        params = {"manifest_path": str(manifest)}
+        if audio_key != "audio_filepath":
+            params["include_files_key"] = audio_key
+        binding = resolve_dataset_binding(_recipe("ManifestReader", params))
+
+        before = profile_data(binding.profile_source, max_probe=0, **binding.profile_kwargs)
+        audio.write_bytes(b"replacement source identity fixture with a different size")
+        after = profile_data(binding.profile_source, max_probe=0, **binding.profile_kwargs)
+
+        assert before.fingerprint_tier == after.fingerprint_tier == "stat"
+        assert before.dataset_key() != after.dataset_key()
+        assert before.inventory_key == after.inventory_key == audio_key
+        assert before.inventory["payload.wav"] != after.inventory["payload.wav"]
+
     def test_single_manifest_matches_canonical_input_assertions(self, tmp_path: Path) -> None:
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text("{}\n", encoding="utf-8")

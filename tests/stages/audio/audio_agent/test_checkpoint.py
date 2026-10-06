@@ -37,6 +37,7 @@ _ASR = {
     "params": {
         "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         "model_id": "nvidia/parakeet-tdt-0.6b-v2",
+        "max_audio_sec_per_actor": 2400.0,
         "audio_filepath_key": "audio_filepath",
     },
 }

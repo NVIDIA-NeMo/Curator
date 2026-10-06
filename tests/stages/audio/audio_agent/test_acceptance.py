@@ -997,3 +997,120 @@ class TestTheTerminalScanShortcutMatchesCheckingEveryRow:
         assert self._shortcut([0.0, 3.0], "!=", 1.5, 0)[0] == "unverifiable"
         assert self._shortcut([2.0, 2.0], "!=", 1.5, 0)[0] == "met"
         assert self._shortcut([1.5, 1.5], "!=", 1.5, 0)[0] == "not_met"
+
+
+@pytest.mark.parametrize("field", ["segments.speaker_id", "segments[].speaker_id", "segments[0].speaker_id"])
+@pytest.mark.parametrize("location", ["field", "compiles_to"])
+def test_nested_deterministic_output_criteria_are_rejected_before_execution(field: str, location: str) -> None:
+    criterion = {"id": "speakers", "type": "output_completeness"}
+    if location == "field":
+        criterion["check"] = {"field": field}
+    else:
+        criterion["compiles_to"] = field
+    with pytest.raises(ValueError, match=r"nested field.*not supported"):
+        aa.verify([criterion], evidence={})
+
+
+def test_nested_numeric_criteria_are_rejected_instead_of_promising_verification() -> None:
+    criterion = _crit("quality", "scores.mos", ">=", 3.0)
+    with pytest.raises(ValueError, match=r"nested field.*not supported"):
+        acceptance.parse_criteria([criterion])
+
+
+def test_nested_reviewer_criterion_remains_available() -> None:
+    criterion = {
+        "id": "meaning",
+        "type": "semantic_fit",
+        "check": {"field": "segments[].speaker_id", "method": "reviewer_judgment"},
+    }
+    assert acceptance.parse_criteria([criterion])[0].field_name == "segments[].speaker_id"
+
+
+@pytest.mark.parametrize(
+    ("op", "value", "expected"),
+    [
+        ("==", 0, True),
+        (">=", 0, True),
+        ("<=", 10, True),
+        (">", 0, False),
+        ("==", 2, False),
+    ],
+)
+def test_empty_result_requires_an_explicit_compatible_yield(op: str, value: int, expected: bool) -> None:
+    criteria = acceptance.parse_criteria(
+        [
+            {
+                "id": "yield",
+                "type": "yield",
+                "check": {"op": op, "value": value},
+            }
+        ]
+    )
+    assert acceptance.permits_empty_result(criteria, input_count=10) is expected
+
+
+@pytest.mark.parametrize(
+    "criteria",
+    [
+        [],
+        [{"id": "yield", "type": "yield", "severity": "nice", "check": {"op": "==", "value": 0}}],
+        [
+            {"id": "yield", "type": "yield", "check": {"op": "==", "value": 0}},
+            {"id": "text", "type": "output_completeness", "check": {"field": "pred_text"}},
+        ],
+        [
+            {"id": "yield", "type": "yield", "check": {"op": "==", "value": 0}},
+            {"id": "meaning", "type": "semantic_fit"},
+        ],
+    ],
+)
+def test_empty_result_never_bypasses_missing_evidence_or_other_musts(criteria: list[dict]) -> None:
+    assert not acceptance.permits_empty_result(acceptance.parse_criteria(criteria), input_count=10)
+
+
+def test_empty_relative_yield_needs_a_real_denominator() -> None:
+    criteria = acceptance.parse_criteria(
+        [
+            {
+                "id": "yield",
+                "type": "yield",
+                "kind": "relative",
+                "check": {"op": "==", "value": 0},
+            }
+        ]
+    )
+    assert acceptance.permits_empty_result(criteria, input_count=10)
+    assert not acceptance.permits_empty_result(criteria, input_count=0)
+
+
+def test_evaluability_retains_supported_aliases_and_honest_review_verdicts() -> None:
+    criteria = acceptance.parse_criteria(
+        [
+            {
+                "id": "text",
+                "type": "output_completeness",
+                "compiles_to": "transcript",
+                "check": {"field": "pred_text"},
+            }
+        ]
+    )
+    assert not acceptance.evaluability_issues(criteria, row_coverage=True)
+    review = acceptance.parse_criteria([{"id": "meaning", "type": "semantic_fit"}])
+    assert acceptance.evaluability_issues(review, row_coverage=True)[0].code == "acceptance_requires_review"
+    assert acceptance.verify(review, {}).overall == "not_met"
+
+
+@pytest.mark.parametrize("scope", ["aggregate", "per_retained_item"])
+def test_row_evidence_warning_respects_metric_scope(scope: str) -> None:
+    criteria = acceptance.parse_criteria(
+        [
+            {
+                "id": "quality",
+                "type": "quality_standard",
+                "check": {"field": "score", "op": ">=", "value": 3.0, "scope": scope},
+            }
+        ]
+    )
+    issues = acceptance.evaluability_issues(criteria, row_coverage=False)
+    assert bool(issues) is (scope == "per_retained_item")
+    assert not acceptance.evaluability_issues(criteria, row_coverage=True)

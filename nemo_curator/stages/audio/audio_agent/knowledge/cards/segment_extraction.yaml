@@ -20,11 +20,21 @@ composition:
 params_of_note:
   output_dir: "directory for the extracted segment files"
   output_format: "output audio format (default wav)"
-  output_key: "manifest key for the extracted file path (default extracted_path)"
+  output_key: "manifest key for the list of extracted file paths (default extracted_path); must not alias source or structural fields"
 param_dependencies:
   output_dir: "each entry must match either original_file + original_start_ms + original_end_ms, or original_file + diar_segments; speaker identity may be top-level or inside diarization entries"
 notes:
   - "Batch-only: process() raises and process_batch() handles all work. Each entry's accepted schema is detected independently, so heterogeneous batches are not interpreted from their first row."
   - "Durable output reservations make retries idempotent. Existing malformed or unreadable resume state fails safely instead of risking filename reuse or overwrite."
-verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+  - "Dictionary diarization turns are rounded outward to millisecond bounds. Pipeline extraction rejects empty audio slices instead of publishing empty clips."
+semantic_facts:
+  extracted_path:
+    meaning: "List of standalone segment file paths written for this input row, under the configured output_key."
+    unit: "filesystem paths"
+    provenance: "Slices of original_file using mapped timestamps or diarization turns."
+    scope: "One parent manifest row; nested speaker turns can contribute several paths."
+    propagation: "The input row is retained and receives the list; existing output paths are preserved."
+    counterexamples:
+      - "One returned manifest row is not necessarily one extracted clip, and an empty list proves no clip was written."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess, semantic_facts: mechanical}
 provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}

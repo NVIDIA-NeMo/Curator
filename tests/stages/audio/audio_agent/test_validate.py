@@ -205,6 +205,7 @@ class TestEnvironmentGates:
                     "params": {
                         "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
                         "model_id": "nvidia/test-model",
+                        "max_audio_sec_per_actor": 2400.0,
                         "audio_filepath_key": "audio_filepath",
                     },
                 },
@@ -236,6 +237,37 @@ class TestOutputCompleteness:
         pairwise_wer = {"ref": "GetPairwiseWerStage", "params": {}}
         result = _validate([_READER, pairwise_wer, _WRITER], expected_outputs=["wer_pct"])
 
+        assert "missing_output_producer" not in _codes(result)
+
+    def test_conditional_field_removed_by_later_reconstruction_is_missing(self) -> None:
+        result = _validate(
+            [
+                _READER,
+                {"ref": "GetPairwiseWerStage", "params": {}},
+                {"ref": "ALMDataBuilderStage", "params": {}},
+                _WRITER,
+            ],
+            expected_outputs=["wer_pct"],
+        )
+        assert "missing_output_producer" in _codes(result)
+
+    def test_alm_removed_input_field_cannot_satisfy_terminal_output(self) -> None:
+        result = _validate(
+            [{"ref": "ALMDataBuilderStage", "params": {}}, _WRITER],
+            initial_keys=["audio_filepath", "segments", "audio_sample_rate"],
+            initial_roles=["audio_filepath", "segments", "sample_rate"],
+            expected_outputs=["segments"],
+        )
+        assert "missing_output_producer" in _codes(result)
+        assert "segments" not in result["produced_keys"]
+
+    def test_alm_generated_field_satisfies_terminal_output(self) -> None:
+        result = _validate(
+            [{"ref": "ALMDataBuilderStage", "params": {}}, _WRITER],
+            initial_keys=["audio_filepath", "segments", "audio_sample_rate"],
+            initial_roles=["audio_filepath", "segments", "sample_rate"],
+            expected_outputs=["windows"],
+        )
         assert "missing_output_producer" not in _codes(result)
 
 
@@ -375,6 +407,40 @@ class TestSampleRateFollowsThePipeline:
     # InferenceSortformerStage's card declares supported_sample_rates: [16000].
     _SIXTEEN_K_ONLY: ClassVar[dict] = {"ref": "InferenceSortformerStage", "params": {}}
 
+    def test_asr_accepts_source_rate_converted_internally(self) -> None:
+        from nemo_curator.stages.audio.audio_agent.checks import CheckContext, _check_card_constraints
+        from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
+
+        recipe = Recipe.from_dict(
+            {
+                "stages": [
+                    {
+                        "ref": "ASRStage",
+                        "params": {
+                            "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                            "model_id": "nvidia/parakeet-tdt-0.6b-v2",
+                            "max_audio_sec_per_actor": 2400.0,
+                        },
+                    }
+                ]
+            }
+        )
+        stages, errors = build_stages(recipe)
+        assert not errors
+        ctx = CheckContext(
+            recipe,
+            stages,
+            {"sample_rates": {"48000": 1}},
+            None,
+            {"audio_filepath"},
+            {"audio_filepath"},
+            0,
+            initial_tensor_keys=set(),
+        )
+        assert not [
+            issue for issue in _check_card_constraints(ctx).card_violations if issue.code == "card_sample_rate"
+        ]
+
     def _rate_warnings(self, stages: list[dict], manifest: str) -> list[dict]:
         verdict = aa.validate({"stages": stages}, data=manifest)
         return [
@@ -384,11 +450,33 @@ class TestSampleRateFollowsThePipeline:
             if i["code"] == "card_sample_rate"
         ]
 
-    def test_an_upstream_resample_silences_the_warning(self, tmp_path: Path) -> None:
+    def test_an_unused_upstream_resample_still_warns(self, tmp_path: Path) -> None:
         manifest = self._corpus(tmp_path, 48000)
         reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
         stages = [reader, self._resample(tmp_path, 16000), self._SIXTEEN_K_ONLY]
-        assert self._rate_warnings(stages, manifest) == []
+        warnings = self._rate_warnings(stages, manifest)
+        assert len(warnings) == 1
+        assert "48000" in warnings[0]["message"]
+
+    def test_consumer_bound_to_resampled_filepath_uses_converted_rate(self, tmp_path: Path) -> None:
+        manifest = self._corpus(tmp_path, 48000)
+        reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
+        consumer = {"ref": "InferenceSortformerStage", "params": {"filepath_key": "resampled_audio_filepath"}}
+        assert self._rate_warnings([reader, self._resample(tmp_path, 16000), consumer], manifest) == []
+
+    def test_retained_waveform_does_not_change_file_consumer_rate(self, tmp_path: Path) -> None:
+        manifest = self._corpus(tmp_path, 48000)
+        reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
+        resample = self._resample(tmp_path, 16000)
+        resample["params"].update(keep_waveform_in_task=True, waveform_key="converted_waveform")
+        warnings = self._rate_warnings([reader, resample, self._SIXTEEN_K_ONLY], manifest)
+        assert len(warnings) == 1
+        for residency in ("waveform", "auto"):
+            consumer = {
+                "ref": "InferenceSortformerStage",
+                "params": {"input_residency": residency, "waveform_key": "converted_waveform"},
+            }
+            assert self._rate_warnings([reader, resample, consumer], manifest) == []
 
     def test_without_a_resample_it_still_warns(self, tmp_path: Path) -> None:
         manifest = self._corpus(tmp_path, 48000)
@@ -401,13 +489,17 @@ class TestSampleRateFollowsThePipeline:
         # ResampleAudioStage converts to 16 kHz by default, whether or not the recipe says so.
         manifest = self._corpus(tmp_path, 48000)
         reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
-        stages = [reader, self._resample(tmp_path, None), self._SIXTEEN_K_ONLY]
+        resample = self._resample(tmp_path, None)
+        resample["params"]["update_audio_filepath"] = True
+        stages = [reader, resample, self._SIXTEEN_K_ONLY]
         assert self._rate_warnings(stages, manifest) == []
 
     def test_resampling_to_an_unsupported_rate_warns_with_the_effective_rate(self, tmp_path: Path) -> None:
         manifest = self._corpus(tmp_path, 48000)
         reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
-        stages = [reader, self._resample(tmp_path, 8000), self._SIXTEEN_K_ONLY]
+        resample = self._resample(tmp_path, 8000)
+        resample["params"]["update_audio_filepath"] = True
+        stages = [reader, resample, self._SIXTEEN_K_ONLY]
         warnings = self._rate_warnings(stages, manifest)
         assert len(warnings) == 1
         assert "8000" in warnings[0]["message"]

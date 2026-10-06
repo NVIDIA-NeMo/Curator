@@ -150,7 +150,8 @@ def build_server() -> Any:  # noqa: ANN401, PLR0915, C901 - a flat tool registry
 
         ``smoke_token`` satisfies ``AUDIO_AGENT_REQUIRE_SMOKE`` (pass the token from a
         prior ``smoke``); ``bootstrap_ray`` auto-starts Ray; ``checkpoint_path`` enables
-        partial-run resume; ``goal`` records what the run was for in provenance.
+        source resume only without atomically staged sinks. Metadata checkpoint
+        continuation is separate. ``goal`` records what the run was for in provenance.
         ``calibration`` accepts the complete wrapper returned by ``calibrate``; omit it
         and the measurements a prior ``smoke`` of this exact recipe stored are applied
         automatically (the resource plan says so in its notes).

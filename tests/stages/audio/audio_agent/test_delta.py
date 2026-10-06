@@ -238,6 +238,27 @@ class TestNarrowingIsNotInvisible:
         assert "depends on the other rows" in reason
 
 
+@pytest.mark.parametrize(("naming", "depth"), [("legacy", 1), ("source_hash", 2)])
+def test_sortformer_rttm_policy_controls_agent_delta_region(naming: str, depth: int, tmp_path: Path) -> None:
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
+                {
+                    "ref": "InferenceSortformerStage",
+                    "params": {"rttm_out_dir": str(tmp_path / "rttm"), "rttm_naming": naming},
+                },
+            ]
+        }
+    ).freeze()
+    actual_depth, reason = delta.region(recipe, upto=2)
+    assert actual_depth == depth
+    if naming == "legacy":
+        assert "InferenceSortformerStage" in reason
+    else:
+        assert reason == ""
+
+
 class TestInventory:
     """The profiler records WHICH files back the dataset key, not just their digest."""
 
@@ -478,6 +499,7 @@ class TestRegion:
                         "params": {
                             "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
                             "model_id": "stt_en_conformer_ctc_small",
+                            "max_audio_sec_per_actor": 2400.0,
                             "audio_filepath_key": "audio_filepath",
                         },
                     },
@@ -512,14 +534,9 @@ class TestRegion:
         ).freeze()
         assert delta.region(rec, upto=2) == (2, "")
 
-    def test_a_split_stage_is_independent_only_while_its_outputs_cannot_collide(self, tmp_path: Path) -> None:
-        """The surviving example of a gate answered per instance rather than per class.
-
-        Split names come from the source basename alone, so an ``output_dir`` puts every file in
-        one flat namespace and ``spk1/utt1.wav`` and ``spk2/utt1.wav`` fight over the same output
-        path. Without one they land beside their source and cannot collide. A flat ``False`` would
-        cost the delta on the default configuration, which is the one that is actually safe.
-        """
+    @pytest.mark.parametrize("shared_output", [False, True])
+    def test_split_output_names_stop_delta_reuse(self, tmp_path: Path, shared_output: bool) -> None:
+        """Source-adjacent names can collide across extensions or split plans too."""
 
         def _region(params: dict[str, object]) -> tuple[int, str]:
             rec = Recipe.from_dict(
@@ -532,8 +549,8 @@ class TestRegion:
             ).freeze()
             return delta.region(rec, upto=2)
 
-        assert _region({}) == (2, "")
-        depth, reason = _region({"output_dir": str(tmp_path / "splits")})
+        params = {"output_dir": str(tmp_path / "splits")} if shared_output else {}
+        depth, reason = _region(params)
         assert depth == 1
         assert "SplitLongAudio" in reason
 
@@ -752,14 +769,8 @@ class TestPlan:
         assert decision.status != "ready"
         assert "no prior run" in decision.reason
 
-    def test_a_directory_resume_point_names_what_shortened_the_region(self, tmp_path: Path) -> None:
-        """The realistic GPU shape: resample writes a directory, then a corpus-dependent stage.
-
-        Measured against a real SQUIM pipeline, this refusal said only "ResampleAudioStage does
-        not own a manifest the merge can rewrite" -- blaming the stage that happens to hold the
-        deepest output, never mentioning the stage that actually shortened the region, and
-        offering nothing to do about it. Both halves belong in the sentence.
-        """
+    def test_shared_resample_outputs_stop_reuse_before_a_directory_resume_point(self, tmp_path: Path) -> None:
+        """A later artifact cannot restore independence lost at shared resample output names."""
         audio = tmp_path / "audio"
         inventory = _corpus(audio, ("a.wav", "b.wav"))
         rec = Recipe.from_dict(
@@ -784,9 +795,8 @@ class TestPlan:
         )
 
         assert decision.status != "ready"
-        assert "TorchSquimQualityMetrics" in decision.reason, decision.reason
         assert "ResampleAudioStage" in decision.reason
-        assert "add-checkpoint" in decision.reason
+        assert "nothing is persisted that early" in decision.reason
 
     def test_a_prior_result_published_elsewhere_is_refused_by_name(self, tmp_path: Path) -> None:
         """Output paths are outside the reuse identity, so one step key can span two files.
@@ -940,3 +950,32 @@ class TestPlan:
         assert decision.status == "none"
         assert "PretrainMetricsAggregator" in decision.reason
         assert "corpus together" in decision.reason
+
+
+def test_republish_retains_generated_asset_dependency_checks(tmp_path: Path) -> None:
+    rec, out = _pipeline(tmp_path, tmp_path / "source.jsonl")
+    asset = tmp_path / "generated.bin"
+    asset.write_bytes(b"before")
+    prior = _publish(rec, 2, dataset_key=_PRIOR, rows=[{"audio_filepath": str(asset)}], coverage={})
+    prior.dependencies = {str(asset): artifacts.content_digest(str(asset))}
+    prior.deterministic = False
+    artifacts.save(prior)
+    asset.write_bytes(b"after delta")
+    decision = delta.Delta(sinks=(delta.Sink(index=2, param="output_path", uri=out, step_key=prior.step_key),))
+    published, problems = delta.republish(
+        rec,
+        decision,
+        dataset_key=_KEY,
+        fingerprint_tier="stat",
+        inventory={},
+        run_id="delta",
+        added_sec=1,
+    )
+    assert not problems
+    merged = artifacts.load(published[0]["step_key"])
+    assert merged is not None
+    assert not merged.deterministic
+    assert merged.dependencies == {str(asset): artifacts.content_digest(str(asset))}
+    assert not artifacts.invalid_reasons(merged, dataset_key=_KEY)
+    asset.unlink()
+    assert any("dependency" in reason for reason in artifacts.invalid_reasons(merged, dataset_key=_KEY))

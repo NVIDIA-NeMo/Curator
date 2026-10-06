@@ -290,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 - one flat block
         "--output-dir",
         help=("legacy no-op retained for compatibility; configure output paths on recipe stages"),
     )
-    r.add_argument("--checkpoint-path")
+    r.add_argument("--checkpoint-path", help="Source resume directory; unsupported with atomically staged sinks")
     r.add_argument("--bootstrap-ray", action="store_true", help="auto-start a local Ray head if none is reachable")
     r.add_argument(
         "--smoke-token", help="smoke-evidence token from a prior smoke (required if AUDIO_AGENT_REQUIRE_SMOKE is set)"
@@ -461,7 +461,7 @@ def build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 - one flat block
         "--output-dir",
         help=("legacy no-op retained for compatibility; configure output paths on recipe stages"),
     )
-    cont.add_argument("--checkpoint-path")
+    cont.add_argument("--checkpoint-path", help="Source resume directory; unsupported with atomically staged sinks")
     cont.add_argument("--bootstrap-ray", action="store_true", help="auto-start a local Ray head if none is reachable")
     cont.add_argument("--smoke-token", help="smoke token for the exact recipe branch that will execute")
     cont.add_argument(

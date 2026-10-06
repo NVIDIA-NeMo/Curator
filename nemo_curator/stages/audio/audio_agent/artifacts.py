@@ -63,7 +63,10 @@ if TYPE_CHECKING:
 # v3: ``retention_sec`` and ``owner`` left the semantic params, so every v2 key for a
 # checkpointed recipe was computed over a policy that does not change the bytes. Old records
 # stay on disk and are simply never matched again -- the failure direction is recompute.
-STEP_KEY_VERSION = "v3"
+# v4 binds generated asset locations and carries prefix trust/dependency evidence.
+# v5 requires configured persistence gates and generated-row asset dependencies; older
+# completion records can certify disabled sinks or omit referenced generated files.
+STEP_KEY_VERSION = "v5"
 
 ArtifactKind = Literal["manifest", "audio_dir", "rttm_dir", "text_dir", "archive", "unknown"]
 
@@ -121,6 +124,7 @@ class Artifact:
     # have produced the artifact; this proves the bytes still present are the
     # bytes that were published.
     content_digest: str = ""
+    dependencies: dict[str, str] = field(default_factory=dict)
     produced_roles: list[str] = field(default_factory=list)
     produced_keys: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -284,8 +288,23 @@ def output_uri(stage: StageRef) -> tuple[str, ArtifactKind]:
     ``("", "unknown")`` when the stage writes nothing -- such a step has no artifact and can
     never be a reuse point, which is exactly right: reuse resumes from disk.
     """
+    from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
+
+    try:
+        stages, issues = build_stages(Recipe(stages=[stage]))
+        if issues or not stages:
+            return "", "unknown"
+        configured = stages[0]
+        gates = foundation.build_contract(configured).gates
+    except Exception:  # noqa: BLE001 - uninspectable persistence cannot support reuse
+        return "", "unknown"
+    if not gates.writes_to_disk or not gates.output_path_params:
+        return "", "unknown"
     for key in _URI_PREFERENCE:
-        v = stage.params.get(key)
+        if key not in gates.output_path_params:
+            continue
+        v = getattr(configured, key, None)
         if isinstance(v, str) and v:
             return v, _kind_of(v)
     return "", "unknown"
@@ -365,12 +384,17 @@ def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
     """Compute the Merkle step-key chain for a recipe over a given source dataset."""
     plans: list[StepPlan] = []
     prev = f"{STEP_KEY_VERSION}:{dataset_key}"
+    prefix_deterministic = True
+    prefix_ttl = 0
     for i, stage in enumerate(recipe.stages):
         sp = stage.semantic_params()
         mv = model_version(stage.params)
         iv = impl_version(stage.ref)
         key = _h(STEP_KEY_VERSION, prev, stage.ref, _semantic_blob(stage.ref, sp), iv, mv)
         det, ttl = stage_trust(stage.ref)
+        prefix_deterministic = prefix_deterministic and det
+        if ttl:
+            prefix_ttl = min(prefix_ttl, ttl) if prefix_ttl else ttl
         uri, kind = output_uri(stage)
         plans.append(
             StepPlan(
@@ -381,8 +405,8 @@ def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
                 semantic_params=sp,
                 uri=uri,
                 kind=kind,
-                deterministic=det,
-                ttl_sec=ttl,
+                deterministic=prefix_deterministic,
+                ttl_sec=prefix_ttl,
                 model_version=mv,
                 impl_version=iv,
             )
@@ -695,6 +719,11 @@ def invalid_reasons(  # noqa: C901, PLR0912
                 reasons.append("serialized output could not be hashed; its content is unverified")
             elif current_digest != artifact.content_digest:
                 reasons.append("serialized output changed after the artifact was published")
+    for uri, expected_digest in artifact.dependencies.items():
+        if _safety.path_violations([uri]):
+            reasons.append(f"generated dependency outside allowed workspace: {uri!r}")
+        elif not expected_digest or content_digest(uri) != expected_digest:
+            reasons.append(f"generated dependency missing or changed: {uri!r}")
     reasons.extend(_foreign_workspace_reasons(artifact))
     if dataset_key and artifact.dataset_key and dataset_key != artifact.dataset_key:
         reasons.append("source data changed since this artifact was produced")

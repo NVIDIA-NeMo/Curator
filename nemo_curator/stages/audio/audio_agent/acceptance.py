@@ -40,7 +40,12 @@ import math
 import operator
 from typing import Any
 
-from nemo_curator.stages.audio.audio_agent.contracts import AcceptanceCriterion, AcceptanceReport, CriterionResult
+from nemo_curator.stages.audio.audio_agent.contracts import (
+    AcceptanceCriterion,
+    AcceptanceReport,
+    CriterionResult,
+    Issue,
+)
 
 # Request-type -> the criterion TYPE it implies (type-level, not metric-level, so
 # it stays generic). Substring match on the goal's request_type/task keeps it
@@ -86,6 +91,17 @@ def parse_criteria(raw: Any) -> list[AcceptanceCriterion]:  # noqa: ANN401
         except (TypeError, ValueError) as e:
             msg = f"acceptance criterion #{i}: {e}"
             raise ValueError(msg) from e
+        if criterion.is_deterministic:
+            fields = [criterion.field_name]
+            if criterion.type == "output_completeness":
+                fields.append(criterion.compiles_to)
+            for field in fields:
+                if field and _is_nested_field(field):
+                    msg = (
+                        f"acceptance criterion #{i}: nested field {field!r} is not supported by "
+                        "deterministic acceptance; use a top-level serialized field or reviewer_judgment"
+                    )
+                    raise ValueError(msg)
         if criterion.id in seen:
             msg = f"acceptance criterion #{i}: duplicate id {criterion.id!r}"
             raise ValueError(msg)
@@ -142,6 +158,67 @@ def expected_roles_from_criteria(criteria: list[AcceptanceCriterion]) -> list[st
 # --------------------------------------------------------------------------- #
 # verification
 # --------------------------------------------------------------------------- #
+def evaluability_issues(criteria: list[AcceptanceCriterion], *, row_coverage: bool) -> list[Issue]:
+    """Explain what automatic acceptance can establish without weakening a contract."""
+    issues: list[Issue] = []
+    for criterion in criteria:
+        if not criterion.is_deterministic:
+            issues.append(
+                Issue(
+                    "acceptance_requires_review",
+                    "warning",
+                    f"criterion {criterion.id!r} requires reviewer judgment; automatic acceptance "
+                    "will remain unverifiable for this criterion",
+                    fix="agree on the separate review requirement before approval; do not claim automatic success",
+                    escalate_to="user",
+                )
+            )
+            continue
+        target = criterion.compiles_to
+        field = criterion.field_name
+        if (
+            criterion.type == "output_completeness"
+            and target
+            and target != "producible_role"
+            and field
+            and target != field
+            and field not in _OUTPUT_ROLE_ALIASES.get(target, ())
+        ):
+            issues.append(
+                Issue(
+                    "acceptance_field_mismatch",
+                    "error" if criterion.severity == "must" else "warning",
+                    f"criterion {criterion.id!r} cannot prove {target!r} using unrelated field {field!r}",
+                    fix="bind the requirement to the actual serialized field; use explicit review for semantic meaning",
+                )
+            )
+        needs_rows = criterion.type == "output_completeness" or (
+            criterion.type in {"quality_standard", "distribution"}
+            and criterion.check.get("scope") == "per_retained_item"
+        )
+        if needs_rows and not row_coverage:
+            issues.append(
+                Issue(
+                    "acceptance_output_evidence_unproven",
+                    "warning",
+                    f"criterion {criterion.id!r} needs serialized-row evidence; the terminal sink does not "
+                    "prove complete row coverage before execution",
+                    fix="provide a supported terminal manifest or a verified finalization receipt; "
+                    "otherwise disclose that automatic acceptance may be unverifiable",
+                    escalate_to="user",
+                )
+            )
+    return issues
+
+
+def permits_empty_result(criteria: list[AcceptanceCriterion], *, input_count: int) -> bool:
+    """An explicit required yield must allow zero; no other must may be bypassed."""
+    if not any(c.type == "yield" and c.severity == "must" and c.is_deterministic for c in criteria):
+        return False
+    report = verify(criteria, {"retained": 0, "input_count": input_count, "expected_output_rows": 0})
+    return report.overall == "met"
+
+
 def verify(  # noqa: C901, PLR0912, PLR0915
     criteria: list[AcceptanceCriterion],
     evidence: dict[str, Any],
@@ -890,7 +967,7 @@ def _resolve_output_field(
 
 def _is_nested_field(field: str) -> bool:
     """Whether a field names content below the top-level manifest object."""
-    return "." in field or "[]" in field
+    return "." in field or "[" in field or "]" in field
 
 
 def _retained_count(value: Any) -> int | None:  # noqa: ANN401

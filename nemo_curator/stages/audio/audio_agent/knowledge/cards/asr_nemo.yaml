@@ -7,7 +7,6 @@ model_id: "adapter-dependent. NeMoASRAdapter: any NeMo ASR checkpoint (default p
 model_version: "user-specified via model_id; the english_parakeet preset pins nvidia/parakeet-tdt-0.6b-v2"
 domain: {language: "checkpoint-dependent (default preset = English)", style: read+conversational}
 constraints:
-  supported_sample_rates: [16000]   # ASRStage resamples input to target_sample_rate before adapter inference
   input_duration_sweetspot_sec: {min: 0.5, max: 40.0}
 resource:
   cpus: 1.0
@@ -15,6 +14,15 @@ resource:
   gpu_optional: true
   bound: gpu
   throughput_hint: "adapter-dependent batched inference; the default NeMo path supports CPU, while some adapters require GPU runtimes"
+adapter_capabilities:
+  nemo_curator.models.asr.nemo_asr.NeMoASRAdapter:
+    supported_devices: [cpu, cuda]
+  nemo_curator.models.asr.faster_whisper.FasterWhisperASR:
+    supported_devices: [cpu, cuda]
+  nemo_curator.models.asr.qwen_asr.QwenASRAdapter:
+    supported_devices: [cuda]
+  nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter:
+    supported_devices: [cuda]
 use_cases:
   good_for:
     - "transcribing speech to text (pred_text)"
@@ -29,9 +37,14 @@ composition:
 params_of_note:
   adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
   model_id: "the ASR checkpoint id -- REQUIRED, and must match the chosen adapter. Choose per language; apply the english_parakeet preset for English."
+  max_audio_sec_per_actor: "REQUIRED finite positive budget for each adapter call: item count multiplied by the longest prepared audio duration. Presets supply 2400 padded audio seconds. This is a batching proxy, not a GPU-memory guarantee."
+  max_inference_duration_s: "maximum prepared segment duration (default 2400 seconds); longer rows are split and their transcripts stitched. Must not exceed max_audio_sec_per_actor; choose a ceiling supported by the selected model."
+  local_bucketing: "False preserves segment order during capacity packing; True groups similarly sized segments within this process batch. Either mode applies the same duration ceiling and adapter-call budget. Parent output order is preserved."
   audio_filepath_key: "input audio path key; use audio_filepath for raw manifests or resampled_audio_filepath after an explicit resampling stage"
   target_sample_rate: "sample rate prepared internally before adapter inference (default 16000)"
   pred_text_key: "output key for the transcription (default 'pred_text', NOT 'text') -- the WER stages read this key"
+  language_key: "optional output key for the selected/detected language code; disabled by default. Rows reused through skip_if_output_exists do not acquire missing language metadata."
+  extras_key: "optional adapter metadata dictionary. Empty adapter metadata deletes an existing value at this key, so downstream consumers must tolerate its absence. Internally segmented results can use a chunks metadata dictionary."
   waveform_key: "optional in-memory waveform key; when set, sample_rate_key is also required. The waveform is removed after the batch unless keep_waveform=True."
   keep_waveform: "False (default) removes the configured in-memory waveform after processing, including rows reused by skip_if_output_exists; True retains it for another waveform-aware downstream stage."
   default_language: "fallback ISO 639-1 code ('en', 'zh') for rows whose source_lang column is empty. Codes are lowercased and mapped to a human-readable name before the adapter sees them (~50 common codes; 'en' -> 'English'), and an unmapped code is forwarded verbatim. Per-row language comes from the manifest's source_lang column, not from this."
@@ -45,6 +58,9 @@ comparison:
   choose_when: "you need plain transcripts, on any supported backend. For word timestamps/alignments use NeMoASRAlignerStage or SplitASRAlignJoinStage; for who-said-what add a diarizer + MergeAlignmentDiarizationStage."
   known_limitations: "device support is adapter-dependent; GPU is required for practical NeMo throughput and by some vLLM adapters; output key is pred_text (not text)"
 notes:
+  - "Source audio need not already match the inference rate: ASRStage resamples internally to target_sample_rate before adapter inference."
+  - "max_audio_sec_per_actor is now an explicit upstream ASR requirement. Presets and the shipped recipe provide it; a custom recipe must supply a finite positive value and a compatible model-input ceiling."
+  - "Internal segmentation uses contiguous hard cuts without shared speech context. A word crossing a cut can be mistranscribed, omitted or duplicated; use VAD or diarization for speech-aware boundaries when that matters."
   - "ASRStage is the canonical Curator ASR runtime; every backend is an adapter passed to adapter_target rather than a parallel stage implementation. It replaced InferenceAsrNemoStage, which no longer exists."
   - "Adapter choice: NeMoASRAdapter for NeMo/parakeet checkpoints (the measured, best-covered path). The two vLLM Qwen adapters are supported by the stage but their resource and accuracy figures below are NOT measured here -- size the GPU from the model card before a large run."
   - "Language is adapter-dependent. NeMoASRAdapter ignores it (a parakeet checkpoint takes no language argument); QwenASRAdapter passes the resolved NAME to its transcribe call; QwenOmniASRAdapter interpolates it into {language} in the prompt and switches to en_prompt_text on the exact string 'English'. So supply ISO CODES, never names: 'English' lowercases to 'english', matches no entry, is forwarded as-is, and silently loses the English prompt path."
@@ -59,16 +75,16 @@ notes:
   - "WER/CER filtering requires reference transcripts in the source manifest; if absent, WER is unproducible."
   - "(external) nvidia/parakeet-tdt-0.6b-v2: English, FastConformer-TDT, 16 kHz mono, native punctuation + capitalization + word/char/segment timestamps, up to 24 min per pass, CC-BY-4.0. Because it already emits written-form punctuated text, a downstream InverseTextNormalizationStage is usually redundant for Parakeet output (ITN targets spoken-form ASR)."
 presets:
-  english_parakeet: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2"}
-  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3"}
-  longform_english_1_1b: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b"}
-  qwen3_asr: {adapter_target: "nemo_curator.models.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B"}
-  qwen3_omni: {adapter_target: "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"}
+  english_parakeet: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2", max_audio_sec_per_actor: 2400.0}
+  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3", max_audio_sec_per_actor: 2400.0}
+  longform_english_1_1b: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b", max_audio_sec_per_actor: 2400.0}
+  qwen3_asr: {adapter_target: "nemo_curator.models.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B", max_audio_sec_per_actor: 2400.0}
+  qwen3_omni: {adapter_target: "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct", max_audio_sec_per_actor: 2400.0}
 versions:   # verified interchangeable via model_id -- load + run + identical pred_text output structure.
             # NeMo checkpoints only: a Qwen model also needs a different adapter_target, so it is a
             # preset (a param bundle), not a drop-in model_id swap.
   "nvidia/parakeet-tdt-0.6b-v2": "WHEN: English audio. Best English accuracy (6.05% avg WER on Open ASR) and highest throughput; up to 24 min/pass. Default preset (english_parakeet)."
   "nvidia/parakeet-tdt-0.6b-v3": "WHEN: multilingual European audio. 25 European languages (auto language ID). Preset: multilingual_parakeet_v3."
   "nvidia/parakeet-tdt_ctc-1.1b": "WHEN: very long English audio, or you need a CTC decoder. Larger hybrid FastConformer TDT+CTC (~1.1B), up to ~11 h/pass; heavier VRAM. Preset: longform_english_1_1b."
-verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 7, last_validated: "2026-09-22"}
+verified: {params: mechanical, tags: mechanical, adapter_capabilities: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 10, last_validated: "2026-10-06"}

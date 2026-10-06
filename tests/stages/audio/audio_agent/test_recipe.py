@@ -37,6 +37,34 @@ def _hash(payload: dict) -> str:
     return Recipe.from_dict(payload).freeze().config_hash
 
 
+def test_asr_card_presets_build_with_explicit_duration_budgets() -> None:
+    from nemo_curator.stages.audio.audio_agent.index import get_index
+    from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+    for name, params in get_index().card("ASRStage")["presets"].items():
+        recipe = Recipe.from_dict({"stages": [{"ref": "ASRStage", "params": params}]}).freeze()
+        before = recipe.config_hash
+        stages, errors = build_stages(recipe)
+        assert not errors, (name, errors)
+        assert stages is not None
+        assert stages[0].max_audio_sec_per_actor >= stages[0].max_inference_duration_s
+        assert recipe.config_hash == before
+
+
+def test_missing_asr_budget_is_reported_without_mutating_the_recipe() -> None:
+    from nemo_curator.stages.audio.audio_agent.index import get_index
+    from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+    params = dict(get_index().card("ASRStage")["presets"]["english_parakeet"])
+    params.pop("max_audio_sec_per_actor")
+    recipe = Recipe.from_dict({"stages": [{"ref": "ASRStage", "params": params}]}).freeze()
+    before = recipe.to_dict()
+    stages, errors = build_stages(recipe)
+    assert stages is None
+    assert "max_audio_sec_per_actor" in str(errors)
+    assert recipe.to_dict() == before
+
+
 class TestTheConfirmGateAnchor:
     def test_a_round_trip_through_to_dict_keeps_the_hash(self) -> None:
         """The host is handed a hash by ``validate`` and passes the recipe back to ``run`` as a

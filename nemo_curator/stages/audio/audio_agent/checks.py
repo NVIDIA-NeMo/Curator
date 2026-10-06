@@ -256,6 +256,60 @@ def _rate_converted_to(stage: Any, built: Any) -> int | None:  # noqa: ANN401 - 
     return _to_int(v)
 
 
+def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[int]]:  # noqa: C901
+    """Track file and resident rate evidence separately for each configured binding."""
+    # A conversion only changes the keys it actually writes. In particular, the
+    # default resampler leaves the source filepath untouched, and ASR's internal
+    # input preparation does not change audio supplied to a later stage.
+    file_rates: dict[str, set[int]] = {}
+    resident_rates: dict[str, set[int]] = {}
+    converted_resident_keys: set[str] = set()
+    for key in ctx.initial_tensor_keys or ():
+        resident_rates[key] = set(data_srs)
+    if ctx.initial_tensor_keys is None and "waveform" in ctx.initial_roles:
+        resident_rates["waveform"] = set(data_srs)
+    # Built stages carry real parameter defaults, but a stage that failed to construct is
+    # skipped in build_stages, so only trust the pairing when nothing was dropped.
+    built = list(ctx.stages or []) if len(ctx.stages or []) == len(ctx.recipe.stages) else []
+    rates: list[set[int]] = []
+    for i, s in enumerate(ctx.recipe.stages):
+        stage_obj = built[i] if built else None
+
+        def param(name: str, default: Any = None, stage: Any = s, obj: Any = stage_obj) -> Any:  # noqa: ANN401
+            return stage.params.get(name, getattr(obj, name, default))
+
+        filepath_key = param("filepath_key", param("audio_filepath_key", "audio_filepath"))
+        waveform_key = param("waveform_key", "waveform")
+        residency = param("input_residency", "file")
+        file_srs = file_rates.get(filepath_key, data_srs)
+        waveform_srs = resident_rates.get(waveform_key)
+        if residency == "waveform" or (residency == "auto" and waveform_key in converted_resident_keys):
+            srs_here = set(waveform_srs or ())
+        elif residency == "auto" and waveform_srs is not None:
+            # Auto prefers a usable resident pair, but a file fallback can still be
+            # taken on other rows. Both routes must meet the model constraint.
+            srs_here = set(waveform_srs) | set(file_srs)
+        else:
+            srs_here = set(file_srs)
+        rates.append(srs_here)
+        if s.ref == "ResampleAudioStage":
+            converted = _rate_converted_to(s, stage_obj)
+            if converted is not None:
+                if param("write_to_disk", True):
+                    file_rates[param("resampled_audio_filepath_key", "resampled_audio_filepath")] = {converted}
+                    if param("update_audio_filepath", False):
+                        original_key = param("original_audio_filepath_key", "original_audio_filepath")
+                        file_rates.setdefault(original_key, set(file_srs))
+                        file_rates[filepath_key] = {converted}
+                if param("keep_waveform_in_task", False):
+                    resident_rates[waveform_key] = {converted}
+                    converted_resident_keys.add(waveform_key)
+                elif param("write_to_disk", True) and residency != "file":
+                    resident_rates.pop(waveform_key, None)
+                    converted_resident_keys.discard(waveform_key)
+    return rates
+
+
 @register("card_constraints")
 def _check_card_constraints(ctx: CheckContext) -> CheckResult:
     """Model-card constraints (batch, sample-rate, duration, max-speakers)."""
@@ -270,20 +324,9 @@ def _check_card_constraints(ctx: CheckContext) -> CheckResult:
         else set()
     )
     mean_dur = (_to_float((data_profile or {}).get("mean_duration_sec")) or 0.0) if data_profile else 0.0
-    # The rate the audio carries AT each point, not the rate the source files had. Comparing a
-    # model's supported rates against the source profile warns about 48 kHz input to a 16 kHz
-    # model even when a resample sits immediately upstream -- correct pipelines told they are
-    # broken, which is how a validator loses its authority.
-    effective_srs = set(data_srs)
-    # Built stages carry real parameter defaults, but a stage that failed to construct is
-    # skipped in build_stages, so only trust the pairing when nothing was dropped.
-    built = list(ctx.stages or []) if len(ctx.stages or []) == len(ctx.recipe.stages) else []
+    rates = _sample_rate_provenance(ctx, data_srs)
     for i, s in enumerate(ctx.recipe.stages):
-        # A stage is judged on what it RECEIVES, so snapshot before applying its own conversion.
-        srs_here = set(effective_srs)
-        converted = _rate_converted_to(s, built[i] if built else None)
-        if converted is not None:
-            effective_srs = {converted}
+        srs_here = rates[i]
         card = idx.card(s.ref)
         if not card:
             continue
@@ -356,16 +399,27 @@ def _check_gpu_reservation(ctx: CheckContext) -> CheckResult:
     actors. Card-driven, so a new GPU stage is covered with no code change. Composites are
     skipped -- they delegate resources to their decomposed inner stages.
     """
+    from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio.audio_agent._device_capabilities import gpu_optional
     from nemo_curator.stages.base import CompositeStage
 
     idx = get_index()
     out: list[Issue] = []
     for i, s in enumerate(ctx.recipe.stages):
-        res_card = (idx.card(s.ref) or {}).get("resource") or {}
-        if res_card.get("bound") != "gpu" or res_card.get("gpu_optional"):
+        card = idx.card(s.ref) or {}
+        res_card = card.get("resource") or {}
+        if res_card.get("bound") != "gpu":
             continue
         stage_obj = ctx.stages[i] if i < len(ctx.stages) else None
         if stage_obj is None or isinstance(stage_obj, CompositeStage):
+            continue
+        try:
+            requires_gpu = bool(foundation.build_contract(stage_obj).gates.requires_gpu)
+        except Exception:  # noqa: BLE001, S112 - an unreadable contract cannot justify a new warning
+            continue
+        configured_gpu_optional = gpu_optional(stage_obj, card)
+        requires_gpu = requires_gpu or (res_card.get("bound") == "gpu" and configured_gpu_optional is False)
+        if not requires_gpu or configured_gpu_optional is True:
             continue
         sres = getattr(stage_obj, "resources", None)
         gpus = float(getattr(sres, "gpus", 0.0) or 0.0)
@@ -375,8 +429,8 @@ def _check_gpu_reservation(ctx: CheckContext) -> CheckResult:
                 Issue(
                     "gpu_reservation_missing",
                     "warning",
-                    f"{s.ref}: card is bound=gpu / not gpu_optional but the stage reserves no GPU "
-                    "(resources.gpus=0) -- it will run on CPU (very slow) and may over-parallelize",
+                    f"{s.ref}: the configured implementation requires a GPU but the stage reserves none "
+                    "(resources.gpus=0)",
                     stage_index=i,
                     stage=s.ref,
                     fix=f"set resources=Resources(gpus=1) (VRAM ~ card gpu_mem_gb={res_card.get('gpu_mem_gb')})",
@@ -488,28 +542,52 @@ def _check_unproducible(ctx: CheckContext) -> CheckResult:
 
 @register("output_completeness")
 def _check_output_completeness(ctx: CheckContext) -> CheckResult:
-    """Every requested output role must be produced by some stage in the recipe.
+    """Every requested output role must survive to the end of the recipe.
 
     Only active when the caller passes ``expected_outputs`` (semantic roles the
     user asked for). Catches the "asked for transcripts, no ASR stage" class.
-    ``validate`` also compiles acceptance-criterion fields into ``expected_outputs``.
+    Phase 2 compiles ``expected_outputs`` from ``GoalSpec.acceptance_criteria``.
     """
     if not ctx.expected_outputs:
         return CheckResult()
     from nemo_curator.stages.audio import agent as foundation
-    from nemo_curator.stages.audio._agent._conformance import produced_roles
 
-    available_roles = set(ctx.initial_roles)
-    available_keys = set(ctx.initial_keys)
-    for st in ctx.stages:
+    report = foundation.validate_pipeline(
+        ctx.stages,
+        initial_roles=ctx.initial_roles,
+        initial_keys=ctx.initial_keys,
+        initial_tensor_keys=ctx.initial_tensor_keys,
+        available_gpus=None,
+    )
+    available_roles = set(report.produced_roles)
+    available_keys = set(report.produced_keys)
+    # A conditional writer is still a potential producer; acceptance verifies
+    # whether its branch ran. Its field must survive all later transformations.
+    from nemo_curator.stages.audio._agent._composite import expand_composites
+
+    expanded = expand_composites(ctx.stages)
+    execution_stages = [item.stage for item in expanded.stages] if expanded.fully_resolved else ctx.stages
+    for index, stage in enumerate(execution_stages):
         try:
-            contract = foundation.build_contract(st)
-        except Exception:  # noqa: BLE001, S112
+            contract = foundation.build_contract(stage)
+        except Exception:  # noqa: BLE001, S112 - data_flow reports unreadable contracts
             continue
-        available_roles |= produced_roles(contract)
-        available_keys |= set(contract.writes.data_keys) | set(contract.writes.segment_data_keys)
         for conditional in contract.conditional_writes:
-            available_keys |= set(conditional.writes.data_keys) | set(conditional.writes.segment_data_keys)
+            keys = set(conditional.writes.data_keys)
+            segment_keys = set(conditional.writes.segment_data_keys)
+            roles = {contract.key_roles.get(key, "unknown") for key in keys} - {"unknown"}
+            segment_roles = {contract.key_roles.get(key, "unknown") for key in segment_keys} - {"unknown"}
+            suffix = foundation.validate_pipeline(
+                execution_stages[index + 1 :],
+                initial_roles=roles,
+                initial_keys=keys,
+                initial_segment_roles=segment_roles,
+                initial_segment_keys=segment_keys,
+                initial_tensor_keys=set(),
+                available_gpus=None,
+            )
+            available_keys |= (keys | segment_keys) & set(suffix.produced_keys)
+            available_roles |= (roles | segment_roles) & set(suffix.produced_roles)
     out: list[Issue] = []
     for want in ctx.expected_outputs:
         # Satisfied by a produced semantic role OR a literal produced key. The key match
@@ -520,11 +598,21 @@ def _check_output_completeness(ctx: CheckContext) -> CheckResult:
                 Issue(
                     "missing_output_producer",
                     "error",
-                    f"requested output {want!r} is not produced by any stage in the recipe (no matching role or key)",
+                    f"requested output {want!r} is not available at the end of the recipe (no matching role or key)",
                     fix="add a stage that produces this output (see discover / find_producers), or drop the requirement",
                 )
             )
     return CheckResult(issues=out)
+
+
+@register("acceptance_evaluability")
+def _check_acceptance_evaluability(ctx: CheckContext) -> CheckResult:
+    """Surface evidence requirements before approving a mechanically valid plan."""
+    from nemo_curator.stages.audio.audio_agent.acceptance import evaluability_issues
+    from nemo_curator.stages.audio.audio_agent.verbs import _terminal_evidence_outputs
+
+    _, row_coverage = _terminal_evidence_outputs(ctx.recipe, [])
+    return CheckResult(issues=evaluability_issues(ctx.acceptance_criteria, row_coverage=row_coverage))
 
 
 @register("request_type_sanity")
@@ -624,8 +712,46 @@ def _check_diarization_continuity(ctx: CheckContext) -> CheckResult:
     return CheckResult(issues=out)
 
 
-# Constructor fields through which a stage is told which column holds the audio path.
-_AUDIO_PATH_KEY_FIELDS = ("audio_filepath_key", "filepath_key")
+def _missing_source_audio_keys(stages: list[Any], columns: set[str]) -> set[str]:
+    """Check configured file consumers against observed keys, not a reader's defaults."""
+    from nemo_curator.stages.audio._agent._agent_registry import build_contract
+    from nemo_curator.stages.audio._agent._composite import expand_composites
+    from nemo_curator.stages.audio._agent._roles import role_for_value
+
+    available = set(columns)
+    expansion = expand_composites(stages[1:])
+    if not expansion.fully_resolved:
+        msg = "cannot resolve source audio consumers through an opaque composite"
+        raise ValueError(msg)
+
+    def missing_paths(spec: Any, roles: dict[str, str]) -> set[str]:  # noqa: ANN401 - configured IOSpec
+        return {
+            key
+            for key in spec.data_keys
+            if roles.get(key, role_for_value(key)) == "audio_filepath" and key not in available
+        }
+
+    for item in expansion.stages:
+        contract = build_contract(item.stage)
+        missing = missing_paths(contract.reads, contract.key_roles)
+        groups = [contract.reads_one_of] if contract.reads_one_of else []
+        groups.extend(
+            branch.reads_one_of
+            for branch in contract.conditional_reads
+            if set(branch.requires_keys) <= available and not set(branch.forbids_keys) & available
+        )
+        for alternatives in groups:
+            # An available resident/nested alternative needs no top-level file.
+            if alternatives and not any(set(spec.data_keys) <= available for spec in alternatives):
+                missing.update(key for spec in alternatives for key in missing_paths(spec, contract.key_roles))
+        if missing:
+            return missing
+        if not contract.preserves_upstream_keys:
+            available.clear()
+        available.difference_update(contract.removes_keys)
+        available.difference_update(contract.invalidates_keys)
+        available.update(contract.writes.data_keys)
+    return set()
 
 
 @register("source_schema")
@@ -646,34 +772,26 @@ def _check_source_schema(ctx: CheckContext) -> CheckResult:
     source is a blocking error, and the fix is either to convert the manifest or to say
     explicitly which column holds the audio.
 
-    Fires only when ALL of the following hold, so a correctly-configured pipeline is never
-    false-flagged: a manifest was profiled, its columns were observed, none of them carries
-    the ``audio_filepath`` role, and no stage was pointed at one of the columns that IS
-    present -- an explicit ``audio_filepath_key`` is the caller stating the format, which is
-    exactly what this asks for.
+    Text/metadata-only recipes need no audio column. Configured consumers,
+    including composite leaves and alternative resident inputs, determine
+    whether the observed schema actually needs a file carrier.
     """
-    from nemo_curator.stages.audio._agent._roles import role_for_value
-
     profile = ctx.data_profile or {}
     if profile.get("kind") != "manifest":
         return CheckResult()
     columns = {str(c) for c in (profile.get("manifest_keys") or [])}
     if not columns:
         return CheckResult()  # nothing observed -> no evidence, so no claim
-    if any(role_for_value(column) == "audio_filepath" for column in columns):
-        return CheckResult()  # the conventional column is present
-    # A stage explicitly pointed at one of the real columns is correctly configured.
-    for stage in ctx.recipe.stages:
-        for key_field in _AUDIO_PATH_KEY_FIELDS:
-            if str(stage.params.get(key_field) or "") in columns:
-                return CheckResult()
+    missing = _missing_source_audio_keys(ctx.stages, columns)
+    if not missing:
+        return CheckResult()
     return CheckResult(
         issues=[
             Issue(
                 "source_schema_mismatch",
                 "error",
-                f"the manifest's columns {sorted(columns)} contain no 'audio_filepath', which is the "
-                "key every audio stage reads; this recipe would validate, run, and yield no rows",
+                f"the manifest's columns {sorted(columns)} cannot supply the configured "
+                f"audio_filepath input key(s) {sorted(missing)} required by this recipe",
                 fix=(
                     "convert the manifest to the NeMo format, where each row carries its audio under "
                     "'audio_filepath' -- or, if the column is deliberately named something else, say so "

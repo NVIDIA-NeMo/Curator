@@ -188,7 +188,12 @@ def _stage_need(
         _DEFAULT_GPU_MEM_GB if requires_gpu else 0.0,
     )
     host_mem, host_mem_source = pick("host_mem_gb", _DEFAULT_HOST_MEM_GB)
-    gpu_optional = bool(res.get("gpu_optional", not requires_gpu))
+    from nemo_curator.stages.audio.audio_agent._device_capabilities import (
+        gpu_optional as configured_gpu_optional,
+    )
+
+    resolved_gpu_optional = configured_gpu_optional(stage, card)
+    gpu_optional = (not requires_gpu) if resolved_gpu_optional is None else resolved_gpu_optional
     resources = getattr(stage, "resources", None)
     # Ray CPU/GPU reservations are scheduling facts only the built stage knows;
     # they are NOT card/calibration numbers. Merely read the Resources object:
@@ -291,44 +296,27 @@ def _valid_calibration_number(value: Any) -> bool:  # noqa: ANN401
     )
 
 
-def cpu_fallback(stages: list[Any], env: Any, *, index: Any = None) -> list[str]:  # noqa: ANN401
-    """Drop the Ray GPU reservation of GPU-OPTIONAL stages on a host with no GPU.
+def pin_cpu_model_workers(stages: list[Any]) -> list[str]:
+    """Pin unsized CPU model stages to one worker per stage.
 
-    ``audio_cpu`` is a supported install profile, and a stage whose card declares
-    ``resource.gpu_optional: true`` runs on CPU. Such stages nevertheless declare a GPU
-    reservation by default (``Resources(gpus=0.5)`` on UTMOS/SIGMOS), which a GPU-less
-    scheduler can never satisfy -- so the plan was refused for a recipe that would in
-    fact have run. Zero the reservation for exactly those stages (replacing entries with
-    ``.with_()`` copies, which the caller then executes) and report what changed.
-
-    Deliberately conservative: a stage is downgraded only when its card EXPLICITLY says
-    the GPU is optional. A stage that requires a GPU -- or one with no card to vouch for
-    it -- keeps its reservation and still escalates, so a genuinely GPU-bound recipe is
-    never quietly turned into a CPU run.
-
-    Not applied when the GPU is merely MASKED (present but unreachable from this
-    process): there a device is assumed present and the reservation must stand.
+    Model-resident stages load one independent model in every actor.  Leaving
+    ``num_workers`` unset delegates sizing to Xenna, whose ordinary CPU
+    autoscaling does not know that host model memory is multiplicative.  An
+    explicit user worker count remains authoritative.
     """
-    from nemo_curator.stages.audio.audio_agent.index import get_index
-    from nemo_curator.stages.resources import Resources
-
-    if int(getattr(env, "gpu_count", 0) or 0) > 0 or bool(getattr(env, "gpu_possibly_masked", False)):
-        return []
-    idx = index or get_index()
     notes: list[str] = []
-    for i, stage in enumerate(stages):
-        resources = getattr(stage, "resources", None)
-        reserved = float(getattr(resources, "gpus", 0.0) or 0.0)
-        if reserved <= 0:
+    for index, stage in enumerate(stages):
+        if not bool(getattr(stage, "MODEL_RESIDENT_PER_WORKER", False)):
             continue
-        card_resource = (idx.card(type(stage).__name__) or {}).get("resource") or {}
-        if card_resource.get("gpu_optional") is not True:
-            continue  # required, or unvouched: leave it to escalate honestly
-        cpus = float(getattr(resources, "cpus", 1.0) or 1.0)
-        stages[i] = stage.with_(resources=Resources(cpus=cpus))
+        resources = getattr(stage, "resources", None)
+        if float(getattr(resources, "gpus", 0.0) or 0.0) > 0:
+            continue
+        if _fixed_num_workers(stage) is not None:
+            continue
+        stages[index] = stage.with_(num_workers=1)
         notes.append(
-            f"{type(stage).__name__}: released a {reserved} GPU reservation and scheduled on CPU "
-            "(card declares gpu_optional; no GPU on this host)"
+            f"{type(stage).__name__}: pinned num_workers=1 for CPU model residency "
+            "(set num_workers explicitly to request and plan a different count)"
         )
     return notes
 

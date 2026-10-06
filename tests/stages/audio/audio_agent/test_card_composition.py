@@ -23,6 +23,7 @@ because the recommendation was prose naming a stage.
 from __future__ import annotations
 
 from nemo_curator.stages.audio.audio_agent.card_conformance import (
+    _adapter_capability_violations,
     _blueprint_violations,
     _composite_legibility,
     _composition_violations,
@@ -30,6 +31,32 @@ from nemo_curator.stages.audio.audio_agent.card_conformance import (
     audit_blueprints,
 )
 from nemo_curator.stages.audio.audio_agent.context import assemble
+
+
+class TestAdapterCapabilities:
+    def test_valid_device_map_is_accepted(self) -> None:
+        card = {
+            "adapter_capabilities": {
+                "package.CpuAdapter": {"supported_devices": ["cpu", "cuda"]},
+                "package.GpuAdapter": {"supported_devices": ["cuda"]},
+            },
+            "presets": {"cpu": {"adapter_target": "package.CpuAdapter"}},
+        }
+
+        assert _adapter_capability_violations("ASRStage", card, {"adapter_target"}) == []
+
+    def test_unknown_devices_and_unmapped_presets_are_rejected(self) -> None:
+        card = {
+            "adapter_capabilities": {
+                "package.Adapter": {"supported_devices": ["tpu"]},
+            },
+            "presets": {"other": {"adapter_target": "package.OtherAdapter"}},
+        }
+
+        violations = _adapter_capability_violations("ASRStage", card, {"adapter_target"})
+
+        assert any("unsupported values" in violation for violation in violations)
+        assert any("does not declare preset" in violation for violation in violations)
 
 
 class TestCompositionEdges:

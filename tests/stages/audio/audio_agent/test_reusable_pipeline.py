@@ -1004,7 +1004,7 @@ def test_sigmos_segment_planner_refuses_unsafe_or_incomplete_selectors(
     assert reason in result["rejected"][0]["reason"]
 
 
-def test_sigmos_segment_planner_refuses_unsafe_score_lineage(tmp_path: Path) -> None:
+def test_sigmos_segment_planner_accepts_independent_annotation(tmp_path: Path) -> None:
     recipe = _sigmos_recipe(tmp_path, mode="segments")
     recipe.stages.insert(
         2,
@@ -1016,8 +1016,80 @@ def test_sigmos_segment_planner_refuses_unsafe_score_lineage(tmp_path: Path) -> 
 
     result = aa.plan_checkpoint(recipe)
 
-    assert result["status"] == "no_candidate"
-    assert "exact score lineage" in result["rejected"][0]["reason"]
+    assert result["candidates"]
+    assert all(candidate["producer_stage"] == "SIGMOSFilterStage" for candidate in result["candidates"])
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        StageRef(ref="GetAudioDurationStage", params={"duration_key": "other_duration"}),
+        StageRef(ref="ChannelCountStage", params={"action": "annotate", "num_channels_key": "channels"}),
+        StageRef(ref="UTMOSFilterStage", params={"action": "annotate", "mode": "task", "score_key": "quality"}),
+    ],
+)
+def test_checkpoint_crosses_independent_annotations(tmp_path: Path, annotation: StageRef) -> None:
+    recipe = _duration_recipe(tmp_path)
+    recipe.stages.insert(2, annotation)
+
+    result = aa.plan_checkpoint(recipe, decision_stage="GetAudioDurationStage")
+
+    assert result["candidates"]
+    assert result["candidates"][0]["checkpoint_index"] == 3
+
+
+def test_threshold_feedback_crosses_other_filter_only_after_checkpoint(tmp_path: Path) -> None:
+    recipe = _duration_recipe(tmp_path, checkpoint=True)
+    recipe.stages.insert(2, StageRef(ref="ChannelCountStage", params={"action": "annotate"}))
+    recipe.stages.insert(
+        4,
+        StageRef(
+            ref="PreserveByValueStage",
+            params={
+                "input_value_key": "num_channels",
+                "operator": "eq",
+                "target_value": 1,
+            },
+        ),
+    )
+    original_hash = recipe.freeze().config_hash
+
+    result = aa.plan_checkpoint(recipe, decision_stage="GetAudioDurationStage", decision_value=2.0)
+
+    assert result["candidates"]
+    candidate = Recipe.from_dict(result["candidates"][0]["recipe"])
+    assert candidate.stages[-2].params["target_value"] == 2.0
+    assert candidate.stages[4].params["target_value"] == 1
+    assert recipe.freeze().config_hash == original_hash
+
+    recipe.stages[3], recipe.stages[4] = recipe.stages[4], recipe.stages[3]
+    refused = aa.plan_checkpoint(recipe, decision_stage="GetAudioDurationStage", decision_value=2.0)
+    assert refused["status"] == "no_candidate"
+    assert "exact score lineage" in refused["rejected"][0]["reason"]
+
+
+@pytest.mark.parametrize(
+    "intervening",
+    [
+        StageRef(ref="GetAudioDurationStage", params={"duration_key": "duration"}),
+        StageRef(ref="UTMOSFilterStage", params={"action": "annotate", "mode": "auto", "score_key": "duration"}),
+        StageRef(ref="SplitLongAudioStage", params={}),
+        StageRef(ref="TimestampMapperStage", params={}),
+        StageRef(ref="ManifestWriterStage", params={"output_path": "/unused/manifest.jsonl"}),
+    ],
+)
+def test_intervening_stage_must_prove_exact_score_preservation(tmp_path: Path, intervening: StageRef) -> None:
+    recipe = _duration_recipe(tmp_path)
+    recipe.stages.insert(2, intervening)
+    built, errors = build_stages(recipe)
+    assert not errors
+    assert reusable_pipeline._score_lineage_reason(
+        recipe,
+        built,
+        producer_index=1,
+        selector_index=3,
+        score_keys=("duration",),
+    )
 
 
 def test_sigmos_scalar_feedback_fails_closed_without_mutating_any_threshold(

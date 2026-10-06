@@ -373,6 +373,15 @@ def test_success_responses_inventory_only_proven_durable_paths() -> None:
     assert "end every successful full/delta/continue/\n   reuse/serve-as-is result" in agents
 
 
+def test_blocked_recipe_language_does_not_claim_unvalidated_success() -> None:
+    skill = (_SKILLS / "audio-curation/SKILL.md").read_text(encoding="utf-8")
+
+    assert "candidate recipe" in skill
+    assert "blocked draft" in skill
+    assert "working recipe" in skill
+    assert "intent_status: pass" in skill
+
+
 @pytest.mark.parametrize(("shim", "skill"), sorted(_SHIMS.items()))
 def test_every_host_shim_resolves_into_the_package(shim: str, skill: str) -> None:
     """Existing is not enough: it has to resolve to the packaged file.

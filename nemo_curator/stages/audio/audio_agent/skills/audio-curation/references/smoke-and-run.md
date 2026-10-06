@@ -27,8 +27,10 @@ python -m nemo_curator.stages.audio.audio_agent smoke --recipe recipe.yaml --sam
 itself (free port, plasma on /tmp, API limit) so no manual Ray setup is needed.
 If a cluster already exists, set `RAY_ADDRESS` and omit the flag.
 
-Show the user `retained` / `rejected` + examples. If `goals_met` is false (0
-retained, errors), read the structured `diagnosis` (when present). Adjust a
+Show the user `retained` / `rejected` + examples. Zero retained is allowed only
+when the frozen acceptance contract explicitly permits it and no must criterion
+or execution error is bypassed. An empty sample does not prove the whole corpus
+has zero matches. If `goals_met` is false, read the structured `diagnosis` (when present). Adjust a
 threshold only for a grounded data/filter failure; environment/action-required
 failures go through the decision policy in `SKILL.md` step 2.
 
@@ -41,6 +43,17 @@ smoke.json`). On a CPU smoke there's no VRAM to measure, so the planner keeps
 using the card facts.
 
 ## 6. Confirm gate -> run
+
+Compare the observed smoke results against every frozen must criterion before
+claiming readiness. A token does not establish semantic fit: if examples
+contradict a must, stop and explain it rather than asking to run an already
+unsatisfactory recipe. Requirements needing more evidence remain unverified.
+
+Distinguish the requested device, allocated resources, and actual inference
+provider. Driver CUDA availability or a GPU reservation does not prove GPU
+execution. Disclose any observed CPU/model/provider fallback and obtain a new
+approved branch for a changed execution plan; if the actual provider is not
+reported, say it is unverified rather than infer it from configuration.
 
 Immediately before the final approval question, refresh the path-impact facts for the
 execution being proposed. Inspect:

@@ -24,11 +24,15 @@ from collections.abc import Iterator  # noqa: TC003
 from types import SimpleNamespace
 
 import pytest
+from fsspec.core import url_to_fs
+from fsspec.implementations.memory import MemoryFileSystem
 
 from nemo_curator.stages.audio.audio_agent import artifacts, run_index, run_store, verbs
 from nemo_curator.stages.audio.audio_agent.artifacts import Artifact
 from nemo_curator.stages.audio.audio_agent.contracts import RunRecord
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
+from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.stages.audio.io.convert import DocumentBatchJsonlWriterStage
 
 
 def test_cloud_credentials_are_masked_in_display_history_and_kept_only_in_the_exact_recipe(
@@ -98,6 +102,161 @@ def test_publish_does_not_register_an_artifact_when_marker_write_fails(
         artifacts.publish(artifact)
 
     assert saved == []
+
+
+@pytest.mark.parametrize(
+    "stage_type",
+    [ManifestWriterStage, DocumentBatchJsonlWriterStage],
+)
+def test_failed_run_staging_preserves_existing_final_output(tmp_path, stage_type: type) -> None:  # noqa: ANN001
+    final = tmp_path / "final.jsonl"
+    final.write_text("existing\n", encoding="utf-8")
+    stage = stage_type(output_path=str(final))
+
+    staged = verbs._prepare_staged_file_outputs([stage])
+    assert stage.output_path != str(final)
+    with open(stage.output_path, "w", encoding="utf-8") as stream:
+        stream.write("partial\n")
+
+    verbs._discard_staged_file_outputs(staged)
+    verbs._restore_staged_file_outputs(staged)
+
+    assert final.read_text(encoding="utf-8") == "existing\n"
+    assert stage.output_path == str(final)
+    assert not list(tmp_path.glob("*.audio-agent-*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "stage_type",
+    [ManifestWriterStage, DocumentBatchJsonlWriterStage],
+)
+def test_successful_run_staging_atomically_replaces_final_output(tmp_path, stage_type: type) -> None:  # noqa: ANN001
+    final = tmp_path / "final.jsonl"
+    final.write_text("existing\n", encoding="utf-8")
+    stage = stage_type(output_path=str(final))
+
+    staged = verbs._prepare_staged_file_outputs([stage])
+    with open(stage.output_path, "w", encoding="utf-8") as stream:
+        stream.write("complete\n")
+    verbs._promote_staged_file_outputs(staged)
+    verbs._restore_staged_file_outputs(staged)
+
+    assert final.read_text(encoding="utf-8") == "complete\n"
+    assert stage.output_path == str(final)
+    assert not list(tmp_path.glob("*.audio-agent-*.tmp"))
+
+
+def test_promotion_preflights_every_staged_output_before_replacing_any_final(tmp_path) -> None:  # noqa: ANN001
+    manifest_final = tmp_path / "manifest.jsonl"
+    document_final = tmp_path / "documents.jsonl"
+    manifest_final.write_text("existing manifest\n", encoding="utf-8")
+    document_final.write_text("existing documents\n", encoding="utf-8")
+    stages = [
+        ManifestWriterStage(output_path=str(manifest_final)),
+        DocumentBatchJsonlWriterStage(output_path=str(document_final)),
+    ]
+
+    staged = verbs._prepare_staged_file_outputs(stages)
+    with open(staged[0].staged_path, "w", encoding="utf-8") as stream:
+        stream.write("new manifest\n")
+
+    with pytest.raises(FileNotFoundError, match=r"documents\.jsonl"):
+        verbs._promote_staged_file_outputs(staged)
+    verbs._discard_staged_file_outputs(staged)
+    verbs._restore_staged_file_outputs(staged)
+
+    assert manifest_final.read_text(encoding="utf-8") == "existing manifest\n"
+    assert document_final.read_text(encoding="utf-8") == "existing documents\n"
+
+
+def test_promotion_rolls_back_every_final_when_a_later_replace_fails(
+    tmp_path,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_final = tmp_path / "manifest.jsonl"
+    document_final = tmp_path / "documents.jsonl"
+    manifest_final.write_text("existing manifest\n", encoding="utf-8")
+    document_final.write_text("existing documents\n", encoding="utf-8")
+    stages = [
+        ManifestWriterStage(output_path=str(manifest_final)),
+        DocumentBatchJsonlWriterStage(output_path=str(document_final)),
+    ]
+    staged = verbs._prepare_staged_file_outputs(stages)
+    for output, content in zip(staged, ("new manifest\n", "new documents\n"), strict=True):
+        with open(output.staged_path, "w", encoding="utf-8") as stream:
+            stream.write(content)
+
+    real_replace = os.replace
+
+    def fail_second_promotion(source: str, destination: str) -> None:
+        if source == staged[1].staged_path and destination == str(document_final):
+            message = "injected second promotion failure"
+            raise OSError(message)
+        real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_second_promotion)
+
+    with pytest.raises(OSError, match="injected second promotion failure"):
+        verbs._promote_staged_file_outputs(staged)
+    verbs._discard_staged_file_outputs(staged)
+    verbs._restore_staged_file_outputs(staged)
+
+    assert manifest_final.read_text(encoding="utf-8") == "existing manifest\n"
+    assert document_final.read_text(encoding="utf-8") == "existing documents\n"
+    assert not list(tmp_path.glob("*.audio-agent-*"))
+
+
+def test_remote_promotion_rolls_back_every_final_when_a_later_move_fails(
+    tmp_path,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = f"memory://audio-agent-tests/{tmp_path.name}"
+    manifest_final = f"{root}/manifest.jsonl"
+    document_final = f"{root}/documents.jsonl"
+    stages = [
+        ManifestWriterStage(output_path=manifest_final),
+        DocumentBatchJsonlWriterStage(output_path=document_final),
+    ]
+    for uri, content in (
+        (manifest_final, b"existing manifest\n"),
+        (document_final, b"existing documents\n"),
+    ):
+        fs, path = url_to_fs(uri)
+        fs.pipe(path, content)
+
+    staged = verbs._prepare_staged_file_outputs(stages)
+    for output, content in zip(staged, (b"new manifest\n", b"new documents\n"), strict=True):
+        fs, path = url_to_fs(output.staged_path)
+        fs.pipe(path, content)
+
+    _, failing_source = url_to_fs(staged[1].staged_path)
+    _, failing_destination = url_to_fs(document_final)
+    real_move = MemoryFileSystem.mv
+
+    def fail_second_promotion(
+        filesystem: MemoryFileSystem,
+        source: str,
+        destination: str,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        if source == failing_source and destination == failing_destination:
+            message = "injected second remote promotion failure"
+            raise OSError(message)
+        real_move(filesystem, source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(MemoryFileSystem, "mv", fail_second_promotion)
+
+    with pytest.raises(OSError, match="injected second remote promotion failure"):
+        verbs._promote_staged_file_outputs(staged)
+    verbs._discard_staged_file_outputs(staged)
+    verbs._restore_staged_file_outputs(staged)
+
+    manifest_fs, manifest_path = url_to_fs(manifest_final)
+    document_fs, document_path = url_to_fs(document_final)
+    assert manifest_fs.cat(manifest_path) == b"existing manifest\n"
+    assert document_fs.cat(document_path) == b"existing documents\n"
+    assert not manifest_fs.glob(f"/audio-agent-tests/{tmp_path.name}/*.audio-agent-*")
 
 
 @contextlib.contextmanager

@@ -584,6 +584,56 @@ def test_smoke_token_is_issued_only_after_sampled_goals_are_met(
     assert "smoke_token_status" not in result
 
 
+@pytest.mark.parametrize(
+    ("criteria", "permitted"),
+    [
+        ([], False),
+        ([{"id": "empty", "type": "yield", "check": {"op": "==", "value": 0}}], True),
+        ([{"id": "some", "type": "yield", "check": {"op": ">", "value": 0}}], False),
+    ],
+)
+def test_zero_match_smoke_obeys_frozen_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    criteria: list[dict],
+    permitted: bool,
+) -> None:
+    source = tmp_path / "source.jsonl"
+    source.write_text('{"id":"a"}\n')
+    _stub_smoke_runtime(monkeypatch, lambda _source: None)
+    recipe = _source_recipe("ManifestReader", {"manifest_path": str(source)})
+    recipe["acceptance_criteria"] = criteria
+
+    result = verbs.smoke(recipe, sample=1)
+
+    assert result["ran"]
+    assert result["retained"] == 0
+    assert result["goals_met"] is permitted
+    assert ("smoke_token" in result) is permitted
+    if permitted:
+        assert any("full-dataset yield is not established" in note for note in result["notes"])
+
+
+def test_permitted_empty_output_does_not_turn_an_execution_error_into_success(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.jsonl"
+    source.write_text('{"id":"a"}\n')
+    _stub_smoke_runtime(monkeypatch, lambda _source: None)
+
+    def fail(*_args, **_kwargs):  # noqa: ANN202
+        msg = "source read failed"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", fail)
+    recipe = _source_recipe("ManifestReader", {"manifest_path": str(source)})
+    recipe["acceptance_criteria"] = [{"id": "empty", "type": "yield", "check": {"op": "==", "value": 0}}]
+    result = verbs.smoke(recipe, sample=1)
+    assert result["errors"]
+    assert "smoke_token" not in result
+
+
 def test_a_smokes_measurements_are_waiting_for_the_next_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -828,12 +878,12 @@ def test_streaming_fallback_resets_owned_partial_checkpoint_before_batch_retry(
     checkpoint = ManifestCheckpointStage(output_path=str(output))
     attempts = 0
 
-    def execute(_stages, _executor, *, checkpoint_path=None):  # noqa: ANN001, ANN202, ARG001
+    def execute(pipeline, _executor, *, checkpoint_path=None):  # noqa: ANN001, ANN202, ARG001
         nonlocal attempts
         attempts += 1
         # Xenna executes a serialized worker copy, so retry ownership must be
         # durable evidence the original driver-side stage can verify.
-        worker_checkpoint = copy.deepcopy(checkpoint)
+        worker_checkpoint = copy.deepcopy(pipeline.stages[0])
         worker_checkpoint.setup()
         worker_checkpoint.process(AudioTask(data={"attempt": attempts}))
         if attempts == 1:
@@ -841,7 +891,7 @@ def test_streaming_fallback_resets_owned_partial_checkpoint_before_batch_retry(
         return []
 
     monkeypatch.setattr(verbs, "_make_executor", lambda mode: mode)
-    monkeypatch.setattr(verbs, "_run_pipeline", execute)
+    monkeypatch.setattr("nemo_curator.pipeline.Pipeline.run", execute)
 
     results, used_mode = verbs._run_pipeline_autofallback(
         [checkpoint],
@@ -853,6 +903,7 @@ def test_streaming_fallback_resets_owned_partial_checkpoint_before_batch_retry(
     assert results == []
     assert used_mode == "batch"
     assert output.read_text(encoding="utf-8") == '{"attempt": 2}\n'
+    assert Path(f"{output}._COMPLETE").exists()
     assert not Path(f"{output}._RETRY_OWNER").exists()
 
 

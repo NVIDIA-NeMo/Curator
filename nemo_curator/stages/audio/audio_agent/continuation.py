@@ -71,6 +71,15 @@ def materialize(new_recipe: Recipe, *, uri: str, kind: str, prefix: int) -> tupl
             f"from a manifest or an audio directory"
         )
     ref, param = source
+    if kind == "audio_dir":
+        from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+        built, issues = build_stages(new_recipe)
+        if issues or len(built) != len(new_recipe.stages):
+            return None, f"cannot verify the audio-directory boundary: {issues}"
+        broken = _directory_boundary_breaks(built[:prefix], built[prefix:])
+        if broken:
+            return None, broken
     suffix = [StageRef(ref=s.ref, params=dict(s.params)) for s in new_recipe.stages[prefix:]]
     if not suffix:
         return None, "nothing left to run after the reuse point (this is an 'already done' case)"
@@ -136,12 +145,18 @@ def _resume_breaks_on_disk_boundary(new_recipe: Recipe, prefix: int) -> str | No
         from nemo_curator.stages.audio import agent as foundation
         from nemo_curator.stages.audio._agent._conformance import produced_roles
         from nemo_curator.stages.audio._agent._roles import role_for_value
+        from nemo_curator.stages.audio.audio_agent import artifacts
         from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
         built, _ = build_stages(new_recipe)
         if not built or not 0 < prefix < len(built):
             return None
         parent_built, suffix_built = built[:prefix], built[prefix:]
+        _, kind = artifacts.output_uri(new_recipe.stages[prefix - 1])
+        if kind == "audio_dir":
+            broken = _directory_boundary_breaks(parent_built, suffix_built)
+            if broken:
+                return broken
 
         roles: set[str] = {"audio_filepath"}
         keys: set[str] = {"audio_filepath"}
@@ -181,6 +196,50 @@ def _resume_breaks_on_disk_boundary(new_recipe: Recipe, prefix: int) -> str | No
         return "; ".join(reasons) or None
     except Exception:  # noqa: BLE001 - resume-safety is best-effort; never block reuse on a guard error
         return None
+
+
+def _directory_boundary_breaks(parent_built: list[Any], suffix_built: list[Any]) -> str | None:
+    """Check the keys and audio binding a bare folder source actually restores.
+
+    A folder scan points ``audio_filepath`` at the generated files, not at the
+    original files preserved by a conversion's default configuration. A
+    manifest is needed when the suffix still consumes that original binding.
+    """
+    from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
+
+    adapter = foundation.build_contract(CreateInitialManifestAudioFolderStage(data_dir="boundary"))
+    keys = set(adapter.writes.data_keys)
+    roles = {adapter.key_roles[key] for key in keys if key in adapter.key_roles}
+    report = foundation.validate_pipeline(suffix_built, initial_roles=roles, initial_keys=keys)
+    errors = [issue for issue in report.issues if issue.severity == "error"]
+    if errors:
+        return "audio-directory source cannot restore suffix inputs: " + "; ".join(issue.message for issue in errors)
+
+    producer = parent_built[-1]
+    contract = foundation.build_contract(producer)
+    if "disk" not in contract.writes.produces:
+        return None
+    # The folder adapter's fixed key is safe only when the producer has already
+    # rebound that same key to its generated audio. Other named paths and
+    # pass-through source paths require a manifest to preserve their identity.
+    rebound = (
+        getattr(producer, "update_audio_filepath", False)
+        and getattr(producer, "audio_filepath_key", None) == "audio_filepath"
+    )
+    if rebound:
+        return None
+    for stage in suffix_built:
+        suffix_contract = foundation.build_contract(stage)
+        specs = [suffix_contract.reads, *suffix_contract.reads_one_of, suffix_contract.optional_reads]
+        if any("audio_filepath" in spec.data_keys for spec in specs):
+            return (
+                "audio-directory source would rebind 'audio_filepath' from the original audio "
+                f"to generated audio before {type(stage).__name__}; persist a manifest to preserve the binding"
+            )
+        if "audio_filepath" in suffix_contract.writes.data_keys:
+            break
+    return None
 
 
 def _metadata_lost_across(parent_built: list[Any], suffix_built: list[Any]) -> str:

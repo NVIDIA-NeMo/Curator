@@ -16,9 +16,11 @@
 resolve, and row-accurate evidence counting (no GPU / Ray execution needed)."""
 
 import json
+import pickle
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from nemo_curator.stages.audio import audio_agent as aa
@@ -29,6 +31,248 @@ from nemo_curator.stages.audio.audio_agent.report import _row_count
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
 _WRITER = {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/out.jsonl"}}  # noqa: S108
 _RECIPE = {"stages": [_READER, {"ref": "GetAudioDurationStage", "params": {}}, _WRITER]}
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_published_manifest_tracks_implicit_generated_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, nested: bool
+) -> None:
+    from nemo_curator.stages.audio.audio_agent import artifacts, reuse
+    from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(tmp_path))
+    asset = tmp_path / "implicit.wav"
+    asset.write_bytes(b"generated-audio")
+    manifest = tmp_path / "out.jsonl"
+    row = {"converted_path": str(asset)}
+    manifest.write_text(json.dumps({"segments": [row]} if nested else row) + "\n")
+    rec = Recipe.from_dict(
+        {
+            "stages": [
+                _READER,
+                {
+                    "ref": "MonoConversionStage",
+                    "params": {
+                        "write_to_disk": True,
+                        "keep_waveform_in_task": False,
+                        "output_audio_filepath_key": "converted_path",
+                    },
+                },
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
+            ]
+        }
+    ).freeze()
+    stages, errors = build_stages(rec)
+    assert not errors
+    warnings = []
+    published = verbs._publish_artifacts(
+        rec,
+        stages,
+        dataset_key="fixture",
+        fingerprint_tier="stat",
+        per_stage={},
+        run_id="fixture",
+        input_count=1,
+        data_profile=None,
+        started_at="",
+        ended_at="",
+        persistence_warnings=warnings,
+    )
+    assert published
+    assert not warnings
+    final = artifacts.load(artifacts.plan_steps(rec, "fixture")[-1].step_key)
+    assert final.dependencies[str(asset)] == artifacts.content_digest(str(asset))
+    assert reuse.scan(rec, dataset_key="fixture")["decision"] == "already_done"
+    asset.unlink()
+    assert artifacts.invalid_reasons(final, dataset_key="fixture")
+    assert reuse.scan(rec, dataset_key="fixture")["decision"] != "already_done"
+
+
+def test_manifest_asset_dependencies_refuse_missing_or_unreadable_evidence(tmp_path: Path) -> None:
+    manifest = tmp_path / "out.jsonl"
+    manifest.write_text(json.dumps({"converted": str(tmp_path / "missing.wav")}) + "\n")
+    with pytest.raises(ValueError, match="missing or unreadable"):
+        verbs._manifest_asset_dependencies(str(manifest), {"converted"})
+    manifest.write_text("corrupt-json\n")
+    with pytest.raises(json.JSONDecodeError, match="Expecting value"):
+        verbs._manifest_asset_dependencies(str(manifest), {"converted"})
+
+
+@pytest.mark.parametrize("rows", [[], [{"row": 1}, {"row": 2}]])
+def test_run_pipeline_prepares_sinks_before_serialized_workers(tmp_path: Path, rows: list[dict]) -> None:
+    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage, ManifestWriterStage
+    from nemo_curator.tasks import AudioTask
+
+    checkpoint_path = tmp_path / "checkpoint.jsonl"
+    manifest_path = tmp_path / "manifest.jsonl"
+    stages = [ManifestCheckpointStage(str(checkpoint_path)), ManifestWriterStage(str(manifest_path))]
+
+    class Executor:
+        def execute(self, execution_stages, _initial_tasks):  # noqa: ANN001, ANN202
+            assert checkpoint_path.read_bytes() == manifest_path.read_bytes() == b""
+            workers = pickle.loads(pickle.dumps(execution_stages))  # noqa: S301
+            for worker in workers:
+                worker.setup_on_node()
+                worker.setup(WorkerMetadata())
+            for row in rows:
+                task = workers[0].process(AudioTask(data=row))
+                workers[1].process(task)
+            return []
+
+    assert verbs._run_pipeline(stages, Executor()) == []
+    assert [json.loads(line) for line in checkpoint_path.read_text().splitlines()] == rows
+    assert manifest_path.read_bytes() == checkpoint_path.read_bytes()
+    assert Path(f"{checkpoint_path}._COMPLETE").exists()
+    assert not Path(f"{manifest_path}._RUN").exists()
+
+
+def test_run_pipeline_does_not_launch_executor_after_preparation_failure(tmp_path: Path) -> None:
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage
+
+    retained = tmp_path / "retained.jsonl"
+    retained.write_text('{"retained": true}\n')
+
+    class Executor:
+        def execute(self, _stages, _initial_tasks):  # noqa: ANN001, ANN202
+            raise AssertionError("executor must not launch after failed preparation")  # noqa: EM101
+
+    with pytest.raises(FileExistsError, match="refuses to overwrite"):
+        verbs._run_pipeline([ManifestCheckpointStage(str(retained))], Executor())
+    assert retained.read_text() == '{"retained": true}\n'
+
+
+def test_batch_fallback_prepares_a_clean_second_attempt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage, ManifestWriterStage
+    from nemo_curator.tasks import AudioTask
+
+    checkpoint_path = tmp_path / "checkpoint.jsonl"
+    manifest_path = tmp_path / "manifest.jsonl"
+    stages = [ManifestCheckpointStage(str(checkpoint_path)), ManifestWriterStage(str(manifest_path))]
+    attempts: list[str] = []
+
+    class Executor:
+        def __init__(self, mode: str) -> None:
+            self.mode = mode
+
+        def execute(self, execution_stages, _initial_tasks):  # noqa: ANN001, ANN202
+            attempts.append(self.mode)
+            assert checkpoint_path.read_bytes() == manifest_path.read_bytes() == b""
+            workers = pickle.loads(pickle.dumps(execution_stages))  # noqa: S301
+            for worker in workers:
+                worker.setup_on_node()
+                worker.setup(WorkerMetadata())
+            row = {"attempt": self.mode}
+            workers[1].process(workers[0].process(AudioTask(data=row)))
+            if self.mode == "streaming":
+                raise RuntimeError("streaming mode requires batch mode: not enough GPU capacity")  # noqa: EM101
+            return []
+
+    monkeypatch.setattr(verbs, "_make_executor", Executor)
+    result, mode = verbs._run_pipeline_autofallback(
+        stages, "streaming", None, before_retry=verbs._automatic_retry_reset_hook(stages)
+    )
+    assert result == []
+    assert mode == "batch"
+    assert attempts == ["streaming", "batch"]
+    assert checkpoint_path.read_text() == manifest_path.read_text() == '{"attempt": "batch"}\n'
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_failed_tasks_never_publish_checkpoint_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool
+) -> None:
+    from nemo_curator.backends.failed_task_markers import FAILED_TASKS_DIR_ENV_VAR, record_failed_tasks
+    from nemo_curator.stages.audio.common import ManifestCheckpointStage, ManifestWriterStage
+    from nemo_curator.tasks import AudioTask
+
+    checkpoint_path = tmp_path / "checkpoint.jsonl"
+    manifest_path = tmp_path / "manifest.jsonl"
+    stages = [ManifestCheckpointStage(str(checkpoint_path)), ManifestWriterStage(str(manifest_path))]
+    monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(tmp_path / "failures"))
+
+    class Executor:
+        def execute(self, execution_stages, _initial_tasks):  # noqa: ANN001, ANN202
+            workers = pickle.loads(pickle.dumps(execution_stages))  # noqa: S301
+            for worker in workers:
+                worker.setup()
+            workers[1].process(workers[0].process(AudioTask(data={"kept": 1})))
+            record_failed_tasks()
+            return []
+
+    execute = (
+        (lambda: verbs._run_pipeline_autofallback(stages, "batch", Executor()))
+        if fallback
+        else (lambda: verbs._run_pipeline(stages, Executor()))
+    )
+    with pytest.raises(RuntimeError, match="recorded failed tasks"):
+        execute()
+    assert checkpoint_path.read_text() == manifest_path.read_text() == '{"kept": 1}\n'
+    assert not Path(f"{checkpoint_path}._COMPLETE").exists()
+    assert Path(f"{checkpoint_path}._RETRY_OWNER").exists()
+    assert not Path(f"{manifest_path}._RUN").exists()
+
+
+@pytest.mark.parametrize("writer_ref", ["ManifestWriterStage", "DocumentBatchJsonlWriterStage"])
+def test_source_resume_refuses_atomic_output_before_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer_ref: str
+) -> None:
+    from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text("{}\n")
+    final = tmp_path / "output.jsonl"
+    final.write_text('{"retained": true}\n')
+    resume = tmp_path / "resume"
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(manifest)}},
+                {"ref": writer_ref, "params": {"output_path": str(final)}},
+            ]
+        }
+    ).freeze()
+    monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
+
+    def must_not_execute(*_args, **_kwargs):  # noqa: ANN202
+        raise AssertionError("unsafe source resume must refuse before execution or staging")  # noqa: EM101
+
+    monkeypatch.setattr(verbs, "probe_env", must_not_execute)
+    monkeypatch.setattr(verbs, "_run_pipeline", must_not_execute)
+    result = aa.run(recipe, confirm=recipe.config_hash, checkpoint_path=str(resume))
+    assert result["status"] == "refused"
+    assert result["reason_code"] == "source_resume_atomic_output_unsupported"
+    assert result["stages"] == [writer_ref]
+    assert final.read_text() == '{"retained": true}\n'
+    assert not resume.exists()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["input.jsonl", "output.jsonl"]
+
+    stages, issues = build_stages(recipe)
+    assert not issues
+    with pytest.raises(ValueError, match="source checkpoint resume is unsupported"):
+        verbs._prepare_staged_file_outputs(stages, checkpoint_path=str(resume))
+    assert stages[-1].output_path == str(final)
+    assert final.read_text() == '{"retained": true}\n'
+
+
+def test_atomic_output_staging_without_source_resume_remains_transactional(tmp_path: Path) -> None:
+    from nemo_curator.stages.audio.common import ManifestWriterStage
+    from nemo_curator.tasks import AudioTask
+
+    final = tmp_path / "output.jsonl"
+    final.write_text('{"old": true}\n')
+    writer = ManifestWriterStage(str(final))
+    staged = verbs._prepare_staged_file_outputs([writer])
+    writer.prepare_on_driver()
+    writer.setup()
+    writer.process(AudioTask(data={"new": True}))
+    writer.finalize()
+    assert final.read_text() == '{"old": true}\n'
+    verbs._promote_staged_file_outputs(staged)
+    verbs._restore_staged_file_outputs(staged)
+    assert json.loads(final.read_text()) == {"new": True}
 
 
 class TestRunConfirmGate:
@@ -797,3 +1041,101 @@ class TestDataInformedConfig:
         notes = profile_data(manifest).to_dict()["notes"]
         assert any("no rows carried an audio path" in n for n in notes)
         assert profile_data(manifest, audio_filepath_key="path").to_dict()["notes"] == []
+
+
+@pytest.mark.parametrize("receipt", ["matching", "wrong_path", "wrong_count", "absent"])
+def test_alm_acceptance_uses_finalized_serialized_count_without_claiming_source_cardinality(
+    tmp_path: Path, receipt: str
+) -> None:
+    manifest = tmp_path / "snippets.jsonl"
+    manifest.write_text('{"segments": [{"text": "first"}]}\n{"segments": [{"text": "second"}]}\n')
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "SnippetManifestWriterStage", "params": {"output_path": str(manifest)}},
+                {"ref": "PretrainMetricsAggregatorStage", "params": {"output_path": str(tmp_path / "metrics.json")}},
+            ],
+            "acceptance_criteria": [{"id": "segments", "type": "output_completeness", "check": {"field": "segments"}}],
+        }
+    )
+    outputs, cardinality_proven = verbs._terminal_evidence_outputs(recipe, [str(manifest)])
+    assert outputs == [str(manifest)]
+    assert cardinality_proven is False
+    receipts = {
+        "matching": (str(manifest), 2),
+        "wrong_path": (str(tmp_path / "other.jsonl"), 2),
+        "wrong_count": (str(manifest), 3),
+        "absent": None,
+    }
+    result = verbs._acceptance_result(
+        recipe,
+        SimpleNamespace(accepted=4, input_count=1),
+        ["segments"],
+        ["segments"],
+        [str(manifest)],
+        finalized_output=receipts[receipt],
+    )
+    assert result["overall"] == ("met" if receipt == "matching" else "not_met")
+    if receipt in {"wrong_path", "absent"}:
+        assert result["criteria"][0]["status"] == "unverifiable"
+    elif receipt == "wrong_count":
+        assert "expected_output_rows=3" in result["criteria"][0]["evidence"]
+
+
+def test_nested_acceptance_recipe_is_rejected_before_data_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected_access(*_args, **_kwargs):  # noqa: ANN202
+        pytest.fail("unsupported acceptance must be rejected before accessing the dataset")
+
+    monkeypatch.setattr(verbs, "_dataset_binding", unexpected_access)
+    recipe = Recipe(
+        acceptance_criteria=[
+            {"id": "speakers", "type": "output_completeness", "check": {"field": "segments[].speaker_id"}}
+        ]
+    )
+    with pytest.raises(ValueError, match=r"nested field.*not supported"):
+        verbs.validate(recipe)
+
+
+def test_run_pipeline_binds_manifest_resume_to_configured_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lmdb
+
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestWriterStage
+    from nemo_curator.tasks import AudioTask
+    from nemo_curator.utils.resumability_actor import METADATA_DIRNAME
+
+    checkpoint = tmp_path / "state"
+    output = tmp_path / "output.jsonl"
+    calls = []
+
+    def execute(pipeline, _executor, *, checkpoint_path):  # noqa: ANN001, ANN202
+        assert checkpoint_path == str(checkpoint)
+        writer = pickle.loads(pickle.dumps(pipeline.stages[-1]))  # noqa: S301 - only locally serialized stages
+        writer.setup_on_node()
+        writer.setup()
+        assert writer._pipeline_identity == foundation.pipeline_identity(pipeline.stages)
+        if not calls:
+            writer.process(AudioTask(data={"finished_source": True}))
+            state = checkpoint / METADATA_DIRNAME / "worker.mdb"
+            with lmdb.open(str(state), subdir=False, max_dbs=1) as env:
+                completed = env.open_db(b"completed_sources")
+                with env.begin(write=True) as txn:
+                    txn.put(b"source", b"1", db=completed)
+        calls.append(True)
+        return []
+
+    monkeypatch.setattr(Pipeline, "run", execute)
+    for _ in range(2):
+        assert verbs._run_pipeline([ManifestWriterStage(str(output))], object(), checkpoint_path=str(checkpoint)) == []
+    assert output.read_text() == '{"finished_source": true}\n'
+    assert len(calls) == 2
+    with pytest.raises(RuntimeError, match="cannot authenticate"):
+        verbs._run_pipeline(
+            [GetAudioDurationStage(), ManifestWriterStage(str(output))], object(), checkpoint_path=str(checkpoint)
+        )
+    assert len(calls) == 2
+    assert output.read_text() == '{"finished_source": true}\n'
+    assert not Path(f"{output}._RUN").exists()
