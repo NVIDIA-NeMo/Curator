@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hydra import compose, initialize_config_dir
+from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
@@ -465,6 +465,9 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         "ur",
     ]
     assert stage.batch_size == 32
+    assert stage.max_audio_sec_per_actor == 2400.0
+    assert stage.max_inference_duration_s == 2400.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 2
     assert dict(stage.adapter_kwargs) == {
         "revision": "abc123",
@@ -566,6 +569,9 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
         "ro",
     ]
     assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 240.0
+    assert stage.max_inference_duration_s == 120.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
         "revision": "abc123",
@@ -731,6 +737,9 @@ def test_faster_whisper_tutorial_yaml_matches_reference_contract():
         ["custom_prediction", "_skipme", "additional_notes", "asr_extras"],
     )
     assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 2400.0
+    assert stage.max_inference_duration_s == 2400.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
         "revision": "abc123",
@@ -778,6 +787,9 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     assert stage.target_sample_rate == 16000
     assert stage.pred_text_key == "custom_prediction"
     assert stage.batch_size == 16
+    assert stage.max_audio_sec_per_actor == 240.0
+    assert stage.max_inference_duration_s == 120.0
+    assert stage.local_bucketing is True
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
         "num_workers": 0,
@@ -787,6 +799,25 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     assert writer.__class__.__name__ == "ManifestWriterStage"
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+
+
+def test_nemo_fastconformer_tutorial_accepts_local_bucketing_config() -> None:
+    with initialize(config_path="../../tutorials/audio/nemo_fastconformer", version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "max_audio_sec_per_actor=360.0",
+                "max_inference_duration_s=90.0",
+                "local_bucketing=false",
+            ],
+        )
+
+    _, _, stage, _ = create_pipeline_from_yaml(cfg, log_config=False).stages
+
+    assert stage.max_audio_sec_per_actor == 360.0
+    assert stage.max_inference_duration_s == 90.0
+    assert stage.local_bucketing is False
 
 
 def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:

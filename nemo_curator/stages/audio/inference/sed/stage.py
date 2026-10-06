@@ -56,14 +56,14 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import numpy as np
 from loguru import logger
 
-from nemo_curator.models.sed.base import SEDAdapter
+from nemo_curator.models.audio.sed.base import SEDAdapter
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
-    from nemo_curator.models.sed.base import SEDResult
+    from nemo_curator.models.audio.sed.base import SEDResult
     from nemo_curator.tasks import AudioTask
 
 

@@ -59,6 +59,9 @@ revision for node prefetch and worker model loading.
 |---|---:|
 | Model | `large-v3` |
 | ASR stage batch size | `128` |
+| Maximum padded audio per adapter call | `2400` seconds |
+| Maximum duration per stage segment | `2400` seconds |
+| Local duration bucketing | Enabled |
 | GPUs per ASR actor | `1` |
 | GPU compute type | `float16` |
 | CPU compute type | `int8` |
@@ -68,12 +71,18 @@ revision for node prefetch and worker model loading.
 | Prediction field | `asr_prediction` |
 | Adapter extras field | `asr_extras` |
 
-The stage batch size controls how many tasks Curator sends to one
-`transcribe_batch()` call. `FasterWhisperASR` then calls
-`WhisperModel.transcribe()` once per eligible audio, in order. This is
-sequential per-audio inference; it does not use Faster-Whisper's
-`BatchedInferencePipeline` and does not turn 128 files into one native model
-batch.
+The stage batch size controls the candidate-row window supplied to one
+`process_batch()` call. Inside that window, `ASRStage` always segments audio at
+`max_inference_duration_s`, then plans one or more `transcribe_batch()` calls
+whose padded-audio cost does not exceed `max_audio_sec_per_actor`. With
+`local_bucketing=true`, segments are ordered by duration while those call
+boundaries are optimized; output is restored to parent-row order afterward.
+
+`FasterWhisperASR` still calls `WhisperModel.transcribe()` once per eligible
+segment. This adapter is sequential per audio; it does not use
+Faster-Whisper's `BatchedInferencePipeline`. The shared batching settings make
+the stage contract explicit and bound each adapter call, but do not turn the
+128-row candidate window into one native Faster-Whisper model batch.
 
 ## Select GPU or CPU execution
 
@@ -107,9 +116,12 @@ language codes. It also accepts the input aliases normalized by the adapter:
 `nb` to `no`. Missing or unsupported languages are filtered by `ASRStage`
 before the adapter is called.
 
-`ASRStage` writes transcription text to `asr_prediction`. It writes the forced,
-normalized language code under `asr_extras.language_code`; this value is the
-requested inference language, not a detected language.
+`ASRStage` writes transcription text to `asr_prediction`. For a single stage
+segment, it writes the forced, normalized language code under
+`asr_extras.language_code`; this value is the requested inference language,
+not a detected language. For a segmented input, adapter extras are merged in
+temporal order without changing that flat schema; every segment uses the same
+forced language code.
 
 The adapter intentionally discards Faster-Whisper's `TranscriptionInfo` and
 does not emit detected-language confidence, duration metadata, segment

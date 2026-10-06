@@ -67,6 +67,9 @@ input can run on a 12 GB GPU. This does not change the adapter's default.
 | Executor | Ray Data |
 | ASR stage batch size | `128` |
 | GPUs per ASR actor | `1` |
+| Maximum padded audio per adapter call | `240` seconds |
+| Maximum single model input | `120` seconds |
+| Local duration bucketing | enabled |
 | Hugging Face model revision | `null` (Hugging Face default) |
 | GPU memory limit | `0.7` of device memory |
 | Maximum vLLM model length | `8192` tokens |
@@ -75,8 +78,12 @@ input can run on a 12 GB GPU. This does not change the adapter's default.
 | Prediction field | `pred_text` |
 | Adapter extras field | `asr_extras` |
 
-The stage batch is passed to one adapter `transcribe_batch()` call. The adapter
-forwards `max_inference_batch_size` to Qwen3-ASR as its internal cap.
+The stage always segments audio at `max_inference_duration_s`. It then packs
+all resulting segments from the current process batch under
+`max_audio_sec_per_actor`, using `item count × longest segment duration` as
+the padded-work estimate. Local bucketing sorts by duration before packing;
+disable it with `local_bucketing=false` to preserve input order. The adapter
+also forwards `max_inference_batch_size` to Qwen3-ASR as its internal cap.
 
 ## Select the executor
 

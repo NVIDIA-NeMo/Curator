@@ -21,8 +21,8 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.sed import panns
-from nemo_curator.models.sed.panns import PANNsSEDAdapter
+from nemo_curator.models.audio.sed import panns
+from nemo_curator.models.audio.sed.panns import PANNsSEDAdapter
 
 _SR = 16000
 _HOP = 320
@@ -119,7 +119,7 @@ def test_missing_checkpoint_path_is_used_as_download_destination(tmp_path: Path)
     adapter = PANNsSEDAdapter(checkpoint_path=str(checkpoint_path))
     with (
         patch("torch.hub.load_state_dict_from_url", return_value={"model": {}}) as download,
-        patch("nemo_curator.models.sed.panns.get_model_class") as model_resolver,
+        patch("nemo_curator.models.audio.sed.panns.get_model_class") as model_resolver,
     ):
         adapter.download_weights_on_node()
 
@@ -141,7 +141,7 @@ def test_download_weights_on_node_prefetches_default_without_constructing_model(
     with (
         patch("torch.hub.get_dir", return_value=str(hub_dir)),
         patch("torch.hub.load_state_dict_from_url", return_value={"model": {}}) as download,
-        patch("nemo_curator.models.sed.panns.get_model_class") as model_resolver,
+        patch("nemo_curator.models.audio.sed.panns.get_model_class") as model_resolver,
     ):
         adapter.download_weights_on_node()
 
@@ -169,7 +169,7 @@ def test_prefetched_checkpoint_path_is_loaded_from_the_same_file(tmp_path: Path)
     with (
         patch("torch.hub.load_state_dict_from_url", side_effect=materialize_checkpoint) as download,
         patch("torch.load", return_value={"model": {"loaded": "state"}}) as torch_load,
-        patch("nemo_curator.models.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("nemo_curator.models.audio.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
     ):
         adapter.download_weights_on_node()
         adapter.load_model(num_gpus=0)
@@ -251,7 +251,7 @@ def test_load_model_uses_cpu_and_restricted_checkpoint_loading(tmp_path: Path) -
     model = MagicMock()
     model_cls = MagicMock(return_value=model)
     with (
-        patch("nemo_curator.models.sed.panns.get_model_class", return_value=model_cls),
+        patch("nemo_curator.models.audio.sed.panns.get_model_class", return_value=model_cls),
         patch("torch.load", return_value={"model": {"weight": "value"}}) as torch_load,
         patch("torch.cuda.is_available", return_value=True),
     ):
@@ -271,7 +271,7 @@ def test_load_model_resolves_the_default_through_the_provider_cache(tmp_path: Pa
     model = MagicMock()
     with (
         patch("torch.hub.get_dir", return_value=str(hub_dir)),
-        patch("nemo_curator.models.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("nemo_curator.models.audio.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
         patch(
             "torch.hub.load_state_dict_from_url",
             return_value={"model": {"weight": "value"}},
@@ -303,7 +303,7 @@ def test_cached_default_checkpoint_matches_existing_explicit_path_behavior(tmp_p
         patch("torch.hub.get_dir", return_value=str(hub_dir)),
         patch("torch.hub.load_state_dict_from_url") as download,
         patch("torch.load", return_value={"model": {"cached": "state"}}) as torch_load,
-        patch("nemo_curator.models.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("nemo_curator.models.audio.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
     ):
         adapter.download_weights_on_node()
         adapter.load_model(num_gpus=0)
@@ -329,7 +329,7 @@ def test_load_model_forwards_checkpoint_frontend_configuration(tmp_path: Path) -
     )
     model_cls = MagicMock(return_value=MagicMock())
     with (
-        patch("nemo_curator.models.sed.panns.get_model_class", return_value=model_cls) as resolver,
+        patch("nemo_curator.models.audio.sed.panns.get_model_class", return_value=model_cls) as resolver,
         patch("torch.load", return_value={"model": {}}),
     ):
         adapter.load_model(num_gpus=0)
@@ -353,7 +353,7 @@ def test_load_model_uses_cuda_for_any_positive_gpu_count(tmp_path: Path, num_gpu
     adapter = PANNsSEDAdapter(checkpoint_path=str(checkpoint_path))
     model = MagicMock()
     with (
-        patch("nemo_curator.models.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
+        patch("nemo_curator.models.audio.sed.panns.get_model_class", return_value=MagicMock(return_value=model)),
         patch("torch.load", return_value={"model": {}}),
         patch("torch.cuda.is_available", return_value=True),
     ):
@@ -367,7 +367,7 @@ def test_load_model_uses_cuda_for_any_positive_gpu_count(tmp_path: Path, num_gpu
 def test_panns_adapter_rejects_invalid_worker_gpu_counts(num_gpus: object) -> None:
     adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT)
     with (
-        patch("nemo_curator.models.sed.panns.get_model_class") as model_resolver,
+        patch("nemo_curator.models.audio.sed.panns.get_model_class") as model_resolver,
         pytest.raises(ValueError, match="requires a non-negative integer num_gpus"),
     ):
         adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]
@@ -379,7 +379,7 @@ def test_panns_adapter_requires_cuda_for_positive_gpu_counts(num_gpus: int) -> N
     adapter = PANNsSEDAdapter(checkpoint_path=_CHECKPOINT)
     with (
         patch("torch.cuda.is_available", return_value=False),
-        patch("nemo_curator.models.sed.panns.get_model_class") as model_resolver,
+        patch("nemo_curator.models.audio.sed.panns.get_model_class") as model_resolver,
         pytest.raises(RuntimeError, match=rf"num_gpus={num_gpus}.*CUDA is not available"),
     ):
         adapter.load_model(num_gpus=num_gpus)
@@ -394,7 +394,7 @@ def test_unload_releases_model_and_device() -> None:
 
 
 def test_model_specific_loading_is_absent_from_the_stage_source() -> None:
-    stage_source = Path(__file__).parents[3] / "nemo_curator" / "stages" / "audio" / "inference" / "sed" / "stage.py"
+    stage_source = Path(__file__).parents[4] / "nemo_curator" / "stages" / "audio" / "inference" / "sed" / "stage.py"
     source = stage_source.read_text()
     assert "torch.load" not in source
     assert "get_model_class" not in source
