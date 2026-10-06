@@ -133,13 +133,13 @@ def _require_tensorrt_llm() -> None:
             TensorInfo = TensorInfoImport
             return
 
-    # TensorRT-LLM is intentionally not in Curator's main uv.lock: its native
-    # CUDA/Torch ABI conflicts with Curator's shared environment. It belongs in
-    # the separately locked worker runtime provisioned by the audio profile.
     msg = (
-        "tensorrt_llm is missing from the isolated Indic Canary runtime. "
-        "Install `nemo_curator[audio_canary_trtllm]`; benchmark preflight or "
-        "adapter setup provisions the packaged, locked child runtime automatically."
+        "tensorrt_llm is required for Indic Canary ASR but could not be loaded. "
+        "Install Curator's trt_llm audio profile (formerly audio_canary_trtllm) "
+        "with CPython 3.12 on Linux x86_64:\n"
+        "    uv sync --python 3.12 --extra trt_llm --no-default-groups\n"
+        "The trt_llm profile selects its compatible Torch/CUDA dependencies in "
+        "the Curator environment and cannot be combined with all, vllm, or audio_tensorrt."
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 

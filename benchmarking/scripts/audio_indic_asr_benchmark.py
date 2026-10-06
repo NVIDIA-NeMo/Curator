@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import importlib.metadata
 import importlib.util
 import json
 import math
 import os
 import statistics
+import sys
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -36,7 +38,7 @@ from loguru import logger
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage, load_audio_file
 from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
-from nemo_curator.stages.audio.inference.indic_canary_runtime_env import ensure_runtime_python
+from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
 from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.text_filtering import (
@@ -302,18 +304,31 @@ def _preflight_runtime_and_models(
     indic_canary_engine_dir: Path,
     parakeet_tensorrt_engine_dir: Path,
 ) -> None:
-    missing_modules = [module for module in ("tensorrt",) if importlib.util.find_spec(module) is None]
+    if sys.version_info[:2] != (3, 12):
+        msg = (
+            "Indic ASR requires the root trt_llm profile with Python 3.12: "
+            "uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups"
+        )
+        raise RuntimeError(msg)
+    missing_modules = [module for module in ("tensorrt", "tensorrt_llm") if importlib.util.find_spec(module) is None]
     if missing_modules:
         msg = (
             "Indic ASR benchmark image is missing required runtime module(s): "
-            f"{missing_modules}. Install the audio_canary_trtllm extra."
+            f"{missing_modules}. Install the root trt_llm profile."
         )
         raise RuntimeError(msg)
+    # Loading the native bindings catches ABI failures that find_spec cannot.
+    _require_tensorrt_llm()
+    for module in (
+        "nemo.collections.asr",
+        "nemo_text_processing.text_normalization",
+        "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt",
+    ):
+        importlib.import_module(module)
     _require_files(indic_canary_engine_dir, CANARY_REQUIRED_FILES, "Indic Canary engine")
     _require_files(parakeet_tensorrt_engine_dir, PARAKEET_ENGINE_REQUIRED_FILES, "Indic Parakeet TensorRT bundle")
-    runtime_python = ensure_runtime_python()
-    logger.info(f"Indic Canary isolated runtime Python: {runtime_python}")
-    for package_name in ("tensorrt",):
+    logger.info(f"Indic ASR Python: {sys.executable}")
+    for package_name in ("torch", "torchaudio", "tensorrt", "tensorrt-llm", "nemo-toolkit", "transformers"):
         try:
             logger.info(f"{package_name} version: {importlib.metadata.version(package_name)}")
         except importlib.metadata.PackageNotFoundError:
