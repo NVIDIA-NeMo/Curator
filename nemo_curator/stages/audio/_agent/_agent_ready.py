@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -285,6 +286,9 @@ class StageContract:
     # Appended for positional compatibility; ordinary contracts continue using
     # ``reads`` and ``reads_one_of`` exactly as before.
     conditional_reads: list[ConditionalRead] = field(default_factory=list)
+    # A complete resident pair takes precedence over the file alternative. Selection remains
+    # uncertain unless the other selection inputs have known compatible roles upstream.
+    preferred_reads: IOSpec | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict of this contract (``json.dumps`` never raises)."""
@@ -293,6 +297,7 @@ class StageContract:
             "reads": asdict(self.reads),
             "writes": asdict(self.writes),
             "reads_one_of": [asdict(spec) for spec in self.reads_one_of],
+            **({"preferred_reads": asdict(self.preferred_reads)} if self.preferred_reads is not None else {}),
             "optional_reads": asdict(self.optional_reads),
             "metadata_reads": list(self.metadata_reads),
             "metadata_writes": list(self.metadata_writes),
@@ -378,22 +383,44 @@ def _paramspec_to_dict(p: ParamSpec) -> dict[str, Any]:
     }
 
 
-def _json_type(type_str: str | None) -> str | None:
-    """Map a rendered ParamSpec.type string to a JSON-Schema type (or None to omit)."""
+def _json_types(node: ast.expr) -> list[str] | None:
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left, right = _json_types(node.left), _json_types(node.right)
+        return list(dict.fromkeys([*left, *right])) if left is not None and right is not None else None
+    if isinstance(node, ast.Constant) and node.value is None:
+        return ["null"]
+    base = node.value if isinstance(node, ast.Subscript) else node
+    name = base.id if isinstance(base, ast.Name) else base.attr if isinstance(base, ast.Attribute) else ""
+    if name == "Optional" and isinstance(node, ast.Subscript):
+        types = _json_types(node.slice)
+        return list(dict.fromkeys([*types, "null"])) if types is not None else None
+    kinds = {
+        "str": "string",
+        "int": "integer",
+        "float": "number",
+        "bool": "boolean",
+        "list": "array",
+        "List": "array",
+        "Sequence": "array",
+        "tuple": "array",
+        "Tuple": "array",
+        "dict": "object",
+        "Dict": "object",
+        "Mapping": "object",
+        "NoneType": "null",
+    }
+    return [kinds[name]] if name in kinds else None
+
+
+def _json_type(type_str: str | None) -> str | list[str] | None:
+    """Preserve top-level alternatives and nullability in a rendered annotation."""
     if not type_str:
         return None
-    t = type_str.replace(" ", "").replace("|None", "")
-    if t.startswith("Optional["):
-        t = t[len("Optional[") : -1] if t.endswith("]") else t
-    scalar = {"str": "string", "int": "integer", "float": "number", "bool": "boolean"}
-    if t in scalar:
-        return scalar[t]
-    lowered = t.lower()
-    if lowered.startswith(("list", "sequence", "tuple")):
-        return "array"
-    if lowered.startswith(("dict", "mapping")):
-        return "object"
-    return None
+    try:
+        types = _json_types(ast.parse(type_str, mode="eval").body)
+    except SyntaxError:
+        return None
+    return types[0] if types and len(types) == 1 else types
 
 
 def to_json_schema(params: list[ParamSpec]) -> dict[str, Any]:

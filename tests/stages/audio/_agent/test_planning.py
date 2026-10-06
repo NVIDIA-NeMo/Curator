@@ -216,3 +216,108 @@ def test_unknown_child_invalidates_only_prior_role_evidence(fresh_write: bool) -
     conflicts = [issue for issue in report.issues if issue.code == "key_role_conflict"]
     assert bool(conflicts) is fresh_write
     assert report.ok is not fresh_write
+
+
+@pytest.mark.parametrize("multiple", [False, True])
+def test_scalar_filter_preserves_producer_role(multiple: bool) -> None:
+    from nemo_curator.stages.audio.common import (
+        GetAudioDurationStage,
+        PreserveByValueConditionsStage,
+        PreserveByValueStage,
+    )
+    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+    selection = (
+        PreserveByValueConditionsStage({"payload": {"target_value": 0, "operator": "gt"}})
+        if multiple
+        else PreserveByValueStage("payload", 0, operator="gt")
+    )
+    stages = [MonoConversionStage(output_sample_rate=16000), GetAudioDurationStage(duration_key="payload"), selection]
+    invalid = validate_pipeline([*stages, GetAudioDurationStage(input_residency="waveform", waveform_key="payload")])
+    assert not invalid.ok
+    assert any(issue.code == "key_role_conflict" for issue in invalid.issues)
+    valid = validate_pipeline([*stages, PreserveByValueStage("payload", 1, operator="lt")])
+    assert valid.ok
+    assert valid.keys_ok
+    assert "duration" in valid.produced_roles
+
+
+@pytest.mark.parametrize("consumer_kind", ["mono", "channels", "duration"])
+def test_auto_rejects_known_incompatible_preferred_input(consumer_kind: str) -> None:
+    from nemo_curator.stages.audio.common import GetAudioDurationStage
+    from nemo_curator.stages.audio.preprocessing import ChannelCountStage, MonoConversionStage
+
+    consumer = {
+        "mono": MonoConversionStage(input_residency="auto", output_sample_rate=16000),
+        "channels": ChannelCountStage(action="convert", input_residency="auto"),
+        "duration": GetAudioDurationStage(input_residency="auto"),
+    }[consumer_kind]
+    stages = [MonoConversionStage(output_sample_rate=16000), GetAudioDurationStage(duration_key="waveform"), consumer]
+    report = validate_pipeline(stages)
+    assert not report.ok
+    assert any(issue.code == "key_role_conflict" for issue in report.issues)
+
+
+def test_auto_invalid_rate_can_still_use_file_alternative() -> None:
+    from nemo_curator.stages.audio.common import GetAudioDurationStage
+    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+    report = validate_pipeline(
+        [
+            MonoConversionStage(output_sample_rate=16000),
+            GetAudioDurationStage(duration_key="sample_rate"),
+            MonoConversionStage(input_residency="auto", output_sample_rate=16000),
+        ]
+    )
+    assert report.ok
+
+
+def test_composite_known_conflict_is_an_error_without_outside_consumer() -> None:
+    from nemo_curator.stages.base import CompositeStage
+
+    class IncompatibleAudioComposite(CompositeStage[AudioTask, AudioTask]):
+        def decompose(self) -> list[ProcessingStage]:
+            return [
+                _ContractStage(StageContract(writes=IOSpec(data_keys=["payload"]), key_roles={"payload": "duration"})),
+                _ContractStage(StageContract(reads=IOSpec(data_keys=["payload"]), key_roles={"payload": "waveform"})),
+            ]
+
+    report = validate_pipeline([IncompatibleAudioComposite()])
+    assert not report.ok
+    assert any(issue.code == "key_role_conflict" and issue.severity == "error" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    ("produced_role", "read_role"),
+    [
+        ("diar_segments", "segments"),
+        ("vad_segments", "segments"),
+        ("pred_text", "text"),
+        ("reference_text", "text"),
+    ],
+)
+def test_generic_read_accepts_structurally_compatible_role_variant(produced_role: str, read_role: str) -> None:
+    producer = _ContractStage(
+        StageContract(writes=IOSpec(data_keys=["payload"]), key_roles={"payload": produced_role})
+    )
+    consumer = _ContractStage(StageContract(reads=IOSpec(data_keys=["payload"]), key_roles={"payload": read_role}))
+    report = validate_pipeline([producer, consumer])
+    assert report.ok
+    assert report.keys_ok
+    assert not report.issues
+
+
+@pytest.mark.parametrize("filter_kind", ["single", "conditions"])
+def test_explicit_drop_policy_allows_missing_top_level_keys(filter_kind: str) -> None:
+    from nemo_curator.stages.audio.common import PreserveByValueConditionsStage, PreserveByValueStage
+
+    def make_stage(policy: str) -> ProcessingStage:
+        if filter_kind == "single":
+            return PreserveByValueStage("absent", 1, missing_value_policy=policy)
+        return PreserveByValueConditionsStage({"absent": 1}, missing_value_policy=policy)
+
+    task = AudioTask(data={})
+    drop = make_stage("drop")
+    assert validate_pipeline([drop], initial_keys=[]).ok
+    assert drop.process_batch([task]) == []
+    assert not validate_pipeline([make_stage("error")], initial_keys=[]).ok

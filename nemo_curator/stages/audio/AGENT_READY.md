@@ -146,6 +146,15 @@ are not an intent checker, a module-specific validator, or a centralized
 field-scope ontology. The host LLM still decides whether a conditional field's
 meaning and granularity fit the request.
 
+### Preferred resident inputs
+
+A configured `auto` consumer can declare `preferred_reads` as one of its
+`reads_one_of` alternatives. It describes the resident pair selected before the
+file fallback. Validation checks conflicts in this pair when upstream role
+evidence establishes its selection inputs; missing, conditional, or unknown
+inputs remain subject to the ordinary alternative checks. Explicit file mode
+must not declare a resident preference.
+
 ### `gates.per_row_independent` — usually nothing to do
 
 This one decides whether a *delta run* (reprocessing only the files that changed, instead of the

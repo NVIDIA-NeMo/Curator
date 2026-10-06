@@ -407,6 +407,7 @@ def resolve_audio(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: policy 
     loader: Callable[..., tuple[Any, int]] | None = None,
     infer_sample_rate_from_file: bool = False,
     file_audio_hydration: FileAudioHydration = "never",
+    preserve_pcm_dtype: bool = False,
 ) -> tuple[Any, int] | None:
     """Return ``(waveform_2d, sample_rate)`` from tensor keys or a file path.
 
@@ -421,6 +422,9 @@ def resolve_audio(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: policy 
     from an incomplete or unusable resident pair. ``"never"`` is the default,
     preserving file-only and explicit-file consumers. Every update happens only
     after the loader succeeds, so failures cannot leave a partial pair.
+
+    ``preserve_pcm_dtype`` retains array PCM precision for a consumer that explicitly
+    normalizes amplitude. It defaults to the historical float32 array conversion.
 
     ``loader`` overrides the file-loading callable (default
     :func:`~nemo_curator.stages.audio.common.load_audio_file`); stages pass
@@ -446,7 +450,9 @@ def resolve_audio(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: policy 
                     raise
                 resident_rate_error = ex
             else:
-                return ensure_waveform_2d(waveform), sample_rate
+                # Preserve PCM dtype until the consuming stage normalizes its amplitude.
+                resident = torch.as_tensor(waveform) if preserve_pcm_dtype and hasattr(waveform, "dtype") else waveform
+                return ensure_waveform_2d(resident), sample_rate
         if residency == "auto" and infer_sample_rate_from_file:
             path = item.get(audio_filepath_key)
             if path:
@@ -454,7 +460,10 @@ def resolve_audio(  # noqa: C901, PLR0912, PLR0913 (complexity accepted: policy 
                 if os.path.exists(expanded):
                     sample_rate = int(sf.info(expanded).samplerate)
                     item[sample_rate_key] = sample_rate
-                    return ensure_waveform_2d(waveform), sample_rate
+                    resident = (
+                        torch.as_tensor(waveform) if preserve_pcm_dtype and hasattr(waveform, "dtype") else waveform
+                    )
+                    return ensure_waveform_2d(resident), sample_rate
 
     if residency == "waveform":
         return None

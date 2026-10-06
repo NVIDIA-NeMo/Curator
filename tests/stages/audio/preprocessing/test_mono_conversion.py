@@ -15,6 +15,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import torch
 
@@ -348,3 +349,60 @@ def test_disk_only_conversion_allows_shared_inactive_resident_keys(wav_filepath:
     assert isinstance(result, AudioTask)
     assert "unused" not in result.data
     assert sf.info(result.data["mono_audio_filepath"]).channels == 1
+
+
+@pytest.mark.parametrize("kind", ["mono", "channel"])
+@pytest.mark.parametrize("with_path", [False, True])
+@pytest.mark.parametrize("existing_original", [False, True])
+def test_original_path_preservation_matches_contract(
+    tmp_path: Path, kind: str, with_path: bool, existing_original: bool
+) -> None:
+    from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+    from nemo_curator.stages.audio.preprocessing import ChannelCountStage
+
+    options = {
+        "write_to_disk": True,
+        "update_audio_filepath": True,
+        "output_dir": str(tmp_path),
+        "input_residency": "waveform",
+    }
+    stage = (
+        MonoConversionStage(output_sample_rate=16000, **options)
+        if kind == "mono"
+        else ChannelCountStage(action="convert", **options)
+    )
+
+    def fixture() -> AudioTask:
+        data = {"waveform": torch.zeros((1, 160)), "sample_rate": 16000}
+        if with_path:
+            data["audio_filepath"] = "source.wav"
+        if existing_original:
+            data["original_audio_filepath"] = "first.wav"
+        return AudioTask(data=data)
+
+    assert_agent_ready(stage, fixture_factory=fixture)
+    result = stage.process(fixture())
+    assert isinstance(result, AudioTask)
+    if existing_original:
+        assert result.data["original_audio_filepath"] == "first.wav"
+    elif with_path:
+        assert result.data["original_audio_filepath"] == "source.wav"
+    else:
+        assert "original_audio_filepath" not in result.data
+
+
+@pytest.mark.parametrize("kind", ["mono", "channel"])
+@pytest.mark.parametrize(("dtype", "scale"), [(np.int16, 32768), (np.int32, 2147483648)])
+def test_resident_numpy_pcm_preserves_amplitude(kind: str, dtype: object, scale: int) -> None:
+    from nemo_curator.stages.audio.preprocessing import ChannelCountStage
+
+    waveform = np.array([[scale // 2, -scale // 2], [0, scale // 4]], dtype=dtype)
+    stage = (
+        MonoConversionStage(input_residency="waveform", output_sample_rate=16000)
+        if kind == "mono"
+        else ChannelCountStage(action="convert", input_residency="waveform")
+    )
+    result = stage.process(AudioTask(data={"waveform": waveform, "sample_rate": 16000}))
+    assert isinstance(result, AudioTask)
+    expected = torch.as_tensor(waveform).float().div(scale).mean(dim=0, keepdim=True)
+    torch.testing.assert_close(result.data["waveform"], expected)

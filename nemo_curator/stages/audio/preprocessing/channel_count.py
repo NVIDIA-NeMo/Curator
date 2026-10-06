@@ -33,6 +33,7 @@ Example:
     pipeline.add_stage(ChannelCountStage(action="convert", target_channels=1))    # make it mono
 """
 
+import math
 import os
 import tempfile
 from dataclasses import dataclass, field, fields
@@ -42,7 +43,14 @@ import soundfile as sf
 import torch
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
@@ -353,6 +361,11 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.write_to_disk:
             produces.append("disk")
         return StageContract(
+            preferred_reads=(
+                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+                if self.input_residency == "auto"
+                else None
+            ),
             reads_one_of=residency_read_specs(
                 self.input_residency,
                 audio_filepath_key=self.audio_filepath_key,
@@ -360,6 +373,17 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 sample_rate_key=self.sample_rate_key,
             ),
             writes=IOSpec(data_keys=self._written_keys(), produces=produces),
+            conditional_writes=(
+                [
+                    ConditionalWrite(
+                        writes=IOSpec(data_keys=[self.original_audio_filepath_key]),
+                        condition="a prior audio path is present and no original path has already been preserved",
+                        requires_keys=[self.audio_filepath_key],
+                    )
+                ]
+                if self.update_audio_filepath
+                else []
+            ),
             # A disk-only conversion ends the resident audio rather than replacing it, so the
             # keys leave the task. Declared so validation can fail a downstream waveform reader
             # here, instead of letting it read the pre-conversion tensor at runtime.
@@ -422,10 +446,18 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             )
             return None
 
-        declared = task.data.get(self.num_channels_key)
-        declared = int(declared) if isinstance(declared, (int, float)) and int(declared) > 0 else None
         path = task.data.get(self.audio_filepath_key)
         if not path:
+            value = task.data.get(self.num_channels_key)
+            declared = (
+                int(value)
+                if isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and (not isinstance(value, float) or math.isfinite(value))
+                and value > 0
+                and value == int(value)
+                else None
+            )
             if declared is None:
                 logger.error(f"No channel count and no audio path under {self.audio_filepath_key!r}")
                 return None
@@ -510,6 +542,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
                 mono=False,
+                preserve_pcm_dtype=True,
                 loader=load_audio_file,  # module-level symbol: patchable at this module
             )
         except (OSError, RuntimeError) as e:  # corrupt/unreadable audio -> skip the row

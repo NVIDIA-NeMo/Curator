@@ -111,6 +111,8 @@ def reads_satisfied_by_role(consumer: StageContract, available_roles: set[str]) 
 # --------------------------------------------------------------------------- #
 def _check_shape(c: StageContract, name: str) -> None:  # noqa: C901, PLR0912
     assert c.cardinality in _VALID_CARDINALITY, f"{name}: invalid cardinality {c.cardinality!r}"
+    if c.preferred_reads is not None:
+        assert c.preferred_reads in c.reads_one_of, f"{name}: preferred_reads must be an advertised alternative"
     for opt in c.cardinality_options:
         # cardinality_options are short flag names (e.g. "fan_out","nested") OR full cardinalities
         assert isinstance(opt, str), f"{name}: bad cardinality option {opt!r}"

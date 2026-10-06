@@ -1762,3 +1762,20 @@ def test_value_filter_identity_supports_real_checkpoint_writer(tmp_path: Path) -
     resumed.prepare_on_driver(checkpoint_path=checkpoint, pipeline_identity=identity)
     resumed.finalize()
     assert len(output.read_text().splitlines()) == 1
+
+
+def test_condition_configuration_identity_cannot_follow_external_mutation() -> None:
+    from nemo_curator.stages.audio.agent import pipeline_identity
+    from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
+
+    config = {"duration": {"target_value": 1, "operator": "gt"}}
+    first = PreserveByValueConditionsStage(config)
+    identity = pipeline_identity([first])
+    config["duration"]["target_value"] = 2
+    second = PreserveByValueConditionsStage(config)
+    inspected = first.conditions
+    inspected[0]["target_value"] = 3
+    assert pipeline_identity([first]) == identity
+    assert pipeline_identity([second]) != identity
+    assert len(first.process_batch([AudioTask(data={"duration": 1.5})])) == 1
+    assert second.process_batch([AudioTask(data={"duration": 1.5})]) == []
