@@ -21,11 +21,12 @@ predictions. The concrete adapter is resolved at runtime from
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
-import torch
 import torchaudio
 from loguru import logger
 
@@ -40,6 +41,10 @@ from nemo_curator.stages.audio._agent._agent_ready import (
 )
 from nemo_curator.stages.audio._agent._residency import normalize_audio_waveform
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.model_input_segmentation import (
+    plan_audio_segments,
+    resolve_max_model_input_duration,
+)
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -102,24 +107,21 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
+_PADDED_SECONDS_REL_TOL = 1e-12
+_PADDED_SECONDS_ABS_TOL = 1e-9
 
 
-def _set_note(task_data: dict[str, Any], notes_key: str, stage_name: str, value: str) -> None:
+def _set_note(
+    task_data: dict[str, Any],
+    stage_name: str,
+    value: str,
+    notes_key: str = _NOTES_KEY,
+) -> None:
     notes = task_data.get(notes_key)
     if not isinstance(notes, dict):
         notes = {}
         task_data[notes_key] = notes
     notes[stage_name] = value
-
-
-def _validate_control_keys(skip_me_key: object, notes_key: object) -> None:
-    for field_name, key in (("skip_me_key", skip_me_key), ("notes_key", notes_key)):
-        if not isinstance(key, str) or not key.strip():
-            msg = f"ASRStage.{field_name} must be a non-empty string"
-            raise ValueError(msg)
-    if skip_me_key == notes_key:
-        msg = "ASRStage.skip_me_key and notes_key must be distinct"
-        raise ValueError(msg)
 
 
 @dataclass
@@ -129,11 +131,19 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
     and ``additional_notes``. When ``extras_key`` is configured, it also writes
     non-empty adapter metadata as one nested dictionary under that key.
+
+    Audio longer than ``max_inference_duration_s`` is always split into
+    model-safe segments and stitched back to one result per parent row. Every
+    segment prepared by one backend-provided ``process_batch`` call is packed
+    into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
+    ``local_bucketing`` first orders those segments by duration to reduce GPU
+    padding; disabling it preserves their input order.
     """
 
     # Adapter selection.
     adapter_target: str
     model_id: str
+    max_audio_sec_per_actor: float
     name: str = "ASR_inference"
 
     # Task I/O keys.
@@ -146,7 +156,14 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
+    language_key: str | None = None
     extras_key: str | None = None
+    skip_me_key: str = _SKIP_ME_KEY
+    notes_key: str = _NOTES_KEY
+    unsupported_language_marks_skip: bool = True
+    unsupported_language_skip_reason: str | None = None
+    preserve_existing_skip: bool = False
+    missing_language_is_unsupported: bool = False
 
     skip_if_output_exists: bool = False
     fail_on_audio_error: bool = False
@@ -157,50 +174,64 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
-    # Additive agent-facing key knobs live after the existing constructor fields
-    # so legacy positional arguments retain their meaning.
-    skip_me_key: str = _SKIP_ME_KEY
-    notes_key: str = _NOTES_KEY
+    max_inference_duration_s: float = 2400.0
+    local_bucketing: bool = False
+    num_workers_override: int | None = None
+
     BATCH_ONLY = True
-    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "extras_key", "skip_me_key", "notes_key"})
+    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
-        gates=Gates(
-            requires_gpu=True,
-            requires_internet_first_run=True,
-            per_row_independent=True,
-        )
+        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=True)
     )
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         super().__post_init__()
-        _validate_control_keys(self.skip_me_key, self.notes_key)
+        for field_name, key in (("skip_me_key", self.skip_me_key), ("notes_key", self.notes_key)):
+            if not isinstance(key, str) or not key.strip():
+                msg = f"ASRStage.{field_name} must be a non-empty string"
+                raise ValueError(msg)
+        self.skip_me_key = self.skip_me_key.strip()
+        self.notes_key = self.notes_key.strip()
+        if not self.skip_me_key or not self.notes_key:
+            msg = "ASRStage skip_me_key and notes_key must be non-empty"
+            raise ValueError(msg)
+        if self.skip_me_key == self.notes_key:
+            msg = "ASRStage skip_me_key and notes_key must be different"
+            raise ValueError(msg)
         if not self.pred_text_key:
             msg = "ASRStage.pred_text_key must be non-empty"
             raise ValueError(msg)
         if self.pred_text_key in {self.skip_me_key, self.notes_key}:
             msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
             raise ValueError(msg)
+        if self.language_key is not None:
+            self.language_key = self.language_key.strip()
+            if not self.language_key:
+                msg = "ASRStage.language_key must be non-empty or None"
+                raise ValueError(msg)
+            if self.language_key in {self.pred_text_key, self.skip_me_key, self.notes_key}:
+                msg = f"ASRStage.language_key cannot collide with another output column: {self.language_key!r}"
+                raise ValueError(msg)
         if self.extras_key is not None:
             self.extras_key = self.extras_key.strip()
             if not self.extras_key:
                 msg = "ASRStage.extras_key must be non-empty or None"
                 raise ValueError(msg)
-            if self.extras_key in {self.pred_text_key, self.skip_me_key, self.notes_key}:
+            if self.extras_key in {
+                self.pred_text_key,
+                self.language_key,
+                self.skip_me_key,
+                self.notes_key,
+            }:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
-        input_keys = {
-            key
-            for key in (
-                self.audio_filepath_key,
-                self.waveform_key,
-                self.sample_rate_key,
-                self.source_lang_key,
-            )
-            if isinstance(key, str) and key
+        input_keys = {self.audio_filepath_key, self.waveform_key, self.sample_rate_key, self.source_lang_key} - {
+            None,
+            "",
         }
-        output_keys = {self.pred_text_key, self.skip_me_key, self.notes_key}
-        if self.extras_key is not None:
-            output_keys.add(self.extras_key)
+        output_keys = {self.pred_text_key, self.skip_me_key, self.notes_key, self.language_key, self.extras_key} - {
+            None
+        }
         collisions = sorted(input_keys & output_keys)
         if collisions:
             msg = f"ASRStage output/control keys must not collide with input keys: {collisions}"
@@ -211,9 +242,39 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if int(self.target_sample_rate) <= 0:
             msg = f"ASRStage.target_sample_rate must be > 0, got {self.target_sample_rate}"
             raise ValueError(msg)
+        self.max_inference_duration_s = resolve_max_model_input_duration(
+            max_duration_s=self.max_inference_duration_s,
+            owner="ASRStage",
+        )
+        self.max_audio_sec_per_actor = self._validate_max_audio_sec_per_actor(self.max_audio_sec_per_actor)
+        if self.max_inference_duration_s > self.max_audio_sec_per_actor:
+            msg = (
+                "ASRStage.max_inference_duration_s must be <= max_audio_sec_per_actor; "
+                f"got {self.max_inference_duration_s} > {self.max_audio_sec_per_actor}"
+            )
+            raise ValueError(msg)
+        if not isinstance(self.local_bucketing, bool):
+            msg = f"ASRStage.local_bucketing must be a bool, got {type(self.local_bucketing).__name__}"
+            raise TypeError(msg)
+        if self.num_workers_override is not None and int(self.num_workers_override) <= 0:
+            msg = f"ASRStage.num_workers_override must be > 0 or None, got {self.num_workers_override}"
+            raise ValueError(msg)
         self.batch_size = int(self.batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
+        if self.num_workers_override is not None:
+            self.num_workers_override = int(self.num_workers_override)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
+
+    @staticmethod
+    def _validate_max_audio_sec_per_actor(value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            msg = f"ASRStage.max_audio_sec_per_actor must be numeric, got {type(value).__name__}"
+            raise TypeError(msg)
+        maximum = float(value)
+        if not math.isfinite(maximum) or maximum <= 0:
+            msg = f"ASRStage.max_audio_sec_per_actor must be finite and > 0, got {value}"
+            raise ValueError(msg)
+        return maximum
 
     @staticmethod
     def _normalise_supported_language_codes(value: object) -> set[str] | None:
@@ -237,6 +298,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         optional_outputs = [self.pred_text_key, self.skip_me_key, self.notes_key]
+        if self.language_key is not None:
+            optional_outputs.append(self.language_key)
         if self.extras_key is not None:
             optional_outputs.append(self.extras_key)
         return [], optional_outputs
@@ -247,16 +310,27 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             if self.waveform_key
             else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
         )
+        writes = [self.pred_text_key]
         conditional_writes = [
             ConditionalWrite(
                 writes=IOSpec(data_keys=[self.skip_me_key]),
-                condition="the adapter skips an item or audio preparation fails",
+                condition="the configured policy marks an adapter skip or audio preparation failure",
             ),
             ConditionalWrite(
                 writes=IOSpec(data_keys=[self.notes_key]),
-                condition="a configured language allowlist rejects or cannot identify the item language",
+                condition="language routing or adapter-specific result handling emits notes",
             ),
         ]
+        if self.language_key is not None:
+            if self.skip_if_output_exists:
+                conditional_writes.append(
+                    ConditionalWrite(
+                        writes=IOSpec(data_keys=[self.language_key]),
+                        condition="the row is transcribed; reused rows retain their existing language key if present",
+                    )
+                )
+            else:
+                writes.append(self.language_key)
         if self.extras_key is not None:
             conditional_writes.append(
                 ConditionalWrite(
@@ -266,16 +340,24 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             )
         return StageContract(
             reads=reads,
-            writes=IOSpec(data_keys=[self.pred_text_key]),
+            optional_reads=IOSpec(
+                data_keys=[key for key in (self.source_lang_key, self.skip_me_key, self.notes_key) if key]
+            ),
+            writes=IOSpec(data_keys=writes),
             conditional_writes=conditional_writes,
             cardinality="1:1",
             removes_keys=([self.waveform_key] if self.waveform_key and not self.keep_waveform else []),
+            invalidates_keys=([self.extras_key] if self.extras_key is not None else []),
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
                 requires_internet_first_run=True,
                 per_row_independent=True,
             ),
         )
+
+    def num_workers(self) -> int | None:
+        """Return an explicit backend worker count when configured."""
+        return self.num_workers_override
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)
@@ -349,6 +431,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run one ASR batch."""
+        if not tasks:
+            return []
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 
         for task in tasks_to_process:
@@ -397,7 +481,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         """Transcribe one stage batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
-        adapter_indices: list[int] = []
+        adapter_parent_indices: list[int] = []
         adapter_items: list[dict[str, Any]] = []
         for index in supported_indices:
             item = items[index]
@@ -423,32 +507,41 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 )
                 by_index[index] = ASRResult(text="", skipped=True, skip_reason="audio_load_error")
                 continue
-            adapter_indices.append(index)
-            adapter_items.append(
-                {
-                    "waveform": waveform,
-                    "sample_rate": self.target_sample_rate,
-                    "language": item["language"],
-                    "language_code": item["language_code"],
-                    "task_id": item["task_id"],
-                }
+            segments = plan_audio_segments(
+                num_samples=int(waveform.shape[0]),
+                sample_rate=self.target_sample_rate,
+                max_duration_s=self.max_inference_duration_s,
+                owner="ASRStage",
             )
+            for segment in segments:
+                adapter_parent_indices.append(index)
+                adapter_items.append(
+                    {
+                        "waveform": np.ascontiguousarray(
+                            waveform[segment.start_sample : segment.stop_sample],
+                            dtype=np.float32,
+                        ),
+                        "sample_rate": self.target_sample_rate,
+                        "audio_seconds": segment.duration_s,
+                        "language": item["language"],
+                        "language_code": item["language_code"],
+                        "task_id": item["task_id"],
+                    }
+                )
 
         if adapter_items:
-            adapter_results = self._adapter.transcribe_batch(adapter_items)
-            if len(adapter_results) != len(adapter_items):
-                msg = (
-                    f"Adapter returned {len(adapter_results)} results for "
-                    f"{len(adapter_items)} supported items (must match 1:1)"
-                )
-                raise RuntimeError(msg)
-            by_index.update(zip(adapter_indices, adapter_results, strict=True))
+            adapter_results = self._run_adapter_batches(adapter_items)
+            per_parent: dict[int, list[ASRResult]] = {}
+            for parent_index, result in zip(adapter_parent_indices, adapter_results, strict=True):
+                per_parent.setdefault(parent_index, []).append(result)
+            for parent_index, chunk_results in per_parent.items():
+                by_index[parent_index] = self._stitch_chunk_results(chunk_results)
         return [
             by_index.get(
                 index,
                 ASRResult(
                     text="",
-                    skipped=True,
+                    skipped=self.unsupported_language_marks_skip,
                     skip_reason=(
                         "language_not_supported"
                         if str(item.get("language_code", "") or "").strip()
@@ -460,6 +553,167 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             for index, item in enumerate(items)
         ]
 
+    @staticmethod
+    def _stitch_chunk_results(results: list[ASRResult]) -> ASRResult:
+        """Join ordered chunk outputs into one parent-row result."""
+        if not results:
+            return ASRResult(text="", skipped=True, skip_reason="empty_audio")
+        if len(results) == 1:
+            return results[0]
+
+        texts = [text for result in results if (text := (result.text or "").strip())]
+        any_skipped = any(result.skipped for result in results)
+        skip_reason = next((result.skip_reason for result in results if result.skip_reason), None)
+        unsupported_language = next(
+            (result.unsupported_language for result in results if result.unsupported_language),
+            None,
+        )
+        extras: dict[str, Any] = {}
+        for result in results:
+            extras.update(result.extras)
+        return ASRResult(
+            text=" ".join(texts),
+            skipped=any_skipped,
+            skip_reason=skip_reason if any_skipped else None,
+            unsupported_language=unsupported_language,
+            extras=extras,
+        )
+
+    def _run_adapter_batches(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Run capacity-bounded adapter calls and restore segment order."""
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        sub_batches = self._plan_adapter_batches(items)
+
+        aligned: list[ASRResult | None] = [None] * len(items)
+        for indices, sub_items in sub_batches:
+            sub_results = self._adapter.transcribe_batch(sub_items)
+            if len(sub_results) != len(sub_items):
+                msg = (
+                    f"Adapter returned {len(sub_results)} results for "
+                    f"{len(sub_items)} supported items (must match 1:1)"
+                )
+                raise RuntimeError(msg)
+            for index, result in zip(indices, sub_results, strict=True):
+                aligned[index] = result
+
+        if any(result is None for result in aligned):
+            msg = "Local batch planning did not produce a result for every supported item"
+            raise RuntimeError(msg)
+        return [result for result in aligned if result is not None]
+
+    def _plan_adapter_batches(
+        self,
+        items: list[dict[str, Any]],
+    ) -> list[tuple[list[int], list[dict[str, Any]]]]:
+        """Optimally pack one finite segment list under the padded-audio budget.
+
+        The proxy cost of an adapter call is its longest audio duration times
+        its item count. This models the padded tensor work more closely than a
+        sum of unpadded durations. With local bucketing enabled, dynamic
+        programming over the stable duration order first minimizes adapter-call
+        count and then total padded seconds. The budget is enforced in both
+        modes.
+        """
+        indexed_items = [(index, item, item["audio_seconds"]) for index, item in enumerate(items)]
+
+        if not self.local_bucketing:
+            return self._pack_in_order(indexed_items)
+
+        indexed_items.sort(key=lambda indexed_item: indexed_item[2])
+        return self._pack_duration_sorted(indexed_items)
+
+    def _pack_duration_sorted(
+        self,
+        indexed_items: list[tuple[int, dict[str, Any], float]],
+    ) -> list[tuple[list[int], list[dict[str, Any]]]]:
+        """Find the exact lexicographic optimum over sorted contiguous spans."""
+        item_count = len(indexed_items)
+        if item_count == 0:
+            return []
+
+        # best_score[start] is the exact optimum for the suffix beginning at
+        # start. A batch is always one contiguous span in stable duration
+        # order, so the recurrence considers every possible next boundary.
+        best_score: list[tuple[int, float] | None] = [None] * (item_count + 1)
+        next_boundary = [item_count] * item_count
+        best_score[item_count] = (0, 0.0)
+
+        for start in range(item_count - 1, -1, -1):
+            for stop in range(start + 1, item_count + 1):
+                padded_seconds = indexed_items[stop - 1][2] * (stop - start)
+                if not self._fits_audio_budget(padded_seconds):
+                    break
+
+                suffix_score = best_score[stop]
+                if suffix_score is None:  # pragma: no cover - every singleton is feasible
+                    continue
+                candidate_score = (suffix_score[0] + 1, suffix_score[1] + padded_seconds)
+                current_score = best_score[start]
+                if current_score is None or candidate_score < current_score:
+                    best_score[start] = candidate_score
+                    next_boundary[start] = stop
+
+        planned: list[tuple[list[int], list[dict[str, Any]]]] = []
+        start = 0
+        while start < item_count:
+            stop = next_boundary[start]
+            batch = indexed_items[start:stop]
+            planned.append(
+                (
+                    [index for index, _item, _audio_seconds in batch],
+                    [item for _index, item, _audio_seconds in batch],
+                ),
+            )
+            start = stop
+        return planned
+
+    def _pack_in_order(
+        self,
+        indexed_items: list[tuple[int, dict[str, Any], float]],
+    ) -> list[tuple[list[int], list[dict[str, Any]]]]:
+        """Greedily preserve input order while enforcing padded capacity."""
+        planned: list[tuple[list[int], list[dict[str, Any]]]] = []
+        current: list[tuple[int, dict[str, Any], float]] = []
+        current_max_duration = 0.0
+
+        for indexed_item in indexed_items:
+            audio_seconds = indexed_item[2]
+            candidate_max_duration = max(current_max_duration, audio_seconds)
+            candidate_padded_seconds = candidate_max_duration * (len(current) + 1)
+            if current and not self._fits_audio_budget(candidate_padded_seconds):
+                planned.append(
+                    (
+                        [index for index, _item, _audio_seconds in current],
+                        [item for _index, item, _audio_seconds in current],
+                    ),
+                )
+                current = []
+                current_max_duration = 0.0
+
+            current.append(indexed_item)
+            current_max_duration = max(current_max_duration, audio_seconds)
+
+        if current:
+            planned.append(
+                (
+                    [index for index, _item, _audio_seconds in current],
+                    [item for _index, item, _audio_seconds in current],
+                ),
+            )
+        return planned
+
+    def _fits_audio_budget(self, padded_seconds: float) -> bool:
+        """Treat representation-level equality as within the configured budget."""
+        return padded_seconds <= self.max_audio_sec_per_actor or math.isclose(
+            padded_seconds,
+            self.max_audio_sec_per_actor,
+            rel_tol=_PADDED_SECONDS_REL_TOL,
+            abs_tol=_PADDED_SECONDS_ABS_TOL,
+        )
+
     def assemble(
         self,
         tasks: list[AudioTask],
@@ -470,31 +724,18 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         skipped_count = 0
         for task, item, result in zip(tasks, items, results, strict=True):
             task.data[self.pred_text_key] = result.text
+            if self.language_key is not None:
+                task.data.setdefault(self.language_key, "")
             if self.extras_key is not None:
                 if result.extras:
                     task.data[self.extras_key] = dict(result.extras)
                 else:
                     task.data.pop(self.extras_key, None)
-            unsupported_language = result.unsupported_language
-            missing_language = self._supported_language_codes is not None and not item["language_code"]
-            if missing_language:
-                _set_note(task.data, self.notes_key, self.name, "skipped (missing language)")
-                _set_note(task.data, self.notes_key, self.pred_text_key, "language_missing")
-            elif unsupported_language:
-                _set_note(
-                    task.data,
-                    self.notes_key,
-                    self.name,
-                    f"skipped (unsupported language: {unsupported_language})",
-                )
-                _set_note(
-                    task.data,
-                    self.notes_key,
-                    self.pred_text_key,
-                    f"lang_not_supported:{unsupported_language}",
-                )
+            self._write_language_result(task, item, result)
             if result.skipped:
-                task.data[self.skip_me_key] = result.skip_reason or "empty_audio"
+                skip_reason = self._resolve_skip_reason(result)
+                if not self.preserve_existing_skip or not task.data.get(self.skip_me_key):
+                    task.data[self.skip_me_key] = skip_reason
                 skipped_count += 1
 
         if skipped_count:
@@ -505,3 +746,44 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             f"ASRStage ({self.adapter_target}): generated {len(results)} predictions",
         )
         return tasks
+
+    def _write_language_result(
+        self,
+        task: AudioTask,
+        item: dict[str, Any],
+        result: ASRResult,
+    ) -> None:
+        """Write the configured language output or routing notes."""
+        unsupported_language = result.unsupported_language
+        missing_language = self._supported_language_codes is not None and not item["language_code"]
+        if missing_language:
+            if self.missing_language_is_unsupported:
+                _set_note(task.data, self.name, "skipped (unsupported language: )", self.notes_key)
+                _set_note(task.data, self.pred_text_key, "lang_not_supported:", self.notes_key)
+            else:
+                _set_note(task.data, self.name, "skipped (missing language)", self.notes_key)
+                _set_note(task.data, self.pred_text_key, "language_missing", self.notes_key)
+        elif unsupported_language:
+            _set_note(
+                task.data,
+                self.name,
+                f"skipped (unsupported language: {unsupported_language})",
+                self.notes_key,
+            )
+            _set_note(
+                task.data,
+                self.pred_text_key,
+                f"lang_not_supported:{unsupported_language}",
+                self.notes_key,
+            )
+        elif self.language_key is not None:
+            task.data[self.language_key] = str(result.extras.get("language_code") or item["language_code"] or "")
+
+    def _resolve_skip_reason(self, result: ASRResult) -> str:
+        """Return the configured machine-readable reason for a skipped result."""
+        if result.unsupported_language and self.unsupported_language_skip_reason is not None:
+            return self.unsupported_language_skip_reason.format(
+                stage_name=self.name,
+                language=result.unsupported_language,
+            )
+        return result.skip_reason or "empty_audio"

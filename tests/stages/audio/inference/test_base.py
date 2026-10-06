@@ -33,6 +33,80 @@ def test_asr_and_sed_inherit_one_adapter_stage_base() -> None:
     assert issubclass(SEDInferenceStage, AdapterInferenceStage)
 
 
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("residency", ["file", "auto", "waveform"])
+def test_planning_checks_the_selected_resident_role(
+    kind: str, residency: str, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.stages.audio.common import GetAudioDurationStage
+    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency=residency)
+    producer = MonoConversionStage(output_sample_rate=16000)
+    overwriter = GetAudioDurationStage(duration_key="waveform")
+    report = rh.validate_pipeline([producer, overwriter, stage], initial_keys={"audio_filepath"})
+    assert report.ok is (residency == "file"), report.summary()
+    assert any(issue.code == "key_role_conflict" for issue in report.issues) is (residency != "file")
+    valid = rh.validate_pipeline([producer, stage], initial_keys={"audio_filepath"})
+    assert valid.ok, valid.summary()
+    if residency != "file":
+        with rh.pytest.raises(ValueError, match="waveform.*shape"):
+            stage.process_batch(
+                [rh.AudioTask(data={"audio_filepath": "/valid/file.wav", "waveform": 0.5, "sample_rate": 16000})]
+            )
+
+
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("resident_key", ["waveform", "sample_rate"])
+def test_auto_planning_rejects_an_incomplete_resident_pair(
+    kind: str, resident_key: str, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency="auto")
+    report = rh.validate_pipeline([stage], initial_keys={"audio_filepath", resident_key})
+    assert not report.ok, report.summary()
+    data = {"audio_filepath": "/valid/file.wav", resident_key: rh.np.ones(10) if resident_key == "waveform" else 16000}
+    with rh.pytest.raises(ValueError, match="incomplete resident audio"):
+        stage.process_batch([rh.AudioTask(data=data)])
+
+
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+def test_auto_planning_rejects_a_rate_overwritten_with_an_incompatible_role(
+    kind: str, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.stages.audio.common import GetAudioDurationStage
+    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency="auto")
+    report = rh.validate_pipeline(
+        [MonoConversionStage(output_sample_rate=16000), GetAudioDurationStage(duration_key="sample_rate"), stage],
+        initial_keys={"audio_filepath"},
+    )
+    assert not report.ok, report.summary()
+    assert any(issue.code == "key_role_conflict" for issue in report.issues)
+
+
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("keep_waveform", [False, True])
+def test_asr_waveform_retention_controls_downstream_auto_residency(
+    kind: str, keep_waveform: bool, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+    downstream, _seen = rh._make_stage(kind, monkeypatch, input_residency="auto")
+    asr = ASRStage(
+        adapter_target="package.Adapter",
+        model_id="model",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        keep_waveform=keep_waveform,
+    )
+    report = rh.validate_pipeline(
+        [MonoConversionStage(output_sample_rate=16000), asr, downstream], initial_keys={"audio_filepath"}
+    )
+    assert report.ok is keep_waveform, report.summary()
+
+
 def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
     common_methods = {
         "_adapter_class",
@@ -48,7 +122,11 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
 
 def test_worker_sizing_uses_the_processing_stage_override() -> None:
     sed = SEDInferenceStage(adapter_target="package.Adapter", checkpoint_path="/checkpoint.pth")
-    asr = ASRStage(adapter_target="package.Adapter", model_id="model")
+    asr = ASRStage(
+        adapter_target="package.Adapter",
+        model_id="model",
+        max_audio_sec_per_actor=2400.0,
+    )
 
     assert "num_workers_override" not in SEDInferenceStage.__dataclass_fields__
     assert sed.num_workers() is None
@@ -153,7 +231,7 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
         initial_task_type="AudioTask",
     )
     assert removed_containers[kind].isdisjoint(after_fanout.produced_keys)
-    file_asr = rh.ASRStage(adapter_target=rh._ASR_TARGET, model_id="mock/model")
+    file_asr = rh.ASRStage(max_audio_sec_per_actor=2400.0, adapter_target=rh._ASR_TARGET, model_id="mock/model")
     rejected = rh.validate_pipeline(
         [stage, file_asr],
         initial_roles={"audio_filepath"},
@@ -163,7 +241,11 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
     assert not rejected.ok
     assert any(issue.stage_index == 1 and issue.code == "key_removed_upstream" for issue in rejected.issues)
     waveform_asr = rh.ASRStage(
-        adapter_target=rh._ASR_TARGET, model_id="mock/model", waveform_key="waveform", sample_rate_key="sample_rate"
+        max_audio_sec_per_actor=2400.0,
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
     )
     accepted = rh.validate_pipeline(
         [stage, waveform_asr],
@@ -243,6 +325,7 @@ def test_pcm16_resident_fanout_matches_file_amplitude(
         assert resident_child.data["waveform"].dtype == rh.np.float32
         rh.np.testing.assert_array_equal(resident_child.data["waveform"], file_child.data["waveform"])
     asr = rh.ASRStage(
+        max_audio_sec_per_actor=2400.0,
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
@@ -407,7 +490,12 @@ def test_static_and_configured_inference_hints_are_truthful(tmp_path: Path) -> N
     assert rh.static_contract(rh.WhisperXVADStage).gates.requires_internet_first_run
     asr_static = rh.static_contract(rh.ASRStage)
     asr_configured = rh.build_contract(
-        rh.ASRStage(adapter_target=rh._ASR_TARGET, model_id="mock/model", resources=rh.Resources(gpus=0))
+        rh.ASRStage(
+            max_audio_sec_per_actor=2400.0,
+            adapter_target=rh._ASR_TARGET,
+            model_id="mock/model",
+            resources=rh.Resources(gpus=0),
+        )
     )
     assert asr_static.gates.requires_gpu
     assert asr_static.gates.requires_internet_first_run

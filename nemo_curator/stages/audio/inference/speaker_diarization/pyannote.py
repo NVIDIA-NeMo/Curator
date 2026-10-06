@@ -47,6 +47,7 @@ from nemo_curator.stages.audio.inference.base import (
     _fanout_audio_segment,
     _fanout_original_file,
     _fanout_path_keys,
+    _inference_audio_conditional_reads,
     _inference_audio_input_spec,
     _inference_audio_read_specs,
     _resident_audio_duration,
@@ -172,13 +173,19 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
-        if self.num_speakers_key is not None and self.num_speakers_key in {
-            self.audio_filepath_key,
-            self.segments_key,
-            self.overlap_segments_key,
-        }:
-            msg = "num_speakers_key must be distinct from path and segment output keys when enabled"
-            raise ValueError(msg)
+        if self.num_speakers_key is not None:
+            if not isinstance(self.num_speakers_key, str) or not self.num_speakers_key.strip():
+                msg = "num_speakers_key must be a non-empty string or None"
+                raise ValueError(msg)
+            if self.num_speakers_key in {
+                self.audio_filepath_key,
+                self.segments_key,
+                self.overlap_segments_key,
+                self.waveform_key,
+                self.sample_rate_key,
+            }:
+                msg = "num_speakers_key must be distinct from audio input and segment output keys when enabled"
+                raise ValueError(msg)
         if self.fanout:
             self.is_resumable = False
             _validate_fanout_key_contract(
@@ -279,6 +286,14 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
                 fallback_audio_filepath_keys=("audio_filepath",) if self.allow_audio_filepath_fallback else (),
+            ),
+            conditional_reads=_inference_audio_conditional_reads(
+                self.input_residency, waveform_key=self.waveform_key, sample_rate_key=self.sample_rate_key
+            ),
+            preferred_reads=(
+                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+                if self.input_residency == "auto"
+                else None
             ),
             writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,

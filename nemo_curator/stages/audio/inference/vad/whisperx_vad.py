@@ -46,6 +46,7 @@ from nemo_curator.stages.audio.inference.base import (
     _fanout_audio_segment,
     _fanout_original_file,
     _fanout_path_keys,
+    _inference_audio_conditional_reads,
     _inference_audio_input_spec,
     _inference_audio_read_specs,
     _resident_audio_duration,
@@ -252,6 +253,14 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 waveform_key=self.waveform_key,
                 sample_rate_key=self.sample_rate_key,
                 fallback_audio_filepath_keys=("audio_filepath",) if self.allow_audio_filepath_fallback else (),
+            ),
+            conditional_reads=_inference_audio_conditional_reads(
+                self.input_residency, waveform_key=self.waveform_key, sample_rate_key=self.sample_rate_key
+            ),
+            preferred_reads=(
+                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+                if self.input_residency == "auto"
+                else None
             ),
             writes=IOSpec(data_keys=writes, produces=["tensor"] if self.fanout else []),
             cardinality=cardinality,

@@ -27,7 +27,7 @@ import numpy as np
 import soundfile
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import IOSpec
+from nemo_curator.stages.audio._agent._agent_ready import ConditionalRead, IOSpec
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
@@ -89,6 +89,23 @@ def _inference_audio_read_specs(
             specs.append(IOSpec(data_keys=[key], accepts=["file"]))
             declared_paths.add(key)
     return specs
+
+
+def _inference_audio_conditional_reads(
+    residency: InputResidency, *, waveform_key: str, sample_rate_key: str
+) -> list[ConditionalRead]:
+    """Auto rejects an orphaned resident field instead of falling back to a file."""
+    if residency != "auto":
+        return []
+    resident = IOSpec(data_keys=[waveform_key, sample_rate_key], accepts=["waveform"])
+    return [
+        ConditionalRead(
+            reads_one_of=[resident],
+            requires_keys=[key],
+            condition=f"resident field {key!r} is present; both resident audio fields must be usable",
+        )
+        for key in (waveform_key, sample_rate_key)
+    ]
 
 
 def _validate_inference_audio_input(  # noqa: PLR0913

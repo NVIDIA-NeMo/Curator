@@ -41,6 +41,9 @@ lang: hy_am
 data_split: dev
 wer_threshold: 5.5
 output_dir: ${raw_data_dir}/result/${lang}
+max_audio_sec_per_actor: 240.0
+max_inference_duration_s: 120.0
+local_bucketing: true
 backend: xenna
 
 stages:
@@ -56,6 +59,9 @@ stages:
     audio_filepath_key: audio_filepath
     target_sample_rate: 16000
     batch_size: 16
+    max_audio_sec_per_actor: ${max_audio_sec_per_actor}
+    max_inference_duration_s: ${max_inference_duration_s}
+    local_bucketing: ${local_bucketing}
     adapter_kwargs:
       # Avoid NeMo RNNT label-loop CUDA graphs, which are not supported by all
       # CUDA runtime/driver combinations. This does not disable GPU inference.

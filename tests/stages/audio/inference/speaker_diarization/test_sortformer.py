@@ -269,6 +269,46 @@ def test_cpu_injected_sortformer_does_not_claim_gpu_requirement() -> None:
     assert restored.gates.requires_gpu is True
 
 
+@pytest.mark.parametrize("audio_key", ["pcm", "rate_hz"])
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_count_output_cannot_overwrite_audio_carriers(audio_key: str, residency: str) -> None:
+    with pytest.raises(ValueError, match="distinct from audio input"):
+        InferenceSortformerStage(
+            input_residency=residency,
+            waveform_key="pcm",
+            sample_rate_key="rate_hz",
+            num_speakers_key=audio_key,
+        )
+
+
+@pytest.mark.parametrize("count_key", ["", " ", 1])
+def test_enabled_count_output_requires_a_nonempty_key(count_key: object) -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        InferenceSortformerStage(num_speakers_key=count_key)
+
+
+def test_resident_count_output_preserves_audio_for_asr(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, _ = rh._make_stage("sortformer", monkeypatch, input_residency="waveform")
+    stage = replace(stage, num_speakers_key="speaker_count")
+    waveform = np.linspace(-0.2, 0.2, 10, dtype=np.float32)[None, :]
+    result = stage.process_batch([AudioTask(data={"waveform": waveform, "sample_rate": rh._SAMPLE_RATE})])[0]
+    assert result.data["speaker_count"] == 1
+    assert result.data["sample_rate"] == rh._SAMPLE_RATE
+    np.testing.assert_array_equal(result.data["waveform"], waveform)
+    asr = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+    )
+    asr._adapter = rh.MagicMock()
+    asr._adapter.transcribe_batch.return_value = [rh.ASRResult(text="hello")]
+    asr.process_batch([result])
+    np.testing.assert_array_equal(asr._adapter.transcribe_batch.call_args.args[0][0]["waveform"], waveform[0])
+
+
 @pytest.mark.parametrize("session_name", [None, "shared-session"])
 def test_source_hash_exports_duplicate_basenames_without_overwriting_and_retries_subset(
     session_name: str | None, tmp_path: Path

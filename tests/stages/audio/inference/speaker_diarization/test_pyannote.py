@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,47 @@ if TYPE_CHECKING:
     from typing import Any
 
 hf_token = os.getenv("HF_TOKEN")
+
+
+@pytest.mark.parametrize("audio_key", ["pcm", "rate_hz"])
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_count_output_cannot_overwrite_audio_carriers(audio_key: str, residency: str) -> None:
+    with pytest.raises(ValueError, match="distinct from audio input"):
+        PyAnnoteDiarizationStage(
+            input_residency=residency,
+            waveform_key="pcm",
+            sample_rate_key="rate_hz",
+            num_speakers_key=audio_key,
+        )
+
+
+@pytest.mark.parametrize("count_key", ["", " ", 1])
+def test_enabled_count_output_requires_a_nonempty_key(count_key: object) -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        PyAnnoteDiarizationStage(num_speakers_key=count_key)
+
+
+def test_resident_count_output_preserves_audio_for_asr(monkeypatch: pytest.MonkeyPatch) -> None:
+    template, _ = rh._make_stage("pyannote", monkeypatch, input_residency="waveform")
+    stage = replace(template, num_speakers_key="speaker_count")
+    stage._pipeline = template._pipeline
+    waveform = rh.np.linspace(-0.2, 0.2, 10, dtype=rh.np.float32)[None, :]
+    result = stage.process_batch([AudioTask(data={"waveform": waveform, "sample_rate": rh._SAMPLE_RATE})])[0]
+    assert result.data["speaker_count"] == 1
+    assert result.data["sample_rate"] == rh._SAMPLE_RATE
+    rh.np.testing.assert_array_equal(result.data["waveform"], waveform)
+    asr = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+    )
+    asr._adapter = rh.MagicMock()
+    asr._adapter.transcribe_batch.return_value = [rh.ASRResult(text="hello")]
+    asr.process_batch([result])
+    rh.np.testing.assert_array_equal(asr._adapter.transcribe_batch.call_args.args[0][0]["waveform"], waveform[0])
 
 
 class TestPyannoteHasOverlap:
