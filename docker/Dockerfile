@@ -92,11 +92,16 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
 # GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime
 # TORCH_CUDA_ARCH_LIST: compile for SM 8.0/8.6/8.9/9.0 to cover A100, A10, RTX Ada, H100
 ARG NEMOTRON_OCR_REV=86cacb0467fa4f7ce54342fdb250825e0d928ae7
-RUN uv pip install hatchling ninja editables && \
-    GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/nvidia/nemotron-ocr-v2 /tmp/nemotron-ocr-src && \
-    git -C /tmp/nemotron-ocr-src checkout "${NEMOTRON_OCR_REV}" && \
-    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" uv pip install --no-build-isolation /tmp/nemotron-ocr-src/nemotron-ocr && \
-    rm -rf /tmp/nemotron-ocr-src
+# The audio-only profile must retain its selected TensorRT-LLM native stack.
+RUN if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then \
+        echo "Skipping Nemotron OCR for the audio-only TensorRT-LLM profile"; \
+    else \
+        uv pip install hatchling ninja editables && \
+        GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/nvidia/nemotron-ocr-v2 /tmp/nemotron-ocr-src && \
+        git -C /tmp/nemotron-ocr-src checkout "${NEMOTRON_OCR_REV}" && \
+        TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" uv pip install --no-build-isolation /tmp/nemotron-ocr-src/nemotron-ocr && \
+        rm -rf /tmp/nemotron-ocr-src; \
+    fi
 
 COPY . /opt/Curator
 
