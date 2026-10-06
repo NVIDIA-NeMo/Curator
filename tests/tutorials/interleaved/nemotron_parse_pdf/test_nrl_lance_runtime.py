@@ -406,7 +406,9 @@ def _ingest_args(root: Path, manifest: Path) -> argparse.Namespace:
 
 @pytest.mark.parametrize("partial", [False, True])
 @pytest.mark.parametrize("projection_block_rows", [None, 16])
-@pytest.mark.parametrize(("parse_batch_size", "parse_cpus"), [(64, 1), (64, 4), (128, 1)])
+@pytest.mark.parametrize(
+    ("parse_batch_size", "parse_cpus", "parse_batches_in_flight"), [(64, 1, 1), (64, 4, 1), (128, 1, 1), (64, 1, 4)]
+)
 def test_ingest_writes_handoff_only_after_validated_table(  # noqa: PLR0913
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -414,6 +416,7 @@ def test_ingest_writes_handoff_only_after_validated_table(  # noqa: PLR0913
     partial: bool,
     parse_batch_size: int,
     parse_cpus: int,
+    parse_batches_in_flight: int,
     projection_block_rows: int | None,
 ) -> None:
     source = tmp_path / "source.pdf"
@@ -434,12 +437,14 @@ def test_ingest_writes_handoff_only_after_validated_table(  # noqa: PLR0913
             "projection_block_rows": projection_block_rows,
             "parse_batch_size": parse_batch_size,
             "parse_cpus": parse_cpus,
+            "parse_batches_in_flight": parse_batches_in_flight,
         }
         return pd.DataFrame([_marker(source, 1), _element(source, 1, 0)], dtype=object)
 
     args = _ingest_args(tmp_path, manifest)
     args.parse_batch_size = parse_batch_size
     args.parse_cpus = parse_cpus
+    args.parse_batches_in_flight = parse_batches_in_flight
     args.projection_block_rows = projection_block_rows
     handoff_path = runtime.run_ingest(args, graph_runner=fake_graph)
     handoff = runtime._load_handoff_manifest(handoff_path)
@@ -455,6 +460,7 @@ def test_ingest_writes_handoff_only_after_validated_table(  # noqa: PLR0913
     assert handoff["tables"][contract.ELEMENT_TABLE]["row_count"] == 2
     assert handoff["configuration"]["parse_batch_size"] == parse_batch_size
     assert handoff["configuration"]["parse_cpus"] == parse_cpus
+    assert handoff["configuration"]["parse_batches_in_flight"] == parse_batches_in_flight
     assert handoff["configuration"]["projection_block_rows"] == projection_block_rows
     assert set(handoff["software"]) == {"nemo_retriever"}
     assert handoff["models"]["nemotron_parse"]["revision"] == "model-revision"
@@ -939,7 +945,8 @@ def test_ingest_storage_faults_never_publish(monkeypatch: pytest.MonkeyPatch, tm
 def test_ingest_checks_nrl_before_creating_the_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     args, _graph = _lifecycle_inputs(monkeypatch, tmp_path)
 
-    def incompatible() -> None:
+    def incompatible(parse_batches_in_flight: int) -> None:
+        assert parse_batches_in_flight == contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT
         msg = "incompatible NRL"
         raise RuntimeError(msg)
 

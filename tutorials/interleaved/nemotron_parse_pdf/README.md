@@ -228,6 +228,24 @@ except the last is full),
 `--projection-workers` (CPU projection actors, 1 to 8, default 8), and
 `--projection-block-rows` (page rows per block before projection).
 
+### Concurrent Parse batches (optional)
+
+`--parse-batches-in-flight N` (default 1) lets the single Parse actor run `N`
+batches at once through one vLLM async engine, with the same model, prompt, and
+sampling settings. The GPU then keeps working on new batches while each batch's
+slowest pages finish. It needs an NRL release with the
+`max_tasks_in_flight_per_actor` executor option; `ingest` checks for it before
+extracting when `N` is above 1.
+
+On one RTX PRO 6000 Blackwell GPU, `N=4` cut `ingest` on a 460-page set from
+212 and 215 seconds to 187 and 190 seconds in alternating runs. An experimental
+build cut a 7,936-page run from about 55 to 45 minutes. The costs are host
+memory (summed process memory rose from about 46 to 60 GiB on the large run)
+and per-batch latency (median about 72 seconds instead of 22). Output text
+differs from default runs more than two default runs differ from each other,
+and failed-page counts vary by a page or two either way, so validate on your
+own documents before relying on it.
+
 ### Page outcomes
 
 Each page is published whole or not at all. A page fails when NRL reports an

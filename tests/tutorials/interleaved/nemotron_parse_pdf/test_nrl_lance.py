@@ -52,13 +52,23 @@ def test_cli_passes_optional_projection_block_rows(
 
 
 @pytest.mark.parametrize(
-    ("flags", "expected"), [([], (64, 1)), (["--parse-cpus", "4"], (64, 4)), (["--parse-batch-size", "128"], (128, 1))]
+    ("flags", "expected"),
+    [
+        ([], (64, 1, 1)),
+        (["--parse-cpus", "4"], (64, 4, 1)),
+        (["--parse-batch-size", "128"], (128, 1, 1)),
+        (["--parse-batches-in-flight", "4"], (64, 1, 4)),
+    ],
 )
 def test_cli_passes_parse_scheduling_to_ingest(
-    monkeypatch: pytest.MonkeyPatch, flags: list[str], expected: tuple[int, int]
+    monkeypatch: pytest.MonkeyPatch, flags: list[str], expected: tuple[int, int, int]
 ) -> None:
     calls = []
-    monkeypatch.setattr(cli, "run_ingest", lambda args: calls.append((args.parse_batch_size, args.parse_cpus)))
+    monkeypatch.setattr(
+        cli,
+        "run_ingest",
+        lambda args: calls.append((args.parse_batch_size, args.parse_cpus, args.parse_batches_in_flight)),
+    )
     monkeypatch.setattr(sys, "argv", [*INGEST, *flags])
     cli.main()
     assert calls == [expected]
@@ -73,6 +83,8 @@ def test_cli_passes_parse_scheduling_to_ingest(
         ["--parse-batch-size", "0"],
         ["--parse-batch-size", "1"],
         ["--parse-batch-size", "1.5"],
+        ["--parse-batches-in-flight", "0"],
+        ["--parse-batches-in-flight", "1.5"],
         ["--projection-block-rows", "0"],
         ["--projection-block-rows", "-1"],
         ["--projection-block-rows", "1.5"],

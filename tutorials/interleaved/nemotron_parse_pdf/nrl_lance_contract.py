@@ -43,6 +43,7 @@ PARSE_MODEL = "nvidia/NVIDIA-Nemotron-Parse-v1.2"
 PARSE_TASK_PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_no_text_in_pic>"
 DEFAULT_PARSE_BATCH_SIZE = 64
 DEFAULT_PARSE_CPUS = 1
+DEFAULT_PARSE_BATCHES_IN_FLIGHT = 1
 MAX_PROJECTION_WORKERS = 8
 ELEMENT_TABLE = "pdf_elements"
 RUN_STATE_FILE = "run_state.json"
@@ -79,10 +80,16 @@ PROJECTION_COLUMNS = (
 )
 
 
-def validate_parse_scheduling(parse_batch_size: int, parse_cpus: int) -> None:
+def validate_parse_scheduling(
+    parse_batch_size: int, parse_cpus: int, parse_batches_in_flight: int = DEFAULT_PARSE_BATCHES_IN_FLIGHT
+) -> None:
     """Validate recipe-only Parse scheduling without importing the NRL runtime."""
 
-    for name, value in (("parse_batch_size", parse_batch_size), ("parse_cpus", parse_cpus)):
+    for name, value in (
+        ("parse_batch_size", parse_batch_size),
+        ("parse_cpus", parse_cpus),
+        ("parse_batches_in_flight", parse_batches_in_flight),
+    ):
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             msg = f"{name} must be a positive integer"
             raise ValueError(msg)

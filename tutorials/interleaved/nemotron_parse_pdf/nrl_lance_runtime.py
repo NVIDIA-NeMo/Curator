@@ -468,8 +468,9 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
 
     parse_batch_size = getattr(args, "parse_batch_size", contract.DEFAULT_PARSE_BATCH_SIZE)
     parse_cpus = getattr(args, "parse_cpus", contract.DEFAULT_PARSE_CPUS)
+    parse_batches_in_flight = getattr(args, "parse_batches_in_flight", contract.DEFAULT_PARSE_BATCHES_IN_FLIGHT)
     projection_block_rows = getattr(args, "projection_block_rows", None)
-    contract.validate_parse_scheduling(parse_batch_size, parse_cpus)
+    contract.validate_parse_scheduling(parse_batch_size, parse_cpus, parse_batches_in_flight)
     contract.validate_projection_block_rows(projection_block_rows)
     contract.validate_projection_workers(args.projection_workers)
     run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + f"-{uuid.uuid4().hex[:8]}"
@@ -490,7 +491,7 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
     runner = graph_runner
     if runner is None:
         graph_module = _load_graph_module()
-        graph_module.check_nrl_compatibility()
+        graph_module.check_nrl_compatibility(parse_batches_in_flight)
         runner = graph_module.run_nrl_graph
     model_revision = _model_revision(contract.PARSE_MODEL)
 
@@ -523,6 +524,7 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
             "projection_block_rows": projection_block_rows,
             "parse_batch_size": parse_batch_size,
             "parse_cpus": parse_cpus,
+            "parse_batches_in_flight": parse_batches_in_flight,
             "render": {"dpi": 200, "image_format": "png", "render_mode": "full_dpi"},
             "parse_model": contract.PARSE_MODEL,
             "task_prompt": contract.PARSE_TASK_PROMPT,
@@ -555,6 +557,7 @@ def run_ingest(  # noqa: C901, PLR0912, PLR0915
                 projection_block_rows=projection_block_rows,
                 parse_batch_size=parse_batch_size,
                 parse_cpus=parse_cpus,
+                parse_batches_in_flight=parse_batches_in_flight,
             )
             timings["graph_seconds"] = time.perf_counter() - graph_started
             if not hasattr(envelope, "to_dict"):
