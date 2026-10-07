@@ -152,6 +152,26 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             },
             output_keys={},
         )
+        # New resident/provenance roles cannot overwrite legacy metadata or paths.
+        legacy_keys = {
+            self.audio_filepath_key,
+            self.resampled_audio_filepath_key,
+            self.duration_key,
+            self.audio_item_id_key,
+        }
+        if (self.keep_waveform_in_task or self.input_residency != "file") and {
+            self.waveform_key,
+            self.sample_rate_key,
+        } & legacy_keys:
+            msg = "waveform_key and sample_rate_key must be distinct from metadata and path keys"
+            raise ValueError(msg)
+        if self.update_audio_filepath and self.original_audio_filepath_key in {
+            *legacy_keys,
+            self.waveform_key,
+            self.sample_rate_key,
+        }:
+            msg = "original_audio_filepath_key must be distinct from active output keys"
+            raise ValueError(msg)
         validate_input_residency(self.input_residency, stage_name=type(self).__name__)
         reject_sinkless_conversion(
             stage=type(self).__name__,

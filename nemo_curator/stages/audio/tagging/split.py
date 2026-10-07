@@ -206,6 +206,10 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 + ",".join(str(boundary) for boundary in accepted_boundaries)
             ).encode()
         )
+        # NAME_MAX counts bytes, including the digest and the largest chunk suffix.
+        suffix = f".{1 + len(splits)}_of_{1 + len(splits)}.wav"
+        budget = 255 - 33 - len(suffix.encode("utf-8"))
+        stem = stem.encode("utf-8")[:budget].decode("utf-8", errors="ignore")
         return f"{stem}_{identity.hexdigest()[:32]}"
 
     def _save_split(

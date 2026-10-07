@@ -654,3 +654,18 @@ def test_composite_preserves_renamed_transcript_and_alignment() -> None:
     assert result.data["transcript"] == "hello"
     assert result.data["word_alignment"] == [{"word": "hello", "start": 2.0, "end": 2.5}]
     assert "split_metadata" not in result.data
+
+
+@pytest.mark.parametrize("stem", ["a" * 220, "é" * 110])
+def test_shared_split_long_names_fit_filesystem(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stem: str) -> None:
+    saved: list[str] = []
+    _patch_audio_io(monkeypatch, saved)
+    stage = SplitLongAudioStage(
+        suggested_max_len=4, min_len=0.1, output_dir=str(tmp_path), audio_filepath_key="audio_filepath"
+    )
+    stage.setup()
+    stage.process(
+        AudioTask(data={"audio_filepath": str(tmp_path / f"{stem}.wav"), "duration": 8}, dataset_name="test")
+    )
+    assert saved
+    assert all(len(Path(path).name.encode("utf-8")) <= 255 and Path(path).is_file() for path in saved)

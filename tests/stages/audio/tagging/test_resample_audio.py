@@ -735,3 +735,16 @@ def test_output_claims_are_excluded_from_independent_reuse(tmp_path: Path) -> No
     assert not build_contract(cohort).gates.per_row_independent
     memory_only = ResampleAudioStage(str(tmp_path), write_to_disk=False, keep_waveform_in_task=True)
     assert build_contract(memory_only).gates.per_row_independent
+
+
+@pytest.mark.parametrize("resident_key", ["waveform_key", "sample_rate_key"])
+@pytest.mark.parametrize("metadata_key", ["duration", "audio_item_id", "audio_filepath", "resampled_audio_filepath"])
+def test_resident_keys_cannot_alias_metadata(tmp_path, resident_key: str, metadata_key: str) -> None:  # noqa: ANN001
+    with pytest.raises(ValueError, match="metadata and path"):
+        ResampleAudioStage(
+            str(tmp_path), **{resident_key: metadata_key}, keep_waveform_in_task=True, write_to_disk=False
+        )
+
+
+def test_inactive_resident_alias_and_legacy_in_place_path_remain_supported(tmp_path) -> None:  # noqa: ANN001
+    ResampleAudioStage(str(tmp_path), waveform_key="duration", audio_filepath_key="resampled_audio_filepath")
