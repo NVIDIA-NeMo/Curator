@@ -743,7 +743,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedlines(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\nhalf."])
         filters = ScoreFilter(RepeatedLinesFilter())
 
         filtered_data = filters.process(dataset)
@@ -755,7 +755,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedparagraphs(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\n\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\n\nhalf."])
         filters = ScoreFilter(RepeatedParagraphsFilter())
 
         filtered_data = filters.process(dataset)
@@ -769,6 +769,9 @@ class TestHeuristicFilters:
     def test_repeatedlineschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\na.\nvery very very short duplicate.",
                 "half.\nhalf.",
@@ -788,6 +791,9 @@ class TestHeuristicFilters:
     def test_repeatedparagraphschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\n\n  a.\n\n  very very very short duplicate.",
                 "half.\n\nhalf.",
@@ -803,6 +809,22 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize(
+        "filter_cls",
+        [
+            RepeatedLinesFilter,
+            RepeatedParagraphsFilter,
+            RepeatedLinesByCharFilter,
+            RepeatedParagraphsByCharFilter,
+        ],
+    )
+    @pytest.mark.parametrize("empty_input", ["", "   ", "\n", "\n\n", "\t \r\n"])
+    def test_repetition_filters_empty_text(self, filter_cls: type, empty_input: str) -> None:
+        filt = filter_cls()
+        score = filt.score_document(empty_input)
+        assert score == 0.0
+        assert filt.keep_document(score) is False
 
     def test_repeatingtopngrams(self) -> None:
         dataset = list_to_dataset(
