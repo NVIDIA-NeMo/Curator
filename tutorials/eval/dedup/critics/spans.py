@@ -102,14 +102,35 @@ class SpanPacket:
     def from_record(
         cls, record: dict[str, Any], *, max_evidence_chars: int = DEFAULT_MAX_EVIDENCE_CHARS
     ) -> SpanPacket:
-        """Validate a pair record's `semantic_diff` against its original `text_a`/`text_b`."""
+        """Validate a pair record's `semantic_diff` against its original `text_a`/`text_b`.
+
+        Raises only ValueError, so callers can keep a bad row instead of aborting the batch.
+        """
+        try:
+            return cls._parse(record, max_evidence_chars)
+        except (KeyError, TypeError, AttributeError) as error:
+            msg = f"malformed semantic_diff: {error!r}"
+            raise ValueError(msg) from error
+
+    @classmethod
+    def _parse(cls, record: dict[str, Any], max_evidence_chars: int) -> SpanPacket:
         documents = {"A": record["text_a"], "B": record["text_b"]}
+        if not all(isinstance(text, str) for text in documents.values()):
+            msg = "text_a and text_b must be strings"
+            raise ValueError(msg)
         packet = record["semantic_diff"]
+        if not isinstance(packet, dict):
+            msg = "missing semantic_diff"
+            raise ValueError(msg)
         if packet["status"] not in {"COMPLETE", "INCOMPLETE_LIMIT"}:
             msg = f"invalid packet status {packet['status']!r}"
             raise ValueError(msg)
-        if record["truncated"] != packet["truncated"]:
-            msg = "record and packet truncation flags disagree"
+        flags = [record["truncated"], *(packet[key] for key in ("truncated", "truncated_a", "truncated_b"))]
+        if not all(type(flag) is bool for flag in flags):
+            msg = "truncation flags must be booleans"
+            raise ValueError(msg)
+        if not flags[0] == flags[1] == (flags[2] or flags[3]):
+            msg = "inconsistent truncation flags"
             raise ValueError(msg)
 
         spans: dict[str, Span] = {}

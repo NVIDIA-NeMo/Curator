@@ -290,7 +290,7 @@ class CoverageApplyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             action, evidence = self._check_proof(review, packet)
             final, action, reason = self._apply_action(main, review, action)
         except ValueError as error:
-            return "KEEP_MAIN", f"INVALID_CRITIC_OUTPUT: {str(error)[:300]}", [], main
+            return "UNVALIDATED_KEEP_MAIN", f"INVALID_CRITIC_OUTPUT: {str(error)[:300]}", [], main
         return action, reason, evidence, final
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:

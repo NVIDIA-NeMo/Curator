@@ -254,7 +254,7 @@ class SubjectApplyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             packet = SpanPacket.from_record(record, max_evidence_chars=self.max_evidence_chars)
             candidate, evidence, reason = self._propose(review, packet)
         except ValueError as error:
-            return "KEEP_COVERAGE", f"INVALID_CRITIC_OUTPUT: {str(error)[:300]}", [], None
+            return "UNVALIDATED_KEEP_COVERAGE", f"INVALID_CRITIC_OUTPUT: {str(error)[:300]}", [], None
         return ("PENDING_VERIFICATION" if candidate else "KEEP_COVERAGE"), reason, evidence, candidate
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
@@ -329,7 +329,7 @@ class SubjectVerifierApplyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 msg = f"veto produced an incoherent decision: {final.inconsistencies()}"
                 raise ValueError(msg)  # noqa: TRY301
         except ValueError as error:
-            return "KEEP_COVERAGE", f"INVALID_CRITIC_OUTPUT: {str(error)[:300]}", main
+            return "UNVALIDATED_KEEP_COVERAGE", f"INVALID_CRITIC_OUTPUT: {str(error)[:300]}", main
         return "REJECT_BOTH", "VERIFIED_FIXED_SUBJECT_VETO", final
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
