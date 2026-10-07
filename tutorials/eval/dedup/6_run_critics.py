@@ -40,8 +40,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import data_designer.config as dd
 
-import ray
 import critics
+import ray
 from critics.coverage import CoverageApplyStage, CoveragePrepareStage, coverage_column
 from critics.spans import DEFAULT_MAX_EVIDENCE_CHARS
 from critics.subject import (
