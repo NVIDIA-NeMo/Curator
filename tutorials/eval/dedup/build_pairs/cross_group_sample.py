@@ -35,7 +35,7 @@ from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICAT
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
 
-def build_cross_group_sample_pairs(  # noqa: C901, PLR0913, PLR0917
+def build_cross_group_sample_pairs(  # noqa: C901, PLR0913
     cross_group_samples: int,
     corpus_dir: Path,
     seed: int,

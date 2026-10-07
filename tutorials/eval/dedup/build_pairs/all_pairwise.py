@@ -35,7 +35,7 @@ from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICAT
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
 
-def build_all_pairwise_pairs(  # noqa: PLR0913, PLR0917
+def build_all_pairwise_pairs(  # noqa: PLR0913
     label_groups: np.ndarray,
     max_group_size: int,
     oversized_group_pairs: int,
@@ -86,7 +86,7 @@ def build_all_pairwise_pairs(  # noqa: PLR0913, PLR0917
     )
 
 
-def build_oversized_group_pairs(  # noqa: PLR0913, PLR0917
+def build_oversized_group_pairs(  # noqa: PLR0913
     label_ids: np.ndarray,
     label_groups: np.ndarray,
     max_group_size: int,
