@@ -171,7 +171,8 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.swift_audio_filepath_key,
             self.text_key,
         }
-        if self.id_key != self.audio_filepath_key and self.id_key in source_specific_keys:
+        legacy_id_path_alias = self.id_key == "id" and self.audio_filepath_key == "id"
+        if not legacy_id_path_alias and self.id_key in source_specific_keys:
             msg = "id_key must be distinct from fields removed or transformed during extraction"
             raise ValueError(msg)
         self._tar_shard_path: str | None = None

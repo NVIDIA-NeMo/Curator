@@ -617,3 +617,19 @@ class TestSnippetExtractionStageAgentContract:
                 audio_filepath_key="shared",
                 snippet_plan_key="shared",
             )
+
+
+def test_remapped_identity_cannot_alias_transformed_text(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="removed or transformed"):
+        SnippetExtractionStage(
+            output_dir=str(tmp_path),
+            output_audio_tar_path=str(tmp_path / "audio.tar"),
+            id_key="text",
+            audio_filepath_key="text",
+        )
+
+
+def test_legacy_default_identity_path_alias_remains_supported(tmp_path: Path) -> None:
+    SnippetExtractionStage(
+        output_dir=str(tmp_path), output_audio_tar_path=str(tmp_path / "audio.tar"), audio_filepath_key="id"
+    )
