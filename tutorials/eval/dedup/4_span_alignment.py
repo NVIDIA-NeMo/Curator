@@ -40,22 +40,13 @@ from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import DocumentBatch
 
-# Keep in sync with judge_config/fuzzy_pair_judge.yaml's dynamo_model.engine_kwargs.max_model_len
-# since this is how much of each document the judge actually sees.
+# Characters of each document shown to the judge; keep it within the judge YAML's max_model_len.
 MAX_VISIBLE_CHARS = 6000
-# Pad the true start/end of an A-only/B-only difference with this many neighboring characters of
-# shared text so a short changed value (an id, price, or date) isn't shown to the judge in
-# isolation. Only applied to the outer edges of a difference, not between the chunks _MAX_SPAN_CHUNK_CHARS
-# splits a long difference into.
+# Shared characters padded onto the outer edges of an A_ONLY/B_ONLY span so a short changed value isn't isolated.
 _SPAN_CONTEXT_CHARS = 40
-# Split any single span longer than this into multiple spans, so one long difference (or one long
-# run of unchanged text) doesn't become a single undifferentiated block the judge has to read as
-# a whole.
+# Longer spans are split into multiple spans of at most this many characters.
 _MAX_SPAN_CHUNK_CHARS = 220
-# Cap spans per kind so one wildly different pair can't blow up the rendered prompt; matches
-# fuzzy_pair_judge.yaml's max_tokens budget. A pair that exceeds this gets status
-# INCOMPLETE_LIMIT instead of a silently truncated span list. Applied after chunking, since
-# chunking is what determines the final span count.
+# Pairs with more spans of any kind than this get status INCOMPLETE_LIMIT instead of a silently truncated list.
 _MAX_SPANS_PER_KIND = 160
 _DIFF_TOKEN_PATTERN = re.compile(r"\w{1,120}|[^\w\s]", re.UNICODE)
 
@@ -181,6 +172,9 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
 
     max_chars: int = MAX_VISIBLE_CHARS
+    span_context_chars: int = _SPAN_CONTEXT_CHARS
+    max_chunk_chars: int = _MAX_SPAN_CHUNK_CHARS
+    max_spans_per_kind: int = _MAX_SPANS_PER_KIND
     name: str = "span_chunking"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -191,9 +185,14 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     @staticmethod
     def _chunk_token_range(
-        tokens: list[tuple[int, int, str]], start: int, end: int, *, paired: list[tuple[int, int, str]] | None = None
+        tokens: list[tuple[int, int, str]],
+        start: int,
+        end: int,
+        *,
+        max_chunk_chars: int,
+        paired: list[tuple[int, int, str]] | None = None,
     ) -> list[tuple[int, int]]:
-        """Split token indices [start, end) into chunks no longer than `_MAX_SPAN_CHUNK_CHARS`.
+        """Split token indices [start, end) into chunks no longer than `max_chunk_chars`.
 
         If `paired` is given (the token-for-token-aligned range from the other side of a SHARED
         segment), a chunk also ends once the paired side would exceed the limit, so the two sides
@@ -206,7 +205,7 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             while cursor < end:
                 span_length = tokens[cursor][1] - tokens[chunk_start][0]
                 paired_length = paired[cursor - start][1] - paired[chunk_start - start][0] if paired is not None else 0
-                if cursor > chunk_start and max(span_length, paired_length) > _MAX_SPAN_CHUNK_CHARS:
+                if cursor > chunk_start and max(span_length, paired_length) > max_chunk_chars:
                     break
                 cursor += 1
             chunks.append((chunk_start, cursor))
@@ -235,7 +234,9 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 a_start, a_end = segment["a_tok_start"], segment["a_tok_end"]
                 b_start = segment["b_tok_start"]
                 paired_tokens = tokens_b[b_start : segment["b_tok_end"]]
-                for chunk_start, chunk_end in self._chunk_token_range(tokens_a, a_start, a_end, paired=paired_tokens):
+                for chunk_start, chunk_end in self._chunk_token_range(
+                    tokens_a, a_start, a_end, max_chunk_chars=self.max_chunk_chars, paired=paired_tokens
+                ):
                     paired_start = b_start + (chunk_start - a_start)
                     paired_end = paired_start + (chunk_end - chunk_start)
                     a_start_char, a_end_char = tokens_a[chunk_start][0], tokens_a[chunk_end - 1][1]
@@ -256,14 +257,14 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 ("A", tokens_a, text_a, visible_len_a) if kind == "A_ONLY" else ("B", tokens_b, text_b, visible_len_b)
             )
             tok_start, tok_end = segment[f"{side.lower()}_tok_start"], segment[f"{side.lower()}_tok_end"]
-            chunks = self._chunk_token_range(tokens, tok_start, tok_end)
+            chunks = self._chunk_token_range(tokens, tok_start, tok_end, max_chunk_chars=self.max_chunk_chars)
             for index, (chunk_start, chunk_end) in enumerate(chunks):
                 start_char, end_char = tokens[chunk_start][0], tokens[chunk_end - 1][1]
                 delta_start_char, delta_end_char = start_char, end_char
                 if index == 0:
-                    start_char = max(0, start_char - _SPAN_CONTEXT_CHARS)
+                    start_char = max(0, start_char - self.span_context_chars)
                 if index == len(chunks) - 1:
-                    end_char = min(visible_len, end_char + _SPAN_CONTEXT_CHARS)
+                    end_char = min(visible_len, end_char + self.span_context_chars)
                 raw_spans[kind].append(
                     {
                         "start_char": start_char,
@@ -275,11 +276,11 @@ class SpanChunkingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 )
 
         counts = {kind: len(items) for kind, items in raw_spans.items()}
-        complete = all(count <= _MAX_SPANS_PER_KIND for count in counts.values())
+        complete = all(count <= self.max_spans_per_kind for count in counts.values())
         prefixes = {"SHARED": "S", "A_ONLY": "A", "B_ONLY": "B"}
         spans = []
         for kind in ("SHARED", "A_ONLY", "B_ONLY"):
-            for index, item in enumerate(raw_spans[kind][:_MAX_SPANS_PER_KIND], start=1):
+            for index, item in enumerate(raw_spans[kind][: self.max_spans_per_kind], start=1):
                 spans.append({"span_id": f"{prefixes[kind]}{index:03d}", "kind": kind, **item})
 
         return {
@@ -336,9 +337,27 @@ def _parse_args() -> argparse.Namespace:
         "--max-visible-chars",
         type=int,
         default=MAX_VISIBLE_CHARS,
-        help="Characters of text_a/text_b to align/show the judge per side. MUST match "
-        "judge_config/pair.jinja's truncation (currently also 6000) and stay within "
-        "judge_config/fuzzy_pair_judge.yaml's max_model_len.",
+        help="Characters of text_a/text_b to align/show the judge per side. The rendered span packet, "
+        "system prompt, and max_tokens must all fit within the judge YAML's max_model_len; lower this "
+        "if the server rejects prompts as exceeding the context length.",
+    )
+    parser.add_argument(
+        "--span-context-chars",
+        type=int,
+        default=_SPAN_CONTEXT_CHARS,
+        help="Neighboring shared characters padded onto each A_ONLY/B_ONLY span edge. Lower to shrink the prompt.",
+    )
+    parser.add_argument(
+        "--max-span-chunk-chars",
+        type=int,
+        default=_MAX_SPAN_CHUNK_CHARS,
+        help="Split any single span longer than this many characters into multiple spans.",
+    )
+    parser.add_argument(
+        "--max-spans-per-kind",
+        type=int,
+        default=_MAX_SPANS_PER_KIND,
+        help="Max SHARED/A_ONLY/B_ONLY spans each; pairs exceeding it are marked INCOMPLETE_LIMIT.",
     )
 
     return parser.parse_args()
@@ -353,8 +372,13 @@ def main() -> None:
             JsonlReader(file_paths=args.input_path, files_per_partition=1),
             TokenizerStage(max_chars=args.max_visible_chars),
             SpanAlignmentStage(),
-            SpanChunkingStage(max_chars=args.max_visible_chars),
-            JsonlWriter(path=args.output_path, mode="overwrite"),
+            SpanChunkingStage(
+                max_chars=args.max_visible_chars,
+                span_context_chars=args.span_context_chars,
+                max_chunk_chars=args.max_span_chunk_chars,
+                max_spans_per_kind=args.max_spans_per_kind,
+            ),
+            JsonlWriter(path=args.output_path),
         ],
     )
 
