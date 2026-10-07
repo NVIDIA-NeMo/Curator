@@ -33,9 +33,12 @@ _LAZY = {
     "AbbreviationConcatStage": "nemo_curator.stages.audio.text_filtering",
     "AudioDataFilterStage": "nemo_curator.stages.audio.advanced_pipelines",
     "BandFilterStage": "nemo_curator.stages.audio.filtering",
+    "ChatterboxTTSStage": "nemo_curator.stages.audio.tts",
     "GetAudioDurationStage": "nemo_curator.stages.audio.common",
     "ManifestReader": "nemo_curator.stages.audio.common",
     "ManifestWriterStage": "nemo_curator.stages.audio.common",
+    "MergeConversationSDPStage": "nemo_curator.stages.audio.merging",
+    "MFAAlignmentStage": "nemo_curator.stages.audio.alignment",
     "MonoConversionStage": "nemo_curator.stages.audio.preprocessing",
     "PreserveByValueStage": "nemo_curator.stages.audio.common",
     "RegexSubstitutionStage": "nemo_curator.stages.audio.text_filtering",
@@ -45,6 +48,7 @@ _LAZY = {
     "TimestampMapperStage": "nemo_curator.stages.audio.postprocessing",
     "UTMOSFilterStage": "nemo_curator.stages.audio.filtering",
     "VADSegmentationStage": "nemo_curator.stages.audio.segmentation",
+    "vLLMInference": "nemo_curator.stages.audio.llm",
     "WhisperHallucinationStage": "nemo_curator.stages.audio.text_filtering",
 }
 
@@ -54,9 +58,12 @@ __all__ = [
     "AbbreviationConcatStage",
     "AudioDataFilterStage",
     "BandFilterStage",
+    "ChatterboxTTSStage",
     "GetAudioDurationStage",
+    "MFAAlignmentStage",
     "ManifestReader",
     "ManifestWriterStage",
+    "MergeConversationSDPStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "RegexSubstitutionStage",
@@ -67,6 +74,7 @@ __all__ = [
     "UTMOSFilterStage",
     "VADSegmentationStage",
     "WhisperHallucinationStage",
+    "vLLMInference",
 ]
 
 
