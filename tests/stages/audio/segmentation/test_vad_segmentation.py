@@ -672,3 +672,24 @@ def test_bundled_silero_silence_smoke(sample_rate: int, nested: bool) -> None:
             assert result == []
     finally:
         stage.teardown()
+
+
+@pytest.mark.parametrize("provenance", [None, False, 0, ""])
+def test_process_preserves_falsey_provenance_with_detected_speech(
+    provenance: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage = VADSegmentationStage(min_duration_sec=0.1)
+    stage._vad_model = object()
+    monkeypatch.setattr(stage, "_get_vad_segments", lambda *_: [{"start": 0.0, "end": 0.5}])
+    task = AudioTask(
+        data={
+            "waveform": torch.zeros(1, 16000),
+            "sample_rate": 16000,
+            "audio_filepath": "source.wav",
+            "original_file": provenance,
+        },
+        dataset_name="test",
+    )
+    result = stage.process(task)
+    assert len(result) == 1
+    assert result[0].data["original_file"] == provenance

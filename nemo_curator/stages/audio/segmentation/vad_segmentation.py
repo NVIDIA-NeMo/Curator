@@ -430,8 +430,10 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     return self._finalize_nested(task, [])
                 return []
 
-            original_file = self._original_file(task.data)
-            file_name = os.path.basename(original_file) if original_file != "unknown" else task.task_id
+            display_path = task.data.get(self.audio_filepath_key)
+            file_name = (
+                os.path.basename(display_path) if isinstance(display_path, (str, os.PathLike)) else task.task_id
+            )
             total_duration = sum((s["end"] - s["start"]) for s in segments)
             logger.info(
                 f"[VADSegmentation] {file_name}: {len(segments)} segments extracted ({total_duration:.1f}s total speech)"
