@@ -1,3 +1,7 @@
+# This YAML is required: run.py forwards --benchmark-compat-profile 26.07 only
+# to benchmark script subprocesses whose entry names are registered here.
+# Register adapter-enabled entries even without overrides; name-only entries
+# leave their existing config unchanged. Unlisted scripts receive no profile flag.
 # 26.07 has no custom MinHash read/compute/write timing instrumentation.
 # Do not treat absent measurements as passing; keep count and throughput checks.
 entries:

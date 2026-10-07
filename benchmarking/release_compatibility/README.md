@@ -8,7 +8,20 @@ Config helpers receive an explicit `benchmark_compat_profile` keyword argument;
 the runner forwards the CLI option only to affected benchmark scripts. No
 environment variable selects a profile.
 
-Each profile may also supply an accompanying YAML file. The shared config loader
+Each profile requires an accompanying YAML file, such as `curator_26_07.yaml`.
+Its `entries` list registers the benchmark scripts that accept the profile:
+`run.py` appends `--benchmark-compat-profile 26.07` to those scripts' subprocess
+commands only. This is separate from passing the option to `run.py` itself,
+which NeMo-CI does when selecting a profile. Scripts not listed here do not
+receive the option.
+
+When adding an adapter, update the script's argument parser and register each
+affected benchmark entry name in the profile YAML. A name-only entry is required
+even when no config overrides are needed; it leaves the existing entry config
+unchanged but enables profile forwarding. Omitting registration leaves the
+script's adapter inactive.
+
+The same YAML may also supply config overrides. The shared config loader
 merges it after all explicitly supplied workload, SKU, and CI configs, so CI job
 generation and runtime execution use the same profile policy. Overrides only
 affect entries present in the suite; they do not add missing entries. Individual
