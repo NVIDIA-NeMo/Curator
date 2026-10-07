@@ -543,6 +543,8 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         end_ms = item.get(self.end_ms_key)
 
         if start_ms is not None and end_ms is not None and end_ms > start_ms:
+            start_ms = max(0, start_ms)
+            end_ms = max(start_ms, end_ms)
             result[self.original_start_ms_key] = int(start_ms)
             result[self.original_end_ms_key] = int(end_ms)
             result[self.duration_ms_key] = int(end_ms - start_ms)
@@ -550,7 +552,11 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._copy_passthrough(item, result)
             return result
 
-        ordered = _ordered_segments(item.get(self.diar_segments_key))
+        ordered = [
+            (seg, max(0.0, start), end)
+            for seg, start, end in _ordered_segments(item.get(self.diar_segments_key))
+            if end > max(0.0, start)
+        ]
         if ordered:
             first_start = ordered[0][1]
             # max, not the last segment's end: diarized speech overlaps, so the segment that
@@ -563,9 +569,7 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             result[self.speaking_duration_key] = round(sum(end - start for _s, start, end in ordered), 3)
             # Echo the shape we were handed, so a diarizer's speaker labels survive.
             result[self.diar_segments_key] = [
-                {**seg, "start": round(start, 3), "end": round(end, 3)}
-                if isinstance(seg, Mapping)
-                else [round(start, 3), round(end, 3)]
+                {**seg, "start": start, "end": end} if isinstance(seg, Mapping) else [round(start, 3), round(end, 3)]
                 for seg, start, end in ordered
             ]
             self._copy_passthrough(item, result)

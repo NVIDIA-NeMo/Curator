@@ -907,3 +907,20 @@ def test_duration_only_input_does_not_advertise_diarization_output() -> None:
 
     assert not report.ok
     assert any(issue.code == "unsatisfied_reads" and issue.stage_index == 1 for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    "segments", [[{"start": 0.0001, "end": 0.0002, "speaker": "A"}], [{"start": -0.0001, "end": 0.5}]]
+)
+def test_unmapped_dictionary_turns_preserve_positive_source_bounds(segments: list) -> None:
+    result = TimestampMapperStage().process(_make_task({"diar_segments": segments}))
+    assert result.data["original_start_ms"] == 0
+    turn = result.data["diar_segments"][0]
+    assert 0 <= turn["start"] < turn["end"]
+    assert turn["end"] == segments[0]["end"]
+
+
+def test_unmapped_scalar_start_is_clamped_to_source() -> None:
+    result = TimestampMapperStage().process(_make_task({"start_ms": -1, "end_ms": 500}))
+    assert result.data["original_start_ms"] == 0
+    assert result.data["duration_ms"] == 500
