@@ -507,6 +507,9 @@ class _PretrainFinalizer:
     metrics_path: str
     audio_tar_path: str
     audio_filepath_key: str
+    id_key: str = "id"
+    segments_key: str = "segments"
+    duration_key: str = "duration"
 
     def prepare(self) -> None:
         from nemo_curator.stages.audio.alm.pretrain import (
@@ -537,6 +540,9 @@ class _PretrainFinalizer:
             self.metrics_path,
             self.audio_tar_path,
             audio_filepath_key=self.audio_filepath_key,
+            id_key=self.id_key,
+            segments_key=self.segments_key,
+            duration_key=self.duration_key,
         )
         return _count_output_rows(self.manifest_path)
 
@@ -587,12 +593,20 @@ def _pretrain_finalizer(
     )
     if missing_paths:
         return None, (f"ALM pretrain finalization is missing required output path(s): {missing_paths}")
+    shared_keys = {}
+    for key in ("id_key", "segments_key", "duration_key"):
+        default = key.removesuffix("_key")
+        value = getattr(extraction, key, default)
+        if value != getattr(aggregator, key, default):
+            return None, f"ALM extraction and metrics must agree on {key}"
+        shared_keys[key] = value
     return (
         _PretrainFinalizer(
             manifest_path=str(manifest_path),
             metrics_path=str(metrics_path),
             audio_tar_path=str(audio_tar_path),
             audio_filepath_key=str(getattr(extraction, "audio_filepath_key", "audio_filepath")),
+            **shared_keys,
         ),
         "",
     )

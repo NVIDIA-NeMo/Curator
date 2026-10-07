@@ -207,12 +207,33 @@ def code_version() -> str:
 
 
 def model_version(params: dict[str, Any]) -> str:
-    """The model identifier a stage runs, if it names one ("" when it runs no model)."""
-    for key in _MODEL_PARAMS:
-        v = params.get(key)
-        if isinstance(v, str) and v:
-            return v
-    return ""
+    """Bind model selection and local model/tokenizer/config bytes to reuse identity."""
+    from nemo_curator.stages.audio.audio_agent._safety import names_local_path
+
+    identifiers = {}
+    local_inputs = {}
+    dependency_keys = {*_MODEL_PARAMS, "tokenizer_path", "config_path", "model_dir"}
+    for key, value in sorted(params.items()):
+        if isinstance(value, dict):
+            nested = model_version(value)
+            if nested:
+                identifiers[key] = nested
+        elif key in dependency_keys and isinstance(value, str) and value:
+            identifiers[key] = value
+            expanded = os.path.expanduser(value)
+            if os.path.exists(expanded) or names_local_path(value):
+                digest = content_digest(expanded)
+                if digest is None:
+                    # Unreadable local inputs must never match an earlier reusable prefix.
+                    import uuid
+
+                    digest = f"unverified:{uuid.uuid4().hex}"
+                local_inputs[key] = digest
+    if not local_inputs and len(identifiers) == 1:
+        return next(iter(identifiers.values()))
+    if not identifiers:
+        return ""
+    return json.dumps({"identifiers": identifiers, "local_inputs": local_inputs}, sort_keys=True)
 
 
 def _card(stage_ref: str) -> dict[str, Any]:

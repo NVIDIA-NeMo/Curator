@@ -629,3 +629,30 @@ def test_preview_policy_hides_unknown_strings_and_preserves_known_paths() -> Non
     assert result["audio"] == "fixture.wav"
     assert "private text" not in json.dumps(result)
     assert result["score"] == 0.8
+
+
+def test_secret_read_validates_open_inode_not_replaced_path(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    path = tmp_path / "secret"
+    path.write_text('{"secret": "planted"}')
+    path.chmod(0o644)
+    real_open = os.open
+
+    def swap_after_open(file, flags):  # noqa: ANN001, ANN202
+        descriptor = real_open(file, flags)
+        path.unlink()
+        path.write_text('{"secret": "private"}')
+        path.chmod(0o600)
+        return descriptor
+
+    monkeypatch.setattr(_safety.os, "open", swap_after_open)
+    assert _safety._stored_secret(path) is None
+
+
+def test_secret_symlink_is_not_adopted_or_removed(tmp_path) -> None:  # noqa: ANN001
+    target = tmp_path / "private"
+    target.write_text('{"secret": "private"}')
+    target.chmod(0o600)
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    assert _safety._read_or_create_secret(str(link)) is None
+    assert link.is_symlink()

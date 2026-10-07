@@ -1405,3 +1405,76 @@ def test_failure_guard_serializes_and_restores_an_instance_batch_override() -> N
         assert worker.process_batch([AudioTask(data={"kept": 1})])[0].data == {"kept": 1}
     assert stage.process_batch is original
     assert isinstance(stage.process_batch([AudioTask(data={"fail": True})])[0], FailedTask)
+
+
+def test_pretrain_finalizer_recovers_renamed_metrics_after_integrity_drop(tmp_path) -> None:  # noqa: ANN001
+    import io
+    import tarfile
+
+    import numpy as np
+    import soundfile as sf
+
+    from nemo_curator.stages.audio.alm.pretrain.utils import _make_shard_path
+
+    manifest = str(tmp_path / "manifest.jsonl")
+    metrics = str(tmp_path / "metrics.json")
+    archive = str(tmp_path / "audio.tar")
+    extraction = TestPretrainFinalizerContract._stage(
+        "SnippetExtractionStage",
+        output_audio_tar_path=archive,
+        audio_filepath_key="clip",
+        id_key="source_id",
+        segments_key="turns",
+        duration_key="clip_duration",
+    )
+    writer = TestPretrainFinalizerContract._stage("SnippetManifestWriterStage", output_path=manifest)
+    aggregator = TestPretrainFinalizerContract._stage(
+        "PretrainMetricsAggregatorStage",
+        output_path=metrics,
+        id_key="source_id",
+        segments_key="turns",
+        duration_key="clip_duration",
+    )
+    finalizer, error = verbs._pretrain_finalizer([extraction, writer, aggregator])
+    assert not error
+    finalizer.prepare()
+    rows = [
+        {"source_id": "A", "clip": name, "turns": [{}], "clip_duration": 1.0} for name in ("good.wav", "missing.wav")
+    ]
+    Path(_make_shard_path(manifest, "jsonl")).write_text("".join(json.dumps(row) + "\n" for row in rows))
+    record = {
+        "id": "A",
+        "in_segments": 2,
+        "in_duration_sec": 2,
+        "out_segments": 1,
+        "out_duration_sec": 1,
+        "dropped": {},
+        "is_stub": False,
+    }
+    Path(_make_shard_path(metrics, "jsonl")).write_text((json.dumps(record) + "\n") * 2)
+    buffer = io.BytesIO()
+    sf.write(buffer, np.zeros(16000, dtype=np.float32), 16000, format="WAV")
+    body = buffer.getvalue()
+    with tarfile.open(_make_shard_path(archive, "tar"), "w") as tar:
+        member = tarfile.TarInfo("good.wav")
+        member.size = len(body)
+        tar.addfile(member, io.BytesIO(body))
+    assert finalizer.finalize() == 1
+    summary = json.loads(Path(metrics).read_text())
+    assert summary["num_output_snippets"] == 1
+    assert summary["output_total_segments"] == 1
+    assert summary["output_total_duration_sec"] == 1
+    assert summary["dropped"]["missing_audio"] == 1
+
+
+def test_pretrain_finalizer_refuses_mismatched_reconciliation_keys() -> None:
+    make = TestPretrainFinalizerContract._stage
+    finalizer, error = verbs._pretrain_finalizer(
+        [
+            make("SnippetExtractionStage", output_audio_tar_path="audio.tar", id_key="source_id"),
+            make("SnippetManifestWriterStage", output_path="manifest.jsonl"),
+            make("PretrainMetricsAggregatorStage", output_path="metrics.json"),
+        ]
+    )
+    assert finalizer is None
+    assert "id_key" in error

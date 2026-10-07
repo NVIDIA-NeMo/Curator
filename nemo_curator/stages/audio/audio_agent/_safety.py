@@ -41,6 +41,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -540,8 +541,16 @@ def _is_private_file(file: Path) -> bool:
 def _stored_secret(file: Path) -> bytes | None:
     """The secret held in an existing file, or None when it is absent or unusable."""
     try:
-        payload = json.loads(file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        descriptor = os.open(file, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(descriptor, "r", encoding="utf-8") as source:
+            info = os.fstat(source.fileno())
+            geteuid = getattr(os, "geteuid", None)
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+                return None
+            if geteuid is not None and info.st_uid != geteuid():
+                return None
+            payload = json.load(source)
+    except (OSError, ValueError, UnicodeError):
         return None
     value = payload.get("secret") if isinstance(payload, dict) else None
     return str(value).encode() if value else None
@@ -573,13 +582,18 @@ def _read_or_create_secret(path: str) -> bytes | None:
                 # file is not this function's business, and adopting it is the whole attack.
                 # Falling through to the next candidate (ultimately a per-process key) costs
                 # cross-process reuse, which is the safe direction to fail in.
-                return secret if _is_private_file(file) else None
+                return secret
             # Present but empty or unparseable is NOT a usable secret, and leaving it in
             # place is what made this unrecoverable before: ``os.link`` kept failing against
             # the dead file, so every process silently fell back to its own per-process key
             # and cross-process smoke evidence never worked again. Clear it, then create.
-            with contextlib.suppress(OSError):
-                file.unlink(missing_ok=True)
+            if file.exists() or file.is_symlink():
+                info = file.stat()
+                owned_empty = info.st_size == 0 and (not hasattr(os, "geteuid") or info.st_uid == os.geteuid())
+                if file.is_symlink() or (not owned_empty and not _is_private_file(file)):
+                    return None
+                with contextlib.suppress(OSError):
+                    file.unlink(missing_ok=True)
             write_json_atomically_if_absent(file, {"secret": secrets.token_hex(32)})
     except OSError:
         return None
