@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 
 import pandas as pd
 import pytest
@@ -70,18 +71,21 @@ def test_writes_one_jsonl_line_per_document_row_and_preserves_task(tmp_path) -> 
     assert returned._stage_perf == ["seed"]
 
 
-def test_setup_on_node_truncates_only_between_runs(tmp_path) -> None:  # noqa: ANN001
+def test_driver_preparation_truncates_only_between_runs(tmp_path) -> None:  # noqa: ANN001
     output = tmp_path / "curated.jsonl"
     stage = DocumentBatchJsonlWriterStage(output_path=str(output))
     batch = _batch([{"id": 1}])
 
+    stage.prepare_on_driver()
     stage.setup_on_node()
     stage.setup()
     stage.process(batch)
     stage.process(batch)
     assert len(output.read_text(encoding="utf-8").splitlines()) == 2
 
-    stage.setup_on_node()  # a new run
+    stage.finalize()
+    stage.prepare_on_driver()  # a new run
+    stage.setup_on_node()
     stage.setup()
     stage.process(batch)
     assert len(output.read_text(encoding="utf-8").splitlines()) == 1
@@ -97,6 +101,7 @@ def test_worker_restart_does_not_truncate_committed_rows(tmp_path) -> None:  # n
     stage.process(_batch([{"id": 2}]))
 
     replacement = DocumentBatchJsonlWriterStage(output_path=str(output))
+    replacement.setup_on_node()
     replacement.setup()
     replacement.process(_batch([{"id": 3}]))
     assert [json.loads(line)["id"] for line in output.read_text(encoding="utf-8").splitlines()] == [1, 2, 3]
@@ -165,3 +170,21 @@ def test_tensor_valued_segments_are_dropped_not_written_as_empty_metadata(tmp_pa
     )[0]
 
     assert _written(tmp_path / "segments.jsonl", batch) == [{"audio_filepath": "/a.wav"}]
+
+
+def test_serialized_replacement_preserves_driver_prepared_rows(tmp_path) -> None:  # noqa: ANN001
+    output = tmp_path / "manifest.jsonl"
+    output.write_text('{"id": 0}\n')
+    stage = DocumentBatchJsonlWriterStage(str(output))
+    stage.prepare_on_driver()
+    serialized = pickle.dumps(stage)
+    stage.setup_on_node()
+    stage.setup()
+    stage.process(_batch([{"id": 1}]))
+    replacement = pickle.loads(serialized)  # noqa: S301 - locally serialized test fixture
+    replacement.setup_on_node()
+    replacement.setup()
+    replacement.process(_batch([{"id": 2}]))
+    assert [json.loads(line)["id"] for line in output.read_text().splitlines()] == [1, 2]
+    stage.finalize()
+    assert not output.with_name(output.name + "._RUN").exists()

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
@@ -299,18 +300,28 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
             msg = "output_path is required for DocumentBatchJsonlWriterStage"
             raise ValueError(msg)
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Prepare the filesystem handle for this worker.
+    def prepare_on_driver(self, *, checkpoint_path: str | None = None) -> None:
+        """Reserve and replace the manifest once before workers are serialized."""
+        from nemo_curator.stages.audio.common import ManifestWriterStage
 
-        Never truncates: ``setup()`` runs per worker actor, so a replacement actor after a
-        crash or a Ray Data/Xenna worker restart would otherwise erase every row the previous
-        actor had already committed. Truncation lives in :meth:`setup_on_node`, which every
-        executor runs once per node before any worker starts and does not repeat on restart.
+        self._writer_lifecycle = ManifestWriterStage(self.output_path)
+        self._writer_lifecycle.prepare_on_driver(checkpoint_path=checkpoint_path)
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Open for appending; replacement actors must preserve committed rows.
+
+        Call ``prepare_on_driver`` once per run to replace an existing manifest.
+        Without driver preparation the sink appends, including in standalone use.
         """
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
+        lifecycle = getattr(self, "_writer_lifecycle", None)
+        if lifecycle is not None:
+            lifecycle.setup_on_node()
+        with contextlib.suppress(FileExistsError), self._fs.open(self._path, "x", encoding="utf-8"):
+            pass
         logger.info(f"DocumentBatchJsonlWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -318,20 +329,31 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        """Create the parent directory and truncate the output once per run, before any worker writes."""
-        self._fs, self._path = url_to_fs(self.output_path)
-        parent_dir = "/".join(self._path.split("/")[:-1])
-        if parent_dir:
-            self._fs.makedirs(parent_dir, exist_ok=True)
-        with self._fs.open(self._path, "w", encoding="utf-8"):
-            pass
+        self.setup(_worker_metadata)
+
+    def finalize(self) -> None:
+        lifecycle = getattr(self, "_writer_lifecycle", None)
+        if lifecycle is not None:
+            lifecycle.finalize()
+
+    def reset_for_retry(self) -> None:
+        self.abort_on_driver()
+
+    def abort_on_driver(self) -> None:
+        lifecycle = getattr(self, "_writer_lifecycle", None)
+        if lifecycle is not None:
+            lifecycle.abort_on_driver()
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         dataframe = task.to_pandas()
         if len(dataframe.index) and not len(dataframe.columns):
             msg = "DocumentBatchJsonlWriterStage cannot write a nonempty batch with no columns"
             raise ValueError(msg)
-        if not dataframe.empty:
+        lifecycle = getattr(self, "_writer_lifecycle", None)
+        if not dataframe.empty and lifecycle is not None:
+            for line in dataframe.to_json(orient="records", lines=True, force_ascii=False).splitlines():
+                lifecycle.process(AudioTask(data=json.loads(line), dataset_name=task.dataset_name))
+        elif not dataframe.empty:
             with self._fs.open(self._path, "a", encoding="utf-8") as stream:
                 dataframe.to_json(
                     stream,
