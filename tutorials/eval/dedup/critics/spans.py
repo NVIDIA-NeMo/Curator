@@ -120,8 +120,8 @@ class SpanPacket:
             raise ValueError(msg)
         packet = record["semantic_diff"]
         if not isinstance(packet, dict):
-            msg = "missing semantic_diff"
-            raise ValueError(msg)
+            msg = "semantic_diff must be an object"
+            raise TypeError(msg)
         if packet["status"] not in {"COMPLETE", "INCOMPLETE_LIMIT"}:
             msg = f"invalid packet status {packet['status']!r}"
             raise ValueError(msg)
