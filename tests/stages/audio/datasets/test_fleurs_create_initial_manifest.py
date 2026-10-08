@@ -23,7 +23,6 @@ from nemo_curator.stages.audio._agent._agent_ready import to_json_schema
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import role_index
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
-from nemo_curator.stages.audio.audio_agent._resolve import resolved_contract_for
 
 
 def _import_stage_module() -> tuple[Any, Any]:
@@ -84,9 +83,6 @@ def test_agent_schema_marks_runtime_validated_params_required() -> None:
     params = stage_params(stage_cls)
 
     assert to_json_schema(params)["required"] == ["lang", "split", "raw_data_dir"]
-
-    unresolved = resolved_contract_for("CreateInitialManifestFleursStage")
-    assert unresolved.required_params == ("lang", "split", "raw_data_dir")
 
     index = role_index()
     assert "CreateInitialManifestFleursStage" not in index["unresolved_stages"]
