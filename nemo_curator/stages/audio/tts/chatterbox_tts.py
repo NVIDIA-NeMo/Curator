@@ -31,8 +31,10 @@ import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
+from filelock import FileLock
 from huggingface_hub import snapshot_download
 from loguru import logger
+from omegaconf import ListConfig
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -102,7 +104,7 @@ _CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
 # Pin the model repository independently of the Python package.  Loading a
 # moving ``main`` revision would make cache entries irreproducible even with an
 # exact chatterbox-tts version.
-_CHATTERBOX_MODEL_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"
+_CHATTERBOX_MODEL_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"  # pragma: allowlist secret
 _ENGLISH_MODEL_FILES = (
     "ve.safetensors",
     "t3_cfg.safetensors",
@@ -215,7 +217,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         max_reference_duration: float = 60.0,
         sample_rate: int = 24000,
         cfg_weight: float = 0.5,
-        exaggeration: float | list[float] = 0.5,
+        exaggeration: float | list[float] | tuple[float, float] | ListConfig = 0.5,
         temperature: float = 0.8,
         repetition_penalty: float | None = None,
         min_p: float = 0.05,
@@ -252,9 +254,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.repetition_penalty = _multilingual_default_penalty if language else 1.2
 
         _exag_range_len = 2
-        if isinstance(exaggeration, (list, tuple)) and len(exaggeration) == _exag_range_len:
-            self.exaggeration_range: tuple[float, float] | None = tuple(exaggeration)
-            self.exaggeration: float = float(exaggeration[0])
+        if isinstance(exaggeration, (list, tuple, ListConfig)) and len(exaggeration) == _exag_range_len:
+            self.exaggeration_range: tuple[float, float] | None = (float(exaggeration[0]), float(exaggeration[1]))
+            self.exaggeration: float = self.exaggeration_range[0]
         else:
             self.exaggeration_range = None
             self.exaggeration = float(exaggeration)
@@ -872,6 +874,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _publish_cache_entry(self, audio_path: str, audio_data: np.ndarray, manifest: dict[str, Any]) -> None:
         """Write the WAV and its sidecar atomically (temp file + rename).
 
+        The caller holds the per-key file lock through cache validation and
+        publication so another actor cannot overwrite a valid entry.
         Ensures no process ever observes a partially written cache entry
         (e.g. a truncated WAV from a crash mid-write) as a valid cache hit.
         The sidecar is published before the WAV, so by the time
@@ -908,7 +912,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         not easily vectorised), but batching allows the model to stay warm
         across turns and avoids repeated setup overhead.
         """
-        if not tasks:
+        if len(tasks) == 0:
             return []
 
         output_tasks: list[AudioTask] = []
@@ -942,13 +946,17 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 )
                 filename = self._output_filename(manifest)
                 audio_path = os.path.join(self.output_audio_dir, filename)
-                cached = self._read_cached_audio_if_valid(audio_path, manifest)
-                if cached is not None:
-                    audio_data, audio_sr = cached
-                else:
-                    audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
-                    audio_sr = self.sample_rate
-                    self._publish_cache_entry(audio_path, audio_data, manifest)
+                # Keep the lock file: unlinking it could let concurrent actors
+                # lock different inodes for the same cache key.
+                with FileLock(f"{audio_path}.lock"):
+                    cached = self._read_cached_audio_if_valid(audio_path, manifest)
+                    if cached is not None:
+                        audio_data, audio_sr = cached
+                    else:
+                        audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
+                        self._publish_cache_entry(audio_path, audio_data, manifest)
+                        # Report metadata from the published artifact, just as cache hits do.
+                        audio_data, audio_sr = sf.read(audio_path)
             except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
                 logger.error(f"TTS processing failed for task {task.task_id}: {e}")
                 output_tasks.append(task)

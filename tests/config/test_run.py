@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from hydra import compose, initialize_config_dir
-from omegaconf import OmegaConf
+from omegaconf import ListConfig, OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
@@ -643,6 +643,35 @@ def test_chatterbox_tts_tutorial_yaml_matches_reference_runner_config():
     xenna_env = XennaStageAdapter(stage).env_info
     assert xenna_env is not None
     assert xenna_env.to_ray_runtime_env().get("pip") == stage.runtime_env["pip"]
+
+
+@pytest.mark.parametrize("backend", ["ray_data", "xenna"])
+def test_chatterbox_tts_tutorial_yaml_accepts_exaggeration_range(backend: str, tmp_path: Path) -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "tts"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "reference_voices_dataset=/data/reference_voices",
+                f"output_dir={tmp_path}/tts_output",
+                f"backend={backend}",
+                "exaggeration=[0.25,0.75]",
+            ],
+        )
+
+    assert isinstance(cfg.exaggeration, ListConfig)
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    stage = pipeline.stages[1]
+    executor = create_executor_from_yaml(cfg)
+
+    assert stage.exaggeration_range == (0.25, 0.75)
+    assert stage.exaggeration == 0.25
+    value = stage._get_exaggeration("conv001")
+    assert 0.25 <= value <= 0.75
+    assert stage._get_exaggeration("conv001") == value
+    expected_executor = "RayDataExecutor" if backend == "ray_data" else "XennaExecutor"
+    assert executor.__class__.__name__ == expected_executor
 
 
 def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
