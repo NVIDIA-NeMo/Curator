@@ -19,11 +19,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from nemo_curator.audio_agent._resolve import resolved_contract_for
 from nemo_curator.stages.audio._agent._agent_ready import to_json_schema
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import role_index
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio.audio_agent._resolve import resolved_contract_for
 
 
 def _import_stage_module() -> tuple[Any, Any]:
