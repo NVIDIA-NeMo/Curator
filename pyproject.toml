@@ -109,6 +109,7 @@ deduplication_cuda12 = [
 
 audio_common = [
     # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
+    "pyloudnorm",
     "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",
@@ -359,15 +360,9 @@ constraint-dependencies = [
 ]
 override-dependencies = [
     "hydra-core==1.3.4", # Overrides nemo-toolkit[asr]'s <=1.3.2 cap for the security update
-    "fsspec>=2025.3.0", # Overrides nemo-toolkit[asr]'s fsspec==2024.12.0 pin; data-designer-engine==0.9.1 requires >=2025.3.0
-    "apex; sys_platform == 'never'",
-    "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Overrides Transformers' <1 cap and data-designer==0.9.1's >=1.0.1 requirement
-    "kaldiio;  sys_platform == 'never'",
-    "levenshtein;  sys_platform == 'never'",
     "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
     "packaging>=25", # Required by data-designer==0.9.1; overrides Lightning's packaging<25 cap from nemo-toolkit[asr]
-    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
