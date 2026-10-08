@@ -92,7 +92,7 @@ class QwenVL(ModelInterface):
         if "model_does_preprocess" in vllm_kwargs:
             msg = (
                 "model_does_preprocess is no longer supported; QwenVL always uses vLLM/HF preprocessing. "
-                f"See https://docs.nvidia.com/nemo/curator/latest/about/release-notes/26-07-migration"
+                "See https://docs.nvidia.com/nemo/curator/latest/about/release-notes/26-07-migration"
             )
             raise TypeError(msg)
         self.model_dir = model_dir
