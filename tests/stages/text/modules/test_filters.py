@@ -592,24 +592,22 @@ class TestHeuristicFilters:
 
     @pytest.mark.parametrize("text", ["", " ", "\n\n", "\xa0"])
     @pytest.mark.parametrize(
-        ("filter_cls", "expected_score", "expected_keep"),
+        ("filter_cls", "expected_score"),
         [
-            (SymbolsToWordsFilter, 1.0, False),
-            (BulletsFilter, 1.0, False),
-            (LongWordFilter, 1001, False),
-            (MeanWordLengthFilter, 0.0, False),
-            (PunctuationFilter, 1.0, False),
-            (EllipsisFilter, 1.0, False),
-            (WordsWithoutAlphabetsFilter, 0.0, False),
+            (SymbolsToWordsFilter, 1.0),
+            (BulletsFilter, 1.0),
+            (LongWordFilter, 1001),
+            (MeanWordLengthFilter, 0.0),
+            (PunctuationFilter, 1.0),
+            (EllipsisFilter, 1.0),
+            (WordsWithoutAlphabetsFilter, 0.0),
         ],
     )
-    def test_empty_document(
-        self, filter_cls: type[DocumentFilter], expected_score: float, expected_keep: bool, text: str
-    ) -> None:
+    def test_empty_document(self, filter_cls: type[DocumentFilter], expected_score: float, text: str) -> None:
         doc_filter = filter_cls()
         score = doc_filter.score_document(text)
         assert score == expected_score
-        assert doc_filter.keep_document(score) is expected_keep
+        assert doc_filter.keep_document(score) is False
 
     @pytest.mark.parametrize(
         "filter_cls",
