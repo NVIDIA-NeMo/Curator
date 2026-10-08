@@ -95,10 +95,17 @@ def unavailable_modules() -> list[dict[str, str]]:
 
 
 def _agent_ready_registry() -> dict[str, type]:
+    """Discover stages that explicitly declare their own agent contract.
+
+    Inheriting a ready stage's implementation does not opt a new subclass into
+    discovery: its configuration and behavior need their own contract review.
+    """
     from nemo_curator.stages.base import _STAGE_REGISTRY
 
     return {
-        name: cls for name, cls in _STAGE_REGISTRY.items() if isinstance(cls, type) and issubclass(cls, AgentReady)
+        name: cls
+        for name, cls in _STAGE_REGISTRY.items()
+        if isinstance(cls, type) and issubclass(cls, AgentReady) and "describe" in cls.__dict__
     }
 
 

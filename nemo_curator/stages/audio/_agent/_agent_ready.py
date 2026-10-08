@@ -453,7 +453,11 @@ def to_json_schema(params: list[ParamSpec]) -> dict[str, Any]:
 
 
 class AgentReady:
-    """Mixin for stages that expose a read-only agent discovery contract."""
+    """Mixin for stages that expose a read-only agent discovery contract.
+
+    Each discoverable stage must implement ``describe`` in its own class body.
+    An inherited contract alone does not enroll a new subclass in the catalog.
+    """
 
     # Opt-in, instance-independent discovery hints. Annotated as ClassVar so
     # dataclass stages do NOT treat these as fields. All optional/additive.

@@ -18,6 +18,10 @@ the framework auto-derives the rest, and one test tells you if anything is missi
    literals in `process()`).
 3. Add one test: **`assert_agent_ready(MyStage(...), fixture_factory=...)`**.
 
+Define `describe()` on the concrete stage class itself. Inheriting a parent's
+contract alone does not enroll a subclass in agent discovery; review the subclass's
+configuration and behavior before explicitly declaring its contract.
+
 Those three items make the stage mechanically composable. Also document the meaning of
 externally consumed outputs, especially filterable fields and anything crossing a
 fan-out/aggregation boundary. `assert_agent_ready` can prove keys and cardinality; it
