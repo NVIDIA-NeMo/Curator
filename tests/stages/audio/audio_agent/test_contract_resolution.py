@@ -457,3 +457,8 @@ def test_upstream_asr_wrappers_remain_importable_but_not_agent_selectable(module
     assert name not in {entry["stage"] for entry in verbs.discover()["stages"]}
     with pytest.raises(KeyError, match="not a registered agent-ready audio stage"):
         resolve_stage_class(name)
+
+
+def test_fleurs_resolution_exposes_runtime_required_params() -> None:
+    unresolved = resolved_contract_for("CreateInitialManifestFleursStage")
+    assert unresolved.required_params == ("lang", "split", "raw_data_dir")
