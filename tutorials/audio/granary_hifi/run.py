@@ -32,6 +32,8 @@ Architecture (flags control optional GPU/audio stages)::
         → sed_events  (TTS Granary sound_event_detection)
     [unless --disable_ipa] ManifestIpaStage (CPU)
         → ipa from tn_raw via espeak-ng  (TTS Granary manifest_ipa)
+    [if --enable_early_cut_off] EarlyCutOffEndpointGateStage (GPU)
+        → early_cut_off_detection  (TTS Granary endpoint gate; needs tn_raw, IPA, audio)
     ManifestWriterStage (CPU)
 
 Requires ``espeak-ng`` on PATH for IPA. Audio stages need ``audio_filepath``
@@ -131,6 +133,24 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Sortformer model id or local .nemo path.",
     )
     ap.add_argument("--bandwidth_output_key", type=str, default="bandwidth")
+    ap.add_argument(
+        "--enable_early_cut_off",
+        action="store_true",
+        default=False,
+        help="CTC endpoint gate (TTS Granary EarlyCutOffEndpointGateProcessor). Needs audio and --early_cut_off_bundle_dir.",
+    )
+    ap.add_argument(
+        "--early_cut_off_bundle_dir",
+        type=str,
+        default=None,
+        help="Directory with english_endpoint.pt, multilingual_endpoint.pt, calibrations, and manifest.json.",
+    )
+    ap.add_argument(
+        "--early_cut_off_output_key",
+        type=str,
+        default="early_cut_off_detection",
+        help="Where to write the endpoint-gate annotation.",
+    )
     ap.add_argument("--executor", type=str, default="xenna", choices=["xenna", "ray_data"])
     return ap
 
@@ -138,8 +158,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
+    if args.enable_early_cut_off and not args.early_cut_off_bundle_dir:
+        msg = "--enable_early_cut_off requires --early_cut_off_bundle_dir"
+        raise ValueError(msg)
+
     enable_ipa = not args.disable_ipa
-    audio_stages = any((args.enable_speaker_id, args.enable_mos, args.enable_bandwidth, args.enable_sed))
+    audio_stages = any(
+        (
+            args.enable_speaker_id,
+            args.enable_mos,
+            args.enable_bandwidth,
+            args.enable_sed,
+            args.enable_early_cut_off,
+        )
+    )
     if not enable_ipa and not audio_stages:
         logger.warning("No stages enabled. IPA is on by default; pass at least one --enable_* or omit --disable_ipa.")
         return
@@ -186,6 +218,21 @@ def main() -> None:
             )
         )
         logger.info(f"IPA enabled: {args.text_key} (+ itn_text / GranaryV2.tn_raw fallback) → {args.ipa_output_key}")
+
+    if args.enable_early_cut_off:
+        from nemo_curator.stages.audio.tts.early_cutoff.endpoint_gate import EarlyCutOffEndpointGateStage
+
+        stages.append(
+            EarlyCutOffEndpointGateStage(
+                text_key=args.text_key,
+                ipa_key=args.ipa_output_key,
+                output_key=args.early_cut_off_output_key,
+                source_lang_key=args.source_lang_key,
+                language=args.language,
+                bundle_dir=args.early_cut_off_bundle_dir,
+            )
+        )
+        logger.info(f"early cut-off gate enabled → {args.early_cut_off_output_key}")
 
     stages.append(ManifestWriterStage(output_path=args.output_manifest))
 
