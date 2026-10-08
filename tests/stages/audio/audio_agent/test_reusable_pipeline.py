@@ -2071,9 +2071,11 @@ def test_prepare_only_breaks_nested_score_lineage(tmp_path: Path, nested: bool) 
     value = (_utmos_segment_recipe(tmp_path, segments_key="segments") if nested else _utmos_recipe(tmp_path)).to_dict()
     value["stages"].insert(2, {"ref": "PrepareModuleSegmentsStage", "params": {}})
     recipe = Recipe.from_dict(value)
+    stages, issues = build_stages(recipe)
+    assert issues == []
     reason = reusable_pipeline._score_lineage_reason(
         recipe,
-        build_stages(recipe),
+        stages,
         producer_index=1,
         selector_index=3,
         score_keys=("segment_utmos" if nested else "row_utmos",),
