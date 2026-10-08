@@ -381,9 +381,9 @@ release owned run bookkeeping while preserving partial output. A retry must use
 
 These stage-specific hooks belong to the separate audio-agent execution wrapper;
 they are not part of the generic `ProcessingStage` lifecycle. This Foundation slice
-provides the hooks but does not ship the wrapper. The shared `Pipeline.run()` calls
-neither preparation nor finalization. Direct callers using a checkpoint must prepare
-it before running their pipeline and finalize it only after verified success.
+provides the hooks but does not ship the wrapper. Generic pipelines do not implicitly own these stage-specific hooks. A caller or
+an explicitly opted-in driver lifecycle must prepare shared outputs before workers
+are serialized and finalize them only after verified success.
 Outside agent execution, ManifestWriter's standalone worker `setup()` retains
 its legacy truncation behavior. Checkpoint completion requires durable ownership
 and artifact identity; absent driver-visible state must never imply empty input.

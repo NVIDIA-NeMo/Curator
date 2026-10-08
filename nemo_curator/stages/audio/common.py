@@ -1078,13 +1078,23 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._fs.rm(owner_path)
         self._run_token = None
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def write_jsonl_batch(self, records: str) -> None:
+        """Append serialized JSONL records, verifying ownership once per batch.
+
+        Callers provide newline-terminated records produced by their serializer.
+        Empty batches leave both the output and its ownership marker untouched.
+        """
+        if not records:
+            return
         if getattr(self, "_run_token", None) is not None:
             self._verify_run()
-        with self._fs.open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+        with self._fs.open(self._path, "a", encoding="utf-8") as output:
+            output.write(records)
         if getattr(self, "_run_token", None) is not None:
             self._write_run_owner()
+
+    def process(self, task: AudioTask) -> AudioTask:
+        self.write_jsonl_batch(json.dumps(task.data, ensure_ascii=False) + "\n")
         return AudioTask(
             dataset_name=task.dataset_name,
             data=task.data,

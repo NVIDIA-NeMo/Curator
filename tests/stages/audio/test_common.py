@@ -1779,3 +1779,17 @@ def test_condition_configuration_identity_cannot_follow_external_mutation() -> N
     assert pipeline_identity([second]) != identity
     assert len(first.process_batch([AudioTask(data={"duration": 1.5})])) == 1
     assert second.process_batch([AudioTask(data={"duration": 1.5})]) == []
+
+
+def test_prepared_manifest_batch_rejects_replaced_output(tmp_path: Path) -> None:
+    output = tmp_path / "manifest.jsonl"
+    writer = ManifestWriterStage(str(output))
+    writer.prepare_on_driver()
+    writer.setup()
+    writer.write_jsonl_batch('{"id":1}\n{"id":2}\n')
+    output.unlink()
+    output.write_text('{"id":"other-owner"}\n')
+    with pytest.raises(RuntimeError, match="driver-prepared"):
+        writer.write_jsonl_batch('{"id":3}\n')
+    assert output.read_text() == '{"id":"other-owner"}\n'
+    writer.abort_on_driver()
