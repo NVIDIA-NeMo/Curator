@@ -596,7 +596,7 @@ class TestHeuristicFilters:
         [
             (SymbolsToWordsFilter, 1.0, False),
             (BulletsFilter, 1.0, False),
-            (LongWordFilter, float("inf"), False),
+            (LongWordFilter, 1001, False),
             (MeanWordLengthFilter, 0.0, False),
             (PunctuationFilter, 1.0, False),
             (EllipsisFilter, 1.0, False),

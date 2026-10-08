@@ -232,8 +232,8 @@ class LongWordFilter(DocumentFilter):
         self._name = "max_word_length"
 
     def score_document(self, text: str) -> float:
-        # An empty document has no word to measure, so score it to always be rejected
-        return max((len(w) for w in self._word_splitter(text.strip())), default=float("inf"))
+        # An empty document has no word to measure; score it one past the limit so it is always rejected
+        return max((len(w) for w in self._word_splitter(text.strip())), default=self._max_word_length + 1)
 
     def keep_document(self, score: float) -> bool:
         return score <= self._max_word_length
