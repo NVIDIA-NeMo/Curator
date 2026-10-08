@@ -55,6 +55,10 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
   - Full pipeline (splitting + embedding + captioning): ~38GB VRAM
   - Reduced configuration (lower batch sizes, FP8): ~21GB VRAM
 
+#### Ray Cluster Requirements
+* **CPUs**: The cluster must expose enough CPUs for every pipeline stage's workers. The full split, embedding, and caption example needed roughly 17 CPUs in testing. If startup fails with `ValueError: Not enough CPU resources`, add CPUs or reduce per-stage workers and CPU requests.
+* **API server limit**: Importing `nemo_curator` sets `RAY_MAX_LIMIT_FROM_API_SERVER` and `RAY_MAX_LIMIT_FROM_DATA_SOURCE` for clusters it starts. If you start Ray yourself (`ray start`, SLURM, Kubernetes), export both as at least `40000` before starting Ray on every node.
+
 #### Software Dependencies
 * **FFmpeg 8.0+** with one of the following encoders:
   - GPU encoder: `h264_nvenc` (recommended for performance; requires an NVENC-equipped GPU — note that A100 and H100 do **not** include NVENC)
