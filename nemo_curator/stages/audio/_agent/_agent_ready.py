@@ -290,6 +290,10 @@ class StageContract:
     # uncertain unless the other selection inputs have known compatible roles upstream.
     preferred_reads: IOSpec | None = None
 
+    # False when a stage reconstructs child dictionaries while preserving task.data.
+    # The task-wide preservation flag still takes precedence when it is False.
+    preserves_upstream_segment_keys: bool = True
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict of this contract (``json.dumps`` never raises)."""
         return {
@@ -305,6 +309,7 @@ class StageContract:
             "cardinality_options": list(self.cardinality_options),
             "iteration_key": self.iteration_key,
             "preserves_upstream_keys": self.preserves_upstream_keys,
+            **({"preserves_upstream_segment_keys": False} if not self.preserves_upstream_segment_keys else {}),
             "wrappable": self.wrappable,
             "size_envelope": asdict(self.size_envelope),
             "gates": asdict(self.gates),

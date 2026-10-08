@@ -685,10 +685,11 @@ def _refresh_role_provenance(  # noqa: C901 - independent task and nested proven
     previous = set(walk.available)
     if not contract.preserves_upstream_keys:
         walk.key_roles.clear()
-        walk.segment_key_roles.clear()
         walk.possible_key_roles.clear()
-        walk.possible_segment_key_roles.clear()
         walk.unkeyed_roles.clear()
+    if not contract.preserves_upstream_keys or not contract.preserves_upstream_segment_keys:
+        walk.segment_key_roles.clear()
+        walk.possible_segment_key_roles.clear()
         walk.unkeyed_segment_roles.clear()
     scopes = (
         (
@@ -1044,7 +1045,7 @@ def _task_type_issue(walk: _Walk, site: _Site, contract: StageContract) -> list[
     ]
 
 
-def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: PLR0915
+def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: C901, PLR0915
     """Fold one stage's writes, removals and tensor residency into the running state."""
     produced = _roles_for_keys(contract, contract.writes.data_keys)
     segment_produced = _roles_for_keys(contract, contract.writes.segment_data_keys)
@@ -1070,21 +1071,13 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
         # its own authority rather than on the vanished producer's.
         dropped_keys = walk.available_keys - written
         dropped_roles = walk.available - produced
-        dropped_segment_keys = walk.segment_available_keys - segment_written
-        dropped_segment_roles = walk.segment_available - segment_produced
         walk.available_keys -= dropped_keys
         walk.available -= dropped_roles
-        walk.segment_available_keys -= dropped_segment_keys
-        walk.segment_available -= dropped_segment_roles
         walk.possible_keys.clear()
-        walk.possible_segment_keys.clear()
         walk.possible_roles.clear()
-        walk.possible_segment_roles.clear()
         walk.removed_roles |= dropped_roles
         for key in dropped_keys:
             walk.key_producer.pop(key, None)
-        for key in dropped_segment_keys:
-            walk.segment_key_producer.pop(key, None)
         # Tensor residency deliberately survives this. The flag is coarser than it looks:
         # ALMDataBuilderStage sets it because SOME branch rebuilds task.data, while still
         # carrying the waveform on the ordinary path. Clearing residency here would retract
@@ -1092,6 +1085,16 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
         # waveform to a JSON sink -- a safety gate whose false NEGATIVE is the expensive
         # direction. A stage that genuinely ends residency says so through ``removes_keys``
         # or ``sanitizes_output``, both handled below.
+    if not contract.preserves_upstream_keys or not contract.preserves_upstream_segment_keys:
+        dropped_segment_keys = walk.segment_available_keys - segment_written
+        walk.segment_available_keys -= dropped_segment_keys
+        walk.segment_available &= segment_produced
+        if contract.preserves_upstream_keys:
+            walk.segment_tensor_keys.clear()
+        walk.possible_segment_keys.clear()
+        walk.possible_segment_roles.clear()
+        for key in dropped_segment_keys:
+            walk.segment_key_producer.pop(key, None)
     walk.available |= produced
     walk.removed_roles -= produced  # a re-produced role is no longer "removed"
     walk.segment_available |= segment_produced

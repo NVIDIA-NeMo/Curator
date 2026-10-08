@@ -321,3 +321,65 @@ def test_explicit_drop_policy_allows_missing_top_level_keys(filter_kind: str) ->
     assert validate_pipeline([drop], initial_keys=[]).ok
     assert drop.process_batch([task]) == []
     assert not validate_pipeline([make_stage("error")], initial_keys=[]).ok
+
+
+@pytest.mark.parametrize("conditional", [False, True])
+@pytest.mark.parametrize("reemit", [False, True])
+def test_child_replacement_preserves_only_parent_and_new_child_keys(conditional: bool, reemit: bool) -> None:
+    spec = IOSpec(segment_data_keys=["old_score"], produces=["tensor"])
+    producer = _ContractStage(
+        StageContract(
+            writes=IOSpec() if conditional else spec,
+            conditional_writes=[ConditionalWrite(writes=spec, condition="scored input")] if conditional else [],
+            key_roles={"old_score": "waveform"},
+        )
+    )
+    rebuild = _ContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["segments"], segment_data_keys=["new_score"]),
+            conditional_writes=[
+                ConditionalWrite(writes=IOSpec(segment_data_keys=["old_score"]), condition="new score")
+            ]
+            if reemit
+            else [],
+            preserves_upstream_segment_keys=False,
+        )
+    )
+    parent_consumer = _ContractStage(StageContract(reads=IOSpec(data_keys=["recording_id", "old_score"])))
+    child_consumer = _ContractStage(StageContract(reads=IOSpec(segment_data_keys=["new_score"])))
+    chain = [producer, rebuild, parent_consumer, child_consumer]
+    report = validate_pipeline(chain, initial_keys={"recording_id", "old_score"})
+    assert report.ok
+    assert report.keys_ok
+    old_child_consumer = _ContractStage(StageContract(reads=IOSpec(segment_data_keys=["old_score"])))
+    report = validate_pipeline([*chain, old_child_consumer], initial_keys={"recording_id", "old_score"})
+    assert report.ok is reemit
+    expected = "conditional_read" if reemit else "unsatisfied_reads"
+    assert any(issue.code == expected for issue in report.issues)
+    assert rebuild.describe().to_dict()["preserves_upstream_segment_keys"] is False
+
+
+@pytest.mark.parametrize("parent_tensor", [False, True])
+@pytest.mark.parametrize("new_child_tensor", [False, True])
+def test_child_replacement_rebuilds_tensor_residency(
+    tmp_path: Path, parent_tensor: bool, new_child_tensor: bool
+) -> None:
+    from nemo_curator.stages.audio.common import ManifestWriterStage
+
+    rebuild = _ContractStage(
+        StageContract(
+            writes=IOSpec(
+                data_keys=["segments"],
+                segment_data_keys=["waveform"] if new_child_tensor else [],
+                produces=["tensor"] if new_child_tensor else [],
+            ),
+            preserves_upstream_segment_keys=False,
+        )
+    )
+    report = validate_pipeline(
+        [rebuild, ManifestWriterStage(output_path=str(tmp_path / "rows.jsonl"))],
+        initial_keys={"segments", "waveform"} if parent_tensor else {"segments"},
+        initial_segment_keys={"waveform"},
+    )
+    assert report.ok is (not parent_tensor and not new_child_tensor)
+    assert any(issue.code == "tensor_into_sink" for issue in report.issues) is (parent_tensor or new_child_tensor)
