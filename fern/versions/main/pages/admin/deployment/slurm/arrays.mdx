@@ -26,7 +26,7 @@ An array task normally uses `RayClient` on one node. If you allocate multiple no
 
 - A SLURM cluster with job-array support (for example, `sbatch --array=0-19`).
 - A NeMo Curator environment visible from every compute node. This can be a shared source checkout, a container image, or a `.sqsh` image file mounted through your site's SLURM container integration.
-- Input, output, and checkpoint directories on a shared filesystem or mounted at the same path in every container.
+- Input, output, and checkpoint directories on a shared filesystem or mounted at the same path in every container. The checkpoint directory must be on a filesystem that supports memory-mapped I/O (Lustre, GPFS, BeeGFS, or local disk) — not NFS. See [Checkpoint Storage](/reference/infra/resumable-processing#checkpoint-storage).
 - Source stages that emit deterministic task IDs. For the most common array workflows built around `FilePartitioningStage`, this works out of the box. If a source stage is incompatible, NeMo Curator raises a clear error instead of silently sharding the wrong tasks. NeMo Curator also rejects source IDs beginning with `r` because ambiguous IDs cannot be assigned consistently across retries.
 
 The repository includes these reference files:
