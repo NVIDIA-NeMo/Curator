@@ -28,6 +28,8 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 _NON_SERIALIZABLE_KEYS = frozenset(
@@ -258,8 +260,8 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
     """Append every row in a DocumentBatch to one JSONL manifest.
 
     This is the task-type-compatible terminal sink for
-    :class:`AudioToDocumentStage`. The output file is truncated in ``setup()``
-    and successive batches append within one worker. The input ``DocumentBatch``
+    :class:`AudioToDocumentStage`. ``Pipeline.run()`` replaces the output once
+    on the driver; successive batches and replacement workers append. The input ``DocumentBatch``
     is returned unchanged so its dataset name, metadata, and performance records
     are preserved.
 
@@ -300,18 +302,26 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
             msg = "output_path is required for DocumentBatchJsonlWriterStage"
             raise ValueError(msg)
 
-    def prepare_on_driver(self, *, checkpoint_path: str | None = None) -> None:
+    def prepare_on_driver(self, *, checkpoint_path: str | Path | None = None) -> None:
         """Reserve and replace the manifest once before workers are serialized."""
         from nemo_curator.stages.audio.common import ManifestWriterStage
 
         self._writer_lifecycle = ManifestWriterStage(self.output_path)
         self._writer_lifecycle.prepare_on_driver(checkpoint_path=checkpoint_path)
 
+    def prepare_for_pipeline(self, *, checkpoint_path: str | Path | None = None) -> bool:
+        """Prepare an ordinary run unless an external driver already owns the sink."""
+        lifecycle = getattr(self, "_writer_lifecycle", None)
+        if lifecycle is not None and getattr(lifecycle, "_run_token", None) is not None:
+            return False
+        self.prepare_on_driver(checkpoint_path=checkpoint_path)
+        return True
+
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Open for appending; replacement actors must preserve committed rows.
 
-        Call ``prepare_on_driver`` once per run to replace an existing manifest.
-        Without driver preparation the sink appends, including in standalone use.
+        Pipeline.run prepares the driver automatically. Direct stage callers may
+        call prepare_on_driver to replace output; unprepared direct use appends.
         """
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
@@ -351,8 +361,7 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
             raise ValueError(msg)
         lifecycle = getattr(self, "_writer_lifecycle", None)
         if not dataframe.empty and lifecycle is not None:
-            for line in dataframe.to_json(orient="records", lines=True, force_ascii=False).splitlines():
-                lifecycle.process(AudioTask(data=json.loads(line), dataset_name=task.dataset_name))
+            lifecycle.write_jsonl_batch(dataframe.to_json(orient="records", lines=True, force_ascii=False))
         elif not dataframe.empty:
             with self._fs.open(self._path, "a", encoding="utf-8") as stream:
                 dataframe.to_json(

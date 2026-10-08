@@ -25,6 +25,8 @@ import torch
 from fsspec.core import url_to_fs
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 
+from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage, DocumentBatchJsonlWriterStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
 
@@ -188,3 +190,80 @@ def test_serialized_replacement_preserves_driver_prepared_rows(tmp_path) -> None
     assert [json.loads(line)["id"] for line in output.read_text().splitlines()] == [1, 2]
     stage.finalize()
     assert not output.with_name(output.name + "._RUN").exists()
+
+
+class _SerializedWriterExecutor(BaseExecutor):
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+
+    def execute(self, stages, initial_tasks=None) -> list[DocumentBatch] | None:  # noqa: ANN001
+        serialized = pickle.dumps(stages[0])
+        for batch in initial_tasks or []:
+            worker = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+            worker.setup_on_node()
+            worker.setup()
+            worker.process(batch)
+            if self.fail:
+                msg = "worker failed after append"
+                raise RuntimeError(msg)
+        return initial_tasks
+
+
+def test_pipeline_reruns_replace_output_and_worker_replacements_append(tmp_path) -> None:  # noqa: ANN001
+    output = tmp_path / "curated.jsonl"
+    output.write_text('{"id": "stale"}\n')
+    pipeline = Pipeline(name="document-writer")
+    pipeline.add_stage(DocumentBatchJsonlWriterStage(str(output)))
+    for run in ("first", "second"):
+        pipeline.run(
+            _SerializedWriterExecutor(),
+            initial_tasks=[_batch([{"id": run + "-a"}]), _batch([{"id": run + "-b"}])],
+        )
+        assert [json.loads(line)["id"] for line in output.read_text().splitlines()] == [run + "-a", run + "-b"]
+        assert not output.with_name(output.name + "._RUN").exists()
+
+
+def test_failed_pipeline_releases_ownership_without_deleting_written_rows(tmp_path) -> None:  # noqa: ANN001
+    output = tmp_path / "curated.jsonl"
+    pipeline = Pipeline(name="document-writer")
+    pipeline.add_stage(DocumentBatchJsonlWriterStage(str(output)))
+    with pytest.raises(RuntimeError, match="worker failed"):
+        pipeline.run(_SerializedWriterExecutor(fail=True), initial_tasks=[_batch([{"id": "partial"}])])
+    assert [json.loads(line)["id"] for line in output.read_text().splitlines()] == ["partial"]
+    assert not output.with_name(output.name + "._RUN").exists()
+    pipeline.run(_SerializedWriterExecutor(), initial_tasks=[])
+    assert output.read_text() == ""
+
+
+def test_pipeline_keeps_external_agent_preparation_owned_by_the_caller(tmp_path) -> None:  # noqa: ANN001
+    output = tmp_path / "curated.jsonl"
+    writer = DocumentBatchJsonlWriterStage(str(output))
+    writer.prepare_on_driver()
+    pipeline = Pipeline(name="document-writer")
+    pipeline.add_stage(writer)
+    pipeline.run(_SerializedWriterExecutor(), initial_tasks=[_batch([{"id": "agent"}])])
+    assert output.with_name(output.name + "._RUN").exists()
+    writer.finalize()
+    assert [json.loads(line)["id"] for line in output.read_text().splitlines()] == ["agent"]
+    assert not output.with_name(output.name + "._RUN").exists()
+
+
+def test_prepared_document_batch_opens_one_append_stream(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    output = tmp_path / "curated.jsonl"
+    writer = DocumentBatchJsonlWriterStage(str(output))
+    writer.prepare_on_driver()
+    writer.setup()
+    opens = []
+    real_open = writer._fs.open
+
+    def counted_open(path, mode="rb", **kwargs):  # noqa: ANN001, ANN202
+        opens.append(mode)
+        return real_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(writer._fs, "open", counted_open)
+    writer.process(_batch([{"id": i, "text": "héllo"} for i in range(64)]))
+    writer.finalize()
+    assert opens.count("a") == 1
+    assert [json.loads(line) for line in output.read_text().splitlines()] == [
+        {"id": i, "text": "héllo"} for i in range(64)
+    ]
