@@ -190,8 +190,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "and activate that environment before starting workers."
             )
             raise RuntimeError(msg)
-        fs, path = url_to_fs(self.resampled_audio_dir)
-        fs.makedirs(path, exist_ok=True)
+        if self.write_to_disk:
+            fs, path = url_to_fs(self.resampled_audio_dir)
+            fs.makedirs(path, exist_ok=True)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
@@ -271,7 +272,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             gates=Gates(
                 writes_to_disk=self.write_to_disk,
                 requires_ffmpeg=True,
-                output_path_params=["resampled_audio_dir"],
+                output_path_params=["resampled_audio_dir"] if self.write_to_disk else [],
                 # Inherited ids claim a shared output namespace, so filenames can depend on
                 # the other rows already processed. Memory-only conversions have no such claim.
                 per_row_independent=not self.write_to_disk,
@@ -490,14 +491,14 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             # run picked a new output name, but the name is stable now, so a run killed mid-write
             # leaves a stump the NEXT run finds -- and a truncated WAV keeps a valid header, so
             # the skip above waves it through and a fragment's duration lands in the manifest.
-            # Convert to a sibling temp name and rename, which is atomic on POSIX. Upstream
-            # landed the same fix independently; this keeps its naming so the two do not drift.
+            # Convert in the destination directory for atomic replacement. The temporary
+            # basename is independent of the final name so it also fits filesystem limits.
             staging_dir = os.path.dirname(output_audio_path)
             if staging_dir:
                 # setup_on_node makes this, but process() must not depend on having been through it.
                 os.makedirs(staging_dir, exist_ok=True)
-            output_stem, output_extension = os.path.splitext(output_audio_path)
-            temporary_audio_path = f"{output_stem}.{uuid.uuid4().hex}.tmp{output_extension}"
+            output_extension = os.path.splitext(output_audio_path)[1]
+            temporary_audio_path = os.path.join(staging_dir, f".resample-{uuid.uuid4().hex}.tmp{output_extension}")
             cmd = [
                 "ffmpeg",
                 "-y",

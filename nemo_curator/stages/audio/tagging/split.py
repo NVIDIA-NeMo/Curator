@@ -119,6 +119,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(data_keys=[self.duration_key, self.segments_key, self.audio_filepath_key]),
+            optional_reads=IOSpec(data_keys=[self.audio_item_id_key]),
             writes=IOSpec(
                 data_keys=[
                     self.split_filepaths_key,
@@ -126,6 +127,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     self.split_offsets_key,
                     self.split_timestamps_key,
                 ],
+                segment_data_keys=[self.audio_item_id_key, self.audio_filepath_key, self.duration_key],
                 produces=["disk"],
             ),
             cardinality="1:1 nested-list",

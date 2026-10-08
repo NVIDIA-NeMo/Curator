@@ -24,6 +24,7 @@ from nemo_curator.stages.audio._agent._agent_registry import build_contract, sta
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
+from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )
@@ -669,3 +670,47 @@ def test_shared_split_long_names_fit_filesystem(tmp_path: Path, monkeypatch: pyt
     )
     assert saved
     assert all(len(Path(path).name.encode("utf-8")) <= 255 and Path(path).is_file() for path in saved)
+
+
+@pytest.mark.parametrize("route", ["short", "long", "fallback"])
+@pytest.mark.parametrize("renamed", [False, True])
+def test_split_nested_output_contract_matches_runtime(tmp_path: Path, route: str, renamed: bool) -> None:
+    keys = (
+        {
+            "audio_filepath_key": "path",
+            "duration_key": "seconds",
+            "audio_item_id_key": "clip_id",
+            "segments_key": "turns",
+            "split_metadata_key": "chunks",
+        }
+        if renamed
+        else {}
+    )
+    stage = SplitLongAudioStage(suggested_max_len=3, min_len=5 if route == "fallback" else 0.1, **keys)
+    source = tmp_path / "source.wav"
+    duration = 2.0 if route == "short" else 4.0
+    sf.write(source, np.zeros(int(16000 * duration), dtype=np.float32), 16000)
+    data = {
+        stage.audio_filepath_key: str(source),
+        stage.duration_key: duration,
+        stage.audio_item_id_key: "clip",
+        stage.segments_key: [{"start": 0, "end": 2}, {"start": 2, "end": 4}],
+    }
+    consumer = PreserveByValueConditionsStage(
+        items_key=stage.split_metadata_key,
+        conditions={
+            stage.audio_filepath_key: {"operator": "ne", "target_value": ""},
+            stage.duration_key: {"operator": "ge", "target_value": 0},
+        },
+    )
+    report = validate_pipeline([stage, consumer], initial_keys=set(data), initial_task_type="AudioTask")
+    assert report.ok
+    assert report.keys_ok
+    assert_agent_ready(stage, lambda: AudioTask(data=dict(data)), available_keys=set(data))
+    output = stage.process(AudioTask(data=dict(data)))
+    children = output.data[stage.split_metadata_key]
+    assert len(children) == (2 if route == "long" else 1)
+    assert all(
+        {stage.audio_filepath_key, stage.duration_key, stage.audio_item_id_key} <= child.keys() for child in children
+    )
+    assert consumer.process_batch([output]) == [output]

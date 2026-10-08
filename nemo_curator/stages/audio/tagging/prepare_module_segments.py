@@ -93,6 +93,7 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         return StageContract(
             reads=IOSpec(data_keys=[self.segments_key, self.duration_key]),
             writes=IOSpec(data_keys=[self.segments_key]),
+            preserves_upstream_segment_keys=False,
             # Consulted-when-present: an alignment/overlap list and the row-identity keys used
             # to seed the per-row RNG. Optional so planning never blocks on their absence.
             optional_reads=IOSpec(

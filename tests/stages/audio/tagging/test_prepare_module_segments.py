@@ -21,6 +21,7 @@ from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, St
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
+from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
@@ -439,3 +440,57 @@ def test_prepared_text_routes_into_normalization(populated: bool) -> None:
         assert "metrics" not in segment
     else:
         assert task.data["segments"] == []
+
+
+@pytest.mark.parametrize("policy", ["error", "drop"])
+def test_prepare_replaces_child_scores_without_losing_parent_keys(policy: str) -> None:
+    prepare = PrepareModuleSegmentsStage(module="tts", min_duration=0.1, max_duration=20)
+    selector = PreserveByValueConditionsStage(
+        items_key="segments",
+        conditions={"score": {"operator": "ge", "target_value": 0.5}},
+        missing_value_policy=policy,
+    )
+    task = AudioTask(
+        data={
+            "duration": 3.0,
+            "score": 0.8,
+            "segments": [
+                {
+                    "speaker": "s1",
+                    "start": 0.0,
+                    "end": 3.0,
+                    "score": 0.9,
+                    "text": "hello there",
+                    "words": [
+                        {"word": "hello", "start": 0.0, "end": 1.0},
+                        {"word": "there", "start": 1.0, "end": 2.5},
+                    ],
+                }
+            ],
+        }
+    )
+    report = validate_pipeline(
+        [prepare, selector], initial_keys=set(task.data), initial_segment_keys={"score"}, initial_task_type="AudioTask"
+    )
+    if policy == "error":
+        assert not report.ok
+        assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
+    else:
+        assert report.ok
+    strict_selector = PreserveByValueConditionsStage(
+        items_key="segments", conditions={"score": {"operator": "ge", "target_value": 0.5}}
+    )
+    assert not validate_pipeline(
+        [prepare, strict_selector], initial_keys=set(task.data), initial_segment_keys={"score"}
+    ).ok
+    parent_selector = PreserveByValueConditionsStage(conditions={"score": {"operator": "ge", "target_value": 0.5}})
+    assert validate_pipeline([prepare, parent_selector], initial_keys=set(task.data)).ok
+    prepared = prepare.process(task)
+    assert prepared.data["score"] == 0.8
+    assert prepared.data["segments"]
+    assert "score" not in prepared.data["segments"][0]
+    if policy == "error":
+        with pytest.raises(ValueError, match="score"):
+            selector.process_batch([prepared])
+    else:
+        assert selector.process_batch([prepared]) == []
