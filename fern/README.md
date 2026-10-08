@@ -59,13 +59,17 @@ fern/
 ├── versions/
 │   ├── main.yml              # Nav for the bleeding-edge train — paths point at ./main/pages/
 │   ├── main/pages/           # Bleeding-edge MDX (every PR lands here; published at /main/...)
-│   ├── v26.04.yml            # Current GA snapshot — back-ports only
+│   ├── v26.09.yml            # 26.09 docs-train snapshot
+│   ├── v26.09/pages/         # Snapshot of main at the 26.09 docs cut
+│   ├── v26.07.yml            # Frozen 26.07 docs train
+│   ├── v26.07/pages/         # Frozen 26.07 content
+│   ├── v26.04.yml            # Frozen 26.04 docs train
 │   ├── v26.04/pages/         # Frozen 26.04 content
-│   ├── v26.02.yml            # Frozen 26.02 GA snapshot
+│   ├── v26.02.yml            # Frozen 26.02 docs train
 │   ├── v26.02/pages/         # Frozen 26.02 content
 │   ├── v25.09.yml            # Frozen 25.09 GA snapshot
 │   ├── v25.09/pages/         # Frozen 25.09 content
-│   └── latest.yml            # Symlink → v26.04.yml (current GA alias; retargeted at next GA cut)
+│   └── latest.yml            # Symlink → v26.09.yml (current docs alias; retargeted at next cut)
 ├── substitute_variables.py   # CI/local: substitute {{ variables }} in MDX before generate
 ├── AUTODOCS_GUIDE.md         # How the `libraries:` block builds the Python API reference
 └── product-docs/             # GENERATED Python API reference (gitignored)
@@ -75,15 +79,17 @@ fern/
 File path                                              Published URL
 ─────────────────────────────────────────────────────  ─────────────────────────────────────────────────
 fern/versions/main/pages/get-started/index.mdx         docs.nvidia.com/nemo/curator/main/get-started
+fern/versions/v26.09/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v26.09/get-started
+                                                       docs.nvidia.com/nemo/curator/latest/get-started   (latest aliases v26.09)
+fern/versions/v26.07/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v26.07/get-started
 fern/versions/v26.04/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v26.04/get-started
-                                                       docs.nvidia.com/nemo/curator/latest/get-started   (latest aliases v26.04)
 fern/versions/v26.02/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v26.02/get-started
 fern/versions/v25.09/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v25.09/get-started
 ```
 
-**`main/pages/` is the bleeding-edge tree** — every PR lands here and publishes under the `main` slug (`availability: beta`, shown as `Main · preview` in the picker). **`v26.04/pages/` is the current GA snapshot**; it changes only via deliberate back-port from `main`. `v26.02/` and `v25.09/` are older frozen GAs. `latest.yml` is a symlink to the current GA's nav (today: `v26.04.yml`), so `/latest/...` URLs serve the current train. At the next GA cut, snapshot `main/` to a new `vXX.YY/` and retarget the symlink.
+**`main/pages/` is the bleeding-edge tree** — every PR lands here and publishes under the `main` slug (`availability: beta`, shown as `Main · preview` in the picker). **`v26.09/pages/` is the current docs-train snapshot**, cut from `main/pages/`; `main/` remains the preview source for ongoing work. Earlier version trees are preserved as historical documentation. `latest.yml` is a symlink to the current docs train's nav (today: `v26.09.yml`), so `/latest/...` URLs serve the current train. At the next cut, snapshot `main/` to a new `vXX.YY/` and retarget the symlink.
 
-`display-name` in `docs.yml` pairs the **NeMo calendar train** (e.g. `26.04`) with the **git release tag** (e.g. `v1.1.2`) so the version picker matches PyPI/GitHub. Align these with `CHANGELOG.md` and `nemo_curator/package_info.py` when you ship. The `main` entry stays unpinned (`Main · preview`) because it tracks unreleased work.
+`display-name` in `docs.yml` pairs the **NeMo calendar docs train** (e.g. `26.09`) with its **planned release tag** (e.g. `v1.4.0`) so the version picker reflects the release mapping. Check the release notes and GitHub release information before cutting a train; a docs cut does not itself publish a package release. The `main` entry stays unpinned (`Main · preview`) because it tracks unreleased work.
 
 ## Local development
 
@@ -112,7 +118,9 @@ The script temporarily injects a path-input `nemo-curator-local` entry into `doc
 CI runs `substitute_variables.py` before `fern generate` so `{{ container_version }}` and other tokens in MDX are replaced. To run locally (from repo root):
 
 ```bash
-python fern/substitute_variables.py versions/main   --version 26.04   # bleeding-edge — pass the *next* planned release
+python fern/substitute_variables.py versions/main   --version XX.YY   # preview — pass the next planned train
+python fern/substitute_variables.py versions/v26.09 --version 26.09
+python fern/substitute_variables.py versions/v26.07 --version 26.07
 python fern/substitute_variables.py versions/v26.04 --version 26.04
 python fern/substitute_variables.py versions/v26.02 --version 26.02
 python fern/substitute_variables.py versions/v25.09 --version 25.09
@@ -150,11 +158,11 @@ Standard Fern components are also available — `<Note>`, `<Tip>`, `<Info>`, `<W
 Use **version-prefixed paths** matching the slug of the tree the page lives in:
 
 ```mdx
-[Get started](/v26.04/get-started)        // links inside versions/v26.04/pages/
-[Get started](/v26.02/get-started)        // links inside versions/v26.02/pages/
+[Get started](/v26.09/get-started)        // links inside versions/v26.09/pages/
+[Get started](/v26.07/get-started)        // links inside versions/v26.07/pages/
 ```
 
-Cross-version links (e.g. from a `v26.04/` page to a `v26.02/` page) trigger broken-link warnings in `fern docs dev`; those are **false positives** — Fern's local validator does not resolve cross-version slugs from `docs.yml`. The published site renders them correctly.
+Cross-version links (e.g. from a `v26.09/` page to a `v26.07/` page) trigger broken-link warnings in `fern docs dev`; those are **false positives** — Fern's local validator does not resolve cross-version slugs from `docs.yml`. The published site renders them correctly.
 
 ### Cross-repo references (yaml configs, source files)
 
@@ -166,23 +174,27 @@ Repository source paths like `nemo_curator/...` are not part of the docs site. L
 
 ## Versioning
 
-`docs.yml` `versions:` lists four entries:
+`docs.yml` `versions:` lists the latest alias, the moving preview, and each retained stable docs train:
 
 | display-name | slug | availability | path |
 |---|---|---|---|
-| `Latest · v1.1.2 (26.04)` | `latest` | `stable` | `./versions/latest.yml` (symlink → `v26.04.yml`) |
-| `26.04 · v1.1.2` | `v26.04` | `stable` | `./versions/v26.04.yml` |
+| `Latest · v1.4.0 (26.09)` | `latest` | `stable` | `./versions/latest.yml` (symlink → `v26.09.yml`) |
+| `Main · preview` | `main` | `beta` | `./versions/main.yml` |
+| `26.09 · v1.4.0` | `v26.09` | `stable` | `./versions/v26.09.yml` |
+| `26.07 · v1.3.0` | `v26.07` | `stable` | `./versions/v26.07.yml` |
+| `26.04 · v1.2.0` | `v26.04` | `stable` | `./versions/v26.04.yml` |
 | `26.02 · v1.1.0` | `v26.02` | `stable` | `./versions/v26.02.yml` |
 | `25.09 · v1.0.0` | `v25.09` | `stable` | `./versions/v25.09.yml` |
 
-When the next GA cuts (e.g. `v26.10` / `v1.2.0`):
+When the next docs train is cut (replace `XX.YY` and `vX.Y.Z` with the values confirmed for that release):
 
-1. `cp -r versions/v26.04 versions/v26.10` — fresh frozen snapshot of the bleeding-edge tree
-2. `cp versions/v26.04.yml versions/v26.10.yml`, then rewrite `./v26.04/` path prefixes to `./v26.10/`
-3. Retarget the GA alias symlink: `cd versions && ln -sfn v26.10.yml latest.yml`
-4. Add the new entry to `docs.yml` `versions:` (`display-name: "Latest · v1.2.0 (26.10)"`, etc.); demote/remove the oldest GA per the support policy
-5. Add `redirects:` for legacy `/26.10` and `/26.10/:path*/index.html` patterns in `docs.yml`
-6. `versions/v26.04/pages/` either keeps moving forward as the new bleeding-edge tree, or you start a new `v26.10/pages/` and freeze `v26.04/`
+1. Copy `versions/main/pages/` to `versions/vXX.YY/pages/` to snapshot the current preview source. Preserve page bytes and placeholders.
+2. Copy `versions/main.yml` to `versions/vXX.YY.yml`, then rewrite only `./main/` path prefixes to `./vXX.YY/`.
+3. Retarget the latest alias symlink: `cd versions && ln -sfn vXX.YY.yml latest.yml`.
+4. Add the new stable train to `docs.yml` `versions:` and update the Latest display name to `Latest · vX.Y.Z (XX.YY)`. Keep `Main · preview` and retained historical trains.
+5. Add the calendar-path, `index.html`, and `.html` redirects for `/XX.YY` in `docs.yml` before the generic catch-all redirects.
+6. Mirror only existing secret-baseline findings for the copied pages, preserving each finding's type, hash, verification state, and line number.
+7. Verify the snapshot matches `main/pages/`, the nav differs only in its version path prefix, and older version trees remain unchanged.
 
 ## CI and publishing
 
@@ -231,7 +243,7 @@ PR titles follow Conventional Commits (e.g. `docs(fern): add rollout collection 
 | Broken-link warning for cross-version path | False positive in `fern docs dev`; the published site resolves it correctly |
 | `JSX expressions must have one parent element` | Wrap multi-element MDX content in `<>...</>` or a `<div>` |
 | Old `/index.html` or `/foo.html` URL breaks | Add a `redirects:` entry in `docs.yml` (catch-alls for `:path*/index.html` and `:path*.html` already exist) |
-| `{{ variable }}` shows literally on the published page | Run `python fern/substitute_variables.py versions/v26.04 --version 26.04` before `fern generate`, or check the variable is registered in `DEFAULT_VARIABLES` |
+| `{{ variable }}` shows literally on the published page | Run `python fern/substitute_variables.py versions/vXX.YY --version XX.YY` before `fern generate`, or check the variable is registered in `DEFAULT_VARIABLES` |
 | Library reference missing or stale | Check `libraries:` block in `docs.yml` matches the package source path; see [`./AUTODOCS_GUIDE.md`](./AUTODOCS_GUIDE.md) |
 
 ## Reference
