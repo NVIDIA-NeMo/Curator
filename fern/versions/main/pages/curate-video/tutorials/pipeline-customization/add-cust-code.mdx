@@ -11,26 +11,25 @@ modality: "video-only"
 
 # Adding Custom Code
 
-Learn how to extend NeMo Curator by adding custom code to a new or existing stage.
-
-The NeMo Curator container includes a robust set of default pipelines with commonly used stages. If they do not meet your requirements, extend them with your own modules.
+Add code to a new or existing stage. If your module needs additional dependencies, package them with [Add a Custom Environment](/curate-video/tutorials/pipeline-customization/add-cust-env).
 
 ## Before You Start
 
-Before you begin adding custom code, make sure that you have:
+Before you add code, prepare your development environment:
 
-* Reviewed the [pipeline concepts and diagrams](/about/concepts/video).  
-* A working NeMo Curator development environment.  
-* Optionally prepared a container image that includes your dependencies.  
-* Optionally [created a custom environment](/curate-video/tutorials/pipeline-customization/add-cust-env) to support your new custom code.
+* Read the [pipeline concepts and diagrams](/about/concepts/video).
+* Set up a NeMo Curator development environment.
+* Create a [custom environment](/curate-video/tutorials/pipeline-customization/add-cust-env) if your code needs additional packages or system dependencies.
 
 ---
 
 ## How to Add Custom Code
 
+Define an importable class, then use it from a pipeline stage.
+
 ### Define New Functionality
 
-1. Create a `custom_code` directory anywhere on your system to organize your custom pipeline code.  
+1. Create a `custom_code` directory anywhere on your system to organize your custom pipeline code.
 2. Create a new folder for your environment, for example: `new_stage/`.
 3. Create a new file, for example `my_file.py`. This file must define a class (`MyClass`) made available for import.
 
@@ -48,7 +47,7 @@ Before you begin adding custom code, make sure that you have:
 
 5. Save the files.
 
-### Use your code in a pipeline
+### Use Your Code in a Pipeline
 
 Create or edit a stage to use your code, then assemble a pipeline and run it in Python:
 
@@ -90,8 +89,8 @@ pipeline = (
 pipeline.run()
 ```
 
-To containerize, use a Dockerfile to copy your code and install dependencies, then build and run with your preferred tooling. Prefer aligning packages with optional extras in `pyproject.toml`.
+If your stage needs additional dependencies, add them to a custom image by following [Add a Custom Environment](/curate-video/tutorials/pipeline-customization/add-cust-env). Use the optional extras in `pyproject.toml` when they provide the packages you need.
 
 ## Next Steps
 
-Now that you have created custom code, you can [create a custom stage](/curate-video/tutorials/pipeline-customization/add-cust-stage) that uses your code.
+Use your module in a [custom stage](/curate-video/tutorials/pipeline-customization/add-cust-stage).

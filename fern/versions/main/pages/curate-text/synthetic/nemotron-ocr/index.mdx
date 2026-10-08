@@ -27,7 +27,7 @@ flowchart LR
 The merged API names are `OCRNemotronV2Stage`, `OCRScoringQAStage`, `HFDatasetImageReaderStage`, `JsonlSampleWriterStage`, `NVInferenceClient`, `OCRDenseItem`, `OCRData`, and `OCRConversationData`. Earlier development names such as `NemotronOCRV2Stage`, `OCRConversationalizeStage`, `OCRDenseQAStage`, `NVInferenceModel`, `OCRDenseWord`, `TarImageReader`, `SkipProcessedStage`, and `ResultWriterStage` are not shipped APIs. Conversation and dense-QA behavior is implemented by helper functions called inside `OCRScoringQAStage`.
 </Info>
 
-## Runtime architecture
+## Runtime Architecture
 
 | Component | Runs where | Resources and defaults | Responsibility |
 | --- | --- | --- | --- |
@@ -39,33 +39,23 @@ The merged API names are `OCRNemotronV2Stage`, `OCRScoringQAStage`, `HFDatasetIm
 
 The included runner starts a Ray cluster and uses `XennaExecutor`; it does not expose a Ray Data backend option. All workers must see the extracted image directory and output path through the same filesystem.
 
-## Installation and model access
+## Installation and Model Access
 
-Use the NeMo Curator container for this pipeline. In addition to CUDA and the normal SDG/image dependencies, the repository Dockerfile builds the `nemotron-ocr` C++/CUDA extension from the `nvidia/nemotron-ocr-v2` repository. Installing `sdg_cuda12` or `image_cuda12` alone does not install that extension.
+Build and run an image as described in [Build an Image](/reference/infra/container-environments#build-an-image). The [Curator Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) builds the `nemotron-ocr` C++/CUDA extension from the upstream [`nvidia/nemotron-ocr-v2` source](https://huggingface.co/nvidia/nemotron-ocr-v2). Installing `sdg_cuda12` or `image_cuda12` alone does not provide this extension.
 
-```bash
-docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
-
-docker run --gpus all -it --rm \
-  -v "$PWD:/workspace" \
-  -w /workspace \
-  nvcr.io/nvidia/nemo-curator:{{ container_version }}
-```
-
-Inside the container:
+After you activate `/opt/venv`, verify the extension import:
 
 ```bash
-source /opt/venv/env.sh
 python -c "from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2; print('Nemotron OCR ready')"
 ```
 
 The default OCR stage downloads `nvidia/nemotron-ocr-v2` from Hugging Face and uses its `v2_multilingual` subdirectory. Mount a persistent Hugging Face cache, or pass a pre-downloaded `v2_multilingual` directory with `--nemotron-model-dir`.
 
-The repository Dockerfile compiles for CUDA architectures 8.0, 8.6, 8.9, and 9.0. GPU memory requirements depend on image size, model version, and worker concurrency; the stage does not enforce a VRAM minimum.
+The [Curator Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) compiles the upstream extension for CUDA architectures 8.0, 8.6, 8.9, and 9.0. GPU memory use depends on image size, model version, and worker concurrency. The stage does not enforce a minimum VRAM value.
 
-The optional verifier reads `NVIDIA_API_KEY` from each worker's environment during setup. The legacy `NVINFERENCE_API_KEY` remains supported for compatibility. Do not place the key in source, CLI arguments, or serialized stage configuration. Obtain a key from [NVIDIA Build](https://build.nvidia.com/settings/api-keys) and ensure Ray workers inherit it.
+The optional verifier reads `NVIDIA_API_KEY` from each worker's environment during setup. It also accepts the legacy `NVINFERENCE_API_KEY`. Set the key for every Ray worker. Do not store it in source code, command-line arguments, or serialized stage configuration. Get a key from [NVIDIA Build](https://build.nvidia.com/settings/api-keys).
 
-## Input sources
+## Input Sources
 
 `HFDatasetImageReaderStage` supports three source forms:
 
@@ -83,7 +73,7 @@ If `id_column` is unset, zero-padded row indexes are used. If set, only the firs
 The current OCR pipeline has no tar reader, parquet reader, or skip-processed stage. To use those sources, implement an upstream stage that emits `ImageSampleTask[OCRData]`. Built-in resume behavior is limited to reusing already-extracted JPEG files.
 </Warning>
 
-## OCR data model
+## OCR Data Model
 
 `OCRData` extends `ImageTaskData` and carries the reader, OCR, and verifier fields. When `OCRScoringQAStage` runs, it converts the payload to `OCRConversationData`, an `OCRData` subclass that adds the `conversation` field while retaining the base fields:
 
@@ -102,7 +92,7 @@ Each `OCRDenseItem` contains `bbox_2d`, `text_content`, optional `quad`, `valid`
 Stored OCR boxes use `[x0, y0, x1, y1]`. The verifier prompt and `ocr_scoring_missing` use `[y0, x0, y1, x1]` to match its protocol. Reorder coordinates before combining these fields.
 </Warning>
 
-## Bounding-box verification
+## Bounding-Box Verification
 
 `OCRScoringQAStage` makes one remote verifier request per image:
 
@@ -122,7 +112,7 @@ The verifier returns `ocr_mode`, indexed box scores, and `missing_text`. Missing
 
 `NVInferenceClient` uses the NVIDIA integration endpoint, reads `NVIDIA_API_KEY` (with `NVINFERENCE_API_KEY` as a compatibility fallback), streams final-answer content, allows 10 concurrent requests per worker, uses a 120-second timeout, and retries rate-limit and connection failures three times with exponential backoff and jitter.
 
-## QA interaction shapes
+## QA Interaction Shapes
 
 The source defines five QA type constants. Four tag and balance the multi-turn families; the fifth, `dense_dump`, names the separate single-turn all-words path. Single-occurrence and repeated-text routing within the four tagged families produces six user-visible shapes:
 
@@ -153,7 +143,7 @@ When no text is missing, `dense_dump_prob` can select a single turn listing ever
 | 10 | Markdown table |
 | 11 | Tab-separated text and coordinates |
 
-## Conversation schema
+## Conversation Schema
 
 Within each output JSONL record, the top-level `conversation` field contains a wrapper object whose inner `conversation` field is the ordered turn list:
 
@@ -172,7 +162,7 @@ Within each output JSONL record, the top-level `conversation` field contains a w
 
 The image value is the cached filename, not its bytes. Use `--image-parent` to make `image_path` portable and distribute the cached images with the JSONL.
 
-## Failure and restart model
+## Failure and Restart Model
 
 - Cached JPEGs are reused by filename without verifying their content.
 - OCR catches exceptions per image; prompt/response errors are also isolated per image. A generation or response-count failure can invalidate a whole scoring batch.
