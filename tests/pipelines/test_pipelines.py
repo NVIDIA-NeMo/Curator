@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -205,3 +206,42 @@ class TestRootTaskIds:
         # EmptyTask stays "0"; the real task is rooted by its position.
         assert et.task_id == "0"
         assert real.task_id == "0_1"
+
+
+@pytest.mark.parametrize("failure", ["prepare", "execute", "finalize"])
+def test_pipeline_releases_owned_reservations_and_attempts_all_finalizers(tmp_path: Path, failure: str) -> None:
+    class ReservedStage(_NoopStage):
+        def __init__(self, name: str) -> None:
+            super().__init__(name=name)
+            self.reservation = tmp_path / name
+            self.completion = tmp_path / (name + ".complete")
+
+        def prepare_for_pipeline(self, *, checkpoint_path=None) -> bool:  # noqa: ANN001
+            if failure == "prepare" and self.name == "second":
+                msg = "preparation failed"
+                raise RuntimeError(msg)
+            self.reservation.touch()
+            return True
+
+        def finalize(self) -> None:
+            if failure == "finalize" and self.name == "first":
+                msg = "finalization failed"
+                raise RuntimeError(msg)
+            self.completion.touch()
+
+        def abort_on_driver(self) -> None:
+            self.reservation.unlink(missing_ok=True)
+
+    executor = Mock()
+    if failure == "execute":
+        executor.execute.side_effect = RuntimeError("execution failed")
+    else:
+        executor.execute.return_value = []
+    pipeline = Pipeline(name="owned-outputs")
+    pipeline.add_stage(ReservedStage("first"))
+    pipeline.add_stage(ReservedStage("second"))
+    with pytest.raises(RuntimeError, match="failed"):
+        pipeline.run(executor)
+    assert not (tmp_path / "first").exists()
+    assert not (tmp_path / "second").exists()
+    assert (tmp_path / "second.complete").exists() is (failure == "finalize")

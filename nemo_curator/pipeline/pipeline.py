@@ -247,13 +247,18 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(  # noqa: C901, PLR0912
+    def run(  # noqa: C901
         self,
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
         checkpoint_path: str | Path | None = None,
     ) -> list[Task] | None:
         """Run the pipeline.
+
+        A stage can opt into driver-managed output initialization by implementing
+        ``prepare_for_pipeline(checkpoint_path=...)``. Returning True transfers
+        finalization and abort responsibility to this run; False leaves an
+        externally prepared stage under its caller's lifecycle ownership.
 
         Args:
             executor (BaseExecutor): Executor to use
@@ -334,10 +339,7 @@ class Pipeline:
                 minimum_shard_index=slurm_array.minimum_shard_index,
             )
 
-        if checkpoint_path is None:
-            result = executor.execute(self.stages, initial_tasks)
-        else:
-            result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        result = self._execute_with_driver_lifecycle(executor, initial_tasks, checkpoint_path)
 
         if completion_manifest is not None:
             if failed_task_manifest_exists():
@@ -350,6 +352,44 @@ class Pipeline:
                 logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
 
         return result
+
+    def _execute_with_driver_lifecycle(
+        self,
+        executor: BaseExecutor,
+        initial_tasks: list[Task] | None,
+        checkpoint_path: Path | None,
+    ) -> list[Task] | None:
+        """Own only the stages whose optional prepare_for_pipeline hook returns True.
+
+        An externally prepared stage returns False so its caller retains ownership
+        of finalization and abort. Worker initialization must never reset outputs.
+        """
+        prepared = []
+        try:
+            for stage in self.stages:
+                prepare = getattr(stage, "prepare_for_pipeline", None)
+                if callable(prepare) and prepare(checkpoint_path=checkpoint_path):
+                    prepared.append(stage)
+            if checkpoint_path is None:
+                result = executor.execute(self.stages, initial_tasks)
+            else:
+                result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+            failure = None
+            for stage in prepared:
+                try:
+                    stage.finalize()
+                except Exception as exc:  # noqa: BLE001 - attempt every owned finalizer
+                    if failure is None:
+                        failure = exc
+            if failure is not None:
+                raise failure
+            return result
+        finally:
+            for stage in reversed(prepared):
+                try:
+                    stage.abort_on_driver()
+                except Exception:  # noqa: BLE001 - cleanup must not mask the execution failure
+                    logger.exception(f"Could not release driver state for stage {stage.name!r}")
 
     def _run_with_resumability(
         self,
