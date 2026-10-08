@@ -27,21 +27,6 @@ MOCK_EXISTS = "nemo_curator.stages.audio.preprocessing.mono_conversion.os.path.e
 
 
 class TestMonoConversionStage:
-    @pytest.mark.parametrize("path_key", ["", " "])
-    def test_legacy_empty_file_key_processes_audio(self, wav_filepath: Path, path_key: str) -> None:
-        stage = MonoConversionStage(output_sample_rate=16000, audio_filepath_key=path_key)
-        result = stage.process(AudioTask(data={path_key: str(wav_filepath)}))
-        assert isinstance(result, AudioTask)
-        assert torch.is_tensor(result.data["waveform"])
-        assert result.data["waveform"].shape[0] == 1
-        assert result.data["sample_rate"] == 16000
-        assert result.data["duration"] > 0
-
-    @pytest.mark.parametrize("path_key", ["", " "])
-    def test_auto_residency_rejects_empty_file_key(self, path_key: str) -> None:
-        with pytest.raises(ValueError, match=r"audio_filepath_key.*non-empty"):
-            MonoConversionStage(audio_filepath_key=path_key, input_residency="auto")
-
     def test_legacy_file_key_can_alias_inactive_waveform_input(self, tmp_path: Path) -> None:
         wav = tmp_path / "mono.wav"
         wav.touch()
@@ -50,6 +35,17 @@ class TestMonoConversionStage:
             result = stage.process(AudioTask(data={"waveform": str(wav)}))
         assert torch.is_tensor(result.data["waveform"])
         assert result.data["sample_rate"] == 16000
+
+    @pytest.mark.parametrize("path_key", ["", "waveform", "duration", "is_mono"])
+    def test_legacy_file_key_mappings_process_a_real_file(self, path_key: str) -> None:
+        from tests import FIXTURES_DIR
+
+        wav = FIXTURES_DIR / "audio" / "qwen_omni" / "audio_1_5s_16khz_mono.wav"
+        stage = MonoConversionStage(output_sample_rate=16000, audio_filepath_key=path_key)
+        result = stage.process_batch([AudioTask(data={path_key: str(wav)})])[0]
+        assert result.data["waveform"].shape == (1, 80000)
+        assert result.data["sample_rate"] == 16000
+        assert result.data["duration"] == pytest.approx(5.0)
 
     def test_process_stereo_to_mono(self, tmp_path: Path) -> None:
         wav = tmp_path / "stereo.wav"
@@ -162,6 +158,21 @@ class TestMonoConversionStage:
                 output_audio_filepath_key="duration",
             )
 
+    @pytest.mark.parametrize("path_key", ["", " "])
+    def test_legacy_empty_file_key_processes_audio(self, wav_filepath: Path, path_key: str) -> None:
+        stage = MonoConversionStage(output_sample_rate=16000, audio_filepath_key=path_key)
+        result = stage.process(AudioTask(data={path_key: str(wav_filepath)}))
+        assert isinstance(result, AudioTask)
+        assert torch.is_tensor(result.data["waveform"])
+        assert result.data["waveform"].shape[0] == 1
+        assert result.data["sample_rate"] == 16000
+        assert result.data["duration"] > 0
+
+    @pytest.mark.parametrize("path_key", ["", " "])
+    def test_auto_residency_rejects_empty_file_key(self, path_key: str) -> None:
+        with pytest.raises(ValueError, match=r"audio_filepath_key.*non-empty"):
+            MonoConversionStage(audio_filepath_key=path_key, input_residency="auto")
+
 
 class TestMonoOutputGatingAndResidency:
     """Which destination keys appear, and which input ``auto`` residency picks.
@@ -219,7 +230,9 @@ class TestMonoOutputGatingAndResidency:
 
         assert isinstance(result, AudioTask)
         assert loader.call_count == 1
-        assert result.data["waveform"] is loaded
+        assert torch.equal(result.data["waveform"], loaded)
+        assert result.data["waveform"].shape == loaded.shape
+        assert result.data["waveform"].dtype == loaded.dtype
         assert result.data["sample_rate"] == 16000
 
     def test_disk_only_output_omits_the_waveform_key(self, tmp_path: Path) -> None:

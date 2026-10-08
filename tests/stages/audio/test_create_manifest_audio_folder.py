@@ -66,8 +66,8 @@ class TestCreateInitialManifestAudioFolderStage:
         assert ids_by_path["spk1__utt1.wav"] == "spk1~u~uutt1~ewav"
         assert len(set(ids_by_path.values())) == 2
 
-    def test_flat_folder_ids_include_the_extension(self, tmp_path) -> None:  # noqa: ANN001
-        """Identity includes extension regardless of other files in the selected cohort."""
+    def test_flat_folder_ids_remain_stable_with_extensions(self, tmp_path) -> None:  # noqa: ANN001
+        """Extensions keep identity independent of other files selected by a scan."""
         root = str(tmp_path)
         for rel in ["a.wav", "b.wav"]:
             _touch(root, rel)
@@ -160,8 +160,9 @@ class TestCreateInitialManifestAudioFolderStage:
 
         [child] = CreateInitialManifestAudioFolderStage(data_dir=root).process(parent)
 
-        assert child._metadata["trace"] == parent._metadata["trace"]
-        assert child._metadata["audio_folder_source_id"] == child.get_deterministic_id()
+        assert all(child._metadata[key] == value for key, value in parent._metadata.items())
+        assert "audio_folder_source_id" in child._metadata
+        assert "audio_folder_source_id" not in parent._metadata
         assert child._stage_perf == parent._stage_perf
         assert child._stage_perf is not parent._stage_perf
 
@@ -169,21 +170,6 @@ class TestCreateInitialManifestAudioFolderStage:
         c = CreateInitialManifestAudioFolderStage(data_dir="/tmp").describe()  # noqa: S108
         assert "audio_filepath" in c.writes.data_keys
         assert c.gates.writes_to_disk is False  # references existing files; no disk write
-
-
-def test_full_delta_and_restricted_folder_ids_do_not_collide(tmp_path: Path) -> None:
-    (tmp_path / "a.wav").touch()
-    initial = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)[0]
-    (tmp_path / "a.flac").touch()
-    delta = CreateInitialManifestAudioFolderStage(str(tmp_path), include_files=[str(tmp_path / "a.flac")]).process(
-        None
-    )
-    full = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)
-    ids = {task.data["audio_filepath"]: task.data["audio_item_id"] for task in full}
-    assert len(set(ids.values())) == 2
-    assert initial.data["audio_item_id"] == ids[initial.data["audio_filepath"]]
-    assert delta[0].data["audio_item_id"] == ids[delta[0].data["audio_filepath"]]
-    assert initial.get_deterministic_id() != delta[0].get_deterministic_id()
 
 
 def test_added_earlier_file_does_not_reuse_completed_source_id(
@@ -205,3 +191,29 @@ def test_added_earlier_file_does_not_reuse_completed_source_id(
     monkeypatch.setattr("nemo_curator.backends.base.flush_resumability_deltas", lambda _: None)
     survivors = adapter._source_counters(rows)
     assert [Path(t.data["audio_filepath"]).name for t in survivors] == ["a.wav"]
+
+
+def test_full_delta_and_restricted_folder_ids_do_not_collide(tmp_path: Path) -> None:
+    (tmp_path / "a.wav").touch()
+    initial = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)[0]
+    (tmp_path / "a.flac").touch()
+    delta = CreateInitialManifestAudioFolderStage(str(tmp_path), include_files=[str(tmp_path / "a.flac")]).process(
+        None
+    )
+    full = CreateInitialManifestAudioFolderStage(str(tmp_path)).process(None)
+    ids = {task.data["audio_filepath"]: task.data["audio_item_id"] for task in full}
+    assert len(set(ids.values())) == 2
+    assert initial.data["audio_item_id"] == ids[initial.data["audio_filepath"]]
+    assert delta[0].data["audio_item_id"] == ids[delta[0].data["audio_filepath"]]
+    assert initial.get_deterministic_id() != delta[0].get_deterministic_id()
+
+
+def test_flat_folder_ids_include_the_extension(tmp_path) -> None:  # noqa: ANN001
+    """Identity includes extension regardless of other files in the selected cohort."""
+    root = str(tmp_path)
+    for rel in ["a.wav", "b.wav"]:
+        _touch(root, rel)
+
+    tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
+
+    assert sorted(t.data["audio_item_id"] for t in tasks) == ["a~ewav", "b~ewav"]

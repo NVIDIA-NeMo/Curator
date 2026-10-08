@@ -1,4 +1,4 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,95 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
+import numpy as np
 import pytest
 
-from nemo_curator.stages.audio.agent import build_contract, describe_stage, to_json_schema
-from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
+sf = pytest.importorskip("soundfile")
+torch = pytest.importorskip("torch")
 
-jsonschema = pytest.importorskip("jsonschema")
+from nemo_curator.stages.audio._agent._residency import (  # noqa: E402
+    produce_audio_filepath,
+    resolve_audio,
+    resolve_audio_path,
+)
+from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage  # noqa: E402
+from nemo_curator.tasks import AudioTask  # noqa: E402
+
+
+def test_residency_helpers_accept_file_waveform_and_custom_keys(tmp_path) -> None:  # noqa: ANN001
+    audio_path = tmp_path / "input.wav"
+    data = np.stack(
+        [
+            np.linspace(-0.5, 0.5, 32, dtype=np.float32),
+            np.linspace(0.5, -0.5, 32, dtype=np.float32),
+        ],
+        axis=1,
+    )
+    sf.write(audio_path, data, 16000)
+
+    resolved = resolve_audio({"path": str(audio_path)}, audio_filepath_key="path", mono=False)
+    assert resolved is not None
+    waveform, sample_rate = resolved
+    assert sample_rate == 16000
+    assert tuple(waveform.shape) == (2, 32)
+
+    item = {
+        "wf": torch.stack([torch.ones(16), torch.zeros(16)]),
+        "sr": 8000,
+    }
+    temp_path = resolve_audio_path(
+        item, residency="waveform", waveform_key="wf", sample_rate_key="sr", temp_dir=str(tmp_path)
+    )
+    assert temp_path is not None
+    info = sf.info(temp_path)
+    assert info.samplerate == 8000
+    assert info.channels == 2
+
+    produce_audio_filepath(item, "next.wav", key="path", original_key="old_path")
+    assert item["path"] == "next.wav"
+    assert "old_path" not in item
+    produce_audio_filepath(item, "final.wav", key="path", original_key="old_path")
+    assert item["old_path"] == "next.wav"
+    assert item["path"] == "final.wav"
+
+
+def test_segment_concatenation_preserves_metadata_and_stage_perf() -> None:
+    stage = SegmentConcatenationStage(silence_duration_sec=0.0)
+    parent = AudioTask(
+        dataset_name="ds",
+        data={
+            "segments": [
+                {
+                    "waveform": torch.ones(1, 8),
+                    "sample_rate": 8,
+                    "start_ms": 0,
+                    "end_ms": 1000,
+                    "segment_num": 0,
+                    "original_file": "source.wav",
+                },
+                {
+                    "waveform": torch.zeros(1, 8),
+                    "sample_rate": 8,
+                    "start_ms": 1000,
+                    "end_ms": 2000,
+                    "segment_num": 1,
+                    "original_file": "source.wav",
+                },
+            ]
+        },
+        _metadata={"upstream": {"kept": True}},
+        _stage_perf=["perf-entry"],  # type: ignore[list-item]
+    )
+
+    result = stage.process(parent)
+
+    assert isinstance(result, AudioTask)
+    assert result.dataset_name == "ds"
+    assert result._metadata["upstream"] == {"kept": True}
+    assert "segment_mappings" in result._metadata
+    assert result._stage_perf == ["perf-entry"]
 
 
 @pytest.mark.parametrize(
@@ -29,12 +111,19 @@ jsonschema = pytest.importorskip("jsonschema")
     ],
 )
 def test_condition_schema_accepts_both_runtime_forms(conditions: dict[str, object] | list[dict[str, object]]) -> None:
+    from nemo_curator.stages.audio.agent import build_contract, describe_stage, to_json_schema
+    from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
+
+    jsonschema = pytest.importorskip("jsonschema")
     schema = to_json_schema(describe_stage("PreserveByValueConditionsStage").params)
     jsonschema.validate({"conditions": conditions}, schema)
     assert build_contract(PreserveByValueConditionsStage(conditions)).cardinality == "filter"
 
 
 def test_optional_parameter_schema_accepts_explicit_null() -> None:
+    from nemo_curator.stages.audio.agent import describe_stage, to_json_schema
+
+    jsonschema = pytest.importorskip("jsonschema")
     schema = to_json_schema(describe_stage("SampleRateFilterStage").params)
     jsonschema.validate({"allowed_sample_rates": None, "min_sample_rate": None}, schema)
     with pytest.raises(jsonschema.ValidationError):
