@@ -553,9 +553,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return result
 
         ordered = [
-            (seg, max(0.0, start), end)
+            (seg, max(0, start), end)
             for seg, start, end in _ordered_segments(item.get(self.diar_segments_key))
-            if end > max(0.0, start)
+            if end > max(0, start)
         ]
         if ordered:
             first_start = ordered[0][1]

@@ -924,3 +924,13 @@ def test_unmapped_scalar_start_is_clamped_to_source() -> None:
     result = TimestampMapperStage().process(_make_task({"start_ms": -1, "end_ms": 500}))
     assert result.data["original_start_ms"] == 0
     assert result.data["duration_ms"] == 500
+
+
+@pytest.mark.parametrize("dictionary", [False, True])
+def test_negative_decimal_start_is_clamped_without_changing_numeric_compatibility(dictionary: bool) -> None:
+    start, end = Decimal("-0.0001"), Decimal("0.5")
+    segment = {"speaker": "s1", "start": start, "end": end} if dictionary else [start, end]
+    output = TimestampMapperStage().process(_make_task({"diar_segments": [segment]}))
+    assert output.data["original_start_ms"] == 0
+    assert output.data["original_end_ms"] == 500
+    assert output.data["speaking_duration"] == Decimal("0.5")
