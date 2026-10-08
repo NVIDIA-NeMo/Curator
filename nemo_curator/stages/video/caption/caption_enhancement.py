@@ -80,7 +80,10 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
                 **self.vllm_kwargs,
             )
         else:
-            msg = f"Unsupported model variant: {self.model_variant}"
+            msg = (
+                f"Unsupported model variant: {self.model_variant}. "
+                f"If you used the unversioned 'qwen' variant, use 'qwen2.5' or 'qwen3'; see https://docs.nvidia.com/nemo/curator/latest/about/release-notes/26-07-migration"
+            )
             raise ValueError(msg)
         self.model.setup()
 

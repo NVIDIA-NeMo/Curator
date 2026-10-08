@@ -153,7 +153,7 @@ For each window, the scorer uses the first nonblank string whose key contains `c
 
 Choose one caption run's `ce1_embd/` directory as the shared video-embedding source. The scorer evaluates only UUIDs present in that directory and in every caption directory, then applies the optional selected-UID filter.
 
-Use a summarizer from a different model family than the captioners to reduce vocabulary and phrasing bias:
+Use a summarizer from a different model family than the captioners to reduce vocabulary and phrasing bias. `--summarizer-model` accepts any local path or Transformers identifier that vLLM can load. The Llama 3.1 example below is a gated Hugging Face model: request access and run `hf auth login` first, or substitute an open model from another family:
 
 ```bash
 CUBLAS_WORKSPACE_CONFIG=:4096:8 \
