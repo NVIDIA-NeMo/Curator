@@ -18,6 +18,7 @@ import copy
 import csv
 import json
 import os
+import shutil
 from decimal import Decimal
 from pathlib import Path
 
@@ -1125,3 +1126,94 @@ class TestOutputKeyBookkeeping:
             reader = csv.DictReader(f)
             assert "extracted_path" not in reader.fieldnames
             assert len(list(reader)) == 1
+
+
+def _identified_extraction_task(source: Path, index: int = 0) -> AudioTask:
+    task = AudioTask(
+        data={
+            "original_file": str(source),
+            "original_start_ms": index * 500,
+            "original_end_ms": (index + 1) * 500,
+            "duration": 0.5,
+        },
+        dataset_name="test",
+    )
+    task._set_task_id("source", index)
+    return task
+
+
+@pytest.mark.parametrize("stem", ["a" * 230, "音" * 76], ids=["ascii", "multibyte"])
+def test_atomic_extraction_accepts_legal_long_output_names(wav_dir: Path, tmp_path: Path, stem: str) -> None:
+    source = tmp_path / f"{stem}.wav"
+    shutil.copyfile(_wav_path(wav_dir), source)
+    output_dir = tmp_path / "extracted"
+    expected = output_dir / f"{stem}_segment_000.wav"
+    assert len(expected.name.encode("utf-8")) <= 255
+
+    task = _identified_extraction_task(source)
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([task])
+
+    assert task.data["extracted_path"] == [str(expected)]
+    assert sf.info(expected).frames == sf.info(source).samplerate // 2
+    assert list(output_dir.glob(".segment-extraction-*")) == []
+
+
+@pytest.mark.parametrize("prefix_length", [1, 6, 80, "unicode_escape"])
+def test_retry_recovers_an_interrupted_first_reservation(
+    wav_dir: Path, tmp_path: Path, prefix_length: int | str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "音.wav"
+    shutil.copyfile(_wav_path(wav_dir), source)
+    output_dir = tmp_path / "extracted"
+    stage = SegmentExtractionStage(output_dir=str(output_dir))
+    persist = stage._persist_output_state
+    state = output_dir / ".segment_extraction_state.json"
+
+    def interrupt_write(resume_key: str, record: dict) -> None:
+        persist(resume_key, record)
+        payload = state.read_text()
+        cut = payload.index("\\u") + 4 if prefix_length == "unicode_escape" else prefix_length
+        state.write_text(payload[:cut])
+        message = "reservation write interrupted"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(stage, "_persist_output_state", interrupt_write)
+    with pytest.raises(RuntimeError, match="reservation write interrupted"):
+        stage.process_batch([_identified_extraction_task(source)])
+    assert list(output_dir.glob("*.wav")) == []
+
+    retried = _identified_extraction_task(source)
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([retried])
+
+    assert len(list(output_dir.glob("*.wav"))) == 1
+    records = [json.loads(line) for line in state.read_text().splitlines()]
+    assert len(records) == 1
+    assert Path(retried.data["extracted_path"][0]).name == records[0]["record"]["filename"]
+
+
+def test_retry_rewrites_a_complete_reservation_without_its_newline(wav_dir: Path, tmp_path: Path) -> None:
+    source = Path(_wav_path(wav_dir))
+    output_dir = tmp_path / "extracted"
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([_identified_extraction_task(source)])
+    state = output_dir / ".segment_extraction_state.json"
+    state.write_text(state.read_text().rstrip("\n"))
+
+    for index in [1, 2]:
+        SegmentExtractionStage(output_dir=str(output_dir)).process_batch([_identified_extraction_task(source, index)])
+
+    records = [json.loads(line) for line in state.read_text().splitlines()]
+    assert len(records) == 3
+    assert len({record["record"]["filename"] for record in records}) == 3
+    assert len(list(output_dir.glob("*.wav"))) == 3
+
+
+@pytest.mark.parametrize("content", ['{"record":oops', '{"version":999,"resume_key":'])
+def test_first_reservation_corruption_is_not_treated_as_an_interruption(tmp_path: Path, content: str) -> None:
+    output_dir = tmp_path / "extracted"
+    output_dir.mkdir()
+    state = output_dir / ".segment_extraction_state.json"
+    state.write_text(content)
+
+    with pytest.raises(RuntimeError, match="Cannot safely resume"):
+        SegmentExtractionStage(output_dir=str(output_dir))._load_output_state()
+    assert state.read_text() == content

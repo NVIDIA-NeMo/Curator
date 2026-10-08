@@ -590,8 +590,26 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 continue
             try:
                 payload = json.loads(line)
-            except json.JSONDecodeError:
-                is_torn_tail = bool(segments) and line_index == len(lines) - 1 and not content.endswith(("\n", "\r"))
+            except json.JSONDecodeError as error:
+                tail = line.lstrip()
+                # Recognize a reservation prefix without accepting arbitrary corrupt JSON.
+                known_prefix = any(
+                    tail.startswith(prefix) or prefix.startswith(tail)
+                    for prefix in ('{"record":', f'{{"version":{_WAL_VERSION},')
+                )
+                incomplete_json = error.pos >= len(line.rstrip()) or error.msg.startswith("Unterminated string")
+                if error.msg == "Invalid \\uXXXX escape":
+                    escape = line[error.pos :]
+                    incomplete_json = (
+                        escape.startswith("u")
+                        and len(escape) < len("u0000")
+                        and all(char in "0123456789abcdefABCDEF" for char in escape[1:])
+                    )
+                is_torn_tail = (
+                    (bool(segments) or (known_prefix and incomplete_json))
+                    and line_index == len(lines) - 1
+                    and not content.endswith(("\n", "\r"))
+                )
                 if not is_torn_tail:
                     raise
                 logger.warning(
@@ -602,6 +620,9 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 break
             resume_key, record = self._reservation_from_payload(payload)
             segments[resume_key] = record
+            if not line.endswith(("\n", "\r")):
+                # A complete payload can still be interrupted before its line terminator.
+                self._state_is_wal = False
         return segments
 
     def _reservation_from_payload(self, payload: object) -> tuple[str, dict[str, Any]]:
@@ -717,7 +738,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if existing is not None and existing.samplerate == sample_rate and existing.frames == len(audio):
                 return
 
-        fd, temp_path = tempfile.mkstemp(prefix=f".{Path(output_path).name}.", suffix=".tmp", dir=self.output_dir)
+        fd, temp_path = tempfile.mkstemp(prefix=".segment-extraction-", suffix=".tmp", dir=self.output_dir)
         os.close(fd)
         try:
             sf.write(
