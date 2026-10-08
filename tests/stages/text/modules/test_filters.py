@@ -596,7 +596,7 @@ class TestHeuristicFilters:
         [
             (SymbolsToWordsFilter, 1.0, False),
             (BulletsFilter, 1.0, False),
-            (LongWordFilter, 0, True),
+            (LongWordFilter, float("inf"), False),
             (MeanWordLengthFilter, 0.0, False),
             (PunctuationFilter, 1.0, False),
             (EllipsisFilter, 1.0, False),
@@ -612,18 +612,18 @@ class TestHeuristicFilters:
         assert doc_filter.keep_document(score) is expected_keep
 
     @pytest.mark.parametrize(
-        ("filter_cls", "keeps_empty"),
+        "filter_cls",
         [
-            (SymbolsToWordsFilter, False),
-            (BulletsFilter, False),
-            (LongWordFilter, True),
-            (MeanWordLengthFilter, False),
-            (PunctuationFilter, False),
-            (EllipsisFilter, False),
-            (WordsWithoutAlphabetsFilter, False),
+            SymbolsToWordsFilter,
+            BulletsFilter,
+            LongWordFilter,
+            MeanWordLengthFilter,
+            PunctuationFilter,
+            EllipsisFilter,
+            WordsWithoutAlphabetsFilter,
         ],
     )
-    def test_empty_document_score_filter(self, filter_cls: type[DocumentFilter], keeps_empty: bool) -> None:
+    def test_empty_document_score_filter(self, filter_cls: type[DocumentFilter]) -> None:
         good = "This is a normal sentence with enough words to pass."
         documents = ["", good, " ", "\n\n"]
         filters = ScoreFilter(filter_cls())
@@ -631,7 +631,7 @@ class TestHeuristicFilters:
         filtered_data = filters.process(list_to_dataset(documents))
 
         expected_data = DocumentBatch(
-            data=pd.DataFrame({"text": documents if keeps_empty else [good]}),
+            data=pd.DataFrame({"text": [good]}),
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
