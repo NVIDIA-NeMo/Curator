@@ -427,3 +427,23 @@ def test_canonical_hash_wins_over_stale_authored_hash() -> None:
 
     assert packet["recipe"]["config_hash"] == expected
     assert packet["recipe"]["authored_config_hash_mismatch"] is True
+
+
+def test_prepare_invalidates_child_lineage_but_keeps_parent_lineage() -> None:
+    recipe, stages = _build(
+        [
+            {"ref": "UTMOSFilterStage", "params": {"action": "annotate", "mode": "auto", "score_key": "score"}},
+            {"ref": "PrepareModuleSegmentsStage", "params": {}},
+            {"ref": "PreserveByValueConditionsStage", "params": {"conditions": {"score": 0.5}}},
+            {
+                "ref": "PreserveByValueConditionsStage",
+                "params": {"items_key": "segments", "conditions": {"score": 0.5}},
+            },
+        ]
+    )
+    packet = build_semantic_review(stages, recipe=recipe, initial_keys={"segments", "duration"})
+    assert packet["stages"][1]["preserves_upstream_segment_keys"] is False
+    parent = _edge(packet, consumer_index=2, key="score")["latest_upstream_producer"]
+    child = _edge(packet, consumer_index=3, key="score")["latest_upstream_producer"]
+    assert parent["stage"] == "UTMOSFilterStage"
+    assert child["kind"] == "unresolved"

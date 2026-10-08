@@ -937,6 +937,9 @@ def _score_lineage_reason(
 
     protected = set(score_keys)
     producer_contract = build_contract(built[producer_index])
+    nested_scores = bool(producer_contract.writes.segment_data_keys) or any(
+        write.writes.segment_data_keys for write in producer_contract.conditional_writes
+    )
     if producer_contract.writes.segment_data_keys:
         protected.update(producer_contract.writes.data_keys)
     checkpoint_seen = False
@@ -962,6 +965,7 @@ def _score_lineage_reason(
             or not safe_shape
             or not safe_effects
             or not contract.preserves_upstream_keys
+            or (nested_scores and not getattr(contract, "preserves_upstream_segment_keys", True))
             or protected & affected
         ):
             return (

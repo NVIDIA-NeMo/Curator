@@ -2064,3 +2064,18 @@ def test_retention_policy_still_reaches_the_artifact_record(
     assert artifact.metrics["checkpoint_policy"]["owner"] == "user"
     assert "retention_sec" not in artifact.semantic_params
     assert "owner" not in artifact.semantic_params
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_prepare_only_breaks_nested_score_lineage(tmp_path: Path, nested: bool) -> None:
+    value = (_utmos_segment_recipe(tmp_path, segments_key="segments") if nested else _utmos_recipe(tmp_path)).to_dict()
+    value["stages"].insert(2, {"ref": "PrepareModuleSegmentsStage", "params": {}})
+    recipe = Recipe.from_dict(value)
+    reason = reusable_pipeline._score_lineage_reason(
+        recipe,
+        build_stages(recipe),
+        producer_index=1,
+        selector_index=3,
+        score_keys=("segment_utmos" if nested else "row_utmos",),
+    )
+    assert bool(reason) is nested

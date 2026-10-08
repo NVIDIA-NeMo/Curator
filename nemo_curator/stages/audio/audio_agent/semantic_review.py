@@ -1156,6 +1156,7 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                 "cardinality": str(getattr(contract, "cardinality", "1:1")),
                 "iteration_key": getattr(contract, "iteration_key", None),
                 "preserves_upstream_keys": bool(getattr(contract, "preserves_upstream_keys", True)),
+                "preserves_upstream_segment_keys": bool(getattr(contract, "preserves_upstream_segment_keys", True)),
                 "wrappable": bool(getattr(contract, "wrappable", True)),
                 "accepts_task_type": getattr(contract, "accepts_task_type", None),
                 "produces_task_type": getattr(contract, "produces_task_type", None),
@@ -1223,6 +1224,8 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                 # Task metadata is a separate channel and remains live unless a
                 # future contract explicitly declares metadata removal.
                 active_writers = {slot: writer for slot, writer in active_writers.items() if slot[0] == "metadata"}
+            elif not stage_info["preserves_upstream_segment_keys"]:
+                active_writers = {slot: writer for slot, writer in active_writers.items() if slot[0] != "segment"}
             for key in stage_info["removes_keys"]:
                 active_writers.pop(("task", key), None)
             for key in stage_info["invalidates_keys"]:
@@ -1291,7 +1294,13 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                 if (
                     write.get("certainty") == "conditional"
                     and prior is not None
-                    and (write["scope"] == "metadata" or stage_info["preserves_upstream_keys"])
+                    and (
+                        write["scope"] == "metadata"
+                        or (
+                            stage_info["preserves_upstream_keys"]
+                            and (write["scope"] != "segment" or stage_info["preserves_upstream_segment_keys"])
+                        )
+                    )
                 ):
                     writer["when_condition_not_met"] = {
                         "outcome": "upstream_same_key_value_remains",
