@@ -19,6 +19,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -787,3 +788,15 @@ def test_memory_only_lifecycle_avoids_durable_destination(tmp_path: Path, monkey
     assert len(output) == 1
     assert output[0].data[stage.sample_rate_key] == 16000
     assert not (tmp_path / "unused").exists()
+
+
+def test_resident_output_identity_ignores_container_timestamp(tmp_path: Path) -> None:
+    waveform = np.linspace(-0.5, 0.5, 16000, dtype=np.float32)
+    identifiers = []
+    for _ in range(2):
+        stage = ResampleAudioStage(str(tmp_path), input_residency="waveform")
+        task = stage.process(AudioTask(data={"waveform": waveform.copy(), "sample_rate": 16000}))
+        identifiers.append(task.data[stage.audio_item_id_key])
+        time.sleep(1.1)
+    assert identifiers[0] == identifiers[1]
+    assert len(list(tmp_path.iterdir())) == 1

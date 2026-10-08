@@ -282,9 +282,12 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def _audio_digest(self, local_audio_path: str) -> str:
         """A short digest of this audio and the settings about to be applied to it."""
         digest = hashlib.sha256()
-        with open(local_audio_path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
+        # FLOAT WAV headers contain a PEAK timestamp; hash samples and their layout
+        # rather than container metadata so identical resident audio stays identical.
+        with soundfile.SoundFile(local_audio_path) as audio:
+            digest.update(f"|{audio.samplerate}|{audio.channels}".encode())
+            for chunk in audio.blocks(blocksize=(1 << 18) // audio.channels, dtype="float32", always_2d=True):
+                digest.update(chunk.tobytes())
         digest.update(f"|{self.target_sample_rate}|{self.target_nchannels}|{self.target_format}".encode())
         return digest.hexdigest()[:16]
 
