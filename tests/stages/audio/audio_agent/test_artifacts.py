@@ -14,6 +14,7 @@
 
 """Configured persistence determines which outputs can become reuse artifacts."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -141,3 +142,40 @@ def test_replaced_weights_change_identity_in_fresh_process(tmp_path: Path) -> No
         [sys.executable, "-c", script, str(weights)], env=env, cwd=tmp_path, text=True, timeout=30
     )
     assert before != after
+
+
+def test_linked_tokenizer_payload_changes_reuse_identity(tmp_path: Path) -> None:
+    from transformers import AutoTokenizer
+
+    shared = tmp_path / "shared-vocab"
+    shared.mkdir()
+    root = tmp_path / "tokenizer"
+    root.mkdir()
+    (root / "vocab").symlink_to(shared, target_is_directory=True)
+    payload = shared / "vocab.txt"
+    (root / "tokenizer_config.json").write_text(
+        json.dumps({"tokenizer_class": "BertTokenizer", "vocab_file": str(root / "vocab/vocab.txt")}),
+        encoding="utf-8",
+    )
+    special = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+    payload.write_text("\n".join([*special, "hello"]) + "\n", encoding="utf-8")
+    first = AutoTokenizer.from_pretrained(str(root), local_files_only=True)
+    params = {"tokenizer_path": str(root)}
+    before = artifacts.model_version(params)
+    assert before == artifacts.model_version(params)
+    payload.write_text("\n".join([*special, "world"]) + "\n", encoding="utf-8")
+    second = AutoTokenizer.from_pretrained(str(root), local_files_only=True)
+    assert first.is_fast
+    assert second.is_fast
+    assert first.encode("hello") != second.encode("hello")
+    assert before != artifacts.model_version(params)
+
+
+def test_linked_directory_cycles_refuse_reuse(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "weights.bin").write_bytes(b"weights")
+    (model / "cycle").symlink_to(model, target_is_directory=True)
+    assert artifacts.content_digest(str(model)) is None
+    params = {"model_path": str(model)}
+    assert artifacts.model_version(params) != artifacts.model_version(params)

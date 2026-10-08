@@ -629,7 +629,15 @@ def content_digest(uri: str) -> str | None:
             _hash_file(expanded, digest)
         elif os.path.isdir(expanded):
             digest.update(b"directory\0")
-            for root, dirs, files in os.walk(expanded):
+            seen_directories = set()
+            for root, dirs, files in os.walk(expanded, followlinks=True, onerror=_raise_walk_error):
+                stat = os.stat(root)
+                identity = (stat.st_dev, stat.st_ino)
+                # A repeated directory can be a link cycle or an alias. Refuse
+                # reuse rather than compute an incomplete dependency digest.
+                if identity in seen_directories:
+                    return None
+                seen_directories.add(identity)
                 dirs.sort()
                 rel_root = os.path.relpath(root, expanded)
                 digest.update(f"dir\0{rel_root}".encode())
@@ -647,6 +655,10 @@ def content_digest(uri: str) -> str | None:
     except OSError:
         return None
     return f"sha256:{digest.hexdigest()}"
+
+
+def _raise_walk_error(error: OSError) -> None:
+    raise error
 
 
 def _hash_file(path: str, digest: Any) -> None:  # noqa: ANN401 - hashlib protocol is private
