@@ -557,6 +557,20 @@ def test_mapped_diarization_preserves_exact_intervals_and_speaker_metadata() -> 
     ]
 
 
+def test_unmapped_submillisecond_diarization_interval_remains_nonempty() -> None:
+    result = TimestampMapperStage().process(
+        _make_task({"audio_filepath": "clip.wav", "diar_segments": [[0.0001, 0.0009]]})
+    )
+
+    assert isinstance(result, AudioTask)
+    assert result.data["original_start_ms"] == 0
+    assert result.data["original_end_ms"] == 1
+    assert result.data["duration_ms"] == 1
+    assert result.data["duration"] == 0.001
+    assert result.data["speaking_duration"] == 0.001
+    assert result.data["diar_segments"] == [[0.0, 0.001]]
+
+
 def test_mapped_submillisecond_diarization_interval_remains_nonempty() -> None:
     task = _make_task(
         {"diar_segments": [[0.0001, 0.0009]]},
@@ -581,20 +595,6 @@ def test_mapped_submillisecond_diarization_interval_remains_nonempty() -> None:
     assert result.data["diar_segments"] == [[5.0, 5.001]]
 
 
-def test_unmapped_submillisecond_diarization_interval_remains_nonempty() -> None:
-    result = TimestampMapperStage().process(
-        _make_task({"audio_filepath": "clip.wav", "diar_segments": [[0.0001, 0.0009]]})
-    )
-
-    assert isinstance(result, AudioTask)
-    assert result.data["original_start_ms"] == 0
-    assert result.data["original_end_ms"] == 1
-    assert result.data["duration_ms"] == 1
-    assert result.data["duration"] == 0.001
-    assert result.data["speaking_duration"] == 0.001
-    assert result.data["diar_segments"] == [[0.0, 0.001]]
-
-
 def test_mapped_diarization_rejects_multiple_original_files() -> None:
     mappings = [
         {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": "a.wav", "original_start_ms": 0},
@@ -616,6 +616,13 @@ def test_mapped_diarization_rejects_multiple_original_files() -> None:
 def test_strict_sanitization_removes_non_json_values_before_real_writer(tmp_path: Path) -> None:
     mapper = TimestampMapperStage(passthrough_keys=["audio_tensor", "nested"], sanitize_output=True)
     writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline(
+        [mapper, writer],
+        initial_keys={"audio_filepath", "duration", "audio_tensor", "nested"},
+        initial_tensor_keys={"audio_tensor"},
+    )
+    assert report.ok
+
     task = _make_task(
         {
             "audio_filepath": "clip.wav",
