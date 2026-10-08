@@ -489,6 +489,16 @@ def test_prepare_replaces_child_scores_without_losing_parent_keys(policy: str) -
     assert prepared.data["score"] == 0.8
     assert prepared.data["segments"]
     assert "score" not in prepared.data["segments"][0]
+    boundary_selector = PreserveByValueConditionsStage(
+        items_key="segments",
+        conditions={
+            "start": {"operator": "ge", "target_value": 0},
+            "end": {"operator": "le", "target_value": 3},
+            "speaker": {"operator": "eq", "target_value": "s1"},
+        },
+    )
+    assert validate_pipeline([prepare, boundary_selector], initial_keys=set(task.data)).ok
+    assert boundary_selector.process_batch([prepared]) == [prepared]
     if policy == "error":
         with pytest.raises(ValueError, match="score"):
             selector.process_batch([prepared])

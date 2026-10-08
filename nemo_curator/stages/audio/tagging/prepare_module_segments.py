@@ -107,7 +107,11 @@ class PrepareModuleSegmentsStage(AgentReady, ProcessingStage[AudioTask, AudioTas
             ),
             conditional_writes=[
                 ConditionalWrite(
-                    writes=IOSpec(segment_data_keys=[self.text_key, self.words_key, self.metrics_key]),
+                    writes=IOSpec(
+                        segment_data_keys=list(
+                            dict.fromkeys(["speaker", "start", "end", self.text_key, self.words_key, self.metrics_key])
+                        )
+                    ),
                     condition=(
                         f"preparation emits a non-empty '{self.segments_key}' list; each prepared "
                         "segment contains reconstructed text, word alignments, and metric lists"
