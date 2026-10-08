@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from nemo_curator.stages.audio._agent._agent_registry import build_contract
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.io.convert import DocumentBatchJsonlWriterStage
@@ -53,7 +54,7 @@ def test_unsafe_io_stages_reject_checkpointing_before_touching_outputs(tmp_path:
 
 def test_segment_extraction_allows_checkpointing(tmp_path: Path) -> None:
     stage = SegmentExtractionStage(output_dir=str(tmp_path / "segments"))
-    gates = stage.describe().gates
+    gates = build_contract(stage).gates
 
     assert stage.is_resumable is True
     assert gates.requires_stable_task_id is True

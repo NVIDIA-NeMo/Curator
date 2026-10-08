@@ -40,6 +40,7 @@ from nemo_curator.stages.audio.io.extract_segments import (
     load_manifest,
     load_manifests,
 )
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -71,6 +72,37 @@ def _write_manifest(path: Path, entries: list[dict]) -> str:
     with open(manifest, "w") as f:
         f.writelines(json.dumps(e) + "\n" for e in entries)
     return manifest
+
+
+def test_sortformer_shaped_mapper_output_extracts_each_speaker(wav_dir: Path, tmp_path: Path) -> None:
+    output_dir = tmp_path / "extracted"
+    mapper = TimestampMapperStage()
+    extractor = SegmentExtractionStage(output_dir=str(output_dir))
+    report = validate_pipeline(
+        [mapper, extractor],
+        initial_roles={"audio_filepath", "diar_segments"},
+        initial_keys={"audio_filepath", "diar_segments"},
+    )
+    assert report.ok
+
+    task = AudioTask(
+        dataset_name="test",
+        data={
+            "audio_filepath": _wav_path(wav_dir),
+            "diar_segments": [
+                {"start": 0.25, "end": 0.75, "speaker": "speaker_0"},
+                {"start": 1.25, "end": 1.75, "speaker": "speaker_1"},
+            ],
+        },
+    )
+    mapped = mapper.process(task)
+    assert isinstance(mapped, AudioTask)
+
+    extractor.process_batch([mapped])
+
+    assert (output_dir / "file_a_speaker_0_segment_000.wav").exists()
+    assert (output_dir / "file_a_speaker_1_segment_000.wav").exists()
+    assert len(mapped.data["extracted_path"]) == 2
 
 
 # ------------------------------------------------------------------
