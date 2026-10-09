@@ -385,7 +385,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
 
     pipeline.add_stage(
         ResampleAudioStage(
-            resampled_audio_dir=str(benchmark_results_path / "audio_resampled"),
+            resampled_audio_dir=str(scratch_output_path / "audio_resampled"),
             input_format="wav",
             target_sample_rate=16000,
             target_format="wav",

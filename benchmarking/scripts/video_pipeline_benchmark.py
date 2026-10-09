@@ -29,6 +29,8 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
+from nemo_curator.tasks.utils import TaskPerfUtils
+
 # Add tutorials directory to path to import the pipeline creation function
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tutorials" / "video" / "getting-started"))
@@ -120,6 +122,7 @@ def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "model_dir": args.model_dir,
         },
         "metrics": {
+            **TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task"),
             "is_success": success,
             "time_taken_s": run_time_taken,
             "num_videos_processed": num_videos_processed,
@@ -128,7 +131,8 @@ def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "throughput_videos_per_sec": num_videos_processed / run_time_taken if run_time_taken > 0 else 0,
             "throughput_clips_per_sec": num_clips_generated / run_time_taken if run_time_taken > 0 else 0,
         },
-        "tasks": output_tasks,
+        # Persist performance metrics above, not decoded frames and clip payloads.
+        "tasks": [],
     }
 
 

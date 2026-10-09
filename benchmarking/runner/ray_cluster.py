@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import gzip
 import os
 import shutil
 import time
@@ -220,3 +221,21 @@ def _copy_ray_debug_artifacts(short_temp_path: Path, ray_destination_path: Path)
     if session_src.exists():
         session_dst = ray_destination_path / "session_latest"
         _copy_session_contents(session_src, session_dst)
+
+    _compress_large_logs(ray_destination_path)
+
+
+def _compress_large_logs(directory: Path) -> None:
+    """Gzip archived logs larger than 10 MiB, preserving their full diagnostic content."""
+    for log_path in directory.rglob("*.log"):
+        if log_path.is_symlink():
+            continue
+        try:
+            if log_path.stat().st_size <= 10 * 1024 * 1024:
+                continue
+            compressed_path = log_path.with_suffix(".log.gz")
+            with log_path.open("rb") as source, gzip.open(compressed_path, "wb", compresslevel=1) as destination:
+                shutil.copyfileobj(source, destination)
+            log_path.unlink()
+        except OSError:
+            logger.exception(f"Failed to compress archived log {log_path}")

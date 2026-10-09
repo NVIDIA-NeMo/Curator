@@ -43,6 +43,7 @@ from nemo_curator.stages.audio.alm import (
     ALMDataOverlapStage,
 )
 from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 
 def _collect_output_metrics(
@@ -183,6 +184,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
             "truncation": truncation,
         },
         "metrics": {
+            **TaskPerfUtils.aggregate_task_metrics(output_tasks or [], prefix="task"),
             "is_success": success,
             "time_taken_s": run_time_taken,
             **output_metrics,
@@ -193,7 +195,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
                 output_metrics["total_builder_windows"] / run_time_taken if run_time_taken > 0 else 0
             ),
         },
-        "tasks": output_tasks or [],
+        # The final manifest is retained; task payloads would duplicate its data.
+        "tasks": [],
     }
 
 

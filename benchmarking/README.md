@@ -88,6 +88,12 @@ This is especially useful during active development and debugging since it avoid
 
 Results are written to the `results_path` specified in your configuration, organized by session timestamp.
 
+Archived Ray and inference-server `.log` files larger than 10 MiB are stored as
+`.log.gz` files, preserving their full contents. Read them with
+`gzip -cd path/to/file.log.gz`. The default benchmark config uses INFO-level
+Ray Data logging; an environment override can set `RAY_DATA_LOG_LEVEL: DEBUG`
+for detailed debugging.
+
 ---
 
 ## Nightly Benchmark Ownership

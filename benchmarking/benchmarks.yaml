@@ -160,6 +160,10 @@ max_timeout_s: 14340
 cleanup_timeout_s: 60
 min_timeout_s: 600
 
+environment:
+  # Ray Data defaults to DEBUG file logging, which produces large per-entry logs.
+  RAY_DATA_LOG_LEVEL: INFO
+
 # Optional sinks
 sinks:
 #  - name: mlflow
