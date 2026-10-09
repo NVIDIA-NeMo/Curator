@@ -125,4 +125,4 @@ Use Ray Dashboard to identify bottlenecks. Common issues:
 
 - **Start small, scale up.** Validate your pipeline on a subset of data before scaling to the full dataset.
 - **Monitor GPU utilization.** Low GPU utilization often indicates an upstream bottleneck (I/O, CPU processing) rather than insufficient GPU resources.
-- **Use the NeMo Curator container.** The [NGC container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) includes optimized dependencies and drivers for maximum performance.
+- **Use a reproducible environment.** Follow the [Installation Guide](/get-started/installation) to install from source or build an image. Verify the required CUDA and media dependencies on each worker.
