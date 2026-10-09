@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
     import pyarrow as pa
 
+# Reason for a row whose LLM column came back null because DataDesigner dropped the row.
+NO_ANSWER_REASON = "CRITIC_LLM_NO_ANSWER"
+
 
 def replace_columns(table: pa.Table, columns: dict[str, pa.Array], *, drop: Iterable[str] = ()) -> pa.Table:
     """Remove `drop` and any existing columns named in `columns`, then append `columns`."""

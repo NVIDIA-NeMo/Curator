@@ -36,7 +36,7 @@ from nemo_curator.tasks import DocumentBatch
 
 from .models import DECISION_ARROW_TYPE, Decision
 from .spans import DEFAULT_MAX_EVIDENCE_CHARS, PACKET_ARROW_TYPE, SpanPacket
-from .stage_utils import replace_columns
+from .stage_utils import NO_ANSWER_REASON, replace_columns
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
 
@@ -249,6 +249,8 @@ class SubjectApplyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         reason = record["subject_reason"]
         if not record["subject_should_run"]:
             return "SKIP", reason, [], None
+        if record.get("subject_review") is None:
+            return "UNVALIDATED_KEEP_COVERAGE", NO_ANSWER_REASON, [], None
         try:
             review = SubjectReview.model_validate(record["subject_review"])
             packet = SpanPacket.from_record(record, max_evidence_chars=self.max_evidence_chars)
@@ -306,6 +308,8 @@ class SubjectVerifierApplyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return action, reason, None
         if not record["subject_verifier_should_run"]:
             return action, reason, main
+        if record.get("subject_verifier_review") is None:
+            return "UNVALIDATED_KEEP_COVERAGE", NO_ANSWER_REASON, main
 
         try:
             review = SubjectVerification.model_validate(record["subject_verifier_review"])

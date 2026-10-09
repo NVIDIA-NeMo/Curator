@@ -76,6 +76,12 @@ class CriticWorkflow(LLMJudgeWorkflow):
     subject: bool = False
     max_evidence_chars: int = DEFAULT_MAX_EVIDENCE_CHARS
 
+    # A row whose critic answer cannot be parsed is dropped by Data Designer, and a burst of such rows
+    # triggers an early shutdown that drops more. Keep every row so the apply stages can mark it unvalidated.
+    run_config: dd.RunConfig | None = None
+    keep_failed_rows: bool = True
+    row_id_column: str | None = "pair_id"
+
     def __post_init__(self) -> None:
         super().__post_init__()
         aliases = [str(model["alias"]) for model in self.config["models"]]
@@ -119,7 +125,13 @@ class CriticWorkflow(LLMJudgeWorkflow):
 
         def llm_stage(column: dd.LLMStructuredColumnConfig) -> DataDesignerStage:
             builder, providers = llm_config(column)
-            return DataDesignerStage(config_builder=builder, model_providers=providers).with_(
+            return DataDesignerStage(
+                config_builder=builder,
+                model_providers=providers,
+                run_config=self.run_config,
+                keep_failed_rows=self.keep_failed_rows,
+                row_id_column=self.row_id_column,
+            ).with_(
                 name=f"ndd_{column.name}", runtime_env=stage.get("runtime_env"), num_workers=stage.get("num_workers")
             )
 

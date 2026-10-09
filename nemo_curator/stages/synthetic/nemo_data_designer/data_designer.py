@@ -19,6 +19,9 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import pandas as pd
+from loguru import logger
+
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
@@ -42,12 +45,26 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     Optional ``model_providers``: pass a list of :class:`data_designer.config.models.ModelProvider`
     to use custom or test endpoints (e.g. a mock LLM server). If None, the default DataDesigner
     providers are used.
+
+    Optional ``run_config``: a :class:`data_designer.config.RunConfig` applied to the Data Designer
+    client, e.g. ``RunConfig(max_in_flight_tasks=256)``. The stage generates rows with
+    ``DataDesigner.preview``, which does not forward the early-shutdown settings
+    (``disable_early_shutdown``, ``shutdown_error_rate``, ``shutdown_error_window``) to the scheduler,
+    so they have no effect here.
+
+    Data Designer drops a row when generating one of its columns fails (for example an unparsable
+    model answer). With ``keep_failed_rows=True`` every row of the input batch is returned: a
+    dropped row keeps its input columns and gets null values in the generated columns. Rows are
+    matched by ``row_id_column``, which must be set and unique within each batch.
     """
 
     config_builder: dd.DataDesignerConfigBuilder | None = None
     data_designer_config_file: str | None = None
     model_providers: list | None = None
     verbose: bool = False
+    run_config: dd.RunConfig | None = None
+    keep_failed_rows: bool = False
+    row_id_column: str | None = None
     data_designer: DataDesigner = field(init=False)
 
     def __post_init__(self) -> None:
@@ -63,6 +80,9 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise ValueError(msg)
         if self.config_builder is not None and self.data_designer_config_file is not None:
             msg = "Only one of 'config_builder' or 'data_designer_config_file' can be set, not both."
+            raise ValueError(msg)
+        if self.keep_failed_rows and self.row_id_column is None:
+            msg = "'row_id_column' must be set when 'keep_failed_rows' is True."
             raise ValueError(msg)
 
         # read config from file if config_builder is not set
@@ -93,6 +113,20 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             self.data_designer = DataDesigner(model_providers=self.model_providers)
         else:
             self.data_designer = DataDesigner()
+        if self.run_config is not None:
+            self.data_designer.set_run_config(self.run_config)
+
+    def _restore_dropped_rows(self, source: pd.DataFrame, generated: pd.DataFrame) -> pd.DataFrame:
+        """Append the rows of ``source`` that Data Designer dropped, with null generated columns."""
+        generated_ids = generated[self.row_id_column] if self.row_id_column in generated.columns else ()
+        dropped = source[~source[self.row_id_column].isin(generated_ids)]
+        if dropped.empty:
+            return generated
+        logger.warning(
+            f"Data Designer dropped {len(dropped)} of {len(source)} rows; returning them with null generated columns."
+        )
+        dropped = dropped.assign(**dict.fromkeys(name for name in generated.columns if name not in dropped.columns))
+        return pd.concat([generated, dropped], ignore_index=True)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -124,7 +158,8 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         # set seed dataframe from batch
-        self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
+        source_df = batch.to_pandas()
+        self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=source_df))
 
         # When verbose is False, suppress NDD's logging (it logs "Preview generation in progress", etc.)
         ndd_logger = logging.getLogger("data_designer")
@@ -142,6 +177,8 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 ndd_logger.setLevel(_old_ndd_level)
 
         num_output_records = len(df)
+        if self.keep_failed_rows:
+            df = self._restore_dropped_rows(source_df, df)
 
         # Token metrics from NDD stats analysis
         # (these stats are available for LLM columns only)

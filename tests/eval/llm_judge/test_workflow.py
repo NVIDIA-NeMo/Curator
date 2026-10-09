@@ -218,6 +218,30 @@ def test_build_pipeline_orders_reader_judges_filters_and_writer(
     assert [stage.num_workers() for stage in ndd_stages] == [1, 2]
 
 
+def test_build_pipeline_passes_data_designer_options_to_every_ndd_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(subject.DataDesignerStage, "_init_data_designer", lambda self: None)  # noqa: ARG005
+    run_config = subject.dd.RunConfig(max_in_flight_tasks=8)
+    pipeline = subject.build_pipeline(
+        input_path="input.jsonl",
+        input_format="jsonl",
+        output_path="output",
+        output_format="jsonl",
+        judge_stages=[("quality", object(), [], None, None, []), ("safety", object(), [], None, None, [])],
+        language_filter_stage=None,
+        files_per_partition=None,
+        run_config=run_config,
+        keep_failed_rows=True,
+        row_id_column="pair_id",
+    )
+
+    ndd_stages = [stage for stage in pipeline.stages if stage.name.startswith("ndd_")]
+    assert len(ndd_stages) == 2
+    for stage in ndd_stages:
+        assert stage.run_config is run_config
+        assert stage.keep_failed_rows is True
+        assert stage.row_id_column == "pair_id"
+
+
 def test_build_language_filter_stage_returns_none_when_language_not_set() -> None:
     assert (
         subject._build_language_filter_stage(language=None, model_path=None, min_score=0.3, text_field="raw_text")

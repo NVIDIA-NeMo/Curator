@@ -37,7 +37,7 @@ from nemo_curator.tasks import DocumentBatch
 
 from .models import DECISION_ARROW_TYPE, Decision
 from .spans import DEFAULT_MAX_EVIDENCE_CHARS, PACKET_ARROW_TYPE, SpanPacket
-from .stage_utils import replace_columns
+from .stage_utils import NO_ANSWER_REASON, replace_columns
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
 
@@ -283,6 +283,8 @@ class CoverageApplyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return "SKIP", reason, [], None
         if not record["coverage_should_run"]:
             return "SKIP", reason, [], main
+        if record.get("coverage_review") is None:
+            return "UNVALIDATED_KEEP_MAIN", NO_ANSWER_REASON, [], main
 
         try:
             review = CoverageReview.model_validate(record["coverage_review"])

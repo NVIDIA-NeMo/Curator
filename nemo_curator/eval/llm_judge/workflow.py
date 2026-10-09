@@ -311,6 +311,9 @@ def build_pipeline(  # noqa: PLR0913
     files_per_partition: int | None,
     preprocessing_stages: list[ProcessingStage] | None = None,
     postprocessing_stages: list[ProcessingStage] | None = None,
+    run_config: dd.RunConfig | None = None,
+    keep_failed_rows: bool = False,
+    row_id_column: str | None = None,
 ) -> Pipeline:
     """Build a streaming pipeline with an optional language gate, NDD stages, filters, and writer."""
     # TODO: Add an optional TokenLengthFilter stage before NDD stages so prompts
@@ -324,9 +327,13 @@ def build_pipeline(  # noqa: PLR0913
     processing_stages = []
     for stage_name, config_builder, model_providers, runtime_env, num_workers, stage_filters in judge_stages:
         processing_stages.append(
-            DataDesignerStage(config_builder=config_builder, model_providers=model_providers).with_(
-                name=f"ndd_{stage_name}", runtime_env=runtime_env, num_workers=num_workers
-            )
+            DataDesignerStage(
+                config_builder=config_builder,
+                model_providers=model_providers,
+                run_config=run_config,
+                keep_failed_rows=keep_failed_rows,
+                row_id_column=row_id_column,
+            ).with_(name=f"ndd_{stage_name}", runtime_env=runtime_env, num_workers=num_workers)
         )
         processing_stages.extend(_build_filter_stages(stage_filters, name_prefix=f"judge_filter_{stage_name}"))
     return Pipeline(
@@ -375,6 +382,11 @@ class LLMJudgeWorkflow(WorkflowBase):
 
     # execution
     checkpoint_path: str | None = None
+
+    # Passed to every NDD ``DataDesignerStage``; see its docstring.
+    run_config: dd.RunConfig | None = None
+    keep_failed_rows: bool = False
+    row_id_column: str | None = None
 
     preprocessing_stages: list[ProcessingStage] = field(default_factory=list)
     postprocessing_stages: list[ProcessingStage] = field(default_factory=list)
@@ -457,6 +469,9 @@ class LLMJudgeWorkflow(WorkflowBase):
                 files_per_partition=self.files_per_partition,
                 preprocessing_stages=self.preprocessing_stages,
                 postprocessing_stages=self.postprocessing_stages,
+                run_config=self.run_config,
+                keep_failed_rows=self.keep_failed_rows,
+                row_id_column=self.row_id_column,
             )
             output_tasks = pipeline.run(executor=executor, checkpoint_path=self.checkpoint_path)
         except Exception as e:
