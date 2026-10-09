@@ -92,12 +92,8 @@ def is_paragraph_indices_in_top_or_bottom_only(
     boilerplate_paragraph_indices: list[int],
     num_paragraphs: int,
 ) -> bool:
-    def _is_contiguous(indices: list[int]) -> bool:
-        # Indices are sorted in ascending order.
-        num_indices = len(indices) - 1
-        return all(indices[i] + 1 == indices[i + 1] for i in range(num_indices))
-
-    # See if the indices are contiguous and exclusively at the top/bottom.
+    # See if the indices form a contiguous run at the top, a contiguous run
+    # at the bottom, or both, with nothing in between.
     # Indices are sorted in ascending order.
     # If num_paragraphs = 11:
     # Valid indices example : [0, 1, 9, 10]
@@ -106,9 +102,11 @@ def is_paragraph_indices_in_top_or_bottom_only(
     # Invalid indices example : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     if len(boilerplate_paragraph_indices) == num_paragraphs:
         return False
-    return _is_contiguous(boilerplate_paragraph_indices) and (
-        boilerplate_paragraph_indices[0] == 0 or boilerplate_paragraph_indices[-1] == num_paragraphs - 1
-    )
+    num_top = 0
+    while num_top < len(boilerplate_paragraph_indices) and boilerplate_paragraph_indices[num_top] == num_top:
+        num_top += 1
+    bottom_indices = boilerplate_paragraph_indices[num_top:]
+    return bottom_indices == list(range(num_paragraphs - len(bottom_indices), num_paragraphs))
 
 
 # Node types for processing abstract syntax tree
