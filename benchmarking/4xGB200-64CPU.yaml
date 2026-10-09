@@ -10,6 +10,9 @@
 # NDD entries override their serving replica count from 8 to 4.
 # Their current 8x performance thresholds
 # are inherited because the older dp4 thresholds predate later workload changes.
+#
+# llm_judge_qwen_gemma halves its Qwen/Gemma replica counts (4+4 -> 2+2 GPUs)
+# via a dedicated 4xGB200 judge-config YAML.
 
 default_timeout_s: 14340
 max_timeout_s: 14340
@@ -173,7 +176,7 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
-  - name: ndd_dynamo
+  - name: ndd_dynamo_20b
     timeout_s: 4200
     args: >-
       --benchmark-results-path={session_entry_dir}
@@ -184,13 +187,33 @@ entries:
       --model-id=openai/gpt-oss-20b
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
+      --max-parallel-requests=256
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
       --health-check-timeout-s=1200
     ray:
       num_cpus: 16
 
-  - name: ndd_ray_serve
+  # TODO: Update model-path once the model is copied to hf_cache
+  - name: ndd_dynamo_120b
+    timeout_s: 10800
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+      --health-check-timeout-s=1200
+    ray:
+      num_cpus: 16
+
+  # TODO: Update tiktoken-cache-dir
+  - name: ndd_ray_serve_20b
     timeout_s: 4200
     args: >-
       --benchmark-results-path={session_entry_dir}
@@ -201,7 +224,8 @@ entries:
       --model-id=openai/gpt-oss-20b
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
-      --engine-kwargs='{"tensor_parallel_size": 1, "max_model_len": 131072}'
+      --max-parallel-requests=128
+      --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
       --tiktoken-cache-dir={model_weights_path}/tiktoken_cache
     ray:
@@ -209,6 +233,39 @@ entries:
     requirements:
       - metric: throughput_rows_per_sec
         min_value: 100
+
+  # TODO: Update model-path once the model is copied to hf_cache
+  # TODO: Update tiktoken-cache-dir
+  - name: ndd_ray_serve_120b
+    timeout_s: 10800
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=1
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=ray-serve
+      --model-id=openai/gpt-oss-120b
+      --model-path={model_weights_path}/text_model_weights/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1, "gpu_memory_utilization": 0.97}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+      --tiktoken-cache-dir={model_weights_path}/tiktoken_cache
+    ray:
+      num_cpus: 16
+
+  # TODO: Update model-paths once the models are copied to hf_cache
+  - name: llm_judge_qwen_gemma
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --judge-config=tutorials/eval/llm_judge/cc_extract_example/text_extraction_qwen_gemma_judges_4xgb200.yaml
+      --qwen-model-path={model_weights_path}/text_model_weights/Qwen3.8-27B
+      --gemma-model-path={model_weights_path}/text_model_weights/gemma-3-27b-it
+      --language=en
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --input-path={dataset:llm_judge_cc_extract,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+    ray:
+      num_cpus: 16
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     timeout_s: 3600
