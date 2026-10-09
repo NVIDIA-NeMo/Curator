@@ -18,20 +18,13 @@ import argparse
 import json
 import os
 import shutil
-import sys
 import time
 from collections.abc import Mapping, Sequence
-from functools import partial
 from pathlib import Path
 from typing import Any
 
 from huggingface_hub import hf_hub_download
 from loguru import logger
-
-# Import benchmark adapters without exposing checkout product sources.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from release_compatibility import validate_profile
-from release_compatibility.curator_26_07 import create_asr_aligner_stage, create_diarization_stage, create_squim_stage
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -355,7 +348,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     diarization_embedding_batch_size: int = 128,
     use_cuda_graphs: bool = True,
     execution_mode: str | None = None,
-    benchmark_compat_profile: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the full audio-tagging pipeline on pre-staged audio and models."""
@@ -400,16 +392,8 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             target_nchannels=1,
         ).with_(resources=Resources(cpus=1))
     )
-    diarization_factory = PyAnnoteDiarizationStage
-    aligner_factory = NeMoASRAlignerStage
-    squim_factory = TorchSquimQualityMetricsStage
-    if benchmark_compat_profile == "26.07":
-        diarization_factory = partial(create_diarization_stage, PyAnnoteDiarizationStage)
-        aligner_factory = partial(create_asr_aligner_stage, NeMoASRAlignerStage)
-        if executor == "ray_data":
-            squim_factory = partial(create_squim_stage, TorchSquimQualityMetricsStage)
     pipeline.add_stage(
-        diarization_factory(
+        PyAnnoteDiarizationStage(
             name="PyAnnoteDiarization",
             model_name=str(diarization_model),
             segmentation_batch_size=diarization_segmentation_batch_size,
@@ -423,7 +407,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         )
     )
     pipeline.add_stage(
-        aligner_factory(
+        NeMoASRAlignerStage(
             name="ASRAlignment",
             is_fastconformer=True,
             decoder_type="rnnt",
@@ -439,7 +423,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         )
     )
     pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
-    pipeline.add_stage(squim_factory(name="SquimMetrics", compute_batch_size=squim_compute_batch_size))
+    pipeline.add_stage(TorchSquimQualityMetricsStage(name="SquimMetrics", compute_batch_size=squim_compute_batch_size))
     pipeline.add_stage(
         PrepareModuleSegmentsStage(
             name="PrepareModuleSegments",
@@ -450,7 +434,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
-        aligner_factory(
+        NeMoASRAlignerStage(
             name="ASRAlignment2",
             model_name="nvidia/stt_en_conformer_ctc_large",
             is_fastconformer=False,
@@ -581,7 +565,6 @@ def main() -> int:
         help="Xenna execution mode. Defaults to streaming; ignored by other executors.",
     )
 
-    parser.add_argument("--benchmark-compat-profile", type=validate_profile, default=None)
     args = parser.parse_args()
     params = vars(args)
     logger.info(f"Audio tagging benchmark arguments: {params}")

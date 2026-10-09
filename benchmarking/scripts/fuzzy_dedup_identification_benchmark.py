@@ -20,18 +20,11 @@ using TaskPerfUtils and logs results to configured sinks.
 """
 
 import argparse
-import sys
 import time
-from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
-
-# Import benchmark adapters without exposing checkout product sources.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from release_compatibility import validate_profile
-from release_compatibility.curator_26_07 import create_dedup_workflow
 from utils import parse_memory_size, write_benchmark_results
 
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
@@ -50,7 +43,6 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
     use_async_memory: bool = True,
     normalize_text: bool = False,
-    benchmark_compat_profile: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the duplicate identification benchmark and collect comprehensive metrics."""
@@ -63,10 +55,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     run_start_time = time.perf_counter()
 
     # Create and run workflow-backed pipeline
-    workflow_factory = FuzzyDeduplicationWorkflow
-    if benchmark_compat_profile == "26.07":
-        workflow_factory = partial(create_dedup_workflow, FuzzyDeduplicationWorkflow)
-    workflow = workflow_factory(
+    workflow = FuzzyDeduplicationWorkflow(
         input_path=input_path,
         cache_path=cache_path,
         output_path=output_path,
@@ -168,7 +157,6 @@ def main() -> int:
         help="Normalize text before computing MinHash signatures",
     )
 
-    parser.add_argument("--benchmark-compat-profile", type=validate_profile, default=None)
     args = parser.parse_args()
 
     logger.info("=== Duplicate Identification Benchmark Starting ===")

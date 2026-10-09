@@ -33,7 +33,6 @@ from nemo_curator_benchmarking.config import (
     remove_disabled_blocks,
     resolve_env_vars,
 )
-from release_compatibility import apply_script_profile, validate_profile
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -261,7 +260,6 @@ def run_entry(  # noqa: PLR0913
     session_entry_path: Path,
     result_data: dict[str, Any],
     gpu_stats_recorder_interval_s: float = 1.0,
-    benchmark_compat_profile: str | None = None,
 ) -> bool:
     # session_entry_path : This is the directory where benchmark results are stored
     # scratch_path : This is the directory provided to users for saving scratch/temp data; it'll be cleaned up after the entry is done if delete_scratch is True
@@ -271,7 +269,6 @@ def run_entry(  # noqa: PLR0913
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs"]
     ]
     cmd = entry.get_command_to_run(session_entry_path, path_resolver, dataset_resolver)
-    cmd = apply_script_profile(cmd, entry.name, benchmark_compat_profile)
     stdouterr_path = logs_path / "stdouterr.log"
     run_id = result_data.get("run_id", f"{entry.name}-{int(time.time())}")
     ray_client = ray_temp_dir = None
@@ -483,16 +480,10 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             "environment block. Useful for audit trails on ad-hoc runs."
         ),
     )
-    parser.add_argument(
-        "--benchmark-compat-profile",
-        type=validate_profile,
-        default=None,
-        help="Explicit benchmark-only compatibility profile for an older Curator release (26.07).",
-    )
     args = parser.parse_args()
 
     # Consolidate the configuration from all YAML files into a single dict
-    config_dict = merge_config_files(args.config, benchmark_compat_profile=args.benchmark_compat_profile)
+    config_dict = merge_config_files(args.config)
 
     # Preprocess the config dict prior to creating objects from it
     try:
@@ -564,9 +555,7 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
 
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
-    env_dict = dump_env(
-        session_obj=session, output_path=session_path, benchmark_compat_profile=args.benchmark_compat_profile
-    )
+    env_dict = dump_env(session_obj=session, output_path=session_path)
 
     if not run_data_setups(
         setup_entries=session.data_setups,
@@ -619,7 +608,6 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
                 session_entry_path=session_entry_path,
                 result_data=result_data,
                 gpu_stats_recorder_interval_s=gpu_stats_recorder_interval_s,
-                benchmark_compat_profile=args.benchmark_compat_profile,
             )
 
         except Exception as e:

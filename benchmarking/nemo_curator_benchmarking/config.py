@@ -31,7 +31,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from release_compatibility import compatibility_config
 
 logger = logging.getLogger(__name__)
 _env_var_pattern = re.compile(r"\$\{([^}]+)\}")
@@ -93,16 +92,7 @@ def _update_list(config_list: list[Any], override_list: list[Any]) -> None:
             config_list.append(item)
             continue
 
-        # Match configuration mappings by identity: entries use "name" and
-        # requirements use "metric", regardless of YAML key order. Matching
-        # items merge recursively, preserving unspecified fields; unmatched
-        # items are appended. Other mappings retain the first-key fallback.
-        if "name" in item:
-            match_key = "name"
-        elif "metric" in item:
-            match_key = "metric"
-        else:
-            match_key = next(iter(item.keys()))
+        match_key = "name" if "name" in item else next(iter(item.keys()))
         for config_item in config_list:
             if (
                 isinstance(config_item, dict)
@@ -116,15 +106,8 @@ def _update_list(config_list: list[Any], override_list: list[Any]) -> None:
             config_list.append(item)
 
 
-def merge_config_files(
-    config_files: list[str | Path], *, benchmark_compat_profile: str | None = None
-) -> dict[str, Any]:
-    """Merge benchmark configs, then optional release compatibility overrides.
-
-    benchmark_compat_profile selects benchmark-only overrides for an
-    older Curator release. These take precedence over explicitly supplied configs.
-    See benchmarking/release_compatibility/README.md.
-    """
+def merge_config_files(config_files: list[str | Path]) -> dict[str, Any]:
+    """Read and merge benchmark YAML config files in command-line order."""
 
     config: dict[str, Any] = {}
     for config_file in config_files:
@@ -132,17 +115,6 @@ def merge_config_files(
             for config_part in yaml.full_load_all(f):
                 if config_part:
                     update_config(config, config_part)
-    profile_config = compatibility_config(benchmark_compat_profile)
-    if profile_config:
-        # Profiles must not introduce entries missing from the selected suite
-        # (including exact-entry configs or older benchmark-suite revisions).
-        names = {entry["name"] for entry in config.get("entries", [])}
-        profile_config["entries"] = [entry for entry in profile_config.get("entries", []) if entry["name"] in names]
-        update_config(config, profile_config)
-        logger.info(
-            "Applied release compatibility config for entries: %s",
-            [entry["name"] for entry in profile_config["entries"]],
-        )
     return config
 
 
@@ -246,12 +218,10 @@ def assert_valid_config_dict(data: dict[str, Any]) -> None:  # noqa: C901, PLR09
         logger.warning("Configuration is missing 'entries' field; no benchmarks will run.")
 
 
-def load_benchmark_config(
-    config_files: list[str | Path], *, benchmark_compat_profile: str | None = None, **_: object
-) -> dict[str, Any]:
+def load_benchmark_config(config_files: list[str | Path], **_: object) -> dict[str, Any]:
     """Compatibility wrapper for automation code that names config loading."""
 
-    return merge_config_files(config_files, benchmark_compat_profile=benchmark_compat_profile)
+    return merge_config_files(config_files)
 
 
 def build_benchmark_config_plan(config: dict[str, Any], *, enabled_only: bool = True) -> ConfigPlan:

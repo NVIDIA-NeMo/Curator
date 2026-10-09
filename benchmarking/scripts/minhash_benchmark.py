@@ -22,21 +22,12 @@ The benchmark supports both input paths accepted by ``MinHashStage``:
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 from typing import Any, Literal
 
 import pyarrow.parquet as pq
 from loguru import logger
-
-# Add only the benchmarking directory so adapters are importable.
-# Do not add the checkout root: its nemo_curator sources could shadow
-# the Curator-under-test installed in the image.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from release_compatibility import validate_profile
-from release_compatibility.curator_26_07 import create_minhash_stage
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -94,7 +85,6 @@ def _build_pipeline(  # noqa: PLR0913
     pool: bool,
     minhash_num_workers: int | None,
     minhash_ray_data_initial_workers: int | None,
-    benchmark_compat_profile: str | None = None,
 ) -> Pipeline:
     """Build a MinHash pipeline for the requested input task type."""
     if input_task_type == "DocumentBatch":
@@ -118,25 +108,20 @@ def _build_pipeline(  # noqa: PLR0913
         )
         minhash_read_format = input_filetype
 
-    minhash_kwargs = {
-        "output_path": str(output_path),
-        "text_field": text_field,
-        "minhash_field": minhash_field,
-        "char_ngrams": char_ngrams,
-        "num_hashes": num_hashes,
-        "seed": seed,
-        "use_64bit_hash": use_64bit_hash,
-        "normalize_text": normalize_text,
-        "read_format": minhash_read_format,
-        "read_kwargs": read_kwargs,
-        "write_kwargs": write_kwargs,
-        "pool": pool,
-    }
-    if validate_profile(benchmark_compat_profile) == "26.07":
-        logger.warning("26.07 compatibility: using the normalization-disabled MinHash adapter")
-        minhash_stage = create_minhash_stage(MinHashStage, **minhash_kwargs)
-    else:
-        minhash_stage = MinHashStage(**minhash_kwargs)
+    minhash_stage = MinHashStage(
+        output_path=str(output_path),
+        text_field=text_field,
+        minhash_field=minhash_field,
+        char_ngrams=char_ngrams,
+        num_hashes=num_hashes,
+        seed=seed,
+        use_64bit_hash=use_64bit_hash,
+        normalize_text=normalize_text,
+        read_format=minhash_read_format,
+        read_kwargs=read_kwargs,
+        write_kwargs=write_kwargs,
+        pool=pool,
+    )
     if minhash_num_workers is not None:
         minhash_stage = minhash_stage.with_(num_workers=minhash_num_workers)
     if minhash_ray_data_initial_workers is not None:
@@ -151,7 +136,7 @@ def _count_output_documents(output_tasks: list[Any]) -> int:
     return sum(pq.ParquetFile(path).metadata.num_rows for task in output_tasks for path in task.data)
 
 
-def run_minhash_benchmark(  # noqa: C901, PLR0913, PLR0915
+def run_minhash_benchmark(  # noqa: PLR0913
     input_path: Path,
     output_path: Path,
     executor: str = "ray_actors",
@@ -172,7 +157,6 @@ def run_minhash_benchmark(  # noqa: C901, PLR0913, PLR0915
     pool: bool = True,
     minhash_num_workers: int | None = None,
     minhash_ray_data_initial_workers: int | None = None,
-    benchmark_compat_profile: str | None = None,
     **kwargs: object,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run MinHash over a whole-file fraction of a JSONL or Parquet dataset."""
@@ -227,7 +211,6 @@ def run_minhash_benchmark(  # noqa: C901, PLR0913, PLR0915
         pool=pool,
         minhash_num_workers=minhash_num_workers,
         minhash_ray_data_initial_workers=minhash_ray_data_initial_workers,
-        benchmark_compat_profile=benchmark_compat_profile,
     )
     executor_obj = setup_executor(executor)
 
@@ -253,28 +236,23 @@ def run_minhash_benchmark(  # noqa: C901, PLR0913, PLR0915
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
     logger.success(f"Processed {num_documents_processed} documents")
 
-    metrics = {
-        "is_success": True,
-        "time_taken_s": run_time_taken,
-        "num_input_files": len(input_files),
-        "num_output_tasks": len(output_tasks),
-        "num_documents_processed": num_documents_processed,
-        "throughput_docs_per_sec": (num_documents_processed / run_time_taken if run_time_taken > 0 else 0),
+    return {
+        "metrics": {
+            "is_success": True,
+            "time_taken_s": run_time_taken,
+            "num_input_files": len(input_files),
+            "num_output_tasks": len(output_tasks),
+            "num_documents_processed": num_documents_processed,
+            "throughput_docs_per_sec": (num_documents_processed / run_time_taken if run_time_taken > 0 else 0),
+            "minhash_input_prep_worker_time_s_sum": task_metrics.get(f"{input_prep_metric_prefix}_sum", 0),
+            "minhash_compute_worker_time_s_sum": task_metrics.get("MinHashStage_custom.minhash_compute_time_sum", 0),
+            "minhash_write_worker_time_s_sum": task_metrics.get("MinHashStage_custom.minhash_write_time_sum", 0),
+            "minhash_input_prep_worker_time_s_mean": task_metrics.get(f"{input_prep_metric_prefix}_mean", 0),
+            "minhash_compute_worker_time_s_mean": task_metrics.get("MinHashStage_custom.minhash_compute_time_mean", 0),
+            "minhash_write_worker_time_s_mean": task_metrics.get("MinHashStage_custom.minhash_write_time_mean", 0),
+        },
+        "tasks": output_tasks,
     }
-    if f"{input_prep_metric_prefix}_sum" in task_metrics:
-        metrics["minhash_input_prep_worker_time_s_sum"] = task_metrics[f"{input_prep_metric_prefix}_sum"]
-    if "MinHashStage_custom.minhash_compute_time_sum" in task_metrics:
-        metrics["minhash_compute_worker_time_s_sum"] = task_metrics["MinHashStage_custom.minhash_compute_time_sum"]
-    if "MinHashStage_custom.minhash_write_time_sum" in task_metrics:
-        metrics["minhash_write_worker_time_s_sum"] = task_metrics["MinHashStage_custom.minhash_write_time_sum"]
-    if f"{input_prep_metric_prefix}_mean" in task_metrics:
-        metrics["minhash_input_prep_worker_time_s_mean"] = task_metrics[f"{input_prep_metric_prefix}_mean"]
-    if "MinHashStage_custom.minhash_compute_time_mean" in task_metrics:
-        metrics["minhash_compute_worker_time_s_mean"] = task_metrics["MinHashStage_custom.minhash_compute_time_mean"]
-    if "MinHashStage_custom.minhash_write_time_mean" in task_metrics:
-        metrics["minhash_write_worker_time_s_mean"] = task_metrics["MinHashStage_custom.minhash_write_time_mean"]
-
-    return {"metrics": metrics, "tasks": output_tasks}
 
 
 def main() -> int:
@@ -363,12 +341,6 @@ def main() -> int:
         help="Initial size of the autoscaling Ray Data MinHash actor pool",
     )
 
-    parser.add_argument(
-        "--benchmark-compat-profile",
-        type=validate_profile,
-        default=None,
-        help="Explicit benchmark-only compatibility profile for an older Curator release (26.07).",
-    )
     args = parser.parse_args()
     logger.info("=== MinHash Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
