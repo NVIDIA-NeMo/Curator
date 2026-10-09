@@ -43,7 +43,6 @@ from nemo_curator.stages.audio.alm import (
     ALMDataOverlapStage,
 )
 from nemo_curator.stages.audio.common import ManifestWriterStage
-from nemo_curator.tasks.utils import TaskPerfUtils
 
 
 def _collect_output_metrics(
@@ -184,7 +183,6 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
             "truncation": truncation,
         },
         "metrics": {
-            **TaskPerfUtils.aggregate_task_metrics(output_tasks or [], prefix="task"),
             "is_success": success,
             "time_taken_s": run_time_taken,
             **output_metrics,
@@ -195,8 +193,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
                 output_metrics["total_builder_windows"] / run_time_taken if run_time_taken > 0 else 0
             ),
         },
-        # The final manifest is retained; task payloads would duplicate its data.
-        "tasks": [],
+        "tasks": output_tasks or [],
     }
 
 
@@ -257,6 +254,9 @@ def main() -> int:
         help="Xenna execution mode (streaming or batch). Only applies to xenna executor. Default: streaming.",
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     pre_args, _ = parser.parse_known_args()
 
     if pre_args.config:
@@ -265,6 +265,7 @@ def main() -> int:
     else:
         args = parser.parse_args()
 
+    save_tasks = vars(args).pop("save_tasks")
     if not args.benchmark_results_path or not args.input_manifest:
         parser.error("--benchmark-results-path and --input-manifest are required (provide directly or via --config)")
 
@@ -288,7 +289,7 @@ def main() -> int:
         result_dict.update(run_alm_pipeline_benchmark(**run_args))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

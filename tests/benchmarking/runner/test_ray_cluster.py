@@ -13,14 +13,17 @@
 # limitations under the License.
 
 import gzip
+import os
+import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
-from runner.ray_cluster import _compress_large_logs
+from runner.ray_cluster import _compress_large_logs, _start_ray_client_with_log_level
 
 
 def test_compress_large_logs_preserves_content_and_small_files(tmp_path: Path) -> None:
@@ -57,3 +60,42 @@ def test_compression_failure_preserves_original(tmp_path: Path, monkeypatch: pyt
     _compress_large_logs(tmp_path)
 
     assert log.stat().st_size == 11 * 1024 * 1024
+
+
+@pytest.mark.parametrize(("parent_level", "entry_level"), [(None, "INFO"), ("WARNING", "DEBUG"), ("WARNING", None)])
+@pytest.mark.parametrize("fail_start", [False, True])
+def test_cluster_start_inherits_log_level_and_restores_parent(
+    monkeypatch: pytest.MonkeyPatch,
+    parent_level: str | None,
+    entry_level: str | None,
+    fail_start: bool,
+) -> None:
+    if parent_level is None:
+        monkeypatch.delenv("RAY_DATA_LOG_LEVEL", raising=False)
+    else:
+        monkeypatch.setenv("RAY_DATA_LOG_LEVEL", parent_level)
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    observed = []
+
+    class Client:
+        """Capture the environment inherited by a real child process at Ray startup."""
+
+        def start(self) -> None:
+            observed.append(
+                subprocess.check_output(  # noqa: S603
+                    [sys.executable, "-c", "import os; print(os.environ.get('RAY_DATA_LOG_LEVEL', 'unset'))"],
+                    text=True,
+                ).strip()
+            )
+            os.environ["RAY_ADDRESS"] = "127.0.0.1:6379"
+            if fail_start:
+                msg = "Startup failed"
+                raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError, match="Startup failed") if fail_start else nullcontext():
+        _start_ray_client_with_log_level(Client(), entry_level)
+
+    assert observed == [entry_level or parent_level or "unset"]
+    assert os.environ.get("RAY_DATA_LOG_LEVEL") == parent_level
+    if not fail_start:
+        assert os.environ["RAY_ADDRESS"] == "127.0.0.1:6379"

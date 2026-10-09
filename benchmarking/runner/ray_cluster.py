@@ -45,6 +45,21 @@ def _wait_for_ray_cleanup() -> None:
         logger.info(f"SHM usage after cleanup wait: {shm['summary']}")
 
 
+def _start_ray_client_with_log_level(client: RayClient, log_level: str | None) -> None:
+    """Let child processes inherit the entry log level without changing subsequent entries."""
+    previous_level = os.environ.get("RAY_DATA_LOG_LEVEL")
+    if log_level is not None:
+        os.environ["RAY_DATA_LOG_LEVEL"] = log_level
+    try:
+        client.start()
+    finally:
+        if log_level is not None:
+            if previous_level is None:
+                os.environ.pop("RAY_DATA_LOG_LEVEL", None)
+            else:
+                os.environ["RAY_DATA_LOG_LEVEL"] = previous_level
+
+
 def setup_ray_cluster_and_env(  # noqa: PLR0913
     num_cpus: int,
     num_gpus: int,
@@ -52,8 +67,13 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     ray_log_path: Path,
     object_store_size: int | None = None,
     include_dashboard: bool = True,
+    ray_data_log_level: str | None = None,
 ) -> tuple[RayClient, Path]:
-    """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
+    """Start Ray with the entry's Ray Data log level inherited by cluster processes.
+
+    Restore the runner's logging environment after startup, leaving RAY_ADDRESS
+    available for the benchmark subprocess. Return the client and temp directory.
+    """
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
@@ -94,7 +114,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
         )
 
         try:
-            client.start()
+            _start_ray_client_with_log_level(client, ray_data_log_level)
             _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
             responsive = True
         except Exception:

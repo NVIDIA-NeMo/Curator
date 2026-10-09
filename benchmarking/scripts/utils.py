@@ -30,6 +30,7 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, parse_bytes_string_to_int
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
@@ -96,17 +97,21 @@ def load_dataset_files(
     return subset_files
 
 
-def write_benchmark_results(results: dict, output_path: str | Path) -> None:
+def write_benchmark_results(results: dict, output_path: str | Path, *, save_tasks: bool = True) -> None:
     """Write benchmark results (params, metrics, tasks) to the appropriate files in the output directory.
 
     - Writes 'params.json' and 'metrics.json' (merging with existing file contents if present and updating values).
-    - Writes 'tasks.pkl' as a pickle file if present in results.
+    - Aggregates task statistics into metrics.json when tasks are provided.
+    - Writes 'tasks.pkl' when save_tasks is true (the default).
     - The output directory is created if it does not exist.
 
     Typically used by benchmark scripts to persist results in the format expected by the benchmarking framework.
     """
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
+    metrics = dict(results.get("metrics", {}))
+    if "tasks" in results:
+        metrics.update(TaskPerfUtils.aggregate_task_metrics(results["tasks"], prefix="task"))
     if "params" in results:
         params_path = output_path / "params.json"
         params_data = {}
@@ -114,15 +119,19 @@ def write_benchmark_results(results: dict, output_path: str | Path) -> None:
             params_data = json.loads(params_path.read_text())
         params_data.update(results["params"])
         params_path.write_text(json.dumps(params_data, default=convert_paths_to_strings, indent=2))
-    if "metrics" in results:
+    if "metrics" in results or "tasks" in results:
         metrics_path = output_path / "metrics.json"
         metrics_data = {}
         if metrics_path.exists():
             metrics_data = json.loads(metrics_path.read_text())
-        metrics_data.update(results["metrics"])
+        metrics_data.update(metrics)
         metrics_path.write_text(json.dumps(metrics_data, default=convert_paths_to_strings, indent=2))
-    if "tasks" in results:
-        (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+    tasks_path = output_path / "tasks.pkl"
+    if "tasks" in results and save_tasks:
+        tasks_path.write_bytes(pickle.dumps(results["tasks"]))
+    else:
+        # A reused output directory must not expose tasks from an earlier run.
+        tasks_path.unlink(missing_ok=True)
 
 
 def _collect_file_size_metrics(output_path: Path, extensions: list[str]) -> tuple[list[str], int, int]:

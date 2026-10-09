@@ -160,6 +160,9 @@ max_timeout_s: 14340
 cleanup_timeout_s: 60
 min_timeout_s: 600
 
+# Retain aggregate task metrics without serializing task payloads; entries may opt in.
+save_tasks: false
+
 environment:
   # Ray Data defaults to DEBUG file logging, which produces large per-entry logs.
   RAY_DATA_LOG_LEVEL: INFO
