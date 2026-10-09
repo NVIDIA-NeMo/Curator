@@ -44,7 +44,8 @@ def get_word_splitter(language: str) -> Callable[[str], list[str]]:
         import jieba
 
         def jieba_splitter(text: str) -> list[str]:
-            return list(jieba.cut(text))
+            # Jieba returns the whitespace between words as tokens, so drop them like str.split() does
+            return [word for word in jieba.cut(text) if word.strip()]
 
         return jieba_splitter
 

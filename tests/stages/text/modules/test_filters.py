@@ -505,6 +505,18 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_symbolswords_zh_with_spaces(self) -> None:
+        dataset = list_to_dataset(["我用 Python 写代码。", "... ... 标题"])
+        filters = ScoreFilter(SymbolsToWordsFilter(lang="zh"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["我用 Python 写代码。"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_numbers(self) -> None:
         dataset = list_to_dataset(["purely letters", "34134543", "$!@$@!$!@", "abcdefghi1"])
         filters = ScoreFilter(NumbersFilter(max_number_to_text_ratio=0.1))
@@ -680,6 +692,19 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["你好。", "我喜欢学习中文。"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_wordcount_zh_ignores_spaces(self) -> None:
+        # 5 words: 我用 / Python / 写 / 代码 / 。, the two spaces are not words
+        dataset = list_to_dataset(["我用 Python 写代码。"])
+        filters = ScoreFilter(WordCountFilter(min_words=2, max_words=5, lang="zh"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["我用 Python 写代码。"]}),
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
