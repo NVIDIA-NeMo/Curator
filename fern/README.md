@@ -210,7 +210,7 @@ PRs that touch `fern/**` get a preview after their current head is approved and 
 
 Preview navigation, components, organization and tooling come from `main`; PRs supply only documentation content and assets. Existing unchanged trusted symlinks (such as `versions/latest.yml`) are allowed; new or retargeted PR symlinks are rejected. Explicit page/asset deletions relative to the PR merge base are applied, while pages added only on newer `main` remain available. Navigation changes are not previewed until they land on `main`; deleting a still-referenced page can therefore fail the build rather than silently showing its old content.
 
-Fern CLI **5.123.0** is pinned in workflow code with `FERN_NO_VERSION_REDIRECTION=true`. Preview token access is limited to library generation and publication. The comment URL must match the exact expected Fern preview host; no authenticated page-link request is made. Reverting all docs changes removes existing bot preview comments without publishing or accessing the Fern token.
+Fern CLI **5.149.0** is pinned in workflow code with `FERN_NO_VERSION_REDIRECTION=true`. Preview token access is limited to library generation and publication. The comment URL must match the exact expected Fern preview host; no authenticated page-link request is made. Reverting all docs changes removes existing bot preview comments without publishing or accessing the Fern token.
 
 ### Publishing to production
 
