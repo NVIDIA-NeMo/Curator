@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 import pytest
 
-from nemo_curator.core.serve import RayServeModelConfig
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
 
-LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
+pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed")
 
 
 class TestRayServeBackend:
@@ -36,7 +38,6 @@ class TestRayServeBackend:
         quiet_env = RayServeBackend._quiet_runtime_env()
         result = RayServeBackend._to_llm_config(model, quiet_runtime_env=quiet_env)
 
-        assert isinstance(result, LLMConfig)
         assert result.model_loading_config.model_id == "gemma-27b"
         assert result.model_loading_config.model_source == "google/gemma-3-27b-it"
         assert result.deployment_config == {"autoscaling_config": {"min_replicas": 1}}
@@ -45,3 +46,27 @@ class TestRayServeBackend:
         assert result.runtime_env["env_vars"]["MY_VAR"] == "1"
         assert result.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "WARNING"
         assert result.runtime_env["env_vars"]["RAY_SERVE_LOG_TO_STDERR"] == "0"
+
+    def test_deploy_submits_without_waiting_and_shares_startup_deadline(self) -> None:
+        server = InferenceServer(models=[RayServeModelConfig(model_identifier="model")], verbose=True)
+        backend = RayServeBackend(server)
+
+        with (
+            mock.patch("ray.serve.start"),
+            mock.patch("ray.serve.run_many") as run_many,
+            mock.patch("ray.serve.RunTarget", side_effect=lambda **kwargs: kwargs),
+            mock.patch("ray.serve.llm.build_openai_app", return_value="app"),
+            mock.patch("nemo_curator.core.serve.ray_serve.backend.get_free_port", return_value=9000),
+            mock.patch("nemo_curator.core.serve.ray_serve.backend.time.monotonic", return_value=100.0),
+            mock.patch.object(backend, "_to_llm_config", return_value="config"),
+            mock.patch.object(server, "_wait_for_healthy") as wait_for_healthy,
+        ):
+            backend._deploy()
+
+        run_many.assert_called_once_with(
+            [{"target": "app", "name": server.name, "logging_config": None}],
+            blocking=False,
+            wait_for_ingress_deployment_creation=False,
+            wait_for_applications_running=False,
+        )
+        wait_for_healthy.assert_called_once_with(deadline=100.0 + server.health_check_timeout_s)

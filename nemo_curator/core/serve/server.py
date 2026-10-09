@@ -126,11 +126,12 @@ class InferenceServer:
         """OpenAI-compatible base URL for the served models."""
         return f"http://{self._host}:{self.port}/v1"
 
-    def _wait_for_healthy(self) -> None:
+    def _wait_for_healthy(self, *, deadline: float | None = None) -> None:
         """Poll ``/v1/models`` until all expected models appear in the response."""
         expected = {model.resolved_model_name for model in self.models}
         models_url = f"{self.endpoint}/models"
-        deadline = time.monotonic() + self.health_check_timeout_s
+        if deadline is None:
+            deadline = time.monotonic() + self.health_check_timeout_s
         attempt = 0
         while time.monotonic() < deadline:
             attempt += 1
