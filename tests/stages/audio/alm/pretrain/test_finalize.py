@@ -320,6 +320,79 @@ class TestPrepareAndFinalize:
         assert "missing_audio" not in summary["dropped"]
         assert summary["num_output_snippets"] == 1
 
+    def test_finalize_rebuilds_metrics_with_custom_manifest_keys(self, tmp_path: Path) -> None:
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+        sid = "X-0_000-1_000"
+        missing_sid = "Y-0_000-2_000"
+
+        ms = _make_shard_path(manifest, "jsonl")
+        rows = [
+            {
+                "source_id": 0,
+                "snippet_id": sid,
+                "audio_filepath": f"{sid}.flac",
+                "clip_duration": 1.25,
+                "turns": [{"start": 0.0, "end": 1.25, "text": "x"}],
+            },
+            {
+                "source_id": "Y",
+                "snippet_id": missing_sid,
+                "audio_filepath": f"{missing_sid}.flac",
+                "clip_duration": 2.0,
+                "turns": [{"start": 0.0, "end": 1.0}, {"start": 1.0, "end": 2.0}],
+            },
+        ]
+        Path(ms).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        metric_shard = _make_shard_path(metrics, "jsonl")
+        metric_rows = [
+            {
+                "id": 0,
+                "in_segments": 1,
+                "in_duration_sec": 1.25,
+                "dropped": {},
+                "is_stub": False,
+                "out_segments": 1,
+                "out_duration_sec": 1.25,
+            },
+            {
+                "id": "Y",
+                "in_segments": 2,
+                "in_duration_sec": 2.0,
+                "dropped": {},
+                "is_stub": False,
+                "out_segments": 2,
+                "out_duration_sec": 2.0,
+            },
+        ]
+        Path(metric_shard).write_text("".join(json.dumps(row) + "\n" for row in metric_rows), encoding="utf-8")
+        tar_shard = _make_shard_path(tar_path, "tar")
+        flac_buf = io.BytesIO()
+        sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")
+        payload = flac_buf.getvalue()
+        with tarfile.open(tar_shard, "w") as archive:
+            info = tarfile.TarInfo(name=f"{sid}.flac")
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+
+        finalize_audio_pretrain_outputs(
+            manifest,
+            metrics,
+            tar_path,
+            id_key="source_id",
+            segments_key="turns",
+            duration_key="clip_duration",
+        )
+
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        assert summary["dropped"]["missing_audio"] == 1
+        assert summary["num_output_snippets"] == 1
+        assert summary["output_total_segments"] == 1
+        assert summary["output_total_duration_sec"] == 1.25
+        assert next(entry for entry in summary["per_original"] if entry["id"] == "0")["out_snippets"] == 1
+        assert next(entry for entry in summary["per_original"] if entry["id"] == "Y")["out_snippets"] == 0
+
     def test_finalize_drops_manifest_rows_with_unreadable_audio(self, tmp_path: Path) -> None:
         """Manifest reconciliation: rows whose tar member fails the audio
         header/duration check get dropped (e.g. truncated payload from a
