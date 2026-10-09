@@ -12,12 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
+import json
+import os
+import shutil
+import stat
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+import numpy as np
 import pytest
+import soundfile as sf
+import torch
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._residency import resolve_audio
 
 import nemo_curator.stages.audio.tagging.resample_audio as resample_audio_module
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
@@ -54,6 +68,99 @@ class TestResampleAudioStage:
             assert out.get("resampled_audio_filepath") == f"{tmpdir}/id_1.wav"
             assert out.get("duration") == 60.0
 
+    def test_a_file_input_uses_a_collision_resistant_path_derived_name(self, audio_filepath: Path) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stage = ResampleAudioStage(resampled_audio_dir=tmpdir)
+            stage.setup()
+            stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(audio_filepath)}))
+
+            path_hash = hashlib.sha256(str(audio_filepath).encode()).hexdigest()[:32]
+            assert os.listdir(tmpdir) == [f"{audio_filepath.stem}_{path_hash}.wav"]
+
+    def test_two_paths_sharing_a_stem_get_distinct_output_stems(self, tmp_path: Path) -> None:
+        """The collision-resistant suffix remains path-derived for files sharing a basename."""
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+        stems = set()
+        for parent in ("a", "b"):
+            local_audio_path = str(tmp_path / parent / "clip.wav")
+            stem = stage._item_id(local_audio_path, from_scratch_file=False, source=None)
+            assert stem.startswith("clip_")
+            assert len(stem.split("_")[-1]) == 32
+            stems.add(stem)
+        assert len(stems) == 2, "distinct paths with the same basename stem collided onto one stem"
+
+    def test_a_waveform_input_writes_one_file_however_often_it_is_rerun(self) -> None:
+        waveform = torch.sin(torch.arange(0, 16000 * 2) * 0.01).unsqueeze(0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for _ in range(3):
+                stage = ResampleAudioStage(resampled_audio_dir=tmpdir, input_residency="waveform")
+                stage.setup()
+                stage.process(
+                    AudioTask(
+                        task_id="t",
+                        dataset_name="d",
+                        data={"waveform": waveform.clone(), "sample_rate": 16000},
+                    )
+                )
+
+            assert len(os.listdir(tmpdir)) == 1, "the same audio must not pile up a file per run"
+
+    def test_changing_the_target_rate_does_not_reuse_the_old_conversion(self) -> None:
+        """The name carries the settings, so 'it already exists, skip it' cannot serve 48 kHz for 16."""
+        waveform = torch.sin(torch.arange(0, 16000 * 2) * 0.01).unsqueeze(0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for rate in (16000, 8000):
+                stage = ResampleAudioStage(
+                    resampled_audio_dir=tmpdir, input_residency="waveform", target_sample_rate=rate
+                )
+                stage.setup()
+                stage.process(
+                    AudioTask(
+                        task_id="t",
+                        dataset_name="d",
+                        data={"waveform": waveform.clone(), "sample_rate": 16000},
+                    )
+                )
+
+            assert len(os.listdir(tmpdir)) == 2, "a different target rate must not answer from the old file"
+
+    def test_a_second_run_at_a_new_rate_does_not_serve_the_old_file(self) -> None:
+        import numpy as np
+        import soundfile
+
+        with tempfile.TemporaryDirectory() as srcdir, tempfile.TemporaryDirectory() as out:
+            src = os.path.join(srcdir, "a.wav")
+            soundfile.write(src, np.sin(np.arange(48000) * 0.01).astype("float32"), 48000)
+
+            for rate in (16000, 8000):
+                stage = ResampleAudioStage(resampled_audio_dir=out, write_to_disk=True, target_sample_rate=rate)
+                stage.setup()
+                stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": src}))
+
+                written = os.path.join(out, os.listdir(out)[0])
+                assert soundfile.info(written).samplerate == rate, "served audio at the previous run's rate"
+
+    def test_segments_sharing_a_parent_id_each_get_their_own_file(self) -> None:
+        waveform = torch.sin(torch.arange(0, 16000) * 0.01).unsqueeze(0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stage = ResampleAudioStage(resampled_audio_dir=tmpdir, input_residency="waveform")
+            stage.setup()
+            for segment in range(3):
+                stage.process(
+                    AudioTask(
+                        task_id="t",
+                        dataset_name="d",
+                        data={
+                            # What VAD hands every child: the parent's id, identical across siblings.
+                            "audio_item_id": "utt1",
+                            "waveform": (waveform * (segment + 1)).clone(),
+                            "sample_rate": 16000,
+                        },
+                    )
+                )
+
+            assert len(os.listdir(tmpdir)) == 3, "sibling segments collapsed onto one filename"
+
     def test_process_removes_partial_output_after_ffmpeg_failure(
         self,
         tmp_path: Path,
@@ -82,3 +189,614 @@ class TestResampleAudioStage:
         assert len(temporary_paths) == 1
         assert not temporary_paths[0].exists()
         assert not (tmp_path / "id_1.wav").exists()
+
+    def test_process_batch_accepts_every_advertised_residency(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_copy)
+        source = tmp_path / "source.wav"
+        sf.write(source, np.zeros(16000, dtype=np.float32), 16000)
+        waveform = torch.ones(1, 16000)
+        cases = [
+            ("file", {"audio_filepath": str(source)}),
+            ("waveform", {"waveform": waveform, "sample_rate": 16000}),
+            ("auto", {"audio_filepath": str(source)}),
+            ("auto", {"waveform": waveform, "sample_rate": 16000}),
+        ]
+
+        for index, (residency, data) in enumerate(cases):
+            stage = ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path / f"unused-{index}"),
+                input_residency=residency,
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+            )
+            result = stage.process_batch([AudioTask(dataset_name="d", data=dict(data))])
+            assert len(result) == 1
+            assert result[0].data["sample_rate"] == 16000
+
+    def test_process_batch_rejects_incomplete_residencies(self, tmp_path: Path) -> None:
+        waveform = torch.ones(1, 16)
+        cases = [
+            ("file", {}),
+            ("file", {"audio_filepath": None}),
+            ("waveform", {"waveform": waveform}),
+            ("waveform", {"sample_rate": 16000}),
+            ("waveform", {"waveform": None, "sample_rate": 16000}),
+            ("auto", {}),
+            ("auto", {"waveform": waveform}),
+        ]
+
+        for residency, data in cases:
+            stage = ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path / "unused"),
+                input_residency=residency,
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+            )
+            with pytest.raises(ValueError, match="failed validation"):
+                stage.process_batch([AudioTask(dataset_name="d", data=data)])
+
+    @pytest.mark.parametrize("write_to_disk", [False, True])
+    def test_output_cleanup_when_loading_converted_audio_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        write_to_disk: bool,
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_copy)
+        source = tmp_path / "source.wav"
+        sf.write(source, np.zeros(16000, dtype=np.float32), 16000)
+        attempted_outputs: list[str] = []
+
+        def fail_load(path: str, *, mono: bool) -> tuple[torch.Tensor, int]:
+            assert mono is False
+            attempted_outputs.append(path)
+            message = "cannot load converted output"
+            raise OSError(message)
+
+        monkeypatch.setattr(resample_audio_module, "load_audio_file", fail_load)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            write_to_disk=write_to_disk,
+            keep_waveform_in_task=True,
+        )
+
+        with pytest.raises(OSError, match="cannot load"):
+            stage.process(
+                AudioTask(
+                    dataset_name="d",
+                    data={"audio_filepath": str(source), "audio_item_id": "failure"},
+                )
+            )
+
+        assert len(attempted_outputs) == 1
+        assert os.path.exists(attempted_outputs[0]) is write_to_disk
+
+    def test_disk_only_conversion_removes_stale_resident_audio(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_convert)
+        source = tmp_path / "source.wav"
+        sf.write(source, np.zeros((8000, 2), dtype=np.float32), 8000)
+        task = AudioTask(
+            dataset_name="d",
+            data={
+                "audio_filepath": str(source),
+                "waveform": torch.stack([torch.zeros(8000), torch.ones(8000)]),
+                "sample_rate": 8000,
+            },
+        )
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="waveform",
+            target_sample_rate=16000,
+            target_nchannels=1,
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+            update_audio_filepath=True,
+        )
+
+        result = stage.process(task)
+
+        assert "waveform" not in result.data
+        assert "sample_rate" not in result.data
+        assert set(build_contract(stage).removes_keys) == {"waveform", "sample_rate"}
+        consumed = resolve_audio(result.data, residency="auto", mono=False)
+        assert consumed is not None
+        converted, sample_rate = consumed
+        assert sample_rate == 16000
+        assert tuple(converted.shape[:1]) == (1,)
+
+    def test_sink_contracts_and_static_gates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_copy)
+        source = tmp_path / "source.wav"
+        sf.write(source, np.zeros(16000, dtype=np.float32), 16000)
+
+        with pytest.raises(ValueError, match="keep_waveform_in_task or write_to_disk"):
+            ResampleAudioStage(resampled_audio_dir=str(tmp_path), write_to_disk=False)
+        with pytest.raises(ValueError, match="update_audio_filepath"):
+            ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path),
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+                update_audio_filepath=True,
+            )
+
+        supported = [
+            {"write_to_disk": True, "keep_waveform_in_task": False},
+            {"write_to_disk": False, "keep_waveform_in_task": True},
+            {"write_to_disk": True, "keep_waveform_in_task": True},
+            {
+                "write_to_disk": True,
+                "keep_waveform_in_task": False,
+                "update_audio_filepath": True,
+            },
+        ]
+        for index, config in enumerate(supported):
+            stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path / f"out-{index}"), **config)
+            assert_agent_ready(
+                stage,
+                lambda: AudioTask(dataset_name="d", data={"audio_filepath": str(source)}),
+                available_keys={"audio_filepath"},
+            )
+
+        replacement = build_contract(
+            ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path / "replacement"),
+                update_audio_filepath=True,
+            )
+        )
+        assert replacement.writes.data_keys.count("audio_filepath") == 1
+        assert [write.writes.data_keys for write in replacement.conditional_writes] == [["original_audio_filepath"]]
+
+        static = static_contract(ResampleAudioStage)
+        configured = build_contract(ResampleAudioStage(resampled_audio_dir=str(tmp_path / "configured")))
+        assert static.gates == configured.gates
+
+    def test_rejects_colliding_resident_audio_keys_without_restricting_legacy_aliases(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Audio input keys must be distinct"):
+            ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path),
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+                waveform_key="resident",
+                sample_rate_key="resident",
+            )
+
+        ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path),
+            audio_filepath_key="shared_path",
+            resampled_audio_filepath_key="shared_path",
+        )
+
+
+def _fake_ffmpeg_copy(cmd: list[str], **_: Any) -> SimpleNamespace:  # noqa: ANN401
+    """Stand in for the ffmpeg call by copying the source to the requested output."""
+    src = cmd[cmd.index("-i") + 1]
+    dst = cmd[-1]
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copyfile(src, dst)
+    return SimpleNamespace(returncode=0)
+
+
+def _fake_ffmpeg_convert(cmd: list[str], **_: Any) -> SimpleNamespace:  # noqa: ANN401
+    """Apply the requested rate/channel header changes without invoking FFmpeg."""
+    src = cmd[cmd.index("-i") + 1]
+    dst = cmd[-1]
+    target_rate = int(cmd[cmd.index("-ar") + 1])
+    target_channels = int(cmd[cmd.index("-ac") + 1])
+    samples, source_rate = sf.read(src, always_2d=True)
+    if target_channels == 1:
+        samples = samples.mean(axis=1, keepdims=True)
+    output_frames = round(len(samples) * target_rate / source_rate)
+    old_positions = np.linspace(0.0, 1.0, len(samples), endpoint=False)
+    new_positions = np.linspace(0.0, 1.0, output_frames, endpoint=False)
+    converted = np.stack(
+        [np.interp(new_positions, old_positions, samples[:, channel]) for channel in range(target_channels)],
+        axis=1,
+    )
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    sf.write(dst, converted, target_rate)
+    return SimpleNamespace(returncode=0)
+
+
+class TestSkippingExistingOutput:
+    """Re-running is idempotent on disk, but an in-memory run must never wrongly skip.
+
+    Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: it drives only
+    ResampleAudioStage, and counts ffmpeg invocations -- a property the naming tests above
+    do not cover, since they count output FILES rather than conversions.
+    """
+
+    def test_disk_output_is_converted_once_but_memory_output_every_time(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from nemo_curator.stages.audio.tagging import resample_audio as resample_module
+
+        calls = {"n": 0}
+
+        def counting_ffmpeg(cmd: list[str], **kwargs: Any) -> SimpleNamespace:  # noqa: ANN401
+            calls["n"] += 1
+            return _fake_ffmpeg_copy(cmd, **kwargs)
+
+        monkeypatch.setattr(resample_module.subprocess, "run", counting_ffmpeg)
+        source = tmp_path / "src.wav"
+        sf.write(source, torch.linspace(-0.25, 0.25, 16000).numpy(), 16000)
+
+        disk_stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="file",
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+        )
+
+        def disk_task() -> AudioTask:
+            return AudioTask(dataset_name="t", data={"audio_filepath": str(source), "audio_item_id": "fixed_id"})
+
+        disk_stage.process(disk_task())
+        assert calls["n"] == 1
+        disk_stage.process(disk_task())
+        assert calls["n"] == 1, "the output already exists on disk, so it must be skipped"
+
+        # write_to_disk=False writes to a fresh temp path each run, so it must always convert.
+        calls["n"] = 0
+        mem_stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "unused"),
+            input_residency="file",
+            write_to_disk=False,
+            keep_waveform_in_task=True,
+        )
+        for _ in range(2):
+            mem_stage.process(AudioTask(dataset_name="t", data={"audio_filepath": str(source), "audio_item_id": "m"}))
+        assert calls["n"] == 2, "an in-memory run has no durable output to skip"
+
+
+class TestResampleReviewFixes:
+    """Regressions for the PR #2339 re-review safety fixes."""
+
+    def test_constructor_rejects_unknown_residency(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="input_residency"):
+            ResampleAudioStage(resampled_audio_dir=str(tmp_path), input_residency="disk")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        ("sample_rate", "usable"),
+        [(0, False), (-16000, False), (True, False), (16000.5, False), (16000, True), (16000.0, True)],
+    )
+    def test_resident_sample_rate_is_validated(self, tmp_path: Path, sample_rate: object, usable: bool) -> None:
+        waveform = torch.ones(1, 16000)
+        for residency in ("waveform", "auto"):
+            stage = ResampleAudioStage(
+                resampled_audio_dir=str(tmp_path / "unused"),
+                input_residency=residency,
+                write_to_disk=False,
+                keep_waveform_in_task=True,
+            )
+            task = AudioTask(dataset_name="d", data={"waveform": waveform, "sample_rate": sample_rate})
+            assert stage.validate_input(task) is usable
+
+    def test_process_batch_rejects_fractional_resident_rate(self, tmp_path: Path) -> None:
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "unused"),
+            input_residency="waveform",
+            write_to_disk=False,
+            keep_waveform_in_task=True,
+        )
+        task = AudioTask(dataset_name="d", data={"waveform": torch.ones(1, 16), "sample_rate": 16000.5})
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([task])
+
+    def test_file_mode_preserves_a_preexisting_sample_rate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_convert)
+        source = tmp_path / "source.wav"
+        sf.write(source, np.zeros((8000, 1), dtype=np.float32), 8000)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="file",
+            target_sample_rate=16000,
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+        )
+        task = AudioTask(dataset_name="d", data={"audio_filepath": str(source), "sample_rate": 8000})
+        result = stage.process(task)
+        assert result.data.get("sample_rate") == 8000, "file-route conversion must not drop the row pair"
+        assert build_contract(stage).removes_keys == []
+
+    def test_resident_disk_only_still_drops_the_pair(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_convert)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="waveform",
+            target_sample_rate=16000,
+            target_nchannels=1,
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+        )
+        task = AudioTask(dataset_name="d", data={"waveform": torch.zeros(1, 8000), "sample_rate": 8000})
+        result = stage.process(task)
+        assert "waveform" not in result.data
+        assert "sample_rate" not in result.data
+        assert set(build_contract(stage).removes_keys) == {"waveform", "sample_rate"}
+
+    def test_default_outputs_match_the_pre_pr_public_tuple(self, tmp_path: Path) -> None:
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+        assert stage.outputs() == (
+            [],
+            ["audio_filepath", "audio_item_id", "resampled_audio_filepath", "duration"],
+        )
+
+    def test_legacy_positional_signature_still_binds(self) -> None:
+        stage = ResampleAudioStage(
+            "dir",
+            "flac",
+            48000,
+            "flac",
+            2,
+            "af_key",
+            "resampled_key",
+            "dur_key",
+            "item_key",
+            "LegacyName",
+        )
+        assert stage.resampled_audio_dir == "dir"
+        assert stage.input_format == "flac"
+        assert stage.target_sample_rate == 48000
+        assert stage.target_format == "flac"
+        assert stage.target_nchannels == 2
+        assert stage.audio_filepath_key == "af_key"
+        assert stage.resampled_audio_filepath_key == "resampled_key"
+        assert stage.duration_key == "dur_key"
+        assert stage.audio_item_id_key == "item_key"
+        assert stage.name == "LegacyName"
+
+
+class TestExistingOutputIsVerifiedBeforeReuse:
+    """A name hit plus a valid header is not proof the conversion is complete or even the same audio."""
+
+    def test_a_truncated_target_is_converted_again(self, tmp_path: Path) -> None:
+        source = tmp_path / "src.wav"
+        sf.write(source, np.sin(np.arange(32000) * 0.01).astype(np.float32), 16000)  # 2.0 s
+        out = tmp_path / "out"
+        stage = ResampleAudioStage(resampled_audio_dir=str(out), write_to_disk=True)
+        stage.setup_on_node()
+        stage.setup()
+
+        first = stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(source)}))
+        written = Path(first.data["resampled_audio_filepath"])
+        assert first.data["duration"] == pytest.approx(2.0, abs=0.01)
+
+        # A writer killed mid-copy leaves a header-valid stump at the advertised name.
+        written.write_bytes(written.read_bytes()[:1000])
+        assert sf.info(written).samplerate == 16000
+
+        second = stage.process(AudioTask(task_id="t", dataset_name="d", data={"audio_filepath": str(source)}))
+        assert second.data["duration"] == pytest.approx(2.0, abs=0.01), "the stump was served as a finished conversion"
+        assert sf.info(written).frames == pytest.approx(32000, abs=64)
+
+    def test_two_recordings_sharing_an_inherited_id_do_not_alias(self, tmp_path: Path) -> None:
+        one_second = tmp_path / "one.wav"
+        two_seconds = tmp_path / "two.wav"
+        sf.write(one_second, np.zeros(16000, dtype=np.float32), 16000)
+        sf.write(two_seconds, np.zeros(32000, dtype=np.float32), 16000)
+        out = tmp_path / "out"
+        stage = ResampleAudioStage(resampled_audio_dir=str(out), write_to_disk=True)
+        stage.setup_on_node()
+        stage.setup()
+
+        first = stage.process(
+            AudioTask(task_id="a", dataset_name="d", data={"audio_filepath": str(one_second), "audio_item_id": "utt"})
+        )
+        second = stage.process(
+            AudioTask(task_id="b", dataset_name="d", data={"audio_filepath": str(two_seconds), "audio_item_id": "utt"})
+        )
+
+        # The first keeps the legacy name; the second cannot take it over or be served the first.
+        assert Path(first.data["resampled_audio_filepath"]).name == "utt.wav"
+        assert first.data["resampled_audio_filepath"] != second.data["resampled_audio_filepath"]
+        assert first.data["duration"] == pytest.approx(1.0, abs=0.01)
+        assert second.data["duration"] == pytest.approx(2.0, abs=0.01)
+        assert sf.info(first.data["resampled_audio_filepath"]).frames == pytest.approx(16000, abs=64)
+        # The row keeps the id its producer gave it.
+        assert second.data["audio_item_id"] == "utt"
+
+    def test_independent_workers_do_not_reuse_equal_length_audio_for_shared_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", _fake_ffmpeg_copy)
+        first_source = tmp_path / "first.wav"
+        second_source = tmp_path / "second.wav"
+        sf.write(first_source, np.full(16000, 0.1, dtype=np.float32), 16000)
+        sf.write(second_source, np.full(16000, -0.1, dtype=np.float32), 16000)
+        output_dir = tmp_path / "out"
+        first_stage = ResampleAudioStage(resampled_audio_dir=str(output_dir), write_to_disk=True)
+        second_stage = ResampleAudioStage(resampled_audio_dir=str(output_dir), write_to_disk=True)
+
+        first = first_stage.process(AudioTask(data={"audio_filepath": str(first_source), "audio_item_id": "shared"}))
+        second = second_stage.process(
+            AudioTask(data={"audio_filepath": str(second_source), "audio_item_id": "shared"})
+        )
+
+        assert first.data["resampled_audio_filepath"] != second.data["resampled_audio_filepath"]
+        first_audio, _ = sf.read(first.data["resampled_audio_filepath"])
+        second_audio, _ = sf.read(second.data["resampled_audio_filepath"])
+        assert np.sign(first_audio.mean()) != np.sign(second_audio.mean())
+
+    def test_long_source_stem_is_bounded_before_extension(self, tmp_path: Path) -> None:
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path), target_format="wav")
+        item_id = stage._item_id(f"/dataset/{'a' * 240}.wav", from_scratch_file=False, source=None)
+
+        assert len(f"{item_id}.wav".encode()) <= 255
+        assert "~" in item_id
+
+    def test_known_legacy_path_digest_collision_gets_distinct_ids(self, tmp_path: Path) -> None:
+        first = "/dataset/spk25433/utt.wav"
+        second = "/dataset/spk158142/utt.wav"
+        assert hashlib.sha256(first.encode()).hexdigest()[:8] == hashlib.sha256(second.encode()).hexdigest()[:8]
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path))
+
+        first_id = stage._item_id(first, from_scratch_file=False, source=first)
+        second_id = stage._item_id(second, from_scratch_file=False, source=second)
+
+        assert first_id != second_id
+
+    def test_resident_scratch_is_cleaned_when_naming_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        created: list[str] = []
+        real_resolve = resample_audio_module.resolve_audio_path
+
+        def tracked_resolve(*args: object, **kwargs: object) -> str | None:
+            result = real_resolve(*args, **kwargs)
+            created.extend(kwargs["register_temp"])  # type: ignore[arg-type]
+            return result
+
+        monkeypatch.setattr(resample_audio_module, "resolve_audio_path", tracked_resolve)
+        stage = ResampleAudioStage(
+            resampled_audio_dir=str(tmp_path / "out"),
+            input_residency="waveform",
+        )
+        monkeypatch.setattr(stage, "_audio_digest", lambda _path: (_ for _ in ()).throw(RuntimeError("digest")))
+
+        with pytest.raises(RuntimeError, match="digest"):
+            stage.process(
+                AudioTask(
+                    dataset_name="d",
+                    data={"waveform": torch.zeros(1, 8), "sample_rate": 8000},
+                )
+            )
+
+        assert created
+        assert all(not Path(path).exists() for path in created)
+
+
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+@pytest.mark.parametrize("resident", [False, True])
+@pytest.mark.parametrize("top_level", [False, True])
+def test_batch_retains_subclass_requirements(
+    tmp_path: Path,
+    residency: str,
+    resident: bool,
+    top_level: bool,
+) -> None:
+    class TenantResampler(ResampleAudioStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            attrs, keys = super().inputs()
+            if top_level:
+                return [*attrs, "tenant_id"], keys
+            return attrs, [*keys, "tenant_id"]
+
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    stage = TenantResampler(str(tmp_path), input_residency=residency)
+    data = {"audio_filepath": "source.wav"}
+    if resident or residency == "waveform":
+        data.update(waveform=torch.ones(1, 8), sample_rate=8000)
+    if residency == "waveform" or (residency == "auto" and resident):
+        data.pop("audio_filepath")
+    task = AudioTask(data=data)
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    if top_level:
+        task.tenant_id = "tenant"
+    else:
+        task.data["tenant_id"] = "tenant"
+    assert stage.process_batch([task]) == [task]
+
+
+@pytest.mark.parametrize("sample_rate", [None, 0, -1, True, 16000.5])
+def test_auto_file_fallback_removes_partial_resident_audio(
+    tmp_path: Path,
+    sample_rate: object,
+) -> None:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg is required for the real file-fallback boundary")
+    source = tmp_path / "source.wav"
+    sf.write(source, np.zeros((800, 1), dtype=np.float32), 8000)
+    data = {"audio_filepath": str(source), "waveform": torch.ones(1, 8)}
+    if sample_rate is not None:
+        data["sample_rate"] = sample_rate
+    stage = ResampleAudioStage(str(tmp_path / "out"), input_residency="auto")
+    result = stage.process_batch([AudioTask(data=data)])[0]
+    assert "waveform" not in result.data
+    assert "sample_rate" not in result.data
+    json.dumps(dict(result.data))
+    assert Path(result.data["resampled_audio_filepath"]).is_file()
+
+
+def test_output_claims_are_excluded_from_independent_reuse(tmp_path: Path) -> None:
+    alone = ResampleAudioStage(str(tmp_path / "alone"))
+    cohort = ResampleAudioStage(str(tmp_path / "cohort"))
+    first = alone._claim_inherited_stem("shared", "/source/x.wav")
+    cohort._claim_inherited_stem("shared", "/source/y.wav")
+    later = cohort._claim_inherited_stem("shared", "/source/x.wav")
+    assert first != later
+    assert not build_contract(alone).gates.per_row_independent
+    assert not build_contract(cohort).gates.per_row_independent
+    memory_only = ResampleAudioStage(str(tmp_path), write_to_disk=False, keep_waveform_in_task=True)
+    assert build_contract(memory_only).gates.per_row_independent
+
+
+@pytest.mark.parametrize("resident_key", ["waveform_key", "sample_rate_key"])
+@pytest.mark.parametrize("metadata_key", ["duration", "audio_item_id", "audio_filepath", "resampled_audio_filepath"])
+def test_resident_keys_cannot_alias_metadata(tmp_path, resident_key: str, metadata_key: str) -> None:  # noqa: ANN001
+    with pytest.raises(ValueError, match="metadata and path"):
+        ResampleAudioStage(
+            str(tmp_path), **{resident_key: metadata_key}, keep_waveform_in_task=True, write_to_disk=False
+        )
+
+
+def test_inactive_resident_alias_and_legacy_in_place_path_remain_supported(tmp_path) -> None:  # noqa: ANN001
+    ResampleAudioStage(str(tmp_path), waveform_key="duration", audio_filepath_key="resampled_audio_filepath")
+
+
+@pytest.mark.parametrize("stem", ["a" * 190, "é" * 95, "a" * 250, "é" * 125])
+def test_real_conversion_bounds_staging_name(tmp_path: Path, stem: str) -> None:
+    source = tmp_path / f"{stem}.wav"
+    sf.write(source, np.zeros(16000, dtype=np.float32), 16000)
+    destination = tmp_path / "converted"
+    stage = ResampleAudioStage(str(destination))
+    stage.setup_on_node()
+    result = stage.process_batch([AudioTask(data={"audio_filepath": str(source)})])
+    final = Path(result[0].data[stage.resampled_audio_filepath_key])
+    assert final.is_file()
+    assert len(final.name.encode()) <= 255
+    assert sf.info(final).frames == 16000
+    assert stat.S_IMODE(final.stat().st_mode) == stat.S_IMODE(source.stat().st_mode)
+    assert list(destination.iterdir()) == [final]
+
+
+def test_memory_only_lifecycle_avoids_durable_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    resolve_fs = resample_audio_module.url_to_fs
+
+    def forbidden_destination(path: str) -> tuple[Any, str]:
+        assert path != str(tmp_path / "unused")
+        return resolve_fs(path)
+
+    monkeypatch.setattr(resample_audio_module, "url_to_fs", forbidden_destination)
+    stage = ResampleAudioStage(
+        str(tmp_path / "unused"), write_to_disk=False, keep_waveform_in_task=True, input_residency="waveform"
+    )
+    stage.setup_on_node()
+    assert stage.describe().gates.output_path_params == []
+    assert stage.describe().gates.requires_ffmpeg
+    output = stage.process_batch(
+        [AudioTask(data={stage.waveform_key: np.zeros(16000, dtype=np.float32), "sample_rate": 16000})]
+    )
+    assert len(output) == 1
+    assert output[0].data[stage.sample_rate_key] == 16000
+    assert not (tmp_path / "unused").exists()
+
+
+def test_resident_output_identity_ignores_container_timestamp(tmp_path: Path) -> None:
+    waveform = np.linspace(-0.5, 0.5, 16000, dtype=np.float32)
+    identifiers = []
+    for _ in range(2):
+        stage = ResampleAudioStage(str(tmp_path), input_residency="waveform")
+        task = stage.process(AudioTask(data={"waveform": waveform.copy(), "sample_rate": 16000}))
+        identifiers.append(task.data[stage.audio_item_id_key])
+        time.sleep(1.1)
+    assert identifiers[0] == identifiers[1]
+    assert len(list(tmp_path.iterdir())) == 1

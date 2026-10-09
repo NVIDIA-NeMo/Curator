@@ -16,9 +16,17 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
+
+from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
+from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -190,7 +198,7 @@ def test_prepare_module_segments_stage_sdp_style_input(
         max_pause=2,
         text_key="text",
         words_key="words",
-        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001
+        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001 - fullwidth CJK punctuation is the test input
         full_utterance_ratio=1.0,
         punctuation_split_only=False,
     )
@@ -253,3 +261,246 @@ class TestPerEntryRandomSeed:
 
         assert len(seeds_used) == 2
         assert seeds_used[0] == seeds_used[1], "Same entry must always get the same seed"
+
+
+class TestPrepareModuleSegmentsReviewFixes:
+    """Regressions for the PR #2339 re-review safety fixes."""
+
+    def test_renamed_alignment_key_is_read_and_wordless_rows_match_default_keys(self) -> None:
+        # The renamed-key chain must produce exactly what the default-key chain produces:
+        # words under ``my_alignment`` are consumed, and a row with no aligned words leaves
+        # with ``segments == []`` (the pre-conversion behaviour) rather than keeping the raw
+        # diarization turns, which are neither split nor scored.
+        words = [
+            {"word": "hello", "start": 0.2, "end": 0.6},
+            {"word": "world.", "start": 0.7, "end": 1.1},
+        ]
+        renamed = PrepareModuleSegmentsStage(
+            module="tts", alignment_key="my_alignment", overlap_segments_key="my_overlap"
+        )
+        default = PrepareModuleSegmentsStage(module="tts")
+        renamed_entry = {
+            "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
+            "duration": 3.0,
+            "my_alignment": words,
+        }
+        default_entry = {
+            "segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}],
+            "duration": 3.0,
+            "alignment": words,
+        }
+        renamed_result = renamed.process(AudioTask(data=renamed_entry)).data["segments"]
+        default_result = default.process(AudioTask(data=default_entry)).data["segments"]
+        assert renamed_result, "words under the configured alignment_key must be consumed"
+        assert renamed_result == default_result
+
+        wordless = renamed.process(
+            AudioTask(data={"segments": [{"speaker": "speaker1", "start": 0.0, "end": 3.0}], "duration": 3.0})
+        )
+        assert wordless.data["segments"] == [], "a row with no aligned words leaves with an empty prepared list"
+
+    def test_all_rejected_segments_yield_an_empty_list_not_the_raw_input(self) -> None:
+        # One 25 s word with max_duration=20: nothing survives preparation, so the output must
+        # be ``[]`` -- the raw diarization turn (and the synthetic no-speaker turn) must not
+        # pass through as if it were a prepared segment.
+        stage = PrepareModuleSegmentsStage(module="tts", max_duration=20.0)
+        entry = {
+            "segments": [{"speaker": "spk0", "start": 0.0, "end": 25.0}],
+            "duration": 25.0,
+            "alignment": [{"word": "loooong.", "start": 0.0, "end": 25.0}],
+        }
+        assert stage.process(AudioTask(data=entry)).data["segments"] == []
+
+    def test_renamed_identity_key_yields_distinct_seeds(self) -> None:
+        stage = PrepareModuleSegmentsStage(module="asr", audio_filepath_key="my_path")
+        seeds_used: list[int] = []
+        orig_seed = stage._rng.seed
+
+        def capture_seed(s: int) -> None:
+            seeds_used.append(s)
+            orig_seed(s)
+
+        with patch.object(stage._rng, "seed", side_effect=capture_seed):
+            stage.process(AudioTask(data={"my_path": "file_a.wav", "segments": []}))
+            stage.process(AudioTask(data={"my_path": "file_b.wav", "segments": []}))
+
+        assert len(seeds_used) == 2
+        assert seeds_used[0] != seeds_used[1], "distinct renamed identity values must seed differently"
+
+    def test_legacy_positional_signature_still_binds(self) -> None:
+        stage = PrepareModuleSegmentsStage("asr", 3.0, 25.0, 1.5, "t", "w", ".", 0.5, True, "MyName")
+        assert stage.module == "asr"
+        assert stage.min_duration == 3.0
+        assert stage.max_duration == 25.0
+        assert stage.max_pause == 1.5
+        assert stage.text_key == "t"
+        assert stage.words_key == "w"
+        assert stage.terminal_punct_marks == "."
+        assert stage.full_utterance_ratio == 0.5
+        assert stage.punctuation_split_only is True
+        assert stage.name == "MyName"
+
+
+def test_prepare_module_segments_is_agent_ready() -> None:
+    """Conformance: contract shape/roles/serialization hold and declared writes appear at runtime."""
+    stage = PrepareModuleSegmentsStage(module="tts", min_duration=1.0, max_duration=20.0)
+
+    def fixture() -> AudioTask:
+        return AudioTask(
+            data={
+                "segments": [
+                    {
+                        "speaker": "s1",
+                        "start": 0.0,
+                        "end": 3.0,
+                        "text": "hi there",
+                        "words": [
+                            {"word": "hi", "start": 0.0, "end": 1.0, "speaker": "s1"},
+                            {"word": "there", "start": 1.0, "end": 2.5, "speaker": "s1"},
+                        ],
+                    }
+                ],
+                "overlap_segments": [],
+                "duration": 3.0,
+            }
+        )
+
+    contract = assert_agent_ready(stage, fixture, available_keys={"segments", "duration"})
+    assert contract.reads.data_keys == ["segments", "duration"]
+    assert contract.writes.data_keys == ["segments"]
+    assert set(contract.optional_reads.data_keys) == {
+        "alignment",
+        "overlap_segments",
+        "audio_filepath",
+        "audio_item_id",
+    }
+
+
+@pytest.mark.parametrize("metrics_key", ["text", "words"])
+def test_remapped_metrics_cannot_overwrite_text_or_words(metrics_key: str) -> None:
+    with pytest.raises(ValueError, match="Remapped metrics_key must be distinct"):
+        PrepareModuleSegmentsStage(metrics_key=metrics_key)
+
+
+@pytest.mark.parametrize(("text_key", "words_key"), [("metrics", "words"), ("text", "metrics")])
+def test_fixed_legacy_metrics_alias_remains_constructible(text_key: str, words_key: str) -> None:
+    PrepareModuleSegmentsStage(text_key=text_key, words_key=words_key)
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_prepared_text_routes_into_normalization(populated: bool) -> None:
+    stage = PrepareModuleSegmentsStage(
+        module="tts", min_duration=0.1, text_key="transcript", words_key="tokens", metrics_key="scores"
+    )
+    normalization = ChineseConversionStage(text_key="transcript")
+
+    class NormalizedTextConsumer(AgentReady, ProcessingStage):
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+        def describe(self) -> StageContract:
+            return StageContract(
+                reads=IOSpec(segment_data_keys=["transcript_simplified"]),
+                key_roles={"transcript_simplified": "text"},
+            )
+
+    report = validate_pipeline(
+        [stage, normalization, NormalizedTextConsumer()],
+        initial_keys={"segments", "duration", "alignment"},
+        initial_roles={"segments", "duration", "alignment"},
+        initial_segment_keys=set(),
+        initial_task_type="AudioTask",
+    )
+    assert report.ok
+    assert report.keys_ok
+    assert any(issue.code == "conditional_read" for issue in report.issues)
+    assert "transcript_simplified" not in report.produced_keys
+
+    alignment = (
+        [
+            {"word": "漢字", "start": 0.1, "end": 0.5},
+            {"word": "測試。", "start": 0.7, "end": 1.1},
+        ]
+        if populated
+        else []
+    )
+    task = AudioTask(
+        data={"segments": [{"speaker": "s1", "start": 0.0, "end": 3.0}], "duration": 3.0, "alignment": alignment}
+    )
+    contract = assert_agent_ready(stage, lambda: task, available_keys={"segments", "duration", "alignment"})
+    assert contract.writes.segment_data_keys == []
+    normalization.setup()
+    normalization.process_batch([task])
+    if populated:
+        segment = task.data["segments"][0]
+        assert segment["transcript_simplified"] == "汉字 测试。"
+        assert segment["transcript"] == "漢字 測試。"
+        assert isinstance(segment["tokens"], list)
+        assert isinstance(segment["scores"], dict)
+        assert "metrics" not in segment
+    else:
+        assert task.data["segments"] == []
+
+
+@pytest.mark.parametrize("policy", ["error", "drop"])
+def test_prepare_replaces_child_scores_without_losing_parent_keys(policy: str) -> None:
+    prepare = PrepareModuleSegmentsStage(module="tts", min_duration=0.1, max_duration=20)
+    selector = PreserveByValueConditionsStage(
+        items_key="segments",
+        conditions={"score": {"operator": "ge", "target_value": 0.5}},
+        missing_value_policy=policy,
+    )
+    task = AudioTask(
+        data={
+            "duration": 3.0,
+            "score": 0.8,
+            "segments": [
+                {
+                    "speaker": "s1",
+                    "start": 0.0,
+                    "end": 3.0,
+                    "score": 0.9,
+                    "text": "hello there",
+                    "words": [
+                        {"word": "hello", "start": 0.0, "end": 1.0},
+                        {"word": "there", "start": 1.0, "end": 2.5},
+                    ],
+                }
+            ],
+        }
+    )
+    report = validate_pipeline(
+        [prepare, selector], initial_keys=set(task.data), initial_segment_keys={"score"}, initial_task_type="AudioTask"
+    )
+    if policy == "error":
+        assert not report.ok
+        assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
+    else:
+        assert report.ok
+    strict_selector = PreserveByValueConditionsStage(
+        items_key="segments", conditions={"score": {"operator": "ge", "target_value": 0.5}}
+    )
+    assert not validate_pipeline(
+        [prepare, strict_selector], initial_keys=set(task.data), initial_segment_keys={"score"}
+    ).ok
+    parent_selector = PreserveByValueConditionsStage(conditions={"score": {"operator": "ge", "target_value": 0.5}})
+    assert validate_pipeline([prepare, parent_selector], initial_keys=set(task.data)).ok
+    prepared = prepare.process(task)
+    assert prepared.data["score"] == 0.8
+    assert prepared.data["segments"]
+    assert "score" not in prepared.data["segments"][0]
+    boundary_selector = PreserveByValueConditionsStage(
+        items_key="segments",
+        conditions={
+            "start": {"operator": "ge", "target_value": 0},
+            "end": {"operator": "le", "target_value": 3},
+            "speaker": {"operator": "eq", "target_value": "s1"},
+        },
+    )
+    assert validate_pipeline([prepare, boundary_selector], initial_keys=set(task.data)).ok
+    assert boundary_selector.process_batch([prepared]) == [prepared]
+    if policy == "error":
+        with pytest.raises(ValueError, match="score"):
+            selector.process_batch([prepared])
+    else:
+        assert selector.process_batch([prepared]) == []

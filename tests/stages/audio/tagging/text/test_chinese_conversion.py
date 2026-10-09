@@ -21,49 +21,55 @@ from nemo_curator.stages.audio._agent._agent_registry import build_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
-from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
+from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
-class TestInverseTextNormalizationStage:
-    """Tests for InverseTextNormalizationStage."""
-
-    def test_process(self, audio_task: Callable[..., AudioTask]) -> None:
-        stage = InverseTextNormalizationStage(language="en", text_key="text")
+class TestChineseConversionStage:
+    def test_converts_traditional_to_simplified(self, audio_task: Callable[..., AudioTask]) -> None:
+        stage = ChineseConversionStage(text_key="text", convert_type="t2s")
         stage.setup()
         task = audio_task(
             segments=[
-                {"text": "hello", "start": 0.0, "end": 0.5},
-                {"text": "the answer is forty two", "start": 0.5, "end": 1.0},
+                {"text": "漢字", "start": 0.0, "end": 1.0},
             ],
         )
         result = stage.process(task)
-        assert stage._normalizer is not None
         out = result.data
-        assert len(out["segments"]) == 2
-        assert out["segments"][0]["text_ITN"] == "hello"
-        assert out["segments"][1]["text_ITN"] == "the answer is 42"
+        assert out["segments"][0]["text_simplified"] == "汉字"
+        assert out["segments"][0]["text"] == "漢字"
+
+    def test_segment_without_text_key_is_skipped(self, audio_task: Callable[..., AudioTask]) -> None:
+        stage = ChineseConversionStage(text_key="text")
+        stage.setup()
+        task = audio_task(
+            segments=[
+                {"start": 0.0, "end": 1.0},
+            ],
+        )
+        result = stage.process(task)
+        out = result.data
+        assert "text_simplified" not in out["segments"][0]
 
     @pytest.mark.parametrize(
         ("data", "expected"),
         [
             ({"segments": [{}]}, None),
-            ({"segments": [{"text": ""}]}, None),
-            ({"segments": [{"text": "forty two"}]}, "42"),
+            ({"segments": []}, None),
+            ({"segments": [{"text": "漢字"}]}, "汉字"),
         ],
-        ids=["missing-text", "empty-text", "populated"],
+        ids=["missing-text", "empty-segments", "populated"],
     )
     def test_agent_ready_conditional_nested_output(
         self,
         data: dict,
         expected: str | None,
     ) -> None:
-        stage = InverseTextNormalizationStage()
-        normalizer = MagicMock()
-        normalizer.split_text_into_sentences.side_effect = lambda text: [text]
-        normalizer.normalize_list.return_value = ["42"]
-        stage._normalizer = normalizer
+        stage = ChineseConversionStage()
+        converter = MagicMock()
+        converter.convert.return_value = "汉字"
+        stage._converter = converter
         task = AudioTask(dataset_name="test", data=data)
 
         contract = assert_agent_ready(
@@ -75,41 +81,41 @@ class TestInverseTextNormalizationStage:
         assert contract.reads.data_keys == ["segments"]
         assert contract.writes.segment_data_keys == []
         assert len(contract.conditional_writes) == 1
-        assert contract.conditional_writes[0].writes.segment_data_keys == ["text_ITN"]
+        assert contract.conditional_writes[0].writes.segment_data_keys == ["text_simplified"]
         if expected is None:
-            assert all("text_ITN" not in segment for segment in task.data.get("segments", []))
+            assert all("text_simplified" not in segment for segment in task.data.get("segments", []))
         else:
-            assert task.data["segments"][0]["text_ITN"] == expected
+            assert task.data["segments"][0]["text_simplified"] == expected
 
     def test_planner_does_not_guarantee_conditional_nested_output(self) -> None:
         report = validate_pipeline(
-            [InverseTextNormalizationStage()],
+            [ChineseConversionStage()],
             initial_roles={"segments"},
             initial_keys={"segments"},
             initial_task_type="AudioTask",
         )
 
         assert report.ok
-        assert "text_ITN" not in report.produced_keys
+        assert "text_simplified" not in report.produced_keys
 
 
-def test_itn_legacy_positional_signature_still_binds() -> None:
+def test_chinese_legacy_positional_signature_still_binds() -> None:
     """The agent-added keys are keyword-only, so legacy positional slots keep their meaning."""
-    stage = InverseTextNormalizationStage("es", "t", "MyName")
-    assert stage.language == "es"
+    stage = ChineseConversionStage("t", "s2t", "MyName")
     assert stage.text_key == "t"
+    assert stage.convert_type == "s2t"
     assert stage.name == "MyName"
     assert stage.segments_key == "segments"
-    assert stage.output_suffix == "_ITN"
+    assert stage.output_suffix == "_simplified"
 
 
 @pytest.mark.parametrize("has_text", [False, True])
 def test_renamed_nested_text_contract_and_planner(has_text: bool) -> None:
-    stage = InverseTextNormalizationStage(text_key="transcript", output_suffix="_ITN")
+    stage = ChineseConversionStage(text_key="transcript", output_suffix="_simplified")
     contract = build_contract(stage)
     assert contract.optional_reads.segment_data_keys == ["transcript"]
     assert contract.conditional_writes[0].requires_keys == ["transcript"]
-    assert contract.key_roles["transcript_ITN"] == "text"
+    assert contract.key_roles["transcript_simplified"] == "text"
 
     class TextConsumer(AgentReady, ProcessingStage):
         def process(self, task: AudioTask) -> AudioTask:
@@ -117,8 +123,8 @@ def test_renamed_nested_text_contract_and_planner(has_text: bool) -> None:
 
         def describe(self) -> StageContract:
             return StageContract(
-                reads=IOSpec(segment_data_keys=["transcript_ITN"]),
-                key_roles={"transcript_ITN": "text"},
+                reads=IOSpec(segment_data_keys=["transcript_simplified"]),
+                key_roles={"transcript_simplified": "text"},
             )
 
     report = validate_pipeline(
