@@ -175,6 +175,14 @@ def _create_state_modules(
     if supports_learned_silence:
         module_args["learnable_sil_emb"] = learned_silence
     modules = state_module.SortformerModules(**module_args)
+    silence_frames = int(getattr(modules, "spkcache_sil_frames_per_spk", 0))
+    minimum_spkcache_len = int(config["num_speakers"]) * silence_frames
+    if int(config["spkcache_len"]) < minimum_spkcache_len:
+        msg = (
+            "Sortformer TensorRT spkcache_len must reserve at least "
+            f"{silence_frames} silence frames for each speaker; expected at least {minimum_spkcache_len}"
+        )
+        raise ValueError(msg)
     if learned_silence is not None and not supports_learned_silence:
 
         def learned_silence_profile(embeddings: torch.Tensor, _predictions: torch.Tensor) -> torch.Tensor:
@@ -222,15 +230,15 @@ def _validate_config_numbers(config: dict[str, Any]) -> None:
 
 def _validate_streaming_geometry(config: dict[str, Any]) -> None:
     subsampling = int(config["subsampling_factor"])
-    frame_names = ("center_chunk_frames", "left_context_frames", "right_context_frames")
-    unaligned = [name for name in frame_names if int(config[name]) % subsampling]
+    center_frames = int(config["center_chunk_frames"])
+    unaligned = [name for name in ("center_chunk_frames", "left_context_frames") if int(config[name]) % subsampling]
     if unaligned:
         msg = (
-            "Sortformer TensorRT chunk and context frames must be divisible by "
+            "Sortformer TensorRT center and left-context frames must be divisible by "
             f"subsampling_factor={subsampling}: {unaligned}"
         )
         raise ValueError(msg)
-    emitted_frames = int(config["center_chunk_frames"]) // subsampling
+    emitted_frames = center_frames // subsampling
     fifo_len = int(config["fifo_len"])
     if 0 < fifo_len < emitted_frames:
         msg = f"Sortformer TensorRT fifo_len must be 0 or at least {emitted_frames}, got {fifo_len}"
@@ -417,10 +425,11 @@ def _validate_sequence_profile(
             f"does not support 1..{requested_batch_size}"
         )
         raise ValueError(msg)
-    if not minimum[1] <= required_frames <= maximum[1] or minimum[2] != required_features:
+    required_minimum_frames = 1 if name in {"spkcache", "fifo"} else required_frames
+    if minimum[1] > required_minimum_frames or maximum[1] < required_frames or minimum[2] != required_features:
         msg = (
             f"Sortformer TensorRT input {name!r} profile {minimum}..{maximum} "
-            f"does not support (*, {required_frames}, {required_features})"
+            f"does not support (*, {required_minimum_frames}..{required_frames}, {required_features})"
         )
         raise ValueError(msg)
     if maximum[2] != required_features:

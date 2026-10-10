@@ -178,15 +178,18 @@ def test_prefetch_rejects_engine_config_sample_rate_mismatch(tmp_path: Path) -> 
         adapter.download_weights_on_node()
 
 
-@pytest.mark.parametrize(
-    ("name", "value"),
-    [("center_chunk_frames", 3), ("left_context_frames", 1), ("right_context_frames", 1)],
-)
-def test_prefetch_rejects_unaligned_streaming_frames(tmp_path: Path, name: str, value: int) -> None:
-    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={name: value}))
+@pytest.mark.parametrize("name", ["center_chunk_frames", "left_context_frames"])
+def test_prefetch_rejects_unaligned_center_or_left_frames(tmp_path: Path, name: str) -> None:
+    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={name: 1}))
 
     with pytest.raises(ValueError, match="divisible by subsampling_factor=2"):
         adapter.download_weights_on_node()
+
+
+def test_prefetch_accepts_partial_right_context_frames(tmp_path: Path) -> None:
+    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={"right_context_frames": 1}))
+
+    adapter.download_weights_on_node()
 
 
 def test_prefetch_rejects_fifo_smaller_than_emitted_chunk(tmp_path: Path) -> None:
@@ -297,6 +300,18 @@ def test_engine_profile_must_support_configured_batch(tmp_path: Path) -> None:
     session = _FakeSession()
     session.input_shape_range = MagicMock(return_value=((1, 8, 128), (1, 8, 128), (2, 8, 128)))
     with pytest.raises(ValueError, match=r"does not support 1\.\.4"):
+        adapter._validate_session(session, _config())
+
+
+def test_engine_cache_profiles_must_support_empty_initial_state(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    session = _FakeSession()
+    input_shape_range = session.input_shape_range
+    session.input_shape_range = MagicMock(
+        side_effect=lambda name: ((1, 2, 4), (2, 4, 4), (4, 4, 4)) if name == "spkcache" else input_shape_range(name)
+    )
+
+    with pytest.raises(ValueError, match=r"does not support \(\*, 1\.\.4, 4\)"):
         adapter._validate_session(session, _config())
 
 
@@ -476,6 +491,15 @@ def test_applies_learned_silence_to_legacy_runtime_module() -> None:
     )
     actual = modules._get_silence_profile(torch.zeros((3, 2, 4)), torch.zeros((3, 2, 2)))
     torch.testing.assert_close(actual, learned_silence.expand(3, -1))
+
+
+def test_rejects_speaker_cache_too_small_for_runtime_silence_frames() -> None:
+    class Modules:
+        def __init__(self, **_kwargs: object) -> None:
+            self.spkcache_sil_frames_per_spk = 3
+
+    with pytest.raises(ValueError, match="expected at least 6"):
+        _create_state_modules(SimpleNamespace(SortformerModules=Modules), _config(), None)
 
 
 @pytest.mark.parametrize(("right_context_frames", "frame_count"), [(1, 11), (0, 12)])

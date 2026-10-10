@@ -517,12 +517,21 @@ def main() -> None:
         raise RuntimeError(msg)
     onnx_output = args.onnx_output or args.output.with_suffix(".onnx")
     if onnx_output.resolve() == args.output.resolve():
-        msg = "ONNX output and TensorRT engine output must be different files"
+        msg = f"Sortformer bundle output paths must be distinct: {[args.output, onnx_output]}"
         raise ValueError(msg)
     final_paths = _bundle_paths(args.output, onnx_output)
-    final_candidates = [final_paths.engine, final_paths.config, final_paths.mel_basis, final_paths.runtime_module]
+    final_candidates = [
+        final_paths.engine,
+        final_paths.config,
+        final_paths.mel_basis,
+        final_paths.runtime_module,
+        final_paths.learned_silence,
+    ]
     if args.onnx_output is not None:
         final_candidates.append(final_paths.onnx)
+    if len({path.resolve() for path in final_candidates}) != len(final_candidates):
+        msg = f"Sortformer bundle output paths must be distinct: {final_candidates}"
+        raise ValueError(msg)
     existing = [path for path in final_candidates if path.exists()]
     if existing and not args.force:
         msg = f"Sortformer bundle artifacts already exist; use --force to rebuild: {existing}"

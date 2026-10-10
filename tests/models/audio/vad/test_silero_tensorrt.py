@@ -256,6 +256,20 @@ def test_postprocessing_failure_is_isolated_after_batch_inference(monkeypatch: p
     assert results[2].segments == [VADSegment(0.0, 1536 / 16000)]
 
 
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_postprocessing_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        "silero_vad",
+        SimpleNamespace(get_speech_timestamps=MagicMock(side_effect=error)),
+    )
+    adapter = _adapter()
+    adapter.load_model(num_gpus=1)
+
+    with pytest.raises(type(error), match="out of memory"):
+        adapter.detect_batch([{"waveform": np.zeros(512, dtype=np.float32), "sample_rate": 16000}])
+
+
 def test_every_non_16khz_input_is_resampled(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, int]] = []
 

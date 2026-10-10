@@ -213,6 +213,21 @@ def test_audio_error_is_task_local_by_default() -> None:
     assert result.data["additional_notes"]["Sortformer_inference"] == "audio_load_error"
 
 
+def test_audio_error_is_retried_after_the_input_is_corrected() -> None:
+    stage = InferenceSortformerStage(waveform_key="waveform", skip_if_output_exists=True)
+    adapter = _RecordingAdapter()
+    stage._adapter = adapter
+    task = AudioTask(task_id="retry", data={"waveform": np.array([np.nan]), "sample_rate": 16000})
+
+    stage.process_batch([task])
+    task.data["waveform"] = np.zeros(160, dtype=np.float32)
+    result = stage.process_batch([task])[0]
+
+    assert [item["task_id"] for item in adapter.items] == ["retry"]
+    assert result.data["num_speakers"] == 1
+    assert "Sortformer_inference" not in result.data["additional_notes"]
+
+
 def test_fail_on_audio_error_raises() -> None:
     stage = InferenceSortformerStage(waveform_key="waveform", fail_on_audio_error=True)
     stage._adapter = _RecordingAdapter()
@@ -246,7 +261,9 @@ def test_rttm_uses_safe_sharded_path_and_relative_manifest_path(tmp_path) -> Non
 
     result = stage.process_batch([task])[0]
 
-    assert result.data["rttm_filepath"] == "catalog/locale/catalog_locale_recording.rttm"
+    assert result.data["rttm_filepath"] == "catalog/locale/catalog%2Flocale%2Frecording.rttm"
+    assert result.data["diar_segments"] == [{"start": 0.0, "end": 1.25, "speaker": "speaker_0"}]
+    assert result.data["num_speakers"] == 1
     rttm = tmp_path / result.data["rttm_filepath"]
     assert rttm.read_text() == ("SPEAKER catalog/locale/recording 1 0.000 1.250 <NA> <NA> speaker_0 <NA> <NA>\n")
 
@@ -353,6 +370,15 @@ def test_write_rttm_rejects_no_valid_segments_by_writing_empty_file(tmp_path) ->
         str(tmp_path),
     )
     assert Path(path).read_text() == ""
+
+
+def test_write_rttm_keeps_distinct_session_names_distinct(tmp_path: Path) -> None:
+    nested = _write_rttm([], "foo/bar", str(tmp_path))
+    flat = _write_rttm([], "foo_bar", str(tmp_path))
+
+    assert Path(nested).name == "foo%2Fbar.rttm"
+    assert Path(flat).name == "foo_bar.rttm"
+    assert nested != flat
 
 
 def test_contract_and_validation(tmp_path: Path) -> None:

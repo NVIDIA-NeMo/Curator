@@ -303,6 +303,7 @@ class TensorRTSileroVADAdapter:
             msg = "Silero TensorRT session is not loaded; call load_model() before detect_batch()"
             raise RuntimeError(msg)
 
+        import torch
         from silero_vad import get_speech_timestamps
 
         waveforms = [_prepare_16khz_waveform(item, device=self._session.device) for item in items]
@@ -322,6 +323,8 @@ class TensorRTSileroVADAdapter:
                     speech_pad_ms=self.speech_pad_ms,
                 )
                 results.append(_timestamps_to_result(timestamps, SILERO_TARGET_SAMPLE_RATE))
+            except (MemoryError, torch.cuda.OutOfMemoryError):
+                raise
             except Exception as exc:  # noqa: BLE001
                 results.append(VADResult(segments=[], error=f"{type(exc).__name__}: {exc}"))
         return results
