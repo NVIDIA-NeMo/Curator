@@ -303,6 +303,16 @@ def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
     assert child.data["language"] == "en"
 
 
+def test_fanout_preserves_speaker_separation_count_for_interval_segments() -> None:
+    stage, _ = _stage(results=[VADResult([VADSegment(0.25, 0.75)])])
+    task = _task()
+    task.data.update({"diar_segments": [(0.0, 0.5), (0.5, 1.0)], "num_speakers": 2})
+
+    child = stage.process(task)[0]
+
+    assert child.data["num_speakers"] == 2
+
+
 def test_custom_duration_key_is_used_without_leaking_parent_duration() -> None:
     stage, _ = _stage(
         results=[VADResult([VADSegment(0.0, 0.5)])],
