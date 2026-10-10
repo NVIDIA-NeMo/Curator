@@ -1,0 +1,344 @@
+---
+description: "Step-by-step guide to installing Curator and running your first video curation pipeline"
+categories: ["getting-started"]
+tags: ["video-curation", "installation", "quickstart", "gpu-accelerated", "ray", "python"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "tutorial"
+modality: "video-only"
+---
+
+# Quickstart for NeMo Curator Video Curation
+
+<a id="get-started-with-video-curation" />
+<a id="overview" />
+
+Use this quickstart to install NeMo Curator, split videos into clips, and generate clip embeddings. Use the output for duplicate removal, similarity search, captioning, or model training.
+
+## Prerequisites
+
+Prepare the software, GPU, and input data before you run a video pipeline:
+
+<a id="system-requirements" />
+<a id="operating-system" />
+<a id="python-environment" />
+<a id="gpu-requirements" />
+<a id="software-dependencies" />
+
+- Ubuntu 20.04, 22.04, or 24.04; Python 3.11, 3.12, or 3.13; `uv`; and Git.
+- An NVIDIA GPU from the Volta architecture or newer, with compute capability 7.0 or higher and CUDA 12 or later. CPU-only processing is not supported.
+- VRAM requirements depend on the pipeline: approximately 16 GB for splitting and embedding, 38 GB for captioning with embedding, or 21 GB for reduced configurations with lower batch sizes and FP8.
+- FFmpeg 8.0 or later with `h264_nvenc` or `libvpx-vp9`. NVIDIA A100 and H100 GPUs do not include NVENC hardware.
+- Input videos in a local directory or an S3-compatible location.
+
+Install `uv` if it is not already available. Refer to the [NeMo Curator Installation Guide](/get-started/installation) for setup details.
+
+Some video operations, including target-resolution frame resizing and motion-vector
+filtering, use OpenCV. The base installation does not include it; add
+`uv pip install "nemo-curator[cv2]"` before using those operations. Motion-vector
+decoding also requires the `video_cpu` or `video_cuda12` extra, which provides
+PyAV and its FFmpeg libraries. Stages that invoke the `ffmpeg` executable still
+require the FFmpeg setup above; installing `cv2` does not install that
+executable or its codecs. If you use a container image, verify the active image
+with `python -c "import cv2; print(cv2.__version__)"` and install the extra in
+the container when needed.
+
+```bash
+curl -LsSf https://astral.sh/uv/0.12.1/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+## Quickstart Steps
+
+Complete these five steps to install Curator, verify FFmpeg, run the splitting example, and inspect its output.
+
+<a id="install" />
+
+1. Install NeMo Curator. A locally built container is recommended for video workflows so the maintained FFmpeg build and its encoders are available on every worker.
+
+   <Tabs>
+   <Tab title="Build an Image (Recommended)">
+
+   Follow [Build an Image](/reference/infra/container-environments#build-an-image), then build the video image using [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). Check out a published release tag first when you need a released version.
+
+   </Tab>
+   <Tab title="Source Installation">
+
+   This installs the development branch. To install a release, check out its published GitHub tag before running `uv sync`.
+
+   ```bash
+   git clone https://github.com/NVIDIA-NeMo/Curator.git
+   cd Curator
+   uv sync --extra video_cuda12 --all-groups
+   source .venv/bin/activate
+   ```
+
+   </Tab>
+   <Tab title="PyPI Installation">
+
+   For a specific release, confirm its package version is available on PyPI before installing.
+
+   ```bash
+   uv venv
+   source .venv/bin/activate
+   uv pip install torch wheel_stub psutil setuptools setuptools_scm
+   uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+   ```
+
+   </Tab>
+   </Tabs>
+
+2. Verify that FFmpeg provides the encoder you plan to use and the software H.264 decoder required for CPU-side probing.
+
+   ```bash
+   ffmpeg -hide_banner -version | head -n 5
+   ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9"
+   ffmpeg -decoders | grep -E '^[[:space:]]+V[^[:space:]]+[[:space:]]+h264[[:space:]]'
+   ```
+
+   If an encoder or decoder is missing, follow [Install FFmpeg and Encoders](#install-ffmpeg-and-encoders). Use `libvpx-vp9` on GPUs without NVENC, including NVIDIA A100 and H100.
+
+<a id="prepare-model-weights" />
+<a id="set-up-data-directories" />
+
+3. Create a model directory and set the input and output paths.
+
+   ```bash
+   DATA_DIR=/workspace/videos
+   OUT_DIR=/workspace/output_clips
+   MODEL_DIR=/workspace/models
+   mkdir -p "$MODEL_DIR"
+   ```
+
+   The container examples mount the host repository at `/workspace`; keep input videos, output clips, and model files under that directory so they persist after the container exits. For source installs outside a container, replace these values with accessible host directories. Curator downloads selected model files to `MODEL_DIR` on first use. For S3 paths and credentials, refer to [Data Directories and S3](#data-directories-and-s3).
+
+<a id="run-the-splitting-pipeline-example" />
+
+4. Run the video splitting example with a fixed 10-second stride.
+
+   Run this command from the Curator repository root. If you installed the package from PyPI, clone the [Curator GitHub repository](https://github.com/NVIDIA-NeMo/Curator) to access the example script. The script reads videos, splits them into clips, generates embeddings, and writes metadata.
+
+   ```bash
+   python tutorials/video/getting-started/video_split_clip_example.py \
+     --video-dir "$DATA_DIR" \
+     --model-dir "$MODEL_DIR" \
+     --output-clip-path "$OUT_DIR" \
+     --splitting-algorithm fixed_stride \
+     --fixed-stride-split-duration 10.0 \
+     --embedding-algorithm cosmos-embed1-224p \
+     --transcode-encoder h264_nvenc \
+     --verbose
+   ```
+
+   Use `--transcode-encoder libvpx-vp9` when your GPU does not include NVENC hardware. `libopenh264` requires a user-installed FFmpeg build.
+
+5. Confirm that the output directory contains clips, embeddings, and a manifest. Refer to [Pipeline Output](#pipeline-output) for the file layout and manifest example.
+
+## Reference Material
+
+Use the following reference sections to configure storage, FFmpeg, models, and pipeline options.
+
+## Install FFmpeg and Encoders
+
+Video pipelines use FFmpeg to decode and encode clips. Install FFmpeg 8.0 or later with an encoder supported by your GPU and a software H.264 decoder. The maintained script below builds FFmpeg with NVENC, `libvpx-vp9`, and software H.264/HEVC/AV1 decoders.
+
+<Tabs>
+   <Tab title="Debian/Ubuntu (Script)">
+
+Run the maintained software decoder support script. It builds FFmpeg with NVIDIA NVENC, `libvpx-vp9`, and software H.264/HEVC/AV1 decoders in one step.
+
+- Script source: [software decoder support script](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_h264_support.sh).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_h264_support.sh -o install_h264_support.sh
+chmod +x install_h264_support.sh
+sudo bash install_h264_support.sh
+```
+
+</Tab>
+
+   <Tab title="Verify Installation">
+
+Run these commands to confirm that FFmpeg is on your `PATH`, the required video encoder is available, and the software H.264 decoder is registered:
+
+```bash
+ffmpeg -hide_banner -version | head -n 5
+ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9"
+ffmpeg -decoders | grep -E '^[[:space:]]+V[^[:space:]]+[[:space:]]+h264[[:space:]]'
+```
+
+If an encoder or decoder is missing, reinstall FFmpeg with the required options or use the Debian/Ubuntu script above.
+
+</Tab>
+
+</Tabs>
+
+Refer to [Clip Encoding](/curate-video/process-data/transcoding) to select an encoder and verify NVENC support on your system.
+
+<Note>
+On GPUs without NVENC hardware, such as NVIDIA A100 and NVIDIA H100, use `--transcode-encoder libvpx-vp9`. Software H.264 decoding is provided by `install_h264_support.sh`; the optional `libopenh264` encoder is separate.
+</Note>
+
+## Available Models
+
+Embeddings represent each video clip as a numeric vector that captures visual and semantic content. You can use these vectors to:
+
+- Remove near-duplicate clips during duplicate removal
+- Enable similarity search and clustering
+- Support downstream analysis such as caption verification
+
+Cosmos-Embed1 provides the model variants used for this quickstart:
+
+<a id="cosmos-embed1-recommended" />
+
+### Cosmos-Embed1
+
+Cosmos-Embed1 is the default model. It has three variants: **cosmos-embed1-224p**, **cosmos-embed1-336p**, and **cosmos-embed1-448p**. The variants differ in input resolution and accuracy-to-VRAM tradeoffs. Curator downloads the selected model to `MODEL_DIR` on first use.
+
+| Model Variant | Resolution | VRAM Usage | Speed | Accuracy | Best For |
+|---------------|------------|------------|-------|----------|----------|
+| **cosmos-embed1-224p** | 224 × 224 | ~8 GB | Fastest | Good | Large-scale processing, initial curation |
+| **cosmos-embed1-336p** | 336 × 336 | ~12 GB | Medium | Better | Balanced performance and quality |
+| **cosmos-embed1-448p** | 448 × 448 | ~16 GB | Slower | Best | High-quality embeddings, fine-grained matching |
+
+Download links for each model are available on Hugging Face:
+- [cosmos-embed1-224p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-224p)
+- [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-336p)
+- [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-448p)
+
+This quickstart uses **Cosmos-Embed1-224p**.
+
+## Data Directories and S3
+
+Use local paths for local processing. The quickstart uses `DATA_DIR`, `OUT_DIR`, and `MODEL_DIR` for input, output, and model locations.
+
+For S3-compatible storage, configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-clip-path`. Apply these storage rules:
+
+- Read input videos from S3 paths and write output clips to S3 paths.
+- Keep model files local for performance.
+- Confirm that your IAM permissions allow the required bucket reads and writes.
+
+## Configuration Options Reference
+
+For complex configurations, store the command-line arguments in a file and pass the file path with the `@` prefix:
+
+```bash
+echo '--video-dir /data/videos
+--output-clip-path /data/output
+--splitting-algorithm fixed_stride
+--fixed-stride-split-duration 10.0
+--embedding-algorithm cosmos-embed1-224p
+--transcode-encoder h264_nvenc' > my_config.txt
+
+python tutorials/video/getting-started/video_split_clip_example.py @my_config.txt
+```
+
+The example uses fixed-stride splitting. The `transnetv2` option supports scene-based splitting. The table lists the supported arguments:
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| **Splitting** | &nbsp; | &nbsp; |
+| `--splitting-algorithm` | `fixed_stride`, `transnetv2` | Method for dividing videos into clips |
+| `--fixed-stride-split-duration` | Float (seconds) | Clip length for fixed stride (default: 10.0) |
+| `--transnetv2-frame-decoder-mode` | `pynvc`, `ffmpeg_gpu`, `ffmpeg_cpu` | Frame decoding method for TransNetV2 |
+| **Embedding** | &nbsp; | &nbsp; |
+| `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
+| **Encoding** | &nbsp; | &nbsp; |
+| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9`, `libopenh264` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. `libopenh264` is accepted but requires a user-installed FFmpeg build. Refer to [software codec support](/get-started/installation#software-h264hevcav1-codec-support-advanced). |
+| `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding (only valid with `h264_nvenc`). |
+| **Optional Features** | &nbsp; | &nbsp; |
+| `--generate-captions` | Flag | Generate text captions for each clip |
+| `--generate-previews` | Flag | Create preview images for each clip |
+| `--verbose` | Flag | Enable detailed logging output |
+
+<a id="understand-pipeline-output" />
+
+## Pipeline Output
+
+After a successful run, the output directory contains:
+
+```
+$OUT_DIR/
+├── clips/
+│   ├── video1_clip_0000.mp4
+│   ├── video1_clip_0001.mp4
+│   └── ...
+├── embeddings/
+│   ├── video1_clip_0000.npy
+│   ├── video1_clip_0001.npy
+│   └── ...
+├── metadata/
+│   └── manifest.jsonl
+└── previews/  (if --generate-previews enabled)
+    ├── video1_clip_0000.jpg
+    └── ...
+```
+
+The output directories contain these files:
+- **clips/** contains encoded video clips in MP4 format.
+- **embeddings/** contains NumPy arrays with clip embeddings for similarity search.
+- **metadata/manifest.jsonl** contains clip paths, timestamps, and embedding paths.
+- **previews/** contains thumbnail images when you enable preview generation.
+
+**Example manifest entry:**
+```json
+{
+  "video_path": "/data/input_videos/video1.mp4",
+  "clip_path": "/data/output_clips/clips/video1_clip_0000.mp4",
+  "start_time": 0.0,
+  "end_time": 10.0,
+  "embedding_path": "/data/output_clips/embeddings/video1_clip_0000.npy",
+  "preview_path": "/data/output_clips/previews/video1_clip_0000.jpg"
+}
+```
+
+## Best Practices
+
+Use these practices to prepare video data, select models, and monitor your pipeline:
+
+### Data Preparation
+
+Validate and organize videos before processing:
+
+- Validate input videos to detect corruption before processing.
+- Convert videos to MP4 with H.264 for consistent results.
+- Group similar videos to organize processing.
+
+### Model Selection
+
+Choose a model variant that fits your accuracy and memory needs:
+
+- Start with Cosmos-Embed1-224p for initial experiments.
+- Use 336p or 448p when you need higher precision.
+- Monitor GPU memory with `nvidia-smi` during processing.
+
+### Pipeline Configuration
+
+Configure a representative run before processing a large dataset:
+
+- Enable detailed logs with `--verbose`.
+- Test the pipeline on five to 10 videos.
+- Enable NVENC when your GPU supports it.
+- Save embeddings and metadata for downstream tasks.
+
+### Infrastructure
+
+Prepare storage and compute resources for your pipeline:
+
+- Mount shared storage for multi-node processing.
+- Plan for peak VRAM use during captioning and embedding.
+- Monitor GPU use with `nvidia-smi dmon`.
+- Schedule large video datasets as batch jobs.
+
+## Next Steps
+
+Continue with the video curation guide and encoder reference:
+
+<Cards>
+<Card title="Video Curation" href="/curate-video">
+Explore more video curation workflows.
+</Card>
+<Card title="Clip Encoding" href="/curate-video/process-data/transcoding">
+Choose an encoder and verify NVENC support.
+</Card>
+</Cards>

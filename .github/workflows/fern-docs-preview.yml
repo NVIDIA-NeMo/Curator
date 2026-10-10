@@ -138,7 +138,7 @@ jobs:
           (cd pr-source && find fern -regextype posix-extended -type f \
             -regex "$CONTENT" ! -path '*/.*' ! -path '*/components/*' \
             -exec cp --parents -- '{}' "$RUNNER_TEMP/fern-preview/" \;)
-          printf '%s\n' '{"organization":"nvidia","version":"5.123.0"}' \
+          printf '%s\n' '{"organization":"nvidia","version":"5.149.0"}' \
             > "$RUNNER_TEMP/fern-preview/fern/fern.config.json"
 
       - name: Setup Node.js
@@ -148,7 +148,7 @@ jobs:
 
       - name: Install fixed Fern CLI
         working-directory: ${{ runner.temp }}
-        run: npm install --prefix "$RUNNER_TEMP/fern-cli" --ignore-scripts --no-audit --no-fund fern-api@5.123.0
+        run: npm install --prefix "$RUNNER_TEMP/fern-cli" --ignore-scripts --no-audit --no-fund fern-api@5.149.0
 
       - name: Generate library reference with trusted configuration
         env:

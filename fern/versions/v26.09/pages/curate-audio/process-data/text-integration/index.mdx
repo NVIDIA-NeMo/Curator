@@ -1,0 +1,295 @@
+---
+description: "Convert processed audio data to DocumentBatch format for downstream processing"
+categories: ["audio-processing"]
+tags: ["format-conversion", "audio-to-text", "documentbatch"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-text"
+---
+
+# Text Integration for Audio Data
+
+Convert processed audio data from `AudioTask` to `DocumentBatch` format using the built-in `AudioToDocumentStage`. This enables you to export audio processing results or integrate with custom text processing workflows.
+
+## How it Works
+
+The `AudioToDocumentStage` provides straightforward format conversion between NeMo Curator's audio and text data structures:
+
+1. **Format Conversion**: Transform `AudioTask` objects to `DocumentBatch` format
+2. **Metadata Sanitization**: Preserve serializable top-level metadata while removing raw audio, segments, and tensor values
+3. **Export Ready**: Convert audio processing results to pandas DataFrame format for analysis or export
+
+**Common use cases:**
+- Export ASR results and quality metrics for analysis
+- Save filtered audio datasets with transcriptions
+- Integrate audio processing outputs with downstream text workflows
+
+## Basic Conversion
+
+### AudioTask to DocumentBatch
+
+Use `AudioToDocumentStage` to convert audio processing results to document format:
+
+```python
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.tasks import AudioTask
+
+# Convert audio data to DocumentBatch format
+converter = AudioToDocumentStage()
+
+# Input: AudioTask with audio processing results
+audio_task = AudioTask(data={
+    "audio_filepath": "/data/audio/sample.wav",
+    "text": "ground truth text",
+    "pred_text": "asr predicted text",
+    "wer_pct": 12.5,
+    "duration": 3.2
+})
+
+# Output: DocumentBatch with pandas DataFrame
+document_batches = converter.process_batch([audio_task])
+document_batch = document_batches[0]
+
+# Access the converted data
+print(f"Converted {len(document_batch.data)} audio records to DocumentBatch")
+```
+
+**Parameters:**
+- `AudioToDocumentStage()` has no configuration parameters; it performs direct format conversion
+
+**Returns:**
+- A list containing one `DocumentBatch` whose pandas DataFrame contains the retained fields from the input batch
+
+### Preserved and Removed Fields
+
+The conversion preserves ordinary top-level scalar, list, and dictionary fields, including:
+
+```python
+# Retained serializable top-level fields include:
+# - audio_filepath: Original audio file reference
+# - text: Ground truth transcription (if available)
+# - pred_text: ASR prediction
+# - wer_pct: Word Error Rate percentage (if calculated)
+# - duration: Audio duration (if calculated)
+# - Other metadata fields that are not explicitly excluded below
+```
+
+<Note>
+For retained fields, names and values are preserved as they appear in the `AudioTask`. Before building the DataFrame, `AudioToDocumentStage` removes `waveform`, `audio`, `audio_data`, `audio_array`, `segments`, and every top-level tensor-valued field.
+</Note>
+
+### Preserve Segments During JSONL Export
+
+If you need `segments` or segment-level WER/CER in the output, keep the records as `AudioTask` objects and use `ManifestWriterStage` instead of converting them:
+
+```python
+from nemo_curator.stages.audio.common import ManifestWriterStage
+
+# Add this as the final audio stage instead of AudioToDocumentStage + JsonlWriter.
+pipeline.add_stage(
+    ManifestWriterStage(output_path="/absolute/shared/path/processed_audio.jsonl")
+)
+```
+
+`ManifestWriterStage` serializes `task.data` directly. Remove waveform arrays and tensor-valued fields before this writer because they are not JSON-serializable.
+
+## Process Transcripts Before Conversion
+
+Use the audio transcript stages for cleanup and screening before you convert records to `DocumentBatch`. Add them to an existing audio pipeline that reads `AudioTask` records.
+
+| Stage | Behavior |
+| --- | --- |
+| `RegexSubstitutionStage` | Applies ordered regular-expression rules from a YAML list, then collapses whitespace. It writes an empty-result skip reason only when nonempty input becomes empty. |
+| `AbbreviationConcatStage` | Joins matched ASR-spelled letter sequences, such as `N V I D I A` to `NVIDIA`, in the selected language. |
+| `WhisperHallucinationStage` | Flags repeated words, long words, maintained corpus phrases, or a high character rate. It writes a `Hallucination:` value to `_skipme` and the matching checks to `additional_notes`. |
+| `SelectBestPredictionStage` | Reads `primary_model_prediction` by default; set `primary_text_key="pred_text"` to use the standard ASR output field. It writes the selected text to `best_prediction` and the route to `best_prediction_source`. Selection does not measure transcription accuracy or make model output ground truth. |
+
+`WhisperHallucinationStage` is a lexical heuristic. A flag identifies a transcript for review or filtering. It does not prove that the transcript is factually wrong, and the stage does not drop the record. Existing non-hallucination skip reasons remain unchanged. With `overwrite=True`, a later clean transcript can clear an existing hallucination flag and write a recovery note. This re-check does not invoke ASR. Use a reference transcript or a second model when your workflow needs recovery.
+
+For this example, each manifest record includes `pred_text`, `duration`, `_skipme`, and `language`. `language` selects the language-aware long-word rule: agglutinative and compounding languages use a 35-character threshold without the relative-length check. For languages written without word-separating spaces, the repeated-word and long-word checks are disabled; phrase matching and character-rate checks remain active. Set the correct language field so the stage can apply these rules. A missing language is treated as empty and does not activate the no-space-script handling. `AbbreviationConcatStage` defaults to `source_lang` and English. Set `source_lang_key="language"` to share the manifest language field. Refer to the maintained [hallucination pipeline configuration](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/pipeline.yaml) and [phrase corpus](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/whisper_hallucination/phrases.txt) for the complete inputs.
+
+<Warning>
+Place transcript cleanup before `GetPairwiseWerStage` so the stored WER reflects the cleaned prediction. If cleanup runs afterward, recalculate WER.
+</Warning>
+
+Add transcript stages to an existing pipeline as follows. Use absolute paths for the input YAML and hallucination phrase corpus:
+
+```python
+from nemo_curator.stages.audio.text_filtering import (
+    AbbreviationConcatStage,
+    RegexSubstitutionStage,
+    WhisperHallucinationStage,
+)
+
+pipeline.add_stage(
+    RegexSubstitutionStage(
+        regex_params_yaml="/data/config/transcript_rules.yaml",
+        text_key="pred_text",
+        output_text_key="pred_text",
+    )
+)
+pipeline.add_stage(
+    AbbreviationConcatStage(
+        text_key="pred_text",
+        output_text_key="pred_text",
+        source_lang_key="language",
+    )
+)
+pipeline.add_stage(
+    WhisperHallucinationStage(
+        common_hall_file="/data/config/whisper_hallucination/phrases.txt",
+        language_key="language",
+    )
+)
+```
+
+The regex file is a YAML list. Rules run in file order:
+
+```yaml
+- pattern: "[.]{2,}"
+  repl: "."
+  count: 1
+```
+
+For records whose ASR text is stored in `pred_text`, configure the selector input explicitly:
+
+```python
+from nemo_curator.stages.audio.text_filtering import SelectBestPredictionStage
+
+pipeline.add_stage(SelectBestPredictionStage(primary_text_key="pred_text"))
+```
+
+## Integration in Pipelines
+
+### Complete Audio Processing with Export
+
+The most common use case is adding `AudioToDocumentStage` at the end of your audio pipeline to enable result export:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.common import GetAudioDurationStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.resources import Resources
+
+# Create pipeline that processes audio and exports results
+pipeline = Pipeline(name="audio_processing_with_export")
+
+# 1. Load audio data
+pipeline.add_stage(CreateInitialManifestFleursStage(
+    lang="en_us",
+    split="test",
+    raw_data_dir="./audio_data"
+).with_(batch_size=8))
+
+# 2. Run ASR inference
+pipeline.add_stage(ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    max_audio_sec_per_actor=240.0,
+    max_inference_duration_s=120.0,
+    local_bucketing=True,
+    audio_filepath_key="audio_filepath",
+    pred_text_key="pred_text"
+).with_(resources=Resources(gpus=1.0)))
+
+# 3. Calculate quality metrics
+pipeline.add_stage(GetPairwiseWerStage(
+    text_key="text",
+    pred_text_key="pred_text",
+    wer_key="wer_pct",
+))
+pipeline.add_stage(GetAudioDurationStage(
+    audio_filepath_key="audio_filepath",
+    duration_key="duration"
+))
+
+# 4. Convert to DocumentBatch for export
+pipeline.add_stage(AudioToDocumentStage())
+
+# 5. Export to JSONL format
+pipeline.add_stage(JsonlWriter(path="/output/processed_audio_results"))
+
+# Execute pipeline
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+**Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with the fields retained by `AudioToDocumentStage`:
+
+```json
+{"audio_filepath": "/data/audio/sample1.wav", "text": "hello world", "pred_text": "hello world", "wer_pct": 0.0, "duration": 1.5}
+{"audio_filepath": "/data/audio/sample2.wav", "text": "test audio", "pred_text": "test odio", "wer_pct": 50.0, "duration": 2.1}
+```
+
+## Custom Integration
+
+While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, and so on) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
+
+### Example: Custom Text Processing
+
+```python
+from nemo_curator.stages.function_decorators import processing_stage
+from nemo_curator.tasks import DocumentBatch
+import pandas as pd
+
+@processing_stage(name="custom_transcription_filter")
+def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
+    """Custom filtering of ASR transcriptions."""
+
+    # Access the pandas DataFrame
+    df = document_batch.data
+
+    # Example: Filter by transcription length
+    df = df[df['pred_text'].str.len() &gt; 10]  # Keep transcriptions &gt;10 chars
+
+    # Example: Filter by WER if available
+    if 'wer_pct' in df.columns:
+        df = df[df['wer_pct'] < 50.0]  # Keep WER < 50%
+
+    return DocumentBatch(
+        data=df,
+        dataset_name=document_batch.dataset_name,
+        _metadata=document_batch._metadata,
+        _stage_perf=document_batch._stage_perf,
+    )
+```
+
+## Output Format
+
+After conversion, your data will be in `DocumentBatch` format with a pandas DataFrame:
+
+```python
+# Example output structure
+document_batch.data  # pandas DataFrame with columns:
+# - audio_filepath: "/path/to/audio.wav"
+# - text: "ground truth transcription"
+# - pred_text: "asr prediction"
+# - wer_pct: 15.2
+# - duration: 3.4
+# - [other retained serializable top-level fields]
+```
+
+## Limitations
+
+<Info>
+**Text Processing Integration**: NeMo Curator's text processing stages are designed for `DocumentBatch` inputs (text documents such as articles, web pages), but they are not designed for audio-derived transcriptions. You should implement custom processing stages for audio-specific workflows.
+
+**Reasons for incompatibility:**
+- Text filters assume document-level content (e.g., paragraph structure, word count thresholds designed for articles)
+- ASR transcriptions have different characteristics (shorter, can contain recognition errors, conversational language)
+- Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
+
+**Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
+</Info>
+
+## Related Topics
+
+- **[Audio Processing Overview](/curate-audio/process-data)** - Complete audio processing workflow
+- **[Quality Assessment](/curate-audio/process-data/quality-assessment)** - Audio quality metrics and filtering
+- **[ASR Inference](/curate-audio/process-data/asr-inference)** - Speech recognition processing

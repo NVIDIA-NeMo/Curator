@@ -1,0 +1,536 @@
+---
+description: "Translate flat and structured text fields with Curator's experimental translation pipeline, quality scoring, and backend integrations"
+categories: ["how-to-guides"]
+tags: ["translation", "experimental", "multilingual", "faith", "text-quality", "llm", "nmt"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
+---
+
+# Translation
+
+Use NeMo Curator's translation package to translate flat text fields or structured records, such as chat conversations stored under `messages.*.content`.
+
+<Warning>
+Translation is currently an experimental text stage. Import it from `nemo_curator.stages.text.experimental.translation`; APIs and output details may change while the workflow is being validated.
+</Warning>
+
+The experimental translation package is centered on `TranslationStage`, which composes segmentation, translation, reassembly, output formatting, and optional evaluation into a reusable text-processing stage.
+
+## Capabilities
+
+- Translate a single text field such as `text`, a nested field path such as `metadata.body`, or wildcard paths such as `messages.*.content`
+- Preserve machine-readable payloads, including valid JSON objects and arrays, instead of sending them to the translation model
+- Emit translated output in `replaced`, `raw`, or `both` modes
+- Emit segmented translation mappings for inspection or downstream evaluation
+- Run FAITH scoring on translated text with `FaithEvalFilter`
+- Score forward and reverse translation quality with `TextQualityMetricStage`
+
+## Before You Start
+
+- Install translation extras as needed:
+  - `translation_common` for basic translation support
+  - `translation_metrics` for `TextQualityMetricStage`
+  - `translation_segmentation` for `segmentation_mode="fine"`
+  - `translation_aws`, `translation_google`, or `translation_nmt` for those backends
+  - `translation_all` for the full translation feature set
+- For `backend_type="llm"`, configure an OpenAI-compatible async client. Refer to [LLM Client Setup](/curate-text/synthetic/llm-client).
+- If `enable_faith_eval=True`, configure an LLM client and scoring model even when translation itself uses a non-LLM backend.
+- For non-LLM backends, use one of the built-in backend types: `google`, `aws`, or `nmt`.
+- Input data is typically newline-delimited JSON with a `text` field or another field referenced through `text_field`.
+
+## Basic Translation Pipeline
+
+The example below reads JSONL files, translates `messages.*.content` from English to Hindi, runs FAITH scoring, and writes the results back to JSONL.
+
+```python
+import os
+
+from nemo_curator.models.client.llm_client import GenerationConfig
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.experimental.translation import TranslationStage
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+client = AsyncOpenAIClient(
+    api_key=os.environ["NVIDIA_API_KEY"],
+    base_url="https://integrate.api.nvidia.com/v1",
+    max_concurrent_requests=8,
+)
+
+pipeline = Pipeline(name="translate_chat_dataset")
+pipeline.add_stage(JsonlReader(file_paths="input/*.jsonl"))
+pipeline.add_stage(
+    TranslationStage(
+        client=client,
+        model_name="openai/gpt-oss-120b",
+        generation_config=GenerationConfig(max_tokens=2048),
+        source_lang="en",
+        target_lang="hi",
+        text_field="messages.*.content",
+        output_field="translated_text",
+        output_mode="both",
+        reconstruct_messages=True,
+        enable_faith_eval=True,
+        faith_threshold=2.5,
+    )
+)
+pipeline.add_stage(JsonlWriter(path="translated/"))
+results = pipeline.run()
+```
+
+`source_lang` and `target_lang` are required. Curator does not assume default translation languages.
+
+## Structured Translation Behavior
+
+Structured translation works directly on nested records.
+
+- Setting `text_field="messages.*.content"` extracts every message content string from the record
+- Valid JSON objects and arrays are treated as non-translatable content and are preserved verbatim
+- When `output_mode="replaced"`, translated values are written back into the original field path
+- When `output_mode="raw"` or `output_mode="both"`, Curator emits `translation_metadata` with whole-text and segmented mappings
+
+This makes the pipeline suitable for chat-style records where natural-language turns should be translated but tool payloads should remain untouched.
+
+## Segmentation and Output Control
+
+`TranslationStage` exposes a few important controls:
+
+- `segmentation_mode="coarse"` keeps line-level splitting with code-block awareness
+- `segmentation_mode="fine"` uses sentence-level segmentation with structure preservation
+- `min_segment_chars` bypasses segmentation for short text
+- `enable_faith_eval=True` runs FAITH on exploded segment rows before reassembly, which avoids long-context scoring requests
+- `reconstruct_messages=True` rebuilds translated message lists for structured chat-style inputs
+
+## `TranslationStage` Reference
+
+All parameters are keyword-only. `source_lang` and `target_lang` are the only required values for non-LLM translation; LLM translation also requires `client` and `model_name`.
+
+### Input and Segmentation
+
+| Parameter | Type | Default | Behavior and constraints |
+| --- | --- | --- | --- |
+| `source_lang` | str | Required | Non-empty source language code. Leading and trailing whitespace is removed. |
+| `target_lang` | str | Required | Non-empty target language code. Leading and trailing whitespace is removed. |
+| `text_field` | str \| list[str] | `"text"` | Plain column, nested path, wildcard path such as `messages.*.content`, or a list of paths for multi-field translation. |
+| `output_field` | str | `"translated_text"` | Column that receives the reassembled translation before output formatting. |
+| `segmentation_mode` | str | `"coarse"` | Use `"fine"` for sentence segmentation; all other values currently select coarse line segmentation. Use only `"coarse"` or `"fine"` for forward compatibility. |
+| `min_segment_chars` | int | `0` | When greater than zero, text shorter than this value bypasses splitting and is translated as one segment. |
+
+### Translation Inference
+
+| Parameter | Type | Default | Behavior and constraints |
+| --- | --- | --- | --- |
+| `client` | `AsyncLLMClient` \| None | `None` | Required for `backend_type="llm"`. Also required when FAITH is enabled, including with a non-LLM translation backend. |
+| `model_name` | str | `""` | Required and non-empty for the LLM backend. Used as the FAITH model when `faith_model_name` is empty. |
+| `generation_config` | `GenerationConfig` \| None | `None` | Generation settings passed to the translation LLM client. `None` uses the client's behavior. |
+| `translation_prompt_path` | str \| None | `None` | Absolute YAML path for a custom translation prompt. `None` loads packaged `translate.yaml`. |
+| `max_concurrent_requests` | int | `64` | Semaphore limit for LLM translation requests. Non-LLM backends use `backend_config["max_concurrent_requests"]` instead. |
+| `health_check` | bool | `True` | Checks backend reachability during worker setup. For LLM translation, this sends a lightweight model request. |
+| `dry_run` | bool | `False` | Logs sample prompts or segments and skips translation calls. Produces empty translations and zero timing/error values. |
+| `dry_run_log_count` | int | `5` | Maximum sample prompts or segments logged by dry-run mode. |
+| `backend_type` | str | `"llm"` | Translation provider: `"llm"`, `"google"`, `"aws"`, `"nmt"`, or a registered custom backend name. |
+| `backend_config` | dict | `{}` | Keyword arguments passed to the selected non-LLM backend constructor. Ignored for the LLM backend. |
+
+### FAITH Evaluation
+
+| Parameter | Type | Default | Behavior and constraints |
+| --- | --- | --- | --- |
+| `enable_faith_eval` | bool | `False` | Scores exploded translation segments and aggregates scores after reassembly. Requires `client` and a scoring model. |
+| `faith_threshold` | float | `2.5` | Minimum aggregated `faith_avg` retained when `filter_enabled=True`. |
+| `faith_model_name` | str | `""` | Scoring model. Falls back to `model_name`; one of the two must be non-empty when FAITH is enabled. |
+| `filter_enabled` | bool | `True` | Applies the threshold after document reassembly. Set `False` to attach scores without filtering rows. |
+| `faith_generation_config` | `GenerationConfig` \| None | `None` | FAITH generation settings. `None` becomes `temperature=0.0, max_tokens=256` during worker setup. |
+| `faith_prompt_path` | str \| None | `None` | Absolute YAML path for a custom FAITH prompt. `None` loads packaged `faith_eval.yaml`. |
+| `faith_max_concurrent_requests` | int | `64` | Semaphore limit for FAITH scoring requests. Independent from translation concurrency. |
+
+### Output and Resume Controls
+
+| Parameter | Type | Default | Behavior and constraints |
+| --- | --- | --- | --- |
+| `output_mode` | str | `"replaced"` | One of `"replaced"`, `"raw"`, or `"both"`. Other values raise `ValueError`. |
+| `merge_scores` | bool | `False` | Merges FAITH scores into `translation_metadata`. Requires `output_mode="raw"` or `"both"`; `"replaced"` raises `ValueError`. Has no effect without FAITH. |
+| `reconstruct_messages` | bool | `False` | Writes `translated_messages` from `messages_field`. Use with `output_mode="replaced"` or `"both"`. |
+| `messages_field` | str | `"messages"` | Input column containing a list of message objects or its JSON string representation. |
+| `messages_content_field` | str | `"content"` | Field path within each message where translated content is written. |
+| `skip_translated` | bool | `False` | Skips rows with a non-null, non-blank value in `translation_column`, then restores them in original order. |
+| `translation_column` | str | `"translated_text"` | Column inspected by `skip_translated`. Usually keep this equal to `output_field`. |
+
+### Validation and Option Interactions
+
+- Empty or whitespace-only language codes are rejected.
+- `backend_type="llm"` requires both `client` and a non-empty `model_name`, even in dry-run mode.
+- FAITH always uses an LLM client. With Google, AWS, NMT, or a custom translation backend, pass a separate `client` and set `faith_model_name`.
+- `merge_scores=True` with `output_mode="replaced"` is rejected. With FAITH disabled, score merging is skipped with a warning.
+- `output_mode="raw"` removes `output_field` after building `translation_metadata`. Do not combine raw mode with message reconstruction: `output_field` is dropped before `_build_translated_messages` runs, so every `translated_messages` entry is an empty string. Use `output_mode="both"` when you need metadata and `translated_messages`.
+- Custom prompt files and any local assets they reference must be available at the same absolute path on every worker.
+
+## DocumentBatch Walkthrough
+
+`TranslationStage` operates on a `DocumentBatch`, which is a task wrapper around a pandas DataFrame or Arrow table.
+
+The wrapper fields stay mostly constant across stages:
+
+- `task_id`
+- `dataset_name`
+- `_stage_perf`
+- `_metadata`
+
+The main thing that changes is the DataFrame inside `DocumentBatch.data`.
+
+### Worked Example
+
+Assume a single input row and this pipeline configuration:
+
+```python
+TranslationStage(
+    client=client,
+    model_name="openai/gpt-oss-120b",
+    text_field="text",
+    source_lang="en",
+    target_lang="hi",
+    segmentation_mode="coarse",
+    enable_faith_eval=True,
+    output_mode="raw",
+    merge_scores=True,
+)
+```
+
+Input row:
+
+~~~text
+id | text
+7  | Explain grouped-query attention.
+   | {"tool":"search","query":"GQA"}
+   | ```python
+   | print("hello")
+   | ```
+   | It reduces KV-cache memory.
+~~~
+
+### 1. SegmentationStage
+
+The batch changes from one row per document to one row per translatable segment.
+
+New columns:
+
+- `_seg_segments`
+- `_seg_metadata`
+- `_seg_doc_id`
+
+Example output:
+
+```text
+id | _seg_segments
+7  | Explain grouped-query attention.
+7  | It reduces KV-cache memory.
+```
+
+Important details:
+
+- Valid JSON payloads and fenced code blocks are not emitted as translatable segment rows.
+- `_seg_doc_id` ties all segment rows back to the same source document.
+- `_seg_metadata` is a JSON reconstruction template duplicated across the segment rows for that document.
+
+For coarse segmentation, the metadata contains the original non-translated lines plus placeholders for translatable lines. For fine segmentation, it stores sentence-like units and their separators.
+
+### 2. SegmentTranslationStage
+
+The batch still has one row per segment, but each segment now gets its translated text and per-segment runtime/error data.
+
+New columns:
+
+- `_translated`
+- `_translation_time`
+- `_translation_error`
+
+Example output:
+
+```text
+id | _seg_segments                    | _translated
+7  | Explain grouped-query attention. | समूहित-क्वेरी अटेंशन समझाइए।
+7  | It reduces KV-cache memory.      | यह KV-cache मेमोरी को कम करता है।
+```
+
+### 3. FaithEvalFilter
+
+When `enable_faith_eval=True`, FAITH runs on the exploded segment rows before reassembly.
+
+New columns:
+
+- `faith_fluency`
+- `faith_accuracy`
+- `faith_idiomaticity`
+- `faith_terminology`
+- `faith_handling_of_format`
+- `faith_avg`
+- `faith_parse_failed`
+
+Each row is scored independently. Filtering does not happen yet, because dropping segment rows before reassembly would corrupt the reconstructed document.
+
+### 4. ReassemblyStage
+
+The batch collapses back to one row per original document by grouping on `_seg_doc_id`.
+
+Removed internal columns:
+
+- `_seg_segments`
+- `_seg_metadata`
+- `_seg_doc_id`
+- `_translated`
+- `_translation_time`
+- `_translation_error`
+
+Added document-level columns:
+
+- `translated_text`
+- `translation_time`
+- `translation_errors`
+- `_translation_map`
+- `_segmented_translation_map`
+- `faith_segment_scores` when FAITH is enabled
+- aggregated `faith_*` columns when FAITH is enabled
+
+Example output:
+
+~~~text
+id | translated_text
+7  | समूहित-क्वेरी अटेंशन समझाइए।
+   | {"tool":"search","query":"GQA"}
+   | ```python
+   | print("hello")
+   | ```
+   | यह KV-cache मेमोरी को कम करता है।
+~~~
+
+Important details:
+
+- `translation_time` is the sum of the segment-level translation times.
+- `translation_errors` joins any non-empty segment errors.
+- `_translation_map` and `_segmented_translation_map` are helper columns used later to build `translation_metadata`.
+- When FAITH is enabled, reassembly averages the per-segment FAITH scores into document-level `faith_*` columns and writes the raw per-segment list to `faith_segment_scores`.
+- For structured fields such as `messages.*.content`, reassembly writes translations back into the nested structure instead of only returning a flat string.
+
+### 5. FaithThresholdFilterStage
+
+When FAITH filtering is enabled, the threshold filter runs after reassembly on the aggregated FAITH score.
+
+Rows with `faith_avg < faith_threshold` are dropped here. Rows with parse failures or no scored segments are preserved.
+
+### 6. FormatTranslationOutputStage
+
+When `output_mode="raw"` or `output_mode="both"`, this stage builds:
+
+- `translation_metadata`
+
+`translation_metadata` contains:
+
+- `target_lang`
+- `translation`
+- `segmented_translation`
+
+When `output_mode="raw"`, the final translated text column is dropped after metadata is constructed. This is useful when downstream consumers want metadata-rich output without keeping a separate top-level translated text column.
+
+This stage also drops internal helper columns such as:
+
+- `_translation_map`
+- `_segmented_translation_map`
+
+### 7. MergeFaithScoresStage
+
+When `merge_scores=True`, FAITH scores are merged into the existing `translation_metadata` JSON under `faith_scores`.
+
+At that point, the final row contains:
+
+- the original source columns
+- translation runtime and error columns
+- FAITH score columns
+- `translation_metadata`
+
+### Skip/Restore Path
+
+When `skip_translated=True`, the pipeline inserts two additional stages:
+
+- `SkipExistingTranslationsStage`
+- `RestoreSkippedRowsStage`
+
+`SkipExistingTranslationsStage` removes rows that already have a non-empty translation column from the DataFrame and stores them temporarily in `DocumentBatch._metadata["_skipped_rows_state"]`.
+
+`RestoreSkippedRowsStage` restores those rows later, fills in any missing score/metadata columns with defaults, and sorts them back into the original row order.
+
+Skipped rows do not pass through segmentation, translation, FAITH scoring, or threshold filtering. They are restored after filtering, so pre-existing translations are never removed for having no new FAITH score. Missing columns created for newly translated rows are filled with safe defaults on restored rows, such as zero-valued FAITH scores and `translation_metadata="{}"`.
+
+Keep `translation_column` equal to `output_field` unless your input deliberately uses a separate completion marker. This ensures output formatting and skip detection refer to the same translation value.
+
+Output modes apply after skipped rows are restored:
+
+| Output mode | Effect on restored translations |
+| --- | --- |
+| `replaced` | Preserves the existing translation column and replaces source fields only for rows processed in this run. |
+| `raw` | Builds `translation_metadata` from the restored or new `output_field`, then removes `output_field`. |
+| `both` | Preserves `output_field`, writes `translation_metadata`, and supports `translated_messages`. |
+
+## Quality Evaluation
+
+### FAITH Scoring
+
+Enable FAITH scoring inside the translation pipeline when you want model-based adequacy checks on translated output:
+
+```python
+TranslationStage(
+    client=client,
+    model_name="openai/gpt-oss-120b",
+    source_lang="en",
+    target_lang="de",
+    text_field="text",
+    enable_faith_eval=True,
+    faith_threshold=2.5,
+)
+```
+
+FAITH scores are merged into the output when `output_mode="raw"` or `output_mode="both"`.
+
+### Non-LLM Translation with a Separate FAITH Model
+
+The translation provider and FAITH scorer can be different services. This example translates with Google Cloud Translation v3 and scores the result with an OpenAI-compatible LLM:
+
+```python
+import os
+
+from nemo_curator.models.client.llm_client import GenerationConfig
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.stages.text.experimental.translation import TranslationStage
+
+faith_client = AsyncOpenAIClient(
+    api_key=os.environ["NVIDIA_API_KEY"],
+    base_url="https://integrate.api.nvidia.com/v1",
+    max_concurrent_requests=64,
+)
+
+stage = TranslationStage(
+    source_lang="en",
+    target_lang="de",
+    backend_type="google",
+    backend_config={
+        "api_version": "v3",
+        "project_id": os.environ["GOOGLE_CLOUD_PROJECT"],
+        "location": "global",
+        "max_concurrent_requests": 32,
+    },
+    client=faith_client,  # Used for FAITH only; Google performs translation.
+    enable_faith_eval=True,
+    faith_model_name="openai/gpt-oss-120b",
+    faith_generation_config=GenerationConfig(temperature=0.0, max_tokens=256),
+    faith_max_concurrent_requests=64,
+    faith_threshold=2.5,
+    output_mode="both",
+    merge_scores=True,
+)
+```
+
+The client-side `max_concurrent_requests` limit and the stage-level `faith_max_concurrent_requests` semaphore both apply. The lower value is the effective concurrency, so size them together for the intended service limit.
+
+### Round-Trip Metrics
+
+Backtranslation uses a second translation pass with reversed languages, followed by `TextQualityMetricStage`:
+
+```python
+from nemo_curator.stages.text.experimental.translation import TextQualityMetricStage, TranslationStage
+
+pipeline.add_stage(
+    TranslationStage(
+        client=client,
+        model_name="openai/gpt-oss-120b",
+        source_lang="hi",
+        target_lang="en",
+        text_field="translated_text",
+        output_field="backtranslated_text",
+        output_mode="both",
+    )
+)
+pipeline.add_stage(
+    TextQualityMetricStage(
+        reference_text_field="text",
+        hypothesis_text_field="backtranslated_text",
+        metrics=[
+            {"type": "sacrebleu", "threshold": 20.0},
+            {"type": "chrf", "threshold": 40.0},
+        ],
+    )
+)
+```
+
+Supported metric types are:
+
+- `sacrebleu`
+- `chrf`
+- `ter`
+
+## Backend Selection
+
+Use `backend_type` to switch between translation backends:
+
+- `llm`: OpenAI-compatible async client
+- `google`: Google translation backend
+- `aws`: AWS translation backend
+- `nmt`: NMT service backend
+
+For non-LLM backends, pass backend-specific settings through `backend_config`.
+
+### Built-in Backend Configuration
+
+| Backend | `backend_config` keys and defaults | Requirements and limits |
+| --- | --- | --- |
+| `google` | `project_id=None`, `location="global"`, `api_version="v2"`, `max_concurrent_requests=32` | Uses Application Default Credentials. v3 requires `project_id` or `GOOGLE_CLOUD_PROJECT`. |
+| `aws` | `region=None`, `max_concurrent_requests=32` | Region resolves from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-2`. Each request is limited to 10,000 UTF-8 bytes. |
+| `nmt` | `server_url` required, `batch_size=32`, `timeout=120`, `max_concurrent_requests=32` | Sends `POST {server_url}/translate` with `texts`, `src_lang`, and `tgt_lang`; expects a same-length `translations` list. |
+
+Install the matching `translation_google`, `translation_aws`, or `translation_nmt` extra. Backend constructor errors surface during worker setup, and unknown backend names raise `ValueError` unless registered with `register_backend()`.
+
+## Custom Prompts and Dry Runs
+
+Translation and FAITH prompts are YAML mappings with required top-level `system` and `user` keys. Custom files must use absolute paths.
+
+The translation user template can reference:
+
+- `{source_lang}`: full source-language name
+- `{target_lang}`: full target-language name
+- `{src}`: source segment
+
+The FAITH templates can reference `{source_language}`, `{target_language}`, `{source_text}`, and `{translated_text}`. Escape literal braces for Python string formatting by doubling them, such as `{{"score": 5}}`.
+
+Example translation prompt:
+
+```yaml
+system: You are a domain-specific technical translator.
+user: |-
+  Translate this {source_lang} text to {target_lang}.
+  Preserve API names and code exactly.
+  Return only the translation wrapped in 〘 and 〙.
+
+  {src}
+```
+
+Validate prompt expansion without sending translation requests:
+
+```python
+stage = TranslationStage(
+    source_lang="en",
+    target_lang="ja",
+    client=client,
+    model_name="openai/gpt-oss-120b",
+    translation_prompt_path="/shared/prompts/technical-translation.yaml",
+    dry_run=True,
+    dry_run_log_count=3,
+    health_check=False,
+)
+```
+
+Dry-run mode still validates required constructor fields, loads the prompt, and initializes the client or backend during worker setup. Set `health_check=False` when the dry run must not issue an LLM health-check request. The stage logs up to `dry_run_log_count` expanded LLM messages (or source-segment previews for non-LLM backends), writes empty translations, and records zero translation time and no translation errors.
+
+## Notes
+
+- The translation package is designed for pipeline execution. Avoid converting large datasets to pandas on the driver just to orchestrate translation.
+- For structured inputs, wildcard paths and nested paths are first-class inputs to the library. You do not need to flatten records manually before calling `TranslationStage`.

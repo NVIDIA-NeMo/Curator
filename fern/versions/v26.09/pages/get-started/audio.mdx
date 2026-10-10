@@ -1,0 +1,145 @@
+---
+description: "Step-by-step guide to setting up and running your first audio curation pipeline with NeMo Curator"
+categories: ["getting-started"]
+tags: ["audio-curation", "installation", "quickstart", "asr-inference", "quality-filtering", "nemo-toolkit"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+<a id="get-started-with-audio-curation" />
+# Quickstart for NeMo Curator Audio Curation
+
+Use this quickstart to run NeMo Curator on a FLEURS audio dataset and inspect transcription-quality results. For complete setup details, refer to the [Installation Guide](/get-started/installation).
+
+## Prerequisites
+
+Prepare the following environment before running the audio pipeline:
+
+- Python 3.11, 3.12, or 3.13 on x86_64 Linux. Ubuntu 20.04 or 22.04 is recommended.
+- `packaging` 22.0 or later and Git.
+- `uv` for package management.
+- An `ffmpeg` executable on `PATH` for stages that resample or convert audio. The Python extras do not install it; audio workflows are easiest to reproduce in a [locally built container with FFmpeg](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). For Python package installs, refer to [FFmpeg installation options](/get-started/installation#install-ffmpeg-for-audio-and-video-source-installs).
+- An NVIDIA Volta-class or newer GPU with compute capability 7.0 or later and CUDA 12 is recommended for ASR inference; the example also supports CPU execution.
+
+<Warning>
+Audio curation requires x86_64 Linux. The `audio_cpu` and `audio_cuda12` extras omit dependencies for arm64/aarch64, including NeMo ASR and diarization. Use an amd64 host or container for ASR, diarization, and tagging workflows.
+</Warning>
+
+## Quickstart Steps
+
+Install Curator, run the maintained FLEURS pipeline, and inspect its output.
+
+1. <a id="installation-options" />Install NeMo Curator. A locally built container is recommended for audio workflows so FFmpeg is available on every worker.
+
+   <Tabs>
+   <Tab title="Build an Image (Recommended)">
+
+   Follow [Build an Image](/reference/infra/container-environments#build-an-image), then add FFmpeg using [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). This packages the audio system dependency in the image used by each worker.
+
+   </Tab>
+   <Tab title="Source Installation">
+
+   The repository clone tracks development. For a released version, check out its published release tag before syncing.
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/0.12.1/install.sh | sh
+   source $HOME/.local/bin/env
+   git clone https://github.com/NVIDIA-NeMo/Curator.git
+   cd Curator
+   uv sync --extra audio_cuda12 --all-groups
+   source .venv/bin/activate
+   ```
+
+   Use `audio_cpu` for CPU-only processing. Replace `audio_cuda12` with `audio_cpu` in the `uv sync` command to use CPU-only processing.
+
+   </Tab>
+   <Tab title="PyPI Installation">
+
+   For a specific release, verify that its package version is available on PyPI and matches the release notes.
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/0.12.1/install.sh | sh
+   source $HOME/.local/bin/env
+   uv venv
+   source .venv/bin/activate
+   echo "transformers==4.55.2" > override.txt
+   uv pip install "nemo-curator[audio_cuda12]" --override override.txt
+   ```
+
+   The audio extra installs NeMo Toolkit and its dependent audio-processing libraries. It does not install the `ffmpeg` executable.
+
+   </Tab>
+   </Tabs>
+
+2. <a id="run-the-maintained-fleurs-pipeline" />Open a repository checkout. If you do not already have one, clone the source revision that matches your Curator installation.
+
+   ```bash
+   if [ ! -d .git ]; then
+     git clone https://github.com/NVIDIA-NeMo/Curator.git
+     cd Curator
+   fi
+   ```
+
+3. Run the maintained FLEURS pipeline from the repository root.
+
+   ```bash
+   python tutorials/audio/fleurs/main.py \
+     --config-path . \
+     --config-name pipeline \
+     raw_data_dir="${PWD}/example_audio/fleurs"
+   ```
+
+   The checked-in configuration downloads the Armenian (`hy_am`) development split, runs FastConformer ASR, calculates word error rate and duration, and filters at `wer_pct <= 5.5`.
+
+   The configuration sets `max_audio_sec_per_actor=240.0`, `max_inference_duration_s=120.0`, `local_bucketing=true`, and `use_cuda_graph_decoder=false`. The 120-second inference limit is within the 240-second actor budget.
+
+   For CPU execution, install the `audio_cpu` extra and set the GPU resource request to zero. Refer to the [Beginner Audio Processing Tutorial](/curate-audio/tutorials/beginner) for supported overrides and details about the checked-in configuration.
+
+   ```bash
+   python tutorials/audio/fleurs/main.py \
+     --config-path . \
+     --config-name pipeline \
+     raw_data_dir="${PWD}/example_audio/fleurs-cpu" \
+     stages.1.resources.gpus=0
+   ```
+
+4. <a id="expected-output" />Inspect the generated files and JSONL records. The output includes `audio_filepath`, `text`, `pred_text`, `wer_pct`, and `duration` fields.
+
+   ```text
+   example_audio/fleurs/
+   ├── hy_am/                   # Downloaded Armenian data and source manifest
+   └── result/
+       └── hy_am/               # Filtered JSONL output shards
+   ```
+
+   ```json
+   {
+       "audio_filepath": "/absolute/path/to/audio.wav",
+       "text": "ground truth transcription",
+       "pred_text": "asr model prediction",
+       "wer_pct": 2.5,
+       "duration": 4.2
+   }
+   ```
+
+## Next Steps
+
+Use these guides to adapt the pipeline to your audio datasets:
+
+<CardGroup cols={2}>
+
+<Card title="Custom Audio Manifests" href="/curate-audio/load-data/custom-manifests">
+Load your own audio datasets.
+</Card>
+
+<Card title="Audio Quality Assessment" href="/curate-audio/process-data/quality-assessment">
+Filter data using quality metrics.
+</Card>
+
+<Card title="Audio and Text Integration" href="/curate-audio/process-data/text-integration">
+Combine audio and text workflows.
+</Card>
+
+</CardGroup>
