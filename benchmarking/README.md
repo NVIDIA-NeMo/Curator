@@ -88,6 +88,32 @@ This is especially useful during active development and debugging since it avoid
 
 Results are written to the `results_path` specified in your configuration, organized by session timestamp.
 
+Task performance statistics are always aggregated into `metrics.json`. The
+runner defaults to saving full task objects in `tasks.pkl`, preserving existing
+behavior when `save_tasks` is omitted. The full-suite `benchmarks.yaml` explicitly
+sets `save_tasks: false` to reduce retained artifacts. Set `save_tasks: true`
+globally or within an individual entry to retain tasks for inspection. Entry
+settings override the global setting in either direction. Scripts run directly
+also save tasks by default; pass `--no-save-tasks` to opt out or `--save-tasks`
+to enable retention explicitly. The runner passes the effective YAML setting
+using these same CLI flags.
+
+```yaml
+save_tasks: false
+entries:
+  - name: alm_pipeline_xenna
+    save_tasks: true
+```
+
+This override can be layered on top of the full-suite config. Task pickles can
+be very large because they include data payloads, not just performance statistics.
+
+Archived Ray and inference-server `.log` files larger than 10 MiB are stored as
+`.log.gz` files, preserving their full contents. Read them with
+`gzip -cd path/to/file.log.gz`. The default benchmark config uses INFO-level
+Ray Data logging; an environment override can set `RAY_DATA_LOG_LEVEL: DEBUG`
+for detailed debugging.
+
 ---
 
 ## Nightly Benchmark Ownership
@@ -689,7 +715,7 @@ Your script **must** write three JSON/pickle files to the `--benchmark-results-p
 
 **`metrics.json`** - A JSON file containing all measured metrics from the benchmark (execution time, throughput, memory usage, etc.). Metric names used here can be referenced in entry requirements and sink configurations.
 
-**`tasks.pkl`** - A pickle file containing NeMo Curator `Task` objects that capture detailed performance data. Use `nemo_curator.tasks.Task` with `TaskPerfUtils()` to wrap operations in your script, then save all tasks using `Task.get_all_tasks()`.
+**`tasks.pkl`** - An optional pickle file containing complete NeMo Curator `Task` objects, including payloads and individual performance statistics. Written only when `save_tasks: true` is enabled for the entry. Scripts return completed tasks to `write_benchmark_results()`, which saves aggregate statistics in `metrics.json` regardless of task retention.
 
 ### Reference Implementations
 

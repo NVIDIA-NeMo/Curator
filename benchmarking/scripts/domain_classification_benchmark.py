@@ -120,7 +120,11 @@ def main() -> int:
     parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
     parser.add_argument("--input-filetype", default="jsonl", choices=["parquet", "jsonl"], help="Input file format")
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     logger.info("=== Domain Classification Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
@@ -139,7 +143,7 @@ def main() -> int:
         result_dict.update(run_domain_classification_benchmark(**vars(args)))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

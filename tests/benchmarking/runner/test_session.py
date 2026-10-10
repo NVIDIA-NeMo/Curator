@@ -42,6 +42,39 @@ def test_session_defaults_max_timeout_s() -> None:
     assert session.entries[0].timeout_s == 7200
 
 
+@pytest.mark.parametrize("global_value", [False, True])
+def test_save_tasks_inherits_and_overrides_global_setting(global_value: bool) -> None:
+    session = Session.from_dict(
+        _config(
+            [
+                {"name": "inherited", "script": "benchmark.py"},
+                {"name": "enabled", "script": "benchmark.py", "save_tasks": True},
+                {"name": "disabled", "script": "benchmark.py", "save_tasks": False},
+            ],
+            save_tasks=global_value,
+        )
+    )
+    assert [entry.save_tasks for entry in session.entries] == [global_value, True, False]
+
+
+def test_save_tasks_retains_tasks_when_setting_is_omitted() -> None:
+    session = Session.from_dict(_config([{"name": "entry_a", "script": "benchmark.py"}]))
+    assert session.entries[0].save_tasks is True
+
+
+@pytest.mark.parametrize("value", ["false", 1])
+@pytest.mark.parametrize("per_entry", [False, True])
+def test_save_tasks_rejects_non_boolean_settings(value: object, per_entry: bool) -> None:
+    entry = {"name": "entry_a", "script": "benchmark.py"}
+    overrides = {}
+    if per_entry:
+        entry["save_tasks"] = value
+    else:
+        overrides["save_tasks"] = value
+    with pytest.raises(TypeError, match="Invalid save_tasks"):
+        Session.from_dict(_config([entry], **overrides))
+
+
 def test_session_rejects_timeout_above_max_timeout_s() -> None:
     with pytest.raises(ValueError, match=r"entry_a.*timeout_s=101.*max_timeout_s=100"):
         Session.from_dict(
