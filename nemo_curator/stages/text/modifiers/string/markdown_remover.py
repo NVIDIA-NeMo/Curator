@@ -20,8 +20,9 @@ MARKDOWN_BOLD_REGEX = r"\*\*(.*?)\*\*"
 MARKDOWN_ITALIC_REGEX = r"\*(.*?)\*"
 # As in CommonMark, an underscore inside a word (snake_case, file_name.py, first_last@example.com)
 # can't open or close emphasis (_text_ or __text__). The emphasized text can't contain another
-# opening underscore, so a long line of unmatched ones is scanned once, not once per underscore.
-MARKDOWN_UNDERLINE_REGEX = r"(?<!\w)(__?)(?=\S)((?:[^_]|(?<=\w)_)+?)(?<=\S)\1(?!\w)"
+# underscore that could open emphasis (one after a non-word character and before a non-space), so a
+# long line of unmatched ones is scanned once, not once per underscore.
+MARKDOWN_UNDERLINE_REGEX = r"(?<!\w)(__?)(?=\S)((?:[^_]|(?<=\w)_|_(?!\S))+?)(?<=\S)\1(?!\w)"
 MARKDOWN_LINK_REGEX = r"\[.*?\]\((.*?)\)"
 
 

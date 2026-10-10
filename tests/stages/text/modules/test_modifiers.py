@@ -406,6 +406,14 @@ class TestMarkdownRemover:
         expected = "both and bold and italic bold and a b c"
         assert result == expected
 
+    def test_literal_underscore_inside_emphasis(self) -> None:
+        # An underscore followed by a space can't open emphasis, so it stays inside the emphasized text
+        text = "_Use _ as a separator_ in names."
+        remover = MarkdownRemover()
+        result = remover.modify_document(text)
+        expected = "Use _ as a separator in names."
+        assert result == expected
+
     def test_long_line_of_unmatched_underscores(self) -> None:
         # Each underscore opens but none closes; this must not take quadratic time
         text = "_word self._x " * 10_000
