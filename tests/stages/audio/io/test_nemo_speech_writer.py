@@ -115,8 +115,10 @@ def test_writes_real_decodable_opus_then_finalizes_manifest_and_marker(tmp_path:
     marker_path = _marker_path(output_dir)
     assert len(_receipt_paths(output_dir)) == 1
     owner_paths = list((output_dir / ".nemo_curator" / "nemo_speech_audio_owners").rglob("*.json"))
-    assert len(owner_paths) == 1
-    assert json.loads(owner_paths[0].read_text(encoding="utf-8"))["audio_filepath"] == relative_audio.as_posix()
+    assert len(owner_paths) == 2
+    assert {json.loads(path.read_text(encoding="utf-8"))["audio_filepath"] for path in owner_paths} == {
+        relative_audio.as_posix()
+    }
     assert not manifest_path.exists()
     assert not marker_path.exists()
 
@@ -143,6 +145,52 @@ def test_writes_real_decodable_opus_then_finalizes_manifest_and_marker(tmp_path:
         "shard_key": _SHARD_KEY,
         "version": 1,
     }
+
+
+def test_saved_segment_resets_offset_and_preserves_absolute_source_extent(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    writer = _writer(output_dir)
+    task = _task(offset=10.0, start_ms=2_000, end_ms=3_500)
+
+    writer.process(task)
+    finalize_nemo_speech_output(str(output_dir))
+
+    row = _read_manifest(_manifest_path(output_dir))[0]
+    assert row["offset"] == 0.0
+    assert row["original_offset"] == 12.0
+    assert row["original_end"] == 13.5
+
+
+def test_saved_offset_only_row_preserves_source_offset(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    writer = _writer(output_dir)
+    writer.process(_task(offset=10.0, start_ms=None))
+    finalize_nemo_speech_output(str(output_dir))
+
+    row = _read_manifest(_manifest_path(output_dir))[0]
+    assert row["offset"] == 0.0
+    assert row["original_offset"] == 10.0
+
+
+def test_rewriting_saved_segment_keeps_inherited_source_extent(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    writer = _writer(output_dir)
+    writer.process(
+        _task(
+            source="/previous/output/clip.opus",
+            original_audio_filepath="s3://speech-bucket/original.wav",
+            original_offset=12.0,
+            offset=0.0,
+            start_ms=1_000,
+            end_ms=1_250,
+        )
+    )
+    finalize_nemo_speech_output(str(output_dir))
+
+    row = _read_manifest(_manifest_path(output_dir))[0]
+    assert row["original_audio_filepath"] == "s3://speech-bucket/original.wav"
+    assert row["original_offset"] == 13.0
+    assert row["original_end"] == 13.25
 
 
 def test_placeholder_rows_need_no_waveform_or_opus(tmp_path: Path) -> None:
@@ -359,6 +407,25 @@ def test_process_replaces_corrupted_existing_opus_on_replay(tmp_path: Path) -> N
     assert _marker_path(output_dir).is_file()
 
 
+def test_unbound_equal_duration_opus_is_replaced_and_cannot_be_published(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    writer = _writer(output_dir)
+    relative = PurePosixPath(_SHARD_KEY, "audio", "preset.opus")
+    opus_path = output_dir / relative
+    opus_path.parent.mkdir(parents=True)
+    sf.write(opus_path, -_tone(), _SAMPLE_RATE, format="OGG", subtype="OPUS")
+    foreign_bytes = opus_path.read_bytes()
+    task = _task(output_audio_filepath=relative.as_posix())
+
+    writer.process(task)
+
+    assert opus_path.read_bytes() != foreign_bytes
+    sf.write(opus_path, -_tone(), _SAMPLE_RATE, format="OGG", subtype="OPUS")
+    assert writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(_tone()))
+    with pytest.raises(ValueError, match="matching content binding"):
+        finalize_nemo_speech_output(str(output_dir))
+
+
 def test_replay_repairs_and_finalizer_rejects_duration_truncated_opus(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     writer = _writer(output_dir)
@@ -382,6 +449,33 @@ def test_replay_repairs_and_finalizer_rejects_duration_truncated_opus(tmp_path: 
     assert not _marker_path(output_dir).exists()
 
 
+def test_validation_rejects_opus_missing_a_middle_page(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    writer = _writer(output_dir)
+    waveform = _tone(duration=5.0)
+    task = _task(waveform=waveform, duration_sec=5.0)
+    writer.process(task)
+    opus_path = output_dir / task.data["output_audio_filepath"]
+    payload = opus_path.read_bytes()
+
+    pages: list[tuple[int, int]] = []
+    offset = 0
+    while offset < len(payload):
+        assert payload[offset : offset + 4] == b"OggS"
+        segment_count = payload[offset + 26]
+        body_offset = offset + 27 + segment_count
+        page_end = body_offset + sum(payload[offset + 27 : body_offset])
+        pages.append((offset, page_end))
+        offset = page_end
+    assert len(pages) >= 4
+    page_start, page_end = pages[len(pages) // 2]
+    opus_path.write_bytes(payload[:page_start] + payload[page_end:])
+
+    assert not writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(waveform))
+    monkeypatch.setattr(writer_module.sf, "info", lambda _path: (_ for _ in ()).throw(RuntimeError("disabled")))
+    assert not writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(waveform))
+
+
 def test_finalize_rejects_corrupted_final_opus(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     writer = _writer(output_dir)
@@ -403,14 +497,28 @@ def test_manifest_only_preserves_original_reference_without_inventing_opus(tmp_p
     writer.setup()
     source = "s3://speech-bucket/set_a/clip.wav"
 
-    writer.process(_task(source=source, waveform=None))
+    writer.process(
+        _task(
+            source=source,
+            waveform=None,
+            sample_rate=8_000,
+            sampling_rate=8_000,
+            offset=10.0,
+            start_ms=2_000,
+            end_ms=3_500,
+        )
+    )
     finalize_nemo_speech_output(str(output_dir))
 
     assert not list(output_dir.rglob("*.opus"))
-    assert _read_manifest(_manifest_path(output_dir))[0]["audio_filepath"] == source
+    row = _read_manifest(_manifest_path(output_dir))[0]
+    assert row["audio_filepath"] == source
+    assert row["sample_rate"] == 8_000
+    assert row["offset"] == 12.0
+    assert row["original_end"] == 13.5
 
 
-@pytest.mark.parametrize("output_dir", ["relative/output", "s3://bucket/output"])
+@pytest.mark.parametrize("output_dir", ["relative/output", "~/output", "s3://bucket/output"])
 def test_rejects_non_absolute_or_uri_output_dirs(output_dir: str) -> None:
     with pytest.raises(ValueError, match="absolute local path"):
         NeMoSpeechWriterStage(output_dir=output_dir)
@@ -447,6 +555,16 @@ def test_same_input_fanout_without_offsets_uses_framework_child_identity(tmp_pat
 
     assert first.data["output_audio_filepath"] != second.data["output_audio_filepath"]
     assert len(_read_manifest(_manifest_path(output_dir))) == 2
+
+
+def test_saved_fanout_is_sorted_by_source_offset(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    writer = _writer(output_dir)
+    writer.process(_task(input_id="recording", start_ms=10_000, output_slot="late"))
+    writer.process(_task(input_id="recording", start_ms=2_000, output_slot="early"))
+    finalize_nemo_speech_output(str(output_dir))
+
+    assert [row["original_offset"] for row in _read_manifest(_manifest_path(output_dir))] == [2.0, 10.0]
 
 
 @pytest.mark.parametrize(
@@ -568,12 +686,13 @@ def test_audio_ownership_records_are_hash_sharded(tmp_path: Path) -> None:
 
     owner_root = output_dir / ".nemo_curator" / "nemo_speech_audio_owners"
     owner_paths = list(owner_root.rglob("*.json"))
-    assert len(owner_paths) == 1
-    relative_parts = owner_paths[0].relative_to(owner_root).parts
-    assert len(relative_parts) == 3
-    assert len(relative_parts[0]) == 2
-    assert len(relative_parts[1]) == 2
-    assert len(Path(relative_parts[2]).stem) == 64
+    assert len(owner_paths) == 2
+    for path in owner_paths:
+        relative_parts = path.relative_to(owner_root).parts
+        assert len(relative_parts) == 3
+        assert len(relative_parts[0]) == 2
+        assert len(relative_parts[1]) == 2
+        assert all(len(digest) == 64 for digest in Path(relative_parts[2]).stem.split("."))
 
 
 def test_ffprobe_validation_fallback_accepts_real_opus(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

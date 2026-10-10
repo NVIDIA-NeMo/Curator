@@ -22,9 +22,9 @@ is one ``FileGroupTask``.  This preserves a stable source boundary for
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
-import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -287,8 +287,14 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
                 logger.info(f"Removed incomplete NeMo speech state: {path}")
         receipts = _receipt_dir(root, shard_key)
         if receipts.is_dir():
-            shutil.rmtree(receipts)
-            logger.info(f"Removed incomplete NeMo speech row receipts: {receipts}")
+            removed = False
+            for receipt in receipts.glob("*.json"):
+                receipt.unlink()
+                removed = True
+            with contextlib.suppress(OSError):
+                receipts.rmdir()
+            if removed:
+                logger.info(f"Removed incomplete NeMo speech row receipts: {receipts}")
 
     def process(self, _task: EmptyTask) -> list[FileGroupTask]:
         config = _load_input_cfg(self.yaml_path or None, self.input_cfg)
@@ -718,9 +724,6 @@ class NeMoSpeechAudioReader(CompositeStage[EmptyTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
-        if not self.yaml_path and self.input_cfg is None:
-            msg = "Either input_cfg or yaml_path is required for NeMoSpeechAudioReader"
-            raise ValueError(msg)
         self._stages = [
             NeMoSpeechDiscoveryStage(
                 yaml_path=self.yaml_path,

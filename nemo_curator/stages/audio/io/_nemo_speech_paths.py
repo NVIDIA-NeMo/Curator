@@ -24,7 +24,7 @@ def validate_local_output_dir(output_dir: str) -> Path:
     """Require an absolute local path for atomic, shared-filesystem output."""
 
     parsed = urlsplit(output_dir)
-    path = Path(output_dir).expanduser()
+    path = Path(output_dir)
     if parsed.scheme or not path.is_absolute():
         msg = f"NeMo speech output_dir must be an absolute local path, got {output_dir!r}"
         raise ValueError(msg)
