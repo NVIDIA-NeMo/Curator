@@ -126,32 +126,32 @@ def _fill_tar_extract_rows(
     """Open each tar once and extract all needed members sequentially."""
     for path, keyed_rows in groups.items():
         key_cache: dict[str, bytes | None] = {}
+        wanted = {member for _, member, _ in keyed_rows}
         try:
             with fsspec.open(path, mode="rb", **storage_options) as fobj, tarfile.open(fileobj=fobj, mode="r:*") as tf:
-                for idx, member, frame_idx in keyed_rows:
-                    if member not in key_cache:
-                        try:
-                            extracted = tf.extractfile(member)
-                        except KeyError:
-                            extracted = None
-                        key_cache[member] = extracted.read() if extracted is not None else None
-
-                    payload = key_cache[member]
-                    if payload is None:
-                        error_values[idx] = f"missing member '{member}'"
-                        continue
-
-                    if frame_idx is not None:
-                        payload = _extract_tiff_frame(payload, frame_idx)
-                        if payload is None:
-                            error_values[idx] = f"failed to extract frame {frame_idx} from '{member}'"
-                            continue
-
-                    binary_values[idx] = payload
-                    error_values[idx] = None
+                for tar_info in tf:
+                    if tar_info.name in wanted:
+                        extracted = tf.extractfile(tar_info)
+                        key_cache[tar_info.name] = extracted.read() if extracted is not None else None
         except (OSError, tarfile.TarError):
             for idx, *_ in keyed_rows:
                 error_values[idx] = "failed to read path"
+            continue
+
+        for idx, member, frame_idx in keyed_rows:
+            payload = key_cache.get(member)
+            if payload is None:
+                error_values[idx] = f"missing member '{member}'"
+                continue
+
+            if frame_idx is not None:
+                payload = _extract_tiff_frame(payload, frame_idx)
+                if payload is None:
+                    error_values[idx] = f"failed to extract frame {frame_idx} from '{member}'"
+                    continue
+
+            binary_values[idx] = payload
+            error_values[idx] = None
 
 
 def _scatter_range_blobs(
