@@ -16,13 +16,12 @@
 
 from __future__ import annotations
 
-import math
 import warnings
 from dataclasses import dataclass, field
 from numbers import Integral
 from typing import TYPE_CHECKING, Any, Literal
 
-from .base import VADResult, VADSegment
+from .base import VADResult, VADSegment, _validate_detection_options
 
 if TYPE_CHECKING:
     import torch
@@ -44,32 +43,6 @@ def _validate_num_gpus(num_gpus: object, *, owner: str, allow_gpu: bool) -> int:
         msg = f"{owner}.load_model num_gpus must be {expectation}, got {count}"
         raise ValueError(msg)
     return count
-
-
-def _validate_detection_options(  # noqa: PLR0913
-    *,
-    threshold: float,
-    min_duration_sec: float,
-    max_duration_sec: float,
-    min_interval_ms: int,
-    speech_pad_ms: int,
-    owner: str,
-) -> None:
-    if not math.isfinite(float(threshold)) or not 0.0 <= float(threshold) <= 1.0:
-        msg = f"{owner}.threshold must be finite and in [0, 1], got {threshold!r}"
-        raise ValueError(msg)
-    minimum = float(min_duration_sec)
-    maximum = float(max_duration_sec)
-    if not math.isfinite(minimum) or minimum < 0:
-        msg = f"{owner}.min_duration_sec must be finite and non-negative, got {min_duration_sec!r}"
-        raise ValueError(msg)
-    if not math.isfinite(maximum) or maximum <= minimum:
-        msg = f"{owner}.max_duration_sec must be finite and greater than min_duration_sec, got {max_duration_sec!r}"
-        raise ValueError(msg)
-    for name, value in (("min_interval_ms", min_interval_ms), ("speech_pad_ms", speech_pad_ms)):
-        if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
-            msg = f"{owner}.{name} must be a non-negative integer, got {value!r}"
-            raise ValueError(msg)
 
 
 def _prepare_waveform(

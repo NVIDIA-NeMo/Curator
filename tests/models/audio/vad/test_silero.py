@@ -52,6 +52,8 @@ def test_unknown_runtime_is_rejected(backend: str) -> None:
         ({"threshold": 1.1}, "threshold"),
         ({"min_duration_sec": -1}, "min_duration_sec"),
         ({"min_duration_sec": 2, "max_duration_sec": 2}, "max_duration_sec"),
+        ({"max_duration_sec": float("nan")}, "max_duration_sec"),
+        ({"max_duration_sec": float("-inf")}, "max_duration_sec"),
         ({"min_interval_ms": -1}, "min_interval_ms"),
         ({"speech_pad_ms": -1}, "speech_pad_ms"),
     ],
@@ -59,6 +61,12 @@ def test_unknown_runtime_is_rejected(backend: str) -> None:
 def test_invalid_detection_options_are_rejected(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         SileroVADAdapter(**kwargs)
+
+
+def test_unlimited_max_duration_is_supported() -> None:
+    adapter = SileroVADAdapter(max_duration_sec=float("inf"))
+
+    assert adapter.max_duration_sec == float("inf")
 
 
 def test_prefetch_is_a_noop_for_wheel_bundled_weights() -> None:

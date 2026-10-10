@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 import torch
 
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.models.audio.vad.base import VADResult, VADSegment
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
@@ -138,6 +139,8 @@ def test_create_adapter_forwards_stage_options_and_adapter_kwargs(monkeypatch: p
         ({"threshold": 1.1}, "threshold"),
         ({"min_duration_sec": -1}, "min_duration_sec"),
         ({"min_duration_sec": 2, "max_duration_sec": 2}, "max_duration_sec"),
+        ({"max_duration_sec": float("nan")}, "max_duration_sec"),
+        ({"max_duration_sec": float("-inf")}, "max_duration_sec"),
         ({"min_interval_ms": -1}, "min_interval_ms"),
         ({"speech_pad_ms": -1}, "speech_pad_ms"),
         ({"batch_size": 0}, "batch_size"),
@@ -147,6 +150,12 @@ def test_create_adapter_forwards_stage_options_and_adapter_kwargs(monkeypatch: p
 def test_invalid_options_are_rejected(kwargs: dict[str, Any], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         VADSegmentationStage(**kwargs)
+
+
+def test_unlimited_max_duration_is_supported() -> None:
+    stage = VADSegmentationStage(max_duration_sec=float("inf"))
+
+    assert stage.max_duration_sec == float("inf")
 
 
 def test_fanout_contract_and_ray_spec() -> None:
@@ -207,6 +216,66 @@ def test_nested_batch_delegates_mono_contiguous_source_rate_audio_and_preserves_
     assert [task.data["segments"][0]["start_ms"] for task in result] == [0, 250]
 
 
+def test_ray_data_adapter_accepts_two_item_numpy_object_batch() -> None:
+    stage, adapter = _stage(
+        nested=True,
+        batch_size=2,
+        results=[
+            VADResult([VADSegment(0.0, 0.5)]),
+            VADResult([VADSegment(0.25, 0.75)]),
+        ],
+    )
+    tasks = [_task("first"), _task("second")]
+    ray_batch = np.empty(2, dtype=object)
+    ray_batch[:] = tasks
+
+    result = RayDataStageAdapter(stage)._process_batch_internal({"item": ray_batch})
+
+    assert result["item"] == tasks
+    assert len(adapter.items) == 2
+    assert [task.data["segments"][0]["start_ms"] for task in result["item"]] == [0, 250]
+
+
+def test_batch_validates_public_subclass_inputs_before_inference() -> None:
+    class TenantVADSegmentationStage(VADSegmentationStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            return [], ["tenant_id"]
+
+    stage = TenantVADSegmentationStage()
+    adapter = _RecordingAdapter()
+    stage._adapter = adapter
+    task = _task()
+
+    assert not stage.validate_input(task)
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    assert adapter.items == []
+
+
+def test_batch_dispatches_public_process_override_without_recursing() -> None:
+    class CustomVADSegmentationStage(VADSegmentationStage):
+        process_calls = 0
+
+        def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
+            self.process_calls += 1
+            result = super().process(task)
+            assert isinstance(result, AudioTask)
+            result.data["custom_process"] = True
+            return result
+
+    stage = CustomVADSegmentationStage(nested=True)
+    adapter = _RecordingAdapter(results=[VADResult([VADSegment(0.0, 0.5)])])
+    stage._adapter = adapter
+    task = _task()
+
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert stage.process_calls == 1
+    assert result[0].data["custom_process"] is True
+    assert len(adapter.items) == 1
+
+
 def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
     stage, _ = _stage(results=[VADResult([VADSegment(0.25, 0.75)])])
     task = _task(channels=2)
@@ -232,6 +301,16 @@ def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
     assert child.data["segment_num"] == 0
     assert child.data["num_speakers"] == 2
     assert child.data["language"] == "en"
+
+
+def test_fanout_preserves_speaker_separation_count_for_interval_segments() -> None:
+    stage, _ = _stage(results=[VADResult([VADSegment(0.25, 0.75)])])
+    task = _task()
+    task.data.update({"diar_segments": [(0.0, 0.5), (0.5, 1.0)], "num_speakers": 2})
+
+    child = stage.process(task)[0]
+
+    assert child.data["num_speakers"] == 2
 
 
 def test_custom_duration_key_is_used_without_leaking_parent_duration() -> None:
@@ -262,6 +341,34 @@ def test_file_input_is_loaded_without_storing_parent_waveform(monkeypatch: pytes
     np.testing.assert_allclose(adapter.items[0]["waveform"], 0.5)
     assert child.data["waveform"].shape == (2, 8000)
     assert "waveform" not in task.data
+
+
+@pytest.mark.parametrize(
+    ("segments", "expect_empty"),
+    [
+        ([VADSegment(0.0, 0.5)], False),
+        ([], True),
+    ],
+)
+def test_nested_file_input_preserves_discovered_parent_sample_rate(
+    monkeypatch: pytest.MonkeyPatch,
+    segments: list[VADSegment],
+    expect_empty: bool,
+) -> None:
+    stage, _ = _stage(nested=True, results=[VADResult(segments)])
+    monkeypatch.setattr(stage, "_load_audio", lambda _path: (np.ones(22050, dtype=np.float32), 22050))
+    task = AudioTask(task_id="file", data={"audio_filepath": "/audio/file.wav"})
+
+    result = stage.process(task)
+
+    assert result is task
+    assert result.data["sample_rate"] == 22050
+    assert "waveform" not in result.data
+    assert (result.data.get("vad_empty") is True) is expect_empty
+    if expect_empty:
+        assert result.data["segments"] == []
+    else:
+        assert result.data["segments"][0]["sample_rate"] == 22050
 
 
 def test_nested_mode_keeps_one_parent_and_stores_segment_dicts() -> None:
