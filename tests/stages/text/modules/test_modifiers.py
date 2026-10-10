@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+
 import pandas as pd
 import pytest
 
@@ -396,6 +398,22 @@ class TestMarkdownRemover:
             "or email first_last@example.com about this and that."
         )
         assert result == expected
+
+    def test_nested_underscore_emphasis(self) -> None:
+        text = "___both___ and __bold _and italic_ bold__ and _a __b__ c_"
+        remover = MarkdownRemover()
+        result = remover.modify_document(text)
+        expected = "both and bold and italic bold and a b c"
+        assert result == expected
+
+    def test_long_line_of_unmatched_underscores(self) -> None:
+        # Each underscore opens but none closes; this must not take quadratic time
+        text = "_word self._x " * 10_000
+        remover = MarkdownRemover()
+        start = time.perf_counter()
+        result = remover.modify_document(text)
+        assert time.perf_counter() - start < 1
+        assert result == text
 
     def test_link_removal(self) -> None:
         text = "Link: [Google](https://google.com)"
