@@ -191,11 +191,11 @@ class SileroVADAdapter:
         with torch.inference_mode(), warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Sampling rate is a multiple of 16000")
             for item in items:
-                waveform, sample_rate = _prepare_waveform(
-                    item,
-                    device=self._device,
-                )
                 try:
+                    waveform, sample_rate = _prepare_waveform(
+                        item,
+                        device=self._device,
+                    )
                     timestamps = get_speech_timestamps(
                         waveform,
                         self._model,
@@ -207,6 +207,8 @@ class SileroVADAdapter:
                         speech_pad_ms=self.speech_pad_ms,
                     )
                     results.append(_timestamps_to_result(timestamps, sample_rate))
+                except (MemoryError, torch.cuda.OutOfMemoryError):
+                    raise
                 except Exception as exc:  # noqa: BLE001
                     results.append(VADResult(segments=[], error=f"{type(exc).__name__}: {exc}"))
         return results

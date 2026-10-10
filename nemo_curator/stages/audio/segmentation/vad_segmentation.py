@@ -130,6 +130,12 @@ class VADSegmentationStage(AdapterInferenceStage[VADAdapter]):
         self.speech_pad_ms = int(self.speech_pad_ms)
         self.batch_size = int(self.batch_size)
 
+    def with_(self, *args: object, **kwargs: object) -> VADSegmentationStage:
+        """Apply executor overrides while preserving fan-out validation."""
+        stage = cast("VADSegmentationStage", super().with_(*args, **kwargs))
+        stage._validate_options()
+        return stage
+
     def _create_adapter(self) -> VADAdapter:
         adapter_cls = self._adapter_class()
         return cast(
