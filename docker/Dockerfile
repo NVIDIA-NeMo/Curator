@@ -25,6 +25,8 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 FROM cuda AS build
 
 ARG CURATOR_ENV=ci
+ARG CURATOR_EXTRA=all
+ENV CURATOR_EXTRA=${CURATOR_EXTRA}
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
@@ -40,10 +42,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1t64 \
     vim && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
+    curator_python=3.13 && \
+    if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then curator_python=3.12; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
-    python3.13 \
-    python3.13-dev \
-    python3.13-venv \
+    "python${curator_python}" \
+    "python${curator_python}-dev" \
+    "python${curator_python}-venv" \
     python-is-python3 && \
     apt-get install -y --only-upgrade gnupg libunbound8 && \
     apt-get clean && \
@@ -59,7 +63,9 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site-packages --seed
+RUN curator_python=3.13 && \
+    if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then curator_python=3.12; fi && \
+    uv venv ${UV_PROJECT_ENVIRONMENT} --python "/usr/bin/python${curator_python}" --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
 
@@ -70,7 +76,6 @@ RUN bash install_etcd_nats.sh && \
 
 FROM nemo_curator_dep AS nemo_curator
 
-ARG CURATOR_EXTRA=all
 ARG CURATOR_GROUPS="--all-groups"
 WORKDIR /opt/Curator
 
@@ -78,11 +83,16 @@ WORKDIR /opt/Curator
 COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
-# Install Curator
+# Install Curator; driverless builds check package metadata, not native GPU imports.
 RUN if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
+    fi && \
+    if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then \
+        python -c 'import sys; from importlib.metadata import version; \
+            assert sys.version_info[:2] == (3, 12); \
+            print("Packaging check only:", sys.version, {name: version(name) for name in ("torch", "tensorrt", "tensorrt-llm")})'; \
     fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
     # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.

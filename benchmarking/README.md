@@ -24,11 +24,12 @@ Assuming the working directory is the NeMo Curator repo root dir:
 ./benchmarking/tools/build_docker.sh --tag-as-latest
 ```
 
-This builds the `curator_benchmarking` image with:
+This builds the `nemo_curator_benchmarking` image with:
+
 - CUDA support
-- Python 3.12 environment
+- Python 3.13 for the default `all` profile (Python 3.12 for `trt_llm`)
 - NeMo Curator from source in repo root dir
-- All NeMo Curator dependencies
+- The selected Curator dependency profile (`all` by default)
 - Benchmarking framework and scripts
 
 Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
@@ -687,11 +688,13 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 `nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
+### Indic ASR environment
+
 The benchmark requires the root `trt_llm` dependency profile in one Python 3.12
 environment on Linux x86_64:
 
 ```bash
-uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
+uv sync --locked --python 3.12 --extra trt_llm --all-groups
 source .venv/bin/activate
 ```
 
@@ -703,14 +706,54 @@ there is no child environment or dependency installation during inference.
 incompatible profiles. The normal `all` environment remains on Torch 2.11 and
 does not include `trt_llm`.
 
+The named `all` extra is a curated shared-stack profile, not a synonym for
+`--all-extras`. Consequently, `uv sync --all-extras --all-groups` is not
+supported: it requests mutually incompatible runtime profiles together. For
+the ordinary shared stack, use `uv sync --locked --extra all --all-groups`;
+for Indic ASR, use the `trt_llm` command above. Each command selects one root
+environment, not a nested inference environment.
+
+Build the matching benchmark image through the existing helper:
+
+```bash
+CURATOR_EXTRA=trt_llm \
+CURATOR_IMAGE=nemo_curator:trt_llm \
+CURATOR_BENCHMARKING_IMAGE=nemo_curator_benchmarking:trt_llm \
+bash benchmarking/tools/build_docker.sh
+```
+
+The base image records the selected profile, which the benchmarking layer
+inherits rather than resyncing the audio image to `all`. Build-time package
+version checks do not replace native loading. Before launching a benchmark,
+check the finished image on a GPU host using the actual Canary native loader:
+
+```bash
+docker run --rm --gpus all --entrypoint python \
+  nemo_curator_benchmarking:trt_llm -c '
+import sys
+from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
+_require_tensorrt_llm()
+import torch, tensorrt, tensorrt_llm
+assert sys.version_info[:2] == (3, 12)
+assert torch.__version__.split("+")[0] == "2.9.1"
+assert tensorrt_llm.__version__ == "1.2.1"
+print(sys.version, torch.__version__, tensorrt.__version__, tensorrt_llm.__version__)
+print(torch.cuda.get_device_name(0))
+'
+```
+
+This checks native loading and GPU visibility, not engine compatibility,
+transcription correctness, or reference parity. The benchmark's model and
+data preflight checks still apply.
+
 Benchmark entry selection does not select a dependency profile: the harness
 runs each script with `python` from the launch environment. NeMo-CI must select
-the Python 3.12 `trt_llm` environment before invoking `benchmarking/run.py`.
-The stock Docker environment uses Python 3.13 and `all`, so choosing these
-entries or setting only `CURATOR_EXTRA=trt_llm` is insufficient. Existing
-NeMo-CI support that provisions an Indic Canary child runtime must also be
-updated before launching these entries; this PR does not add a Dockerfile or
-separate packaging specification.
+the Python 3.12 `trt_llm` image before invoking `benchmarking/run.py`; choosing
+`audio_indic_asr_xenna` or `audio_indic_asr_raydata` alone does not do this.
+The build helper's profile selection does not configure external NeMo-CI
+routing. Verify that routing separately; neither the default Python 3.13 /
+`all` image nor an older child-runtime launcher satisfies this contract.
+The profile uses the existing Dockerfiles and root packaging specification.
 
 The host or container runtime must independently provide a CUDA-13-capable
 NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported

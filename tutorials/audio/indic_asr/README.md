@@ -45,7 +45,7 @@ and `uv.lock`.
 From the repository root:
 
 ```bash
-uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
+uv sync --locked --python 3.12 --extra trt_llm --no-default-groups
 source .venv/bin/activate
 ```
 
@@ -53,7 +53,7 @@ For `indic_asr_tutorial.ipynb`, include the existing development group to instal
 Jupyter in that same environment:
 
 ```bash
-uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups --group dev
+uv sync --locked --python 3.12 --extra trt_llm --no-default-groups --group dev
 source .venv/bin/activate
 ```
 
@@ -62,6 +62,12 @@ declared in `pyproject.toml`. The standard `all` profile retains Torch 2.11 and
 does not include `trt_llm`. No child environment is created at adapter setup,
 and no packages are installed during inference. Use the selected environment's
 Python for the tutorial and its notebook kernel.
+
+`uv sync --all-extras --all-groups` is intentionally unsupported because it
+selects these incompatible profiles together. The named `all` extra is not
+equivalent to `--all-extras`: use `uv sync --locked --extra all --all-groups`
+for the ordinary shared stack, or the explicit `trt_llm` command above for
+this tutorial. Both are selections from the same root project and lockfile.
 
 The supported profile is Python 3.12 on Linux x86_64. Consumer GPUs require a native
 CUDA-13-capable NVIDIA driver. Supported data-center GPUs can instead use
@@ -172,7 +178,8 @@ python nemo_curator/config/run.py \
   backend=ray_data
 ```
 
-Do not reuse an output path between runs.
+Choose a fresh output path between runs: the direct YAML runner replaces an
+existing output file.
 
 ## Small one-GPU functional run
 
@@ -221,8 +228,13 @@ Selecting those benchmark names does not install `trt_llm`. The benchmark
 harness invokes `python` from its existing launch environment. NeMo-CI must
 select the root Python 3.12 `trt_llm` environment before the harness starts;
 the stock Python 3.13 / `all` image and older child-runtime launch support do
-not meet this contract. See the environment requirements in
-[`benchmarking/README.md`](../../../benchmarking/README.md).
+not meet this contract. The existing build helper accepts
+`CURATOR_EXTRA=trt_llm bash benchmarking/tools/build_docker.sh` and preserves
+the selected profile through both image builds. See the named-image build
+command and GPU native-loader check in
+[`benchmarking/README.md`](../../../benchmarking/README.md#indic-asr-environment).
+External NeMo-CI image routing must be verified separately. A successful
+native-loader check is not a model-inference or reference-parity result.
 
 ## Output fields
 
@@ -245,6 +257,6 @@ Each JSONL row retains the input identity and includes:
 - **Missing audio**: `dataset_dir` must contain both `manifest.jsonl` and its
   referenced `audio/` tree.
 - **Missing engine file**: compare the bundle with the complete layout above.
-- **Output already exists**: choose a fresh output path.
+- **Notebook or benchmark output already exists**: choose a fresh output path.
 - **EOS timing comparison**: use the benchmark harness's `exec_time_s`, not a
   shell timer around this tutorial command.
