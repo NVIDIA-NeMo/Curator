@@ -24,14 +24,22 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
-import torch
 import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
+from nemo_curator.stages.audio._agent._residency import normalize_audio_waveform
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
@@ -99,8 +107,6 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
-_MONO_DIMENSIONS = 1
-_CHANNEL_FIRST_DIMENSIONS = 2
 _PADDED_SECONDS_REL_TOL = 1e-12
 _PADDED_SECONDS_ABS_TOL = 1e-9
 
@@ -119,7 +125,7 @@ def _set_note(
 
 
 @dataclass
-class ASRStage(AdapterInferenceStage[ASRAdapter]):
+class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     """Audio speech-recognition stage with a pluggable adapter.
 
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
@@ -172,8 +178,18 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     local_bucketing: bool = False
     num_workers_override: int | None = None
 
+    BATCH_ONLY = True
+    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=True)
+    )
+
     def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         super().__post_init__()
+        for field_name, key in (("skip_me_key", self.skip_me_key), ("notes_key", self.notes_key)):
+            if not isinstance(key, str) or not key.strip():
+                msg = f"ASRStage.{field_name} must be a non-empty string"
+                raise ValueError(msg)
         self.skip_me_key = self.skip_me_key.strip()
         self.notes_key = self.notes_key.strip()
         if not self.skip_me_key or not self.notes_key:
@@ -209,6 +225,17 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             }:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
+        input_keys = {self.audio_filepath_key, self.waveform_key, self.sample_rate_key, self.source_lang_key} - {
+            None,
+            "",
+        }
+        output_keys = {self.pred_text_key, self.skip_me_key, self.notes_key, self.language_key, self.extras_key} - {
+            None
+        }
+        collisions = sorted(input_keys & output_keys)
+        if collisions:
+            msg = f"ASRStage output/control keys must not collide with input keys: {collisions}"
+            raise ValueError(msg)
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
@@ -277,6 +304,57 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             optional_outputs.append(self.extras_key)
         return [], optional_outputs
 
+    def describe(self) -> StageContract:
+        reads = (
+            IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+            if self.waveform_key
+            else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
+        )
+        writes = [self.pred_text_key]
+        conditional_writes = [
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.skip_me_key]),
+                condition="the configured policy marks an adapter skip or audio preparation failure",
+            ),
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.notes_key]),
+                condition="language routing or adapter-specific result handling emits notes",
+            ),
+        ]
+        if self.language_key is not None:
+            if self.skip_if_output_exists:
+                conditional_writes.append(
+                    ConditionalWrite(
+                        writes=IOSpec(data_keys=[self.language_key]),
+                        condition="the row is transcribed; reused rows retain their existing language key if present",
+                    )
+                )
+            else:
+                writes.append(self.language_key)
+        if self.extras_key is not None:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.extras_key]),
+                    condition="the adapter returns non-empty metadata for the item",
+                )
+            )
+        return StageContract(
+            reads=reads,
+            optional_reads=IOSpec(
+                data_keys=[key for key in (self.source_lang_key, self.skip_me_key, self.notes_key) if key]
+            ),
+            writes=IOSpec(data_keys=writes),
+            conditional_writes=conditional_writes,
+            cardinality="1:1",
+            removes_keys=([self.waveform_key] if self.waveform_key and not self.keep_waveform else []),
+            invalidates_keys=([self.extras_key] if self.extras_key is not None else []),
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                per_row_independent=True,
+            ),
+        )
+
     def num_workers(self) -> int | None:
         """Return an explicit backend worker count when configured."""
         return self.num_workers_override
@@ -336,14 +414,9 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             msg = f"sample rate must be > 0, got {source_sample_rate}"
             raise ValueError(msg)
 
-        tensor = torch.as_tensor(waveform, dtype=torch.float32)
-        if tensor.ndim not in {_MONO_DIMENSIONS, _CHANNEL_FIRST_DIMENSIONS}:
-            msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
-            raise ValueError(msg)
+        tensor = normalize_audio_waveform(waveform, stage_name=self.name, mono=True).squeeze(0)
         if tensor.numel() == 0:
             return np.empty(0, dtype=np.float32)
-        if tensor.ndim == _CHANNEL_FIRST_DIMENSIONS:
-            tensor = tensor.mean(dim=0)
         if source_sample_rate != self.target_sample_rate:
             tensor = torchaudio.functional.resample(
                 tensor,
