@@ -18,7 +18,9 @@ from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 MARKDOWN_BOLD_REGEX = r"\*\*(.*?)\*\*"
 MARKDOWN_ITALIC_REGEX = r"\*(.*?)\*"
-MARKDOWN_UNDERLINE_REGEX = r"_(.*?)_"
+# As in CommonMark, an underscore inside a word (snake_case, file_name.py, first_last@example.com)
+# can't open or close emphasis (_text_ or __text__)
+MARKDOWN_UNDERLINE_REGEX = r"(?<!\w)(__?)(?=\S)(.+?)(?<=\S)\1(?!\w)"
 MARKDOWN_LINK_REGEX = r"\[.*?\]\((.*?)\)"
 
 
@@ -36,7 +38,7 @@ class MarkdownRemover(DocumentModifier):
         for line in lines:
             line = re.sub(MARKDOWN_BOLD_REGEX, r"\1", line)  # **text** #noqa: PLW2901
             line = re.sub(MARKDOWN_ITALIC_REGEX, r"\1", line)  # *text* #noqa: PLW2901
-            line = re.sub(MARKDOWN_UNDERLINE_REGEX, r"\1", line)  # _text_ #noqa: PLW2901
+            line = re.sub(MARKDOWN_UNDERLINE_REGEX, r"\2", line)  # _text_ or __text__ #noqa: PLW2901
             line = re.sub(MARKDOWN_LINK_REGEX, r"\1", line)  # [text](url) #noqa: PLW2901
             new_lines.append(line)
 

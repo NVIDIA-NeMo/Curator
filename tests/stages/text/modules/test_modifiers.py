@@ -384,6 +384,19 @@ class TestMarkdownRemover:
         expected = "This is underlined text."
         assert result == expected
 
+    def test_underscores_inside_words_are_kept(self) -> None:
+        text = (
+            "Set max_new_tokens and top_p in generation_config.json, "
+            "or email first_last@example.com about _this_ and __that__."
+        )
+        remover = MarkdownRemover()
+        result = remover.modify_document(text)
+        expected = (
+            "Set max_new_tokens and top_p in generation_config.json, "
+            "or email first_last@example.com about this and that."
+        )
+        assert result == expected
+
     def test_link_removal(self) -> None:
         text = "Link: [Google](https://google.com)"
         remover = MarkdownRemover()
