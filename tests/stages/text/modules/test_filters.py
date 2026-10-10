@@ -259,6 +259,52 @@ class TestFilterModule:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize(("invert", "expected"), [([False], False), ([True], True)])
+    def test_one_element_invert_is_the_same_as_the_bare_value(
+        self, letter_count_data: DocumentBatch, invert: list[bool], expected: bool
+    ) -> None:
+        """A one-element list means "the same for every filter".
+
+        _format_field_list used to wrap the list rather than repeat its entry, so
+        each filter saw [False], which is truthy, and both were inverted whatever
+        the value was.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=invert,
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=expected,
+        )
+
+        assert as_list.invert == [expected, expected]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
+
+    def test_one_element_text_field_is_the_same_as_the_bare_value(self, letter_count_data: DocumentBatch) -> None:
+        """The same broadcast, on the field name rather than the flag.
+
+        Wrapped, each filter was handed ["documents"], and df[["documents"]] is
+        a DataFrame, so the filter ran against a Series instead of a string.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field=["documents"],
+            score_field=["a_count", "e_count"],
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+        )
+
+        assert as_list.text_field == ["documents", "documents"]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
+
     @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
     def test_score_filter_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
         if score_field in ["a_count", ["a_count"]]:
@@ -697,7 +743,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedlines(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\nhalf."])
         filters = ScoreFilter(RepeatedLinesFilter())
 
         filtered_data = filters.process(dataset)
@@ -709,7 +755,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedparagraphs(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\n\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\n\nhalf."])
         filters = ScoreFilter(RepeatedParagraphsFilter())
 
         filtered_data = filters.process(dataset)
@@ -723,6 +769,9 @@ class TestHeuristicFilters:
     def test_repeatedlineschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\na.\nvery very very short duplicate.",
                 "half.\nhalf.",
@@ -742,6 +791,9 @@ class TestHeuristicFilters:
     def test_repeatedparagraphschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\n\n  a.\n\n  very very very short duplicate.",
                 "half.\n\nhalf.",
@@ -757,6 +809,22 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize(
+        "filter_cls",
+        [
+            RepeatedLinesFilter,
+            RepeatedParagraphsFilter,
+            RepeatedLinesByCharFilter,
+            RepeatedParagraphsByCharFilter,
+        ],
+    )
+    @pytest.mark.parametrize("empty_input", ["", "   ", "\n", "\n\n", "\t \r\n"])
+    def test_repetition_filters_empty_text(self, filter_cls: type, empty_input: str) -> None:
+        filt = filter_cls()
+        score = filt.score_document(empty_input)
+        assert score == 0.0
+        assert filt.keep_document(score) is False
 
     def test_repeatingtopngrams(self) -> None:
         dataset = list_to_dataset(

@@ -11,8 +11,8 @@
 #   - NeMo Curator source checked out on a shared filesystem
 #   - Shared filesystem accessible from all nodes (e.g. Lustre, NFS)
 #
-# If your cluster has Pyxis/enroot, prefer submit_container.sh instead —
-# it uses the official NGC container and is the recommended approach.
+# If your cluster has Pyxis/enroot, submit_container.sh can run an image
+# available to every allocated node through a registry or shared image path.
 #
 # Usage:
 #   sbatch tutorials/slurm/submit.sh
