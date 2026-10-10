@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+
 import pandas as pd
 import pytest
 
@@ -383,6 +385,52 @@ class TestMarkdownRemover:
         result = remover.modify_document(text)
         expected = "This is underlined text."
         assert result == expected
+
+    def test_underscores_inside_words_are_kept(self) -> None:
+        text = (
+            "Set max_new_tokens and top_p in generation_config.json, "
+            "or email first_last@example.com about _this_ and __that__."
+        )
+        remover = MarkdownRemover()
+        result = remover.modify_document(text)
+        expected = (
+            "Set max_new_tokens and top_p in generation_config.json, "
+            "or email first_last@example.com about this and that."
+        )
+        assert result == expected
+
+    def test_nested_underscore_emphasis(self) -> None:
+        text = "___both___ and __bold _and italic_ bold__ and _a __b__ c_"
+        remover = MarkdownRemover()
+        result = remover.modify_document(text)
+        expected = "both and bold and italic bold and a b c"
+        assert result == expected
+
+    def test_literal_underscore_inside_emphasis(self) -> None:
+        # An underscore followed by a space can't open emphasis, so it stays inside the emphasized text
+        text = "_Use _ as a separator_ in names."
+        remover = MarkdownRemover()
+        result = remover.modify_document(text)
+        expected = "Use _ as a separator in names."
+        assert result == expected
+
+    def test_long_line_of_unmatched_underscores(self) -> None:
+        # Each underscore opens but none closes; this must not take quadratic time
+        text = "_word self._x " * 10_000
+        remover = MarkdownRemover()
+        start = time.perf_counter()
+        result = remover.modify_document(text)
+        assert time.perf_counter() - start < 1
+        assert result == text
+
+    def test_failed_double_underscore_match_does_not_backtrack(self) -> None:
+        # "a_ " underscores can't open emphasis; with overlapping alternatives, the failed "__" match
+        # retried every way of splitting them, which took seconds on this 78-character line
+        text = "__" + "a_ " * 25 + "!"
+        remover = MarkdownRemover()
+        start = time.perf_counter()
+        remover.modify_document(text)
+        assert time.perf_counter() - start < 1
 
     def test_link_removal(self) -> None:
         text = "Link: [Google](https://google.com)"
