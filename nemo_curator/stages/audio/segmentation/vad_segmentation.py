@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from loguru import logger
 
-from nemo_curator.models.audio.vad.base import VADAdapter
+from nemo_curator.models.audio.vad.base import VADAdapter, _validate_detection_options
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
@@ -109,24 +109,13 @@ class VADSegmentationStage(AdapterInferenceStage[VADAdapter]):
             raise ValueError(msg)
 
     def _validate_options(self) -> None:
-        if not math.isfinite(float(self.threshold)) or not 0.0 <= float(self.threshold) <= 1.0:
-            msg = f"threshold must be finite and in [0, 1], got {self.threshold!r}"
-            raise ValueError(msg)
-        minimum = float(self.min_duration_sec)
-        maximum = float(self.max_duration_sec)
-        if not math.isfinite(minimum) or minimum < 0:
-            msg = f"min_duration_sec must be finite and non-negative, got {self.min_duration_sec!r}"
-            raise ValueError(msg)
-        if not maximum > minimum:
-            msg = f"max_duration_sec must be greater than min_duration_sec, got {self.max_duration_sec!r}"
-            raise ValueError(msg)
-        for option, value in (
-            ("min_interval_ms", self.min_interval_ms),
-            ("speech_pad_ms", self.speech_pad_ms),
-        ):
-            if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
-                msg = f"{option} must be a non-negative integer, got {value!r}"
-                raise ValueError(msg)
+        _validate_detection_options(
+            threshold=self.threshold,
+            min_duration_sec=self.min_duration_sec,
+            max_duration_sec=self.max_duration_sec,
+            min_interval_ms=self.min_interval_ms,
+            speech_pad_ms=self.speech_pad_ms,
+        )
         if isinstance(self.batch_size, bool) or not isinstance(self.batch_size, Integral) or self.batch_size <= 0:
             msg = f"batch_size must be a positive integer, got {self.batch_size!r}"
             raise ValueError(msg)
@@ -311,12 +300,11 @@ class VADSegmentationStage(AdapterInferenceStage[VADAdapter]):
         )
 
         diar_segments = item.get("diar_segments")
-        if isinstance(diar_segments, list):
+        if isinstance(diar_segments, list) and all(isinstance(entry, dict) for entry in diar_segments):
             speakers = {
                 str(diar_segment["speaker"])
                 for diar_segment in diar_segments
-                if isinstance(diar_segment, dict)
-                and {"start", "end", "speaker"} <= diar_segment.keys()
+                if {"start", "end", "speaker"} <= diar_segment.keys()
                 and float(diar_segment["end"]) > segment.start
                 and float(diar_segment["start"]) < segment.end
             }

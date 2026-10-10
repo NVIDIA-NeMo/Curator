@@ -21,8 +21,37 @@ the canonical time-in-seconds result below.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from numbers import Integral
 from typing import Any, Protocol, runtime_checkable
+
+
+def _validate_detection_options(  # noqa: PLR0913
+    *,
+    threshold: float,
+    min_duration_sec: float,
+    max_duration_sec: float,
+    min_interval_ms: int,
+    speech_pad_ms: int,
+    owner: str = "",
+) -> None:
+    prefix = f"{owner}." if owner else ""
+    if not math.isfinite(float(threshold)) or not 0.0 <= float(threshold) <= 1.0:
+        msg = f"{prefix}threshold must be finite and in [0, 1], got {threshold!r}"
+        raise ValueError(msg)
+    minimum = float(min_duration_sec)
+    maximum = float(max_duration_sec)
+    if not math.isfinite(minimum) or minimum < 0:
+        msg = f"{prefix}min_duration_sec must be finite and non-negative, got {min_duration_sec!r}"
+        raise ValueError(msg)
+    if not maximum > minimum:
+        msg = f"{prefix}max_duration_sec must be greater than min_duration_sec, got {max_duration_sec!r}"
+        raise ValueError(msg)
+    for name, value in (("min_interval_ms", min_interval_ms), ("speech_pad_ms", speech_pad_ms)):
+        if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
+            msg = f"{prefix}{name} must be a non-negative integer, got {value!r}"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
