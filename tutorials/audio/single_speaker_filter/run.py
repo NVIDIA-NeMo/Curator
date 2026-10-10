@@ -53,8 +53,9 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
 CKPT_HASH_KEY = "_ckpt_hash"
@@ -285,14 +286,16 @@ def main() -> None:
     stages: list[ProcessingStage] = [
         ManifestReader(manifest_path=str(args.manifest)),
         InferenceSortformerStage(
-            model_name=args.model,
-            chunk_len=args.chunk_len,
-            chunk_right_context=args.chunk_right_context,
-            fifo_len=args.fifo_len,
-            spkcache_update_period=args.spkcache_update_period,
-            spkcache_len=args.spkcache_len,
-            inference_batch_size=1,
-        ),
+            model_id=args.model,
+            adapter_kwargs={
+                "chunk_len": args.chunk_len,
+                "chunk_right_context": args.chunk_right_context,
+                "fifo_len": args.fifo_len,
+                "spkcache_update_period": args.spkcache_update_period,
+                "spkcache_len": args.spkcache_len,
+                "inference_batch_size": 1,
+            },
+        ).with_(resources=Resources(gpus=1), batch_size=1),
         SingleSpeakerFilterStage(),
         ManifestWriterStage(output_path=str(args.output_manifest)),
     ]

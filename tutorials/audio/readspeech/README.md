@@ -120,7 +120,7 @@ CreateInitialManifestReadSpeechStage
       v
 AudioDataFilterStage (auto-selects topology)
   Combo 1: MonoConversion -> Filters -> TimestampMapper
-  Combo 2: MonoConversion -> VAD(fan-out) -> Filters -> TimestampMapper
+  Combo 2: MonoConversion -> VAD stage + Silero adapter (fan-out) -> Filters -> TimestampMapper
   Combo 3: MonoConversion -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
   Combo 4: MonoConversion -> VAD(nested) -> Filters -> SegmentConcat
             -> SpeakerSep -> VAD_Speaker(fan-out) -> Filters -> TimestampMapper
@@ -228,6 +228,12 @@ nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.ya
 
 This YAML controls thresholds, enable/disable flags, and `cpus`/`gpus` resource allocation for each stage. Any values you pass via CLI or `pipeline.yaml` override these defaults.
 
+Model-backed VAD configuration is split deliberately: detection thresholds
+remain stage settings, while `adapter_target` and `adapter_kwargs` select the
+runtime. Common execution controls (`cpus`, `gpus`, `batch_size`, and
+`num_workers`) are applied to the decomposed VAD stage through its `.with_()`
+settings.
+
 ### UTMOS MOS Threshold (`--utmos-mos-threshold`)
 
 UTMOS predicts a [Mean Opinion Score (MOS)](https://en.wikipedia.org/wiki/Mean_opinion_score) on a 0–5 scale:
@@ -279,6 +285,28 @@ All 7 scores are written to the output manifest regardless of which thresholds a
 | `--vad-max-duration`     | 60.0s   | No effect (already generous)                | Forces splits on long segments            |
 | `--vad-min-interval-ms`  | 500ms   | Merges segments across longer pauses        | Splits on shorter silences                |
 | `--vad-speech-pad-ms`    | 300ms   | Wider padding around speech                 | Tighter cuts (risk clipping speech)       |
+
+The maintained default is the Torch runtime:
+
+```yaml
+vad:
+  adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
+  adapter_kwargs:
+    backend: torch
+  batch_size: 1
+  num_workers: null
+  cpus: 1.0
+  gpus: 0.1
+```
+
+Keep `batch_size: 1` in this composite pipeline: the VAD-only and
+post-speaker branches use fan-out mode, where one input may create several
+child tasks. A larger VAD batch is intended for a standalone
+`VADSegmentationStage(nested=True)`, which retains one parent task per input.
+
+For CPU ONNX inference, set `backend: onnx` and `gpus: 0.0`. The stage keeps
+the same segment fields and writes duration in the existing `duration` key for
+both maintained runtimes.
 
 ### Band Filter (`--band-value`)
 
@@ -435,7 +463,12 @@ The `metadata.csv` contains one row per extracted segment with columns:
 >
 > Default GPU resource allocations total **0.9 GPU** for the main branch (VAD `0.1` + UTMOS `0.1` + SIGMOS `0.1` + Speaker Separation `0.3`). When `--enable-speaker-separation` is set, `AudioDataFilterStage.decompose()` instantiates a **duplicated post-speaker filter branch** (VAD `0.1` + Band `0.0` + UTMOS `0.1` + SIGMOS `0.1` = **+0.3 GPU**), so the peak fractional allocation across all stages is **0.9 GPU** — safely within a single GPU. All fractions can be raised in [`default_config.yaml`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.yaml) for faster scheduling on multi-GPU nodes.
 
-**No stage strictly requires a GPU** — all stages fall back to CPU if CUDA is unavailable. However, GPU is strongly recommended for UTMOS, SIGMOS, and Speaker Separation as CPU inference is significantly slower. Band Filter and VAD run efficiently on CPU.
+The Torch VAD stage can run on CPU, but resource requests are explicit: set
+`vad.gpus: 0.0` rather than expecting a GPU-requesting actor to fall back.
+The ONNX VAD backend is CPU-only.
+GPU is strongly recommended for UTMOS, SIGMOS, and Speaker Separation because
+their CPU inference is significantly slower. Band Filter and Silero VAD run
+efficiently on CPU.
 
 ## Performance
 
