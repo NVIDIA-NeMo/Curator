@@ -14,10 +14,11 @@
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import torch
 
 from nemo_curator.models.audio.lid.base import AudioLIDResult
 from nemo_curator.models.audio.lid.indic_canary import (
@@ -209,6 +210,66 @@ def test_identify_batch_preserves_short_rows_and_truncates_long_rows() -> None:
 
     assert results == [AudioLIDResult("", 0.0), AudioLIDResult("hi", 1.0), AudioLIDResult("hi", 1.0)]
     assert captured == [16_000, 32_000]
+
+
+def test_identify_batch_respects_engine_capacity_and_runtime_contract() -> None:
+    adapter = _loaded_adapter()
+    adapter.max_duration_sec = 2.0
+    adapter.model_batch_size = 3
+    adapter.num_beams = 2
+    adapter.max_new_tokens = 3
+    runtime = adapter._model
+    runtime.max_batch_size = 2
+    runtime.preprocessor = SimpleNamespace(
+        get_feats=MagicMock(side_effect=lambda audio, lengths: (torch.stack(audio), torch.tensor(lengths)))
+    )
+    runtime.encoder = SimpleNamespace(infer=MagicMock(side_effect=lambda mel, lengths, _stream: (mel, lengths)))
+    runtime.decoder.generate = MagicMock(
+        side_effect=[
+            [[[4, 89, 3]], [[4, 185, 3]]],
+            [[[4, 185, 3]], [[4, 89, 3]]],
+            [[[4, 185, 3]]],
+        ]
+    )
+    stream = object()
+    with patch("torch.cuda.current_stream", return_value=stream):
+        results = adapter.identify_batch(
+            [
+                {"waveform": np.ones(length, dtype=np.float32)}
+                for length in (16_000, 0, 48_000, 24_000, 8_000, 16_000, 32_000)
+            ]
+        )
+
+    assert results == [
+        AudioLIDResult("hi", 1.0),
+        AudioLIDResult("", 0.0),
+        AudioLIDResult("ta", 1.0),
+        AudioLIDResult("ta", 1.0),
+        AudioLIDResult("", 0.0),
+        AudioLIDResult("hi", 1.0),
+        AudioLIDResult("ta", 1.0),
+    ]
+    for preprocessing, encoding, decoding, expected_lengths in zip(
+        runtime.preprocessor.get_feats.call_args_list,
+        runtime.encoder.infer.call_args_list,
+        runtime.decoder.generate.call_args_list,
+        ([16_000, 32_000], [24_000, 16_000], [32_000]),
+        strict=True,
+    ):
+        audio, lengths = preprocessing.args
+        assert lengths == expected_lengths
+        for waveform, length in zip(audio, lengths, strict=True):
+            assert waveform.shape == (max(lengths),)
+            torch.testing.assert_close(waveform[:length], torch.ones(length))
+            torch.testing.assert_close(waveform[length:], torch.zeros(max(lengths) - length))
+        torch.testing.assert_close(encoding.args[0], torch.stack(audio))
+        torch.testing.assert_close(encoding.args[1], torch.tensor(lengths))
+        assert encoding.args[2] is stream
+        prompt_ids, encoded, encoded_lengths = decoding.args
+        torch.testing.assert_close(prompt_ids, torch.full((len(lengths), 1), 4, dtype=torch.int64))
+        assert encoded is encoding.args[0]
+        assert encoded_lengths is encoding.args[1]
+        assert decoding.kwargs == {"max_new_tokens": 3, "num_beams": 2}
 
 
 def test_default_duration_floor_matches_the_reference_stage_and_engine_profile() -> None:

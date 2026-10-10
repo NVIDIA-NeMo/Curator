@@ -35,6 +35,7 @@ from .base import (
 )
 
 _DEFAULT_SOURCE = "speechbrain/lang-id-voxlingua107-ecapa"
+_TARGET_SAMPLE_RATE = 16_000
 
 
 def _encoder_classifier_class() -> type:
@@ -69,7 +70,7 @@ class SpeechBrainLIDAdapter:
     """Identify speech with SpeechBrain's VoxLingua107 ECAPA-TDNN model."""
 
     source: str = _DEFAULT_SOURCE
-    sample_rate: int = 16_000
+    sample_rate: int = _TARGET_SAMPLE_RATE
     revision: str | None = None
     cache_dir: str | None = None
     savedir: str | None = None
@@ -78,6 +79,9 @@ class SpeechBrainLIDAdapter:
 
     def __post_init__(self) -> None:
         self.sample_rate = _validate_sample_rate(self.sample_rate, owner=type(self).__name__)
+        if self.sample_rate != _TARGET_SAMPLE_RATE:
+            msg = f"SpeechBrainLIDAdapter requires sample_rate={_TARGET_SAMPLE_RATE}, got {self.sample_rate}"
+            raise ValueError(msg)
         if not isinstance(self.source, str) or not self.source.strip():
             msg = "SpeechBrainLIDAdapter.source must be a non-empty string"
             raise ValueError(msg)
@@ -110,10 +114,12 @@ class SpeechBrainLIDAdapter:
         self._device = torch.device("cuda" if gpu_count else "cpu")
         cache_root = Path(self.savedir or Path(tempfile.gettempdir()) / "speechbrain_langid").expanduser()
         actor_savedir = cache_root / f"actor_{os.getpid()}"
+        source = self._load_source()
         self._classifier = _encoder_classifier_class().from_hparams(
-            source=self._load_source(),
+            source=source,
             savedir=str(actor_savedir),
             run_opts={"device": str(self._device)},
+            overrides={"pretrained_path": source},
         )
         logger.info("Loaded SpeechBrain LID source {} on {}", self.source, self._device)
 

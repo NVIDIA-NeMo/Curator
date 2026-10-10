@@ -41,6 +41,11 @@ def test_label_normalization_accepts_speechbrain_singletons() -> None:
     assert _normalize_language(["TA: Tamil"]) == "ta"
 
 
+def test_rejects_incompatible_sample_rate() -> None:
+    with pytest.raises(ValueError, match="requires sample_rate=16000, got 8000"):
+        SpeechBrainLIDAdapter(sample_rate=8_000)
+
+
 def test_identify_batch_pads_valid_rows_and_preserves_empty_order() -> None:
     adapter = SpeechBrainLIDAdapter()
     classifier = _Classifier()
@@ -95,9 +100,51 @@ def test_load_model_forwards_worker_device_and_actor_savedir(tmp_path: Path) -> 
 
     kwargs = classifier_type.from_hparams.call_args.kwargs
     assert kwargs["source"] == str(tmp_path)
+    assert kwargs["overrides"] == {"pretrained_path": str(tmp_path)}
     assert Path(kwargs["savedir"]).parent == tmp_path / "actors"
     assert kwargs["run_opts"] == {"device": "cpu"}
     assert adapter._classifier is classifier
+
+
+def test_load_model_binds_weights_to_resolved_snapshot(tmp_path: Path) -> None:
+    pytest.importorskip("speechbrain.inference.classifiers")
+    snapshot = tmp_path / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    (snapshot / "hyperparams.yaml").write_text(
+        """pretrained_path: speechbrain/remote-model
+compute_features: !new:torch.nn.Identity
+mean_var_norm: !new:torch.nn.Identity
+embedding_model: !new:torch.nn.Identity
+classifier: !new:torch.nn.Identity
+modules:
+  compute_features: !ref <compute_features>
+  mean_var_norm: !ref <mean_var_norm>
+  embedding_model: !ref <embedding_model>
+  classifier: !ref <classifier>
+label_encoder: !new:speechbrain.dataio.encoder.CategoricalEncoder
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+  loadables: {}
+  paths:
+    proof: !ref <pretrained_path>/proof.ckpt
+"""
+    )
+    adapter = SpeechBrainLIDAdapter(
+        source="organization/custom-lid",
+        revision="abc123",
+        cache_dir="/cache",
+        savedir=str(tmp_path / "actors"),
+    )
+
+    with (
+        patch("nemo_curator.models.audio.lid.speechbrain._snapshot_download", return_value=str(snapshot)) as download,
+        patch("torch.cuda.is_available", return_value=False),
+    ):
+        adapter.load_model(num_gpus=0)
+
+    download.assert_called_once_with(
+        repo_id="organization/custom-lid", revision="abc123", cache_dir="/cache", local_files_only=True
+    )
+    assert adapter._classifier.hparams.pretrainer.paths["proof"] == str(snapshot / "proof.ckpt")
 
 
 def test_nonempty_batch_requires_loaded_classifier() -> None:
