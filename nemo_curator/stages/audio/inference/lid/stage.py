@@ -181,10 +181,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         adapter_cls = self._adapter_class()
         return cast(
             "AudioLIDAdapter",
-            adapter_cls(
-                sample_rate=int(self.sample_rate),
-                **self.adapter_kwargs,
-            ),
+            adapter_cls(sample_rate=int(self.sample_rate), **self.adapter_kwargs),
         )
 
     def outputs(self) -> tuple[list[str], list[str]]:
@@ -300,11 +297,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         return np.ascontiguousarray(prepared, dtype=np.float32)
 
     def _result_mapping(self, task: AudioTask) -> dict[str, Any]:
-        if self.results_key not in task.data:
-            results = {}
-            task.data[self.results_key] = results
-        else:
-            results = task.data[self.results_key]
+        results = task.data.setdefault(self.results_key, {})
         if not isinstance(results, dict):
             msg = f"task.data[{self.results_key!r}] must be a mapping, got {type(results).__name__}"
             raise TypeError(msg)
