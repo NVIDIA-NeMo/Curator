@@ -18,13 +18,17 @@ import argparse
 import io
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
+from nemo_curator.models.audio.speaker_diarization import build_sortformer_tensorrt_engine as builder_module
 from nemo_curator.models.audio.speaker_diarization.build_sortformer_tensorrt_engine import (
     _bundle_paths,
     _checkpoint_normalization,
+    _configure_precision,
     _copy_runtime_module,
     _model_config_bytes,
     _model_parameters,
@@ -76,6 +80,31 @@ def test_model_parameters_follow_checkpoint_frontend_and_streaming_defaults() ->
     assert parameters["chunk_len"] == 128
     assert parameters["emb_dim"] == 512
     assert parameters["normalization"] == "per_feature"
+
+
+def test_model_parameters_reject_speaker_override_that_changes_checkpoint_output_width() -> None:
+    args = _args()
+    args.num_speakers = 2
+
+    with pytest.raises(ValueError, match="does not match the checkpoint output width 4"):
+        _model_parameters({"sortformer_modules": {"num_spks": 4}}, args)
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "error"),
+    [
+        ("center_chunk_frames", 111, "divisible by subsampling_factor=8"),
+        ("left_context_frames", 15, "divisible by subsampling_factor=8"),
+        ("right_context_frames", 1, "divisible by subsampling_factor=8"),
+        ("fifo_len", 8, "must be 0 or at least 14"),
+    ],
+)
+def test_model_parameters_reject_invalid_streaming_geometry(name: str, value: int, error: str) -> None:
+    args = _args()
+    setattr(args, name, value)
+
+    with pytest.raises(ValueError, match=error):
+        _model_parameters({"encoder": {"subsampling_factor": 8}}, args)
 
 
 @pytest.mark.parametrize(
@@ -158,6 +187,25 @@ def test_profile_shapes_cover_batch_cache_and_fifo_maxima() -> None:
     assert profiles["fifo"] == ((1, 1, 512), (8, 40, 512), (16, 80, 512))
 
 
+@pytest.mark.parametrize(("precision", "precision_flag"), [("bf16", "BF16"), ("fp16", "FP16")])
+def test_reduced_precision_obeys_fp32_layer_constraints(precision: str, precision_flag: str) -> None:
+    trt = SimpleNamespace(
+        BuilderFlag=SimpleNamespace(BF16="BF16", FP16="FP16", OBEY_PRECISION_CONSTRAINTS="OBEY"),
+    )
+    build_config = MagicMock()
+
+    _configure_precision(
+        SimpleNamespace(num_layers=0),
+        SimpleNamespace(platform_has_fast_fp16=True),
+        build_config,
+        SimpleNamespace(precision=precision),
+        trt,
+    )
+
+    build_config.set_flag.assert_any_call(precision_flag)
+    build_config.set_flag.assert_any_call("OBEY")
+
+
 def test_model_config_reader_does_not_extract_archive(tmp_path: Path) -> None:
     nemo_path = tmp_path / "model.nemo"
     model_config = b"sample_rate: 16000\n"
@@ -205,9 +253,11 @@ def test_bundle_assets_are_namespaced_by_engine_stem(tmp_path: Path) -> None:
 
 def test_validated_bundle_publish_moves_config_last(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     staging = tmp_path / "staging"
+    onnx_staging = tmp_path / "onnx-staging"
     final_dir = tmp_path / "final"
     staging.mkdir()
-    staged = _bundle_paths(staging / "model.plan", staging / "model.onnx")
+    onnx_staging.mkdir()
+    staged = _bundle_paths(staging / "model.plan", onnx_staging / "model.onnx")
     final = _bundle_paths(final_dir / "model.plan", final_dir / "model.onnx")
     for path in vars(staged).values():
         path.write_text(path.name, encoding="utf-8")
@@ -222,8 +272,44 @@ def test_validated_bundle_publish_moves_config_last(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(Path, "replace", tracking_replace)
     _publish_bundle(staged, final, has_learned_silence=True, publish_onnx=True)
 
+    assert calls[0] == final.onnx
     assert calls[-1] == final.config
     assert all(path.is_file() for path in vars(final).values())
+
+
+def test_main_stages_explicit_onnx_on_its_destination_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine_dir = tmp_path / "engine"
+    onnx_dir = tmp_path / "onnx"
+    nemo_model = tmp_path / "model.nemo"
+    nemo_model.touch()
+    args = argparse.Namespace(
+        nemo_model=nemo_model,
+        output=engine_dir / "model.plan",
+        onnx_output=onnx_dir / "model.onnx",
+        force=False,
+    )
+    observed: dict[str, object] = {}
+
+    def record_build(_args: argparse.Namespace, paths: object) -> bool:
+        observed["staged"] = paths
+        return False
+
+    def record_publish(staged: object, final: object, **kwargs: object) -> None:
+        observed.update(staged=staged, final=final, publish=kwargs)
+
+    monkeypatch.setattr(builder_module, "_parse_args", lambda: args)
+    monkeypatch.setattr(builder_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(builder_module, "_build_bundle", record_build)
+    monkeypatch.setattr(builder_module, "_publish_bundle", record_publish)
+
+    builder_module.main()
+
+    staged = observed["staged"]
+    assert staged.engine.parent.parent == engine_dir
+    assert staged.onnx.parent.parent == onnx_dir
+    assert observed["publish"] == {"has_learned_silence": False, "publish_onnx": True}
 
 
 def test_staged_bundle_validation_deserializes_engine_and_always_unloads(

@@ -66,6 +66,7 @@ Silero runtime selection does not change that stage contract:
 from nemo_curator.stages.audio.segmentation.vad_segmentation import (
     VADSegmentationStage,
 )
+from nemo_curator.stages.resources import Resources
 
 # Official CPU ONNX runtime.
 onnx_vad = VADSegmentationStage(adapter_kwargs={"backend": "onnx"})
@@ -77,7 +78,7 @@ tensorrt_vad = VADSegmentationStage(
         "TensorRTSileroVADAdapter"
     ),
     adapter_kwargs={"engine_path": "/models/silero_vad.plan"},
-)
+).with_(resources=Resources(gpus=1))
 ```
 
 The VAD stage retains the existing `duration` output key for every adapter.

@@ -91,7 +91,7 @@ def _config() -> dict[str, object]:
         "max_batch_size": 4,
         "center_chunk_frames": 4,
         "left_context_frames": 2,
-        "right_context_frames": 1,
+        "right_context_frames": 0,
         "output_step_ms": 80,
         "mel_basis": "mel_basis.npy",
         "learnable_sil_emb": "learnable_sil_emb.npy",
@@ -175,6 +175,24 @@ def test_prefetch_validates_complete_bundle_without_loading_runtime(tmp_path: Pa
 def test_prefetch_rejects_engine_config_sample_rate_mismatch(tmp_path: Path) -> None:
     adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={"sample_rate": 8_000}))
     with pytest.raises(ValueError, match="does not match adapter sample_rate"):
+        adapter.download_weights_on_node()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("center_chunk_frames", 3), ("left_context_frames", 1), ("right_context_frames", 1)],
+)
+def test_prefetch_rejects_unaligned_streaming_frames(tmp_path: Path, name: str, value: int) -> None:
+    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={name: value}))
+
+    with pytest.raises(ValueError, match="divisible by subsampling_factor=2"):
+        adapter.download_weights_on_node()
+
+
+def test_prefetch_rejects_fifo_smaller_than_emitted_chunk(tmp_path: Path) -> None:
+    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={"fifo_len": 1}))
+
+    with pytest.raises(ValueError, match="must be 0 or at least 2"):
         adapter.download_weights_on_node()
 
 
@@ -336,22 +354,20 @@ def test_unload_closes_shared_session(tmp_path: Path) -> None:
     assert adapter._session is None
 
 
-def _cpu_feature_adapter(tmp_path: Path) -> TensorRTSortformerAdapter:
+def _cpu_feature_adapter(tmp_path: Path, *, n_fft: int = 4) -> TensorRTSortformerAdapter:
     adapter = _adapter(tmp_path, stft_block_seconds=1.25)
     adapter._config = _config()
-    adapter._window = torch.hann_window(4, periodic=False)
-    adapter._mel_basis = torch.cat(
-        (
-            torch.tensor([[1.0, 0.5, 0.0], [0.0, 0.5, 1.0]]),
-            torch.zeros((126, 3)),
-        )
-    )
+    adapter._config.update({"n_fft": n_fft, "win_length": n_fft})
+    adapter._window = torch.hann_window(n_fft, periodic=False)
+    adapter._mel_basis = torch.zeros((128, n_fft // 2 + 1))
+    adapter._mel_basis[:2, :3] = torch.tensor([[1.0, 0.5, 0.0], [0.0, 0.5, 1.0]])
     adapter._stft_block_samples = 20
     return adapter
 
 
-def test_streaming_stft_matches_full_stft_across_blocks(tmp_path: Path) -> None:
-    adapter = _cpu_feature_adapter(tmp_path)
+@pytest.mark.parametrize("n_fft", [4, 16])
+def test_streaming_stft_matches_full_stft_across_blocks(tmp_path: Path, n_fft: int) -> None:
+    adapter = _cpu_feature_adapter(tmp_path, n_fft=n_fft)
     waveform = torch.sin(torch.arange(47, dtype=torch.float32) * 0.2)
 
     expected = adapter._extract_features(waveform, waveform.numel() // 2)
@@ -409,9 +425,10 @@ def test_bounded_feature_blocks_are_normalized_once_over_full_recording(tmp_path
     torch.testing.assert_close(actual, expected)
 
 
-def test_long_file_stft_matches_full_stft_without_loading_whole_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("n_fft", [4, 16])
+def test_long_file_stft_matches_full_stft_without_loading_whole_file(tmp_path: Path, n_fft: int) -> None:
     soundfile = pytest.importorskip("soundfile")
-    adapter = _cpu_feature_adapter(tmp_path)
+    adapter = _cpu_feature_adapter(tmp_path, n_fft=n_fft)
     waveform = torch.sin(torch.arange(47, dtype=torch.float32) * 0.2)
     path = tmp_path / "long.wav"
     soundfile.write(path, waveform.numpy(), 16_000, subtype="FLOAT")
@@ -461,10 +478,14 @@ def test_applies_learned_silence_to_legacy_runtime_module() -> None:
     torch.testing.assert_close(actual, learned_silence.expand(3, -1))
 
 
-def test_streaming_inference_preserves_chunk_grid_and_context(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("right_context_frames", "frame_count"), [(1, 11), (0, 12)])
+def test_inference_preserves_chunk_grid_context_and_final_flag(
+    tmp_path: Path, right_context_frames: int, frame_count: int
+) -> None:
     adapter = _adapter(tmp_path)
     adapter._config = _config()
     adapter._config["subsampling_factor"] = 1
+    adapter._config["right_context_frames"] = right_context_frames
     adapter._session = _FakeSession()
     state = SimpleNamespace()
     adapter._modules = SimpleNamespace(init_streaming_state=MagicMock(return_value=state))
@@ -489,16 +510,55 @@ def test_streaming_inference_preserves_chunk_grid_and_context(tmp_path: Path) ->
         return batch_states, [torch.zeros((output_length, 2))]
 
     adapter._infer_batch = infer_batch  # type: ignore[method-assign]
-    features = torch.arange(11, dtype=torch.float32).reshape(-1, 1).repeat(1, 128)
+    features = torch.arange(frame_count, dtype=torch.float32).reshape(-1, 1).repeat(1, 128)
 
-    probabilities = adapter._infer_streaming_probabilities(iter((features[:6], features[6:])))
+    probabilities = adapter._infer_probabilities([features])[0]
 
-    assert probabilities.shape == (11, 2)
+    assert probabilities.shape == (frame_count, 2)
     assert calls == [
-        ([0.0, 1.0, 2.0, 3.0, 4.0], 0, 1, 0),
-        ([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], 2, 1, 0),
-        ([6.0, 7.0, 8.0, 9.0, 10.0], 2, 0, 1),
+        (list(range(4 + right_context_frames)), 0, right_context_frames, 0),
+        (list(range(2, 8 + right_context_frames)), 2, right_context_frames, 0),
+        (list(range(6, frame_count)), 2, 0, 1),
     ]
+
+
+def test_aligned_chunk_grid_keeps_long_recording_timestamps_exact(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    adapter._config = _config()
+    adapter._config.update(
+        {
+            "chunk_len": 128,
+            "center_chunk_frames": 112,
+            "left_context_frames": 16,
+            "right_context_frames": 0,
+            "subsampling_factor": 8,
+            "fifo_len": 80,
+            "num_speakers": 1,
+            "output_step_ms": 80,
+        }
+    )
+    adapter._session = _FakeSession()
+    adapter._modules = SimpleNamespace(init_streaming_state=MagicMock(return_value=SimpleNamespace()))
+
+    def infer_batch(
+        batch_states: list[object],
+        feature_windows: list[torch.Tensor],
+        left_embeddings: list[int],
+        right_embeddings: list[int],
+        _end_flags: list[int],
+    ) -> tuple[list[object], list[torch.Tensor]]:
+        probabilities = []
+        for feature, left, right in zip(feature_windows, left_embeddings, right_embeddings, strict=True):
+            output_length = (feature.shape[0] + 7) // 8 - left - right
+            probabilities.append(torch.ones((output_length, 1)))
+        return batch_states, probabilities
+
+    adapter._infer_batch = infer_batch  # type: ignore[method-assign]
+
+    probabilities = adapter._infer_probabilities([torch.zeros((11_200, 128))])[0]
+
+    assert probabilities.shape == (1_400, 1)
+    assert adapter._segments(probabilities) == [{"start": 0.0, "end": 112.0, "speaker": "speaker_0"}]
 
 
 def test_diarize_batch_streams_only_long_outliers_and_preserves_empty_positions(tmp_path: Path) -> None:
@@ -506,9 +566,8 @@ def test_diarize_batch_streams_only_long_outliers_and_preserves_empty_positions(
     adapter._session = _FakeSession()
     adapter._config = _config()
     adapter._features = MagicMock(return_value=[torch.zeros((4, 128))])
-    adapter._infer_probabilities = MagicMock(return_value=[torch.tensor([[1.0]])])
+    adapter._infer_probabilities = MagicMock(side_effect=[[torch.tensor([[1.0]])], [torch.tensor([[2.0]])]])
     adapter._waveform_feature_blocks = MagicMock(return_value=iter((torch.zeros((4, 128)),)))
-    adapter._infer_streaming_probabilities = MagicMock(return_value=torch.tensor([[2.0]]))
     adapter._segments = MagicMock(side_effect=lambda probabilities: [{"value": float(probabilities[0, 0])}])
 
     results = adapter.diarize_batch([_item(0), _item(8_000), _item(32_000)])
@@ -516,8 +575,7 @@ def test_diarize_batch_streams_only_long_outliers_and_preserves_empty_positions(
     assert results[0].segments == []
     assert results[1].segments == [{"value": 1.0}]
     assert results[2].segments == [{"value": 2.0}]
-    adapter._infer_probabilities.assert_called_once()
-    adapter._infer_streaming_probabilities.assert_called_once()
+    assert adapter._infer_probabilities.call_count == 2
 
 
 def test_diarize_batch_streams_long_filepaths_and_loads_only_regular_files(tmp_path: Path) -> None:
@@ -530,10 +588,9 @@ def test_diarize_batch_streams_long_filepaths_and_loads_only_regular_files(tmp_p
     regular_waveform = torch.zeros(8_000)
     adapter._regular_waveforms = MagicMock(return_value=[regular_waveform])
     adapter._features = MagicMock(return_value=[torch.zeros((4, 128))])
-    adapter._infer_probabilities = MagicMock(return_value=[torch.tensor([[1.0]])])
+    adapter._infer_probabilities = MagicMock(side_effect=[[torch.tensor([[1.0]])], [torch.tensor([[2.0]])]])
     file_blocks = iter((torch.zeros((4, 128)),))
     adapter._file_feature_blocks = MagicMock(return_value=file_blocks)
-    adapter._infer_streaming_probabilities = MagicMock(return_value=torch.tensor([[2.0]]))
     adapter._segments = MagicMock(side_effect=lambda probabilities: [{"value": float(probabilities[0, 0])}])
 
     results = adapter.diarize_batch([_path_item("long.wav"), _path_item("short.wav")])
