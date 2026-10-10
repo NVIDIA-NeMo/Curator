@@ -49,7 +49,7 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
         Errors if both files_per_partition and blocksize are provided.
         Note: For compressed files, the compressed size is used for blocksize estimation.
     file_extensions: list[str] | None = None
-        File extensions to filter.
+        File extensions to filter. Processing raises ``ValueError`` if no files match.
     storage_options: dict[str, Any] | None = None
         Storage options to pass to the file system.
     limit: int | None = None
@@ -115,8 +115,8 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
         logger.info(f"Found {len(files)} files")
         if len(files) == 0:
-            logger.warning(f"No files found under {self.file_paths}")
-            return []
+            msg = f"No files matching {self.file_extensions} found under {self.file_paths}"
+            raise ValueError(msg)
 
         # Partition files
         if self.files_per_partition:
