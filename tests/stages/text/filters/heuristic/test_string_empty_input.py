@@ -47,10 +47,10 @@ class TestSymbolsToWordsFilter:
 
     def test_normal_text_unchanged(self):
         filt = SymbolsToWordsFilter()
-        # Normal text should not raise and produce a valid score
+        # "Hello world, this is a normal text." → 7 words, 0 symbol words → 0.0
         score = filt.score_document("Hello world, this is a normal text.")
         assert isinstance(score, float)
-        assert 0.0 <= score <= 1.0
+        assert score == pytest.approx(0.0)
 
 
 class TestBulletsFilter:
@@ -64,9 +64,10 @@ class TestBulletsFilter:
 
     def test_normal_text_unchanged(self):
         filt = BulletsFilter()
+        # "First sentence. Second sentence. Third sentence." → 3 sentences, 0 bullets → 0.0
         score = filt.score_document("First sentence. Second sentence. Third sentence.")
         assert isinstance(score, float)
-        assert 0.0 <= score <= 1.0
+        assert score == pytest.approx(0.0)
 
 
 class TestLongWordFilter:
@@ -79,9 +80,10 @@ class TestLongWordFilter:
 
     def test_normal_text_unchanged(self):
         filt = LongWordFilter()
+        # "Hello world." → words ["Hello", "world."], max length = 6
         score = filt.score_document("Hello world.")
         assert isinstance(score, (int, float))
-        assert score >= 0
+        assert score == 6
 
 
 class TestMeanWordLengthFilter:
@@ -94,9 +96,10 @@ class TestMeanWordLengthFilter:
 
     def test_normal_text_unchanged(self):
         filt = MeanWordLengthFilter()
+        # "Hello world this is a test" → word_lens [5,5,4,2,1,4], mean = 21/6 = 3.5
         score = filt.score_document("Hello world this is a test")
         assert isinstance(score, float)
-        assert score > 0
+        assert score == pytest.approx(3.5)
 
 
 class TestPunctuationFilter:
@@ -110,9 +113,10 @@ class TestPunctuationFilter:
 
     def test_normal_text_unchanged(self):
         filt = PunctuationFilter()
+        # "Hello world. How are you? I am fine!" → 3 sentences, all have endmarks → 0.0
         score = filt.score_document("Hello world. How are you? I am fine!")
         assert isinstance(score, float)
-        assert 0.0 <= score <= 1.0
+        assert score == pytest.approx(0.0)
 
 
 class TestEllipsisFilter:
@@ -126,9 +130,10 @@ class TestEllipsisFilter:
 
     def test_normal_text_unchanged(self):
         filt = EllipsisFilter()
+        # "Hello world. How are you?" → 2 sentences, 0 end with ellipsis → 0.0
         score = filt.score_document("Hello world. How are you?")
         assert isinstance(score, float)
-        assert 0.0 <= score <= 1.0
+        assert score == pytest.approx(0.0)
 
 
 class TestWordsWithoutAlphabetsFilter:
@@ -143,7 +148,7 @@ class TestWordsWithoutAlphabetsFilter:
 
     def test_normal_text_unchanged(self):
         filt = WordsWithoutAlphabetsFilter()
+        # "Hello world 123 test" → 4 words, 3 contain alphabets → 0.75
         score = filt.score_document("Hello world 123 test")
         assert isinstance(score, float)
-        assert 0.0 <= score <= 1.0
-        assert score > 0
+        assert score == pytest.approx(0.75)
