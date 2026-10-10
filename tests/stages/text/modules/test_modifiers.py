@@ -423,6 +423,15 @@ class TestMarkdownRemover:
         assert time.perf_counter() - start < 1
         assert result == text
 
+    def test_failed_double_underscore_match_does_not_backtrack(self) -> None:
+        # "a_ " underscores can't open emphasis; with overlapping alternatives, the failed "__" match
+        # retried every way of splitting them, which took seconds on this 78-character line
+        text = "__" + "a_ " * 25 + "!"
+        remover = MarkdownRemover()
+        start = time.perf_counter()
+        remover.modify_document(text)
+        assert time.perf_counter() - start < 1
+
     def test_link_removal(self) -> None:
         text = "Link: [Google](https://google.com)"
         remover = MarkdownRemover()
