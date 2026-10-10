@@ -1,0 +1,20 @@
+blueprint_id: alm-windowing
+intent: "build audio-language-model training windows from a diarized manifest and filter overlaps"
+data_assumptions: {input: "JSONL manifest with segments (speaker/start/end/text)", transcripts: present, sr: ">=16000"}
+produces: "JSONL manifest of bounded, overlap-filtered training windows"
+recipe_ref: recipes/alm_windowing.yaml
+
+stages:
+  - {ref: ManifestReader, tag: enforced, why_here: "source: streams the JSONL manifest into AudioTasks"}
+  - {ref: ALMDataBuilderStage, tag: advisory, why_here: "filters segments by bandwidth/SR/speaker-count and builds sliding windows; drops words/segments to shrink rows"}
+  - {ref: ALMDataOverlapStage, tag: advisory, why_here: "removes windows overlapping beyond a threshold; run after windows exist"}
+  - {ref: ManifestWriterStage, tag: enforced, why_here: "sink"}
+
+pitfalls:
+  - "input must already carry per-segment metadata (speaker/start/end); this blueprint does not diarize"
+  - "if that metadata is already present and conforms, preserve it -- diarization/transcription are conditional
+    preparation steps for raw or incomplete inputs, not mandatory parts of ALM windowing"
+  - "normalize producer-specific sentinels before windowing (for example, remove speaker='no-speaker' gap rows);
+    compatibility is determined by the final segment schema, not by the diarizer's identity"
+  - "CPU-only and fixture-fast -- a good local smoke test"
+provenance: {derived_from: "tutorials/audio/alm", version: 2, validated: true}

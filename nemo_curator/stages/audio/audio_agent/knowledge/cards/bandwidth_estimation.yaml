@@ -1,0 +1,47 @@
+stage_id: BandwidthEstimationStage
+category: quality
+summary: "Estimate effective audio bandwidth from the power spectrum; write to metrics."
+tags: [produces_score]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU FFT; cheap"
+use_cases:
+  good_for: ["estimating a continuous bandwidth (Hz) to detect narrowband/telephony audio", "cheap spectral quality signal", "estimating bandwidth on an in-memory waveform (input_residency) from a producer like SpeakerSeparation/SegmentConcatenation"]
+  avoid_for: ["when you only need a full/narrow band decision (use BandFilterStage)"]
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage, SpeakerSeparationStage, SegmentConcatenationStage]
+  typical_downstream: [AudioToDocumentStage]
+params_of_note:
+  n_fft: "FFT window size (default 512)"
+  stride_seconds: "time between FFT windows (default 0.01)"
+  top_db: "dynamic-range clip for the spectrum (dB)"
+  frequency_threshold: "energy threshold (dB) for the highest significant frequency"
+  input_residency: "'file' (default; read audio_filepath_key), 'waveform' (in-memory waveform_key+sample_rate_key only), or 'auto' (waveform first, file fallback)."
+  waveform_key: "in-memory waveform tensor key (default 'waveform'); consumed when input_residency is 'waveform'/'auto'."
+  sample_rate_key: "sample-rate key for the in-memory waveform (default 'sample_rate')."
+param_dependencies:
+  input_residency: "'waveform' requires waveform_key+sample_rate_key; 'auto' accepts a complete resident pair or audio_filepath_key and rejects a partial resident pair; 'file' requires audio_filepath_key. Every mode also needs segments OR duration."
+metrics:
+  bandwidth:                                    # scalar Hz, written nested under metrics_key
+    scale: {min: 0, max: null, direction: higher_better}
+    # The upper bound is the selected audio's Nyquist frequency (sample_rate / 2), not a
+    # corpus-wide constant. No threshold_param: this stage annotates and does not gate.
+    # SHAPE TRAP: metrics.bandwidth is a scalar int HERE. PrepareModuleSegmentsStage writes
+    # the SAME key as a per-word LIST. An int comparison against that shape raises TypeError
+    # -- check which stage produced the value before filtering on it.
+comparison:
+  accuracy_hint: "continuous bandwidth estimate (Hz), not a learned class"
+  latency_hint: "cheap CPU FFT"
+  config_complexity: "low-medium (FFT knobs)"
+  known_limitations: "spectral heuristic; not a perceptual-quality score"
+notes:
+  - "Writes results under metrics_key (or inside each segment's metrics_key). PreserveByValueStage reads exact flat keys and does not traverse nested mappings; extract or flatten the desired scalar before applying that generic filter."
+  - "With input_residency='auto', a complete resident waveform/sample-rate pair is preferred. File fallback is used only when neither resident field is present; a partial pair is rejected."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess, metrics: best_guess}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}

@@ -1,0 +1,27 @@
+stage_id: SnippetCutPlannerStage
+category: alm
+summary: "Plan snippet cut boundaries for one long-form audio (pure planning, no audio I/O)."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; boundary planning, no audio read"
+use_cases:
+  good_for: ["deciding snippet [start,end] windows before extraction in the ALM pretrain flow"]
+  avoid_for: ["non-ALM pipelines"]
+composition:
+  typical_upstream: [ReadLongFormManifestStage, OverlapFilterStage]
+  typical_downstream: [SnippetRepetitionFilterStage, SnippetExtractionStage]
+params_of_note:
+  max_duration_sec: "maximum snippet length (default 600)"
+  min_duration_sec: "minimum snippet length (default 0.5)"
+  max_segment_gap_in_snippet: "largest gap (s) allowed inside one snippet"
+notes:
+  - "Writes the plan under task.data['_snippet_plan'] and drop counts (too_long/too_short/no_text) to task metrics."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

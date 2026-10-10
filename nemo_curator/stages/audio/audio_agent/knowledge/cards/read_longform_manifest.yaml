@@ -1,0 +1,28 @@
+stage_id: ReadLongFormManifestStage
+category: alm
+summary: "Read a JSONL manifest of long-form audios and emit one AudioTask per row (ALM pretrain source)."
+tags: []
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "line-by-line JSONL read"
+use_cases:
+  good_for: ["starting the ALM pretrain pipeline from a long-form audio manifest"]
+  avoid_for: ["general curation (use ManifestReader)"]
+composition:
+  typical_upstream: []
+  typical_downstream: [SnippetCutPlannerStage, OverlapFilterStage]
+params_of_note:
+  input_manifest: "path to the JSONL manifest of long-form audios"
+  audio_dir: "directory the audio paths are re-anchored to"
+  audio_path_resolution: "how to resolve paths (e.g. 'basename')"
+  dataset_name: "dataset label attached to each row"
+notes:
+  - "Each row must carry a non-empty 'id' unique within the manifest (downstream snippet ids embed it)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
