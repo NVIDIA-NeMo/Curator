@@ -302,20 +302,81 @@ def test_invalid_marker_replays_and_cleans_partial_state(
     assert opus.read_bytes() == b"complete-opus"
 
 
-def test_non_mapping_completion_marker_is_ignored(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_restart_cleanup_preserves_completed_nested_shard_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(reader_module, "_expand_sharded_path", _identity_expand)
+    output_dir = tmp_path / "output"
+    parent_key = "dataset/foo"
+    child_key = "dataset/foo/bar"
+    receipt_root = output_dir / ".nemo_curator" / "nemo_speech_rows"
+    parent_receipt = receipt_root / parent_key / "parent.success.json"
+    child_receipt = receipt_root / child_key / "child.success.json"
+    parent_receipt.parent.mkdir(parents=True)
+    child_receipt.parent.mkdir(parents=True)
+    parent_receipt.write_text("{}", encoding="utf-8")
+    child_receipt.write_text("{}", encoding="utf-8")
+    child_manifest = output_dir / f"{child_key}.jsonl"
+    _write_jsonl(child_manifest, [{"row": 0}])
+    child_marker = output_dir / f"{child_key}.jsonl.done"
+    child_marker.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "shard_key": child_key,
+                "expected_inputs": 1,
+                "completed_inputs": 1,
+                "manifest_rows": 1,
+                "manifest_sha256": hashlib.sha256(child_manifest.read_bytes()).hexdigest(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = [
+        {
+            "input_cfg": [
+                {
+                    "type": "nemo",
+                    "corpus": "dataset",
+                    "manifest_filepath": "/inputs/dataset/foo.jsonl",
+                },
+                {
+                    "type": "nemo",
+                    "corpus": "dataset",
+                    "manifest_filepath": "/inputs/dataset/foo/bar.jsonl",
+                },
+            ]
+        }
+    ]
+
+    tasks = NeMoSpeechDiscoveryStage(input_cfg=config, output_dir=str(output_dir)).process(EmptyTask())
+
+    assert [task.reader_config["shard_key"] for task in tasks] == [parent_key]
+    assert not parent_receipt.exists()
+    assert child_receipt.is_file()
+
+
+@pytest.mark.parametrize(("marker_payload", "expected_tasks"), [("", 0), (" \n", 0), ("[]", 1)])
+def test_legacy_empty_and_invalid_completion_markers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    marker_payload: str,
+    expected_tasks: int,
+) -> None:
     monkeypatch.setattr(reader_module, "_expand_sharded_path", _identity_expand)
     output_dir = tmp_path / "output"
     shard_key = "dataset/manifest"
     _write_jsonl(output_dir / f"{shard_key}.jsonl", [{"row": 0}])
     marker = output_dir / f"{shard_key}.jsonl.done"
-    marker.write_text("[]", encoding="utf-8")
+    marker.write_text(marker_payload, encoding="utf-8")
     stage = NeMoSpeechDiscoveryStage(
         input_cfg=_input_cfg("/inputs/dataset/manifest.jsonl"),
         output_dir=str(output_dir),
         cleanup_partial=False,
     )
 
-    assert len(stage.process(EmptyTask())) == 1
+    assert len(stage.process(EmptyTask())) == expected_tasks
 
 
 def test_completion_marker_manifest_digest_mismatch_replays_shard(

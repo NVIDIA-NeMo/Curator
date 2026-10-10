@@ -86,11 +86,16 @@ def _receipt_dir(output_dir: Path, shard_key: str) -> Path:
     return contained_output_path(output_dir, relative)
 
 
-def _owner_path(output_dir: Path, relative_audio_path: PurePosixPath) -> Path:
+def _owner_path(
+    output_dir: Path,
+    relative_audio_path: PurePosixPath,
+    opus_sha256: str | None = None,
+) -> Path:
     owner_id = hashlib.sha256(relative_audio_path.as_posix().encode()).hexdigest()
+    filename = f"{owner_id}.{opus_sha256}.json" if opus_sha256 else f"{owner_id}.json"
     return contained_output_path(
         output_dir,
-        f".nemo_curator/nemo_speech_audio_owners/{owner_id[:2]}/{owner_id[2:4]}/{owner_id}.json",
+        f".nemo_curator/nemo_speech_audio_owners/{owner_id[:2]}/{owner_id[2:4]}/{filename}",
     )
 
 
@@ -268,21 +273,60 @@ def _ffprobe_valid_opus(path: Path, expected_sample_rate: int, expected_samples:
             payload = json.loads(probe.stdout)
             streams = payload.get("streams") or []
             duration = float((payload.get("format") or {}).get("duration") or 0.0)
-            return (
+            metadata_valid = (
                 probe.returncode == 0
                 and len(streams) == 1
                 and streams[0].get("codec_name") == "opus"
                 and int(streams[0].get("channels") or 0) == 1
                 and duration > 0
-                and _sample_count_matches(
-                    round(duration * expected_sample_rate),
-                    expected_samples,
-                    expected_sample_rate,
-                )
             )
         except (TypeError, ValueError, json.JSONDecodeError):
             return False
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not metadata_valid or not ffmpeg_path:
+            return False
+        with tempfile.TemporaryFile() as decoded:
+            result = subprocess.run(  # noqa: S603
+                [
+                    ffmpeg_path,
+                    "-v",
+                    "error",
+                    "-i",
+                    str(path),
+                    "-map",
+                    "0:a:0",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(expected_sample_rate),
+                    "-f",
+                    "s16le",
+                    "-c:a",
+                    "pcm_s16le",
+                    "pipe:1",
+                ],
+                check=False,
+                stdout=decoded,
+                stderr=subprocess.DEVNULL,
+            )
+            decoded.seek(0, os.SEEK_END)
+            decoded_bytes = decoded.tell()
+        return (
+            result.returncode == 0
+            and decoded_bytes % 2 == 0
+            and _sample_count_matches(decoded_bytes // 2, expected_samples, expected_sample_rate)
+        )
     return False
+
+
+def _soundfile_decoded_samples(path: Path, expected_sample_rate: int, expected_samples: int) -> int:
+    tolerance = max(1, round(expected_sample_rate * 0.06))
+    with tempfile.TemporaryFile() as backing:
+        buffer = np.memmap(backing, dtype=np.int16, mode="w+", shape=(expected_samples + tolerance + 1,))
+        decoded, _ = sf.read(path, out=buffer)
+        observed = len(decoded)
+        del decoded, buffer
+    return observed
 
 
 def _valid_opus(path: Path, expected_sample_rate: int, expected_samples: int) -> bool:
@@ -290,9 +334,6 @@ def _valid_opus(path: Path, expected_sample_rate: int, expected_samples: int) ->
 
     try:
         info = sf.info(path)
-    except (OSError, RuntimeError, sf.SoundFileError):
-        pass
-    else:
         if (
             info.format == "OGG"
             and info.subtype == "OPUS"
@@ -301,7 +342,11 @@ def _valid_opus(path: Path, expected_sample_rate: int, expected_samples: int) ->
             and info.frames > 0
             and _sample_count_matches(info.frames, expected_samples, expected_sample_rate)
         ):
-            return True
+            decoded_samples = _soundfile_decoded_samples(path, expected_sample_rate, expected_samples)
+            if _sample_count_matches(decoded_samples, expected_samples, expected_sample_rate):
+                return True
+    except (OSError, RuntimeError, sf.SoundFileError):
+        pass
     return _opus_header_is_valid(path, expected_sample_rate) and _ffprobe_valid_opus(
         path,
         expected_sample_rate,
@@ -309,9 +354,9 @@ def _valid_opus(path: Path, expected_sample_rate: int, expected_samples: int) ->
     )
 
 
-def _claim_audio_path(output_dir: Path, claim: dict[str, Any]) -> None:
+def _claim_audio_path(output_dir: Path, claim: dict[str, Any], opus_sha256: str | None = None) -> None:
     relative = PurePosixPath(str(claim["audio_filepath"]))
-    claim_path = _owner_path(output_dir, relative)
+    claim_path = _owner_path(output_dir, relative, opus_sha256)
     created = write_json_atomically_if_absent(claim_path, claim, separators=(",", ":"))
     if created:
         return
@@ -323,6 +368,16 @@ def _claim_audio_path(output_dir: Path, claim: dict[str, Any]) -> None:
     if existing != claim:
         msg = f"Conflicting NeMo speech outputs claim {relative.as_posix()!r}"
         raise ValueError(msg)
+
+
+def _opus_matches_claim(output_dir: Path, path: Path, claim: dict[str, Any]) -> bool:
+    try:
+        digest = _sha256_file(path)
+        relative = PurePosixPath(str(claim["audio_filepath"]))
+        persisted = json.loads(_owner_path(output_dir, relative, digest).read_text(encoding="utf-8"))
+    except (KeyError, OSError, json.JSONDecodeError):
+        return False
+    return persisted == claim
 
 
 def _write_receipt_candidate(path: Path, receipt: dict[str, Any]) -> None:
@@ -498,7 +553,12 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         if preset:
             return _audio_relative_path(str(preset), shard_key)
 
-        source = str(task.data.get("original_file") or task.data.get("audio_filepath") or "audio")
+        source = str(
+            task.data.get("original_audio_filepath")
+            or task.data.get("original_file")
+            or task.data.get("audio_filepath")
+            or "audio"
+        )
         stem = _source_output_stem(source)
         offset = task.data.get("start_ms")
         if offset is None and task.data.get("offset") is not None:
@@ -514,7 +574,12 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         waveform: np.ndarray | None,
         sample_rate: int,
     ) -> dict[str, Any]:
-        original_file = str(task.data.get("original_file") or task.data.get("audio_filepath") or "")
+        original_file = str(
+            task.data.get("original_audio_filepath")
+            or task.data.get("original_file")
+            or task.data.get("audio_filepath")
+            or ""
+        )
         if task.data.get("vad_empty") or task.data.get("read_error"):
             entry: dict[str, Any] = {
                 "audio_filepath": "",
@@ -541,10 +606,21 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
         if original_file:
             entry["original_audio_filepath"] = original_file
-        if "start_ms" in task.data:
-            entry["offset"] = float(task.data["start_ms"]) / 1000.0
+        base_offset = float(task.data.get("offset") or 0.0)
+        inherited_offset = task.data.get("original_offset")
+        source_base_offset = float(inherited_offset) if inherited_offset is not None else base_offset
+        start_ms = task.data.get("start_ms")
+        relative_start = float(start_ms) / 1000.0 if start_ms is not None else 0.0
+        playback_offset = base_offset + relative_start if start_ms is not None else task.data.get("offset")
+        source_offset = source_base_offset + relative_start
+        if playback_offset is not None:
+            entry["offset"] = 0.0 if self.save_audio and audio_filepath else float(playback_offset)
+        if source_offset is not None and (
+            inherited_offset is not None or (self.save_audio and audio_filepath and source_offset != 0.0)
+        ):
+            entry["original_offset"] = float(source_offset)
         if "end_ms" in task.data:
-            entry["original_end"] = float(task.data["end_ms"]) / 1000.0
+            entry["original_end"] = source_base_offset + float(task.data["end_ms"]) / 1000.0
         if task.data.get("original_sampling_rate") is not None:
             entry["original_sampling_rate"] = int(task.data["original_sampling_rate"])
         if task.data.get("original_channels") is not None:
@@ -562,6 +638,7 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
             "duration_sec",
             "start_ms",
             "end_ms",
+            "offset",
             "original_sampling_rate",
             "original_channels",
             "num_channels",
@@ -601,13 +678,13 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
             if self.save_audio and waveform is None:
                 msg = f"Task for {input_id!r} has no {self.waveform_key!r} waveform"
                 raise ValueError(msg)
-            if sample_rate != self.target_sample_rate:
-                msg = (
-                    f"Task for {input_id!r} has sample rate {sample_rate}, expected {self.target_sample_rate}; "
-                    "resample upstream before writing Opus."
-                )
-                raise ValueError(msg)
             if self.save_audio:
+                if sample_rate != self.target_sample_rate:
+                    msg = (
+                        f"Task for {input_id!r} has sample rate {sample_rate}, expected {self.target_sample_rate}; "
+                        "resample upstream before writing Opus."
+                    )
+                    raise ValueError(msg)
                 relative_audio_path = self._relative_audio_path(task, shard_key, output_id)
                 output_path = contained_output_path(Path(self.output_dir), relative_audio_path)
                 audio_claim = {
@@ -621,11 +698,23 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
                     "waveform_sha256": hashlib.sha256(waveform.tobytes()).hexdigest(),
                 }
                 _claim_audio_path(Path(self.output_dir), audio_claim)
-                if not _valid_opus(output_path, sample_rate, len(waveform)):
+                if not (
+                    _opus_matches_claim(Path(self.output_dir), output_path, audio_claim)
+                    and _valid_opus(output_path, sample_rate, len(waveform))
+                ):
                     if output_path.exists():
-                        logger.warning(f"Replacing incomplete or invalid Opus output: {output_path}")
-                    _write_bytes_atomically(output_path, self._encode_opus(waveform, sample_rate))
-                if not _valid_opus(output_path, sample_rate, len(waveform)):
+                        logger.warning(f"Replacing unbound or invalid Opus output: {output_path}")
+                    encoded = self._encode_opus(waveform, sample_rate)
+                    _claim_audio_path(
+                        Path(self.output_dir),
+                        audio_claim,
+                        hashlib.sha256(encoded).hexdigest(),
+                    )
+                    _write_bytes_atomically(output_path, encoded)
+                if not (
+                    _opus_matches_claim(Path(self.output_dir), output_path, audio_claim)
+                    and _valid_opus(output_path, sample_rate, len(waveform))
+                ):
                     msg = f"Encoded Opus output failed validation: {relative_audio_path.as_posix()}"
                     raise RuntimeError(msg)
                 manifest_audio_path = _manifest_audio_path(relative_audio_path, shard_key).as_posix()
@@ -768,17 +857,10 @@ def _selected_receipts(output_dir: Path, shard_key: str, directory: Path) -> lis
         path = contained_output_path(output_dir, relative)
         output_id, status, payload = _load_receipt(path, shard_key)
         by_status = candidates.setdefault(output_id, {})
-        if status in by_status:
-            msg = f"Duplicate NeMo speech {status} receipt for output {output_id}"
-            raise ValueError(msg)
         by_status[status] = payload
 
-    selected = []
-    for by_status in candidates.values():
-        # A durable success always outranks a transient placeholder. Keeping
-        # both immutable candidates makes retries monotonic in either order.
-        selected.append(by_status.get("success") or by_status["placeholder"])
-    return selected
+    # A durable success outranks a transient placeholder in either retry order.
+    return [by_status.get("success") or by_status["placeholder"] for by_status in candidates.values()]
 
 
 def _receipt_sort_key(receipt: dict[str, Any]) -> tuple[Any, ...]:
@@ -788,8 +870,9 @@ def _receipt_sort_key(receipt: dict[str, Any]) -> tuple[Any, ...]:
     except ValueError:
         input_order = (1, input_id)
     entry = receipt.get("entry") if isinstance(receipt.get("entry"), dict) else {}
+    sort_offset = entry.get("original_offset")
     try:
-        offset = float(entry.get("offset") or 0.0)
+        offset = float(sort_offset if sort_offset is not None else entry.get("offset") or 0.0)
     except (TypeError, ValueError):
         offset = 0.0
     return (*input_order, offset, str(entry.get("audio_filepath") or ""), str(receipt.get("output_id") or ""))
@@ -879,8 +962,14 @@ def _validated_manifest_entry(  # noqa: C901
     if expected_samples <= 0:
         msg = f"Shard {shard_key!r} has invalid expected sample count for {safe_relative.as_posix()!r}"
         raise ValueError(msg)
-    if not _valid_opus(output_path, expected_sample_rate, expected_samples):
-        msg = f"Shard {shard_key!r} references missing or invalid Opus file: {safe_relative}"
+    if not (
+        _opus_matches_claim(root, output_path, claim)
+        and _valid_opus(output_path, expected_sample_rate, expected_samples)
+    ):
+        msg = (
+            f"Shard {shard_key!r} references missing or invalid Opus file, "
+            f"or one without a matching content binding: {safe_relative}"
+        )
         raise ValueError(msg)
     return entry
 
