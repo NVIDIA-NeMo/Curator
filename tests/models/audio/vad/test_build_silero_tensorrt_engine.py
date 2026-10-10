@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
+from nemo_curator.models.audio.vad import build_silero_tensorrt_engine as builder_module
 from nemo_curator.models.audio.vad.build_silero_tensorrt_engine import (
     _parse_args,
     _sha256,
@@ -96,3 +98,34 @@ def test_metadata_sidecar_is_published_as_complete_json(tmp_path: Path) -> None:
 
     assert json.loads(metadata_path.read_text()) == metadata
     assert metadata_path.read_text().endswith("\n")
+
+
+@pytest.mark.parametrize("onnx_name", ["silero.plan", "silero.plan.json", "silero.plan.part"])
+def test_main_rejects_colliding_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, onnx_name: str) -> None:
+    args = argparse.Namespace(
+        output=tmp_path / "silero.plan",
+        onnx_output=tmp_path / onnx_name,
+        force=True,
+    )
+    monkeypatch.setattr(builder_module, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+
+    with pytest.raises(ValueError, match="output paths must be distinct"):
+        builder_module.main([])
+
+
+@pytest.mark.parametrize("existing_name", ["silero.plan", "silero.onnx", "silero.plan.json", "silero.plan.part"])
+def test_main_preserves_existing_bundle_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_name: str
+) -> None:
+    (tmp_path / existing_name).touch()
+    args = argparse.Namespace(
+        output=tmp_path / "silero.plan",
+        onnx_output=None,
+        force=False,
+    )
+    monkeypatch.setattr(builder_module, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+
+    with pytest.raises(RuntimeError, match="Silero artifacts already exist"):
+        builder_module.main([])

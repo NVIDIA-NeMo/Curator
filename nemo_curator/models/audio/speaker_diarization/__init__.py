@@ -25,6 +25,7 @@ from importlib import import_module
 
 _LAZY = {
     "DiarizationAdapter": "nemo_curator.models.audio.speaker_diarization.base",
+    "DiarizationInputError": "nemo_curator.models.audio.speaker_diarization.base",
     "DiarizationResult": "nemo_curator.models.audio.speaker_diarization.base",
     "DiarizationSegment": "nemo_curator.models.audio.speaker_diarization.base",
     "NeMoSortformerAdapter": "nemo_curator.models.audio.speaker_diarization.sortformer",
@@ -34,6 +35,7 @@ _LAZY = {
 
 __all__ = [
     "DiarizationAdapter",
+    "DiarizationInputError",
     "DiarizationResult",
     "DiarizationSegment",
     "NeMoSortformerAdapter",

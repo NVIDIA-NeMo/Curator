@@ -740,7 +740,9 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             return self._audit_placeholder(task)
         try:
             emitted = self._emit_segments(task, waveform, sample_rate, result)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
+            if self._is_memory_exhaustion(exc):
+                raise
             logger.warning("VAD: invalid result for task {}: {}", task.task_id, exc)
             return self._audit_placeholder(task)
         return emitted if isinstance(emitted, list) else [emitted]
@@ -759,6 +761,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             try:
                 waveform, sample_rate = self._resolve_audio(task)
             except Exception as exc:
+                if self._is_memory_exhaustion(exc):
+                    raise
                 if self.fail_on_audio_error:
                     msg = f"Failed to prepare VAD audio for task {task.task_id}"
                     raise RuntimeError(msg) from exc

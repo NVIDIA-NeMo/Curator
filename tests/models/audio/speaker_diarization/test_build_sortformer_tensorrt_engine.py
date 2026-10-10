@@ -95,7 +95,6 @@ def test_model_parameters_reject_speaker_override_that_changes_checkpoint_output
     [
         ("center_chunk_frames", 111, "divisible by subsampling_factor=8"),
         ("left_context_frames", 15, "divisible by subsampling_factor=8"),
-        ("right_context_frames", 1, "divisible by subsampling_factor=8"),
         ("fifo_len", 8, "must be 0 or at least 14"),
     ],
 )
@@ -105,6 +104,13 @@ def test_model_parameters_reject_invalid_streaming_geometry(name: str, value: in
 
     with pytest.raises(ValueError, match=error):
         _model_parameters({"encoder": {"subsampling_factor": 8}}, args)
+
+
+def test_model_parameters_accept_partial_right_context_frames() -> None:
+    args = _args()
+    args.right_context_frames = 1
+
+    assert _model_parameters({"encoder": {"subsampling_factor": 8}}, args)["right_context_frames"] == 1
 
 
 @pytest.mark.parametrize(
@@ -310,6 +316,48 @@ def test_main_stages_explicit_onnx_on_its_destination_filesystem(
     assert staged.engine.parent.parent == engine_dir
     assert staged.onnx.parent.parent == onnx_dir
     assert observed["publish"] == {"has_learned_silence": False, "publish_onnx": True}
+
+
+@pytest.mark.parametrize(
+    "onnx_name",
+    [
+        "model.plan",
+        "model.json",
+        "model.mel_basis.npy",
+        "model.sortformer_modules.py",
+        "model.learnable_sil_emb.npy",
+    ],
+)
+def test_main_rejects_colliding_bundle_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, onnx_name: str) -> None:
+    nemo_model = tmp_path / "model.nemo"
+    nemo_model.touch()
+    args = argparse.Namespace(
+        nemo_model=nemo_model,
+        output=tmp_path / "model.plan",
+        onnx_output=tmp_path / onnx_name,
+        force=True,
+    )
+    monkeypatch.setattr(builder_module, "_parse_args", lambda: args)
+    monkeypatch.setattr(builder_module.torch.cuda, "is_available", lambda: True)
+
+    with pytest.raises(ValueError, match="output paths must be distinct"):
+        builder_module.main()
+
+
+def test_main_rejects_implicit_onnx_engine_collision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    nemo_model = tmp_path / "model.nemo"
+    nemo_model.touch()
+    args = argparse.Namespace(
+        nemo_model=nemo_model,
+        output=tmp_path / "model.onnx",
+        onnx_output=None,
+        force=True,
+    )
+    monkeypatch.setattr(builder_module, "_parse_args", lambda: args)
+    monkeypatch.setattr(builder_module.torch.cuda, "is_available", lambda: True)
+
+    with pytest.raises(ValueError, match="output paths must be distinct"):
+        builder_module.main()
 
 
 def test_staged_bundle_validation_deserializes_engine_and_always_unloads(

@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter
+from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter, DiarizationInputError
 from nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt import (
     TensorRTSortformerAdapter,
     _binarize,
@@ -178,15 +178,18 @@ def test_prefetch_rejects_engine_config_sample_rate_mismatch(tmp_path: Path) -> 
         adapter.download_weights_on_node()
 
 
-@pytest.mark.parametrize(
-    ("name", "value"),
-    [("center_chunk_frames", 3), ("left_context_frames", 1), ("right_context_frames", 1)],
-)
-def test_prefetch_rejects_unaligned_streaming_frames(tmp_path: Path, name: str, value: int) -> None:
-    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={name: value}))
+@pytest.mark.parametrize("name", ["center_chunk_frames", "left_context_frames"])
+def test_prefetch_rejects_unaligned_center_or_left_frames(tmp_path: Path, name: str) -> None:
+    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={name: 1}))
 
     with pytest.raises(ValueError, match="divisible by subsampling_factor=2"):
         adapter.download_weights_on_node()
+
+
+def test_prefetch_accepts_partial_right_context_frames(tmp_path: Path) -> None:
+    adapter = TensorRTSortformerAdapter(**_bundle(tmp_path, config_updates={"right_context_frames": 1}))
+
+    adapter.download_weights_on_node()
 
 
 def test_prefetch_rejects_fifo_smaller_than_emitted_chunk(tmp_path: Path) -> None:
@@ -297,6 +300,18 @@ def test_engine_profile_must_support_configured_batch(tmp_path: Path) -> None:
     session = _FakeSession()
     session.input_shape_range = MagicMock(return_value=((1, 8, 128), (1, 8, 128), (2, 8, 128)))
     with pytest.raises(ValueError, match=r"does not support 1\.\.4"):
+        adapter._validate_session(session, _config())
+
+
+def test_engine_cache_profiles_must_support_empty_initial_state(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    session = _FakeSession()
+    input_shape_range = session.input_shape_range
+    session.input_shape_range = MagicMock(
+        side_effect=lambda name: ((1, 2, 4), (2, 4, 4), (4, 4, 4)) if name == "spkcache" else input_shape_range(name)
+    )
+
+    with pytest.raises(ValueError, match=r"does not support \(\*, 1\.\.4, 4\)"):
         adapter._validate_session(session, _config())
 
 
@@ -414,15 +429,48 @@ def test_per_feature_frontend_matches_nemo_preprocessor(tmp_path: Path) -> None:
     torch.testing.assert_close(actual, expected[0, :, : expected_length.item()].transpose(0, 1))
 
 
-def test_bounded_feature_blocks_are_normalized_once_over_full_recording(tmp_path: Path) -> None:
+@pytest.mark.parametrize("normalization", ["none", "per_feature", "all_features"])
+def test_bounded_feature_blocks_are_normalized_without_concatenating(
+    tmp_path: Path,
+    normalization: str,
+) -> None:
     adapter = _cpu_feature_adapter(tmp_path)
+    adapter._config["normalization"] = normalization
     first = torch.arange(4 * 128, dtype=torch.float32).reshape(4, 128)
     second = torch.arange(4 * 128, 7 * 128, dtype=torch.float32).reshape(3, 128)
+    expected = adapter._normalize_features(torch.cat((first, second)).clone())
+    adapter._infer_probabilities = MagicMock(side_effect=lambda features: [features[0].clone()])
 
-    expected = adapter._normalize_features(torch.cat((first, second)))
-    actual = adapter._normalize_feature_blocks(iter((first, second)))
+    with patch("torch.cat", side_effect=AssertionError("feature blocks must not be concatenated")):
+        actual = adapter._infer_feature_blocks(iter((first, second)))
 
     torch.testing.assert_close(actual, expected)
+
+
+def test_feature_spool_is_removed_when_inference_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _cpu_feature_adapter(tmp_path)
+    adapter._infer_probabilities = MagicMock(side_effect=RuntimeError("inference failed"))
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="inference failed"):
+        adapter._infer_feature_blocks(iter((torch.zeros((2, 128)),)))
+
+    assert list(tmp_path.glob("nemo-curator-sortformer-features-*")) == []
+
+
+def test_feature_spool_is_float32_independent_of_torch_default(tmp_path: Path) -> None:
+    adapter = _cpu_feature_adapter(tmp_path)
+    adapter._config["normalization"] = "none"
+    adapter._infer_probabilities = MagicMock(side_effect=lambda features: [features[0].clone()])
+    previous_dtype = torch.get_default_dtype()
+    try:
+        torch.set_default_dtype(torch.float64)
+        actual = adapter._infer_feature_blocks(iter((torch.ones((2, 128), dtype=torch.float32),)))
+    finally:
+        torch.set_default_dtype(previous_dtype)
+
+    assert actual.dtype == torch.float32
+    torch.testing.assert_close(actual, torch.ones((2, 128), dtype=torch.float32))
 
 
 @pytest.mark.parametrize("n_fft", [4, 16])
@@ -445,8 +493,17 @@ def test_long_file_streaming_requires_engine_sample_rate(tmp_path: Path) -> None
     path = tmp_path / "wrong-rate.wav"
     soundfile.write(path, np.zeros(32, dtype=np.float32), 8_000, subtype="FLOAT")
 
-    with pytest.raises(ValueError, match="must use the engine sample rate"):
+    with pytest.raises(DiarizationInputError, match="must use the engine sample rate"):
         list(adapter._file_feature_blocks(str(path)))
+
+
+def test_file_probe_identifies_soundfile_errors(tmp_path: Path) -> None:
+    adapter = _cpu_feature_adapter(tmp_path)
+    path = tmp_path / "invalid.wav"
+    path.write_text("not audio", encoding="utf-8")
+
+    with pytest.raises(DiarizationInputError, match="could not inspect"):
+        adapter._source_duration_and_empty(str(path))
 
 
 def test_passes_learned_silence_to_updated_runtime_module() -> None:
@@ -476,6 +533,15 @@ def test_applies_learned_silence_to_legacy_runtime_module() -> None:
     )
     actual = modules._get_silence_profile(torch.zeros((3, 2, 4)), torch.zeros((3, 2, 2)))
     torch.testing.assert_close(actual, learned_silence.expand(3, -1))
+
+
+def test_rejects_speaker_cache_too_small_for_runtime_silence_frames() -> None:
+    class Modules:
+        def __init__(self, **_kwargs: object) -> None:
+            self.spkcache_sil_frames_per_spk = 3
+
+    with pytest.raises(ValueError, match="expected at least 6"):
+        _create_state_modules(SimpleNamespace(SortformerModules=Modules), _config(), None)
 
 
 @pytest.mark.parametrize(("right_context_frames", "frame_count"), [(1, 11), (0, 12)])

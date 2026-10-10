@@ -372,15 +372,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not torch.cuda.is_available():
         msg = "CUDA is unavailable; build the TensorRT engine on its target GPU"
         raise RuntimeError(msg)
-    if args.output.exists() and not args.force:
-        msg = f"{args.output} already exists; use --force to rebuild it"
+    onnx_path = args.onnx_output or args.output.with_suffix(".onnx")
+    metadata_path = args.output.with_suffix(args.output.suffix + ".json")
+    temporary_path = args.output.with_suffix(args.output.suffix + ".part")
+    output_paths = (args.output, onnx_path, metadata_path, temporary_path)
+    if len({path.resolve() for path in output_paths}) != len(output_paths):
+        msg = f"Silero output paths must be distinct: {output_paths}"
+        raise ValueError(msg)
+    existing = [path for path in output_paths if path.exists()]
+    if existing and not args.force:
+        msg = f"Silero artifacts already exist; use --force to rebuild: {existing}"
         raise RuntimeError(msg)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    onnx_path = args.onnx_output or args.output.with_suffix(".onnx")
-    if onnx_path.resolve() == args.output.resolve():
-        msg = "ONNX output and TensorRT engine output must be different files"
-        raise ValueError(msg)
 
     core, onnx_max_abs = _export_silero_onnx(onnx_path)
     build_seconds, tensorrt_version, recurrent_max_abs = _build_engine(args, onnx_path, core)
@@ -428,7 +432,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         "window_size": _WINDOW_SIZE,
         "workspace_gb": args.workspace_gb,
     }
-    metadata_path = args.output.with_suffix(args.output.suffix + ".json")
     _write_metadata_sidecar(metadata_path, metadata)
     print(
         f"Built {args.output} in {build_seconds:.1f}s; "
