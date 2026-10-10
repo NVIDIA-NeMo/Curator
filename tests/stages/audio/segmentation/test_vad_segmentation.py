@@ -185,6 +185,9 @@ def test_fanout_rejects_multi_recording_batch_configuration() -> None:
     with pytest.raises(ValueError, match="fan-out mode requires batch_size=1"):
         VADSegmentationStage(batch_size=2)
 
+    with pytest.raises(ValueError, match="fan-out mode requires batch_size=1"):
+        VADSegmentationStage().with_(batch_size=2)
+
 
 def test_fanout_rejects_ambiguous_manual_multi_recording_batch() -> None:
     stage, _ = _stage(results=[])

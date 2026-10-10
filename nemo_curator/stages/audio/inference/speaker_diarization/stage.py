@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from numbers import Integral
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import quote
 
 import numpy as np
 from loguru import logger
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 
 def _safe_rttm_basename(session_name: str) -> str:
     """Return a path-safe RTTM filename stem without changing RTTM identity."""
-    return session_name.replace("\\", "_").replace("/", "_")
+    return quote(session_name, safe="")
 
 
 def _validated_relative_rttm_path(value: str, *, label: str) -> Path:
@@ -438,10 +439,12 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
         return tasks
 
     def _already_has_output(self, task: AudioTask) -> bool:
+        notes = task.data.get(self.notes_key)
         complete_manifest_output = (
             self.skip_if_output_exists
             and self.num_speakers_key in task.data
             and (not self.store_segments or self.diar_segments_key in task.data)
+            and not (isinstance(notes, dict) and self.name in notes)
         )
         if not complete_manifest_output:
             return False
@@ -469,7 +472,12 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
         notes[self.name] = reason
 
     def _write_result(self, task: AudioTask, result: DiarizationResult) -> None:
-        segments = [dict(segment) for segment in result.segments]
+        segments: list[DiarizationSegment] = []
+        for segment in result.segments:
+            if float(segment["end"]) <= float(segment["start"]):
+                logger.warning("Skipping degenerate diarization segment: {}", segment)
+                continue
+            segments.append(dict(segment))
         task.data[self.num_speakers_key] = len({str(segment["speaker"]) for segment in segments})
         if self.store_segments:
             task.data[self.diar_segments_key] = segments
@@ -482,6 +490,9 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
             )
             rttm_root = Path(self.rttm_out_dir).expanduser().resolve()
             task.data[self.rttm_filepath_key] = Path(path).relative_to(rttm_root).as_posix()
+        notes = task.data.get(self.notes_key)
+        if isinstance(notes, dict):
+            notes.pop(self.name, None)
 
     def _session_name(self, task: AudioTask) -> str:
         session_name = task.data.get("session_name")

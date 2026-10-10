@@ -213,6 +213,38 @@ def test_an_unsupported_rate_is_resampled_to_16khz(monkeypatch: pytest.MonkeyPat
     assert result.segments == [VADSegment(0.0, 0.01)]
 
 
+def test_resampling_failure_is_isolated_to_one_recording(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FailingResample:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __call__(self, _waveform: torch.Tensor) -> torch.Tensor:
+            message = "resample failed"
+            raise RuntimeError(message)
+
+    get_timestamps = MagicMock(return_value=[])
+    _install_silero_module(monkeypatch, get_speech_timestamps=get_timestamps)
+    monkeypatch.setitem(
+        sys.modules,
+        "torchaudio",
+        SimpleNamespace(transforms=SimpleNamespace(Resample=_FailingResample)),
+    )
+    adapter = SileroVADAdapter()
+    adapter._model = object()
+    adapter._device = torch.device("cpu")
+
+    results = adapter.detect_batch(
+        [
+            {"waveform": np.zeros(441, dtype=np.float32), "sample_rate": 44100},
+            {"waveform": np.zeros(160, dtype=np.float32), "sample_rate": 16000},
+        ]
+    )
+
+    assert results[0].error == "RuntimeError: resample failed"
+    assert results[1].error is None
+    get_timestamps.assert_called_once()
+
+
 def test_postprocessing_failure_is_isolated_to_one_recording(monkeypatch: pytest.MonkeyPatch) -> None:
     def get_timestamps(waveform: torch.Tensor, _model: object, **_kwargs: object) -> list[dict[str, int]]:
         if len(waveform) == 16000:
@@ -239,6 +271,17 @@ def test_postprocessing_failure_is_isolated_to_one_recording(monkeypatch: pytest
     assert results[2].segments == [VADSegment(0.0, 2.0)]
 
 
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_batch_wide_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_silero_module(monkeypatch, get_speech_timestamps=MagicMock(side_effect=error))
+    adapter = SileroVADAdapter()
+    adapter._model = object()
+    adapter._device = torch.device("cpu")
+
+    with pytest.raises(type(error), match="out of memory"):
+        adapter.detect_batch([{"waveform": np.zeros(10), "sample_rate": 16000}])
+
+
 @pytest.mark.parametrize(
     ("item", "error"),
     [
@@ -248,15 +291,26 @@ def test_postprocessing_failure_is_isolated_to_one_recording(monkeypatch: pytest
         ({"waveform": np.zeros(10), "sample_rate": 0}, ValueError),
     ],
 )
-def test_invalid_items_are_rejected(
+def test_invalid_items_are_isolated(
     item: dict[str, object], error: type[Exception], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install_silero_module(monkeypatch, get_speech_timestamps=MagicMock())
+    _install_silero_module(monkeypatch, get_speech_timestamps=MagicMock(return_value=[]))
     adapter = SileroVADAdapter()
     adapter._model = object()
     adapter._device = torch.device("cpu")
-    with pytest.raises(error):
-        adapter.detect_batch([item])
+
+    results = adapter.detect_batch(
+        [
+            {"waveform": np.zeros(10), "sample_rate": 16000},
+            item,
+            {"waveform": np.zeros(10), "sample_rate": 16000},
+        ]
+    )
+
+    assert results[0].error is None
+    assert results[1].error is not None
+    assert results[1].error.startswith(error.__name__)
+    assert results[2].error is None
 
 
 def test_empty_batch_does_not_require_a_loaded_model() -> None:
