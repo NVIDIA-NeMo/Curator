@@ -449,6 +449,19 @@ def test_audio_preparation_error_can_fail_fast() -> None:
         stage.process(AudioTask(task_id="missing", data={}))
 
 
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_audio_preparation_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, _ = _stage(emit_audit_placeholders=True)
+
+    def fail(_task: AudioTask) -> tuple[torch.Tensor, int]:
+        raise error
+
+    monkeypatch.setattr(stage, "_resolve_audio", fail)
+
+    with pytest.raises(type(error), match="out of memory"):
+        stage.process(_task())
+
+
 def test_adapter_failures_propagate() -> None:
     class _BrokenAdapter:
         def detect_batch(self, _items: list[dict[str, Any]]) -> list[VADResult]:
@@ -502,6 +515,19 @@ def test_invalid_adapter_segments_become_an_auditable_placeholder() -> None:
 
     assert result[0].data["read_error"] is True
     assert "waveform" not in result[0].data
+
+
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_result_emission_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, _ = _stage(results=[VADResult([VADSegment(0.0, 0.5)])])
+
+    def fail(*_args: object) -> AudioTask | list[AudioTask]:
+        raise error
+
+    monkeypatch.setattr(stage, "_emit_segments", fail)
+
+    with pytest.raises(type(error), match="out of memory"):
+        stage.process(_task())
 
 
 def test_degenerate_segments_are_skipped() -> None:

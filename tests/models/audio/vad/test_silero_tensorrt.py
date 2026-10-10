@@ -24,7 +24,7 @@ import pytest
 import torch
 
 from nemo_curator.models.audio.vad.base import VADSegment
-from nemo_curator.models.audio.vad.silero_tensorrt import TensorRTSileroVADAdapter
+from nemo_curator.models.audio.vad.silero_tensorrt import TensorRTSileroVADAdapter, _prepare_16khz_waveform
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -189,6 +189,39 @@ def test_recurrent_scheduler_never_exceeds_engine_batch_profile() -> None:
         [0.25, 1.25],
         [0.25],
     ]
+
+
+def test_prepared_recording_stays_on_cpu() -> None:
+    waveform = _prepare_16khz_waveform({"waveform": np.zeros(512, dtype=np.float32), "sample_rate": 16000})
+
+    assert waveform.device.type == "cpu"
+
+
+def test_only_active_windows_move_to_the_session_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _FakeSession()
+    session.device = torch.device("meta")
+    stack_devices: list[str] = []
+    original_stack = torch.stack
+
+    def recording_stack(tensors: list[torch.Tensor], *args: object, **kwargs: object) -> torch.Tensor:
+        stacked = original_stack(tensors, *args, **kwargs)
+        stack_devices.append(stacked.device.type)
+        return stacked
+
+    def stop_after_transfer(inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        assert inputs["input"].device.type == "meta"
+        message = "transfer checked"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(torch, "stack", recording_stack)
+    monkeypatch.setattr(session, "infer", stop_after_transfer)
+    adapter = _adapter(session)
+    adapter.load_model(num_gpus=1)
+
+    with pytest.raises(RuntimeError, match="transfer checked"):
+        adapter._infer_probabilities([torch.zeros(4096), torch.zeros(8192)])
+
+    assert stack_devices == ["cpu"]
 
 
 def test_ragged_detect_batch_preserves_order_and_uses_official_postprocessing(

@@ -28,6 +28,7 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.models.audio.speaker_diarization.base import (
+    DiarizationInputError,
     DiarizationResult,
     DiarizationSegment,
 )
@@ -44,6 +45,17 @@ _DEFAULT_MODEL_ID = "nvidia/diar_streaming_sortformer_4spk-v2.1"
 _DEFAULT_SAMPLE_RATE = 16_000
 _DEFAULT_STFT_BLOCK_SECONDS = 60 * 60
 _SUPPORTED_PRECISIONS = {"fp32", "fp16", "bf16"}
+
+
+def _is_task_local_nemo_audio_error(exc: Exception) -> bool:
+    """Recognize Lhotse decode failures without hiding its wrapped resource errors."""
+    error_type = type(exc)
+    resource_markers = ("MemoryError", "[Errno 28]", "No space left on device")
+    return (
+        error_type.__name__ == "AudioLoadingError"
+        and error_type.__module__.startswith("lhotse.audio")
+        and not any(marker in str(exc) for marker in resource_markers)
+    )
 
 
 def _torch_module() -> Any:  # noqa: ANN401
@@ -486,7 +498,10 @@ class NeMoSortformerAdapter:
                 parameter.device,
                 parameter.dtype,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
+            torch = _torch_module()
+            if isinstance(exc, (MemoryError, torch.cuda.OutOfMemoryError)):
+                raise
             logger.warning("Could not extend Sortformer positional encoding: {}", exc)
 
     def _enable_bounded_stft(self, model: Any) -> None:  # noqa: ANN401
@@ -642,10 +657,17 @@ class NeMoSortformerAdapter:
                 results,
             )
         if filepaths:
+            try:
+                raw_outputs = self._run_diarization(filepaths, sample_rate=None)
+            except Exception as exc:
+                if not _is_task_local_nemo_audio_error(exc):
+                    raise
+                msg = "NeMo Sortformer could not read one or more file inputs"
+                raise DiarizationInputError(msg) from exc
             self._scatter_outputs(
                 filepath_indices,
                 filepaths,
-                self._run_diarization(filepaths, sample_rate=None),
+                raw_outputs,
                 results,
             )
         return results

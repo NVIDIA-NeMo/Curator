@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import builtins
+import errno
 import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -26,7 +27,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter
+from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter, DiarizationInputError
 from nemo_curator.models.audio.speaker_diarization.sortformer import (
     NeMoSortformerAdapter,
     _extract_nemo_features_in_blocks,
@@ -358,6 +359,17 @@ def test_positional_encoding_extension_uses_model_device_and_dtype() -> None:
     model.encoder.pos_enc.extend_pe.assert_called_once_with(12_345, parameter.device, parameter.dtype)
 
 
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_positional_encoding_memory_failures_propagate(error: Exception) -> None:
+    model = _mock_model()
+    model.parameters.return_value = iter([torch.zeros(1)])
+    model.encoder.pos_enc.extend_pe.side_effect = error
+    adapter = NeMoSortformerAdapter(max_positional_encoding_length=12_345)
+
+    with pytest.raises(type(error), match="out of memory"):
+        adapter._extend_positional_encoding(model)
+
+
 def test_bounded_stft_patch_is_restored_during_unload() -> None:
     model = _mock_model()
     original_process_signal = MagicMock()
@@ -439,6 +451,61 @@ def test_diarize_batch_passes_filepaths_directly_without_sample_rate() -> None:
     assert call["audio"] == ["first.wav", "second.wav"]
     assert call["batch_size"] == 2
     assert "sample_rate" not in call
+
+
+def test_diarize_batch_identifies_nemo_file_loading_errors() -> None:
+    class AudioLoadingError(Exception):
+        pass
+
+    AudioLoadingError.__module__ = "lhotse.audio.utils"
+    model = _mock_model()
+    model.diarize.side_effect = AudioLoadingError("decode failed")
+    adapter = NeMoSortformerAdapter()
+    adapter._model = model
+
+    with pytest.raises(DiarizationInputError, match="could not read"):
+        adapter.diarize_batch([_path_item()])
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "<class 'MemoryError'>: out of memory",
+        "<class 'torch.OutOfMemoryError'>: CUDA out of memory",
+        "<class 'OSError'>: [Errno 28] No space left on device",
+    ],
+)
+def test_diarize_batch_preserves_lhotse_wrapped_resource_failures(detail: str) -> None:
+    class AudioLoadingError(Exception):
+        pass
+
+    AudioLoadingError.__module__ = "lhotse.audio.utils"
+    model = _mock_model()
+    model.diarize.side_effect = AudioLoadingError(detail)
+    adapter = NeMoSortformerAdapter()
+    adapter._model = model
+
+    with pytest.raises(AudioLoadingError, match=r"MemoryError|Errno 28"):
+        adapter.diarize_batch([_path_item()])
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("provider unavailable"),
+        MemoryError("out of memory"),
+        torch.cuda.OutOfMemoryError("out of memory"),
+        OSError(errno.ENOSPC, "No space left on device"),
+    ],
+)
+def test_diarize_batch_preserves_provider_and_resource_failures(error: Exception) -> None:
+    model = _mock_model()
+    model.diarize.side_effect = error
+    adapter = NeMoSortformerAdapter()
+    adapter._model = model
+
+    with pytest.raises(type(error)):
+        adapter.diarize_batch([_path_item()])
 
 
 def test_diarize_batch_supports_mixed_input_modes_without_reordering_results() -> None:

@@ -89,6 +89,7 @@ def _load_task(path: Path) -> AudioTask:
     """Reconstruct a single AudioTask from a checkpoint file."""
     payload = json.loads(path.read_text())
     return AudioTask(
+        task_id=payload.get("task_id", ""),
         dataset_name=payload["dataset_name"],
         data=payload["data"],
         _metadata=payload.get("_metadata", {}),
@@ -149,7 +150,7 @@ class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def process(self, task: EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
-        done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
+        done = {p.stem for p in Path(self.rttm_out_dir).rglob("*.rttm")} if self.rttm_out_dir else set()
         tasks: list[AudioTask] = []
         for wav in sorted(Path(self.data_dir).glob("*.wav")):
             fid = wav.stem
@@ -491,7 +492,7 @@ def main() -> None:
     rttm_out.mkdir(parents=True, exist_ok=True)
 
     # Pre-check: how many files will the reader emit (same logic as CallHomeReaderStage)
-    done = {p.stem for p in rttm_out.glob("*.rttm")} if rttm_out.exists() else set()
+    done = {p.stem for p in rttm_out.rglob("*.rttm")} if rttm_out.exists() else set()
     wavs_with_cha = [
         w for w in sorted(data_dir.glob("*.wav")) if w.stem not in done and (cha_dir / f"{w.stem}.cha").exists()
     ]

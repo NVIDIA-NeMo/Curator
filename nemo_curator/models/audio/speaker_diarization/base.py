@@ -36,6 +36,10 @@ class DiarizationSegment(TypedDict):
     speaker: str
 
 
+class DiarizationInputError(RuntimeError):
+    """One or more file-backed inputs could not be read or decoded."""
+
+
 @dataclass(frozen=True)
 class DiarizationResult:
     """Canonical adapter output for one recording.
@@ -59,7 +63,9 @@ class DiarizationAdapter(Protocol):
     integer ``sample_rate``, or an ``audio_filepath`` for adapters that can
     preserve provider-native or bounded file streaming. The adapter must
     return exactly one :class:`DiarizationResult` per input item in the same
-    order, including an empty result for an empty waveform.
+    order, including an empty result for an empty waveform. File-backed
+    adapters raise :class:`DiarizationInputError` only for task-local input or
+    decode failures; resource and provider failures propagate unchanged.
     """
 
     model_id: str

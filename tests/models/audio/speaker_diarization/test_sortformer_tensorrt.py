@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter
+from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter, DiarizationInputError
 from nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt import (
     TensorRTSortformerAdapter,
     _binarize,
@@ -429,15 +429,48 @@ def test_per_feature_frontend_matches_nemo_preprocessor(tmp_path: Path) -> None:
     torch.testing.assert_close(actual, expected[0, :, : expected_length.item()].transpose(0, 1))
 
 
-def test_bounded_feature_blocks_are_normalized_once_over_full_recording(tmp_path: Path) -> None:
+@pytest.mark.parametrize("normalization", ["none", "per_feature", "all_features"])
+def test_bounded_feature_blocks_are_normalized_without_concatenating(
+    tmp_path: Path,
+    normalization: str,
+) -> None:
     adapter = _cpu_feature_adapter(tmp_path)
+    adapter._config["normalization"] = normalization
     first = torch.arange(4 * 128, dtype=torch.float32).reshape(4, 128)
     second = torch.arange(4 * 128, 7 * 128, dtype=torch.float32).reshape(3, 128)
+    expected = adapter._normalize_features(torch.cat((first, second)).clone())
+    adapter._infer_probabilities = MagicMock(side_effect=lambda features: [features[0].clone()])
 
-    expected = adapter._normalize_features(torch.cat((first, second)))
-    actual = adapter._normalize_feature_blocks(iter((first, second)))
+    with patch("torch.cat", side_effect=AssertionError("feature blocks must not be concatenated")):
+        actual = adapter._infer_feature_blocks(iter((first, second)))
 
     torch.testing.assert_close(actual, expected)
+
+
+def test_feature_spool_is_removed_when_inference_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _cpu_feature_adapter(tmp_path)
+    adapter._infer_probabilities = MagicMock(side_effect=RuntimeError("inference failed"))
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="inference failed"):
+        adapter._infer_feature_blocks(iter((torch.zeros((2, 128)),)))
+
+    assert list(tmp_path.glob("nemo-curator-sortformer-features-*")) == []
+
+
+def test_feature_spool_is_float32_independent_of_torch_default(tmp_path: Path) -> None:
+    adapter = _cpu_feature_adapter(tmp_path)
+    adapter._config["normalization"] = "none"
+    adapter._infer_probabilities = MagicMock(side_effect=lambda features: [features[0].clone()])
+    previous_dtype = torch.get_default_dtype()
+    try:
+        torch.set_default_dtype(torch.float64)
+        actual = adapter._infer_feature_blocks(iter((torch.ones((2, 128), dtype=torch.float32),)))
+    finally:
+        torch.set_default_dtype(previous_dtype)
+
+    assert actual.dtype == torch.float32
+    torch.testing.assert_close(actual, torch.ones((2, 128), dtype=torch.float32))
 
 
 @pytest.mark.parametrize("n_fft", [4, 16])
@@ -460,8 +493,17 @@ def test_long_file_streaming_requires_engine_sample_rate(tmp_path: Path) -> None
     path = tmp_path / "wrong-rate.wav"
     soundfile.write(path, np.zeros(32, dtype=np.float32), 8_000, subtype="FLOAT")
 
-    with pytest.raises(ValueError, match="must use the engine sample rate"):
+    with pytest.raises(DiarizationInputError, match="must use the engine sample rate"):
         list(adapter._file_feature_blocks(str(path)))
+
+
+def test_file_probe_identifies_soundfile_errors(tmp_path: Path) -> None:
+    adapter = _cpu_feature_adapter(tmp_path)
+    path = tmp_path / "invalid.wav"
+    path.write_text("not audio", encoding="utf-8")
+
+    with pytest.raises(DiarizationInputError, match="could not inspect"):
+        adapter._source_duration_and_empty(str(path))
 
 
 def test_passes_learned_silence_to_updated_runtime_module() -> None:

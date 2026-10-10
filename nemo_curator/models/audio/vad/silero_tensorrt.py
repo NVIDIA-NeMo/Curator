@@ -77,7 +77,7 @@ class _PrecomputedProbabilityModel:
         return probability.reshape(1, 1)
 
 
-def _prepare_16khz_waveform(item: dict[str, Any], *, device: object) -> torch.Tensor:
+def _prepare_16khz_waveform(item: dict[str, Any]) -> torch.Tensor:
     """Reuse Silero input validation, then enforce the TensorRT engine rate."""
     waveform, sample_rate = _prepare_waveform(item, device="cpu")
     if sample_rate != SILERO_TARGET_SAMPLE_RATE:
@@ -91,7 +91,7 @@ def _prepare_16khz_waveform(item: dict[str, Any], *, device: object) -> torch.Te
             .squeeze(0)
             .contiguous()
         )
-    return waveform.to(device=device, dtype=waveform.dtype, non_blocking=True)
+    return waveform
 
 
 @dataclass
@@ -256,9 +256,7 @@ class TensorRTSileroVADAdapter:
         import torch
 
         device = self._session.device
-        prepared = [
-            waveform.reshape(-1).to(device=device, dtype=torch.float32, non_blocking=True) for waveform in waveforms
-        ]
+        prepared = [waveform.reshape(-1).to(device="cpu", dtype=torch.float32) for waveform in waveforms]
         steps = [(int(waveform.numel()) + _WINDOW_SIZE - 1) // _WINDOW_SIZE for waveform in prepared]
         max_steps = max(steps, default=0)
         if max_steps == 0:
@@ -281,7 +279,7 @@ class TensorRTSileroVADAdapter:
                     if chunk.numel() < _WINDOW_SIZE:
                         chunk = torch.nn.functional.pad(chunk, (0, _WINDOW_SIZE - chunk.numel()))
                     chunks.append(chunk)
-                audio = torch.stack(chunks, dim=0)
+                audio = torch.stack(chunks, dim=0).to(device=device, non_blocking=True)
                 active_context = context.index_select(0, active_index)
                 active_state = state.index_select(0, active_index)
                 output, next_state = self.infer_step(
@@ -306,7 +304,7 @@ class TensorRTSileroVADAdapter:
         import torch
         from silero_vad import get_speech_timestamps
 
-        waveforms = [_prepare_16khz_waveform(item, device=self._session.device) for item in items]
+        waveforms = [_prepare_16khz_waveform(item) for item in items]
         probabilities = self._infer_probabilities(waveforms)
 
         results = []

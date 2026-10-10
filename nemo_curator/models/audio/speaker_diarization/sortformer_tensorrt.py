@@ -23,6 +23,7 @@ import inspect
 import json
 import math
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from numbers import Integral, Real
 from pathlib import Path
@@ -32,6 +33,7 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.models.audio.speaker_diarization.base import (
+    DiarizationInputError,
     DiarizationResult,
     DiarizationSegment,
 )
@@ -713,35 +715,56 @@ class TensorRTSortformerAdapter:
         if mode == "none" or features.shape[0] == 0:
             return features
 
-        if mode == "per_feature":
-            mean = features.mean(dim=0, keepdim=True)
-            centered = features - mean
-            if features.shape[0] == 1:
-                standard_deviation = torch.zeros_like(mean)
-            else:
-                standard_deviation = torch.sqrt(centered.square().sum(dim=0, keepdim=True) / (features.shape[0] - 1))
-            standard_deviation = standard_deviation.masked_fill(standard_deviation.isnan(), 0.0)
-            return centered / (standard_deviation + _NORMALIZATION_EPSILON)
+        with torch.inference_mode():
+            if mode == "per_feature":
+                mean = features.mean(dim=0, keepdim=True)
+                features.sub_(mean)
+                if features.shape[0] == 1:
+                    standard_deviation = torch.zeros_like(mean)
+                else:
+                    standard_deviation = torch.linalg.vector_norm(features, dim=0, keepdim=True) / math.sqrt(
+                        features.shape[0] - 1
+                    )
+                standard_deviation = standard_deviation.masked_fill(standard_deviation.isnan(), 0.0)
+                return features.div_(standard_deviation + _NORMALIZATION_EPSILON)
 
-        mean = features.mean()
-        standard_deviation = features.std() + _NORMALIZATION_EPSILON
-        return (features - mean) / standard_deviation
+            mean = features.mean()
+            standard_deviation = features.std() + _NORMALIZATION_EPSILON
+            return features.sub_(mean).div_(standard_deviation)
 
-    def _normalize_feature_blocks(self, feature_blocks: Iterator[torch.Tensor]) -> torch.Tensor:
-        """Concatenate bounded raw blocks and normalize over one logical recording."""
+    def _infer_feature_blocks(self, feature_blocks: Iterator[torch.Tensor]) -> torch.Tensor:
+        """Normalize and infer one recording without holding all raw features in RAM."""
         torch = _torch_module()
-        blocks = list(feature_blocks)
-        if not blocks:
-            return torch.empty((0, _FEATURE_DIM), dtype=torch.float32)
-        return self._normalize_features(torch.cat(blocks, dim=0))
+        with tempfile.NamedTemporaryFile(prefix="nemo-curator-sortformer-features-", suffix=".f32") as feature_file:
+            frame_count = 0
+            for block in feature_blocks:
+                block.contiguous().numpy().tofile(feature_file)
+                frame_count += block.shape[0]
+            feature_file.flush()
+            if frame_count == 0:
+                features = torch.empty((0, _FEATURE_DIM), dtype=torch.float32)
+            else:
+                # shortcut: features use temporary disk proportional to duration; stream two passes if disk is scarce.
+                features = torch.from_file(
+                    feature_file.name,
+                    shared=True,
+                    size=frame_count * _FEATURE_DIM,
+                    dtype=torch.float32,
+                ).reshape(frame_count, _FEATURE_DIM)
+                self._normalize_features(features)
+            return self._infer_probabilities([features])[0]
 
     def _load_file_waveform(self, path: str) -> torch.Tensor:
         """Load one regular-sized file, downmixing and resampling when needed."""
         torch = _torch_module()
         soundfile = _soundfile_module()
-        with soundfile.SoundFile(path) as audio_file:
-            source_rate = int(audio_file.samplerate)
-            data = audio_file.read(dtype="float32", always_2d=True)
+        try:
+            with soundfile.SoundFile(path) as audio_file:
+                source_rate = int(audio_file.samplerate)
+                data = audio_file.read(dtype="float32", always_2d=True)
+        except soundfile.SoundFileError as exc:
+            msg = f"TensorRT Sortformer could not read file input {path}"
+            raise DiarizationInputError(msg) from exc
         waveform = torch.from_numpy(data).mean(dim=1)
         if source_rate != self.sample_rate:
             try:
@@ -754,10 +777,15 @@ class TensorRTSortformerAdapter:
 
     def _source_duration_and_empty(self, source: torch.Tensor | str) -> tuple[float, bool]:
         if isinstance(source, str):
-            info = _soundfile_module().info(source)
+            soundfile = _soundfile_module()
+            try:
+                info = soundfile.info(source)
+            except soundfile.SoundFileError as exc:
+                msg = f"TensorRT Sortformer could not inspect file input {source}"
+                raise DiarizationInputError(msg) from exc
             if info.samplerate <= 0:
                 msg = f"Invalid sample rate {info.samplerate} for Sortformer input {source}"
-                raise ValueError(msg)
+                raise DiarizationInputError(msg)
             return info.frames / info.samplerate, info.frames == 0
         return source.numel() / self.sample_rate, source.numel() == 0
 
@@ -795,27 +823,32 @@ class TensorRTSortformerAdapter:
         hop_length = int(self._config["hop_length"])
         context_hops = math.ceil((int(self._config["n_fft"]) / 2) / hop_length)
         context_samples = context_hops * hop_length
-        with soundfile.SoundFile(path) as audio_file:
-            if audio_file.samplerate != self.sample_rate:
-                msg = (
-                    f"Long Sortformer inputs must use the engine sample rate "
-                    f"({self.sample_rate} Hz), got {audio_file.samplerate} Hz for {path}"
-                )
-                raise ValueError(msg)
-            total_samples = len(audio_file)
-            for start in range(0, total_samples, self._stft_block_samples):
-                end = min(start + self._stft_block_samples, total_samples)
-                logical_length = (end - start) // hop_length
-                if logical_length == 0:
-                    continue
-                read_start = max(0, start - context_samples)
-                read_end = min(total_samples, end + context_samples)
-                audio_file.seek(read_start)
-                data = audio_file.read(read_end - read_start, dtype="float32", always_2d=True)
-                signal = torch.from_numpy(data).mean(dim=1)
-                if start < context_samples:
-                    signal = torch.nn.functional.pad(signal, (context_samples - start, 0))
-                yield self._extract_features(signal, logical_length, context_hops)
+        try:
+            with soundfile.SoundFile(path) as audio_file:
+                # shortcut: long-file resampling is unsupported to bound memory; pre-resample before diarization.
+                if audio_file.samplerate != self.sample_rate:
+                    msg = (
+                        f"Long Sortformer inputs must use the engine sample rate "
+                        f"({self.sample_rate} Hz), got {audio_file.samplerate} Hz for {path}"
+                    )
+                    raise DiarizationInputError(msg)
+                total_samples = len(audio_file)
+                for start in range(0, total_samples, self._stft_block_samples):
+                    end = min(start + self._stft_block_samples, total_samples)
+                    logical_length = (end - start) // hop_length
+                    if logical_length == 0:
+                        continue
+                    read_start = max(0, start - context_samples)
+                    read_end = min(total_samples, end + context_samples)
+                    audio_file.seek(read_start)
+                    data = audio_file.read(read_end - read_start, dtype="float32", always_2d=True)
+                    signal = torch.from_numpy(data).mean(dim=1)
+                    if start < context_samples:
+                        signal = torch.nn.functional.pad(signal, (context_samples - start, 0))
+                    yield self._extract_features(signal, logical_length, context_hops)
+        except soundfile.SoundFileError as exc:
+            msg = f"TensorRT Sortformer could not read file input {path}"
+            raise DiarizationInputError(msg) from exc
 
     def _infer_batch(
         self,
@@ -1049,7 +1082,6 @@ class TensorRTSortformerAdapter:
             feature_blocks = (
                 self._file_feature_blocks(source) if isinstance(source, str) else self._waveform_feature_blocks(source)
             )
-            normalized_features = self._normalize_feature_blocks(feature_blocks)
-            probabilities = self._infer_probabilities([normalized_features])[0]
+            probabilities = self._infer_feature_blocks(feature_blocks)
             results[valid_indices[position]] = DiarizationResult(segments=self._segments(probabilities))
         return results

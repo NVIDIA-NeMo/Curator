@@ -33,7 +33,7 @@ adds:
 
 - `diar_segments`: ordered `{start, end, speaker}` dictionaries;
 - `num_speakers`: number of distinct speaker labels;
-- `additional_notes`: task-local diagnostic notes only when preparation fails.
+- `additional_notes`: task-local diagnostic notes when preparation or file decoding fails.
 
 The stage owns file-versus-waveform selection, in-memory mono conversion and
 16 kHz resampling, task fields, errors, resume checks, and output ordering.
@@ -85,9 +85,10 @@ the engine, JSON, and stem-scoped copied Python file. Build on the same GPU
 architecture used for deployment; TensorRT engines are target-specific. The
 runtime module is executable Python, so only use one from a trusted deployment
 environment. Long same-rate file inputs use bounded waveform reads and STFT
-calls; full-recording normalized features and output probabilities still grow
-with recording duration. Long files that need resampling are rejected rather
-than silently materialized as a second full waveform.
+calls. Full-recording normalization uses temporary disk instead of holding every
+raw feature block in RAM; output probabilities still grow with recording
+duration. Long files that need resampling are rejected rather than silently
+materialized as a second full waveform. Size temporary storage accordingly.
 The schema-v2 JSON records the checkpoint's frontend normalization contract;
 the adapter rejects older or ambiguous configs instead of sending
 off-distribution features to the engine, so rebuild pre-schema-v2 bundles.
