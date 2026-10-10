@@ -126,7 +126,7 @@ uv sync --extra audio_cpu
 Indic ASR uses the mutually exclusive `trt_llm` audio profile instead:
 
 ```bash
-uv sync --locked --python 3.12 --extra trt_llm --no-default-groups
+uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
 source .venv/bin/activate
 ```
 

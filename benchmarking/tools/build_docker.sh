@@ -69,7 +69,6 @@ else
   docker build \
     -f ${CURATOR_DIR}/docker/Dockerfile \
     --target nemo_curator \
-    --build-arg "CURATOR_EXTRA=${CURATOR_EXTRA:-all}" \
     --tag=${CURATOR_IMAGE} \
     ${CURATOR_DIR}
 

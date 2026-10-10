@@ -307,7 +307,7 @@ def _preflight_runtime_and_models(
     if sys.version_info[:2] != (3, 12):
         msg = (
             "Indic ASR requires the root trt_llm profile with Python 3.12: "
-            "uv sync --locked --python 3.12 --extra trt_llm --no-default-groups"
+            "uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups"
         )
         raise RuntimeError(msg)
     missing_modules = [module for module in ("tensorrt", "tensorrt_llm") if importlib.util.find_spec(module) is None]

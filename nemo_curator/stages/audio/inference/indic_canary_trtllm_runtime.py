@@ -139,7 +139,7 @@ def _require_tensorrt_llm() -> None:
         "tensorrt_llm is required for Indic Canary ASR but could not be loaded. "
         "Install Curator's trt_llm audio profile (formerly audio_canary_trtllm) "
         "with CPython 3.12 on Linux x86_64:\n"
-        "    uv sync --locked --python 3.12 --extra trt_llm --no-default-groups\n"
+        "    uv sync --python 3.12 --extra trt_llm --no-default-groups\n"
         "The trt_llm profile selects its compatible Torch/CUDA dependencies in "
         "the Curator environment and cannot be combined with all, vllm, or audio_tensorrt."
     )
