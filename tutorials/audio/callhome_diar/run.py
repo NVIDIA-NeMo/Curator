@@ -40,8 +40,9 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, EmptyTask
 
 COLLAR = 0.25
@@ -88,6 +89,7 @@ def _load_task(path: Path) -> AudioTask:
     """Reconstruct a single AudioTask from a checkpoint file."""
     payload = json.loads(path.read_text())
     return AudioTask(
+        task_id=payload.get("task_id", ""),
         dataset_name=payload["dataset_name"],
         data=payload["data"],
         _metadata=payload.get("_metadata", {}),
@@ -148,7 +150,7 @@ class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def process(self, task: EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
-        done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
+        done = {p.stem for p in Path(self.rttm_out_dir).rglob("*.rttm")} if self.rttm_out_dir else set()
         tasks: list[AudioTask] = []
         for wav in sorted(Path(self.data_dir).glob("*.wav")):
             fid = wav.stem
@@ -490,7 +492,7 @@ def main() -> None:
     rttm_out.mkdir(parents=True, exist_ok=True)
 
     # Pre-check: how many files will the reader emit (same logic as CallHomeReaderStage)
-    done = {p.stem for p in rttm_out.glob("*.rttm")} if rttm_out.exists() else set()
+    done = {p.stem for p in rttm_out.rglob("*.rttm")} if rttm_out.exists() else set()
     wavs_with_cha = [
         w for w in sorted(data_dir.glob("*.wav")) if w.stem not in done and (cha_dir / f"{w.stem}.cha").exists()
     ]
@@ -511,15 +513,17 @@ def main() -> None:
         CallHomeReaderStage(data_dir=str(data_dir), cha_dir=str(cha_dir), rttm_out_dir=str(rttm_out)),
         EnsureMonoStage(mono_dir=str(data_dir / "mono")),
         InferenceSortformerStage(
-            model_name=args.model,
+            model_id=args.model,
             rttm_out_dir=str(rttm_out),
-            chunk_len=args.chunk_len,
-            chunk_right_context=args.chunk_right_context,
-            fifo_len=args.fifo_len,
-            spkcache_update_period=args.spkcache_update_period,
-            spkcache_len=args.spkcache_len,
-            inference_batch_size=1,
-        ),
+            adapter_kwargs={
+                "chunk_len": args.chunk_len,
+                "chunk_right_context": args.chunk_right_context,
+                "fifo_len": args.fifo_len,
+                "spkcache_update_period": args.spkcache_update_period,
+                "spkcache_len": args.spkcache_len,
+                "inference_batch_size": 1,
+            },
+        ).with_(resources=Resources(gpus=1), batch_size=1),
         DERComputationStage(cha_dir=str(cha_dir), collar=args.collar),
     ]
 

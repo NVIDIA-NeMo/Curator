@@ -31,6 +31,7 @@ Example:
 """
 
 import copy
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -99,19 +100,47 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
     return merged
 
 
-def _validate(cfg: dict[str, Any]) -> None:  # noqa: C901
+def _validate_vad(vad: dict[str, Any]) -> None:
+    if not vad.get("enable", True):
+        return
+    mn = vad.get("min_duration_sec", 0)
+    mx = vad.get("max_duration_sec", float("inf"))
+    if mn >= mx:
+        msg = f"vad.min_duration_sec ({mn}) must be less than vad.max_duration_sec ({mx})"
+        raise ValueError(msg)
+    threshold = vad.get("threshold", 0.5)
+    if not 0.0 <= threshold <= 1.0:
+        msg = f"vad.threshold must be in [0, 1], got {threshold}"
+        raise ValueError(msg)
+    adapter_target = vad.get("adapter_target")
+    if not isinstance(adapter_target, str) or not adapter_target.strip():
+        msg = f"vad.adapter_target must be a non-empty import path, got {adapter_target!r}"
+        raise ValueError(msg)
+    adapter_kwargs = vad.get("adapter_kwargs", {})
+    if not isinstance(adapter_kwargs, Mapping):
+        msg = f"vad.adapter_kwargs must be a mapping, got {type(adapter_kwargs).__name__}"
+        raise TypeError(msg)
+    batch_size = vad.get("batch_size", 1)
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+        msg = f"vad.batch_size must be a positive integer, got {batch_size!r}"
+        raise ValueError(msg)
+    if batch_size != 1:
+        msg = (
+            "vad.batch_size must be 1 in AudioDataFilterStage because its VAD-only and "
+            "post-speaker topologies use source-attributed fan-out"
+        )
+        raise ValueError(msg)
+    num_workers = vad.get("num_workers")
+    if num_workers is not None and (
+        isinstance(num_workers, bool) or not isinstance(num_workers, int) or num_workers <= 0
+    ):
+        msg = f"vad.num_workers must be a positive integer or null, got {num_workers!r}"
+        raise ValueError(msg)
+
+
+def _validate(cfg: dict[str, Any]) -> None:
     """Validate cross-field constraints after merge."""
-    vad = cfg.get("vad", {})
-    if vad.get("enable", True):
-        mn = vad.get("min_duration_sec", 0)
-        mx = vad.get("max_duration_sec", float("inf"))
-        if mn >= mx:
-            msg = f"vad.min_duration_sec ({mn}) must be less than vad.max_duration_sec ({mx})"
-            raise ValueError(msg)
-        threshold = vad.get("threshold", 0.5)
-        if not 0.0 <= threshold <= 1.0:
-            msg = f"vad.threshold must be in [0, 1], got {threshold}"
-            raise ValueError(msg)
+    _validate_vad(cfg.get("vad", {}))
 
     utmos = cfg.get("utmos", {})
     if utmos.get("enable", True):

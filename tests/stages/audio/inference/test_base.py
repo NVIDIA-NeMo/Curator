@@ -17,24 +17,32 @@
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 
 
-def test_asr_and_sed_inherit_one_adapter_stage_base() -> None:
+def test_audio_inference_stages_inherit_one_adapter_stage_base() -> None:
     assert issubclass(ASRStage, AdapterInferenceStage)
     assert issubclass(SEDInferenceStage, AdapterInferenceStage)
+    assert issubclass(InferenceSortformerStage, AdapterInferenceStage)
+    assert issubclass(VADSegmentationStage, AdapterInferenceStage)
 
 
 def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
     common_methods = {
         "_adapter_class",
         "_adapter_gpu_count",
-        "inputs",
         "setup_on_node",
         "setup",
         "teardown",
     }
-    assert common_methods.isdisjoint(ASRStage.__dict__)
-    assert common_methods.isdisjoint(SEDInferenceStage.__dict__)
+    for stage_type in (ASRStage, SEDInferenceStage, InferenceSortformerStage, VADSegmentationStage):
+        assert common_methods.isdisjoint(stage_type.__dict__)
+
+    # VAD accepts either an in-memory waveform or a file and therefore owns
+    # its disjunctive input declaration; the other adapter stages use the base.
+    for stage_type in (ASRStage, SEDInferenceStage, InferenceSortformerStage):
+        assert "inputs" not in stage_type.__dict__
 
 
 def test_worker_sizing_uses_the_processing_stage_override() -> None:
@@ -44,9 +52,17 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
         model_id="model",
         max_audio_sec_per_actor=2400.0,
     )
+    sortformer = InferenceSortformerStage()
+    vad = VADSegmentationStage()
 
     assert "num_workers_override" not in SEDInferenceStage.__dataclass_fields__
+    assert "num_workers_override" not in InferenceSortformerStage.__dataclass_fields__
+    assert "num_workers_override" not in VADSegmentationStage.__dataclass_fields__
     assert sed.num_workers() is None
     assert asr.num_workers() is None
+    assert sortformer.num_workers() is None
+    assert vad.num_workers() is None
     assert sed.with_(num_workers=3).num_workers() == 3
     assert asr.with_(num_workers=3).num_workers() == 3
+    assert sortformer.with_(num_workers=3).num_workers() == 3
+    assert vad.with_(num_workers=3).num_workers() == 3

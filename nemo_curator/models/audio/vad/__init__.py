@@ -12,22 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lazy public API for audio segmentation stages.
-
-Importing the Silero task stage must not import NeMo's diarization stack (and
-vice versa). Concrete stages are therefore resolved only when requested.
-"""
+"""Lazy public API for audio voice-activity model adapters."""
 
 from __future__ import annotations
 
 from importlib import import_module
 
 _LAZY = {
-    "SpeakerSeparationStage": "nemo_curator.stages.audio.segmentation.speaker_separation",
-    "VADSegmentationStage": "nemo_curator.stages.audio.segmentation.vad_segmentation",
+    "SileroVADAdapter": "nemo_curator.models.audio.vad.silero",
+    "TensorRTSileroVADAdapter": "nemo_curator.models.audio.vad.silero_tensorrt",
+    "VADAdapter": "nemo_curator.models.audio.vad.base",
+    "VADResult": "nemo_curator.models.audio.vad.base",
+    "VADSegment": "nemo_curator.models.audio.vad.base",
 }
 
-__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+__all__ = [
+    "SileroVADAdapter",
+    "TensorRTSileroVADAdapter",
+    "VADAdapter",
+    "VADResult",
+    "VADSegment",
+]
 
 
 def __getattr__(name: str) -> object:
