@@ -8,7 +8,7 @@ The `ProcessingStage` class is the base class for all data processing stages in 
 ## Import
 
 ```python
-from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
+from nemo_curator.stages.base import ProcessingStage, StageInputSpecs, StageOutputSpecs
 ```
 
 ## Class Definition
@@ -76,12 +76,28 @@ def inputs(self) -> StageInputSpecs:
 Define stage output requirements.
 
 ```python
-def outputs(self) -> tuple[list[str], list[str]]:
+def outputs(self) -> StageOutputSpecs:
     """Define output task and data attributes.
 
     Returns:
-        Tuple of (output_task_attributes, output_data_attributes).
+        Tuple of (output_task_attributes, output_data_attributes), or a dict
+        mapping each input task type to such a tuple.
     """
+```
+
+A stage that accepts more than one task type can declare outputs per input type.
+The keys are input task types, not output types. For a `CompositeStage`, they
+are the input types of its last sub-stage:
+
+```python
+from nemo_curator.stages.base import StageOutputSpecs
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
+
+def outputs(self) -> StageOutputSpecs:
+    return {
+        FileGroupTask: (["data"], []),
+        DocumentBatch: (["data"], ["minhash"]),
+    }
 ```
 
 ### `process()`
