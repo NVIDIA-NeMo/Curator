@@ -16,8 +16,9 @@ import contextlib
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 
 def fsync_directory(path: Path) -> None:
@@ -104,6 +105,31 @@ def write_json_atomically(
         _fsync_directory_best_effort(path.parent)
     except Exception:
         _unlink_best_effort(tmp_path)
+        raise
+
+
+def write_text_atomically(path: Path, writer: Callable[[IO[str]], None]) -> None:
+    """Stream text through a fsynced temporary file and atomic rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            writer(tmp)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+        _fsync_directory_best_effort(path.parent)
+    except Exception:
+        if tmp_path is not None:
+            _unlink_best_effort(tmp_path)
         raise
 
 
