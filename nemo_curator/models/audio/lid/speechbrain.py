@@ -87,24 +87,16 @@ class SpeechBrainLIDAdapter:
         source_path = Path(self.source).expanduser()
         if source_path.exists():
             return
-        kwargs: dict[str, Any] = {"repo_id": self.source}
-        if self.revision is not None:
-            kwargs["revision"] = self.revision
-        if self.cache_dir is not None:
-            kwargs["cache_dir"] = self.cache_dir
-        _snapshot_download(**kwargs)
+        _snapshot_download(repo_id=self.source, revision=self.revision, cache_dir=self.cache_dir)
 
     def _load_source(self) -> str:
         """Resolve explicit cache/revision settings to an immutable snapshot."""
         source_path = Path(self.source).expanduser()
         if source_path.exists() or (self.revision is None and self.cache_dir is None):
             return str(source_path) if source_path.exists() else self.source
-        kwargs: dict[str, Any] = {"repo_id": self.source, "local_files_only": True}
-        if self.revision is not None:
-            kwargs["revision"] = self.revision
-        if self.cache_dir is not None:
-            kwargs["cache_dir"] = self.cache_dir
-        return _snapshot_download(**kwargs)
+        return _snapshot_download(
+            repo_id=self.source, revision=self.revision, cache_dir=self.cache_dir, local_files_only=True
+        )
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load one worker-local classifier on CPU or its allocated GPU."""

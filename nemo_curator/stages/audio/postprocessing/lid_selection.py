@@ -147,7 +147,7 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key, self.notes_key, self.skip_me_key]
 
-    def process(self, task: AudioTask) -> AudioTask:  # noqa: C901
+    def process(self, task: AudioTask) -> AudioTask:
         raw_results = task.data.pop(self.results_key, {})
         if not raw_results:
             return self._reject(
@@ -163,16 +163,9 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
         predictions = self._parse_predictions(raw_results)
         self._add_component_notes(task, predictions)
 
-        primary: _Prediction | None = None
-        canary: _Prediction | None = None
-        whisper: _Prediction | None = None
-        for model_id, prediction in predictions.items():
-            if model_id == self.speechbrain_model_id:
-                primary = prediction
-            elif model_id == self.indic_canary_model_id:
-                canary = prediction
-            elif model_id == self.whisper_model_id:
-                whisper = prediction
+        primary = predictions.get(self.speechbrain_model_id)
+        canary = predictions.get(self.indic_canary_model_id)
+        whisper = predictions.get(self.whisper_model_id)
 
         if whisper is not None and whisper.language == "en":
             return self._accept(task, whisper, f"used {whisper.tag}, English language.")
