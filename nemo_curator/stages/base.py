@@ -140,6 +140,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
+    supported_backends: ClassVar[frozenset[str] | None] = None
 
     # Source / sink role flags. User-overridable on the stage class or
     # instance. If neither is set explicitly on any stage in the pipeline,

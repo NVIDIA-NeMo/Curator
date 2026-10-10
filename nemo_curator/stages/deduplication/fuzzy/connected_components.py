@@ -21,6 +21,7 @@ from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
 from pylibcugraph.comms.comms_wrapper import init_subcomms as c_init_subcomms
 
+from nemo_curator.backends.base import Backend
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
@@ -35,6 +36,8 @@ if TYPE_CHECKING:
 
 
 class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationIO):
+    supported_backends = frozenset({Backend.RAY_ACTOR_POOL})
+
     def __init__(
         self,
         output_path: str,
