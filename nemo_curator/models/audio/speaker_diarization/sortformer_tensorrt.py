@@ -49,7 +49,6 @@ if TYPE_CHECKING:
 
 
 _FEATURE_DIM = 128
-_STFT_CONTEXT_HOPS = 2
 _DEFAULT_LONG_AUDIO_SECONDS = 60 * 60
 _DEFAULT_STFT_BLOCK_SECONDS = 60 * 60
 _NORMALIZATION_EPSILON = 1.0e-5
@@ -221,6 +220,23 @@ def _validate_config_numbers(config: dict[str, Any]) -> None:
         raise ValueError(msg)
 
 
+def _validate_streaming_geometry(config: dict[str, Any]) -> None:
+    subsampling = int(config["subsampling_factor"])
+    frame_names = ("center_chunk_frames", "left_context_frames", "right_context_frames")
+    unaligned = [name for name in frame_names if int(config[name]) % subsampling]
+    if unaligned:
+        msg = (
+            "Sortformer TensorRT chunk and context frames must be divisible by "
+            f"subsampling_factor={subsampling}: {unaligned}"
+        )
+        raise ValueError(msg)
+    emitted_frames = int(config["center_chunk_frames"]) // subsampling
+    fifo_len = int(config["fifo_len"])
+    if 0 < fifo_len < emitted_frames:
+        msg = f"Sortformer TensorRT fifo_len must be 0 or at least {emitted_frames}, got {fifo_len}"
+        raise ValueError(msg)
+
+
 def _validate_config_geometry(config: dict[str, Any], *, sample_rate: int, config_path: Path) -> None:
     if config["sample_rate"] != sample_rate:
         msg = (
@@ -261,6 +277,7 @@ def _validate_config_normalization(config: dict[str, Any]) -> None:
 
 def _validate_config(config: dict[str, Any], *, sample_rate: int, config_path: Path) -> None:
     _validate_config_numbers(config)
+    _validate_streaming_geometry(config)
     _validate_config_geometry(config, sample_rate=sample_rate, config_path=config_path)
     _validate_config_paths(config)
     _validate_config_normalization(config)
@@ -744,7 +761,8 @@ class TensorRTSortformerAdapter:
             msg = "TensorRTSortformerAdapter is not initialized"
             raise RuntimeError(msg)
         hop_length = int(self._config["hop_length"])
-        context_samples = _STFT_CONTEXT_HOPS * hop_length
+        context_hops = math.ceil((int(self._config["n_fft"]) / 2) / hop_length)
+        context_samples = context_hops * hop_length
         total_samples = waveform.numel()
         for start in range(0, total_samples, self._stft_block_samples):
             end = min(start + self._stft_block_samples, total_samples)
@@ -756,7 +774,7 @@ class TensorRTSortformerAdapter:
             signal = waveform[read_start:read_end]
             if start < context_samples:
                 signal = torch.nn.functional.pad(signal, (context_samples - start, 0))
-            yield self._extract_features(signal, logical_length, _STFT_CONTEXT_HOPS)
+            yield self._extract_features(signal, logical_length, context_hops)
 
     def _file_feature_blocks(self, path: str) -> Iterator[torch.Tensor]:
         """Read only bounded, context-overlapped windows from one long file."""
@@ -766,7 +784,8 @@ class TensorRTSortformerAdapter:
             raise RuntimeError(msg)
         soundfile = _soundfile_module()
         hop_length = int(self._config["hop_length"])
-        context_samples = _STFT_CONTEXT_HOPS * hop_length
+        context_hops = math.ceil((int(self._config["n_fft"]) / 2) / hop_length)
+        context_samples = context_hops * hop_length
         with soundfile.SoundFile(path) as audio_file:
             if audio_file.samplerate != self.sample_rate:
                 msg = (
@@ -787,7 +806,7 @@ class TensorRTSortformerAdapter:
                 signal = torch.from_numpy(data).mean(dim=1)
                 if start < context_samples:
                     signal = torch.nn.functional.pad(signal, (context_samples - start, 0))
-                yield self._extract_features(signal, logical_length, _STFT_CONTEXT_HOPS)
+                yield self._extract_features(signal, logical_length, context_hops)
 
     def _infer_batch(
         self,
@@ -922,53 +941,6 @@ class TensorRTSortformerAdapter:
             for parts in probabilities
         ]
 
-    def _infer_streaming_probabilities(self, feature_blocks: Iterator[torch.Tensor]) -> torch.Tensor:
-        torch = _torch_module()
-        if self._config is None or self._session is None or self._modules is None:
-            msg = "TensorRTSortformerAdapter is not initialized"
-            raise RuntimeError(msg)
-        center_frames = int(self._config["center_chunk_frames"])
-        left_frames = int(self._config["left_context_frames"])
-        right_frames = int(self._config["right_context_frames"])
-        subsampling = int(self._config["subsampling_factor"])
-        num_speakers = int(self._config["num_speakers"])
-        state = self._modules.init_streaming_state(self._session.device)
-        buffer = torch.empty((0, _FEATURE_DIM), dtype=torch.float32)
-        center_start = 0
-        probabilities = []
-
-        def consume(end_of_input: bool) -> None:
-            nonlocal buffer, center_start, state
-            while center_start < buffer.shape[0]:
-                remaining = buffer.shape[0] - center_start
-                if not end_of_input and remaining < center_frames + right_frames:
-                    break
-                center_end = min(center_start + center_frames, buffer.shape[0])
-                if not end_of_input and center_end - center_start < center_frames:
-                    break
-                window_start = max(0, center_start - left_frames)
-                window_end = min(buffer.shape[0], center_end + right_frames)
-                left_embedding = (center_start - window_start + subsampling - 1) // subsampling
-                right_embedding = (window_end - center_end + subsampling - 1) // subsampling
-                updated_states, probability_chunks = self._infer_batch(
-                    [state],
-                    [buffer[window_start:window_end]],
-                    [left_embedding],
-                    [right_embedding],
-                    [int(end_of_input and center_end == buffer.shape[0])],
-                )
-                state = updated_states[0]
-                probabilities.append(probability_chunks[0])
-                keep_start = max(0, center_end - left_frames)
-                buffer = buffer[keep_start:]
-                center_start = center_end - keep_start
-
-        for feature_block in feature_blocks:
-            buffer = torch.cat((buffer, feature_block))
-            consume(end_of_input=False)
-        consume(end_of_input=True)
-        return torch.cat(probabilities) if probabilities else torch.empty((0, num_speakers), dtype=torch.float32)
-
     def _segments(self, probabilities: torch.Tensor) -> list[DiarizationSegment]:
         if self._config is None:
             msg = "TensorRTSortformerAdapter is not initialized"
@@ -1069,6 +1041,6 @@ class TensorRTSortformerAdapter:
                 self._file_feature_blocks(source) if isinstance(source, str) else self._waveform_feature_blocks(source)
             )
             normalized_features = self._normalize_feature_blocks(feature_blocks)
-            probabilities = self._infer_streaming_probabilities(iter((normalized_features,)))
+            probabilities = self._infer_probabilities([normalized_features])[0]
             results[valid_indices[position]] = DiarizationResult(segments=self._segments(probabilities))
         return results

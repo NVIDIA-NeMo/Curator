@@ -22,6 +22,7 @@ import shutil
 import tarfile
 import tempfile
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from nemo_curator.models.audio.speaker_diarization.export_sortformer_onnx import
     OUTPUT_NAMES,
     export_checkpoint,
 )
+from nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt import _validate_streaming_geometry
 from nemo_curator.utils.atomic_io import write_json_atomically
 
 _MODEL_TYPE = "streaming_sortformer"
@@ -112,11 +114,13 @@ def _checkpoint_normalization(value: object) -> str:
 
 
 def _model_parameters(config: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    speakers = args.num_speakers
-    if speakers is None:
-        speakers = _nested(config, "sortformer_modules", "num_spks")
-    if speakers is None:
-        speakers = config.get("max_num_of_spks", 4)
+    checkpoint_speakers = _nested(config, "sortformer_modules", "num_spks")
+    if checkpoint_speakers is None:
+        checkpoint_speakers = config.get("max_num_of_spks", 4)
+    if args.num_speakers is not None and int(args.num_speakers) != int(checkpoint_speakers):
+        msg = f"num-speakers={args.num_speakers} does not match the checkpoint output width {checkpoint_speakers}"
+        raise ValueError(msg)
+    speakers = checkpoint_speakers if args.num_speakers is None else args.num_speakers
     spkcache_len = args.spkcache_len
     if spkcache_len is None:
         spkcache_len = _nested(config, "sortformer_modules", "spkcache_len", default=160)
@@ -127,7 +131,7 @@ def _model_parameters(config: dict[str, Any], args: argparse.Namespace) -> dict[
     sample_rate = int(preprocessor.get("sample_rate", config.get("sample_rate", 16_000)))
     window_size = float(preprocessor.get("window_size", 0.025))
     window_stride = float(preprocessor.get("window_stride", 0.01))
-    return {
+    parameters = {
         "num_speakers": int(speakers),
         "spkcache_len": int(spkcache_len),
         "fifo_len": int(args.fifo_len),
@@ -148,6 +152,8 @@ def _model_parameters(config: dict[str, Any], args: argparse.Namespace) -> dict[
         "right_context_frames": int(args.right_context_frames),
         "output_step_ms": int(args.output_step_ms),
     }
+    _validate_streaming_geometry(parameters)
+    return parameters
 
 
 def _force_sensitive_layers_to_fp32(network: Any, trt: Any) -> None:  # noqa: ANN401
@@ -160,6 +166,21 @@ def _force_sensitive_layers_to_fp32(network: Any, trt: Any) -> None:  # noqa: AN
             layer.precision = trt.float32
             for output_index in range(layer.num_outputs):
                 layer.set_output_type(output_index, trt.float32)
+
+
+def _configure_precision(network: Any, builder: Any, build_config: Any, args: argparse.Namespace, trt: Any) -> None:  # noqa: ANN401
+    if args.precision == "bf16":
+        build_config.set_flag(trt.BuilderFlag.BF16)
+        build_config.set_flag(trt.BuilderFlag.FP16)
+    elif args.precision == "fp16":
+        if not builder.platform_has_fast_fp16:
+            msg = "This GPU does not provide fast FP16 TensorRT kernels"
+            raise RuntimeError(msg)
+        build_config.set_flag(trt.BuilderFlag.FP16)
+    else:
+        return
+    build_config.set_flag(trt.BuilderFlag.OBEY_PRECISION_CONSTRAINTS)
+    _force_sensitive_layers_to_fp32(network, trt)
 
 
 def _profile_shapes(
@@ -221,16 +242,7 @@ def _build_engine(
     build_config = builder.create_builder_config()
     build_config.builder_optimization_level = args.optimization_level
     build_config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, args.workspace_gib * (1 << 30))
-    if args.precision == "bf16":
-        build_config.set_flag(trt.BuilderFlag.BF16)
-        build_config.set_flag(trt.BuilderFlag.FP16)
-        _force_sensitive_layers_to_fp32(network, trt)
-    elif args.precision == "fp16":
-        if not builder.platform_has_fast_fp16:
-            msg = "This GPU does not provide fast FP16 TensorRT kernels"
-            raise RuntimeError(msg)
-        build_config.set_flag(trt.BuilderFlag.FP16)
-        _force_sensitive_layers_to_fp32(network, trt)
+    _configure_precision(network, builder, build_config, args, trt)
 
     profile = builder.create_optimization_profile()
     for name, shapes in _profile_shapes(parameters, opt_batch_size=args.opt_batch_size).items():
@@ -478,15 +490,18 @@ def _publish_bundle(
     publish_onnx: bool,
 ) -> None:
     """Publish the validated config last so it is the bundle commit marker."""
-    artifacts = [
-        (staged.engine, final.engine),
-        (staged.mel_basis, final.mel_basis),
-        (staged.runtime_module, final.runtime_module),
-    ]
-    if has_learned_silence:
-        artifacts.append((staged.learned_silence, final.learned_silence))
+    artifacts = []
     if publish_onnx:
         artifacts.append((staged.onnx, final.onnx))
+    artifacts.extend(
+        [
+            (staged.engine, final.engine),
+            (staged.mel_basis, final.mel_basis),
+            (staged.runtime_module, final.runtime_module),
+        ]
+    )
+    if has_learned_silence:
+        artifacts.append((staged.learned_silence, final.learned_silence))
     artifacts.append((staged.config, final.config))
     for source, destination in artifacts:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -514,11 +529,22 @@ def main() -> None:
         raise RuntimeError(msg)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".sortformer-bundle-", dir=args.output.parent) as temporary:
-        staging_dir = Path(temporary)
+    with ExitStack() as stack:
+        staging_dir = Path(
+            stack.enter_context(tempfile.TemporaryDirectory(prefix=".sortformer-bundle-", dir=args.output.parent))
+        )
+        staged_onnx = staging_dir / final_paths.onnx.name
+        if args.onnx_output is not None:
+            final_paths.onnx.parent.mkdir(parents=True, exist_ok=True)
+            onnx_staging_dir = Path(
+                stack.enter_context(
+                    tempfile.TemporaryDirectory(prefix=".sortformer-onnx-", dir=final_paths.onnx.parent)
+                )
+            )
+            staged_onnx = onnx_staging_dir / final_paths.onnx.name
         staged_paths = _bundle_paths(
             staging_dir / final_paths.engine.name,
-            staging_dir / final_paths.onnx.name,
+            staged_onnx,
         )
         has_learned_silence = _build_bundle(args, staged_paths)
         _publish_bundle(
