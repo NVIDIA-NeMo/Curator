@@ -251,11 +251,6 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
                 logger.warning(f"Ignoring completion marker without a manifest: {marker}")
                 continue
             raw = marker.read_text(encoding="utf-8").strip()
-            if not raw:
-                # Compatibility with the reference implementation's empty marker.
-                logger.warning(f"Accepting legacy empty NeMo speech completion marker: {marker}")
-                completed.add(shard_key)
-                continue
             try:
                 payload = json.loads(raw)
                 manifest_rows, manifest_sha256 = _manifest_stats(manifest)

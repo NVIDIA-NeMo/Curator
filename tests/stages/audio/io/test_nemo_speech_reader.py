@@ -357,12 +357,11 @@ def test_restart_cleanup_preserves_completed_nested_shard_receipts(
     assert child_receipt.is_file()
 
 
-@pytest.mark.parametrize(("marker_payload", "expected_tasks"), [("", 0), (" \n", 0), ("[]", 1)])
-def test_legacy_empty_and_invalid_completion_markers(
+@pytest.mark.parametrize("marker_payload", ["", " \n", "[]"])
+def test_invalid_completion_markers_are_ignored(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     marker_payload: str,
-    expected_tasks: int,
 ) -> None:
     monkeypatch.setattr(reader_module, "_expand_sharded_path", _identity_expand)
     output_dir = tmp_path / "output"
@@ -376,7 +375,7 @@ def test_legacy_empty_and_invalid_completion_markers(
         cleanup_partial=False,
     )
 
-    assert len(stage.process(EmptyTask())) == expected_tasks
+    assert len(stage.process(EmptyTask())) == 1
 
 
 def test_completion_marker_manifest_digest_mismatch_replays_shard(
