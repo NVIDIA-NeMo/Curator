@@ -71,25 +71,14 @@ def _ensure_audio_stages_imported() -> None:
             importlib.import_module(modinfo.name)
         except Exception as e:  # noqa: BLE001 - optional dep or import-time issue; skip
             warnings.warn(f"audio catalog: skipped {modinfo.name} ({type(e).__name__}: {e})", stacklevel=2)
-            # Recorded, not just warned: a warning goes to stderr where the agent's JSON
-            # consumer never sees it, and a silently shorter catalog looks like a smaller
-            # library. Deduplicated because ``_IMPORTED`` is set only after the loop completes,
-            # so anything escaping it makes the next call re-walk and append every failure
-            # again -- which reads like a worsening install. See :func:`unavailable_modules`.
+            # Keep import failures visible to JSON consumers and deduplicate retries.
             if not any(entry["module"] == modinfo.name for entry in _SKIPPED):
                 _SKIPPED.append({"module": modinfo.name, "error": f"{type(e).__name__}: {e}"})
     _IMPORTED = True
 
 
 def unavailable_modules() -> list[dict[str, str]]:
-    """Stage modules that could not be imported, so a caller can report what is MISSING.
-
-    Discovery degrades to whatever imported successfully. Without this, a CPU-only
-    (``audio_cpu``) install -- a supported profile -- simply has no ASR or diarization
-    stages, and the agent concludes they do not exist rather than that they are unavailable
-    *here*, which is the difference between "your library cannot do this" and "install the
-    GPU extra".
-    """
+    """Return skipped stage modules and import errors for the current environment."""
     _ensure_audio_stages_imported()
     return [dict(entry) for entry in _SKIPPED]
 
@@ -169,9 +158,6 @@ def catalog_as_json(*, include_dynamic_defaults: bool = False, indent: int | Non
     return json.dumps(audio_stage_catalog(include_dynamic_defaults=include_dynamic_defaults), indent=indent)
 
 
-# --------------------------------------------------------------------------- #
-# Role -> producer/consumer index (composition + repair)
-# --------------------------------------------------------------------------- #
 def _consumed_roles(contract: StageContract) -> set[str]:
     """Semantic roles a stage requires across unconditional and conditional reads."""
     roles = {

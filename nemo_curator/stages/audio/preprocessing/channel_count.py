@@ -12,26 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Audio channel-count stage: record it, select on it, or change it.
-
-``action`` picks which of the three, in the vocabulary ``UTMOSFilterStage``, ``BandFilterStage``
-and ``SIGMOSFilterStage`` already use for measure-and-keep versus measure-and-drop, extended
-with the one thing a channel count can do that a quality score cannot: be changed.
-
-Sample rate, format and file layout are never touched, so a pipeline sets its rate policy
-separately -- ``SampleRateFilterStage`` to select rates, ``ResampleAudioStage`` to convert
-them -- or sets none at all.
-
-Example:
-    from nemo_curator.pipeline import Pipeline
-    from nemo_curator.stages.audio.preprocessing import ChannelCountStage
-
-    pipeline = Pipeline(name="audio_pipeline")
-    pipeline.add_stage(ChannelCountStage())                                    # record the count
-    pipeline.add_stage(ChannelCountStage(action="filter", allowed_channels=[1]))  # keep mono only
-    pipeline.add_stage(ChannelCountStage(action="convert", target_channels=1))    # make it mono
-"""
+"""Record, filter, or convert audio channel counts."""
 
 import math
 import os
@@ -74,56 +55,11 @@ ChannelAction = Literal["annotate", "filter", "convert"]
 
 @dataclass
 class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
-    """
-    Record, select on, or change the number of audio channels.
+    """Record, filter, or convert the number of audio channels.
 
-    ============  =================================================================
-    action        behaviour
-    ============  =================================================================
-    ``annotate``  records ``num_channels`` on every row and keeps them all (default)
-    ``filter``    records it, then drops the rows whose count is not allowed
-    ``convert``   brings the audio to ``target_channels``, in memory
-    ============  =================================================================
-
-    Selecting and converting are deliberately separate actions rather than one parameter that
-    means both. They do opposite things to a corpus -- ``convert`` changes every row and keeps
-    all of them, ``filter`` changes nothing and keeps a subset -- so a single knob spelling both
-    makes "mono" ambiguous between "make it mono" and "keep only what already is". Parameters
-    belonging to an action you did not choose are refused at construction rather than ignored.
-
-    ``annotate`` and ``filter`` never decode. A channel count sits in the file header, which
-    ``soundfile.info`` reads without touching samples, so putting either in front of a decoding
-    stage costs almost nothing and spares the rejected rows entirely. ``convert`` must decode,
-    because it has to rewrite the samples.
-
-    **What ``num_channels`` means depends on the action.** Under ``annotate``/``filter`` it is
-    the count OBSERVED in the source audio. Under ``convert`` it is the count RESULTING from the
-    conversion. ``sample_rate`` carries exactly this trap between ``SampleRateFilterStage`` (a
-    measurement) and ``ResampleAudioStage`` (a target); reading a pipeline's final
-    ``num_channels`` without knowing which stage last wrote it inverts its meaning.
-
-    Under ``convert``, what happens depends on how many channels the input actually has:
-
-    ============  ==================  ==================================================
-    input         target              behaviour
-    ============  ==================  ==================================================
-    ``N``         ``N``               passed through unchanged
-    ``N > 1``     ``1``               averaged into one channel (standard mono downmix)
-    ``1``         ``T > 1``           duplicated into ``T`` identical channels
-    ``N > T > 1`` ``T``               REFUSED -- the row is dropped
-    ============  ==================  ==================================================
-
-    That refusal is deliberate. A correct downmix to more than one channel needs ITU-R BS.775
-    coefficients *and* the file's channel order, and a bare ``(channels, samples)`` tensor
-    carries neither -- WAV channel order comes from the file's channel mask, which is gone by
-    the time the audio is a tensor. Averaging 5.1 into two channels does not produce stereo, it
-    produces a phase-smeared mix that sounds plausible and is wrong. ``ResampleAudioStage``
-    drives ffmpeg, which does know layouts, so that is the honest tool for those conversions.
-    Downmix to ``1`` is not the same problem: averaging every channel together IS what mono
-    means, so it needs no layout knowledge.
-
-    Nothing here ever resamples. When a rate must actually change, ``ResampleAudioStage``
-    converts it via ffmpeg.
+    Annotate/filter report the observed count; convert reports the resulting
+    count. Conversion supports mono downmix and mono duplication without
+    resampling. Unsupported channel layouts drop the row.
 
     Args:
         action: "annotate" records num_channels and keeps every row (default); "filter" also
@@ -307,7 +243,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return 1 if self.target_channels is None else self.target_channels
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], self._written_keys()

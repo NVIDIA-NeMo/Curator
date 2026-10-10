@@ -1126,6 +1126,10 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 class ManifestCheckpointStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Persist a reusable, metadata-only AudioTask boundary as JSONL.
 
+    Pipeline.run(checkpoint_path=...) tracks completed source partitions; it
+    does not persist intermediate task data for a new pipeline to read. This
+    stage provides that metadata handoff for reuse after changing later stages.
+
     This stage is an intermediate checkpoint, not a terminal user deliverable. It
     serializes complete ``task.data`` rows and passes each task downstream with
     its dataset name, metadata, and performance records preserved. Waveform

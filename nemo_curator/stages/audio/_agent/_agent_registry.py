@@ -59,9 +59,6 @@ EXCLUDED_PARAM_NAMES = frozenset({"name", "resources", "batch_size", "runtime_en
 _MISSING = dataclasses.MISSING
 
 
-# --------------------------------------------------------------------------- #
-# Type rendering / Literal handling
-# --------------------------------------------------------------------------- #
 def _module_globals(obj: Any) -> dict[str, Any]:  # noqa: ANN401
     mod = sys.modules.get(getattr(obj, "__module__", "") or "")
     return getattr(mod, "__dict__", {})
@@ -133,9 +130,6 @@ def _literal_choices(hint: Any) -> list[Any] | None:  # noqa: ANN401
     return None
 
 
-# --------------------------------------------------------------------------- #
-# Docstring Args parsing (single maintained source for param descriptions)
-# --------------------------------------------------------------------------- #
 _ARG_HDR = re.compile(r"^\s*(Args|Arguments|Parameters)\s*:\s*$")
 _SECTION_HDR = re.compile(r"^\s*(Returns?|Raises?|Yields?|Notes?|Examples?|Attributes?|See Also|Warning|Todo)\s*:\s*$")
 _ARG_LINE = re.compile(r"^(?P<indent>\s*)(?P<name>[A-Za-z_]\w*)\s*(\([^)]*\))?\s*:\s*(?P<desc>.*)$")
@@ -177,9 +171,6 @@ def _docstring_arg_descriptions(cls: type) -> dict[str, str]:
     return out
 
 
-# --------------------------------------------------------------------------- #
-# Param derivation
-# --------------------------------------------------------------------------- #
 def _as_class(stage_or_cls: Any) -> type:  # noqa: ANN401
     return stage_or_cls if isinstance(stage_or_cls, type) else type(stage_or_cls)
 
@@ -268,9 +259,6 @@ def stage_params(stage_or_cls: Any) -> list[ParamSpec]:  # noqa: ANN401
     return _init_params(cls, descriptions)
 
 
-# --------------------------------------------------------------------------- #
-# Contract assembly
-# --------------------------------------------------------------------------- #
 def _derived_dispatch(cls: type, declared: str) -> str:
     """Drive ``dispatch`` from the framework's batch-support truth source."""
     from nemo_curator.stages.base import ProcessingStage
@@ -476,27 +464,10 @@ def _describe_cardinalities(cls: type) -> list[str] | None:
 
 
 def _derived_cardinality(declared: str, options: list[str], cls: type) -> tuple[str, list[str]]:
-    """Recover cardinality on the instance-free path. ``(cardinality, cardinality_options)``.
+    """Infer static cardinality when the declared value is the default 1:1.
 
-    One-sided like :func:`_derived_gates`: only ``"1:1" -> something else``. ``1:1`` is the
-    weakest claim a stage can make -- it says row counts do not change -- and it is also the
-    dataclass default, so a stage that never mentions cardinality is indistinguishable from
-    one that means it. Overriding a stage's explicit non-``1:1`` answer would trample an
-    author who knows better; filling in an unset one cannot.
-
-    Without this the static contract reported ``1:1`` for every fan-out, filter and N:1 stage
-    in the catalog, because ``StaticHints`` has no cardinality field and the default stands.
-    A planner reading a param-less ``describe`` therefore believed ManifestReader emitted one
-    task and that a filter never dropped a row.
-
-    When ``describe()`` can return more than one cardinality the answer genuinely depends on
-    params, so the possibilities go to ``cardinality_options``, which is the field that already
-    means "this varies". Which value stands alongside them depends on whether ``1:1`` is one of
-    them. If it is, leaving the default is honest -- it names a real possibility. If it is not,
-    the default is a claim no configuration of the stage can satisfy, and an unlabelled ``1:1``
-    does not read as "unknown", it reads as "row counts do not change" (the same trap
-    ``ResolvedContract`` documents for empty reads/writes). There the most conservative
-    possibility is published instead.
+    Preserve explicit non-default declarations. Publish all inferred options;
+    if 1:1 is impossible, choose the most conservative available cardinality.
     """
     if declared != "1:1":
         return declared, options

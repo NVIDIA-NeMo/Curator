@@ -107,34 +107,12 @@ class IOSpec:
 
 @dataclass(frozen=True)
 class ConditionalWrite:
-    """A possible write whose presence or value origin depends on runtime data.
+    """A runtime-dependent write with value provenance.
 
-    ``writes`` uses the same task/segment key vocabulary as
-    :class:`IOSpec`.  ``condition`` is factual, agent-facing prose grounded in
-    the runtime branch; it is deliberately not an executable predicate or an
-    intent/scope ontology.  ``value_origin`` records only objective dataflow:
-    a new value, an unchanged pass-through, an in-place mapping augmentation,
-    or a transformed replacement of the same upstream key.  This lets semantic
-    lineage preserve the original producer where it remains relevant.
-
-    ``metadata_writes`` is the equivalent advisory surface for ``task._metadata``
-    keys.  It stays separate from :class:`IOSpec` because those keys are not
-    task-data/audio-form inputs.
-
-    This metadata is additive.  Mechanical planners continue to use
-    :attr:`StageContract.writes` for GUARANTEED keys; ``conditional_writes``
-    supplies the host critic with possibility/provenance evidence, lets the
-    planner credit a downstream read as *possibly* satisfied (reported as a
-    ``conditional_read`` warning rather than an ``unsatisfied_reads`` error), and
-    may also describe conditional pass-through keys omitted from the legacy
-    ``writes`` superset.
-
-    ``requires_keys`` is the one executable part of the condition: literal
-    task-data keys (in the same scope as ``writes``) that must already be present
-    upstream for this branch to be reachable at all.  Empty means "always
-    possible".  The planner uses it to avoid crediting -- or fearing, for tensor
-    writes -- a branch that cannot fire on the seeded input, e.g. file hydration
-    that only replaces an already-resident waveform/sample-rate pair.
+    ``writes`` uses IOSpec task/segment scope; ``metadata_writes`` targets
+    task metadata. ``condition`` describes the branch without executing it.
+    ``requires_keys`` lists upstream keys needed to reach that branch, in the
+    write's scope. Only guaranteed keys belong in StageContract.writes.
     """
 
     writes: IOSpec = field(default_factory=IOSpec)
@@ -501,8 +479,3 @@ class AgentReady:
         from nemo_curator.stages.audio._agent._agent_registry import static_contract
 
         return static_contract(cls)
-
-
-# (resolve_contract was removed: dead code whose signature promised class
-# acceptance the body rejected. Instances: use stage.describe() / build_contract;
-# classes: use describe_static() / static_contract.)
