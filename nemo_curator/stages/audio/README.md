@@ -307,6 +307,25 @@ scheduling and resource management.
 4.  teardown()        — called once when the worker shuts down.
 ```
 
+Treat `teardown()` as best-effort cleanup, not as a durability boundary. Some
+executor shutdown paths terminate actors without invoking it. A writer that
+must survive interruption should persist each task atomically from
+`process()`/`process_batch()` and use an explicit driver-side finalizer after
+`pipeline.run()` for cross-worker aggregation. `NeMoSpeechWriterStage` follows
+this pattern: workers write atomic Opus files and row receipts, then
+`finalize_nemo_speech_output()` validates the complete shard before publishing
+its manifest and `.done` marker. The reader registers each shard's expected
+input count before downstream fan-out, and the writer records hash-sharded
+audio-path ownership claims, so even a shard whose every child disappears is
+detectably incomplete. The writer is a terminal sink and returns no
+waveform-bearing tasks to the driver. Fan-out children retain their source-row
+identity; a stage that intentionally produces no child for an input must emit
+a terminal placeholder so finalization can distinguish filtering from loss.
+A physical NeMo speech manifest/tar pair is also the reader memory unit: the
+reader materializes that shard's rows and decoded outputs before emission.
+Production inputs should therefore use bounded physical shards sized to fit
+one reader worker's RAM.
+
 ### CPU stage parallelism
 
 For a CPU stage with default `resources=Resources(cpus=1.0)` and
