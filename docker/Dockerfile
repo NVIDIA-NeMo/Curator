@@ -25,6 +25,7 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 FROM cuda AS build
 
 ARG CURATOR_ENV=ci
+ARG CURATOR_EXTRA=all
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
@@ -33,7 +34,8 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 # gnupg upgrade Address CVE-2025-68973
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then curator_python=3.12; else curator_python=3.13; fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     curl \
     git \
@@ -41,9 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && apt-get install -y --no-install-recommends \
-    python3.13 \
-    python3.13-dev \
-    python3.13-venv \
+    python${curator_python} \
+    python${curator_python}-dev \
+    python${curator_python}-venv \
     python-is-python3 && \
     apt-get install -y --only-upgrade gnupg libunbound8 openssl libssl3t64 && \
     apt-get clean && \
@@ -81,7 +83,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site-packages --seed
+RUN if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then curator_python=3.12; else curator_python=3.13; fi && \
+    uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python${curator_python} --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
 
@@ -92,7 +95,6 @@ RUN bash install_etcd_nats.sh && \
 
 FROM nemo_curator_dep AS nemo_curator
 
-ARG CURATOR_EXTRA=all
 ARG CURATOR_GROUPS="--all-groups"
 WORKDIR /opt/Curator
 
@@ -122,6 +124,13 @@ RUN if [ "${CURATOR_EXTRA}" = "trt_llm" ]; then \
         apt-get update && apt-get install -y --no-install-recommends libnuma1 && \
         apt-get clean && \
         rm -rf /var/lib/apt/lists/* && \
+        # TensorRT-LLM's real import also needs a compatible GPU driver; GPU CI checks it.
+        python -c "import sys; import torch; import tensorrt; from importlib.metadata import version; \
+assert sys.version_info[:2] == (3, 12), sys.version; \
+assert torch.__version__ == '2.9.1+cu128', torch.__version__; \
+assert version('tensorrt') == '10.14.1.48.post1', version('tensorrt'); \
+assert version('tensorrt-llm') == '1.2.1', version('tensorrt-llm'); \
+print(sys.version, {name: version(name) for name in ('torch', 'tensorrt', 'tensorrt-llm')})" && \
         echo "Skipping Nemotron OCR for the audio-only TensorRT-LLM profile"; \
     else \
         uv pip install hatchling ninja editables && \
