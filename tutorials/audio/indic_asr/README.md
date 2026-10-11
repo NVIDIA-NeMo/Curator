@@ -172,7 +172,9 @@ python nemo_curator/config/run.py \
   backend=ray_data
 ```
 
-Do not reuse an output path between runs.
+Choose a fresh output path for every tutorial run: the manifest writer
+overwrites an existing file. The benchmark harness separately rejects an
+existing output manifest.
 
 ## Small one-GPU functional run
 
@@ -245,6 +247,7 @@ Each JSONL row retains the input identity and includes:
 - **Missing audio**: `dataset_dir` must contain both `manifest.jsonl` and its
   referenced `audio/` tree.
 - **Missing engine file**: compare the bundle with the complete layout above.
-- **Output already exists**: choose a fresh output path.
+- **Output already exists**: choose a fresh path before running the tutorial;
+  its manifest writer overwrites existing files.
 - **EOS timing comparison**: use the benchmark harness's `exec_time_s`, not a
   shell timer around this tutorial command.

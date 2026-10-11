@@ -706,11 +706,11 @@ def _verify_control_file(path: Path, contract: dict[str, object]) -> None:
 
 
 def _verify_audio_file_inventory(audio_dir: Path, inventory_path: Path) -> None:
-    expected_sizes: dict[str, int] = {}
+    expected_files: dict[str, tuple[int, str]] = {}
     with inventory_path.open(encoding="ascii") as inventory_file:
         for line_number, line in enumerate(inventory_file, start=1):
             try:
-                relative_path, payload_bytes, _sha256, _decoded_frames = line.rstrip("\n").split("\t")
+                relative_path, payload_bytes, payload_sha256, _decoded_frames = line.rstrip("\n").split("\t")
                 filename = relative_path.removeprefix("audio/")
                 payload_size = int(payload_bytes)
             except (TypeError, ValueError) as e:
@@ -720,14 +720,15 @@ def _verify_audio_file_inventory(audio_dir: Path, inventory_path: Path) -> None:
                 relative_path == f"audio/{filename}"
                 and filename.endswith(ARCHIVE_AUDIO_SUFFIX)
                 and "/" not in filename
-                and filename not in expected_sizes
+                and filename not in expected_files
                 and payload_size >= 0,
                 f"Invalid or duplicate Hindi audio inventory row {inventory_path}:{line_number}",
             )
-            expected_sizes[filename] = payload_size
+            expected_files[filename] = (payload_size, payload_sha256)
 
     _require(
-        len(expected_sizes) == EXPECTED_NUM_ROWS and sum(expected_sizes.values()) == EXPECTED_AUDIO_BYTES,
+        len(expected_files) == EXPECTED_NUM_ROWS
+        and sum(size for size, _ in expected_files.values()) == EXPECTED_AUDIO_BYTES,
         "Hindi audio inventory logical totals do not match the checked-in contract",
     )
     with os.scandir(audio_dir) as audio_entries:
@@ -736,18 +737,24 @@ def _verify_audio_file_inventory(audio_dir: Path, inventory_path: Path) -> None:
                 entry.is_file(follow_symlinks=False) and not entry.is_symlink(),
                 f"Unexpected non-regular Hindi audio entry: {entry.path}",
             )
-            expected_size = expected_sizes.pop(entry.name, None)
-            _require(expected_size is not None, f"Unexpected Hindi audio file: {entry.path}")
+            expected_file = expected_files.pop(entry.name, None)
+            _require(expected_file is not None, f"Unexpected Hindi audio file: {entry.path}")
+            expected_size, expected_sha256 = expected_file
             actual_size = entry.stat(follow_symlinks=False).st_size
             _require(
                 actual_size == expected_size,
                 f"Unexpected Hindi audio file size for {entry.path}: {actual_size} != {expected_size}",
             )
-    _require(not expected_sizes, f"Hindi audio directory is missing {len(expected_sizes)} pinned files")
+            actual_sha256 = _sha256_file(Path(entry.path))
+            _require(
+                actual_sha256 == expected_sha256,
+                f"Unexpected Hindi audio checksum for {entry.path}: {actual_sha256} != {expected_sha256}",
+            )
+    _require(not expected_files, f"Hindi audio directory is missing {len(expected_files)} pinned files")
 
 
 def verify_dataset(output_path: Path, *, receipt_only: bool = False) -> bool:
-    """Verify receipt/controls and, by default, the exact audio name/size inventory."""
+    """Verify receipt/controls and, by default, every audio name, size, and checksum."""
     try:
         _require(output_path.is_dir() and not output_path.is_symlink(), f"Hindi dataset is missing: {output_path}")
         required_entries = {
@@ -792,7 +799,9 @@ def verify_dataset(output_path: Path, *, receipt_only: bool = False) -> bool:
         logger.error(f"Indic ASR dataset verification failed: {e}")
         return False
 
-    verification_scope = "receipt/control files" if receipt_only else "receipt/control files and audio names/sizes"
+    verification_scope = (
+        "receipt/control files" if receipt_only else "receipt/control files and audio names/sizes/checksums"
+    )
     logger.success(
         f"Verified {verification_scope} for {EXPECTED_NUM_ROWS} unique Hindi clips / "
         f"{EXPECTED_TOTAL_DURATION_MS / 3_600_000:.4f} audio hours at {output_path}"
@@ -948,7 +957,7 @@ def main() -> int:
     parser.add_argument(
         "--receipt-only",
         action="store_true",
-        help="With --verify-only, skip the FLAC filename/size stat walk after validating receipt and control hashes",
+        help="With --verify-only, skip FLAC name/size/checksum checks after validating receipt and control hashes",
     )
     parser.add_argument(
         "--subset-hours",
