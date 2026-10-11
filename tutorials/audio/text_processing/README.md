@@ -25,6 +25,10 @@ Choose a model and tensor-parallel size that fit your hardware. The configuratio
 is a functional starting point; throughput and model quality are not benchmarked
 by this tutorial.
 
+For stage throughput and fallback metrics, use the
+[audio text benchmark](../../../benchmarking/README.md#audio-text-stage-benchmark),
+which reuses this configuration and measures only the text-stage pipeline.
+
 To use an existing OpenAI-compatible server, install the audio stack and pass
 `endpoint` and `model_name`. The runner then manages only its Ray client and
 pipeline; it does not start or stop the external inference server. The endpoint

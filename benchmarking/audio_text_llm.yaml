@@ -1,0 +1,30 @@
+# Opt-in stage benchmark; set paths to a fixed transcript cohort and results directory.
+# No throughput baseline is enforced until it has been measured on the target hardware.
+paths:
+  - name: datasets_path
+    host_path: /path/to/datasets
+    container_path: /datasets
+  - name: results_path
+    host_path: /path/to/results
+
+ray:
+  num_cpus: 8
+  num_gpus: 1
+
+gpu_stats_recorder:
+  interval_s: 1.0
+
+entries:
+  - name: audio_text_llm
+    script: audio_text_llm_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={datasets_path}/audio_text/manifest.jsonl
+      --override=operation=pnc
+      --override=backend=ray_data
+    timeout_s: 3600
+    requirements:
+      - metric: num_requests
+        min_value: 1
+      - metric: num_skipped
+        exact_value: 0
