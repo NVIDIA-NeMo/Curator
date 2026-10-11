@@ -1,0 +1,69 @@
+name: CodeSwitching
+text_key: ${text_key}
+output_text_key: code_switched_text
+validation_mode: none
+min_word_retention_ratio: 0.3
+generation_config:
+  max_tokens: 512
+  temperature: 0.0
+  top_p: 1.0
+  seed: 0
+  extra_kwargs:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+language_rules: null
+prompt: |
+  You are a {language} language expert. Your task is to restore code-switching in a {language} transcript: whenever a word in the transcript is actually an English word that was written phonetically in {language} script, rewrite it using its original English (Latin) spelling.
+
+  Context: the input transcript was produced by a human transcriber who wrote everything in {language} script, including English words the speaker actually pronounced in English. We want the transcript to reflect the real code-switched utterance: {language} words stay in {language} script, English words appear in Latin script.
+
+  You are performing transliteration RESTORATION, NOT translation. This distinction is the entire task.
+
+  THE PHONETIC TEST (apply to every single word):
+  For each word written in {language} script, ask whether pronouncing it with {language} phonology makes it sound like an English word with the same meaning.
+  - If YES, the word is an English word spelled phonetically in {language} script. Restore its standard English Latin spelling.
+  - If NO, the word is a native {language} word. LEAVE IT EXACTLY AS WRITTEN. Do not translate it, even if you know what it means in English.
+
+  The phonetic test is about sound, not meaning. A {language}-native word can mean the same thing as an English word and still be native. Native vocabulary in any language has its own phonology that does not echo English. Loanwords inherit English phonemes that show through the transliteration.
+
+  WHEN IN DOUBT, LEAVE THE WORD UNCHANGED. Under-restoration is acceptable; over-translation is not. If you cannot clearly hear the English pronunciation in the {language}-script word, treat it as native.
+
+  Categories that ARE typically active English code-switches (restore to English):
+  - Modern technical, software, user-interface, scientific, medical, chemical, and business terms when they are clearly being pronounced as English
+  - Brand names, company names, product names
+  - Person names of non-{language} origin, place names of non-{language} origin
+  - Acronyms and abbreviations
+  - Recently borrowed concepts that are not naturally established as native-script vocabulary in {language}
+
+  Categories that are typically NATIVE or established loanwords (leave unchanged):
+  - Everyday objects, common materials, basic concepts, body parts, family terms
+  - Native flora, fauna, foods, cultural/religious terms
+  - Place names native to the {language}'s region
+  - Words for which the {language} has used its own term for centuries
+  - Established loanwords that have a conventional native-script form and function naturally as part of {language} vocabulary or morphology
+
+  Grammatical rules:
+  1. If a restored English root carries a {language} grammatical suffix, case marker, postposition, or combining mark, output the English root in standard Latin spelling and keep the suffix in original {language} script, separated by exactly one space.
+  2. A whitespace-delimited token must never contain both Latin and native-script characters. If a suffix cannot be isolated safely, keep the complete original native-script token unchanged.
+  3. Preserve original word order, punctuation, repetitions, and sentence structure exactly. Do not paraphrase, summarize, translate, or reorder.
+  4. If the input contains no English-origin transliterated words, return it unchanged.
+  5. Output ONLY the rewritten {language} text. No explanations, no quotation marks around the output, no commentary.
+
+  ADDITIONAL OUTPUT RULES — these rules take precedence over any conflicting formatting rule above:
+  - Never output numeric digits in any script. Preserve spoken numbers as words. Restore phonetically English number words as English words. Never translate native-language number words into English.
+  - Restore clear short English discourse words such as so, yes, yeah, no, okay, hi, hello, please, sorry, and thanks, including at utterance boundaries. Handle repeated occurrences consistently.
+  - Keep an established loanword in native script when it has a conventional native-script form and functions naturally as part of {language}; otherwise, restore a clear phonetic rendering of an active English word to standard Latin spelling.
+  - Restore clearly active English technical, software, user-interface, scientific, and business terms to Latin script, while leaving genuine native-language equivalents and established native-script loanwords unchanged.
+  - For any already mixed Latin plus native-script token, separate the Latin English stem from the native-script suffix with exactly one space. Do not use this rule to manufacture a Latin stem from a valid fully native-script loanword.
+  - Use only Latin script for restored English and the standard native script of {language} for non-English text. Never introduce characters from any other script.
+
+  FINAL NON-NEGOTIABLE CHECKS:
+  - The output must contain no digit characters zero through nine, even when a digit was already present in the input or belongs to an acronym, model, product, size, version, chemical formula, or proper name. Rewrite each digit as an English number word while preserving surrounding letters. Schematic examples: H1 -> H one; T20 -> T twenty; 4G -> four G; G20 -> G twenty; 4XL -> four XL; GSTR 3B -> GSTR three B; H2O -> H two O; B2B -> B two B; K2 -> K two; Ben 10 -> Ben ten; 7 AM -> seven AM. Scan once more after writing and replace every remaining digit.
+  - A whitespace-delimited output token must never contain both Latin letters and any non-Latin language-script letters or marks. Schematic examples: EnglishRoot<suffix> -> EnglishRoot <suffix>; EnglishAcronym<case-marker> -> EnglishAcronym <case-marker>. If the native suffix is not a real grammatical suffix or cannot be separated confidently, keep the complete token in native script.
+  - Preserve the intended English word, not a similar word plus a fabricated suffix. Do not invent native suffixes to explain an English word.
+  - Separate only the true native grammatical suffix; do not split inside the native spelling of an established loanword.
+  - Before answering, silently scan every output token character by character and verify all three constraints: no digits, no Latin/native mixed-script tokens, and no script other than Latin plus the standard native script of {language}.
+
+  Apply the phonetic test to every word. When in doubt, leave the word unchanged. Now rewrite the following {language} text:
+  {text}

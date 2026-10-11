@@ -1,7 +1,7 @@
 ---
-description: "Convert processed audio data to DocumentBatch format for downstream processing"
+description: "Process audio transcripts with shared LLM inference and export audio results"
 categories: ["audio-processing"]
-tags: ["format-conversion", "audio-to-text", "documentbatch"]
+tags: ["audio-to-text", "dynamo", "format-conversion", "documentbatch"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "how-to"
@@ -10,7 +10,75 @@ modality: "audio-text"
 
 # Text Integration for Audio Data
 
-Convert processed audio data from `AudioTask` to `DocumentBatch` format using the built-in `AudioToDocumentStage`. This enables you to export audio processing results or integrate with custom text processing workflows.
+Process transcripts directly in `AudioTask` records with `AudioTextLLMStage`
+and the existing audio transcript stages. Use `AudioToDocumentStage` when a
+downstream document workflow or export requires `DocumentBatch` records.
+
+## LLM Transcript Processing with Dynamo
+
+`AudioTextLLMStage` applies a configured prompt to one transcript field and
+writes the result to another field. Its input and output remain `AudioTask`;
+audio data, segments, record identifiers, and task metadata stay attached to
+the record. The stage uses Curator's shared `AsyncOpenAIClient` against an
+OpenAI-compatible inference endpoint. A separate `InferenceServer` manages
+Dynamo and GPU resources; the stage itself requests CPUs only.
+
+```python
+from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
+
+pipeline.add_stage(
+    AudioTextLLMStage(
+        endpoint="http://inference-host:8000/v1",
+        model_name="served-text-model",
+        prompt=(
+            "Add punctuation and capitalization to this {language} transcript. "
+            "Preserve its words and return only the transcript.\n{text}"
+        ),
+        text_key="pred_text",
+        output_text_key="pnc_text",
+        language_key="source_lang",
+        validation_mode="itn",
+    )
+)
+```
+
+The endpoint must be reachable by every worker. Prompts accept `{text}`,
+`{language}`, and `{language_rules}`; the last placeholder requires a
+language-code-to-rule mapping. Configure each pass with a unique name when
+chaining operations, and point its `text_key` at the intended preceding output.
+`batch_size` controls records per call and `max_concurrent_requests` controls
+in-flight HTTP requests per worker.
+
+The [text-processing tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/text_processing)
+provides `run.py`, `config/text.yaml`, and operation configurations for
+punctuation/capitalization, 22-language Indic punctuation, TN, ITN, disfluency
+removal, captioning, code-switching restoration, speech QA, and text-based
+language prediction. They all configure the same stage. The runner uses
+Curator's existing YAML pipeline builders and Dynamo server API:
+
+```bash
+python tutorials/audio/text_processing/run.py \
+  manifest_path=/data/input.jsonl \
+  output_path=/data/pnc_output.jsonl \
+  operation=pnc text_key=pred_text
+```
+
+Install `audio_cuda12` and `inference_server` for local serving, with `etcd`
+and `nats-server` available on `PATH`. Set `endpoint` and `model_name` to use
+an existing server. Use separate input and output paths because the manifest
+writer replaces existing output.
+
+Validation modes `itn` and `tn` provide transcript-specific safeguards against
+excessive deletion, unwanted word additions, and language/script drift.
+Use `none` for outputs such as captions or Q/A pairs that intentionally differ
+from the transcript. These checks do not establish transcription accuracy or
+model-output quality. A generated speech-QA `SKIP` stays in the output text
+field and does not drop its audio record.
+
+The inherited TN heuristic targets non-English script input. It can reject
+valid English number expansions such as `100` to `one hundred`. Set
+`operation.validation_mode=none` in the tutorial, or `validation_mode="none"`
+on the stage, when those checks do not suit your data.
 
 ## How it Works
 
@@ -229,7 +297,10 @@ pipeline.run(executor)
 
 ## Custom Integration
 
-While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, and so on) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
+Keep audio-specific transcript processing in `AudioTask` stages. If the next
+operation requires an existing document stage, convert at that boundary with
+`AudioToDocumentStage`. Check that the document stage's filtering thresholds
+and assumptions suit short ASR transcripts.
 
 ### Example: Custom Text Processing
 
@@ -278,14 +349,19 @@ document_batch.data  # pandas DataFrame with columns:
 ## Limitations
 
 <Info>
-**Text Processing Integration**: NeMo Curator's text processing stages are designed for `DocumentBatch` inputs (text documents such as articles, web pages), but they are not designed for audio-derived transcriptions. You should implement custom processing stages for audio-specific workflows.
+**Document-stage integration**: NeMo Curator's text processing stages accept
+`DocumentBatch` inputs. Their document-level assumptions may require adjustment
+for audio-derived transcripts. `AudioTextLLMStage` and the audio transcript
+stages above operate directly on `AudioTask` records.
 
 **Reasons for incompatibility:**
 - Text filters assume document-level content (e.g., paragraph structure, word count thresholds designed for articles)
 - ASR transcriptions have different characteristics (shorter, can contain recognition errors, conversational language)
 - Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
 
-**Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
+**Recommendation:** Use the audio transcript stages for transcript processing
+and `PreserveByValueStage` for audio quality filtering. Convert to
+`DocumentBatch` only when a downstream operation needs it.
 </Info>
 
 ## Related Topics
