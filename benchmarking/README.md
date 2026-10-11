@@ -10,6 +10,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
+- [Audio Text Stage Benchmark](#audio-text-stage-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -863,6 +864,58 @@ All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
 eight-GPU activity target.
 
 ---
+## Audio Text Stage Benchmark
+
+`scripts/audio_text_llm_benchmark.py` benchmarks a pipeline containing only
+`AudioTextLLMStage`. It reads a JSONL transcript manifest into `AudioTask` records
+before timing starts; audio files are never opened. It reuses the operation
+presets and Dynamo configuration from
+[`tutorials/audio/text_processing`](../tutorials/audio/text_processing/README.md).
+Use a fixed cohort that fits in driver memory, with nonempty transcripts and the
+language field required by the chosen prompt. For example:
+
+```json
+{"audio_filepath":"/data/sample.wav","text":"hello how are you","source_lang":"en"}
+```
+
+From the repository root, using an existing inference endpoint:
+
+```bash
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/transcripts.jsonl \
+  --benchmark-results-path=/results/audio_text \
+  --override=operation=pnc \
+  --override=endpoint=http://inference-host:8000/v1 \
+  --override=model_name=served-text-model \
+  --override=backend=ray_data
+```
+
+Omit the endpoint override to start the tutorial's managed Dynamo server.
+Repeat `--override` for tutorial settings such as `backend=xenna`, `batch_size=64`,
+`max_concurrent_requests=16`, `model_identifier`, or
+`inference_server.models.0.engine_kwargs.tensor_parallel_size=2`.
+The timer includes executor setup inside `Pipeline.run` and text inference;
+it excludes manifest reads, Ray/server startup, teardown, and result writes.
+There is no warmup pass. Server startup time is reported separately.
+
+The standard `params.json`, `metrics.json`, and `tasks.pkl` record the operation,
+returned tasks, request throughput, applied/fallback/skipped counts, and fallback
+ratio. Request throughput includes responses rejected by the stage's guards;
+check `num_fallbacks` and `fallback_ratio` when comparing runs. Empty workloads,
+lost rows, missing outputs/processing notes, and runs making no requests fail.
+These structural checks do not assess model quality or semantic parity.
+
+For the benchmark runner, configure paths in the opt-in
+[`audio_text_llm.yaml`](audio_text_llm.yaml), stage the cohort at
+`<datasets_path>/audio_text/manifest.jsonl`, and run:
+
+```bash
+./benchmarking/tools/run.sh --config ./benchmarking/audio_text_llm.yaml
+```
+
+The example reserves one GPU for the default model; adjust its Ray resources and
+model settings for your hardware. It is separate from the nightly suite and has
+no unmeasured throughput threshold.
 
 ## Writing Benchmark Scripts
 
