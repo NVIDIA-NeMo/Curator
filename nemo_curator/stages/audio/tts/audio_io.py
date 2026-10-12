@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Segment audio access for TTS Granary manifests.
+"""Segment audio access for Granary manifests.
 
 Granary sample rows hold a ``segments`` list; every segment's audio is one member of a tar archive addressed by
 ``GranaryHifi.AudioMetadata.{tar_key,tar_member,tar_member_offset,tar_member_bytes}``. Annotation stages read the
-member payload in place (seek + read) instead of extracting the tar, as in the TTS Granary reference pipeline.
+member payload in place (seek + read) instead of extracting the tar.
 Segments may alternatively carry a plain ``audio_filepath`` (optionally with ``offset``/``duration`` in seconds).
 """
 
@@ -43,7 +43,7 @@ TAR_BYTES_FIELD = "GranaryHifi.AudioMetadata.tar_member_bytes"
 PNC_TEXT_FIELD = "GranaryV2.pnc_text"
 TN_RAW_FIELD = "GranaryV2.tn_raw"
 
-# Annotation error codes (TTS Granary reference error ladder).
+# Annotation error codes.
 MISSING_TAR_MEMBER = "missing_tar_member"
 MISSING_TAR_KEY = "missing_tar_key"
 MISSING_TAR_OFFSETS = "missing_tar_offsets"
@@ -112,6 +112,7 @@ def enhanced_audio_path(segment: dict[str, Any], enhanced_key: str = ENHANCED_AU
 
 
 def resolve_tar_path(tar_key: str | None, config: TarAudioConfig | None = None) -> Path | None:
+    """Map a manifest ``tar_key`` to a local tar path (see ``TarAudioConfig``)."""
     if not tar_key:
         return None
     tar_path = Path(tar_key)
@@ -165,7 +166,7 @@ def read_tar_member(tar_path: Path, offset: int, size: int) -> bytes:
 
 
 def tar_member_location(segment: dict[str, Any], config: TarAudioConfig | None = None) -> tuple[Path, int, int, str]:
-    """Return ``(tar_path, offset, size, member)`` or raise ``SegmentAudioError`` (reference error ladder)."""
+    """Return ``(tar_path, offset, size, member)`` or raise ``SegmentAudioError``."""
     tar_member = get_dotted(segment, TAR_MEMBER_FIELD)
     if not tar_member:
         raise SegmentAudioError(MISSING_TAR_MEMBER)
@@ -253,6 +254,7 @@ def iter_segments(row: dict[str, Any]) -> Iterator[tuple[int, dict[str, Any]]]:
 
 
 def segment_text(segment: dict[str, Any], key: str, fallbacks: Sequence[str] = ()) -> str | None:
+    """First non-empty string among ``key`` and ``fallbacks`` (dotted paths), else None."""
     for candidate in (key, *fallbacks):
         value = get_dotted(segment, candidate)
         if isinstance(value, str) and value.strip():
@@ -261,7 +263,7 @@ def segment_text(segment: dict[str, Any], key: str, fallbacks: Sequence[str] = (
 
 
 def sample_id(row: dict[str, Any], line_index: int | None = None) -> str:
-    """Recording-level id used to prefix speaker ids (reference ``fields.speaker_id_source`` fallbacks)."""
+    """Recording-level id used to prefix speaker ids (first non-empty id field)."""
     for key in ("orig_sample_id", "sample_id", "id", "audio_id", "audio_filepath"):
         value = row.get(key)
         if value:

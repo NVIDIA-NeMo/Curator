@@ -176,5 +176,5 @@ def test_real_sortformer_smoke(tmp_path: Path) -> None:
     assert numpy_ann[0]["diarized_speech_rate"] == pytest.approx(wav_ann[0]["diarized_speech_rate"], abs=0.05)
 
 
-def test_default_input_mode_matches_reference_wav_path() -> None:
+def test_default_input_mode_is_wav() -> None:
     assert SegmentDiarizationStage().input_mode == "wav"

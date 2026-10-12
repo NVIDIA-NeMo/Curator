@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Annotate TTS manifests with IPA from ``tn_raw`` (TTS Granary manifest IPA)."""
+"""Annotate TTS manifests with IPA from ``tn_raw``."""
 
 from __future__ import annotations
 
@@ -43,15 +43,14 @@ def empty_annotation(error: str) -> dict[str, Any]:
 class ManifestIpaStage(ProcessingStage[AudioTask, AudioTask]):
     """Generate IPA for each utterance from the text-pipeline ``tn_raw`` field.
 
-    Port of TTS Granary ``pipeline.stages.ipa.processor.ManifestIpaProcessor``.
 
     Reads ``text_key`` (default ``tn_raw``) from a flat Curator JSONL row or from
     each dict in ``segments``. Falls back to ``itn_text`` and nested
-    ``GranaryV2.tn_raw`` so manifests from ``run_text_pipeline.py`` work without
+    ``GranaryV2.tn_raw`` so Granary manifests work without
     renaming fields.
 
     Writes a dict ``{"ipa": str | None, "error": str | None}`` at ``output_key``.
-    Nested dotted paths (e.g. ``GranaryHifi.OrigAudioPipeline.IPA``) are supported.
+    Nested dotted paths (e.g. ``annotations.ipa``) are supported.
     Existing non-empty IPA is preserved unless ``overwrite`` is true.
 
     Requires ``espeak-ng`` or ``espeak`` on PATH.

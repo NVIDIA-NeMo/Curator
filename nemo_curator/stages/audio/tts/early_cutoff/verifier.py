@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Frozen early cut-off MFA verifier (port of TTS Granary ``truncation/verifier.py``).
+"""Frozen early cut-off MFA verifier.
 
 Combines CTC endpoint-gate evidence with MFA alignment evidence. Every raw evidence value is mapped to its
 percentile in the calibration's clean-control ``null_evidence`` distribution; the final score is compared against

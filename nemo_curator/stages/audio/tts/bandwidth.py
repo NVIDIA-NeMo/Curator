@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Annotate audio bandwidth (TTS Granary OrigAudioPipeline.Bandwidth)."""
+"""Annotate audio bandwidth."""
 
 from __future__ import annotations
 
@@ -49,8 +49,7 @@ def estimate_bandwidth(  # noqa: PLR0913
 ) -> int:
     """Estimate the highest frequency bin near the signal's spectral peak.
 
-    Exact port of TTS Granary ``pipeline.stages.bandwidth.processor.estimate_bandwidth`` (librosa STFT with a
-    periodic Blackman-Harris window, mean power over time, ``power_to_db(ref=n_fft)``).
+    Librosa STFT with a periodic Blackman-Harris window, mean power over time, ``power_to_db(ref=n_fft)``.
     """
     import librosa
 
@@ -87,7 +86,7 @@ def empty_annotation(error: str) -> dict[str, Any]:
 class BandwidthAnnotationStage(ProcessingStage[AudioTask, AudioTask]):
     """Estimate original-audio bandwidth and write the annotation without dropping rows.
 
-    Port of TTS Granary ``BandwidthProcessor``. Audio comes from an in-memory ``waveform`` / ``audio_filepath``
+    Audio comes from an in-memory ``waveform`` / ``audio_filepath``
     (``resolve_waveform_from_item``) or, for Granary segments, the tar member addressed by
     ``GranaryHifi.AudioMetadata`` at its native sample rate (``tar_root`` / ``strip_tar_key_prefixes`` resolve
     relative ``tar_key`` values).

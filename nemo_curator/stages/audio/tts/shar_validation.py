@@ -14,8 +14,7 @@
 
 """Structural validation and hard-link publication of GranaryHiFi SHAR shards.
 
-Port of the TTS Granary ``validate_shars`` step (``shar_validation.py``) and of ``tools/assemble_lhotse_shars.py
---publish``. A shard is valid when its five streams (cuts, target/context audio, target/context codes) describe the same
+A shard is valid when its five streams (cuts, target/context audio, target/context codes) describe the same
 cut ids in the same order, cut ids are unique, the count matches the registry and every text-bearing supervision has
 IPA (or is flagged ``valid_ipa == False``). Publishing renumbers shards globally per ``(language, sampling_rate)`` and
 hard-links them into the training layout::
@@ -281,6 +280,8 @@ class SharValidationStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
 @dataclass(frozen=True)
 class PublishLayout:
+    """Published directory layout (dataset name, speech domain, codec and cut variants)."""
+
     collection: str = "GranaryHiFi"
     dataset: str = "YTC"
     # (inventory variant name, cuts dir); the single final cuts file is hard-linked into every listed dir.
@@ -304,7 +305,7 @@ class PublishLayout:
         return cls(dataset=name, speech_domain=default_domain if speech_domain is None else speech_domain, **overrides)
 
 
-# canonical dataset name and the inventory ``speech_domain`` used by the published v2610.granary descriptors
+# canonical dataset name and default ``speech_domain`` per source
 _DATASETS = {
     "ytc": ("YTC", "YouTube speech"),
     "yodas": ("YODAS", "YouTube speech"),

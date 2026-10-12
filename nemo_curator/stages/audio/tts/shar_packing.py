@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Speaker/video-aware shard packing for GranaryHiFi SHARs (reference ``create_shar_tasks`` ``speaker_video``)."""
+"""Speaker/video-aware shard packing for GranaryHiFi SHARs."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 
 def split_balanced(values: list[Any], max_size: int) -> list[list[Any]]:
+    """Split values into the fewest chunks of at most ``max_size``, balanced in size."""
     if max_size <= 0:
         msg = "max_samples_per_shard must be positive"
         raise ValueError(msg)
@@ -70,13 +71,13 @@ def plan_shards(
     *,
     keep_speaker_in_one_shard: bool = True,
 ) -> dict[tuple[str, int], list[list[SharEntry]]]:
-    """Speaker/video-aware packing per ``(language, sampling_rate)`` (reference ``speaker_video`` strategy).
+    """Speaker/video-aware packing per ``(language, sampling_rate)``.
 
     Videos are shuffled with ``Random(seed)``. With ``keep_speaker_in_one_shard`` (default) all segments of a speaker
     (across videos, ordered by shuffled video then tar member) form one indivisible chunk, so a speaker and the
     context clips of its cuts live in exactly one shard; a speaker larger than ``max_per_shard`` gets its own
     oversized shard. Otherwise each (video, speaker) bucket is split into balanced chunks of at most
-    ``max_per_shard`` (reference behaviour). Chunks are packed best-fit-decreasing.
+    ``max_per_shard``. Chunks are packed best-fit-decreasing.
     """
     grouped: dict[tuple[str, int], dict[str, dict[str, list[SharEntry]]]] = defaultdict(
         lambda: defaultdict(lambda: defaultdict(list))

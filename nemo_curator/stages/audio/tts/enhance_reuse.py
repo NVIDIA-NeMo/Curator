@@ -19,8 +19,8 @@ Writes the same annotation as ``StudioVoiceEnhancementStage`` under ``enhanced_a
     {audio_filepath, duration, sampling_rate, method: "resemble_enhance", error}
 
 so every downstream stage can switch to the enhanced copy with ``audio_source="enhanced"`` (see
-``audio_io.TarAudioConfig``). Enhancement settings default to the ones used for the GranaryHiFi RE build
-(denoise, then CFM enhancer with nfe=32, midpoint solver, lambd=0.9, tau=0.5, native 44.1 kHz output).
+``audio_io.TarAudioConfig``). Default settings: denoise, then CFM enhancer with
+nfe=32, midpoint solver, lambd=0.9, tau=0.5, native 44.1 kHz output.
 
 ``resemble-enhance`` pins ``torch==2.1``, so the model runs out of process in its own interpreter
 (``enhancer_python``) through ``enhance_reuse_worker.py``; the GPU assigned to the stage actor is inherited via
@@ -105,7 +105,7 @@ class ResembleEnhanceStage(ProcessingStage[AudioTask, AudioTask]):
         output_dir: Enhanced WAVs go to ``<output_dir>/<sample_id>/<tar member stem>.wav``.
         enhancer_python: Interpreter of the resemble-enhance venv (torch 2.1). Defaults to the current one.
         run_dir: Pre-staged ``enhancer_stage2`` weights (``RESEMBLE_RUN_DIR``); ``None`` lets resemble download.
-        nfe, solver, lambd, tau, denoise: enhancer settings (GranaryHiFi RE build: 32 / midpoint / 0.9 / 0.5 / True).
+        nfe, solver, lambd, tau, denoise: enhancer settings.
         target_sample_rate: Output rate; ``None`` keeps the enhancer's native 44.1 kHz.
         skip_existing: Reuse an existing non-empty output (idempotent re-runs).
         output_key: Annotation key (shared with ``StudioVoiceEnhancementStage``).

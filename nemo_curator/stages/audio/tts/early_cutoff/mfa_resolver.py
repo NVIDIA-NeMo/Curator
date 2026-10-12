@@ -14,7 +14,7 @@
 
 """CPU early cut-off MFA resolver (step 2 of the endpoint/MFA cascade).
 
-Port of TTS Granary ``CandidateMfaResolverProcessor``. Only segments that ``EarlyCutOffEndpointGateStage`` routed
+Only segments that ``EarlyCutOffEndpointGateStage`` routed
 to verification (``decision=REVIEW``, ``mfa_verification_required=True``) are aligned, with one Montreal Forced
 Aligner run per language per batch. The frozen verifier then sets ``DROP`` (MFA-confirmed cut-off) or ``OK``;
 anything MFA cannot settle (unsupported language, no model, technical failure) stays ``REVIEW``. Rows and segments
@@ -79,7 +79,7 @@ _VERIFICATION_STATUS = {
     UNSUPPORTED_LANGUAGE_REVIEW: "UNSUPPORTED_LANGUAGE",
 }
 
-# Production v13 model map (MFA 3.4.1 pretrained models); ``language_models`` / ``mfa_models`` override it.
+# Default language -> model map (MFA 3.4.1 pretrained models); ``language_models`` / ``mfa_models`` override it.
 DEFAULT_MFA_MODELS: dict[str, dict[str, str]] = {
     "bg": {"acoustic": "bulgarian_mfa", "dictionary": "bulgarian_mfa"},
     "cs": {"acoustic": "czech_mfa", "dictionary": "czech_mfa"},
@@ -102,7 +102,7 @@ DEFAULT_MFA_MODELS: dict[str, dict[str, str]] = {
 
 
 def review(code: str, message: str | None = None, *, status: str) -> dict[str, Any]:
-    """Resolution for a candidate MFA could not settle (reference ``_review``)."""
+    """Resolution for a candidate MFA could not settle."""
     return {
         "decision": "REVIEW",
         "is_suspicious": True,
@@ -142,6 +142,7 @@ def is_candidate(annotation: Any) -> bool:  # noqa: ANN401
 
 
 def calibration_thresholds(calibration: Mapping[str, Any], language: str) -> Mapping[str, Any]:
+    """Verifier thresholds for ``language`` (global thresholds with per-language overrides)."""
     if "global_thresholds" in calibration:
         return (calibration.get("language_overrides") or {}).get(language, calibration["global_thresholds"])
     return calibration["thresholds"]
@@ -189,7 +190,7 @@ class EarlyCutOffMFAResolverStage(ProcessingStage[AudioTask, AudioTask]):
 
     Requires the MFA 3.x CLI (``mfa_command``; ``mfa_root_dir`` sets ``MFA_ROOT_DIR`` and prepends
     ``<root>/runtime/bin`` to ``PATH`` for the subprocess) with the pretrained models of ``DEFAULT_MFA_MODELS``
-    downloaded, and the verifier calibration of the production bundle (``bundle_dir`` fills
+    downloaded, and the verifier calibration of the endpoint bundle (``bundle_dir`` fills
     ``english_calibration``, ``multilingual_calibration``, ``multilingual_thresholds``, ``language_models`` and
     ``bundle_manifest``). Missing pieces never fail the stage: affected candidates stay ``REVIEW``.
 
@@ -200,7 +201,7 @@ class EarlyCutOffMFAResolverStage(ProcessingStage[AudioTask, AudioTask]):
 
     MFA's ``--single_speaker`` adaptation is estimated over all candidates of one language in one
     ``process_batch`` call, so alignments (and which hard utterances MFA fails to align -> ``REVIEW``) depend on the
-    batch: keep ``batch_size`` large (the reference aligns all candidates of a manifest together).
+    batch: keep ``batch_size`` large.
     """
 
     text_key: str = "tn_raw"
@@ -345,7 +346,7 @@ class EarlyCutOffMFAResolverStage(ProcessingStage[AudioTask, AudioTask]):
         return MISSING
 
     def _make_candidate(self, key: tuple[int, int], segment: dict[str, Any], gate: dict[str, Any]) -> _Candidate:
-        """Validate a candidate without decoding audio (reference: the scan never decodes)."""
+        """Validate a candidate without decoding audio."""
         text = self._resolve_text(segment)
         if not isinstance(text, str) or not text.strip():
             msg = "candidate transcript is empty"

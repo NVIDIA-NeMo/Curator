@@ -35,6 +35,7 @@ from pathlib import Path
 def main() -> int:
     # Running this file puts its directory (the Curator ``tts`` package) on sys.path; drop it so that
     # ``import resemble_enhance`` cannot resolve to a sibling module.
+    """Enhance every item of ``--manifest`` and print one JSON result line per item."""
     here = str(Path(__file__).resolve().parent)
     sys.path[:] = [p for p in sys.path if p and str(Path(p).resolve()) != here]
     ap = argparse.ArgumentParser()

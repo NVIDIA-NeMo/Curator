@@ -12,24 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Optional NVIDIA Maxine StudioVoice speech enhancement (TTS Granary ``EnhancedAudioPipeline``).
+"""Optional NVIDIA Maxine StudioVoice speech enhancement.
 
-The stage is a Triton gRPC client; the StudioVoice server runs outside Curator. The TTS Granary reference starts
-one server per GPU rank inside the Maxine StudioVoice NIM container (``nvcr.io/nim/nvidia/maxine-studio-voice``)::
-
-    export STREAMING=true MODEL_TYPE=48k-ll
-    # link the cached TensorRT packages into the model repository, one per GPU architecture:
-    #   <nim_cache>/ngc/hub/models--nim--nvidia--maxine-studio-voice/snapshots/*/sm_<arch>/*_1.trtpkg
-    #     -> /config/models/maxine-studio-voice/*_sm<arch>.trtpkg
-    tritonserver --model-repository=/opt/maxine/models --model-control-mode=explicit \\
-        --load-model=studio_voice_low_latency-48k \\
-        --http-address=127.0.0.1 --http-port=20000 \\
-        --grpc-address=127.0.0.1 --grpc-port=20001 \\
-        --metrics-address=127.0.0.1 --metrics-port=20002
-    # ready when http://127.0.0.1:20000/v2/health/ready returns 200
-
-and points this stage at ``server_url="127.0.0.1:20001"``. The low-latency 48 kHz model is streamed in 10 ms
-chunks (480 samples) with one Triton sequence per segment.
+Triton gRPC client for an external server serving the Maxine StudioVoice ``studio_voice_low_latency-48k`` model
+(e.g. from the Maxine StudioVoice NIM container); set ``server_url`` to its gRPC port. Audio is streamed in 10 ms
+chunks (480 samples at 48 kHz), one Triton sequence per segment.
 """
 
 from __future__ import annotations
@@ -95,7 +82,7 @@ def empty_annotation(error: str, detail: str | None = None) -> dict[str, Any]:
 
 
 class StudioVoiceTritonClient:
-    """gRPC client for the StudioVoice Triton model (port of the TTS Granary ``StudioVoiceTritonClient``)."""
+    """gRPC client for the StudioVoice Triton model."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -193,7 +180,7 @@ def _safe_name(value: str) -> str:
 class StudioVoiceEnhancementStage(ProcessingStage[AudioTask, AudioTask]):
     """Enhance every segment with Maxine StudioVoice and record the enhanced audio location.
 
-    Port of TTS Granary ``pipeline.stages.speech_enhancement.studio_voice``. Each segment is decoded, averaged to
+    Each segment is decoded, averaged to
     mono, resampled to 48 kHz, streamed through the Triton model and written as a 16-bit PCM WAV to
     ``output_dir/<sample_id>/<tar member stem>.wav``. Writes
     ``{"audio_filepath", "duration", "sampling_rate": 48000, "error"}`` at ``output_key``.
@@ -202,9 +189,6 @@ class StudioVoiceEnhancementStage(ProcessingStage[AudioTask, AudioTask]):
     are re-raised so the worker fails instead of silently annotating everything as failed; other failures are
     recorded as ``studio_voice_failed`` with ``error_detail``. With ``skip_existing`` a segment whose output WAV
     already exists is not re-enhanced (resume after preemption).
-
-    Unlike the reference (which packs the enhanced audio into a tar and stores byte offsets), enhanced audio is
-    written as individual files; enhancement is optional and nothing downstream reads it by offset.
     """
 
     name: str = "StudioVoiceEnhancement"

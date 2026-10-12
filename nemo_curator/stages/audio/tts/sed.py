@@ -12,21 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sound-event detection for TTS Granary segments (OrigAudioPipeline.SoundEventDetection).
+"""Sound-event detection for Granary segments.
 
-Port of the TTS Granary reference ``sound_event_detection`` stages (``audioset_tagging_cnn_processor`` +
-``postprocessing_processor``) fused into one stage, so the framewise matrix never leaves memory:
+Framewise AudioSet tagging and event postprocessing run in one stage, so the framewise matrix never leaves memory:
 
 1. PANNs ``Cnn14_DecisionLevelMax`` at 16 kHz (window 1024, hop 320, 64 mel, 50-14000 Hz) produces framewise
-   AudioSet probabilities (50 fps), stored as float16 like the reference NPZ; inputs shorter than 10240 samples are
+   AudioSet probabilities (50 fps), stored as float16; inputs shorter than 10240 samples are
    zero-padded and the output truncated back to the valid frames.
 2. Speech probability per frame = noisy-OR over the speech classes, median-filtered (0.2 s -> 11 frames),
    thresholded at 0.2, contiguous runs become events, events closer than 0.1 s (5 frames) are merged.
 3. Each event is scored by a gradient-boosted classifier (joblib bundle) on features of the raw framewise slice;
    events with clean-speech probability below 0.11975 are dropped.
 4. Weighted speech rate / model confidence / classifier confidence over the manifest segment duration.
-
-The pure functions below mirror the reference implementation one-to-one so results are numerically identical.
 """
 
 from __future__ import annotations
@@ -132,7 +129,7 @@ COMPACT_STATS: tuple[str, ...] = ("mean", "std", "p50", "p90", "p95", "max", "fr
 
 
 # ---------------------------------------------------------------------------
-# framewise -> speech events (reference postprocessing/utils)
+# framewise -> speech events
 # ---------------------------------------------------------------------------
 
 
@@ -187,6 +184,7 @@ Event = tuple[int, int, float, float, float, float]  # start_frame, end_frame (e
 def segments_to_events(
     segments: Sequence[tuple[int, int]], probs: np.ndarray, fps: float, min_dur: float = 0.0
 ) -> list[Event]:
+    """Convert frame segments to timed events with mean/max confidence."""
     events: list[Event] = []
     for start, end in segments:
         if end <= start:
@@ -262,7 +260,7 @@ def class_framewise_to_events(  # noqa: PLR0913
 
 
 # ---------------------------------------------------------------------------
-# event features + gradient-boosted classifier (reference extract_segment_features / postprocessing_processor)
+# event features + gradient-boosted classifier
 # ---------------------------------------------------------------------------
 
 
@@ -272,6 +270,7 @@ def get_class_indices(labels: Sequence[str], class_names: Sequence[str]) -> list
 
 
 def compute_stats(values: np.ndarray) -> dict[str, float]:
+    """Summary statistics (mean, std, percentiles, max, fraction >= 0.3) of a frame series."""
     if values.size == 0:
         return dict.fromkeys(COMPACT_STATS, float("nan"))
     v = values.astype(np.float64)
@@ -282,7 +281,7 @@ def compute_stats(values: np.ndarray) -> dict[str, float]:
         "p90": float(np.quantile(v, 0.90)),
         "p95": float(np.quantile(v, 0.95)),
         "max": float(np.max(v)),
-        "frac_gt_0.3": float(np.mean(values >= 0.3)),  # noqa: PLR2004  (">=" as in the reference)
+        "frac_gt_0.3": float(np.mean(values >= 0.3)),  # noqa: PLR2004
     }
 
 
@@ -301,7 +300,7 @@ def _group_features(seg: np.ndarray, group_name: str, idxs: list[int]) -> dict[s
 def extract_features_for_segment(  # noqa: PLR0913
     framewise: np.ndarray,
     fps: float,
-    labels: Sequence[str],  # noqa: ARG001  (kept for reference signature parity)
+    labels: Sequence[str],  # noqa: ARG001
     start_time: float,
     end_time: float,
     label_to_idx: dict[str, int],
@@ -346,7 +345,7 @@ def classify_events(  # noqa: PLR0913
 ) -> list[dict[str, Any]]:
     """Attach ``classifier_prob`` (clean-speech probability) to each event; keep events with prob >= threshold.
 
-    Features missing from the extracted dict are fed as 0.0 and NaN/inf are zeroed, exactly as in the reference.
+    Features missing from the extracted dict are fed as 0.0 and NaN/inf are zeroed.
     """
     model = bundle["model"]
     feature_columns = bundle["feature_columns"]
@@ -383,7 +382,7 @@ def classify_events(  # noqa: PLR0913
 
 
 def empty_annotation(error: str | None = None) -> dict[str, Any]:
-    """Failed segments get zero scores so they fail the downstream SED filter (reference behaviour)."""
+    """Failed segments get zero scores so they fail the downstream SED filter."""
     return {
         "predicted_events": [],
         "error": error,
@@ -417,7 +416,7 @@ def weighted_summary(events: Sequence[dict[str, Any]], duration: float) -> dict[
 
 @dataclass(frozen=True)
 class SpeechEventConfig:
-    """Reference ``conf/postprocessing.yaml`` detection + classifier settings."""
+    """Speech-event detection and classifier settings."""
 
     speech_class_names: tuple[str, ...] = SPEECH_CLASSES
     unified_speech_label: str = "Speech"
@@ -489,7 +488,7 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
 
     Writes ``output_key`` = ``{predicted_events, weighted_speech_rate, weighted_model_confidence,
     weighted_classifier_confidence, error}`` per segment; rows and segments are never dropped. Inference runs one
-    segment at a time (as the reference) because zero-padding a ragged batch changes the tail frames.
+    segment at a time because zero-padding a ragged batch changes the tail frames.
 
     Args:
         checkpoint_path: ``Cnn14_DecisionLevelMax_mAP=0.385.pth``; ``None`` uses (and on first use downloads into)
@@ -561,7 +560,7 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Fetch the published PANNs checkpoint when missing (the 32 kHz adapter only validates the download)."""
+        """Fetch the public PANNs checkpoint when missing (the 32 kHz adapter only validates the download)."""
         checkpoint = self._checkpoint()
         if checkpoint.is_file():
             return

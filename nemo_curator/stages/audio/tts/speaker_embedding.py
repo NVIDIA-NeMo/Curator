@@ -94,7 +94,7 @@ class TitaNetEmbedder:
     ) -> tuple[list[np.ndarray | None], list[str | None]]:
         """Embed segments; returns per-segment embeddings (``None`` on failure) and error codes.
 
-        A failing batch marks all its segments ``embedding_failed`` (reference behaviour).
+        A failing batch marks all its segments ``embedding_failed``.
         """
         embeddings: list[np.ndarray | None] = [None] * len(segments)
         errors: list[str | None] = [None] * len(segments)

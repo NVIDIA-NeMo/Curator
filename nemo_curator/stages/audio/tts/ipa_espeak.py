@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Local espeak/espeak-ng IPA conversion, ported from TTS Granary."""
+"""Local espeak/espeak-ng IPA conversion."""
 
 from __future__ import annotations
 

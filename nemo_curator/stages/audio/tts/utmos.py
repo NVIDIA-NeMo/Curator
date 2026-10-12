@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Annotate Granary segments with UTMOSv2 MOS scores (TTS Granary ``OrigAudioPipeline.UTMOSv2``)."""
+"""Annotate Granary segments with UTMOSv2 MOS scores."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def coerce_prediction_to_float(prediction: Any) -> float:  # noqa: ANN401
 
 
 def configure_offline_cache(cache_dir: str) -> None:
-    """Point the HF / transformers caches at ``cache_dir`` and force offline mode (reference behaviour)."""
+    """Point the HF / transformers caches at ``cache_dir`` and force offline mode."""
     cache_path = Path(cache_dir).expanduser()
     cache_path.mkdir(parents=True, exist_ok=True)
     for key in ("HF_HOME", "HF_HUB_CACHE", "TRANSFORMERS_CACHE"):
@@ -74,24 +74,23 @@ def configure_offline_cache(cache_dir: str) -> None:
 class UTMOSv2AnnotationStage(ProcessingStage[AudioTask, AudioTask]):
     """Score every segment with UTMOSv2 and write ``{"score", "error"}`` at ``output_key``.
 
-    Port of TTS Granary ``pipeline.stages.mos.utmosv2.UTMOSv2Processor``. Audio is scored at its native sample
+    Audio is scored at its native sample
     rate (UTMOSv2 resamples internally). Rows and segments are never dropped; failures are recorded as error codes
     (audio loading codes from ``audio_io``, ``utmosv2_failed``, ``utmosv2_unavailable``).
 
     This is **not** Curator's ``UTMOSFilterStage``: that stage runs UTMOS22-strong (``tarepan/SpeechMOS``) and drops
-    rows on failure or below threshold. GranaryHiFi MOS thresholds (YTC/VoxPopuli 1.5, YODAS 1.0, LibriLight 2.5)
-    are calibrated on UTMOSv2 and applied later by the segment filter.
+    rows on failure or below threshold. Thresholds live in the ``SegmentFilterStage`` presets.
 
-    Requires the optional ``utmosv2`` package; when it is missing every segment gets ``utmosv2_unavailable``.
+    Requires the optional ``utmosv2`` package (``setup`` raises without it unless ``allow_missing_package``).
 
     Args:
-        checkpoint_path: Local UTMOSv2 checkpoint (reference: ``fold0_s42_best_model.pth``). ``None`` lets
+        checkpoint_path: Local UTMOSv2 checkpoint ``None`` lets
             ``utmosv2`` download its default pretrained weights.
         cache_dir: When set, HF / transformers caches point here and offline mode is forced.
         device: Device passed to ``model.predict``.
         create_model_kwargs: Extra keyword arguments for ``utmosv2.create_model``.
         num_repetitions: Random-crop repetitions averaged by ``predict``. UTMOSv2 is stochastic: with the default 1
-            (the published dataset's setting) repeated scoring of the same audio varies by roughly +-0.2 MOS; raise
+            repeated scoring of the same audio varies by roughly +-0.2 MOS; raise
             it for more stable filtering at proportional cost.
         allow_missing_package: Annotate ``utmosv2_unavailable`` instead of raising when ``utmosv2`` is missing.
             Off by default: a missing score fails the MOS filter condition and would silently drop every segment.

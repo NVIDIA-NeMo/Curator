@@ -14,7 +14,7 @@
 
 # ruff: noqa: RUF001  (charset regexes intentionally contain Cyrillic/Greek letters and typographic quotes)
 
-"""Common GranaryHiFi segment filter (TTS Granary ``pipeline.stages.common.filter``).
+"""Common GranaryHiFi segment filter.
 
 Segments inside a sample row are kept only if every condition passes (``combine="all"``) or any passes
 (``combine="any"``). Failing segments are removed from ``segments``; the sample row itself is always kept, even
@@ -58,7 +58,7 @@ REGEX_MATCH_MODES = frozenset({"fullmatch", "match", "search"})
 _OPERATOR_ALIASES = {"==": "eq", "equals": "eq", "!=": "ne", "not_equals": "ne"}
 _NUMERIC_OPERATORS = frozenset({"gt", "ge", "lt", "le"})
 
-# Characters allowed after the language letters in ``pnc_text`` (reference conf/filter.yaml, verbatim).
+# Characters allowed after the language letters in ``pnc_text``.
 CHARSET_PUNCTUATION = r"""\s\.,!?;:…'"‘’‚“”„«»‹›\(\)\[\]\{\}¡¿–—-"""
 LETTERS_BY_LANGUAGE: dict[str, str] = {
     "bg": "А-Яа-яЁё",
@@ -91,7 +91,7 @@ PNC_TEXT_CHARSET_BY_LANGUAGE: dict[str, str] = {
     language: f"^[{letters}{CHARSET_PUNCTUATION}]+$" for language, letters in LETTERS_BY_LANGUAGE.items()
 }
 
-# Source-specific operating points (reference configs/datasets/*.yaml ``filter_thresholds``).
+# Per-source filter thresholds.
 FILTER_THRESHOLD_PRESETS: dict[str, dict[str, float]] = {
     "default": {
         "sed_weighted_speech_rate": 0.5,
@@ -202,6 +202,7 @@ class FilterCondition:
 
 
 def parse_conditions(raw_conditions: list[FilterCondition | dict[str, Any]]) -> list[FilterCondition]:
+    """Normalize ``FilterCondition`` objects or condition dicts into ``FilterCondition`` s."""
     if not isinstance(raw_conditions, (list, tuple)) or not raw_conditions:
         msg = "filter conditions must be a non-empty list"
         raise ValueError(msg)
@@ -229,10 +230,10 @@ def default_conditions(  # noqa: PLR0913
     speaker_id_field: str | None = None,
     speaker_id_scope: str | None = None,
 ) -> list[FilterCondition]:
-    """Reference ``conf/filter.yaml`` conditions with the source preset's thresholds.
+    """Default filter conditions with the source preset's thresholds.
 
     Presets: ``default``, ``ytc``, ``yodas``, ``voxpopuli``, ``librilight``. LibriLight reads the speaker id from the
-    sample-level ``speaker_id`` field (reference override); other presets use ``<speaker_cluster_key>.speaker_id``.
+    sample-level ``speaker_id`` field; other presets use ``<speaker_cluster_key>.speaker_id``.
     """
     key = preset.lower()
     if key not in FILTER_THRESHOLD_PRESETS:
@@ -284,7 +285,7 @@ def default_conditions(  # noqa: PLR0913
 
 
 def context_conditions(context_key: str = "context") -> list[FilterCondition]:
-    """Reference ``lhotse_cuts/conf/filter_context.yaml``: keep segments with a usable context."""
+    """Conditions that keep only segments with a usable context."""
     return [
         FilterCondition("context_error", f"{context_key}.error", "is_null"),
         FilterCondition("context_recording_id", f"{context_key}.context_recording_id", "not_null"),
@@ -294,7 +295,7 @@ def context_conditions(context_key: str = "context") -> list[FilterCondition]:
 
 
 def safe_name(value: str) -> str:
-    """Counter-safe condition id (reference ``safe_name``)."""
+    """Counter-safe condition id."""
     return re.sub(r"[^A-Za-z0-9_]+", "_", value).strip("_") or "condition"
 
 
@@ -305,6 +306,7 @@ def logical_language(value: str) -> str:
 
 
 def numeric_compare(value: Any, threshold: Any, operator: str) -> bool:  # noqa: ANN401, PLR0911
+    """Compare a value to a threshold; missing, non-finite or boolean values fail."""
     if isinstance(value, bool) or isinstance(threshold, bool):
         return False
     try:
@@ -324,6 +326,7 @@ def numeric_compare(value: Any, threshold: Any, operator: str) -> bool:  # noqa:
 
 
 def regex_matches(pattern: str, value: str, match_mode: str) -> bool:
+    """Match ``value`` against ``pattern`` with ``search`` or ``fullmatch`` semantics."""
     compiled = re.compile(pattern)
     if match_mode == "search":
         return compiled.search(value) is not None
@@ -335,7 +338,7 @@ def regex_matches(pattern: str, value: str, match_mode: str) -> bool:
 def evaluate_condition(  # noqa: C901, PLR0911
     condition: FilterCondition, payload: dict[str, Any], language: str
 ) -> tuple[bool, bool]:
-    """Return ``(passed, missing)`` with the reference semantics.
+    """Return ``(passed, missing)``.
 
     A missing field fails every operator except ``not_exists``; numeric operators cast with ``float`` and fail on
     bools / non-finite values; regex conditions without a pattern for ``language`` (and no default) fail.
@@ -372,16 +375,16 @@ def evaluate_condition(  # noqa: C901, PLR0911
 
 @dataclass
 class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
-    """Filter Granary segments by declarative conditions (TTS Granary ``FilterSegmentsProcessor``).
+    """Filter Granary segments by declarative conditions.
 
     Args:
-        conditions: ``FilterCondition`` objects or reference-style dicts. Defaults to ``default_conditions(preset)``.
+        conditions: ``FilterCondition`` objects or condition dicts. Defaults to ``default_conditions(preset)``.
         preset: Threshold preset used when ``conditions`` is empty: default / ytc / yodas / voxpopuli / librilight.
         combine: ``all`` (every condition must pass) or ``any``.
         language: Fixed language for per-language regexes (overrides the row).
         language_keys: Sample-row fields holding the language (first non-empty wins).
         manifest_path_key: Optional row field with the source manifest path; its parent directory name is used as
-            the language (reference behaviour, e.g. ``.../bg000/manifest.jsonl``) when no language field is set.
+            the language (e.g. ``.../bg000/manifest.jsonl``) when no language field is set.
         drop: Remove failing segments. With ``drop=False`` all segments are kept and failed condition ids are
             written to ``reasons_key`` (an empty list for passing segments).
     """

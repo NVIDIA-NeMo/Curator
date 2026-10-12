@@ -564,8 +564,8 @@ def test_mfa_root_bootstraps_once_then_uses_local_bundle(tmp_path: Path, calibra
     assert not local.exists()
 
 
-def test_model_cache_reference_lock_scenario(tmp_path: Path) -> None:
-    """Port of the reference test_mfa_model_lock: stale ready marker + partial extraction are repaired."""
+def test_model_cache_repairs_stale_lock_state(tmp_path: Path) -> None:
+    """A stale ready marker and a partial extraction are repaired."""
     from nemo_curator.stages.audio.tts.early_cutoff.mfa_models import MfaModelCache
 
     root = tmp_path / "root"
@@ -741,7 +741,7 @@ def test_tar_addressed_candidates(tmp_path: Path, calibration_dir: Path) -> None
     segments = make_tar_segments(tmp_path, [("vid_0_1.wav", 1.0, 22050), ("vid_1_2.wav", 1.5, 22050)])
     for seg in segments:
         meta = seg["GranaryHifi"]["AudioMetadata"]
-        meta["tar_key"] = "tts_granary/audios_with_orig_sr/ytc/" + Path(meta["tar_key"]).name  # relative key
+        meta["tar_key"] = "bucket/prefix/" + Path(meta["tar_key"]).name  # relative key
         seg["early_cut_off_detection"] = gate("en")
     task = AudioTask(data={"orig_sample_id": "vid", "segments": segments})
     runner = FakeMFA()
@@ -749,7 +749,7 @@ def test_tar_addressed_candidates(tmp_path: Path, calibration_dir: Path) -> None
         calibration_dir,
         runner,
         tar_root=str(tmp_path),
-        strip_tar_key_prefixes=("tts_granary/audios_with_orig_sr/ytc",),
+        strip_tar_key_prefixes=("bucket/prefix",),
         textgrid_dir=str(tmp_path / "grids"),
     ).process_batch([task])
     corpus_names = sorted(p.name for p in (tmp_path / "grids").iterdir())

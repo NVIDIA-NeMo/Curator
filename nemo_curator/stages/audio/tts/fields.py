@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dotted-path helpers for nested TTS Granary / Curator manifest dicts."""
+"""Dotted-path helpers for nested manifest dicts."""
 
 from typing import Any
 

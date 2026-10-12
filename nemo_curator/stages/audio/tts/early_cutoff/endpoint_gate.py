@@ -14,7 +14,7 @@
 
 """GPU early cut-off endpoint gate.
 
-Port of TTS Granary ``EarlyCutOffEndpointGateProcessor``. Scores each utterance
+Scores each utterance
 with a phoneme CTC model and a frozen endpoint head. Rows are annotated, never
 dropped. MFA verification is a later step; candidates are marked ``REVIEW``.
 """
@@ -113,10 +113,10 @@ def _verify_bundle_artifact(manifest_path: Path | None, artifact: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     record = (manifest.get("artifacts") or {}).get(artifact.name)
     if not isinstance(record, dict) or not record.get("sha256"):
-        msg = f"{artifact.name} is absent from production bundle manifest"
+        msg = f"{artifact.name} is absent from the bundle manifest"
         raise ValueError(msg)
     if _sha256(artifact) != str(record["sha256"]):
-        msg = f"production artifact hash mismatch: {artifact}"
+        msg = f"bundle artifact hash mismatch: {artifact}"
         raise ValueError(msg)
 
 
@@ -238,7 +238,7 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     """Annotate utterances with the CTC endpoint-gate decision.
 
     Reads ``text_key`` (default ``tn_raw``) and optional precomputed IPA at
-    ``ipa_key``. Writes the TTS Granary early-cut-off dict at ``output_key``.
+    ``ipa_key``. Writes the early-cut-off dict at ``output_key``.
     English uses ``english_checkpoint``; every other supported language uses
     ``multilingual_checkpoint``.
     """

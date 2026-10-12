@@ -66,7 +66,7 @@ def test_falls_back_to_itn_text() -> None:
 
 def test_nested_granary_v2_tn_raw_on_segments() -> None:
     runner = FakeEspeak()
-    stage = _stage(runner, output_key="GranaryHifi.OrigAudioPipeline.IPA")
+    stage = _stage(runner, output_key="annotations.ipa")
     sample = {
         "segments": [
             {"GranaryV2": {"tn_raw": "hello"}},
@@ -76,7 +76,7 @@ def test_nested_granary_v2_tn_raw_on_segments() -> None:
     result = stage.process(AudioTask(data=sample))
     assert runner.calls == ["hello"]
     for item in result.data["segments"]:
-        assert get_dotted(item, "GranaryHifi.OrigAudioPipeline.IPA") == {"ipa": "ipa:hello", "error": None}
+        assert get_dotted(item, "annotations.ipa") == {"ipa": "ipa:hello", "error": None}
 
 
 def test_preserves_existing_nonempty_ipa() -> None:

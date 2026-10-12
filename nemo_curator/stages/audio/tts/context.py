@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Same-speaker context (voice prompt) selection (TTS Granary ``pipeline.stages.lhotse_cuts.find_context``).
+"""Same-speaker context (voice prompt) selection.
 
 For every target segment, candidates come from the same speaker (``speaker_cluster.speaker_id``, or a sample-level
 field for corpora with known speakers such as LibriLight) within the same sample row. Candidates are walked in
@@ -63,6 +63,7 @@ def empty_context(error: str) -> dict[str, Any]:
 
 
 def normalize_text_for_overlap(text: str) -> str:
+    """Casefold, strip punctuation and collapse whitespace before overlap scoring."""
     text = text.casefold()
     text = re.sub(r"[^\w\s]", "", text)
     return re.sub(r"\s+", " ", text).strip()
@@ -126,7 +127,7 @@ def compute_text_overlap(text_a: str, text_b: str) -> float:
 
 
 def rejection_reason(stats: dict[str, int]) -> str:
-    """First reason that explains *all* candidates, in reference priority."""
+    """First reason that explains *all* candidates, in fixed priority order."""
     if stats["total"] == 0:
         return "no_context_segment_for_speaker"
     if stats["below_min_ssim"] == stats["total"]:
@@ -170,6 +171,7 @@ def context_metadata(
 
 
 def round_float(value: float | None, digits: int = 6) -> float | None:
+    """Round to ``digits`` decimals, passing None through."""
     return None if value is None else round(float(value), digits)
 
 
@@ -253,7 +255,7 @@ def assign_contexts(  # noqa: PLR0913
     max_speaker_items: int | None = 10000,
     random_seed: int = 12345,
 ) -> None:
-    """Write a context annotation on every segment (exact port of the reference ``assign_contexts``)."""
+    """Write a context annotation on every segment (most similar valid same-speaker candidate)."""
     if speaker_id_scope not in {"segment", "sample"}:
         msg = f"Unsupported speaker_id_scope: {speaker_id_scope}"
         raise ValueError(msg)
@@ -297,7 +299,7 @@ def assign_contexts(  # noqa: PLR0913
 
 
 def has_usable_context(segment: dict[str, Any], output_key: str = "context") -> bool:
-    """Reference ``filter_context.yaml``: no error and recording id / offset / bytes present."""
+    """Whether a context annotation is usable: no error and recording id / offset / bytes present."""
     context = get_dotted(segment, output_key)
     if not isinstance(context, dict):
         return False
@@ -310,7 +312,7 @@ def has_usable_context(segment: dict[str, Any], output_key: str = "context") -> 
 class ContextSelectionStage(ProcessingStage[AudioTask, AudioTask]):
     """Select a same-speaker context segment for every target segment of a Granary sample row.
 
-    Embeddings are recomputed with TitaNet on the (post-filter) segments, as in the reference. Precomputed
+    Embeddings are recomputed with TitaNet on the (post-filter) segments. Precomputed
     embeddings can be supplied per segment under ``embeddings_key`` (any length-D list); when every segment has
     one, TitaNet is not run for that row. The transient field is removed after use.
 
@@ -318,10 +320,10 @@ class ContextSelectionStage(ProcessingStage[AudioTask, AudioTask]):
         output_key: Where the context annotation is written (dotted path).
         speaker_id_key / speaker_id_scope: Speaker grouping field and whether it lives on the ``segment`` or the
             sample ``row`` (LibriLight: ``speaker_id`` / ``sample``).
-        text_field: Text used for overlap and stored as ``context_audio_text`` (reference: ``GranaryV2.pnc_text``).
+        text_field: Text used for overlap and stored as ``context_audio_text`` (default ``GranaryV2.pnc_text``).
         extra_text_field: Additional context text copied as ``context_audio_tn_raw`` (used by training flags /
             SHAR); ``None`` disables it.
-        drop_without_context: Remove segments without a usable context (reference ``filter_context`` step).
+        drop_without_context: Remove segments without a usable context.
     """
 
     output_key: str = "context"

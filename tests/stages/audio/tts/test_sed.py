@@ -67,7 +67,7 @@ def fake_bundle() -> dict:
     return {"model": FakeClassifier(columns), "feature_columns": columns, "multiclass": True, "clean_class_id": 0}
 
 
-def test_constants_match_reference_layout() -> None:
+def test_constants_layout() -> None:
     assert len(AUDIOSET_LABELS) == 527
     assert AUDIOSET_LABELS[:2] == ("Speech", "Male speech, man speaking")
     assert AUDIOSET_LABELS[7] == "Speech synthesizer"

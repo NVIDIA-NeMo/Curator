@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Atomic, resumable materialization of one GranaryHiFi SHAR shard (reference ``materialize_shars``).
+"""Atomic, resumable materialization of one GranaryHiFi SHAR shard.
 
 Completion is tracked by a per-shard marker written *last* (after the three ``os.replace`` calls)::
 
@@ -81,6 +81,7 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 
 def load_registry(path: str | Path) -> dict[str, Any]:
+    """Load a shard registry, rejecting unsupported versions."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if payload.get("version") != REGISTRY_VERSION or not isinstance(payload.get("shards"), list):
         msg = f"Invalid or outdated SHAR registry (expected version {REGISTRY_VERSION}): {path}"
@@ -167,6 +168,7 @@ def marker_path(rate_dir: Path, shard_id: int) -> Path:
 
 
 def triple_is_aligned(rate_dir: Path, shard_id: int, expected_ids: list[str] | None = None) -> bool:
+    """Whether a shard's cuts and audio tars contain exactly ``expected_ids`` in order."""
     paths = shard_paths(rate_dir, shard_id)
     if not all(path.is_file() for path in paths):
         return False

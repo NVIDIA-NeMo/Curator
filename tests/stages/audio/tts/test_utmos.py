@@ -105,13 +105,13 @@ def test_missing_package_marks_unavailable_when_allowed(tmp_path: Path, monkeypa
 
 def test_dotted_output_and_existing_score_preserved(tmp_path: Path) -> None:
     model = _FakeUtmosModel()
-    stage = UTMOSv2AnnotationStage(output_key="GranaryHifi.OrigAudioPipeline.UTMOSv2", model=model, device="cpu")
+    stage = UTMOSv2AnnotationStage(output_key="annotations.utmosv2", model=model, device="cpu")
     stage.setup()
     segments = make_tar_segments(tmp_path, [("a.wav", 0.5, 16000), ("b.wav", 0.5, 16000)])
-    segments[1]["GranaryHifi"]["OrigAudioPipeline"] = {"UTMOSv2": {"score": 1.0, "error": None}}
+    segments[1]["annotations"] = {"utmosv2": {"score": 1.0, "error": None}}
     task = stage.process(AudioTask(data={"segments": segments}))
-    assert task.data["segments"][0]["GranaryHifi"]["OrigAudioPipeline"]["UTMOSv2"]["score"] == pytest.approx(3.0)
-    assert task.data["segments"][1]["GranaryHifi"]["OrigAudioPipeline"]["UTMOSv2"]["score"] == 1.0
+    assert task.data["segments"][0]["annotations"]["utmosv2"]["score"] == pytest.approx(3.0)
+    assert task.data["segments"][1]["annotations"]["utmosv2"]["score"] == 1.0
     assert len(model.calls) == 1
 
 

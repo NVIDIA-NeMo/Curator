@@ -187,7 +187,7 @@ class MfaModelCache:
         """Make the extracted model complete and freeze it into the bundle.
 
         If the model is not extracted yet, ``command`` itself is run (MFA downloads/extracts the model while
-        aligning, as in the reference); returns ``True`` in that case so the alignment is not repeated.
+        aligning); returns ``True`` in that case so the alignment is not repeated.
         """
         aligned = False
         resolved = self.extracted_command(command)

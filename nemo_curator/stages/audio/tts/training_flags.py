@@ -14,8 +14,7 @@
 
 """Training-time validity flags for GranaryHiFi cuts.
 
-Port of the TTS Granary ``update_lhotse_cuts_from_manifests.py`` rewrite that produced the published
-``cuts_with_ipaNG_early_cut_off_filter`` variant. The training loader keeps a cut when::
+The training loader keeps a cut when::
 
     valid_tn_raw_transcript and valid_ipa and valid_context_audio_text
     and not early_cut_off and context_audio_text_overlap < 0.5
@@ -53,6 +52,7 @@ def valid_tn_raw_transcript(value: Any) -> bool:  # noqa: ANN401
 
 
 def valid_ipa(value: Any, error: Any = None) -> bool:  # noqa: ANN401
+    """Whether an IPA annotation holds a non-empty string and no error."""
     return isinstance(value, str) and bool(value.strip()) and not error
 
 

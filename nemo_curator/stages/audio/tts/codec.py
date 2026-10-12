@@ -14,7 +14,7 @@
 
 """Codec-code extraction for GranaryHiFi SHAR shards.
 
-Port of the TTS Granary ``codex`` step (``extend_lhotse_shards_with_audio_codes.py``): target and context audio of each
+Target and context audio of each
 shard are resampled to the codec rate, padded to a multiple of ``samples_per_frame``, encoded with
 ``audio_encoder`` + ``quantize`` (not ``encode``, which pads again) and written as ``uint16 [n_codebooks, T]`` arrays::
 
@@ -106,9 +106,8 @@ def restore_codec_model(model_path: str, map_location: str = "cpu", *, check_key
 def resample_poly(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
     """Polyphase resampling exactly as lhotse's ``Resample`` does when torchaudio is absent.
 
-    The published GranaryHiFi codes were extracted in a torchaudio-free container, i.e. with
-    ``scipy.signal.resample_poly``. lhotse silently switches to a sinc kernel when torchaudio is importable, which
-    changes ~20% of codec tokens, so resampling is done explicitly here to be environment independent.
+    lhotse silently switches to a sinc kernel when torchaudio is importable, which changes ~20% of codec tokens, so
+    resampling is done explicitly with ``scipy.signal.resample_poly`` to be environment independent.
     """
     if source_rate == target_rate:
         return np.asarray(audio, dtype=np.float32)
@@ -125,12 +124,14 @@ def load_resampled(recording: Any, target_rate: int) -> np.ndarray:  # noqa: ANN
 
 
 def padded_length(num_samples: int, samples_per_frame: int) -> int:
+    """Round ``num_samples`` up to a whole number of codec frames."""
     if samples_per_frame <= 0:
         return num_samples
     return ((num_samples + samples_per_frame - 1) // samples_per_frame) * samples_per_frame
 
 
 def collate(waves: list[np.ndarray], lengths: list[int]) -> np.ndarray:
+    """Zero-pad waveforms into one float32 batch array."""
     batch = np.zeros((len(waves), max(lengths)), dtype=np.float32)
     for row, wave in enumerate(waves):
         batch[row, : wave.shape[-1]] = wave
@@ -161,6 +162,7 @@ def codes_complete(path: Path, expected_ids: list[str]) -> bool:
 
 
 def shard_audio_digest(shard: dict[str, Any]) -> str:
+    """sha256 of a shard's target and context audio tars (decides whether codes are stale)."""
     return file_digest(Path(shard["target_audio"]), Path(shard["context_audio"]))
 
 

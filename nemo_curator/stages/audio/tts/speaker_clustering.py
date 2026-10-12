@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Per-recording TitaNet speaker clustering (TTS Granary ``TitaNetSpeakerClustering``).
+"""Per-recording TitaNet speaker clustering.
 
-Port of ``pipeline.stages.speaker_id.titanet_cluster_manifest``. Within one sample row (one source recording),
+Within one sample row (one source recording),
 single-speaker segments are embedded with TitaNet and grouped by average-linkage agglomerative clustering on cosine
 distance. Each segment gets ``<sample_id>_speaker_<k>``, its cosine similarity to its own cluster centroid and the
 margin to the nearest other centroid. Context selection later draws prompts from the same cluster.
@@ -54,6 +54,7 @@ def _round(value: float | None, digits: int = 6) -> float | None:
 
 
 def make_clusterer(distance_threshold: float) -> Any:  # noqa: ANN401
+    """Agglomerative cosine clusterer with ``distance_threshold``."""
     from sklearn.cluster import AgglomerativeClustering
 
     try:
@@ -106,8 +107,8 @@ class SpeakerClusteringStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         model_name / model_path: TitaNet checkpoint (``from_pretrained`` name or local ``.nemo``).
-        embedding_batch_size: segments per TitaNet forward pass (reference: 32).
-        distance_threshold: cosine distance threshold of average-linkage clustering (reference: 0.4).
+        embedding_batch_size: segments per TitaNet forward pass.
+        distance_threshold: cosine distance threshold of average-linkage clustering.
         num_speakers_key: dotted path of the diarization speaker count on each segment.
         speaker_id_source: row key used as speaker id prefix (falls back to sample_id/id/audio_id/audio_filepath).
         output_key: dotted path written on each segment.

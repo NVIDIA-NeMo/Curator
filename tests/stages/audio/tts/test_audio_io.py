@@ -106,10 +106,8 @@ def test_load_audio_filepath_with_offset(tmp_path: Path) -> None:
 
 
 def test_resolve_tar_path_prefix_stripping() -> None:
-    cfg = TarAudioConfig(tar_root="/data/ytc", strip_tar_key_prefixes=("tts_granary/audios_with_orig_sr/ytc",))
-    assert resolve_tar_path("tts_granary/audios_with_orig_sr/ytc/it/shard_0.tar", cfg) == Path(
-        "/data/ytc/it/shard_0.tar"
-    )
+    cfg = TarAudioConfig(tar_root="/data/ytc", strip_tar_key_prefixes=("bucket/prefix",))
+    assert resolve_tar_path("bucket/prefix/it/shard_0.tar", cfg) == Path("/data/ytc/it/shard_0.tar")
     assert resolve_tar_path("other/shard.tar", cfg) == Path("/data/ytc/other/shard.tar")
     assert resolve_tar_path("/abs/shard.tar", cfg) == Path("/abs/shard.tar")
     assert resolve_tar_path(None, cfg) is None

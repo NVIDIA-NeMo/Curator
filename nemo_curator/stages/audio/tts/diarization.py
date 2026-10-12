@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Per-segment streaming Sortformer diarization (TTS Granary ``SoftformerDiarizationOnGranarySegment``).
+"""Per-segment streaming Sortformer diarization.
 
-Port of ``pipeline.stages.speaker_id.streaming_softformer``: every Granary segment is diarized on its own and
+Every Granary segment is diarized on its own and
 annotated with the diarized speech rate and speaker count used by the common segment filter and by speaker
 clustering. Rows and segments are never dropped; failures are recorded in ``error``.
 """
@@ -52,7 +52,7 @@ _SEGMENT_FIELDS = 3
 
 
 def parse_diarization_output(raw_segments: Iterable[Any]) -> list[dict[str, Any]]:
-    """Convert Sortformer output (``"begin end speaker"`` strings or objects) to reference segment dicts."""
+    """Convert Sortformer output (``"begin end speaker"`` strings or objects) to ``{start_time, end_time, speaker}`` dicts."""
     segments: list[dict[str, Any]] = []
     for raw in raw_segments:
         if isinstance(raw, str):
@@ -118,13 +118,13 @@ class SegmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         model_name: Hugging Face repo with the Sortformer ``.nemo`` (used when ``model_path`` is unset).
-        model_path: Local ``.nemo`` checkpoint (reference: ``diar_streaming_sortformer_4spk-v2.nemo``).
-        input_mode: ``"wav"`` (default) writes a temporary PCM_16 WAV per segment exactly like the reference;
+        model_path: Local ``.nemo`` checkpoint (overrides ``model_name``).
+        input_mode: ``"wav"`` (default) writes a temporary PCM_16 WAV per segment;
             ``"numpy"`` passes float 16 kHz waveforms in memory (batched by ``inference_batch_size``, no temp
             files); results can differ slightly from the WAV path.
         chunk_len, chunk_right_context, fifo_len, spkcache_update_period, spkcache_len: streaming
-            parameters set on ``model.sortformer_modules`` (reference values 340/40/40/300/188).
-        chunk_left_context: optional; left untouched when ``None`` (reference behaviour).
+            parameters set on ``model.sortformer_modules`` (defaults 340/40/40/300/188).
+        chunk_left_context: optional; left untouched when ``None``.
         output_key: dotted path written on each segment.
         tar_root, strip_tar_key_prefixes: resolution of relative ``tar_key`` values.
     """

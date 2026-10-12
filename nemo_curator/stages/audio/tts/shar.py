@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lhotse SHAR materialization of annotated TTS Granary manifests.
+"""Lhotse SHAR materialization of annotated Granary manifests.
 
-Port of the TTS Granary ``lhotse_cuts`` steps (``create_shar_tasks`` + ``materialize_shars``) and of the final
-``update_lhotse_cuts_from_manifests`` rewrite, producing in one pass the cut format EasyMagpie trains on
-(``cuts_with_ipaNG_early_cut_off_filter``): ``supervision.text`` is the spoken-form ``GranaryV2.tn_raw`` text and
+Produces TTS training cuts in one pass: ``supervision.text`` is the spoken-form ``GranaryV2.tn_raw`` text and
 ``supervision.custom`` carries quality annotations, the context pairing, ``ipa`` and the training flags.
 
 Per input manifest the stage writes, for every ``(language, sampling_rate)`` present in it, aligned shards::
@@ -102,7 +100,7 @@ _LANGUAGE_RE = re.compile(r"Language:(\w+)")
 MISSING_FIELD_POLICIES = ("fail", "null")
 CONTEXT_SPEAKER_MISMATCH = "context_speaker_mismatch"
 
-# Ordered like the published v2610.granary cuts: (custom name, source). Sources are dotted segment paths, or
+# Output key order of ``supervision.custom``: (custom name, source). Sources are dotted segment paths, or
 # ``sample:<path>`` (sample row), or ``const:<json>``. An annotation dict whose ``error`` is set counts as missing.
 DEFAULT_CUSTOM_FIELDS: tuple[tuple[str, str], ...] = (
     ("utt_id", TAR_MEMBER_FIELD),
@@ -125,7 +123,7 @@ DEFAULT_CUSTOM_FIELDS: tuple[tuple[str, str], ...] = (
     ("context_tar_member_offset", "context.context_audio_offset"),
     ("context_tar_member_bytes", "context.context_audio_bytes"),
 )
-# LibriLight (reference ``create_shar_tasks`` override): sample-level speaker, fixed 16 kHz, no cluster scores.
+# LibriLight: sample-level speaker, fixed 16 kHz, no cluster scores.
 LIBRILIGHT_CUSTOM_FIELDS: tuple[tuple[str, str], ...] = tuple(
     ("sampling_rate", "const:16000") if name == "sampling_rate" else (name, path)
     for name, path in DEFAULT_CUSTOM_FIELDS
@@ -283,10 +281,12 @@ def choose_audio(
 
 
 def get_recording_id(relative_path: str) -> str:
+    """Recording id of a tar member (``rec-<member stem>``)."""
     return "rec-" + relative_path.rsplit(".", 1)[0].replace("/", "-")
 
 
 def normalize_tar_member(name: str) -> str:
+    """Tar member name without leading ``./`` or ``/``."""
     name = name.replace("\\", "/")
     while name.startswith("./"):
         name = name[2:]
@@ -294,6 +294,7 @@ def normalize_tar_member(name: str) -> str:
 
 
 def check_speaker_format(speaker: str) -> bool:
+    """Whether a speaker string has the ``| Language:.. Dataset:.. Speaker:.. |`` format."""
     return isinstance(speaker, str) and bool(_SPEAKER_RE.match(speaker))
 
 
@@ -329,7 +330,7 @@ def _resolve(value: Any, name: str, policy: str) -> Any:  # noqa: ANN401
 
 
 def _context_tn_raw(sample: dict[str, Any], context_member: str, fields: SharFieldMap) -> str | None:
-    """Spoken-form text of the context segment (same sample row), as the reference flags rewrite does."""
+    """Spoken-form text of the context segment (same sample row)."""
     for segment in sample.get("segments") or []:
         if isinstance(segment, dict) and str(get_dotted(segment, fields.tar_member) or "") == context_member:
             value = get_dotted(segment, fields.text)
@@ -349,7 +350,7 @@ def _ipa_value(segment: dict[str, Any], fields: SharFieldMap, policy: str) -> An
 def build_custom_fields(
     sample: dict[str, Any], segment: dict[str, Any], fields: SharFieldMap, missing_field_policy: str = "fail"
 ) -> dict[str, Any]:
-    """Final ``supervision.custom`` in the published key order."""
+    """Final ``supervision.custom`` in ``DEFAULT_CUSTOM_FIELDS`` order."""
     values = {
         name: _resolve(_lookup(sample, segment, path), name, missing_field_policy)
         for name, path in fields.custom_fields
@@ -435,7 +436,7 @@ def build_entry(  # noqa: PLR0913
         raise SkipEntry(CONTEXT_SPEAKER_MISMATCH)
     choice = choose_audio(sample, segment, context_member, fields, audio_config)
     if audio_config is not None and audio_config.audio_source == "enhanced":
-        # appended keys only in enhanced mode: original-mode custom stays byte-identical to the published format
+        # appended keys only in enhanced mode: original-mode custom keeps the default key order
         custom["audio_source"] = choice.source
         if choice.source == "enhanced":
             custom["enhancement_method"] = choice.method
@@ -581,7 +582,7 @@ def deduplicate_entries(entries: list[SharEntry]) -> tuple[list[SharEntry], int]
 
 
 def apply_training_filter(cut: dict[str, Any] | Any, max_context_overlap: float = 0.5) -> bool:  # noqa: ANN401
-    """Mirror of the EasyMagpie v2610.granary runtime supervision filter for a cut (dict or ``MonoCut``)."""
+    """Training-time supervision filter for a cut (dict or ``MonoCut``)."""
     supervisions = cut.get("supervisions") if isinstance(cut, dict) else [s.to_dict() for s in cut.supervisions]
     if not supervisions:
         return False
@@ -709,7 +710,7 @@ class LhotseSharBuildStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     Input: ``FileGroupTask`` of annotated JSONL manifests. Output: ``FileGroupTask`` of ``shar_registry.json`` paths,
     one per manifest, under ``<output_dir>/<manifest stem>-<hash>/``. Segments without a valid ``context`` annotation
-    are skipped (the reference ``filter_context`` step).
+    are skipped.
 
     Args:
         output_dir: root for all shards (made absolute; symlinks are not resolved).

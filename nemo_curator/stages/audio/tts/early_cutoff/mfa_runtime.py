@@ -14,7 +14,7 @@
 
 """Minimal Montreal Forced Aligner (MFA 3.x) runtime for the early cut-off resolver.
 
-Port of TTS Granary ``truncation/mfa_runtime.py``: write a one-speaker corpus of candidate utterances, run
+Writes a one-speaker corpus of candidate utterances, run
 ``mfa align`` once, then read the final word/phone from the long-format TextGrids and the per-utterance
 likelihoods from MFA's SQLite working database (read-only).
 """
@@ -108,6 +108,7 @@ def run_alignment(
     timeout_sec: float | None = None,
     env: Mapping[str, str] | None = None,
 ) -> Any:  # noqa: ANN401
+    """Run an MFA command (raising on failure or timeout) and return the completed process."""
     try:
         return runner(
             list(command),
@@ -236,6 +237,7 @@ def discover_textgrids(root: Path) -> dict[str, Path]:
 
 
 def discover_database(root: Path) -> Path | None:
+    """The single ``*.db`` MFA database under ``root``, or None if there is not exactly one."""
     databases = sorted(path for path in root.rglob("*.db") if path.is_file())
     return databases[0] if len(databases) == 1 else None
 
@@ -310,6 +312,7 @@ def sqlite_likelihood_evidence(database: Path, utterance_ids: Iterable[str]) -> 
 
 
 def preserve_database(database: Path | None, destination: Path | None) -> Path | None:
+    """Copy the MFA database to ``destination`` when both are given; return the kept path."""
     if database is None or destination is None:
         return database
     destination.parent.mkdir(parents=True, exist_ok=True)

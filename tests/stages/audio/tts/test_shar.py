@@ -41,8 +41,8 @@ from nemo_curator.stages.audio.tts.shar_materialize import marker_path
 from nemo_curator.tasks import FileGroupTask
 from tests.stages.audio.tts.test_audio_io import make_tar_segments
 
-# Key order of supervision.custom in the published v2610.granary cuts (cuts_with_ipaNG_early_cut_off_filter).
-PUBLISHED_CUSTOM_KEYS = [
+# Expected key order of supervision.custom.
+EXPECTED_CUSTOM_KEYS = [
     "sampling_rate",
     "context_audio_duration",
     "utt_id",
@@ -203,7 +203,7 @@ def test_build_entries_final_cut_format(tmp_path: Path) -> None:
     assert sup["language"] == "it"
     assert sup["speaker"] == "| Language:it Dataset:GranaryHiFi_YTC (orig_audio) Speaker:vid0_speaker_0 |"
     custom = sup["custom"]
-    assert list(custom) == PUBLISHED_CUSTOM_KEYS
+    assert list(custom) == EXPECTED_CUSTOM_KEYS
     assert custom["context_recording_id"] == "rec-vid0_001"
     assert custom["context_audio_text"] == "text of vid0_001.wav"  # context tn_raw looked up in the same row
     assert custom["context_audio_text_overlap"] == 0.12  # from tts_flags
@@ -473,8 +473,8 @@ def test_enhanced_audio_source(tmp_path: Path) -> None:
     with gzip.open(shard["cuts"], "rt") as f:
         raw = [json.loads(line) for line in f]
     custom = raw[0]["supervisions"][0]["custom"]
-    assert list(custom)[: len(PUBLISHED_CUSTOM_KEYS)] == PUBLISHED_CUSTOM_KEYS
-    assert list(custom)[len(PUBLISHED_CUSTOM_KEYS) :] == ["audio_source", "enhancement_method"]
+    assert list(custom)[: len(EXPECTED_CUSTOM_KEYS)] == EXPECTED_CUSTOM_KEYS
+    assert list(custom)[len(EXPECTED_CUSTOM_KEYS) :] == ["audio_source", "enhancement_method"]
     assert custom["audio_source"] == "enhanced"
     assert custom["enhancement_method"] == "resemble_enhance"
     assert custom["sampling_rate"] == 24000
@@ -487,7 +487,7 @@ def test_enhanced_audio_source(tmp_path: Path) -> None:
     # original mode stays byte-identical in custom keys (no audio_source key)
     original = load_registry(build_shars_for_manifest(manifest, tmp_path / "orig", dataset="D"))
     with gzip.open(original["shards"][0]["cuts"], "rt") as f:
-        assert list(json.loads(f.readline())["supervisions"][0]["custom"]) == PUBLISHED_CUSTOM_KEYS
+        assert list(json.loads(f.readline())["supervisions"][0]["custom"]) == EXPECTED_CUSTOM_KEYS
 
     # regenerating an enhanced file changes the shard digest -> the shard is rebuilt
     out = tmp_path / "out"

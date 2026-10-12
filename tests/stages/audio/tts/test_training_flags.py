@@ -39,7 +39,7 @@ from nemo_curator.tasks import AudioTask
         ("Здравей свят", True),
         ("twenty five euros", True),
         ("25 euros", False),
-        ("fifty %", True),  # "%" is Unicode punctuation (Po), accepted like the reference
+        ("fifty %", True),  # "%" is Unicode punctuation (Po)
         ("five $", False),  # currency symbols (Sc) are not
         ("five €", False),
         ("a+b", False),

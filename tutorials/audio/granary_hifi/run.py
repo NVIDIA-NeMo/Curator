@@ -12,47 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GranaryHiFi: turn Granary ASR manifests into contextual TTS training shards.
+"""GranaryHiFi: Granary ASR manifests -> TTS training shards, as two Curator pipelines.
 
-Implements every step of the GranaryHiFi pipeline (ICLR submission "GranaryHiFi: A 203K-Hour Open Dataset for
-Contextual Speech Synthesis in 24 European Languages", Sec. 4) as two Curator pipelines.
-
-``annotate`` — one JSONL row per source recording (``orig_sample_id``, ``orig_sample_rate``, ``segments``), segment
-audio addressed as tar members (``GranaryHifi.AudioMetadata``)::
-
-    ManifestReader
-    4.2 SegmentDiarizationStage      streaming Sortformer -> diarization.{num_speakers, diarized_speech_rate}
-        SpeakerClusteringStage       TitaNet + agglomerative clustering (0.4) -> speaker_cluster.{speaker_id, ...}
-        SegmentSEDStage              CNN14 framewise + GBM postprocessor -> sed.{weighted_*}
-        UTMOSv2AnnotationStage       -> utmosv2.score
-        BandwidthAnnotationStage     -> bandwidth.bandwidth
-        [StudioVoiceEnhancementStage] Maxine StudioVoice via Triton (optional, --studio_voice_url)
-    4.3 SegmentFilterStage           common filter, per-source preset (drops failing segments)
-    4.4 ContextSelectionStage        same-speaker context: >=3 s, similarity >=0.6, text overlap <=0.5
-    4.6 ManifestIpaStage             espeak IPA from tn_raw
-    4.5 EarlyCutOffEndpointGateStage wav2vec2 CTC + endpoint heads (proposes candidates)
-        EarlyCutOffMFAResolverStage  MFA resolves candidates -> OK / DROP / REVIEW
-    4.6 TrainingFlagsStage           valid_tn_raw_transcript, valid_ipa, valid_context_audio_text, early_cut_off
-    ManifestWriterStage
-
-``build_shar`` — one task per annotated manifest file (Sec. 4.6, 4.1)::
-
-    LhotseSharBuildStage   cuts / target_audio / context_audio SHAR shards (<= 4096 cuts, speaker-packed)
-    CodecCodesStage        25 fps spectral codec (BWE) target/context codes
-    SharValidationStage    count / id / tar / cross-stream alignment checks
-    publish_shars          global renumbering + hard-link publication (--publish_root)
-
-Steps can be skipped with ``--skip`` (e.g. when a manifest already carries an annotation). The early cut-off branch
-needs the v13 endpoint bundle (``--early_cut_off_bundle_dir``) and Montreal Forced Aligner (``--mfa_command``).
-
-Usage (from the Curator repo root)::
-
-    python tutorials/audio/granary_hifi/run.py annotate --preset ytc \\
-        --input_manifest in.jsonl --output_manifest annotated.jsonl \\
-        --sed_classifier gbt_multiclass_model.joblib --early_cut_off_bundle_dir v13/
-    python tutorials/audio/granary_hifi/run.py build_shar \\
-        --input_manifest annotated.jsonl --shar_dir shars/ --dataset "GranaryHiFi_YTC (orig_audio)" --language it \\
-        --codec_model 25fps_spectral_codec_with_bandwidth_extension.nemo --publish_root published/
+``annotate`` enhances (optional), annotates, filters, selects contexts and writes training flags;
+``build_shar`` writes Lhotse SHAR shards with codec codes, validates and publishes them.
+See ``README.md`` for the stage list, input fields and requirements.
 """
 
 from __future__ import annotations
@@ -109,17 +73,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
 
-    an = sub.add_parser("annotate", help="Annotate, filter and select contexts (Sec. 4.2-4.6).")
+    an = sub.add_parser(
+        "annotate", help="Enhance (optional), annotate, filter, select contexts, IPA, early cut-off, flags."
+    )
     _add_common(an)
     an.add_argument("--output_manifest", required=True)
-    an.add_argument("--preset", default="default", choices=["default", "ytc", "yodas", "voxpopuli", "librilight"])
+    an.add_argument("--preset", required=True, choices=["default", "ytc", "yodas", "voxpopuli", "librilight"])
     an.add_argument("--skip", nargs="*", default=[], choices=ANNOTATE_STEPS, help="Steps to leave out.")
     an.add_argument("--source_lang_key", default="source_lang")
     an.add_argument("--language", default=None, help="Force the language (espeak voice, filter charset, MFA).")
     an.add_argument("--sortformer_model", default="nvidia/diar_streaming_sortformer_4spk-v2.1")
-    an.add_argument(
-        "--sortformer_path", default=None, help="Local .nemo (reference: diar_streaming_sortformer_4spk-v2)."
-    )
+    an.add_argument("--sortformer_path", default=None, help="Local Sortformer .nemo (overrides --sortformer_model).")
     an.add_argument("--titanet_path", default=None, help="Local speakerverification_en_titanet_large.nemo.")
     an.add_argument(
         "--sed_checkpoint", default=None, help="Cnn14_DecisionLevelMax_mAP=0.385.pth (downloaded if unset)."
@@ -140,16 +104,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     an.add_argument(
         "--enhanced_fallback", action="store_true", help="Use the original audio where no enhanced copy exists."
     )
-    an.add_argument("--early_cut_off_bundle_dir", default=None, help="v13 endpoint bundle (gate + MFA thresholds).")
+    an.add_argument(
+        "--early_cut_off_bundle_dir", default=None, help="Endpoint bundle dir (gate checkpoints + MFA thresholds)."
+    )
     an.add_argument("--mfa_command", default="mfa", help="Montreal Forced Aligner 3.4.1 executable.")
     an.add_argument("--mfa_root_dir", default=None, help="MFA_ROOT_DIR with downloaded acoustic models/dicts.")
     an.add_argument("--mfa_num_jobs", type=int, default=None, help="MFA parallel jobs (default: stage CPUs).")
     an.add_argument("--utmos_repetitions", type=int, default=1, help="UTMOSv2 random-crop repetitions to average.")
 
-    sh = sub.add_parser("build_shar", help="Materialize Lhotse SHAR, codec codes, validate, publish (Sec. 4.6).")
+    sh = sub.add_parser("build_shar", help="Materialize Lhotse SHAR, codec codes, validate, publish.")
     _add_common(sh)
     sh.add_argument("--shar_dir", required=True, help="Working directory for per-manifest shard sets.")
-    sh.add_argument("--preset", default="ytc", choices=["ytc", "yodas", "voxpopuli", "librilight"])
+    sh.add_argument("--preset", required=True, choices=["ytc", "yodas", "voxpopuli", "librilight"])
     sh.add_argument(
         "--dataset", default=None, help="Speaker-string dataset (default: GranaryHiFi_<PRESET> (orig_audio))."
     )
