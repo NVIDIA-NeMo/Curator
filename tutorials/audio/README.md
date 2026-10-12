@@ -56,6 +56,7 @@ python nemo_curator/config/run.py \
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
+| GranaryHiFi: Granary ASR manifests to contextual TTS shards (Lhotse SHAR + codec codes) | [**granary_hifi/**](granary_hifi/) | GPU (diarization, TitaNet, SED, UTMOSv2, codec); optional StudioVoice / ReUse enhancement | Granary JSONL with `segments` (tar-member audio, `tn_raw`) |
 
 ## Data availability
 
@@ -71,6 +72,7 @@ python nemo_curator/config/run.py \
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
+| `granary_hifi/` | No | Varies | Granary JSONL rows with `segments` and tar-member audio (`GranaryHifi.AudioMetadata`) |
 
 ## System dependencies
 
@@ -98,6 +100,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
+| `granary_hifi/` | `espeak-ng` (IPA); Montreal Forced Aligner (end-of-word check); optional `utmosv2`, `tritonclient`, resemble-enhance | `audio_cuda12` |
 
 Install pip extras from the repo root:
 
