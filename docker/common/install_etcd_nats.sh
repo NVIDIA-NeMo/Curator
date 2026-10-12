@@ -16,10 +16,13 @@
 set -xeuo pipefail
 
 # nats-server matches upstream ai-dynamo/dynamo container/context.yaml. etcd
-# leads Dynamo's pin (3.5.30) to the latest 3.5.x patch to clear the bundled
-# grpc-go + x/net + x/text CVEs; 3.5.x binaries stay wire-compatible with Dynamo.
-ETCD_VERSION=3.5.33
-NATS_VERSION=2.10.28
+# leads Dynamo's pin (3.5.33) to the latest 3.5.x patch to clear the bundled
+# Go stdlib + x/crypto CVEs; 3.5.x binaries stay wire-compatible with Dynamo.
+# Keep both on builds using Go >= 1.26.6 and x/crypto >= 0.55.0; that is the
+# floor clearing the GO-2026-608x / GO-2026-6303 advisory set. These pins ship
+# Go 1.26.8 with x/crypto 0.57.0 (nats) and 0.55.0 (etcd).
+ETCD_VERSION=3.5.34
+NATS_VERSION=2.14.7
 
 for i in "$@"; do
     case $i in

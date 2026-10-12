@@ -78,6 +78,7 @@ Configure exact deduplication using these key parameters:
 | `input_path` | str \| list[str] | None | Path(s) to input files or directories |
 | `output_path` | str | Required | Directory to write duplicate IDs and ID generator |
 | `text_field` | str | "text" | Name of the text field in input data |
+| `normalize_text` | bool | False | Whether to lowercase text, collapse whitespace runs, and trim leading and trailing whitespace for matching. The workflow preserves the original text. |
 | `assign_id` | bool | True | Whether to automatically assign unique IDs |
 | `id_field` | str \| None | None | Existing ID field name (if assign_id=False) |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
@@ -130,6 +131,8 @@ result = removal_workflow.run()
 - Set `duplicate_id_field` to match the ID column written by the identification workflow
 - `id_generator_path` not required
 </Accordion>
+
+To control the fields written by `TextDuplicatesRemovalWorkflow`, use `output_fields`. Keep `drop_id_field=False` (the default) and include `id_field` when specifying `output_fields` to retain the ID. Set it to `True` to omit the ID. The workflow rejects configurations that include the ID in `output_fields` while dropping it.
 
 ## Output Format
 
