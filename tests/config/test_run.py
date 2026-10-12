@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import hydra
 import pytest
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
@@ -839,3 +842,62 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     )
 
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
+
+
+SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
+SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+
+
+def _target_nodes(node: object) -> Iterator[dict]:
+    """Every mapping under ``node`` that names a Hydra ``_target_``."""
+    if isinstance(node, dict):
+        if "_target_" in node:
+            yield node
+        for value in node.values():
+            yield from _target_nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _target_nodes(item)
+
+
+@pytest.mark.parametrize("config_name", SHIPPED_TEXT_CONFIGS)
+def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: str) -> None:
+    """A shipped config has to survive instantiation, and nothing cheap told us it does.
+
+    ``main`` starts the Ray client before it builds the pipeline, so a key a
+    target stopped declaring costs a cluster start and then raises
+    ``InstantiationException`` wrapping a ``TypeError``. Binding each node's keys
+    against its target's signature catches that drift with no GPU, no model
+    download and no cluster.
+
+    A target whose module needs the GPU extras cannot be imported under
+    ``pytest -m "not gpu"``; those nodes are reported rather than checked, the
+    same allowance ``tests/stages/text/deduplication/test_semantic.py`` makes.
+    """
+    with initialize_config_dir(config_dir=str(SHIPPED_TEXT_CONFIG_DIR), version_base=None):
+        cfg = compose(config_name=config_name)
+
+    unaccepted: list[str] = []
+    unimportable: list[str] = []
+    for node in _target_nodes(OmegaConf.to_container(cfg, resolve=False)):
+        target = node["_target_"]
+        kwargs = {
+            key: value
+            for key, value in node.items()
+            # `_` keys are Hydra's own, and `_instantiate_stage` applies
+            # `resources` through `.with_()` rather than the constructor.
+            if not key.startswith("_") and key != "resources"
+        }
+        try:
+            signature = inspect.signature(hydra.utils.get_class(target))
+        except ImportError:
+            unimportable.append(target)
+            continue
+        try:
+            signature.bind_partial(**kwargs)
+        except TypeError as error:
+            unaccepted.append(f"{target}: {error}")
+
+    assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)
+    if unimportable and len(unimportable) == len(list(_target_nodes(OmegaConf.to_container(cfg, resolve=False)))):
+        pytest.skip(f"every target in {config_name} needs the GPU extras: {unimportable}")
