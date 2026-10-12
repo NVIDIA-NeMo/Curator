@@ -138,11 +138,11 @@ Contributions are strongly encouraged. Submit pull requests or join community di
 ## Deployment, Infrastructure, and Practicalities
 
 <Accordion title="How do I deploy NeMo Curator or Ray clusters?">
-Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use [Docker images ](/reference/infra/container-environments) and up-to-date quickstart guides. For complete deployment details, refer to [Production Deployment Requirements ](/admin/deployment/requirements).
+Deploy Ray clusters using standard [Ray tools](https://docs.ray.io/en/latest/cluster/getting-started.html). Install the Python package for general workflows when the required release is available; use a source checkout for development or an unpublished release. For audio and video workflows, build a local image from the maintained Dockerfile and add the required FFmpeg system packages using the [Container Environments guide](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). For hardware and cluster setup, refer to [Production Deployment Requirements](/admin/deployment/requirements).
 </Accordion>
 
 <Accordion title="Do I need to build custom Docker images?">
-Not for most standard uses. Use [provided images ](/reference/infra/container-environments) or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
+No for general workflows; use the Python package when the needed release is available. Audio and video workflows, and deployments that require containers, can [build a container image](/reference/infra/container-environments#build-an-image) from the maintained repository Dockerfile. Add FFmpeg as described in [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). NVIDIA no longer publishes new Curator images on NGC starting with 26.09; earlier images remain downloadable. Refer to the [Distribution Change](/about/release-notes#distribution-change).
 </Accordion>
 
 <Accordion title="Is there integration with existing cluster or orchestration tools like Airflow or Slurm?">
@@ -186,7 +186,7 @@ Regular community calls and check-ins are also offered to connect with the team 
 <Note>
 - [Ray Documentation and Getting Started](https://docs.ray.io/)
 - [Migration Guide ](/about/release-notes/migration-guide) for step-by-step migration instructions
-- [NGC Container Catalog](https://catalog.ngc.nvidia.com/) for Docker images
+- [Install NeMo Curator](/get-started/installation) for setup instructions
 
 </Note>
 

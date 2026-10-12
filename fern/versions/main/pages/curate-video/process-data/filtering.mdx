@@ -12,6 +12,20 @@ modality: "video-only"
 
 Apply motion-based filtering to clips and aesthetic filtering to frames to prune low-quality assets during curation.
 
+<Note>
+Motion filtering uses OpenCV for flow-field resizing. Install the optional
+dependency before enabling it:
+
+```bash
+uv pip install "nemo-curator[cv2]"
+```
+
+The `video_cpu` or `video_cuda12` extra is also required for motion-vector
+decoding; it provides PyAV and its FFmpeg libraries. Stages that invoke the
+`ffmpeg` executable still need the FFmpeg setup required by your video
+pipeline. Installing `cv2` does not provide that executable or its codecs.
+</Note>
+
 ## How it Works
 
 Filtering runs in two passes that balance speed and quality:
@@ -21,7 +35,7 @@ Filtering runs in two passes that balance speed and quality:
 
 ## Before You Start
 
-Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](/curate-video/process-data/clipping) and [encoding](/curate-video/process-data/transcoding) first so each clip has a valid `buffer` (bytes). 
+Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](/curate-video/process-data/clipping) and [encoding](/curate-video/process-data/transcoding) first so each clip has a valid `buffer` (bytes).
 
 ---
 
