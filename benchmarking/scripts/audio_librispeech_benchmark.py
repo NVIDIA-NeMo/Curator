@@ -262,13 +262,17 @@ def main() -> int:
     )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
     parser.add_argument("--execution-mode", choices=["streaming", "batch"], default=None)
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     results: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
     try:
         results.update(run_audio_librispeech_benchmark(**vars(args)))
     finally:
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
     return 0 if results["metrics"]["is_success"] else 1
 
 
