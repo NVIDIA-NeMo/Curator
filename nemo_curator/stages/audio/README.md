@@ -135,9 +135,10 @@ Key differences from a CPU stage:
 ### Setting `batch_size` for GPU inference
 
 The `batch_size` field on a GPU stage controls how many `AudioTask` tasks
-the backend groups into a single `process_batch()` call.  This directly
-determines how many files are passed to your model in one batched GPU
-inference call.
+the backend groups into a single `process_batch()` call. The stage can then
+make one or more model calls from that finite candidate window. For example,
+`ASRStage` can segment long parents, locally regroup model items by duration,
+and enforce a padded-audio budget for each adapter call.
 
 **Defining batch_size in the stage class:**
 
@@ -158,25 +159,31 @@ pipeline.add_stage(
     ASRStage(
         adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/parakeet-tdt-0.6b-v2",
+        max_audio_sec_per_actor=240,
+        max_inference_duration_s=120,
+        local_bucketing=True,
         audio_filepath_key="audio_filepath",
     )
     .with_(resources=Resources(gpus=1), batch_size=32)
 )
 ```
 
-The `.with_()` method sets any stage field.  Here it bumps `batch_size`
-from the default `16` to `32` and assigns 1 GPU.
+The `.with_()` method supports common execution overrides such as `resources`
+and `batch_size`. Here it sets `batch_size` to `32` and assigns 1 GPU. Put
+stage- or model-specific fields in the stage constructor.
 
 **Overriding batch_size via Hydra YAML:**
 
 ```yaml
-pipeline:
-  stages:
-    - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-      adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
-      model_id: nvidia/parakeet-tdt-0.6b-v2
-      audio_filepath_key: audio_filepath
-      batch_size: 32
+stages:
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt-0.6b-v2
+    max_audio_sec_per_actor: 240
+    max_inference_duration_s: 120
+    local_bucketing: true
+    audio_filepath_key: audio_filepath
+    batch_size: 32
 ```
 
 For Hydra to accept `batch_size` from YAML, it must be a dataclass field
@@ -189,19 +196,25 @@ Backend reads stage.batch_size
     → groups N tasks into batches of batch_size
     → sends each batch to a worker
     → worker calls stage.process_batch(tasks)
-        → your override receives exactly batch_size tasks
-          (or fewer for the last batch)
+        → your override receives that finite candidate window
+        → stage-specific code makes one or more model calls
 ```
+
+For variable-duration audio, `batch_size` is not necessarily the exact number
+of items in one model call. See
+[Local Duration Bucketing for Audio GPU Inference](inference/README.md) for the
+current `ASRStage` behavior, the duration-packing theory, and the integration
+contract for other GPU stages.
 
 **Choosing a good batch_size:**
 
-- **Too small** (e.g. `1`) — GPU is underutilised; kernel launch overhead
-  dominates.  Each call processes one file, losing the benefit of batching.
-- **Too large** (e.g. `1024`) — may exceed GPU memory (OOM), especially
-  with long audio files or large models.
-- **Sweet spot** — depends on model size, audio length, and GPU VRAM.
-  Start with `16` and increase until you see OOM or throughput plateaus.
-  For NeMo ASR FastConformer models, `16–64` is typical on a single GPU.
+- **Too small** (e.g. `1`) — gives the stage little opportunity to form useful
+  model batches or duration-coherent groups.
+- **Too large** (e.g. `1024`) — can increase waveform preparation and host
+  memory pressure before the stage makes any model calls.
+- **Sweet spot** — depends on the model, audio distribution, GPU memory, and
+  the stage-level audio budget. Tune with representative inputs rather than
+  treating the backend window as the model batch size.
 
 ## What you must always declare
 
@@ -252,8 +265,9 @@ process_batch(list[AudioTask]) -> list[AudioTask]
   with N tasks.
 - `process` is the natural single-task hook for CPU stages — no
   boilerplate to handle lists.
-- GPU/IO stages override `process_batch` to receive the full batch for
-  one batched kernel call.  Their `process()` raises
+- GPU/IO stages override `process_batch` to receive the full backend batch and
+  organize its work efficiently. A stage may issue one or more bounded model
+  calls from that candidate window. Their `process()` raises
   `NotImplementedError`, matching the dedup-stage convention
   (`ConnectedComponentsStage`, `KMeansReadFitWriteStage`, etc.).
 
@@ -346,10 +360,12 @@ For a GPU stage with `resources=Resources(cpus=1.0, gpus=1.0)` and
                         └─────────────────────────────────────────┘
 ```
 
-Each `process_batch([16 tasks])` call goes directly to:
-`ASRStage.process_batch` → validate and load the current task waveforms →
-`NeMoASRAdapter.transcribe_batch` → **one** batched NeMo call → mutate each
-task in-place.
+Each `process_batch([16 tasks])` call goes through:
+`ASRStage.process_batch` → validate, load, and model-safely segment the current
+waveforms → plan capacity-bounded adapter calls across all segments in this
+window → `NeMoASRAdapter.transcribe_batch` once per planned call → stitch
+segments and restore parent-task order. `batch_size=16` therefore defines the
+planning window, not a guarantee of exactly one 16-item NeMo call.
 
 ### Xenna specifics
 
@@ -398,10 +414,11 @@ pipeline.run(executor)
 | Level | What it controls | Who sets it |
 |---|---|---|
 | **Worker count** | How many parallel copies of your stage run (one per CPU core or GPU) | The backend, based on `stage.resources` and available hardware |
-| **`batch_size`** | How many tasks each worker processes per call | The stage author (domain knowledge about optimal GPU batch size) |
+| **`batch_size`** | Maximum candidate tasks supplied to each worker's `process_batch` call | The stage author |
 
-Total in-flight = `num_workers x batch_size`.  For 4 GPUs with
-`batch_size=16`, that is 64 audio files being processed concurrently.
+Maximum candidate tasks in flight = `num_workers x batch_size`. For 4 GPUs
+with `batch_size=16`, up to 64 audio files can be inside stage calls at once.
+The stage may split each candidate window into smaller model calls.
 
 ## How `batch_size` travels from your stage to the backend
 
@@ -440,7 +457,9 @@ Key takeaways:
 - Subclasses override it as a field (e.g. `batch_size: int = 16`).
 - Pipeline authors can further override via `.with_(batch_size=32)` or Hydra YAML.
 - The backend adapter reads `stage.batch_size` and groups tasks *before*
-  calling `process_batch`.  Your stage never has to split or batch tasks itself.
+  calling `process_batch`.
+- A stage can still split model-unsafe inputs and plan one or more adapter
+  calls within that finite backend-provided batch, as `ASRStage` does.
 
 ## Exact call chains
 
@@ -527,7 +546,7 @@ pipeline.run(executor)
 │         → models/asr/nemo_asr.py                      NeMoASRAdapter.load_model(num_gpus=1)
 │           ASRModel.from_pretrained(model_name=model_id, map_location=cuda)
 │
-├─ Per batch (batch_size=16, so 16 AudioTask tasks per call):
+├─ Per backend batch (batch_size=16, so up to 16 candidate tasks per call):
 │   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
 │     → backends/base.py                             BaseStageAdapter.process_batch(tasks)
 │         ├─ start perf timer
@@ -539,14 +558,14 @@ pipeline.run(executor)
 │   │  ASRStage.process_batch()                    (generic batched GPU stage)
 │   │    stages/audio/inference/asr/stage.py
 │   │    validate_input(task) per task              schema check
-│   │    load and normalize the current 16 waveforms
-│   │    adapter.transcribe_batch(items)
-│   │      → models/asr/nemo_asr.py
-│   │        self._model.transcribe(audio=waveforms, batch_size=16)
-│   │          → ONE batched NeMo inference call
-│   │        return list[ASRResult]
-│   │    for task, result in zip(tasks, results):
-│   │      task.data[self.pred_text_key] = result.text
+│   │    load and normalize up to 16 current waveforms
+│   │    split every waveform at max_inference_duration_s
+│   │    plan calls bounded by max_audio_sec_per_actor
+│   │    for each planned call:
+│   │      adapter.transcribe_batch(items)
+│   │        → models/asr/nemo_asr.py
+│   │          self._model.transcribe(audio=waveforms, batch_size=len(items))
+│   │    restore segment order, stitch parent transcripts, and update tasks
 │   └─ return tasks                                 → same 16 AudioTask objects
 ```
 
@@ -656,10 +675,11 @@ AudioTask(
 
 ### Stage 2: `ASRStage` + `NeMoASRAdapter` (GPU)
 
-The generic stage loads and normalizes each current-batch waveform; the NeMo
-adapter loads `nvidia/parakeet-tdt-0.6b-v2` onto the GPU and runs one batched
-`transcribe()` call for 16 `AudioTask`s. The stage writes predictions back
-**in-place**.
+The generic stage loads and normalizes each current-batch waveform, performs
+model-safe segmentation, and plans capacity-bounded calls from the current
+candidate window. The NeMo adapter loads `nvidia/parakeet-tdt-0.6b-v2` onto the
+GPU and runs one batched `transcribe()` per planned call. The stage stitches
+segments, restores parent order, and writes predictions back **in-place**.
 
 **Output** — `data` gains `pred_text`:
 
@@ -1016,3 +1036,501 @@ Appends the entry as a single JSON line to
    `NotImplementedError` (matching the dedup-stage convention).
 7. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`
 8. Add tests in `tests/stages/audio/` using `AudioTask` for fixtures
+
+---
+
+## Local duration bucketing: complete theory and current contract
+
+This section describes the local duration-bucketing algorithm currently
+implemented by [`ASRStage`](inference/asr/stage.py), why it is structured this
+way, and the contract another audio GPU inference stage must preserve to adopt
+the same approach. This is the top-level conceptual contract; the dedicated
+[audio inference guide](inference/README.md) adds ASR-specific configuration,
+implementation, and test references.
+
+Local bucketing solves one specific problem: candidate audio inputs in one GPU
+batch can have very different durations, while the model usually pads every
+input to the longest input in that batch. The stage therefore uses duration to
+reorder only the finite set of model inputs already present in one
+`process_batch()` call. It does not buffer globally or change which parent
+rows belong to that call.
+
+### The four controls are independent
+
+| Control | Current `ASRStage` default | Boundary it controls |
+|---|---:|---|
+| `batch_size` | `32` | Number of parent `AudioTask` rows the backend normally offers to one `process_batch()` planning window |
+| `max_inference_duration_s` | `2400` | User-supplied maximum duration of one segment derived from a parent waveform |
+| `max_audio_sec_per_actor` | required | Maximum padded-audio proxy cost of one adapter call |
+| `local_bucketing` | `false` | Whether segments are stable-sorted by duration and DP-partitioned over contiguous spans instead of greedily packed in input order |
+
+These settings are deliberately not aliases for one another:
+
+- `batch_size` bounds the backend candidate window; it is not an adapter item
+  limit. `ASRStage.process_batch()` itself does not reject a directly supplied
+  list merely because it contains more than `batch_size` parents.
+- `max_inference_duration_s` enforces the configured single-input ceiling; it
+  applies with bucketing both on and off. The stage does not discover or
+  verify the selected model's true limit.
+- `max_audio_sec_per_actor` bounds every adapter invocation produced from the
+  current window; it is not the total audio accepted by `process_batch()`.
+- `local_bucketing` changes planning order and boundary selection only; it
+  does not enable or disable segmentation.
+
+There is no separate `adapter_batch_size`, maximum-items-per-bucket map,
+static set of bucket edges, timer, queue, flush hook, or generic item-cost
+feature. Despite its name, `max_audio_sec_per_actor` is a per-adapter-call
+budget planned by the actor. It is not accumulated over the actor's lifetime
+or across multiple `process_batch()` calls.
+
+Configuration validation matches those boundaries:
+
+- `max_audio_sec_per_actor` is required, must be a numeric `Real` other than
+  `bool`, and must be finite and greater than zero;
+- `local_bucketing` must be an actual Boolean, so integer `1` is rejected;
+- `max_inference_duration_s` must be finite and greater than zero, and cannot
+  exceed `max_audio_sec_per_actor`;
+- `batch_size` and `target_sample_rate` are converted to integers and must be
+  greater than zero.
+
+The planner consumes durations generated internally from prepared segments;
+it does not expose an API for arbitrary caller-provided cost features.
+
+### Parent rows, segments, and adapter calls
+
+Three different units pass through the stage:
+
+1. A **parent row** is one `AudioTask` received in `process_batch(tasks)`.
+2. A **segment** is one model-safe waveform prepared from a parent. A short
+   parent normally produces one segment; a long parent produces several.
+3. An **adapter call** is one capacity-bounded group of segments passed to
+   `adapter.transcribe_batch()`. Its segments may come from multiple parents.
+
+The complete data flow is:
+
+```text
+backend candidate rows (`batch_size`)
+    -> skip/eligibility checks
+    -> load, downmix, and resample each eligible waveform
+    -> model-safe segmentation of every eligible parent
+    -> one flat segment list for the current `process_batch()` call
+    -> optional stable duration sort
+    -> padded-seconds partitioning
+    -> one adapter invocation per planned group
+    -> scatter results to original segment positions
+    -> stitch each parent's segments in temporal order
+    -> return parent rows in their original order
+```
+
+Rows with a reused output, rows rejected by a configured language allowlist
+(including a missing code while that allowlist is active), and rows whose
+waveforms fail preparation without raising do not enter the segment plan.
+Every other segment from every eligible row in the same
+`process_batch()` participates in one shared local planning window. No segment
+is retained for a later backend batch, actor, or worker.
+
+### Why the budget measures padded audio
+
+For a nonempty adapter call with segment durations
+`d[0], ..., d[n - 1]`, define:
+
+```text
+useful audio seconds = sum(d)
+padded audio seconds = n * max(d)
+padding waste        = n * max(d) - sum(d)
+padding efficiency   = sum(d) / (n * max(d)), when max(d) > 0
+```
+
+For an all-zero-duration call, padded cost and padding waste are both zero,
+while this efficiency ratio is undefined rather than `100%`.
+
+The feasibility condition for every planned call is:
+
+```text
+n * max(d) <= max_audio_sec_per_actor
+```
+
+This is intentionally not `sum(d)`. If durations `[1, 10]` are sent together,
+the shorter waveform is normally padded to 10 seconds and the model processes
+a tensor representing approximately `2 * 10 = 20` audio seconds, not 11.
+Grouping similar durations reduces work that carries no useful audio.
+
+Padded seconds are a useful proxy, not a proof of GPU-memory safety. Actual
+memory and runtime also depend on model architecture, precision, decoder
+state, framework workspaces, fixed per-item costs, and adapter-specific
+behavior. The budget must therefore be measured and tuned for each model,
+adapter, and hardware configuration. The proxy is most meaningful when the
+adapter forms a jointly padded batch. A serial, ragged, or packed adapter may
+receive the same planned groups without realizing the expected padding
+benefit.
+
+### Model-safe segmentation always precedes bucketing
+
+After waveform preparation, `ASRStage` calls
+[`plan_audio_segments`](model_input_segmentation.py) for every eligible parent.
+For target sample rate `s` and duration ceiling `D`, the segment limit in
+samples is:
+
+```text
+max_samples = int(D * s)
+```
+
+`D` must cover at least one sample. The current planner creates contiguous,
+nonoverlapping ranges from sample zero to the end of the waveform. Every
+remainder becomes a segment, an exact multiple creates no empty tail, and a
+zero-sample waveform remains representable as one zero-duration segment.
+`audio_seconds` is calculated from the actual prepared segment length and
+target sample rate, rather than trusted from manifest metadata.
+
+Construction requires:
+
+```text
+max_inference_duration_s <= max_audio_sec_per_actor
+```
+
+This guarantees that every permitted individual segment can at least fit in a
+singleton adapter call.
+
+The current ASR segmentation has an important semantic limitation: the cuts
+are hard and have no shared audio context. Each segment is decoded
+independently, and the current stitcher joins nonempty transcript strings with
+a space. A word crossing a cut can consequently be omitted, duplicated, or
+decoded differently. Local bucketing neither causes nor fixes that behavior;
+adding overlap would also require a model-appropriate transcript
+reconciliation algorithm. Other audio stages must define their own safe
+segmentation and reconstruction semantics rather than copying ASR text
+concatenation blindly.
+
+### Planning when `local_bucketing=true`
+
+Each prepared segment enters the planner as:
+
+```text
+(original_segment_index, adapter_item, audio_seconds)
+```
+
+The enabled planner then performs these steps:
+
+1. Stable-sort all segments by ascending `audio_seconds`. Equal-duration
+   segments retain their original relative order.
+2. Restrict each adapter call to a contiguous span of that sorted sequence.
+3. Consider every span whose padded cost fits the actor budget.
+4. Use dynamic programming to select the complete partition with the fewest
+   adapter calls.
+5. Among partitions with that minimum call count, select the one with the
+   fewest total padded seconds.
+6. Execute calls in planned order and scatter every result through the saved
+   original segment index.
+
+For sorted durations `d[0] <= ... <= d[N - 1]`, the cost of span
+`[start, stop)` is:
+
+```text
+span_count = stop - start
+span_max   = d[stop - 1]
+span_cost  = span_count * span_max
+```
+
+A span is feasible when `span_cost` is within the budget. The implementation
+accepts representation-level equality using `math.isclose` with
+`rel_tol=1e-12` and `abs_tol=1e-9`, avoiding a spurious split for values such
+as three 0.1-second segments under a 0.3-second budget.
+
+The dynamic-programming suffix state can be written as:
+
+```text
+best[N] = (0 calls, 0 padded seconds)
+
+best[start] = lexicographic minimum over every feasible stop:
+    (
+        1 + best[stop].calls,
+        cost(start, stop) + best[stop].padded_seconds,
+    )
+```
+
+The selected `stop` is stored for each `start`, then those boundaries are
+followed from zero to reconstruct the calls. Python tuple comparison gives the
+required calls-first, padded-seconds-second ordering. Exact score ties retain
+the first feasible boundary encountered. Score comparison uses the raw float
+totals; the small tolerance described above applies only to budget
+feasibility.
+
+This is an exact optimum for the implementation's stable duration-sorted,
+contiguous-span planning space. It is not an optimizer over arbitrary
+noncontiguous subsets, other `process_batch()` calls, actors, workers, or the
+whole dataset.
+
+### Why sorted greedy filling is not enough
+
+Greedily extending a sorted call until the next segment would breach the
+budget makes the current call as full as possible, but can make the complete
+plan do unnecessary padded work.
+
+For sorted durations `[1, 2, 2]` and budget `4`, greedy produces:
+
+```text
+[1, 2] -> 2 * 2 = 4 padded seconds
+[2]    -> 1 * 2 = 2 padded seconds
+score  -> 2 calls, 6 padded seconds
+```
+
+The current dynamic program chooses:
+
+```text
+[1]    -> 1 * 1 = 1 padded second
+[2, 2] -> 2 * 2 = 4 padded seconds
+score  -> 2 calls, 5 padded seconds
+```
+
+It deliberately leaves room unused in the first call because doing so keeps
+the same two-call count and eliminates one padded second overall. Three
+singleton calls would also use five padded seconds, but lose on the primary
+call-count objective. Prioritizing call count prevents the padding objective
+from degenerating into one adapter call per segment and minimizes adapter
+launches before optimizing the padded-work proxy; it is an objective, not a
+guarantee of the lowest wall-clock time.
+
+### Example across several parent rows
+
+Suppose one `process_batch()` receives three parents with prepared durations
+`250`, `10`, and `1` seconds, with:
+
+```text
+max_inference_duration_s = 120
+max_audio_sec_per_actor  = 240
+local_bucketing           = true
+```
+
+Segmentation happens first:
+
+```text
+parent A -> [120, 120, 10]
+parent B -> [10]
+parent C -> [1]
+```
+
+The shared sorted planning sequence is `[1, 10, 10, 120, 120]`, and the
+selected adapter calls are:
+
+```text
+[1, 10, 10] -> 3 * 10  = 30 padded seconds
+[120, 120]  -> 2 * 120 = 240 padded seconds
+```
+
+The 10-second remainder from parent A can share a call with segments from B
+and C. After inference, saved indices restore temporal and parent ownership:
+parent A receives its `120`, `120`, and `10` results in that order, while B
+and C each receive their own result. Adapter-call order never becomes output
+row order.
+
+### Planning when `local_bucketing=false`
+
+The disabled mode is the input-order control. It keeps the flattened segment
+order and greedily extends the current call while its candidate padded cost
+fits. When the next segment would breach the budget, it emits the current call
+and starts another with that segment.
+
+Disabling local bucketing therefore disables the duration sort and the
+whole-window dynamic-programming boundary optimization, but it does not
+disable either segmentation or the
+`max_audio_sec_per_actor` constraint. The same adapter and result-restoration
+contract applies in both modes.
+
+For example, original durations `[8, 2, 7, 3]` under budget `16` produce:
+
+```text
+input-order greedy:
+    [8, 2] -> 16 padded seconds
+    [7, 3] -> 14 padded seconds
+    total  -> 30 padded seconds
+
+local bucketing, sorted order [2, 3, 7, 8]:
+    [2, 3] ->  6 padded seconds
+    [7, 8] -> 16 padded seconds
+    total  -> 22 padded seconds
+```
+
+Both plans process the same 20 useful seconds in two calls, but local
+bucketing presents substantially less padding to the model.
+
+### Adapter execution, result restoration, and ASR stitching
+
+Every selected group causes exactly one `adapter.transcribe_batch(items)`
+invocation. `NeMoASRAdapter` filters zero-length waveforms while preserving
+their result slots. If any nonempty waveforms remain, it then makes one
+`model.transcribe(audio=waveforms, batch_size=len(waveforms), ...)` call for
+that planned group. Consequently, one `process_batch()` can make zero, one, or
+many model calls.
+
+The adapter must return exactly one result for every submitted item. The stage
+places each result into an array indexed by the segment's position before
+bucketing and rejects incomplete or wrong-sized result sets. It then groups
+those aligned segment results by parent, preserving the parent's temporal
+segment order. This restoration relies on the adapter's ordered contract of
+one result per input; matching result counts alone cannot detect an adapter
+that internally permutes its outputs.
+
+For a multi-segment ASR parent, the current stitcher:
+
+- strips and space-joins nonempty segment transcripts;
+- marks the parent skipped if any segment was skipped;
+- retains the first available skip reason and unsupported-language value;
+- merges adapter `extras` dictionaries in segment order, with a later value
+  replacing an earlier value for the same key.
+
+Finally, predictions are written to the same parent `AudioTask` objects and
+the original parent-row order is returned. Local execution order is therefore
+an internal optimization, not an externally visible row reorder.
+
+### Correctness invariants
+
+The implementation is correct only if all of the following remain true:
+
+1. Model-safe segmentation runs whether bucketing is enabled or disabled.
+2. Duration is calculated once from each final prepared segment.
+3. Every eligible segment enters exactly one adapter call.
+4. Every nonempty call satisfies
+   `len(call) * max(segment_duration) <= max_audio_sec_per_actor`, allowing
+   only the documented representation-level floating-point tolerance.
+5. Disabled mode greedily preserves original segment order.
+6. Enabled mode uses stable ascending-duration order and chooses the
+   contiguous partition with minimum call count and then minimum total padded
+   seconds.
+7. Every adapter call returns one result per submitted segment.
+8. Results are scattered to original segment positions before parent
+   assembly.
+9. Each parent's segment results are reconstructed in temporal order.
+10. For successfully returned, ordered adapter results, scatter preserves
+    parent association and parent-row order. The planner cannot guarantee that
+    a stateful adapter's outputs or exceptions are independent of call
+    composition or execution order.
+11. No queued audio, timer, flush obligation, or planner state survives the
+    current `process_batch()` call.
+
+The adapter and loaded model remain worker-local and may persist across calls;
+that lifecycle is separate from the deliberately stateless local planner.
+
+### Applying the same design to another audio GPU stage
+
+The planner currently lives in `ASRStage`; it is not a generic base-class
+hook. It is appropriate for another stage only when independent audio inputs
+can be grouped safely, each result can be mapped back unambiguously, and
+`item_count * longest_duration` meaningfully approximates that adapter's
+jointly padded work. Serial, ragged, or packed execution may need a different
+cost model or may gain nothing from duration bucketing.
+
+To apply the pattern:
+
+1. Keep the backend `batch_size`, required padded-seconds budget, and
+   `local_bucketing` Boolean as distinct controls.
+2. Validate and prepare all eligible parents within one finite
+   `process_batch()` call.
+3. Apply any model-specific maximum-input segmentation unconditionally.
+4. Flatten the resulting model items while saving original item index, parent
+   index, segment ordinal, timestamps, output paths, and any other metadata
+   required to reconstruct results.
+5. Measure duration from the final resampled or sliced waveform.
+6. Preserve input order and greedily pack when bucketing is disabled.
+7. Stable-sort by duration and use the calls-first, padded-seconds-second
+   dynamic program over contiguous spans when bucketing is enabled.
+8. Call the adapter once per planned group, require a complete ordered
+   one-to-one result mapping, scatter by saved index, and only then assemble
+   parent outputs. How many native model calls the adapter makes is
+   adapter-specific.
+9. Test both modes against the same correctness oracle before measuring
+   performance.
+
+Reordering independent whole inputs is often safe; segmentation is
+model-specific:
+
+- ASR must define how boundary transcripts are reconciled.
+- SED must restore valid-frame counts, frame offsets, timestamps, and sidecar
+  paths.
+- VAD splits can change onset/offset decisions and merged speech regions.
+- Diarization may require whole-recording speaker clustering and identity.
+- Alignment must keep every hypothesis paired with the right segment
+  metadata.
+- File-producing stages must derive paths from saved parent metadata rather
+  than reordered call positions.
+
+Do not add buffering across `process_batch()` calls merely to improve the
+duration distribution. That would change latency, ownership, failure, and
+end-of-stream semantics and would require a separate queue-and-flush design.
+
+### Tuning and measurement
+
+There is no universal safe or optimal audio-seconds budget:
+
+1. Choose `max_inference_duration_s` from the model's semantic and technical
+   single-input limit first.
+2. Start `max_audio_sec_per_actor` from a known-safe uniform model call. If
+   `k` inputs of duration `d` are safe, `k * d` is a reasonable initial proxy
+   budget. Keep it at least as large as `max_inference_duration_s`.
+3. Exercise the longest allowed singleton, then increase the budget gradually
+   while observing GPU memory, throughput, latency, and failures.
+4. Benchmark representative short, medium, long, exact-boundary, and remainder
+   inputs. Average duration hides padding and tail effects.
+5. Compare enabled and disabled modes using identical candidate windows,
+   model settings, software, input order, and hardware. Establish output
+   parity before comparing performance.
+6. Tune backend `batch_size` separately. A small window offers few regrouping
+   choices; a very large window increases waveform-preparation latency and
+   host memory before inference begins.
+
+A duration budget cannot represent fixed per-item memory. A finite candidate
+window containing many very short or zero-duration items can therefore
+produce a large item-count call. If a model has a hard native item-count
+limit, enforce or expose that adapter-specific constraint at the model
+boundary rather than silently redefining `batch_size`.
+
+### Complexity, guarantees, and non-goals
+
+For `N` prepared segments:
+
+- bucketing disabled: `O(N)` greedy planning;
+- bucketing enabled: `O(N log N)` stable sorting plus `O(N^2)` dynamic
+  programming, for `O(N^2)` total time and `O(N)` auxiliary storage.
+
+Given the same prepared segment sequence and configuration, planning is
+deterministic. Enabled mode guarantees the minimum number of calls and then
+minimum padded seconds within its sorted contiguous-span search space. It
+does not guarantee lower end-to-end latency or higher throughput for every
+model and duration distribution. The model-time or resource savings from
+reduced padding must exceed the added sorting and dynamic-programming cost for
+the optimization to pay off.
+
+The current design intentionally does not provide:
+
+- global, partition-wide, cross-worker, or cross-`process_batch()` bucketing;
+- queues, timers, flush hooks, or end-of-stream state;
+- static duration buckets or per-bucket configuration;
+- a separate adapter batch size or per-bucket item-count map;
+- feature-weighted cost estimation;
+- arbitrary noncontiguous grouping after the stable duration sort;
+- adaptive OOM retries or automatic budget tuning;
+- a GPU-memory-safety proof from the duration proxy;
+- a throughput win for every workload;
+- boundary-safe ASR overlap and transcript reconciliation.
+
+### Tests a reusable implementation needs
+
+At minimum, tests should cover:
+
+- missing, Boolean, nonnumeric, zero, negative, `NaN`, and infinite budgets;
+- a model limit larger than the actor budget and a limit shorter than one
+  sample;
+- empty input, zero-duration audio, exact fills, and floating-point boundary
+  equality;
+- original-order packing, stable duration ordering, and equal-duration
+  stability;
+- the `[1, 2, 2]` under budget `4` case that distinguishes the dynamic program
+  from sorted greedy filling;
+- segments from multiple parent rows sharing one call;
+- strict isolation between separate `process_batch()` calls;
+- exact model-duration boundaries, long parents, and every final remainder;
+- exact-once submission, wrong adapter result counts, scatter, stitching,
+  skip, and error behavior;
+- proof that backend `batch_size` is not treated as an adapter item cap;
+- parity of user-visible outputs, using exact equality or the stage's
+  documented tolerance, between enabled and disabled modes before comparing
+  padding efficiency, throughput, latency, RAM, or VRAM.

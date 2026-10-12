@@ -129,6 +129,7 @@ class RayStageSpecKeys(str, Enum):
     IS_ACTOR_STAGE = "is_actor_stage"
     IS_FANOUT_STAGE = "is_fanout_stage"
     IS_RAFT_ACTOR = "is_raft_actor"
+    USE_TASK_WEIGHTS = "use_task_weights"
     IS_LSH_STAGE = "is_lsh_stage"
     IS_SHUFFLE_STAGE = "is_shuffle_stage"
     MAX_CALLS_PER_WORKER = "max_calls_per_worker"

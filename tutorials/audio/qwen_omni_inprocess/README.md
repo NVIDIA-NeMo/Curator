@@ -63,6 +63,9 @@ explicit:
 | Executor | Ray Data |
 | ASR stage batch size | `32` |
 | GPUs per ASR actor / derived vLLM tensor parallelism | `2` / `2`, from `gpus_per_actor` |
+| Maximum padded audio per adapter call | `2400` seconds |
+| Maximum single model input | `2400` seconds |
+| Local duration bucketing | enabled |
 | Prompt | `Transcribe the audio.` |
 | Prompt content order | text, then audio |
 | Concurrent vLLM sequences | `16` |
@@ -180,6 +183,8 @@ annotated with `language_missing` unless `default_language` is explicitly set.
 
 This is a functional, local manifest-to-transcript example. It does not
 provide recovery ASR, hallucination filtering, WER calculation,
-duration-aware bucketing, sharded resumability, or benchmark reporting.
+sharded resumability, or benchmark reporting. Local duration bucketing is
+limited to the rows and model-safe segments in one `process_batch` call; it
+does not globally reorder the manifest.
 Validate output quality and row accounting on representative audio before
 larger runs.

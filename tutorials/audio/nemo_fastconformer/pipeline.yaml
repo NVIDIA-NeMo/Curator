@@ -22,6 +22,9 @@ resampled_audio_dir: ${workspace_dir}/audio_resampled
 model_id: nvidia/stt_en_fastconformer_ctc_large
 pred_text_key: pred_text
 gpus_per_actor: 1
+max_audio_sec_per_actor: 240.0
+max_inference_duration_s: 120.0
+local_bucketing: true
 backend: ray_data
 execution_mode: streaming
 
@@ -42,6 +45,9 @@ stages:
     model_id: ${model_id}
     pred_text_key: ${pred_text_key}
     batch_size: 16
+    max_audio_sec_per_actor: ${max_audio_sec_per_actor}
+    max_inference_duration_s: ${max_inference_duration_s}
+    local_bucketing: ${local_bucketing}
     resources:
       _target_: nemo_curator.stages.resources.Resources
       gpus: ${gpus_per_actor}

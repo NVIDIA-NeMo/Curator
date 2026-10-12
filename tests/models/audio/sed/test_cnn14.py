@@ -22,7 +22,7 @@ import pytest
 import torch
 from torch import nn
 
-from nemo_curator.models import sed
+from nemo_curator.models.audio import sed
 
 _CNN14_SOURCE = Path(sed.__file__).parent / "cnn14.py"
 
@@ -54,7 +54,7 @@ def test_importing_the_sed_stage_does_not_pull_in_torchlibrosa() -> None:
     probe = (
         "import sys;"
         "import nemo_curator.stages.audio.inference.sed.stage;"
-        "import nemo_curator.models.sed as m;"
+        "import nemo_curator.models.audio.sed as m;"
         "m.SUPPORTED_MODEL_TYPES;"
         "print('torchlibrosa' in sys.modules)"
     )
