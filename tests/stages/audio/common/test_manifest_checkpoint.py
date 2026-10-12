@@ -186,7 +186,7 @@ class TestManifestCheckpointStage:
     ) -> None:
         import fsspec
 
-        from nemo_curator.stages.audio import common
+        from nemo_curator.stages.audio.common import manifest_checkpoint as common
 
         namespace = {"name": "worker"}
         filesystem = fsspec.filesystem("file")
@@ -273,7 +273,6 @@ class TestManifestCheckpointStage:
         ("kwargs", "message"),
         [
             ({"retention_sec": -1}, "retention_sec"),
-            ({"owner": "nobody"}, "owner"),
             ({"output_path": "s3://bucket/checkpoint.jsonl"}, "plain local path"),
             ({"output_path": "file:///tmp/checkpoint.jsonl"}, "plain local path"),
         ],

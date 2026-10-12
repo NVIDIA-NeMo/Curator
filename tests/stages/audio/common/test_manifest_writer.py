@@ -92,7 +92,9 @@ def test_prepared_worker_rejects_a_separate_namespace(
 ) -> None:
     import fsspec
 
-    from nemo_curator.stages.audio import common
+    from nemo_curator.stages.audio.common import manifest_checkpoint, manifest_writer
+
+    common = manifest_writer if stage_cls is ManifestWriterStage else manifest_checkpoint
 
     namespace = {"name": "driver"}
     filesystem = fsspec.filesystem("file")

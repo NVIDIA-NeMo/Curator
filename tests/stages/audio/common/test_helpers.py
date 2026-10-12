@@ -41,7 +41,7 @@ def test_ensure_mono() -> None:
 
 def test_load_audio_file(tmp_path: Path) -> None:
     fake_data = np.random.default_rng(0).standard_normal(32000).astype(np.float32)
-    with mock.patch("nemo_curator.stages.audio.common.soundfile.read", return_value=(fake_data, 16000)):
+    with mock.patch("nemo_curator.stages.audio.common.helpers.soundfile.read", return_value=(fake_data, 16000)):
         waveform, sr = load_audio_file(str(tmp_path / "test.wav"), mono=True)
         assert sr == 16000
         assert waveform.shape == (1, 32000)
@@ -57,7 +57,9 @@ def test_resolve_waveform_with_data() -> None:
 def test_resolve_waveform_from_file(tmp_path: Path) -> None:
     wav_path = str(tmp_path / "audio.wav")
     Path(wav_path).write_bytes(b"\x00")
-    with mock.patch("nemo_curator.stages.audio.common.load_audio_file", return_value=(torch.randn(1, 16000), 16000)):
+    with mock.patch(
+        "nemo_curator.stages.audio.common.helpers.load_audio_file", return_value=(torch.randn(1, 16000), 16000)
+    ):
         item = {"audio_filepath": wav_path}
         result = resolve_waveform_from_item(item, "test")
         assert result is not None

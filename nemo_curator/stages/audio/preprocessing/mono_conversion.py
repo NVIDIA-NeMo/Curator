@@ -273,7 +273,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             tag="mono",
         )
 
-    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:  # noqa: C901 (complexity accepted: residency/sample-rate branch matrix; no refactor pre-PR)
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:  # noqa: C901
         """
         Convert audio to mono and verify sample rate.
 

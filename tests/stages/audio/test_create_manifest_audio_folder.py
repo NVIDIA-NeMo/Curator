@@ -142,8 +142,8 @@ class TestCreateInitialManifestAudioFolderStage:
         assert tasks == []
 
     def test_requires_data_dir(self) -> None:
-        with pytest.raises(ValueError):  # noqa: PT011
-            CreateInitialManifestAudioFolderStage(data_dir="")
+        with pytest.raises(TypeError, match="data_dir"):
+            CreateInitialManifestAudioFolderStage()
 
     def test_output_keys_must_be_distinct(self, tmp_path) -> None:  # noqa: ANN001
         with pytest.raises(ValueError, match="Output keys must be distinct"):

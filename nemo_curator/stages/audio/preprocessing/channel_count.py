@@ -164,12 +164,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._validate_convert()
 
     def _reject_other_actions_params(self) -> None:
-        """Refuse parameters belonging to an action other than the configured one.
-
-        Ignoring them is what makes the two intents blur: ``action="convert",
-        allowed_channels=[1]`` reads as "make everything mono AND only keep mono", and whichever
-        half is silently dropped, the corpus that comes out is not the one that was asked for.
-        """
+        """Reject parameters that the configured action would ignore."""
         defaults = {item.name: item.default for item in fields(self)}
         foreign = [
             (name, owner)
@@ -215,18 +210,13 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def _validate_convert(self) -> None:
-        # Before the target checks below: a conversion with nowhere to put its result is wrong
-        # for every target, including the default mono one that needs no target_channels.
         reject_sinkless_conversion(
             stage="ChannelCountStage(action='convert')",
             keep_waveform_in_task=self.keep_waveform_in_task,
             write_to_disk=self.write_to_disk,
             update_audio_filepath=self.update_audio_filepath,
         )
-        # Type as well as range. YAML reads ``target_channels: 2.0`` as a float, which used to
-        # construct fine and then die inside a worker at ``waveform.repeat(2.0, 1)`` with a
-        # TypeError -- not one of the (OSError, RuntimeError) this stage drops rows for, so it
-        # propagated and took the run down mid-corpus instead of being caught at the recipe.
+        # Tensor.repeat requires an integer target even for values read from YAML.
         target = self.target_channels
         if target is None:
             return
@@ -246,7 +236,7 @@ class ChannelCountStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], self._written_keys()
+        return ["data"], self._written_keys()
 
     def _written_keys(self) -> list[str]:
         if self.action != "convert":

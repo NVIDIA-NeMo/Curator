@@ -27,7 +27,7 @@ import soundfile as sf
 import torch
 
 from nemo_curator.stages.audio._agent._agent_ready import AudioForm, ConditionalRead, ConditionalWrite, IOSpec
-from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
+from nemo_curator.stages.audio.common.helpers import ensure_waveform_2d, load_audio_file
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -60,7 +60,7 @@ def test_duration_legacy_key_mappings_process_a_real_file(path_key: str, duratio
 def test_duration_file_mode_can_write_an_inactive_residency_key(
     duration_key: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nemo_curator.stages.audio.common.get_audio_duration", lambda _path: 1.0)
+    monkeypatch.setattr("nemo_curator.stages.audio.common.duration.get_audio_duration", lambda _path: 1.0)
     stage = GetAudioDurationStage(duration_key=duration_key)
     result = stage.process(AudioTask(data={"audio_filepath": "unused.wav"}))
     assert result.data[duration_key] == 1.0
@@ -199,7 +199,7 @@ def test_get_audio_duration_waveform_validate() -> None:
 
 
 def test_duration_legacy_path_alias_can_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nemo_curator.stages.audio.common.get_audio_duration", lambda _path: 1.0)
+    monkeypatch.setattr("nemo_curator.stages.audio.common.duration.get_audio_duration", lambda _path: 1.0)
     stage = GetAudioDurationStage(audio_filepath_key="waveform")
     result = stage.process(AudioTask(data={"waveform": "unused.wav"}))
     assert result.data["duration"] == 1.0

@@ -14,19 +14,19 @@
 
 from __future__ import annotations
 
+import jsonschema
 import numpy as np
 import pytest
+import soundfile as sf
+import torch
 
-sf = pytest.importorskip("soundfile")
-torch = pytest.importorskip("torch")
-
-from nemo_curator.stages.audio._agent._residency import (  # noqa: E402
+from nemo_curator.stages.audio._agent._residency import (
     produce_audio_filepath,
     resolve_audio,
     resolve_audio_path,
 )
-from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage  # noqa: E402
-from nemo_curator.tasks import AudioTask  # noqa: E402
+from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
+from nemo_curator.tasks import AudioTask
 
 
 def test_residency_helpers_accept_file_waveform_and_custom_keys(tmp_path) -> None:  # noqa: ANN001
@@ -114,7 +114,6 @@ def test_condition_schema_accepts_both_runtime_forms(conditions: dict[str, objec
     from nemo_curator.stages.audio.agent import build_contract, describe_stage, to_json_schema
     from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
 
-    jsonschema = pytest.importorskip("jsonschema")
     schema = to_json_schema(describe_stage("PreserveByValueConditionsStage").params)
     jsonschema.validate({"conditions": conditions}, schema)
     assert build_contract(PreserveByValueConditionsStage(conditions)).cardinality == "filter"
@@ -123,7 +122,6 @@ def test_condition_schema_accepts_both_runtime_forms(conditions: dict[str, objec
 def test_optional_parameter_schema_accepts_explicit_null() -> None:
     from nemo_curator.stages.audio.agent import describe_stage, to_json_schema
 
-    jsonschema = pytest.importorskip("jsonschema")
     schema = to_json_schema(describe_stage("SampleRateFilterStage").params)
     jsonschema.validate({"allowed_sample_rates": None, "min_sample_rate": None}, schema)
     with pytest.raises(jsonschema.ValidationError):
