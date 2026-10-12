@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,3 +40,20 @@ def test_task_retention_setting_reaches_subprocess(tmp_path: Path, save_tasks: b
     )
     command = session.entries[0].get_command_to_run(tmp_path, session.path_resolver, session.dataset_resolver)
     assert command.endswith(" --save-tasks" if save_tasks else " --no-save-tasks")
+
+
+def test_omitted_retention_setting_preserves_legacy_script_command(tmp_path: Path) -> None:
+    script = tmp_path / "legacy.py"
+    script.write_text("import argparse\nparser = argparse.ArgumentParser()\nparser.parse_args()\n")
+    session = Session.from_dict(
+        {
+            "paths": [{"name": "results_path", "host_path": str(tmp_path)}],
+            "entries": [{"name": "legacy", "script": str(script)}],
+        }
+    )
+    command = session.entries[0].get_command_to_run(tmp_path, session.path_resolver, session.dataset_resolver)
+    assert "--save-tasks" not in command
+    assert "--no-save-tasks" not in command
+    arguments = shlex.split(command)
+    arguments[0] = sys.executable
+    subprocess.run(arguments, check=True, capture_output=True)  # noqa: S603

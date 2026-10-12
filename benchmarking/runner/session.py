@@ -80,7 +80,7 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
-    save_tasks: bool = True
+    save_tasks: bool | None = None
     # Fraction of total GPU memory (0.0-1.0) above which a warning is emitted, both
     # before and after each benchmark run. If None, any usage > 0 triggers a warning.
     # Entries can override this value.
@@ -140,7 +140,7 @@ class Session:
             msg = "viewer_url and viewer_url_template are mutually exclusive; set only one."
             raise ValueError(msg)
 
-        if not isinstance(self.save_tasks, bool):
+        if self.save_tasks is not None and not isinstance(self.save_tasks, bool):
             msg = "Invalid save_tasks: expected a boolean"
             raise TypeError(msg)
         # Apply session defaults only where an entry has not specified its own retention policy.

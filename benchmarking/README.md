@@ -89,8 +89,9 @@ This is especially useful during active development and debugging since it avoid
 Results are written to the `results_path` specified in your configuration, organized by session timestamp.
 
 Task performance statistics are always aggregated into `metrics.json`. The
-runner defaults to saving full task objects in `tasks.pkl`, preserving existing
-behavior when `save_tasks` is omitted. The full-suite `benchmarks.yaml` explicitly
+benchmark scripts default to saving full task objects in `tasks.pkl`. When
+`save_tasks` is omitted globally and for an entry, the runner adds no retention
+flag, preserving compatibility with custom scripts. The full-suite `benchmarks.yaml` explicitly
 sets `save_tasks: false` to reduce retained artifacts. Set `save_tasks: true`
 globally or within an individual entry to retain tasks for inspection. Entry
 settings override the global setting in either direction. Scripts run directly

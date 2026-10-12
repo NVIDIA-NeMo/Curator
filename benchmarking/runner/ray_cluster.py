@@ -16,6 +16,7 @@
 import gzip
 import os
 import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -254,8 +255,12 @@ def _compress_large_logs(directory: Path) -> None:
             if log_path.stat().st_size <= 10 * 1024 * 1024:
                 continue
             compressed_path = log_path.with_suffix(".log.gz")
-            with log_path.open("rb") as source, gzip.open(compressed_path, "wb", compresslevel=1) as destination:
-                shutil.copyfileobj(source, destination)
+            # Publish only complete archives, on the same filesystem for atomic replacement.
+            with tempfile.TemporaryDirectory(prefix=".compress-", dir=log_path.parent) as temporary_dir:
+                temporary_path = Path(temporary_dir) / compressed_path.name
+                with log_path.open("rb") as source, gzip.open(temporary_path, "wb", compresslevel=1) as destination:
+                    shutil.copyfileobj(source, destination)
+                temporary_path.replace(compressed_path)
             log_path.unlink()
         except OSError:
             logger.exception(f"Failed to compress archived log {log_path}")

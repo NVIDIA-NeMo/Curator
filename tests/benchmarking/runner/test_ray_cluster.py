@@ -18,6 +18,7 @@ import subprocess
 import sys
 from contextlib import nullcontext
 from pathlib import Path
+from typing import BinaryIO
 
 import pytest
 
@@ -60,6 +61,24 @@ def test_compression_failure_preserves_original(tmp_path: Path, monkeypatch: pyt
     _compress_large_logs(tmp_path)
 
     assert log.stat().st_size == 11 * 1024 * 1024
+    assert list(tmp_path.iterdir()) == [log]
+
+
+def test_mid_copy_failure_does_not_publish_partial_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    log = tmp_path / "frontend.log"
+    content = b"Repeated diagnostic message\n" * 500_000
+    log.write_bytes(content)
+
+    def fail_copy(source: BinaryIO, destination: BinaryIO) -> None:
+        destination.write(source.read(1024))
+        msg = "Disk full during copy"
+        raise OSError(msg)
+
+    monkeypatch.setattr("runner.ray_cluster.shutil.copyfileobj", fail_copy)
+    _compress_large_logs(tmp_path)
+
+    assert log.read_bytes() == content
+    assert list(tmp_path.iterdir()) == [log]
 
 
 @pytest.mark.parametrize(("parent_level", "entry_level"), [(None, "INFO"), ("WARNING", "DEBUG"), ("WARNING", None)])

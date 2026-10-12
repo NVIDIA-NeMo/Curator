@@ -57,9 +57,9 @@ def test_save_tasks_inherits_and_overrides_global_setting(global_value: bool) ->
     assert [entry.save_tasks for entry in session.entries] == [global_value, True, False]
 
 
-def test_save_tasks_retains_tasks_when_setting_is_omitted() -> None:
+def test_save_tasks_leaves_script_default_when_setting_is_omitted() -> None:
     session = Session.from_dict(_config([{"name": "entry_a", "script": "benchmark.py"}]))
-    assert session.entries[0].save_tasks is True
+    assert session.entries[0].save_tasks is None
 
 
 @pytest.mark.parametrize("value", ["false", 1])
