@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+
 from nemo_curator.stages.audio.tts.fields import get_dotted
 from nemo_curator.stages.audio.tts.ipa import ManifestIpaStage
 from nemo_curator.tasks import AudioTask
@@ -109,3 +111,25 @@ def test_records_ipa_failure() -> None:
     stage = _stage(FakeEspeak(fail=True))
     result = stage.process(AudioTask(data={"tn_raw": "hello"}))
     assert result.data["ipa"] == {"ipa": None, "error": "ipa_failed"}
+
+
+def test_segments_inherit_sample_row_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Granary rows keep source_lang on the sample row; segments must not fall back to English."""
+    voices: list[str] = []
+
+    class VoiceRecorder(FakeEspeak):
+        def __init__(self, exe: str, voice: str, fallback_exe: str | None = None) -> None:
+            super().__init__(voice)
+            voices.append(voice)
+
+    monkeypatch.setattr("nemo_curator.stages.audio.tts.ipa.EspeakRunner", VoiceRecorder)
+    stage = _stage(FakeEspeak("en"), text_key="GranaryV2.tn_raw")
+    task = AudioTask(
+        data={
+            "source_lang": "it",
+            "segments": [{"GranaryV2": {"tn_raw": "ciao"}}, {"GranaryV2": {"tn_raw": "hello"}, "source_lang": "en"}],
+        }
+    )
+    result = stage.process(task)
+    assert voices == ["it"]
+    assert [s["ipa"]["ipa"] for s in result.data["segments"]] == ["ipa:ciao", "ipa:hello"]

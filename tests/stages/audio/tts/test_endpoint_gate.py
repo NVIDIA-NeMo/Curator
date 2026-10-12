@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 from nemo_curator.stages.audio.tts.early_cutoff.endpoint_gate import EarlyCutOffEndpointGateStage
 from nemo_curator.stages.audio.tts.early_cutoff.phonemization import PhonemizedReference
 from nemo_curator.tasks import AudioTask
+from tests.stages.audio.tts.test_audio_io import make_tar_segments
 
 
 def _ready_stage(**kwargs: object) -> EarlyCutOffEndpointGateStage:
@@ -101,3 +104,23 @@ def test_existing_final_annotation_is_kept() -> None:
     task = AudioTask(data={"tn_raw": "hello", "source_lang": "en", "early_cut_off_detection": existing})
     stage.process(task)
     assert task.data["early_cut_off_detection"] == existing
+
+
+def test_segments_inherit_sample_row_language() -> None:
+    """Granary keeps source_lang on the sample row; a segment must not default to English."""
+    stage = _ready_stage()
+    task = AudioTask(data={"source_lang": "mt", "segments": [{"tn_raw": "bonġu"}]})
+    stage.process(task)
+    assert task.data["segments"][0]["early_cut_off_detection"]["error"]["code"] == "unsupported_language"
+
+
+def test_tar_member_audio_honours_tar_root(tmp_path: Path) -> None:
+    segment = make_tar_segments(tmp_path, [("a.wav", 1.0, 48000)])[0]
+    meta = segment["GranaryHifi"]["AudioMetadata"]
+    meta["tar_key"] = "bucket/prefix/" + Path(meta["tar_key"]).name
+    stage = EarlyCutOffEndpointGateStage(tar_root=str(tmp_path), strip_tar_key_prefixes=("bucket/prefix",))
+    waveform = stage._load_waveform(segment, "t")
+    assert waveform is not None
+    assert abs(int(waveform.numel()) - 16000) <= 1
+    stage_without_root = EarlyCutOffEndpointGateStage()
+    assert stage_without_root._load_waveform(segment, "t") is None

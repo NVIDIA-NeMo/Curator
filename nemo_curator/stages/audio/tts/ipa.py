@@ -102,10 +102,13 @@ class ManifestIpaStage(ProcessingStage[AudioTask, AudioTask]):
                 return value
         return MISSING
 
-    def _resolve_voice(self, payload: dict[str, Any]) -> str:
+    def _row_language(self, payload: dict[str, Any]) -> str | None:
+        return payload.get(self.source_lang_key) or payload.get("language") or payload.get("lang")
+
+    def _resolve_voice(self, payload: dict[str, Any], default_language: str | None = None) -> str:
         if self.language:
             return language_to_espeak_voice(self.language)
-        lang = payload.get(self.source_lang_key) or payload.get("language") or payload.get("lang")
+        lang = self._row_language(payload) or default_language
         return language_to_espeak_voice(str(lang) if lang else None)
 
     def _existing_ok(self, payload: dict[str, Any]) -> bool:
@@ -148,7 +151,8 @@ class ManifestIpaStage(ProcessingStage[AudioTask, AudioTask]):
         self._cache.set(voice, text, ipa)
         return {"ipa": ipa, "error": None}
 
-    def annotate_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def annotate_payload(self, payload: dict[str, Any], default_language: str | None = None) -> dict[str, Any]:
+        """Annotate one row or segment; ``default_language`` is the parent sample row's language."""
         if self._existing_ok(payload):
             return get_dotted(payload, self.output_key)
 
@@ -156,7 +160,7 @@ class ManifestIpaStage(ProcessingStage[AudioTask, AudioTask]):
         if error is not None or text is None:
             return empty_annotation(error or "missing_text")
 
-        voice = self._resolve_voice(payload)
+        voice = self._resolve_voice(payload, default_language)
         runner = self._runner
         if runner is None:
             return empty_annotation("espeak_unavailable")
@@ -167,9 +171,10 @@ class ManifestIpaStage(ProcessingStage[AudioTask, AudioTask]):
     def _annotate_task_data(self, data: dict[str, Any]) -> None:
         segments = data.get("segments")
         if isinstance(segments, list):
+            row_language = self._row_language(data)
             for segment in segments:
                 if isinstance(segment, dict):
-                    set_dotted(segment, self.output_key, self.annotate_payload(segment))
+                    set_dotted(segment, self.output_key, self.annotate_payload(segment, row_language))
             return
         set_dotted(data, self.output_key, self.annotate_payload(data))
 

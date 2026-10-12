@@ -32,6 +32,13 @@ import torch
 from loguru import logger
 
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
+from nemo_curator.stages.audio.tts.audio_io import (
+    TAR_KEY_FIELD,
+    TAR_MEMBER_FIELD,
+    SegmentAudioError,
+    load_segment_audio,
+    make_audio_config,
+)
 from nemo_curator.stages.audio.tts.early_cutoff.endpoint_classifier import (
     SCALAR_FEATURES,
     EndpointCheckpoint,
@@ -256,6 +263,11 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     append_silence_sec: float = 0.30
     sample_rate: int = 16000
     overwrite: bool = False
+    tar_root: str | None = None
+    strip_tar_key_prefixes: tuple[str, ...] = ()
+    audio_source: str = "original"
+    enhanced_key: str = "enhanced_audio"
+    enhanced_fallback: bool = False
     name: str = "EarlyCutOffEndpointGate"
     resources: Resources = field(default_factory=lambda: Resources(cpus=4.0, gpus=1.0))
     batch_size: int = 4
@@ -365,10 +377,13 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "append_silence_sec must be positive"
             raise ValueError(msg)
 
-    def _resolve_language(self, payload: dict[str, Any]) -> str:
+    def _row_language(self, payload: dict[str, Any]) -> str | None:
+        return payload.get(self.source_lang_key) or payload.get("language") or payload.get("lang")
+
+    def _resolve_language(self, payload: dict[str, Any], default_language: str | None = None) -> str:
         if self.language:
             return language_code(self.language)
-        raw = payload.get(self.source_lang_key) or payload.get("language") or payload.get("lang")
+        raw = self._row_language(payload) or default_language
         return language_code(str(raw) if raw else "en")
 
     def _resolve_text(self, payload: dict[str, Any]) -> Any:  # noqa: ANN401
@@ -415,9 +430,9 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         self._write(payload, empty_detection(code, self._setup_error), language)
 
     def _prepare_item(  # noqa: C901, PLR0911
-        self, payload: dict[str, Any], task_id: str
+        self, payload: dict[str, Any], task_id: str, default_language: str | None = None
     ) -> tuple[dict[str, Any], Any, PhonemizedReference] | None:
-        language = self._resolve_language(payload)
+        language = self._resolve_language(payload, default_language)
         existing = get_dotted(payload, self.output_key)
         if not self.overwrite and _is_final(existing):
             return None
@@ -463,12 +478,23 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         return payload, waveform.to(dtype=torch.float32).reshape(-1).cpu(), reference
 
     def _load_waveform(self, payload: dict[str, Any], task_id: str) -> Any:  # noqa: ANN401
+        if get_dotted(payload, TAR_MEMBER_FIELD) or get_dotted(payload, TAR_KEY_FIELD):
+            try:
+                audio, _ = load_segment_audio(
+                    payload,
+                    self.sample_rate,
+                    make_audio_config(self),
+                )
+            except SegmentAudioError as exc:
+                logger.debug("No audio for {}: {}", task_id, exc)
+                return None
+            return torch.from_numpy(audio)
         audio = resolve_waveform_from_item(payload, task_id)
-        if audio is not None:
-            waveform, sample_rate = audio
-            waveform = waveform.detach().cpu().reshape(-1).to(dtype=torch.float32)
-            return _resample(waveform, int(sample_rate), self.sample_rate)
-        return _load_tar_waveform(payload, self.sample_rate)
+        if audio is None:
+            return None
+        waveform, sample_rate = audio
+        waveform = waveform.detach().cpu().reshape(-1).to(dtype=torch.float32)
+        return _resample(waveform, int(sample_rate), self.sample_rate)
 
     def _flush(self, items: list[tuple[dict[str, Any], Any, PhonemizedReference]], language: str) -> None:
         if not items:
@@ -619,11 +645,12 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     def _annotate_payload(self, payload: dict[str, Any], task_id: str, pending: dict[str, list]) -> None:
         segments = payload.get("segments")
         if isinstance(segments, list):
+            row_language = self._row_language(payload)
             for index, segment in enumerate(segments):
                 if isinstance(segment, dict):
-                    prepared = self._prepare_item(segment, f"{task_id}:{index}")
+                    prepared = self._prepare_item(segment, f"{task_id}:{index}", row_language)
                     if prepared is not None:
-                        pending.setdefault(self._resolve_language(segment), []).append(prepared)
+                        pending.setdefault(self._resolve_language(segment, row_language), []).append(prepared)
             return
         prepared = self._prepare_item(payload, task_id)
         if prepared is not None:
@@ -651,26 +678,3 @@ def _resample(waveform: Any, sample_rate: int, target_sample_rate: int) -> Any: 
         mode="linear",
         align_corners=False,
     ).view(-1)
-
-
-def _load_tar_waveform(payload: dict[str, Any], target_sample_rate: int) -> Any:  # noqa: ANN401
-    import io
-
-    import soundfile as sf
-
-    tar_key = get_dotted(payload, "GranaryHifi.AudioMetadata.tar_key")
-    offset = get_dotted(payload, "GranaryHifi.AudioMetadata.tar_member_offset")
-    size = get_dotted(payload, "GranaryHifi.AudioMetadata.tar_member_bytes")
-    if not tar_key or offset is None or size is None:
-        return None
-    path = Path(str(tar_key)).expanduser()
-    if not path.is_file():
-        return None
-    with path.open("rb") as src:
-        src.seek(int(offset))
-        payload_bytes = src.read(int(size))
-    audio, sample_rate = sf.read(io.BytesIO(payload_bytes), dtype="float32", always_2d=False)
-    waveform = torch.as_tensor(audio, dtype=torch.float32)
-    if waveform.ndim > 1:
-        waveform = waveform.mean(dim=1)
-    return _resample(waveform.reshape(-1), int(sample_rate), target_sample_rate)

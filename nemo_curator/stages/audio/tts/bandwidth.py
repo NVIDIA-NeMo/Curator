@@ -23,7 +23,14 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
-from nemo_curator.stages.audio.tts.fields import set_dotted
+from nemo_curator.stages.audio.tts.audio_io import (
+    TAR_KEY_FIELD,
+    TAR_MEMBER_FIELD,
+    SegmentAudioError,
+    load_segment_audio,
+    make_audio_config,
+)
+from nemo_curator.stages.audio.tts.fields import get_dotted, set_dotted
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -42,9 +49,11 @@ def estimate_bandwidth(  # noqa: PLR0913
 ) -> int:
     """Estimate the highest frequency bin near the signal's spectral peak.
 
-    Port of TTS Granary ``pipeline.stages.bandwidth.processor.estimate_bandwidth``,
-    using a numpy STFT instead of librosa.
+    Exact port of TTS Granary ``pipeline.stages.bandwidth.processor.estimate_bandwidth`` (librosa STFT with a
+    periodic Blackman-Harris window, mean power over time, ``power_to_db(ref=n_fft)``).
     """
+    import librosa
+
     hop_length = int(sample_rate * stride_seconds)
     if hop_length < 1:
         msg = f"stride_seconds={stride_seconds} produces invalid hop_length={hop_length} for sample_rate={sample_rate}"
@@ -52,31 +61,19 @@ def estimate_bandwidth(  # noqa: PLR0913
     if n_fft < _MIN_N_FFT:
         msg = "n_fft must be at least 2"
         raise ValueError(msg)
-
-    window = np.blackman(n_fft).astype(np.float64)
-    audio = np.asarray(audio, dtype=np.float64).reshape(-1)
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
     if audio.size == 0:
         return 0
 
-    n_frames = 1 + max(0, (audio.size - n_fft) // hop_length)
-    frames: list[np.ndarray] = []
-    for i in range(max(n_frames, 1)):
-        start = i * hop_length
-        frame = audio[start : start + n_fft]
-        if frame.size < n_fft:
-            frame = np.pad(frame, (0, n_fft - frame.size))
-        frames.append(np.abs(np.fft.rfft(frame * window)) ** 2)
-
-    power_spec = np.mean(np.stack(frames, axis=0), axis=0)
-    ref = float(n_fft)
-    log_spec = 10.0 * np.log10(np.maximum(power_spec, 1e-20) / ref)
-    log_spec = np.maximum(log_spec, float(np.max(log_spec)) - top_db)
+    spec = librosa.stft(y=audio, n_fft=n_fft, hop_length=hop_length, window="blackmanharris")
+    power_spec = np.mean(np.abs(spec) ** 2, axis=1)
+    power_spec = librosa.power_to_db(power_spec, ref=n_fft, top_db=top_db)
 
     bandwidth = 0.0
-    peak = float(np.max(log_spec))
+    peak = float(np.max(power_spec))
     freq_width = sample_rate / n_fft
-    for idx in range(len(log_spec) - 1, -1, -1):
-        if log_spec[idx] - peak > frequency_threshold:
+    for idx in range(len(power_spec) - 1, -1, -1):
+        if power_spec[idx] - peak > frequency_threshold:
             bandwidth = idx * freq_width
             break
     return int(bandwidth)
@@ -90,9 +87,10 @@ def empty_annotation(error: str) -> dict[str, Any]:
 class BandwidthAnnotationStage(ProcessingStage[AudioTask, AudioTask]):
     """Estimate original-audio bandwidth and write the annotation without dropping rows.
 
-    Port of TTS Granary ``BandwidthProcessor``. Uses in-memory ``waveform`` /
-    ``audio_filepath`` via ``resolve_waveform_from_item`` (Curator JSONL) rather
-    than tar-member offsets.
+    Port of TTS Granary ``BandwidthProcessor``. Audio comes from an in-memory ``waveform`` / ``audio_filepath``
+    (``resolve_waveform_from_item``) or, for Granary segments, the tar member addressed by
+    ``GranaryHifi.AudioMetadata`` at its native sample rate (``tar_root`` / ``strip_tar_key_prefixes`` resolve
+    relative ``tar_key`` values).
     """
 
     output_key: str = "bandwidth"
@@ -100,6 +98,11 @@ class BandwidthAnnotationStage(ProcessingStage[AudioTask, AudioTask]):
     stride_seconds: float = 0.01
     top_db: float = 100.0
     frequency_threshold: float = -50.0
+    tar_root: str | None = None
+    strip_tar_key_prefixes: tuple[str, ...] = ()
+    audio_source: str = "original"
+    enhanced_key: str = "enhanced_audio"
+    enhanced_fallback: bool = False
     name: str = "BandwidthAnnotation"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     batch_size: int = 16
@@ -122,13 +125,24 @@ class BandwidthAnnotationStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key.split(".")[0]]
 
-    def annotate_item(self, item: dict[str, Any], task_id: str) -> dict[str, Any]:
+    def _load_audio(self, item: dict[str, Any], task_id: str) -> tuple[np.ndarray, int] | str:
+        if get_dotted(item, TAR_MEMBER_FIELD) or get_dotted(item, TAR_KEY_FIELD):
+            try:
+                return load_segment_audio(item, None, make_audio_config(self))
+            except SegmentAudioError as exc:
+                return exc.code
         audio = resolve_waveform_from_item(item, task_id)
         if audio is None:
-            return empty_annotation("missing_audio")
+            return "missing_audio"
         waveform, sample_rate = audio
+        return waveform.detach().cpu().numpy().reshape(-1), int(sample_rate)
+
+    def annotate_item(self, item: dict[str, Any], task_id: str) -> dict[str, Any]:
+        audio = self._load_audio(item, task_id)
+        if isinstance(audio, str):
+            return empty_annotation(audio)
+        samples, sample_rate = audio
         try:
-            samples = waveform.detach().cpu().numpy().reshape(-1)
             bandwidth = estimate_bandwidth(
                 samples,
                 int(sample_rate),

@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Early cut-off endpoint gate, ported from TTS Granary."""
+"""Early cut-off (end-of-word) cascade ported from TTS Granary: CTC endpoint gate + MFA resolver."""
