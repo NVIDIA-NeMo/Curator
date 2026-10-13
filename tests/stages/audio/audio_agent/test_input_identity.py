@@ -561,3 +561,33 @@ class TestLongFormSource:
         before = recipe.to_dict()
         resolve_dataset_binding(recipe)
         assert recipe.to_dict() == before
+
+
+@pytest.mark.parametrize("symlink_root", [False, True])
+def test_folder_identity_limits_the_selected_source_files(tmp_path: Path, symlink_root: bool) -> None:
+    from nemo_curator.stages.audio.audio_agent.profiler import profile_data
+    from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
+
+    root = tmp_path / "audio"
+    root.mkdir()
+    for name in ("a.wav", "b.wav", "c.wav"):
+        (root / name).write_bytes(b"source identity fixture")
+    if symlink_root:
+        alias = tmp_path / "alias"
+        alias.symlink_to(root, target_is_directory=True)
+        source_root = alias
+    else:
+        source_root = root
+    params = {"data_dir": str(source_root), "include_files": [str(source_root / "c.wav")], "max_samples": 1}
+    source = CreateInitialManifestAudioFolderStage(**params)
+    binding = resolve_dataset_binding(_recipe("CreateInitialManifestAudioFolderStage", params))
+    before = profile_data(binding.profile_source, max_probe=0, **binding.profile_kwargs)
+
+    assert before.num_files == len(source.process(None)) == 1
+    assert {str((root / name).resolve()) for name in before.inventory} == {str((root / "c.wav").resolve())}
+    (root / "a.wav").write_bytes(b"unselected file changed")
+    unrelated = profile_data(binding.profile_source, max_probe=0, **binding.profile_kwargs)
+    assert unrelated.dataset_key() == before.dataset_key()
+    (root / "c.wav").write_bytes(b"selected file changed with a different size")
+    selected = profile_data(binding.profile_source, max_probe=0, **binding.profile_kwargs)
+    assert selected.dataset_key() != before.dataset_key()

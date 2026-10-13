@@ -39,8 +39,8 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
 
 
-# Constructor keys that configure the framework, not stage semantics; peeled out
-# and re-applied via .with_() rather than passed to the dataclass constructor.
+# Framework configuration is applied via .with_() rather than the constructor.
+# These settings remain part of reuse identity because they can affect outputs.
 EXECUTION_KNOB_PARAMS = frozenset({"resources", "batch_size", "runtime_env", "num_workers"})
 # Hashed policy carried by a stage but excluded from reuse identity because it
 # changes approval requirements, not the bytes the stage produces.
@@ -189,7 +189,7 @@ class StageRef:
 
     def semantic_params(self) -> dict[str, Any]:
         """Byte-affecting params, including generated asset paths serialized downstream."""
-        skip = EXECUTION_KNOB_PARAMS | (OUTPUT_LOCATION_PARAMS - GENERATED_ASSET_PARAMS) | NON_SEMANTIC_POLICY_PARAMS
+        skip = (OUTPUT_LOCATION_PARAMS - GENERATED_ASSET_PARAMS) | NON_SEMANTIC_POLICY_PARAMS
         return {k: v for k, v in self.params.items() if k not in skip}
 
     def semantic_dict(self) -> dict[str, Any]:

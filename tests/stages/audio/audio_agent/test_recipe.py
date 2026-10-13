@@ -258,3 +258,38 @@ class TestAMalformedStageEntrySaysWhatIsWrong:
         for payload in malformed:
             with pytest.raises(ValueError):  # noqa: PT011
                 Recipe.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        {"batch_size": 2},
+        {"resources": {"gpus": 1}},
+        {"num_workers": 2},
+        {"runtime_env": {"env_vars": {"OMP_NUM_THREADS": "2"}}},
+    ],
+)
+def test_execution_settings_are_bound_to_recipe_identity(setting: dict[str, object]) -> None:
+    baseline = Recipe.from_dict({"stages": [{"ref": "AudioToDocumentStage"}]}).freeze()
+    changed = Recipe.from_dict({"stages": [{"ref": "AudioToDocumentStage", "params": setting}]}).freeze()
+
+    assert changed.semantic_hash != baseline.semantic_hash
+    assert changed.stages[0].semantic_params() == setting
+
+
+def test_batch_sensitive_serialization_changes_the_step_chain() -> None:
+    from nemo_curator.stages.audio.audio_agent.artifacts import step_keys
+    from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+    from nemo_curator.tasks import AudioTask
+
+    converter = AudioToDocumentStage()
+    tasks = [AudioTask(data={"text": "a"}), AudioTask(data={"text": "b", "speaker_id": "s"})]
+    singleton_rows = [converter.process_batch([task])[0].data.to_json(orient="records", lines=True) for task in tasks]
+    combined_rows = converter.process_batch(tasks)[0].data.to_json(orient="records", lines=True)
+    assert "".join(singleton_rows) != combined_rows
+
+    recipes = [
+        Recipe.from_dict({"stages": [{"ref": "AudioToDocumentStage", "params": {"batch_size": size}}]}).freeze()
+        for size in (1, 2)
+    ]
+    assert step_keys(recipes[0], "stat:batch-sensitive") != step_keys(recipes[1], "stat:batch-sensitive")

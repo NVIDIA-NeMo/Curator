@@ -31,6 +31,13 @@ def _recipe(tmp_path: Path, stages: list[dict], row: dict) -> dict:
     }
 
 
+def test_source_key_check_accepts_the_existing_duration_stage() -> None:
+    from nemo_curator.stages.audio.common import GetAudioDurationStage
+
+    assert _missing_source_audio_keys([object(), GetAudioDurationStage()], {"audio_filepath"}) == set()
+    assert _missing_source_audio_keys([object(), GetAudioDurationStage()], set()) == {"audio_filepath"}
+
+
 @pytest.mark.parametrize(
     "stage",
     [
@@ -157,3 +164,29 @@ def test_directory_sink_reports_unproven_acceptance_before_execution(tmp_path: P
     result = aa.validate(recipe)
     assert any(issue["code"] == "acceptance_output_evidence_unproven" for issue in result["issues"])
     assert not (tmp_path / "audio").exists()
+
+
+def test_agent_refuses_extraction_that_cannot_preserve_source_identity(tmp_path: Path) -> None:
+    recipe = _recipe(
+        tmp_path,
+        [
+            {
+                "ref": "SnippetExtractionStage",
+                "params": {
+                    "output_dir": str(tmp_path / "snips"),
+                    "output_audio_tar_path": str(tmp_path / "snips.tar"),
+                    "audio_filepath_key": "id",
+                    "dry_run": True,
+                },
+            }
+        ],
+        {"id": str(tmp_path / "source.wav"), "_snippet_plan": []},
+    )
+    recipe["stages"][0]["params"]["include_files_key"] = "id"
+
+    result = aa.validate(recipe)
+
+    assert not result["runnable"]
+    assert any(issue["code"] == "unwrappable_stage" and issue["severity"] == "error" for issue in result["issues"])
+    assert not (tmp_path / "snips").exists()
+    assert not (tmp_path / "snips.tar").exists()

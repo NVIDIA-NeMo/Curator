@@ -103,6 +103,7 @@ def profile_data(  # noqa: PLR0913
     audio_path_resolution: str | None = None,
     identity_files: list[str] | tuple[str, ...] | None = None,
     folder_extensions: list[str] | tuple[str, ...] | None = None,
+    folder_files: list[str] | tuple[str, ...] | None = None,
     recursive: bool = True,
     max_files: int | None = None,
     case_sensitive_extensions: bool = False,
@@ -126,13 +127,17 @@ def profile_data(  # noqa: PLR0913
 
     if os.path.isdir(expanded):
         prof.kind = "folder"
-        paths = _list_audio_files(
-            expanded,
-            prof,
-            extensions=folder_extensions,
-            recursive=recursive,
-            case_sensitive_extensions=case_sensitive_extensions,
-            exclude_stage_intermediates=exclude_stage_intermediates,
+        paths = (
+            list(folder_files)
+            if folder_files is not None
+            else _list_audio_files(
+                expanded,
+                prof,
+                extensions=folder_extensions,
+                recursive=recursive,
+                case_sensitive_extensions=case_sensitive_extensions,
+                exclude_stage_intermediates=exclude_stage_intermediates,
+            )
         )
         if isinstance(max_files, int) and max_files >= 0:
             paths = paths[:max_files]

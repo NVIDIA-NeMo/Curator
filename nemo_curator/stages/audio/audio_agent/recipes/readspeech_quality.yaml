@@ -26,9 +26,8 @@ stages:
 acceptance_criteria:
   - id: rows_point_at_audio
     type: output_completeness
-    description: "every kept row still names an audio file -- the VAD and separation stages
-      rewrite paths, so a row surviving with a blank path is a real outcome, not a hypothetical"
-    check: {field: audio_filepath}
+    description: "every kept row names its original source audio after timestamp mapping"
+    check: {field: original_file}
     severity: must
   - id: quality_filters_kept_something
     type: yield

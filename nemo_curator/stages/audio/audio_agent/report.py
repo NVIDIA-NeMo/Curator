@@ -24,9 +24,42 @@ StagePerfStats per (stage, source) rather than summing over every child task.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nemo_curator.stages.audio.audio_agent.contracts import _clean
+
+if TYPE_CHECKING:
+    from nemo_curator.stages.audio.audio_agent.recipe import Recipe
+
+
+def source_rejection_count(
+    recipe: Recipe, source_items: int, output_rows: int, *, stages: list[Any] | None = None
+) -> int | None:
+    """Subtract counts only when every processing stage preserves one row per source."""
+    from nemo_curator.stages.audio._agent._agent_registry import build_contract
+    from nemo_curator.stages.audio._agent._composite import expand_composites
+    from nemo_curator.stages.audio.audio_agent.input_identity import SUPPORTED_SOURCE_REFS
+    from nemo_curator.stages.audio.audio_agent.recipe import build_stages
+
+    if (
+        not getattr(recipe, "stages", None)
+        or recipe.stages[0].ref.rsplit(".", 1)[-1] not in SUPPORTED_SOURCE_REFS
+        or output_rows > source_items
+    ):
+        return None
+    if stages is None:
+        stages, issues = build_stages(recipe)
+        if issues or stages is None:
+            return None
+    try:
+        leaves = expand_composites(stages[1:]).stages
+        for leaf in leaves:
+            contract = build_contract(leaf.stage)
+            if not contract.wrappable or contract.cardinality not in {"1:1", "1:1 nested-list", "filter"}:
+                return None
+    except Exception:  # noqa: BLE001 - unknown cardinality cannot prove a source rejection count
+        return None
+    return max(0, source_items - output_rows)
 
 
 @dataclass
@@ -226,7 +259,7 @@ def build_run_report(  # noqa: PLR0913 - a report intentionally gathers many fie
         data_profile=data_profile,
         input_count=input_count,
         accepted=accepted,
-        rejected=max(0, input_count - accepted),
+        rejected=source_rejection_count(recipe, input_count, accepted),
         source_items=input_count,
         output_rows=accepted,
         per_filter_counts=_filter_counts(per_stage),

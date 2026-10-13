@@ -429,7 +429,7 @@ class SmokeReport:
     sample: int = 0
     input_count: int = 0
     retained: int = 0
-    rejected: int = 0
+    rejected: int | None = 0
     errors: list[str] = field(default_factory=list)
     examples: list[dict[str, Any]] = field(default_factory=list)
     per_stage_metrics: dict[str, Any] = field(default_factory=dict)

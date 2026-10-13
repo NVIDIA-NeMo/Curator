@@ -230,6 +230,27 @@ def _check_data_flow(ctx: CheckContext) -> CheckResult:
         )
         for pi in report.issues
     ]
+    from nemo_curator.stages.audio._agent._composite import expand_composites
+    from nemo_curator.stages.base import CompositeStage
+
+    for leaf in expand_composites(ctx.stages).stages:
+        if isinstance(leaf.stage, CompositeStage):
+            continue
+        try:
+            contract = foundation.build_contract(leaf.stage)
+        except Exception:  # noqa: BLE001, S112 - already exposed by the foundation report
+            continue
+        if not contract.wrappable:
+            issues.append(
+                Issue(
+                    "unwrappable_stage",
+                    "error",
+                    f"{type(leaf.stage).__name__}: this configuration cannot be wrapped safely by the audio agent",
+                    stage_index=leaf.recipe_index,
+                    stage=type(leaf.stage).__name__,
+                    fix="choose parameters that preserve distinct input/output roles",
+                )
+            )
     return CheckResult(
         issues=issues,
         ok=report.ok,
@@ -750,6 +771,8 @@ def _missing_source_audio_keys(stages: list[Any], columns: set[str]) -> set[str]
             available.clear()
         available.difference_update(contract.removes_keys)
         available.difference_update(contract.invalidates_keys)
+        prior_writes = getattr(contract, "invalidates_prior_writes", None)
+        available.difference_update(getattr(prior_writes, "data_keys", ()))
         available.update(contract.writes.data_keys)
     return set()
 

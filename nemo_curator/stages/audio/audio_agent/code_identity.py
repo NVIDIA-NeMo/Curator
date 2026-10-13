@@ -56,7 +56,7 @@ _CLOSURE_LIMIT = 400
 # Keyed by stage ref. Cached for the life of the process on purpose: the stage's modules are
 # already imported, so these bytes describe the code that is actually running even if the
 # file on disk is edited underneath a long-lived server.
-_version_cache: dict[str, str] = {}
+_version_cache: dict[tuple[str, str | None], str] = {}
 _file_digest_cache: dict[str, str] = {}
 # Stages overlap heavily -- twelve of them share about forty files -- so parsing and hashing
 # are memoized by file as well as by stage. Without it a full recipe re-parses the same base
@@ -65,21 +65,30 @@ _imports_cache: dict[tuple[str, str], list[str]] = {}
 _root_cache: list[str | None] = []
 
 
-def impl_version(stage_ref: str) -> str:
+def impl_version(stage_ref: str, *, adapter_target: str | None = None) -> str:
     """A digest of the code implementing ``stage_ref`` (``"impl:..."`` or a fallback)."""
-    cached = _version_cache.get(stage_ref)
+    cache_key = (stage_ref, adapter_target)
+    cached = _version_cache.get(cache_key)
     if cached is None:
-        cached = _version_cache[stage_ref] = _compute(stage_ref)
+        cached = _version_cache[cache_key] = _compute(stage_ref, adapter_target=adapter_target)
     return cached
 
 
-def _compute(stage_ref: str) -> str:
+def _compute(stage_ref: str, *, adapter_target: str | None = None) -> str:
     try:
         from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class
 
         files = _closure(resolve_stage_class(stage_ref).__module__)
         if not files:
             return _fallback()
+        if adapter_target is not None:
+            adapter_module, separator, adapter_class = adapter_target.rpartition(".")
+            if not separator or not adapter_class:
+                return _fallback()
+            adapter_files = _closure(adapter_module)
+            if not adapter_files:
+                return _fallback()
+            files.update(adapter_files)
         h = hashlib.sha256()
         for name in sorted(files):
             h.update(name.encode("utf-8"))

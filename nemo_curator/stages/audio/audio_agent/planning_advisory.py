@@ -328,6 +328,8 @@ def _keys_before(
     for prior in configured_stages[:stage_index]:
         contract = foundation.build_contract(prior)
         removed = set(contract.removes_keys) | set(contract.invalidates_keys)
+        prior_writes = getattr(contract, "invalidates_prior_writes", None)
+        removed |= set(getattr(prior_writes, "data_keys", ())) | set(getattr(prior_writes, "segment_data_keys", ()))
         unconditional -= removed
         possible -= removed
         writes = set(contract.writes.data_keys) | set(contract.writes.segment_data_keys)

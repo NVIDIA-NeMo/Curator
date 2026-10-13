@@ -1118,6 +1118,7 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                         "writes": [],
                         "removes_keys": [],
                         "invalidates_keys": [],
+                        "invalidates_prior_writes": {"task": [], "segment": []},
                         "semantic_material": material,
                     }
                 )
@@ -1148,6 +1149,7 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
             )
             reads = _contract_reads(contract, key_params)
             writes = _contract_writes(contract, key_params)
+            prior_writes = getattr(contract, "invalidates_prior_writes", None)
             stage_info = {
                 "stage_index": stage_index,
                 "stage": stage_ref,
@@ -1165,6 +1167,10 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                 "writes": writes,
                 "removes_keys": [str(key) for key in (getattr(contract, "removes_keys", ()) or ())],
                 "invalidates_keys": [str(key) for key in (getattr(contract, "invalidates_keys", ()) or ())],
+                "invalidates_prior_writes": {
+                    "task": list(getattr(prior_writes, "data_keys", ())),
+                    "segment": list(getattr(prior_writes, "segment_data_keys", ())),
+                },
                 "semantic_material": material,
             }
             stage_packets.append(stage_info)
@@ -1219,6 +1225,10 @@ def build_semantic_review(  # noqa: C901, PLR0912, PLR0915
                     unresolved_lineage.append(copy.deepcopy(edge))
 
             active_before_stage = copy.deepcopy(active_writers)
+            for scope, keys in stage_info["invalidates_prior_writes"].items():
+                for key in keys:
+                    active_writers.pop((scope, key), None)
+                    active_before_stage.pop((scope, key), None)
             if not stage_info["preserves_upstream_keys"]:
                 # ``preserves_upstream_keys`` describes task.data reconstruction.
                 # Task metadata is a separate channel and remains live unless a

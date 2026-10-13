@@ -51,10 +51,14 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import stat
+import tempfile
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from nemo_curator.stages.audio.audio_agent.artifacts import Artifact, StepPlan
     from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
@@ -62,9 +66,6 @@ if TYPE_CHECKING:
 # splits one row into many, which is still one origin per child; ``N:1`` is the only shape
 # that mixes files, and it is where the incremental region ends.
 _TRACEABLE = frozenset({"1:1", "1:1 nested-list", "1:N fan-out", "filter"})
-# How many rows of a prior artifact to read when deriving provenance. Enough to be confident
-# the column really is the origin, small enough that a million-row manifest is not re-read.
-_PROVENANCE_SAMPLE = 2000
 Kind = Literal["identical", "added_only", "changed", "removed", "unrelated"]
 
 
@@ -267,32 +268,59 @@ def provenance(uri: str, *, inventory: dict[str, str], root: str) -> tuple[str, 
     """Find the column in a prior artifact's rows that names each row's input file.
 
     Returns ``(key, reason)``: a column name, or ``""`` and why none qualifies. Qualifying
-    means every sampled row's value resolves to a file the inventory knows -- checked against
+    means every row's value resolves to a file the inventory knows -- checked against
     the artifact's real rows, so a pipeline that rewrote its paths to derived chunks (or built
     fresh rows that no longer mention their origin) yields no key and no delta.
 
     Reading a prior artifact here is bookkeeping, not planning: the merge has to know which
     rows belong to which file. It is the same file whose digest ``artifacts`` already verifies.
     """
-    rows = list(_read_rows(uri, limit=_PROVENANCE_SAMPLE))
-    if not rows:
-        return "", f"no rows could be read from the prior output at {uri}"
+    candidates: list[str] | None = None
+    columns: list[str] = []
     known = set(inventory)
-    candidates = [k for k, v in rows[0].items() if isinstance(v, str) and v]
-    for key in candidates:
-        hits = 0
-        for row in rows:
-            value = row.get(key)
-            if not isinstance(value, str) or _relpath(value, root) not in known:
-                hits = -1
-                break
-            hits += 1
-        if hits > 0:
-            return key, ""
+    try:
+        for row in _iter_manifest_rows(uri):
+            if candidates is None:
+                columns = sorted(row)
+                candidates = [k for k, v in row.items() if isinstance(v, str) and v]
+            candidates = [
+                key for key in candidates if isinstance(row.get(key), str) and _relpath(row[key], root) in known
+            ]
+    except (OSError, UnicodeError, ValueError, TypeError) as error:
+        return "", f"no rows could be safely traced from the prior output at {uri}: {error}"
+    if candidates is None:
+        return "", f"no rows could be read from the prior output at {uri}"
+    if candidates:
+        return candidates[0], ""
     return "", (
         "no column in the prior output names a file from the input inventory "
-        f"(columns: {sorted(rows[0])[:12]}), so rows cannot be traced back to the files they came from"
+        f"(columns: {columns[:12]}), so rows cannot be traced back to the files they came from"
     )
+
+
+def _iter_manifest_rows(uri: str) -> Iterator[dict[str, Any]]:
+    """Read every JSONL object, refusing malformed rows rather than dropping them."""
+    with open(os.path.expanduser(uri), encoding="utf-8") as source:
+        for number, line in enumerate(source, start=1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                msg = f"manifest row {number} is not an object"
+                raise TypeError(msg)
+            yield row
+
+
+def _row_origin(row: dict[str, Any], *, key: str, root: str, known_files: set[str] | None) -> str:
+    value = row.get(key)
+    if not isinstance(value, str) or not value:
+        msg = f"manifest row lacks a nonempty source path in {key!r}"
+        raise ValueError(msg)
+    origin = _relpath(value, root)
+    if known_files is not None and origin not in known_files:
+        msg = f"manifest row's {key!r} is outside the expected source inventory"
+        raise ValueError(msg)
+    return origin
 
 
 def _same_path(a: str, b: str) -> bool:
@@ -691,39 +719,55 @@ def _accepts_include(ref: str) -> bool:
     return _has_field(ref, _INCLUDE_PARAM)
 
 
-def merge(sink: Sink, *, produced: str, stale: set[str], key: str, root: str) -> tuple[int, int, str]:
-    """Replace a manifest with (its surviving rows + the delta's rows). ``(kept, added, error)``.
-
-    Written to a temporary file beside the target and moved into place, so a reader either sees
-    the whole previous manifest or the whole merged one. Prior rows keep their order and the new
-    ones follow; row order carries no meaning to preserve, since parallel writers append in
-    completion order and no two full runs need agree on it either.
-    """
-    surviving = [r for r in _read_rows(sink.uri) if _relpath(str(r.get(key) or ""), root) not in stale]
-    fresh = _read_rows(produced)
-    if fresh and surviving:
-        mismatch = set(fresh[0]) ^ set(surviving[0])
-        if mismatch:
-            return (
-                0,
-                0,
-                (
-                    "the delta's rows do not have the same columns as the rows already there "
-                    f"({sorted(mismatch)[:8]}), so merging them would produce a manifest no run could"
-                ),
-            )
-    tmp = f"{sink.uri}.delta-{os.getpid()}"
+def merge(  # noqa: PLR0913
+    sink: Sink,
+    *,
+    produced: str | None,
+    stale: set[str],
+    key: str,
+    root: str,
+    prior_files: set[str] | None = None,
+    produced_files: set[str] | None = None,
+) -> tuple[int, int, str]:
+    """Atomically merge rows after proving each prior and fresh row's source provenance."""
+    tmp: str | None = None
+    kept = added = 0
+    columns: set[str] | None = None
     try:
-        with open(tmp, "w", encoding="utf-8") as handle:
-            handle.writelines(json.dumps(row) + "\n" for row in (*surviving, *fresh))
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(os.path.abspath(sink.uri)),
+            prefix=".delta-",
+            suffix=".jsonl",
+            delete=False,
+        ) as handle:
+            tmp = handle.name
+            for row in _iter_manifest_rows(sink.uri):
+                origin = _row_origin(row, key=key, root=root, known_files=prior_files)
+                if origin in stale:
+                    continue
+                if columns is None:
+                    columns = set(row)
+                handle.write(json.dumps(row) + "\n")
+                kept += 1
+            for row in () if produced is None else _iter_manifest_rows(produced):
+                _row_origin(row, key=key, root=root, known_files=produced_files)
+                if added == 0 and columns is not None and set(row) != columns:
+                    msg = "the delta's rows do not have the same columns as the rows already there"
+                    raise ValueError(msg)  # noqa: TRY301
+                handle.write(json.dumps(row) + "\n")
+                added += 1
             handle.flush()
+            os.fchmod(handle.fileno(), stat.S_IMODE(os.stat(sink.uri).st_mode))
             os.fsync(handle.fileno())
         os.replace(tmp, sink.uri)
-    except OSError as exc:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        return 0, 0, f"the merged manifest could not be written to {sink.uri}: {exc}"
-    return len(surviving), len(fresh), ""
+    except (OSError, UnicodeError, ValueError, TypeError) as error:
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+        return 0, 0, f"the manifest merge was refused for {sink.uri}: {error}"
+    return kept, added, ""
 
 
 def republish(  # noqa: PLR0913 - an artifact record's fields, none of them derivable from the others

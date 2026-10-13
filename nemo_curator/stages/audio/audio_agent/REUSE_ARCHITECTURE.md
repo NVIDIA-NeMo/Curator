@@ -60,7 +60,7 @@ of the chain instead of needing hand-written rules.
 ### Code identity is per stage
 
 `impl_version` is a digest of the source that implements one stage: the module defining its
-class plus the `nemo_curator` modules that module transitively imports, read out of the files
+class, the configured `adapter_target` module, and the `nemo_curator` modules they transitively import, read out of the files
 with `ast` so computing it imports nothing (`code_identity.py`). Editing `nemo_asr_align.py`
 invalidates ASR artifacts and everything chained below them; editing another modality, a test
 or a doc invalidates nothing.
@@ -71,8 +71,9 @@ artifact in the store unreachable, so in an actively developed checkout an artif
 about one commit. Too loose: editing a stage and not committing left the SHA alone, so results
 produced by code that no longer existed were served as current.
 
-A stage whose class, module or sources cannot be read falls back to the package version, which
-over-invalidates and never over-reuses. The package version is still recorded on every artifact
+A stage whose class, configured adapter, module or sources cannot be read receives a fallback stamp;
+artifacts with an unproven implementation are refused for reuse, including matching fallback stamps.
+The package version is still recorded on every artifact
 as `code_version`, purely so a human can see which build wrote it; it decides nothing.
 
 ```mermaid
@@ -103,7 +104,7 @@ flowchart TD
 
 | Hash | Covers | Used for |
 | --- | --- | --- |
-| `semantic_hash` | stages + inputs + preset, with execution knobs and terminal manifest locations stripped | reuse identity — "would this produce the same bytes?" |
+| `semantic_hash` | stages + inputs + preset, including execution settings but excluding terminal manifest locations | reuse identity — "would this produce the same bytes?" |
 | `contract_hash` | `acceptance_criteria` only | re-verification — a stricter bar re-judges data, it does not recompute it |
 | `config_hash` | everything (unchanged) | the confirm gate — "what was approved is what runs" |
 
@@ -466,7 +467,7 @@ file and a run over all but one followed by a delta over that one produce the sa
 | Change | Effect |
 | --- | --- |
 | Semantic param at step *i* | keys `i..n` change → reuse `0..i-1`, rerun `i..n` |
-| Execution knob (resources / batch size) | no key change → full reuse |
+| Execution setting (resources / batch size / runtime environment / workers) | affected step and suffix keys change → recompute |
 | Output location | no key change → full reuse (published to the new location) |
 | Acceptance criteria | data reused, **contract re-verified** |
 | Detectable dataset-identity change | `dataset_key` changes → every key misses, and the miss path offers a per-file delta (§7b) when the changed files can be run alone |

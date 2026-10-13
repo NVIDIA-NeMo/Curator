@@ -774,3 +774,35 @@ class TestAPipelineHistoryCannotReproduce:
 
         assert run_store.save_exact_recipe("run-x", rec.to_dict()) is None
         assert run_store.load_exact_recipe("run-x") is None
+
+
+@pytest.mark.parametrize("invalid_side", ["prior", "produced"])
+@pytest.mark.parametrize(
+    "last_row", [{}, {"audio_filepath": "/outside/unknown.wav"}, {"audio_filepath": None}, [1, 2]]
+)
+def test_merge_validates_every_row_before_replacing_the_manifest(
+    tmp_path: Path, invalid_side: str, last_row: object
+) -> None:
+    prior, produced = tmp_path / "prior.jsonl", tmp_path / "produced.jsonl"
+    valid = json.dumps({"audio_filepath": str(tmp_path / "a.wav")}) + "\n"
+    prior.write_text(valid)
+    produced.write_text(valid)
+    target = prior if invalid_side == "prior" else produced
+    target.write_text(valid * 2001 + json.dumps(last_row) + "\n")
+    original = prior.read_bytes()
+    sink = delta.Sink(index=0, param="output_path", uri=str(prior), step_key="fixture", key="audio_filepath")
+
+    kept, added, error = delta.merge(
+        sink,
+        produced=str(produced),
+        stale=set(),
+        key="audio_filepath",
+        root=str(tmp_path),
+        prior_files={"a.wav"},
+        produced_files={"a.wav"},
+    )
+
+    assert (kept, added) == (0, 0)
+    assert error
+    assert prior.read_bytes() == original
+    assert not list(tmp_path.glob(".delta-*"))

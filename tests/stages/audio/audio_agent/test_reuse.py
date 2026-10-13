@@ -54,7 +54,7 @@ def _frozen(stages: list[dict], **kw: object) -> Recipe:
 class TestIdentitySplit:
     """semantic_hash answers 'same bytes?'; config_hash still covers everything."""
 
-    def test_execution_knobs_do_not_change_semantic_hash(self) -> None:
+    def test_execution_knobs_change_semantic_hash_conservatively(self) -> None:
         base = _frozen([_READER, _DUR, _WRITER])
         tuned = _frozen(
             [
@@ -66,7 +66,7 @@ class TestIdentitySplit:
                 _WRITER,
             ]
         )
-        assert tuned.semantic_hash == base.semantic_hash
+        assert tuned.semantic_hash != base.semantic_hash
         # ...but the confirm gate still sees a different plan, as it must.
         assert tuned.config_hash != base.config_hash
 
@@ -564,7 +564,7 @@ class TestReuseDecision:
 class TestReuseSurvivesNonSemanticChanges:
     """The headline fix: knobs that cannot change a single output byte must not force a rerun."""
 
-    def test_batch_size_and_resources_change_still_reuses(self, store: Path) -> None:
+    def test_batch_size_and_resources_change_invalidates_the_affected_suffix(self, store: Path) -> None:
         rec, _mid, final = _pipeline(store)
         _publish(rec, 3)
         tuned = _frozen(
@@ -575,7 +575,12 @@ class TestReuseSurvivesNonSemanticChanges:
                 {"ref": "ManifestWriterStage", "params": {"output_path": final}},
             ]
         )
-        assert reuse.scan(tuned, dataset_key=_KEY)["decision"] == "already_done"
+        base_plans = artifacts.plan_steps(rec, _KEY)
+        tuned_plans = artifacts.plan_steps(tuned, _KEY)
+        assert [plan.step_key for plan in base_plans[:2]] == [plan.step_key for plan in tuned_plans[:2]]
+        assert artifacts.lookup(base_plans[3].step_key, dataset_key=_KEY)[0] is not None
+        assert artifacts.lookup(tuned_plans[3].step_key, dataset_key=_KEY)[0] is None
+        assert reuse.scan(tuned, dataset_key=_KEY)["decision"] != "already_done"
 
     def test_output_path_change_still_reuses(self, store: Path) -> None:
         rec, mid, _final = _pipeline(store)

@@ -446,3 +446,31 @@ def test_prepare_invalidates_child_lineage_but_keeps_parent_lineage() -> None:
     child = _edge(packet, consumer_index=3, key="score")["latest_upstream_producer"]
     assert parent["stage"] == "UTMOSFilterStage"
     assert child["kind"] == "unresolved"
+
+
+def test_rescoring_does_not_trace_the_old_score_as_a_conditional_fallback() -> None:
+    recipe, stages = _build(
+        [
+            {"ref": "UTMOSFilterStage", "params": {"action": "annotate", "mode": "task", "score_key": "score"}},
+            {
+                "ref": "PreserveByValueStage",
+                "params": {"input_value_key": "score", "target_value": 3, "operator": "ge"},
+            },
+        ]
+    )
+    packet = build_semantic_review(stages, recipe=recipe, initial_keys={"audio_filepath", "score", "speaker_id"})
+    producer = _edge(packet, consumer_index=1, key="score")["latest_upstream_producer"]
+
+    assert producer["stage"] == "UTMOSFilterStage"
+    assert producer["write"]["certainty"] == "conditional"
+    assert "when_condition_not_met" not in producer
+    assert packet["stages"][0]["invalidates_prior_writes"] == {"task": ["score"], "segment": []}
+
+
+def test_existing_duration_stage_remains_a_semantic_producer() -> None:
+    stages = [GetAudioDurationStage(), PreserveByValueStage(input_value_key="duration", target_value=1)]
+
+    packet = build_semantic_review(stages, initial_keys={"audio_filepath"})
+
+    producer = _edge(packet, consumer_index=1, key="duration")["latest_upstream_producer"]
+    assert producer["stage"] == "GetAudioDurationStage"

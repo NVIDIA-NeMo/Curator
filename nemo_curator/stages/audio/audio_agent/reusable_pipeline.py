@@ -950,6 +950,8 @@ def _score_lineage_reason(
             writes.update(conditional.writes.data_keys)
             writes.update(conditional.writes.segment_data_keys)
         affected = writes | set(contract.removes_keys) | set(contract.invalidates_keys)
+        prior_writes = getattr(contract, "invalidates_prior_writes", None)
+        affected |= set(getattr(prior_writes, "data_keys", ())) | set(getattr(prior_writes, "segment_data_keys", ()))
         is_checkpoint = recipe.stages[index].ref == _CHECKPOINT_REF
         safe_shape = contract.cardinality == "1:1" or (
             checkpoint_seen and not is_checkpoint and contract.cardinality == "filter"

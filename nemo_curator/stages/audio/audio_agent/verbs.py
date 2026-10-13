@@ -63,6 +63,7 @@ from nemo_curator.stages.audio.audio_agent.report import (
     _row_count,
     build_run_report,
     rows_written_in,
+    source_rejection_count,
     sparse_fields_in,
     stage_duration_sec,
 )
@@ -2031,7 +2032,7 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
         # manifest is a serialized output, so count that instead of return
         # carriers or a zero-output smoke could receive a success token.
         rpt.retained = pretrain_output_rows if pretrain_output_rows is not None else _row_count(results)
-        rpt.rejected = max(0, min(sample, rpt.input_count) - rpt.retained)
+        rpt.rejected = source_rejection_count(bounded, min(sample, rpt.input_count), rpt.retained, stages=stages)
         rpt.per_stage_metrics = _stage_metrics(results)
         sampled_rows = list(_result_rows(results))
         rpt.examples = _examples_from_rows(sampled_rows, limit=3)
@@ -2557,7 +2558,11 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     report_obj.output_rows_written = rows_written_in(output_scan)
     report_obj.sparse_fields = sparse_fields_in(output_scan)
     report_obj.cardinality_proven = cardinality_proven
-    report_obj.rejected = max(0, report_obj.source_items - report_obj.output_rows) if cardinality_proven else None
+    report_obj.rejected = (
+        source_rejection_count(rec, report_obj.source_items, report_obj.output_rows, stages=stages)
+        if cardinality_proven
+        else None
+    )
 
     from nemo_curator.stages.audio.audio_agent import run_store
 
@@ -3347,10 +3352,11 @@ def report(output: str, *, recipe: Recipe | dict[str, Any] | None = None, data: 
     d["input_count"] = input_count
     d["source_items"] = input_count
     d["output_rows"] = accepted
-    # Output-row cardinality is not generally the same as source-item
-    # cardinality (split/fan-out stages are common).  Only a proven 1:1
-    # terminal serializer supports subtraction as a rejection count.
-    d["rejected"] = max(0, input_count - accepted) if input_count is not None and cardinality_proven else None
+    d["rejected"] = (
+        source_rejection_count(rec, input_count, accepted)
+        if rec is not None and input_count is not None and cardinality_proven
+        else None
+    )
     d["output_scan"] = output_scan
     if rec is not None and rec.acceptance_criteria:
         d["acceptance"] = verify(
@@ -4547,10 +4553,12 @@ def _execute_delta_in_sandbox(  # noqa: PLR0913 - split out so scratch ownership
     for sink in decision.sinks:
         kept, added, why = _delta.merge(
             sink,
-            produced=redirect[sink.uri],
+            produced=redirect[sink.uri] if decision.files else None,
             stale=stale,
             key=sink.key,
             root=dp.inventory_root,
+            prior_files=set(dp.inventory or {}) | set(decision.change.removed),
+            produced_files=set(decision.change.touched),
         )
         if why:
             # The failing sink's manifest is untouched, and any already merged hold a superset of

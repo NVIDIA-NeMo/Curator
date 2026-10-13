@@ -44,6 +44,10 @@ _TREE = {
     "tasks/audio_task.py": "class AudioTask:\n    pass\n",
     # Never imported by the stage: the whole point is that editing this changes nothing.
     "stages/video/unrelated.py": "SOMETHING = 1\n",
+    "models/asr/dynamic_adapter.py": (
+        "from nemo_curator.models.asr import adapter_helper\nclass DynamicAdapter:\n    VALUE = 1\n"
+    ),
+    "models/asr/adapter_helper.py": "VALUE = 1\n",
 }
 
 
@@ -189,3 +193,47 @@ class TestWhatItMeansForReuse:
         keys = artifacts.step_keys(rec, "stat:abc")
 
         assert keys[0] != keys[1]
+
+
+@pytest.mark.parametrize("edited_module", ["dynamic_adapter", "adapter_helper"])
+def test_configured_adapter_edit_invalidates_only_its_step_and_suffix(
+    package: Callable[[str, str], None], edited_module: str
+) -> None:
+    target = "nemo_curator.models.asr.dynamic_adapter.DynamicAdapter"
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "FakeStage"},
+                {"ref": "FakeStage", "params": {"adapter_target": target}},
+                {"ref": "FakeStage"},
+            ]
+        }
+    ).freeze()
+    before = artifacts.step_keys(recipe, "stat:fixture")
+    stamp = code_identity.impl_version("FakeStage", adapter_target=target)
+    artifact = artifacts.Artifact(
+        stage_ref="FakeStage", step_key=before[1], impl_version=stamp, semantic_params={"adapter_target": target}
+    )
+    assert not artifacts._impl_reasons(artifact)
+
+    package(f"models/asr/{edited_module}.py", "VALUE = 2\n")
+
+    after = artifacts.step_keys(recipe, "stat:fixture")
+    assert before[0] == after[0]
+    assert before[1] != after[1]
+    assert before[2] != after[2]
+    assert artifacts._impl_reasons(artifact) == ["FakeStage's implementation changed since this artifact was produced"]
+
+
+@pytest.mark.parametrize("target", ["third_party.Adapter", "nemo_curator.missing.Adapter", "Adapter"])
+@pytest.mark.usefixtures("package")
+def test_unidentifiable_adapter_refuses_reuse_even_with_matching_fallback(
+    target: str,
+) -> None:
+    stamp = code_identity.impl_version("FakeStage", adapter_target=target)
+    assert code_identity.is_fallback(stamp)
+    artifact = artifacts.Artifact(
+        stage_ref="FakeStage", step_key="fixture", impl_version=stamp, semantic_params={"adapter_target": target}
+    )
+
+    assert "implementation is unproven" in artifacts._impl_reasons(artifact)[0]

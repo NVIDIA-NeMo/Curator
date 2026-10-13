@@ -262,8 +262,10 @@ ADDITIVE_STAGE_NAMES = (
 # Current-main ASR adds a required padded-seconds budget, bounded segmentation,
 # language output and skip-policy knobs. A full payload comparison confirms that
 # only ASRStage changed among the legacy 46; the other 45 entries are identical.
+# Fan-out transcript-key options are part of the constructor surface; their
+# keyword-only fields preserve existing positional arguments and defaults.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "97e3d961d98d9dfe87ec7d55de39c78c954fb682349dce9a3ca666ca2dd81bf5"  # pragma: allowlist secret
+    "e7566238d2afa16f8e206da7ef6c710386c0d9e827e012569b044563908a3b0f"  # pragma: allowlist secret
 )
 
 

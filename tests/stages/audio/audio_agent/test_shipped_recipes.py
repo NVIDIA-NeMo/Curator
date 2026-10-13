@@ -39,7 +39,7 @@ def _load(path: Path) -> dict:
 
 
 def _keys_the_recipe_writes(recipe: dict) -> set[str]:
-    """Every key the recipe's stages declare they write, composites expanded.
+    """Keys still available after the recipe's final stage, composites expanded.
 
     Built from the same contracts validation uses, so this asks the question the acceptance
     check will ask at runtime rather than a parallel approximation of it.
@@ -57,6 +57,12 @@ def _keys_the_recipe_writes(recipe: dict) -> set[str]:
     for leaf in expand_composites(instances).stages:
         with contextlib.suppress(Exception):  # plumbing without a contract writes nothing we can name
             contract = build_contract(leaf.stage)
+            if not contract.preserves_upstream_keys:
+                written.clear()
+            written.difference_update([*contract.removes_keys, *contract.invalidates_keys])
+            written.difference_update(
+                [*contract.invalidates_prior_writes.data_keys, *contract.invalidates_prior_writes.segment_data_keys]
+            )
             written |= set(contract.writes.data_keys) | set(contract.writes.segment_data_keys)
             for conditional in contract.conditional_writes:
                 written |= set(conditional.writes.data_keys) | set(conditional.writes.segment_data_keys)
@@ -123,3 +129,23 @@ class TestScratchRecipesHaveAHome:
     def test_it_follows_the_configured_run_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "elsewhere"))
         assert Path(scratch_dir()) == tmp_path / "elsewhere" / "recipes"
+
+
+def test_readspeech_completeness_checks_the_final_serialized_mapper_row() -> None:
+    import json
+
+    from nemo_curator.stages.audio.audio_agent import verify
+    from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
+    from nemo_curator.tasks import AudioTask
+
+    recipe = _load(_RECIPES_DIR / "readspeech_quality.yaml")
+    criterion = next(item for item in recipe["acceptance_criteria"] if item["id"] == "rows_point_at_audio")
+    task = TimestampMapperStage().process(
+        AudioTask(data={"audio_filepath": "source.wav", "diar_segments": [[0.1, 0.8]]})
+    )
+    row = json.loads(json.dumps(task.data))
+    assert "audio_filepath" not in row
+
+    result = verify([criterion], evidence={"per_item": [row], "produced_keys": list(row), "retained": 1})
+
+    assert result["criteria"][0]["status"] == "met"

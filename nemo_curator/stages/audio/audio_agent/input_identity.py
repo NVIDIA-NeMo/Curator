@@ -495,6 +495,19 @@ def _resolve_audio_folder(recipe: Recipe, stage: StageRef, data: str | None) -> 
     if not os.path.isdir(path):
         reason = f"configured audio folder does not exist: {path}"
         return replace(binding, status="missing", profile_source=None, issues=(reason,), reason=reason)
+    if stage.params.get("include_files") is not None:
+        from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
+
+        source = CreateInitialManifestAudioFolderStage(
+            data_dir=stage.params["data_dir"],
+            extensions=binding.profile_kwargs["folder_extensions"],
+            recursive=binding.profile_kwargs["recursive"],
+            include_files=stage.params["include_files"],
+        )
+        binding = replace(
+            binding,
+            profile_kwargs={**binding.profile_kwargs, "folder_files": source._collect_audio_files()},
+        )
     return binding
 
 

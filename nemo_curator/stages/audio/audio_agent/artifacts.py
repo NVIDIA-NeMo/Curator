@@ -410,7 +410,11 @@ def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
     for i, stage in enumerate(recipe.stages):
         sp = stage.semantic_params()
         mv = model_version(stage.params)
-        iv = impl_version(stage.ref)
+        iv = (
+            impl_version(stage.ref, adapter_target=stage.params["adapter_target"])
+            if "adapter_target" in stage.params
+            else impl_version(stage.ref)
+        )
         key = _h(STEP_KEY_VERSION, prev, stage.ref, _semantic_blob(stage.ref, sp), iv, mv)
         det, ttl = stage_trust(stage.ref)
         prefix_deterministic = prefix_deterministic and det
@@ -781,9 +785,11 @@ def _impl_reasons(artifact: Artifact) -> list[str]:
 
     if not artifact.impl_version:
         return []
-    current = impl_version(artifact.stage_ref)
-    if artifact.impl_version == current:
-        return []
+    current = (
+        impl_version(artifact.stage_ref, adapter_target=artifact.semantic_params["adapter_target"])
+        if "adapter_target" in artifact.semantic_params
+        else impl_version(artifact.stage_ref)
+    )
     stage = artifact.stage_ref or "the stage"
     if is_fallback(current):
         return [
@@ -796,6 +802,8 @@ def _impl_reasons(artifact: Artifact) -> list[str]:
             f"{stage} was produced by a run that could not read its own source, so the code "
             "behind this artifact is unproven; reuse is refused rather than risked"
         ]
+    if artifact.impl_version == current:
+        return []
     return [f"{stage}'s implementation changed since this artifact was produced"]
 
 

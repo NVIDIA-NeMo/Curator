@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -977,3 +978,52 @@ def test_republish_retains_generated_asset_dependency_checks(tmp_path: Path) -> 
     assert not artifacts.invalid_reasons(merged, dataset_key=_KEY)
     asset.unlink()
     assert any("dependency" in reason for reason in artifacts.invalid_reasons(merged, dataset_key=_KEY))
+
+
+@pytest.mark.parametrize("last_row", [{}, {"audio_filepath": "/outside/unknown.wav"}, {"audio_filepath": None}])
+def test_provenance_checks_rows_beyond_the_old_preview_limit(tmp_path: Path, last_row: dict) -> None:
+    source = tmp_path / "a.wav"
+    prior = tmp_path / "prior.jsonl"
+    valid = json.dumps({"audio_filepath": str(source)}) + "\n"
+    prior.write_text(valid * 2001 + json.dumps(last_row) + "\n")
+
+    key, reason = delta.provenance(str(prior), inventory={"a.wav": "v1"}, root=str(tmp_path))
+
+    assert key == ""
+    assert "cannot be traced" in reason
+
+
+def test_provenance_refuses_malformed_rows_instead_of_skipping_them(tmp_path: Path) -> None:
+    prior = tmp_path / "prior.jsonl"
+    prior.write_text(json.dumps({"audio_filepath": str(tmp_path / "a.wav")}) + "\n[1,2]\n")
+
+    key, reason = delta.provenance(str(prior), inventory={"a.wav": "v1"}, root=str(tmp_path))
+
+    assert key == ""
+    assert "not an object" in reason
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o640, 0o664])
+@pytest.mark.parametrize("removal_only", [False, True])
+def test_delta_replacement_preserves_manifest_access_permissions(
+    tmp_path: Path, mode: int, removal_only: bool
+) -> None:
+    prior, produced = tmp_path / "prior.jsonl", tmp_path / "produced.jsonl"
+    prior.write_text(json.dumps({"audio_filepath": str(tmp_path / "a.wav")}) + "\n")
+    prior.chmod(mode)
+    produced.write_text(json.dumps({"audio_filepath": str(tmp_path / "b.wav")}) + "\n")
+    sink = delta.Sink(index=0, param="output_path", uri=str(prior), step_key="fixture")
+
+    kept, added, error = delta.merge(
+        sink,
+        produced=None if removal_only else str(produced),
+        stale={"a.wav"} if removal_only else set(),
+        key="audio_filepath",
+        root=str(tmp_path),
+        prior_files={"a.wav"},
+        produced_files={"b.wav"},
+    )
+
+    assert not error
+    assert (kept, added) == ((0, 0) if removal_only else (1, 1))
+    assert stat.S_IMODE(prior.stat().st_mode) == mode
