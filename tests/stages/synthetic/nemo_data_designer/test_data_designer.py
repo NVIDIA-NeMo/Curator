@@ -203,7 +203,7 @@ class TestBaseDataDesignerStage:
         assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_a)
         assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
 
-    def test_get_dataset_name_prefers_source_files(self, tmp_path: Path) -> None:
+    def test_get_dataset_name_differs_for_different_task_ids(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
@@ -224,7 +224,7 @@ class TestBaseDataDesignerStage:
         batch_a._set_task_id("parent", 0)
         batch_b._set_task_id("r123", 99)
 
-        assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_b)
+        assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
 
     def test_get_dataset_name_uses_task_id_without_source_files(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
