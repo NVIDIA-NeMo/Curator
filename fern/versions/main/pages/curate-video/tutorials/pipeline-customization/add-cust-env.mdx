@@ -11,30 +11,34 @@ modality: "video-only"
 
 # Add Custom Environment
 
-Learn how to package dependencies for NeMo Curator using a container image.
+Package additional dependencies for a NeMo Curator pipeline in a container image.
 
-The NeMo Curator container provides a primary `curator` conda environment with pre-installed dependencies. If your pipeline needs additional system or Python packages, create a custom image. Refer to the [container environments](/reference/infra/container-environments) reference for defaults and build arguments.
+The repository Dockerfile creates a Python environment with dependencies selected by its build arguments. Build it from the source revision you plan to use, then add system or Python packages your pipeline needs. Follow the [image build procedure](/reference/infra/container-environments#build-an-image) and check the Dockerfile for its defaults.
 
 ## Before You Start
 
-Before you begin, make sure that you have:
+Before you create the image, complete these tasks:
 
-* Reviewed the [pipeline concepts and diagrams](/about/concepts/video).  
-* A base container image suitable for NeMo Curator.  
-* Optionally [created custom code](/curate-video/tutorials/pipeline-customization/add-cust-code) that defines your new requirements.  
+* Review the [pipeline concepts and diagrams](/about/concepts/video).
+* Build a base image from the NeMo Curator Dockerfile or choose another suitable image.
+* [Create custom code](/curate-video/tutorials/pipeline-customization/add-cust-code) if your environment supports a new module.
 
 ---
 
 ## How to Add Dependencies with a Dockerfile
 
+Create a Dockerfile that adds system or Python packages to the base image.
+
 ### Define Build Steps
 
-1. Create an `environments` directory anywhere on your system to organize your custom pipeline stage environments.  
+Use these steps to create and build the image:
+
+1. Create an `environments` directory anywhere on your system to organize your custom pipeline stage environments.
 2. Create a new folder for your environment, for example: `my-env/`.
-3. Create a `Dockerfile` that installs your environment's dependencies on top of the base image.
+3. Create a `Dockerfile` that installs your environment's dependencies on top of `nemo-curator:local`.
 
    ```dockerfile
-   FROM <your-base-image>
+   FROM nemo-curator:local
 
    # System deps
    RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -56,11 +60,9 @@ Before you begin, make sure that you have:
    WORKDIR /workspace
    ```
 
-4. Save the file.
+### Build the Image
 
-### Build the Container
-
-Build and tag your image using Docker or your preferred tool:
+Build and tag the image from the directory containing the Dockerfile:
 
 ```bash
 docker build -t my-ray-curator:latest .
@@ -68,4 +70,4 @@ docker build -t my-ray-curator:latest .
 
 ## Next Steps
 
-Now that you have created a custom environment, you can [create custom code](/curate-video/tutorials/pipeline-customization/add-cust-code) for that environment.
+Use the image in a [custom code pipeline](/curate-video/tutorials/pipeline-customization/add-cust-code).

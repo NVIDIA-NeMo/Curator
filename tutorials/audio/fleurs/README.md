@@ -214,6 +214,9 @@ pipeline = Pipeline(
         ASRStage(
             adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
             model_id="nvidia/parakeet-tdt-0.6b-v2",
+            max_audio_sec_per_actor=240,
+            max_inference_duration_s=120,
+            local_bucketing=True,
             audio_filepath_key="audio_filepath",
         ),
         GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct"),
@@ -233,7 +236,7 @@ finally:
 | Problem | Cause | Fix |
 |---|---|---|
 | Output directory already exists | Previous run left `${raw_data_dir}/result/${lang}/` | Remove the directory before re-running |
-| OOM during ASR inference | GPU VRAM too small for model + batch | Reduce `stages.1.batch_size` or use a smaller model |
+| OOM during ASR inference | GPU VRAM too small for padded adapter work | Reduce `max_audio_sec_per_actor` (and, if needed, `max_inference_duration_s`) or use a smaller model |
 | `CUDA error: invalid argument` in RNNT label-loop decoding | NeMo CUDA-graph decoder is unsupported by the local CUDA runtime/driver combination | Set `stages.1.adapter_kwargs.use_cuda_graph_decoder=false` (the supplied FLEURS config already does this) |
 | CPU inference very slow | CPU is 10–50x slower than GPU | Set `stages.1.resources.gpus=1`; CPU is only for testing |
 | Empty output JSONL | `wer_threshold` too strict for the model+language pair | Increase `wer_threshold` or use a better-matching ASR model |

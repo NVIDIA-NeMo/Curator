@@ -8,7 +8,7 @@ This tutorial shows how to scale a NeMo Curator pipeline from a single laptop to
 |------|---------|
 | `pipeline.py` | A simple CPU-only pipeline (word-count + node-tag) that runs locally or on SLURM |
 | `submit.sh` | `sbatch` script for bare-metal clusters with a shared virtualenv |
-| `submit_container.sh` | `sbatch` script using the official NGC container (Pyxis/enroot) |
+| `submit_container.sh` | `sbatch` script using a cluster-accessible container image (Pyxis/enroot) |
 | `array_pipeline.py` | Generic JSONL/Parquet pipeline that processes one Slurm array shard |
 | `retry_array.py` | Finds shards without completion manifests and prints one or more retry array configurations |
 | `submit_array.sh` | `sbatch --array` script for splitting many input files across independent jobs |
@@ -74,9 +74,9 @@ python tutorials/slurm/pipeline.py
 
 ---
 
-## SLURM run — NGC container (Pyxis/enroot)
+## SLURM Run — Container (Pyxis/Enroot)
 
-The recommended approach on clusters that support it. The official NeMo Curator image from NGC provides a stable Python environment; the local virtualenv (on your shared filesystem) is activated inside the container to pick up any unreleased code from your checkout.
+Use this path when your cluster supports Pyxis. Build an image from the NeMo Curator [Dockerfile](../../docker/Dockerfile), then make it available through a cluster registry or shared image path. Refer to [Build an Image](https://docs.nvidia.com/nemo/curator/main/reference/infra/container-environments#build-an-image) and [Create a SquashFS Image for Pyxis](https://docs.nvidia.com/nemo/curator/main/reference/infra/container-environments#create-a-squashfs-image-for-pyxis). The script activates a shared virtual environment so the source checkout supplies the Curator version.
 
 ### Prerequisites
 
@@ -89,7 +89,7 @@ srun --help | grep container-image
 
 If this flag is missing, ask your cluster admin or see the [bare-metal section](#slurm-run--bare-metal-shared-virtualenv) below.
 
-### 1. Build the virtualenv on a shared filesystem
+### 1. Build the Virtual Environment on a Shared Filesystem
 
 ```bash
 # From the NeMo Curator root on a login node (or wherever the shared FS is mounted)
@@ -98,12 +98,12 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-### 2. Submit the job
+### 2. Submit the Job
 
-`CONTAINER_IMAGE` is required — pick a tag from the [NeMo Curator NGC page](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator):
+Set `CONTAINER_IMAGE` to a registry reference or image path that Pyxis can access from every allocated node:
 
 ```bash
-export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
+export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh
 # Default: 2 nodes, 2 GPUs each
 sbatch tutorials/slurm/submit_container.sh
 
@@ -119,7 +119,7 @@ sbatch --nodes=1 --gpus-per-node=8 tutorials/slurm/submit_container.sh
 sbatch --nodes=4 --cpus-per-task=32 --time=00:30:00 tutorials/slurm/submit_container.sh
 ```
 
-### 3. Check the output
+### 3. Check the Output
 
 ```bash
 tail -f logs/slurm_demo_container_<JOB_ID>.log
@@ -133,26 +133,9 @@ Tasks processed by 2 distinct node(s):
   node-002: 2 GPU(s): NVIDIA A100-SXM4-80GB, 81251 MiB; NVIDIA A100-SXM4-80GB, 81251 MiB
 ```
 
-### Singularity / Apptainer
-
-If your cluster uses Singularity or Apptainer instead of Pyxis:
-
-```bash
-# Pull the image once (on the login node) — pick a tag from
-# https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
-singularity pull nemo-curator.sif docker://nvcr.io/nvidia/nemo-curator:<tag>
-
-# In your sbatch script, replace the srun flags with:
-srun singularity exec \
-    --nv \
-    --bind /lustre:/lustre \
-    nemo-curator.sif \
-    bash -c "source /path/to/Curator/.venv/bin/activate && python pipeline.py --slurm"
-```
-
 ---
 
-## SLURM run — bare metal (shared virtualenv)
+## SLURM Run — Bare Metal (Shared Virtual Environment)
 
 Use this if your cluster does not have a container runtime.
 
@@ -187,15 +170,15 @@ tail -f logs/slurm_demo_<JOB_ID>.log
 
 ---
 
-## SLURM job arrays — JSONL or Parquet file sharding
+## SLURM Job Arrays — JSONL or Parquet File Sharding
 
-Use `submit_array.sh` when you already have a large directory of text data files and want to split the file set across many independent Slurm jobs. Each array task starts its own Curator pipeline; source stages still produce the full deterministic task list, and the backend adapter filters that list to only the tasks assigned to the current Slurm task.
+Use `submit_array.sh` to split a directory of text files across independent SLURM jobs. Each array task starts a Curator pipeline, builds the deterministic source task list, and processes only its assigned tasks.
 
 This pattern is useful when the dataset is naturally represented as many JSONL or Parquet files and you want simple horizontal scaling without coordination between jobs.
 
-### 1. Build the virtualenv on a shared filesystem
+### 1. Build the Virtual Environment on a Shared Filesystem
 
-The array example uses the official NGC container for the base environment, then activates your local checkout inside the container so unreleased source changes are picked up:
+The array script activates the virtual environment on the shared checkout:
 
 ```bash
 cd /path/to/Curator
@@ -206,17 +189,17 @@ pip install -e .
 
 Make sure `CURATOR_DIR`, `INPUT_DIR`, `OUTPUT_DIR`, and `CHECKPOINT_PATH` are visible from every compute node, either because they are on a shared filesystem or because you set `CONTAINER_MOUNTS` to expose the right host paths inside the container.
 
-### 2. Submit a JSONL array job
+### 2. Submit a JSONL Array Job
 
 By default, `submit_array.sh` reads JSONL files and writes JSONL output.
-`CONTAINER_IMAGE` is required — pick a tag from the [NeMo Curator NGC page](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator):
+Set `CONTAINER_IMAGE` to a registry reference or shared image path that the cluster can access:
 
 ```bash
 export CURATOR_DIR=/path/to/Curator
 export INPUT_DIR=/shared/data/my-jsonl-dataset
 export OUTPUT_DIR=/shared/output/my-jsonl-dataset
 export CHECKPOINT_PATH=/shared/checkpoints/my-jsonl-run
-export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
+export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh
 
 # 20 array tasks, task IDs 0-19
 sbatch --array=0-19 tutorials/slurm/submit_array.sh
@@ -240,7 +223,7 @@ Single-node array tasks use `RayClient`. If you override the allocation to use m
 sbatch --array=0-9 --nodes=2 --cpus-per-task=32 tutorials/slurm/submit_array.sh
 ```
 
-### 3. Use Parquet instead
+### 3. Use Parquet Instead
 
 Set the input and output file types to `parquet`:
 
@@ -510,11 +493,9 @@ Check that --num-tasks is large enough to distribute across all workers.
 **Container image not found**
 
 ```bash
-# Pull manually and verify — pick a tag from
-# https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
-docker pull nvcr.io/nvidia/nemo-curator:<tag>
-# or with enroot:
-enroot import docker://nvcr.io/nvidia/nemo-curator:<tag>
+# Confirm the registry reference is reachable and credentials are configured,
+# or confirm the shared image path exists and is visible on every compute node.
+ls -l /shared/containers/nemo-curator.sqsh
 ```
 
 **`ImportError: cannot import name 'SlurmRayClient'`**

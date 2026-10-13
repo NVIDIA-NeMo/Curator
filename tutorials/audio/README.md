@@ -74,13 +74,17 @@ python nemo_curator/config/run.py \
 
 ## System dependencies
 
-Most audio pipelines use `ffmpeg` for resampling and format conversion.
-Install it before running those tutorials:
+Most audio pipelines use the `ffmpeg` command-line tool for resampling and format conversion. The audio Python extras do not install it. Without root access, install FFmpeg in a user-owned Conda or Micromamba prefix:
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install -y ffmpeg
+conda create -y -p /path/to/curator-ffmpeg -c conda-forge ffmpeg
+# Or: micromamba create -y -p /path/to/curator-ffmpeg -c conda-forge ffmpeg
+export PATH="/path/to/curator-ffmpeg/bin:$PATH"
+command -v ffmpeg
+ffmpeg -hide_banner -version
 ```
+
+For multi-node Ray or Xenna runs, make FFmpeg available on every executor node and configure `PATH` before starting the cluster so workers inherit it. A site-provided FFmpeg environment module is also suitable. See the [installation guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html#install-ffmpeg-and-encoders-required-for-video) for the system-wide video build and verification details.
 
 | Tutorial | System packages | Pip extras |
 |---|---|---|

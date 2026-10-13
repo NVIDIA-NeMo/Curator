@@ -8,7 +8,7 @@ The `ProcessingStage` class is the base class for all data processing stages in 
 ## Import
 
 ```python
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
 ```
 
 ## Class Definition
@@ -46,12 +46,29 @@ class ProcessingStage(Generic[InputT, OutputT]):
 Define stage input requirements.
 
 ```python
-def inputs(self) -> tuple[list[str], list[str]]:
+def inputs(self) -> StageInputSpecs:
     """Define required task and data attributes.
 
     Returns:
-        Tuple of (required_task_attributes, required_data_attributes).
+        A tuple of (required_task_attributes, required_data_attributes), or a
+        mapping from supported task types to those tuples.
     """
+```
+
+Return one tuple when every supported task type has the same requirements. To
+declare different requirements for different task types, return a mapping keyed
+by task type. For example, a stage can require the `data` attribute from a
+`FileGroupTask` and a `text` column from a `DocumentBatch`:
+
+```python
+from nemo_curator.stages.base import StageInputSpecs
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
+
+def inputs(self) -> StageInputSpecs:
+    return {
+        FileGroupTask: (["data"], []),
+        DocumentBatch: (["data"], ["text"]),
+    }
 ```
 
 ### `outputs()`
@@ -84,6 +101,9 @@ def process(self, task: InputT) -> OutputT | list[OutputT] | None:
         - None: To filter out the task
     """
 ```
+
+The framework infers fanout when `process()` has a return annotation containing
+`list[OutputT]`. This includes unions such as `OutputT | list[OutputT] | None`.
 
 ## Optional Lifecycle Methods
 

@@ -16,8 +16,13 @@
 
 from copy import deepcopy
 
+import pytest
+
 from nemo_curator.stages.audio.text_filtering import SelectBestPredictionStage
 from nemo_curator.tasks import AudioTask
+
+_JA_PRIMARY = "なんかおばあちゃんのレシピみたいなあのどんな思い出とか食べ物とかでどんな思い出とかあったりしますか"
+_JA_FALLBACK = "なんかばあちゃんのレシピみたいなあのどんな思い出とか食べ物とかでどんな思い出とかあったりしますか。"
 
 
 def test_uses_recovery_prediction_after_hallucination_recheck() -> None:
@@ -269,6 +274,7 @@ def test_cross_model_agreement_recovers_primary() -> None:
     assert task.data["best_prediction_source"] == "primary"
     assert task.data["_skipme"] == ""
     assert task.data["primary_fallback_agreement_wer"] == 0.0
+    assert task.data["primary_fallback_agreement_metric"] == "wer"
 
 
 def test_cross_model_agreement_uses_reference_wer_rounding() -> None:
@@ -284,6 +290,7 @@ def test_cross_model_agreement_uses_reference_wer_rounding() -> None:
     stage.process(task)
 
     assert task.data["primary_fallback_agreement_wer"] == 33.33
+    assert task.data["primary_fallback_agreement_metric"] == "wer"
     assert task.data["best_prediction"] == "one two three"
     assert task.data["_skipme"] == ""
 
@@ -303,6 +310,107 @@ def test_cross_model_disagreement_preserves_hallucination_skip() -> None:
     assert task.data["best_prediction_source"] == "primary"
     assert task.data["_skipme"] == "Hallucination"
     assert task.data["primary_fallback_agreement_wer"] > 20.0
+    assert task.data["primary_fallback_agreement_metric"] == "wer"
+
+
+def test_near_identical_japanese_predictions_are_recovered_with_cer() -> None:
+    task = AudioTask(
+        data={
+            "primary_model_prediction": _JA_PRIMARY,
+            "fallback_model_prediction": _JA_FALLBACK,
+            "_skipme": "Hallucination:WhisperHallucination",
+            "source_lang": "ja",
+        }
+    )
+
+    SelectBestPredictionStage().process(task)
+
+    assert task.data["best_prediction"] == _JA_PRIMARY
+    assert task.data["_skipme"] == ""
+    assert task.data["primary_fallback_agreement_metric"] == "cer"
+    assert task.data["primary_fallback_agreement_wer"] < 20.0
+
+
+@pytest.mark.parametrize("language", ["ja", "zh", "th", "zh-TW", "yue"])
+def test_no_space_languages_use_cer(language: str) -> None:
+    task = AudioTask(
+        data={
+            "primary_model_prediction": "这是一个测试句子用来检查协议",
+            "fallback_model_prediction": "这是一个测试句子用来检查协义",
+            "_skipme": "Hallucination:WhisperHallucination",
+            "source_lang": language,
+        }
+    )
+
+    SelectBestPredictionStage().process(task)
+
+    assert task.data["primary_fallback_agreement_metric"] == "cer"
+    assert task.data["_skipme"] == ""
+
+
+@pytest.mark.parametrize("language", ["en", "de", "es", "ko", "vi"])
+def test_space_separated_languages_use_wer(language: str) -> None:
+    task = AudioTask(
+        data={
+            "primary_model_prediction": "the cat sat on the mat",
+            "fallback_model_prediction": "the cat sat on the mat",
+            "_skipme": "Hallucination:WhisperHallucination",
+            "source_lang": language,
+        }
+    )
+
+    SelectBestPredictionStage().process(task)
+
+    assert task.data["primary_fallback_agreement_metric"] == "wer"
+    assert task.data["_skipme"] == ""
+
+
+def test_japanese_genuine_disagreement_remains_flagged() -> None:
+    task = AudioTask(
+        data={
+            "primary_model_prediction": "あなたのおすすめの映画は何ですか",
+            "fallback_model_prediction": "今日はとても良い天気ですね",
+            "_skipme": "Hallucination:WhisperHallucination",
+            "source_lang": "ja",
+        }
+    )
+
+    SelectBestPredictionStage().process(task)
+
+    assert task.data["_skipme"].startswith("Hallucination")
+    assert task.data["primary_fallback_agreement_metric"] == "cer"
+    assert task.data["primary_fallback_agreement_wer"] > 20.0
+
+
+def test_missing_language_defaults_to_wer() -> None:
+    task = AudioTask(
+        data={
+            "primary_model_prediction": "hello world",
+            "fallback_model_prediction": "hello world",
+            "_skipme": "Hallucination:WhisperHallucination",
+        }
+    )
+
+    SelectBestPredictionStage().process(task)
+
+    assert task.data["primary_fallback_agreement_metric"] == "wer"
+    assert task.data["_skipme"] == ""
+
+
+def test_custom_language_and_metric_keys_are_supported() -> None:
+    task = AudioTask(
+        data={
+            "primary_model_prediction": "日本語の文字列",
+            "fallback_model_prediction": "日本語の文宇列",
+            "_skipme": "Hallucination",
+            "lang": "Japanese",
+        }
+    )
+
+    SelectBestPredictionStage(language_key="lang", metric_key="agreement_metric").process(task)
+
+    assert task.data["agreement_metric"] == "cer"
+    assert "primary_fallback_agreement_metric" not in task.data
 
 
 def test_scans_all_recovery_notes_like_reference() -> None:
@@ -339,6 +447,7 @@ def test_rerunning_cross_model_agreement_scans_the_prior_recovery_note() -> None
     assert task.data["best_prediction_source"] == "fallback"
     assert task.data["_skipme"] == ""
     assert "primary_fallback_agreement_wer" not in task.data
+    assert "primary_fallback_agreement_metric" not in task.data
     assert task.data["additional_notes"]["SelectBestPrediction"] == "used fallback"
 
 
@@ -352,6 +461,7 @@ def test_declares_every_mutated_output_key() -> None:
             "best_prediction_source",
             "_skipme",
             "primary_fallback_agreement_wer",
+            "primary_fallback_agreement_metric",
             "additional_notes",
         ],
     )

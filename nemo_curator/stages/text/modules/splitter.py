@@ -68,7 +68,12 @@ class DocumentSplitter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = batch.to_pandas()
 
         # Split the text field into segments using the separator.
-        df["_split_text"] = df[self.text_field].str.split(self.separator)
+        # regex=False treats the separator as a literal string. By default,
+        # pandas interprets multi-character patterns as regular expressions,
+        # which makes separators like "..", "||" or "++" split incorrectly
+        # (or crash with a re.error) and breaks the round-trip with
+        # DocumentJoiner, which always joins with the literal separator.
+        df["_split_text"] = df[self.text_field].str.split(self.separator, regex=False)
 
         # Explode the list so that each segment becomes a separate row.
         # The index is preserved and duplicated for each segment from the same document

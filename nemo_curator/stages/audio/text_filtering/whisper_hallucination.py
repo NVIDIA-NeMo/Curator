@@ -24,6 +24,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -62,6 +63,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     - **High char rate**: characters per second exceed ``max_char_rate``, an
       impossible speaking rate, which catches dense text confabulated over a
       very short clip.
+
+    Repeated-word and long-word checks are disabled for languages written
+    without word-separating spaces because whitespace tokenization treats an
+    entire utterance as one word. Phrase and character-rate checks remain
+    active for those languages.
 
     When flagged, ``skip_me_key`` is set to ``"Hallucination:{name}"`` so the
     originating instance stays identifiable. An existing non-hallucination flag
@@ -180,6 +186,9 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(task.data.get(self.language_key, "")).lower().strip()
         return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
 
+    def _is_scriptio_continua(self, task: AudioTask) -> bool:
+        return is_scriptio_continua(task.data.get(self.language_key))
+
     def process(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
@@ -194,8 +203,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
         is_agglutinative = self._is_agglutinative(task)
         long_word_thresh = self.agglutinative_long_word_threshold if is_agglutinative else self.long_word_threshold
-        repeated = self._repeated_ngrams(words)
-        long_w = self._long_word(words, threshold=long_word_thresh, skip_relative=is_agglutinative)
+        word_checks_apply = not self._is_scriptio_continua(task)
+        repeated = self._repeated_ngrams(words) if word_checks_apply else False
+        long_w = (
+            self._long_word(words, threshold=long_word_thresh, skip_relative=is_agglutinative)
+            if word_checks_apply
+            else False
+        )
         phrase = self._frequent_single_word(text)
         high_rate = self._high_char_rate(words, duration)
 

@@ -397,7 +397,11 @@ def main() -> int:
         default=3,
         help="Retries after a failed page inference request",
     )
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     logger.info("=== Nemotron-Parse PDF Pipeline Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
@@ -410,7 +414,7 @@ def main() -> int:
     try:
         results = run_nemotron_parse_pdf_benchmark(args)
     finally:
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
 
     return 0 if results["metrics"]["is_success"] else 1
 
