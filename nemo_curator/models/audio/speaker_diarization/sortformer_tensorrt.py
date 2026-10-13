@@ -247,15 +247,6 @@ def _validate_streaming_geometry(config: dict[str, Any]) -> None:
         raise ValueError(msg)
 
 
-def _validate_config_geometry(config: dict[str, Any], *, sample_rate: int, config_path: Path) -> None:
-    if config["sample_rate"] != sample_rate:
-        msg = (
-            f"Sortformer TensorRT config sample_rate={config['sample_rate']} does not match "
-            f"adapter sample_rate={sample_rate}: {config_path}"
-        )
-        raise ValueError(msg)
-
-
 def _validate_config_paths(config: dict[str, Any]) -> None:
     if config["win_length"] > config["n_fft"]:
         msg = "Sortformer TensorRT win_length must not exceed n_fft"
@@ -264,11 +255,10 @@ def _validate_config_paths(config: dict[str, Any]) -> None:
     if window_frames > config["chunk_len"]:
         msg = f"Sortformer TensorRT context window exceeds chunk_len: {window_frames} > {config['chunk_len']}"
         raise ValueError(msg)
-    for key in ("mel_basis",):
-        value = config.get(key)
-        if not isinstance(value, str) or not value.strip():
-            msg = f"Invalid Sortformer TensorRT config path for {key}: {value!r}"
-            raise ValueError(msg)
+    value = config.get("mel_basis")
+    if not isinstance(value, str) or not value.strip():
+        msg = f"Invalid Sortformer TensorRT config path for mel_basis: {value!r}"
+        raise ValueError(msg)
     learned_silence = config.get("learnable_sil_emb")
     if learned_silence is not None and (not isinstance(learned_silence, str) or not learned_silence.strip()):
         msg = f"Invalid Sortformer TensorRT config path for learnable_sil_emb: {learned_silence!r}"
@@ -288,7 +278,12 @@ def _validate_config_normalization(config: dict[str, Any]) -> None:
 def _validate_config(config: dict[str, Any], *, sample_rate: int, config_path: Path) -> None:
     _validate_config_numbers(config)
     _validate_streaming_geometry(config)
-    _validate_config_geometry(config, sample_rate=sample_rate, config_path=config_path)
+    if config["sample_rate"] != sample_rate:
+        msg = (
+            f"Sortformer TensorRT config sample_rate={config['sample_rate']} does not match "
+            f"adapter sample_rate={sample_rate}: {config_path}"
+        )
+        raise ValueError(msg)
     _validate_config_paths(config)
     _validate_config_normalization(config)
 
@@ -299,11 +294,8 @@ def _config_artifact(config_path: Path, value: str) -> Path:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as source:
-        for block in iter(lambda: source.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _validate_optional_checksum(config: dict[str, Any], key: str, path: Path) -> None:

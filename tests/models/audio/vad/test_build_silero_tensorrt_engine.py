@@ -63,9 +63,13 @@ def test_parse_args_rejects_invalid_profiles(tmp_path: Path, extra_args: list[st
         _parse_args(["--output", str(tmp_path / "silero.plan"), *extra_args])
 
 
-def test_sha256_hashes_complete_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "contents",
+    [b"", b"silero-tensorrt\x00artifact", b"x" * (8 * 1024 * 1024 + 1)],
+    ids=["empty", "binary", "multiple_blocks"],
+)
+def test_sha256_hashes_complete_file(tmp_path: Path, contents: bytes) -> None:
     artifact = tmp_path / "artifact.bin"
-    contents = b"silero-tensorrt\x00artifact"
     artifact.write_bytes(contents)
 
     assert _sha256(artifact) == hashlib.sha256(contents).hexdigest()

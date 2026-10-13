@@ -222,10 +222,6 @@ class RivaStreamingExportMixin:
         return predictions, pred_lengths, chunk_embs, chunk_emb_lengths
 
 
-def _export_model_class(base: type) -> type:
-    return type("RivaStreamingExportModel", (RivaStreamingExportMixin, base), {})
-
-
 def round_model_tensors_through_bf16(model: torch.nn.Module) -> None:
     """Match the recovered BF16 artifact while retaining FP32 storage."""
     with torch.no_grad():
@@ -317,7 +313,7 @@ def export_checkpoint(  # noqa: PLR0913 - explicit build controls form the CLI c
         with torch.no_grad():
             native_predictions = model.forward_for_export(*input_example)[0]
 
-    model.__class__ = _export_model_class(model.__class__)
+    model.__class__ = type("RivaStreamingExportModel", (RivaStreamingExportMixin, model.__class__), {})
     try:
         from omegaconf import open_dict
     except ImportError as exc:

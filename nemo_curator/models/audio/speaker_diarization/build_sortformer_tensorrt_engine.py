@@ -67,11 +67,8 @@ def _bundle_paths(engine: Path, onnx: Path) -> _BundlePaths:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as source:
-        for block in iter(lambda: source.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _model_config_bytes(nemo_path: Path) -> bytes:
@@ -292,10 +289,6 @@ def _copy_runtime_module(source: Path | None, destination: Path) -> Path:
     return destination
 
 
-def _uses_learned_silence(config: dict[str, Any]) -> bool:
-    return bool(_nested(config, "sortformer_modules", "use_learnable_sil_emb", default=False))
-
-
 def _validate_learned_silence(path: Path, parameters: dict[str, Any], *, required: bool) -> bool:
     if not path.is_file():
         if required:
@@ -463,7 +456,7 @@ def _build_bundle(args: argparse.Namespace, paths: _BundlePaths) -> bool:
     has_learned_silence = _validate_learned_silence(
         paths.learned_silence,
         parameters,
-        required=_uses_learned_silence(config),
+        required=bool(_nested(config, "sortformer_modules", "use_learnable_sil_emb", default=False)),
     )
     build_seconds, tensorrt_version = _build_engine(paths.onnx, paths.engine, parameters, args)
     np.save(paths.mel_basis, _mel_basis(parameters), allow_pickle=False)
