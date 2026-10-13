@@ -106,6 +106,47 @@ def test_image_to_text_ratio_boundary_inclusive_min_and_max() -> None:
     assert out.num_items == 1
 
 
+def test_image_to_text_ratio_missing_text_keeps_half_boundary() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "one two",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 2,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.5, max_ratio=0.5)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 3
+    assert out.num_items == 1
+
+
 def test_image_to_text_ratio_metadata_only_sample_dropped_as_orphan() -> None:
     rows = [
         {
