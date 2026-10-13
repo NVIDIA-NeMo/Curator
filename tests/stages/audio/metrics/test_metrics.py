@@ -21,12 +21,12 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
+
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import find_producers
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
-
 from nemo_curator.stages.audio.common import PreserveByValueStage
 from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
@@ -247,14 +247,12 @@ class TestMetricSegmentContainers:
     def test_metric_stages_skip_malformed_segment_children(self) -> None:
         audio = np.zeros(16000, dtype=np.float32)
         bandwidth = BandwidthEstimationStage(input_residency="waveform")
-        bandwidth.process(
-            AudioTask(data={"waveform": audio, "sample_rate": 16000, "segments": [None]})
-        )
+        bandwidth.process(AudioTask(data={"waveform": audio, "sample_rate": 16000, "segments": [None]}))
 
         squim = TorchSquimQualityMetricsStage(input_residency="waveform")
-        assert squim._collect_waveforms_for_entry(
-            0, {"waveform": audio, "sample_rate": 16000, "segments": [None]}
-        ) == []
+        assert (
+            squim._collect_waveforms_for_entry(0, {"waveform": audio, "sample_rate": 16000, "segments": [None]}) == []
+        )
 
         wer = ComputeWERStage()
         task = AudioTask(data={"segments": [None]})
