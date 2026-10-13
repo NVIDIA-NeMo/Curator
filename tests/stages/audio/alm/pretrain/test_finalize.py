@@ -88,9 +88,7 @@ class TestPrepareAndFinalize:
         assert summary["dropped_repetition_examples"] == []
         assert list(tmp_path.glob("*.shard-*")) == []
 
-    def test_finalize_caps_filtered_examples_globally(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_finalize_caps_filtered_examples_globally(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import nemo_curator.stages.audio.alm.pretrain.finalize as m
 
         monkeypatch.setattr(m, "_MAX_FILTERED_TEXT_EXAMPLES", 5)
@@ -456,11 +454,7 @@ class TestPrepareAndFinalize:
 
         finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
 
-        kept_paths = [
-            json.loads(line)["audio_filepath"]
-            for line in Path(manifest).read_text().splitlines()
-            if line
-        ]
+        kept_paths = [json.loads(line)["audio_filepath"] for line in Path(manifest).read_text().splitlines() if line]
         assert sorted(kept_paths) == ["X-0_000-1_000.flac", "X-2_000-3_000.flac"]
         summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
         assert summary["dropped"]["corrupted_audio"] == 1

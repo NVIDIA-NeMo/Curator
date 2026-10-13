@@ -175,6 +175,33 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not legacy_id_path_alias and self.id_key in source_specific_keys:
             msg = "id_key must be distinct from fields removed or transformed during extraction"
             raise ValueError(msg)
+        emitted_keys = [*stable_output_keys, self.audio_filepath_key]
+        if legacy_id_path_alias:
+            emitted_keys.remove(self.id_key)
+        transformed_keys = [
+            self.actual_duration_key,
+            self.proposed_duration_key,
+            self.audio_sample_rate_key,
+            self.audio_num_channels_key,
+            self.swift_audio_filepath_key,
+            self.text_key,
+        ]
+        active_keys = [*emitted_keys, *transformed_keys]
+        if any(not isinstance(key, str) or not key.strip() for key in active_keys):
+            msg = "extraction output keys must be non-empty strings"
+            raise ValueError(msg)
+        if len(set(active_keys)) != len(active_keys):
+            msg = "extraction output keys must be distinct, including conditional audio properties"
+            raise ValueError(msg)
+        removed_keys = {
+            self.alignment_key,
+            self.snippet_plan_key,
+            self.audio_size_key,
+            self.resampled_audio_filepath_key,
+        }
+        if removed_keys & set(transformed_keys):
+            msg = "conditional extraction output keys must be distinct from removed source fields"
+            raise ValueError(msg)
         self._tar_shard_path: str | None = None
         self._tar: Any = None  # tarfile.TarFile, opened lazily in setup()
 

@@ -633,3 +633,26 @@ def test_legacy_default_identity_path_alias_remains_supported(tmp_path: Path) ->
     SnippetExtractionStage(
         output_dir=str(tmp_path), output_audio_tar_path=str(tmp_path / "audio.tar"), audio_filepath_key="id"
     )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"duration_key": "audio_filepath"},
+        {"snippet_id_key": "audio_filepath"},
+        {"segments_key": "audio_filepath"},
+        {"actual_duration_key": "snippet_id"},
+        {"proposed_duration_key": "actual_duration"},
+        {"audio_sample_rate_key": "segments"},
+        {"audio_num_channels_key": "audio_filepath"},
+        {"swift_audio_filepath_key": "duration"},
+        {"text_key": "segments"},
+        {"actual_duration_key": "alignment"},
+        {"text_key": "_snippet_plan"},
+    ],
+)
+def test_extraction_rejects_overlapping_emitted_fields(tmp_path: Path, overrides: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="distinct"):
+        SnippetExtractionStage(
+            output_dir=str(tmp_path), output_audio_tar_path=str(tmp_path / "audio.tar"), **overrides
+        )
