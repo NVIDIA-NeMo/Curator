@@ -30,7 +30,11 @@ from nemo_curator.config.run import (
 
 @hydra.main(version_base=None, config_path="config", config_name="text")
 def main(cfg: DictConfig) -> None:
-    if Path(cfg.manifest_path).resolve() == Path(cfg.output_path).resolve():
+    manifest_path = Path(cfg.manifest_path).resolve()
+    output_path = Path(cfg.output_path).resolve()
+    if manifest_path == output_path or (
+        manifest_path.exists() and output_path.exists() and manifest_path.samefile(output_path)
+    ):
         msg = "output_path must differ from manifest_path: the writer replaces existing output."
         raise ValueError(msg)
 

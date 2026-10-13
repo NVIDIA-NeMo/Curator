@@ -320,6 +320,9 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             if not isinstance(task, AudioTask):
                 msg = "AudioTextLLMStage only accepts AudioTask inputs"
                 raise TypeError(msg)
+            if self.skip_if_output_exists and self.output_text_key in task.data:
+                pending.append((index, task.data[self.output_text_key], "skipped (output exists)"))
+                continue
             if self.mode == "recover_entities":
                 normalized = task.data.get(self.text_key, "")
                 normalized = normalized if isinstance(normalized, str) else ""
@@ -331,9 +334,6 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
                 else:
                     messages.append(self._build_messages(normalized, task.data))
                     indices.append(index)
-                continue
-            if self.skip_if_output_exists and self.output_text_key in task.data:
-                pending.append((index, task.data[self.output_text_key], "skipped (output exists)"))
                 continue
             if task.data.get(self.skip_me_key):
                 pending.append((index, "", "skipped (flagged)"))

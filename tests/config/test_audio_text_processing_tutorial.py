@@ -201,13 +201,17 @@ def test_runner_cleans_up_owned_services_after_pipeline_failure(monkeypatch: pyt
         assert events == ["start:ray", "start:server", "stop:server", "stop:ray"]
 
 
+@pytest.mark.parametrize("link_type", ["symlink", "hardlink"])
 def test_runner_rejects_output_alias_of_input_before_starting_services(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    link_type: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     manifest = tmp_path / "input.jsonl"
     manifest.write_text('{"text":"hello"}\n')
     output = tmp_path / "output.jsonl"
-    output.symlink_to(manifest)
+    if link_type == "symlink":
+        output.symlink_to(manifest)
+    else:
+        output.hardlink_to(manifest)
     cfg = OmegaConf.create({"manifest_path": str(manifest), "output_path": str(output)})
     start = Mock()
     monkeypatch.setattr(run, "create_ray_client_from_yaml", start)

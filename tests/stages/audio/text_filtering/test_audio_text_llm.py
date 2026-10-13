@@ -152,7 +152,8 @@ def test_executor_adapter_keeps_per_task_lineage(endpoint: Callable) -> None:
     assert all(len(task._stage_perf) == 1 for task in result)
 
 
-def test_skip_existing_and_empty_rows_make_no_requests(endpoint: Callable) -> None:
+@pytest.mark.parametrize("mode", ["text", "recover_entities"])
+def test_skip_existing_and_empty_rows_make_no_requests(mode: str, endpoint: Callable) -> None:
     def unexpected_request(_request: httpx.Request) -> httpx.Response:
         pytest.fail("Skipped and empty rows must not reach the endpoint")
 
@@ -161,9 +162,9 @@ def test_skip_existing_and_empty_rows_make_no_requests(endpoint: Callable) -> No
         AudioTask(data={"_skipme": "prior filter", "processed_text": "keep"}),
         AudioTask(data={"_skipme": "prior filter"}),
         AudioTask(data={"text": "", "processed_text": "stale"}),
-        AudioTask(data={"text": "already done", "processed_text": "cached"}),
+        AudioTask(data={"text": "already done", "granary_v1_prediction": "original", "processed_text": "cached"}),
     ]
-    stage = _stage(skip_if_output_exists=True)
+    stage = _stage(mode=mode, user_prompt="{ground_truth}\n{normalized}", skip_if_output_exists=True)
     result = stage.process_batch(tasks)
     assert all(actual is original for actual, original in zip(result, tasks, strict=True))
     assert [task.data["processed_text"] for task in result] == ["keep", "", "stale", "cached"]
