@@ -17,10 +17,10 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
-
 from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
