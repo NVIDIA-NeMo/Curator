@@ -17,9 +17,10 @@
 from __future__ import annotations
 
 import builtins
+import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -32,9 +33,6 @@ from nemo_curator.models.audio.speaker_diarization.sortformer import (
     _extract_nemo_features_in_blocks,
     parse_sortformer_segments,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 _SAMPLE_RATE = 16_000
 
@@ -439,6 +437,26 @@ def test_diarize_batch_passes_filepaths_directly_without_sample_rate() -> None:
     assert call["audio"] == ["first.wav", "second.wav"]
     assert call["batch_size"] == 2
     assert "sample_rate" not in call
+
+
+def test_diarize_batch_separates_filepaths_with_duplicate_stems() -> None:
+    model = _mock_model()
+
+    def collapse_duplicate_stems(*, audio: list[str], **_kwargs: object) -> list[list[str]]:
+        outputs = {
+            os.path.splitext(os.path.basename(path))[0]: [f"0.0 1.0 {Path(path).parent.name}"] for path in audio
+        }
+        return list(outputs.values())
+
+    model.diarize.side_effect = collapse_duplicate_stems
+    adapter = NeMoSortformerAdapter(inference_batch_size=2)
+    adapter._model = model
+    paths = ["a/recording.wav", "b/recording.wav"]
+
+    results = adapter.diarize_batch([_path_item(path) for path in paths])
+
+    assert [result.segments[0]["speaker"] for result in results] == ["a", "b"]
+    assert [call.kwargs["audio"] for call in model.diarize.call_args_list] == [[paths[0]], [paths[1]]]
 
 
 def test_diarize_batch_supports_mixed_input_modes_without_reordering_results() -> None:

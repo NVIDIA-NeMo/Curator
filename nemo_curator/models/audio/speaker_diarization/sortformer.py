@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import gc
 import math
+import os
 from dataclasses import dataclass, field
 from numbers import Integral, Real
 from pathlib import Path
@@ -642,12 +643,23 @@ class NeMoSortformerAdapter:
                 results,
             )
         if filepaths:
-            self._scatter_outputs(
-                filepath_indices,
-                filepaths,
-                self._run_diarization(filepaths, sample_rate=None),
-                results,
-            )
+            # NeMo keys file inputs by basename stem and drops collisions within one call.
+            file_ids = {os.path.splitext(os.path.basename(path))[0] for path in filepaths}
+            if len(file_ids) != len(filepaths):
+                for index, path in zip(filepath_indices, filepaths, strict=True):
+                    self._scatter_outputs(
+                        [index],
+                        [path],
+                        self._run_diarization([path], sample_rate=None),
+                        results,
+                    )
+            else:
+                self._scatter_outputs(
+                    filepath_indices,
+                    filepaths,
+                    self._run_diarization(filepaths, sample_rate=None),
+                    results,
+                )
         return results
 
 
