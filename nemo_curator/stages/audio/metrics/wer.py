@@ -23,7 +23,14 @@ from nemo.collections.asr.metrics.wer import word_error_rate_detail
 from nemo_text_processing.text_normalization import Normalizer
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalRead,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.audio.metrics._common import metrics_mapping, validate_metric_keys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -114,15 +121,24 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return [], [self.metrics_key]
 
     def describe(self) -> StageContract:
-        # Mirrors validate_input's OR shape: per-segment WER over ``segments``,
-        # OR top-level WER over hypothesis+reference keys on the row.
+        nested = IOSpec(
+            data_keys=[self.segments_key],
+            segment_data_keys=[self.hypothesis_text_key, self.reference_text_key],
+        )
+        top_level = IOSpec(data_keys=[self.hypothesis_text_key, self.reference_text_key])
         return StageContract(
-            reads_one_of=[
-                IOSpec(
-                    data_keys=[self.segments_key],
-                    segment_data_keys=[self.hypothesis_text_key, self.reference_text_key],
+            reads_one_of=[nested, top_level],
+            conditional_reads=[
+                ConditionalRead(
+                    reads_one_of=[nested],
+                    requires_keys=[self.segments_key],
+                    condition=f"'{self.segments_key}' is present, selecting per-segment WER",
                 ),
-                IOSpec(data_keys=[self.hypothesis_text_key, self.reference_text_key]),
+                ConditionalRead(
+                    reads_one_of=[top_level],
+                    forbids_keys=[self.segments_key],
+                    condition=f"'{self.segments_key}' is absent, selecting task-level WER",
+                ),
             ],
             writes=IOSpec(),
             conditional_writes=[
