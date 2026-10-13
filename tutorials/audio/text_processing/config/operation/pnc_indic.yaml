@@ -35,7 +35,7 @@ language_rules:
   sa: "Sanskrit exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert."
   sat: "Santali in Ol Chiki exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert."
   sd: "Sindhi in Devanagari exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert."
-prompt: |
+prompt: |-
   IMMUTABLE COPY RULE — HIGHEST PRIORITY
   Copy every original non-whitespace Unicode code point exactly, in the same order. You may only insert punctuation from the active-language mapping and adjust whitespace beside an inserted mark. Never delete, replace, reorder, duplicate, normalize, spell-correct, transliterate, or recase any original character. Preserve combining marks, join controls, direction controls, digits, existing punctuation, symbols, repetitions, disfluencies, ASR errors, and isolated one-character tokens. If punctuation quality conflicts with exact copying, exact copying wins.
 

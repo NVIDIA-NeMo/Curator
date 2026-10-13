@@ -1,5 +1,13 @@
 defaults:
-  - operation: pnc
+  - operation@recover_entities: recover_entities
+  - operation@pnc: pnc
+  - operation@language_id: language_id
+  - operation@tn: tn
+  - operation@captioning: captioning
+  - operation@code_switching: code_switching
+  - operation@speech_qa: speech_qa
+  - operation@itn: itn
+  - operation@disfluency: disfluency
   - _self_
   - override hydra/job_logging: none
   - override hydra/hydra_logging: none
@@ -11,63 +19,150 @@ hydra:
 
 manifest_path: ???
 output_path: ???
-text_key: text
+text_key: abbreviated_text
+ground_truth_key: granary_v1_prediction
 language_key: source_lang
 
 backend: ray_data
 execution_mode: streaming
-batch_size: 64
-max_concurrent_requests: 16
-request_timeout_s: 120
+batch_size: 128
+num_workers: 12
+max_concurrent_requests: 256
+request_timeout_s: 600
 max_retries: 3
 
-# Set endpoint to an existing OpenAI-compatible /v1 URL to skip server startup.
+# An existing /v1 endpoint skips managed server startup.
 endpoint: null
-model_identifier: Qwen/Qwen3.5-35B-A3B-FP8
+model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
 model_name: ${model_identifier}
 
 ray_client:
   _target_: nemo_curator.core.client.RayClient
+  num_gpus: 8
 
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all
   name: audio_text_processing
-  health_check_timeout_s: 600
+  health_check_timeout_s: 1200
   models:
     - _target_: nemo_curator.core.serve.DynamoVLLMModelConfig
       model_identifier: ${model_identifier}
       model_name: ${model_name}
-      num_replicas: 1
+      num_replicas: 4
+      runtime_env:
+        uv:
+          packages:
+            - transformers>=5
       engine_kwargs:
-        tensor_parallel_size: 1
-        max_model_len: 4096
-        gpu_memory_utilization: 0.9
-        enable_prefix_caching: true
+        tensor_parallel_size: 2
+        max_model_len: 8192
+        gpu_memory_utilization: 0.95
+        kv_cache_dtype: auto
+        max_num_seqs: 256
+        max_num_batched_tokens: 8192
+        language_model_only: true
+        trust_remote_code: true
   backend:
     _target_: nemo_curator.core.serve.DynamoServerConfig
+
+pnc:
+  text_key: entity_recovered_text
+language_id:
+  text_key: pnc_text
+tn:
+  text_key: pnc_text
+captioning:
+  text_key: tn_raw
+code_switching:
+  text_key: tn_raw
+speech_qa:
+  text_key: tn_raw
+itn:
+  text_key: tn_raw
+disfluency:
+  text_key: itn_raw
+
+stage_defaults: &text_stage
+  _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
+  _convert_: all
+  endpoint: ${endpoint}
+  model_name: ${model_name}
+  language_key: ${language_key}
+  batch_size: ${batch_size}
+  num_workers_override: ${num_workers}
+  max_concurrent_requests: ${max_concurrent_requests}
+  request_timeout_s: ${request_timeout_s}
+  max_retries: ${max_retries}
 
 stages:
   - _target_: nemo_curator.stages.audio.ManifestReader
     manifest_path: ${manifest_path}
 
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    name: ${operation.name}
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    prompt: ${operation.prompt}
-    text_key: ${operation.text_key}
-    output_text_key: ${operation.output_text_key}
-    language_key: ${language_key}
-    language_rules: ${operation.language_rules}
-    validation_mode: ${operation.validation_mode}
-    min_word_retention_ratio: ${operation.min_word_retention_ratio}
-    generation_config: ${operation.generation_config}
-    batch_size: ${batch_size}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
+    name: ${recover_entities.name}
+    prompt: ${recover_entities.prompt}
+    text_key: ${recover_entities.text_key}
+    output_text_key: ${recover_entities.output_text_key}
+    validation_mode: ${recover_entities.validation_mode}
+    min_word_retention_ratio: ${recover_entities.min_word_retention_ratio}
+    generation_config: ${recover_entities.generation_config}
+    mode: ${recover_entities.mode}
+    user_prompt: ${recover_entities.user_prompt}
+    ground_truth_key: ${recover_entities.ground_truth_key}
+
+  - <<: *text_stage
+    name: ${pnc.name}
+    prompt: ${pnc.prompt}
+    text_key: ${pnc.text_key}
+    output_text_key: ${pnc.output_text_key}
+    validation_mode: ${pnc.validation_mode}
+    min_word_retention_ratio: ${pnc.min_word_retention_ratio}
+    generation_config: ${pnc.generation_config}
+
+  - <<: *text_stage
+    name: ${language_id.name}
+    prompt: ${language_id.prompt}
+    text_key: ${language_id.text_key}
+    output_text_key: ${language_id.output_text_key}
+    validation_mode: ${language_id.validation_mode}
+    min_word_retention_ratio: ${language_id.min_word_retention_ratio}
+    generation_config: ${language_id.generation_config}
+    mode: ${language_id.mode}
+
+  - <<: *text_stage
+    name: ${tn.name}
+    prompt: ${tn.prompt}
+    text_key: ${tn.text_key}
+    output_text_key: ${tn.output_text_key}
+    validation_mode: ${tn.validation_mode}
+    min_word_retention_ratio: ${tn.min_word_retention_ratio}
+    generation_config: ${tn.generation_config}
+
+  - <<: *text_stage
+    name: FusedTextLLM
+    operations:
+      - ${captioning}
+      - ${code_switching}
+      - ${speech_qa}
+
+  - <<: *text_stage
+    name: ${itn.name}
+    prompt: ${itn.prompt}
+    text_key: ${itn.text_key}
+    output_text_key: ${itn.output_text_key}
+    validation_mode: ${itn.validation_mode}
+    min_word_retention_ratio: ${itn.min_word_retention_ratio}
+    generation_config: ${itn.generation_config}
+
+  - <<: *text_stage
+    name: ${disfluency.name}
+    prompt: ${disfluency.prompt}
+    text_key: ${disfluency.text_key}
+    output_text_key: ${disfluency.output_text_key}
+    validation_mode: ${disfluency.validation_mode}
+    min_word_retention_ratio: ${disfluency.min_word_retention_ratio}
+    generation_config: ${disfluency.generation_config}
 
   - _target_: nemo_curator.stages.audio.ManifestWriterStage
     output_path: ${output_path}

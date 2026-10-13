@@ -227,7 +227,7 @@ def test_untemplated_prompt_is_system_message(endpoint: Callable) -> None:
 @pytest.mark.parametrize(
     ("prompt", "data", "rules"),
     [
-        ("Fix {language}: {text}", {"text": "hello"}, None),
+        ("Fix {language_rules}: {text}", {"text": "hello"}, {"hi": "Hindi only"}),
         ("Fix {language_rules}: {text}", {"text": "hello", "source_lang": "en"}, {"hi": "Hindi only"}),
     ],
 )
@@ -243,14 +243,15 @@ def test_missing_required_prompt_context_raises(
 @pytest.mark.parametrize(
     ("content", "finish_reason"), [("", "stop"), ("  ", "stop"), (None, "stop"), ("partial", "length")]
 )
-def test_invalid_completions_fall_back_with_a_reason(
-    content: str | None, finish_reason: str, endpoint: Callable
+@pytest.mark.parametrize("validation_mode", ["none", "itn"])
+def test_completions_follow_reference_validation_policy(
+    content: str | None, finish_reason: str, endpoint: Callable, validation_mode: str
 ) -> None:
     endpoint(lambda _request: _completion(content, finish_reason))
     task = AudioTask(data={"text": "original", "additional_notes": {"previous": "keep"}})
-    stage = _stage(name="punctuation")
+    stage = _stage(name="punctuation", validation_mode=validation_mode)
     stage.process(task)
-    assert task.data["processed_text"] == "original"
+    assert task.data["processed_text"] == ("original" if validation_mode == "itn" else (content or "").strip())
     assert task.data["additional_notes"]["previous"] == "keep"
     assert task.data["additional_notes"][stage.name]
 
@@ -359,3 +360,133 @@ def test_rejects_streaming_or_multiple_completions(generation_config: dict) -> N
 def test_invalid_limits_and_destructive_field_collisions_fail_early(options: dict, error_field: str) -> None:
     with pytest.raises(ValueError, match=error_field):
         _stage(**options)
+
+
+def test_missing_plain_language_uses_reference_english_default() -> None:
+    stage = _stage(prompt="Fix {language}: {text}")
+    assert stage._build_messages("hello", {}) == [{"role": "user", "content": "Fix English: hello"}]
+    assert stage._build_messages("hello", {"source_lang": " hi "}) == [{"role": "user", "content": "Fix hi: hello"}]
+
+
+def test_recovery_renders_two_fields_cleans_output_and_preserves_skip_inputs(endpoint: Callable) -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return _completion('<think>reasoning</think>\n```text\n"NVIDIA paid $5"\n```')
+
+    endpoint(handle)
+    stage = _stage(
+        mode="recover_entities",
+        text_key="abbreviated_text",
+        output_text_key="entity_recovered_text",
+        user_prompt='INITIAL:\n"{ground_truth}"\n\nNORMALIZED:\n"{normalized}"',
+        generation_config={"max_tokens": 1024},
+    )
+    data = {"abbreviated_text": " nvidia paid $5 ", "granary_v1_prediction": " NVIDIA paid five dollars "}
+    tasks = [
+        AudioTask(data=data),
+        AudioTask(data={**data, "_skipme": True}),
+        AudioTask(data={"abbreviated_text": "keep"}),
+    ]
+    stage.process_batch(tasks)
+    assert requests[0]["messages"] == [
+        {"role": "system", "content": "Add punctuation."},
+        {"role": "user", "content": 'INITIAL:\n"NVIDIA paid five dollars"\n\nNORMALIZED:\n"nvidia paid $5"'},
+    ]
+    assert len(requests) == 1
+    assert requests[0]["max_tokens"] == 1024
+    assert [task.data["entity_recovered_text"] for task in tasks] == [
+        "NVIDIA paid $5",
+        data["abbreviated_text"],
+        "keep",
+    ]
+    assert [task.data["additional_notes"][stage.name] for task in tasks] == [
+        "recovered",
+        "skipped (flagged)",
+        "skipped (empty)",
+    ]
+    assert all(tasks[0].data[key] == value for key, value in data.items())
+
+
+@pytest.mark.parametrize("response", ["<think>only reasoning</think>", '"same"'])
+def test_recovery_equal_inputs_still_call_model_and_empty_output_falls_back(response: str, endpoint: Callable) -> None:
+    clients = endpoint(lambda _request: _completion(response))
+    stage = _stage(mode="recover_entities", user_prompt="{ground_truth}\n{normalized}")
+    task = stage.process(AudioTask(data={"text": "same", "granary_v1_prediction": "same"}))
+    assert len(clients) == 1
+    assert task.data["processed_text"] == "same"
+    assert task.data["additional_notes"][stage.name] == (
+        "unchanged" if response == '"same"' else "fallback (empty output)"
+    )
+
+
+def test_parallel_prompts_share_concurrency_and_keep_per_operation_configs(endpoint: Callable) -> None:
+    active = maximum = 0
+    requests = []
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal active, maximum
+        body = json.loads(request.content)
+        requests.append(body)
+        active += 1
+        maximum = max(maximum, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return _completion(body["messages"][0]["content"])
+
+    clients = endpoint(handle)
+    stage = _stage(
+        prompt="",
+        max_concurrent_requests=2,
+        generation_config={"max_tokens": 10},
+        operations=[
+            {"name": "caption", "prompt": "Caption", "output_text_key": "caption"},
+            {"name": "qa", "prompt": "QA", "output_text_key": "qa", "generation_config": {"max_tokens": 20}},
+        ],
+    )
+    tasks = [AudioTask(data={"text": f"row {i}"}) for i in range(3)]
+    assert stage.process_batch(tasks) is tasks
+    assert len(clients) == 1
+    assert clients[0].is_closed()
+    assert maximum == 2
+    assert {body["max_tokens"] for body in requests} == {10, 20}
+    assert all(task.data["caption"] == "Caption" and task.data["qa"] == "QA" for task in tasks)
+    assert all(set(task.data["additional_notes"]) == {"caption", "qa"} for task in tasks)
+
+
+def test_parallel_http_failure_is_atomic_across_operations(endpoint: Callable) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["messages"][0]["content"] == "Fail":
+            return httpx.Response(400, json={"error": {"message": "bad", "type": "invalid_request_error"}})
+        return _completion("changed")
+
+    clients = endpoint(handle)
+    stage = _stage(
+        prompt="",
+        max_retries=0,
+        operations=[
+            {"name": "caption", "prompt": "Caption", "output_text_key": "caption"},
+            {"name": "qa", "prompt": "Fail", "output_text_key": "qa"},
+        ],
+    )
+    task = AudioTask(data={"text": "original"})
+    with pytest.raises(APIStatusError):
+        stage.process(task)
+    assert task.data == {"text": "original"}
+    assert clients[0].is_closed()
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        {"name": "first", "prompt": "same name", "output_text_key": "other"},
+        {"name": "second", "prompt": "same output", "output_text_key": "out"},
+        {"name": "second", "prompt": "dependent", "text_key": "out", "output_text_key": "other"},
+        {"name": "second", "prompt": "different endpoint", "endpoint": "http://other/v1"},
+        {"name": "second", "prompt": "gating", "mode": "language_id"},
+    ],
+)
+def test_parallel_groups_reject_conflicting_or_dependent_operations(second: dict) -> None:
+    with pytest.raises(ValueError, match="Parallel operations"):
+        _stage(prompt="", operations=[{"name": "first", "prompt": "First", "output_text_key": "out"}, second])

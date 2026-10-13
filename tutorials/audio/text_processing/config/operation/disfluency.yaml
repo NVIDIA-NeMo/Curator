@@ -13,7 +13,7 @@ generation_config:
       chat_template_kwargs:
         enable_thinking: false
 language_rules: null
-prompt: |
+prompt: |-
   # Disfluency Removal
 
   Remove speech disfluencies from the following text. Do NOT change anything else.

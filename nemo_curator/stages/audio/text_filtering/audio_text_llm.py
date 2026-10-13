@@ -25,6 +25,7 @@ from openai.types.chat import ChatCompletion
 
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.stages.audio.text_filtering.language_utils import verify_language
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -45,8 +46,16 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     Both reject outputs retaining less than ``min_word_retention_ratio`` of
     the input words when the input has at least ``min_words_for_deletion_check``
     words. ``'none'`` disables these rewrite heuristics, for example for captions.
-    Empty or truncated completions always fall back to the input with a note.
+    Responses use the reference rewrite guards; unvalidated operations retain
+    their response text, including empty or truncated text.
     Request failures propagate after the shared client's retries.
+
+    ``mode='recover_entities'`` renders a system/user prompt from the normalized
+    transcript and ``ground_truth_key``, then removes reasoning/fence wrappers.
+    ``mode='language_id'`` verifies the prediction against ``language_key`` and
+    flags single-language mismatches for downstream stages. ``operations`` groups
+    independent text operations into one concurrent batch with a shared client.
+    Dependent operations belong in separate pipeline stages.
 
     Connections are reused within a batch and closed on its event loop before
     returning. No client or event loop is serialized between workers.
@@ -54,7 +63,13 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
 
     endpoint: str
     model_name: str
-    prompt: str
+    prompt: str = ""
+    mode: Literal["text", "recover_entities", "language_id"] = "text"
+    user_prompt: str | None = None
+    ground_truth_key: str = "granary_v1_prediction"
+    operations: list[dict] | None = None
+    num_workers_override: int | None = None
+    _operations: list["AudioTextLLMStage"] = field(default_factory=list, init=False, repr=False)
     text_key: str = "text"
     output_text_key: str = "processed_text"
     language_key: str = "source_lang"
@@ -76,11 +91,10 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "AudioTextLLM"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    def __post_init__(self) -> None:  # noqa: C901, PLR0912
+    def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         for key in (
             "endpoint",
             "model_name",
-            "prompt",
             "text_key",
             "output_text_key",
             "language_key",
@@ -90,6 +104,29 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             value = getattr(self, key)
             if not isinstance(value, str) or not value.strip():
                 msg = f"{key} must be a non-empty string"
+                raise ValueError(msg)
+        if self.mode not in {"text", "recover_entities", "language_id"}:
+            msg = "mode must be text, recover_entities, or language_id"
+            raise ValueError(msg)
+        if self.num_workers_override is not None and (
+            isinstance(self.num_workers_override, bool)
+            or not isinstance(self.num_workers_override, int)
+            or self.num_workers_override < 1
+        ):
+            msg = "num_workers_override must be a positive integer"
+            raise ValueError(msg)
+        if not isinstance(self.prompt, str) or (not self.operations and not self.prompt.strip()):
+            msg = "prompt must be a non-empty string unless operations are configured"
+            raise ValueError(msg)
+        if self.mode == "recover_entities":
+            if not isinstance(self.user_prompt, str) or not self.user_prompt.strip():
+                msg = "recover_entities requires a user_prompt template"
+                raise ValueError(msg)
+            if not isinstance(self.ground_truth_key, str) or not self.ground_truth_key.strip():
+                msg = "ground_truth_key must be a non-empty string"
+                raise ValueError(msg)
+            if self.ground_truth_key in {self.output_text_key, self.notes_key, self.skip_me_key}:
+                msg = "ground_truth_key must not be overwritten by outputs"
                 raise ValueError(msg)
         if self.output_text_key in {self.skip_me_key, self.notes_key, self.language_key}:
             msg = "output_text_key must not overwrite skip, notes, or language fields"
@@ -153,34 +190,103 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "prompt requires language_rules"
             raise ValueError(msg)
 
+        if self.operations is not None:
+            self._configure_operations()
+
+    def _configure_operations(self) -> None:
+        if not isinstance(self.operations, list) or not self.operations or self.prompt or self.mode != "text":
+            msg = "operations must be a nonempty list without a parent prompt or special mode"
+            raise ValueError(msg)
+        shared = {
+            key: getattr(self, key)
+            for key in (
+                "endpoint",
+                "model_name",
+                "api_key",
+                "batch_size",
+                "max_concurrent_requests",
+                "request_timeout_s",
+                "max_retries",
+                "language_key",
+                "notes_key",
+                "skip_me_key",
+            )
+        }
+        for operation in self.operations:
+            if not isinstance(operation, Mapping):
+                msg = "Each parallel operation must be a mapping"
+                raise TypeError(msg)
+            if (
+                "operations" in operation
+                or set(shared).intersection(operation)
+                or operation.get("mode", "text") != "text"
+            ):
+                msg = (
+                    "Parallel operations must be independent text prompts using the parent's client and metadata keys"
+                )
+                raise ValueError(msg)
+            self._operations.append(type(self)(**shared, **{"generation_config": self.generation_config, **operation}))
+        names = [operation.name for operation in self._operations]
+        outputs = [operation.output_text_key for operation in self._operations]
+        inputs = {key for operation in self._operations for key in operation.inputs()[1]}
+        if len(set(names)) != len(names) or len(set(outputs)) != len(outputs) or set(outputs).intersection(inputs):
+            msg = "Parallel operations need unique names/outputs and must not consume each other's outputs"
+            raise ValueError(msg)
+
+    def operation_stages(self) -> list["AudioTextLLMStage"]:
+        """Return the independent operations executed by this worker."""
+        return self._operations or [self]
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
     def inputs(self) -> tuple[list[str], list[str]]:
+        if self._operations:
+            return [], list(dict.fromkeys(key for operation in self._operations for key in operation.inputs()[1]))
         fields = [self.text_key]
-        if "{language}" in self.prompt or "{language_rules}" in self.prompt:
+        if "{language}" in self.prompt or "{language_rules}" in self.prompt or self.mode == "language_id":
             fields.append(self.language_key)
+        if self.mode == "recover_entities":
+            fields.append(self.ground_truth_key)
         return [], fields
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.output_text_key, self.notes_key]
+        if self._operations:
+            return [], list(dict.fromkeys(key for operation in self._operations for key in operation.outputs()[1]))
+        return [], [self.output_text_key, self.notes_key, *([self.skip_me_key] if self.mode == "language_id" else [])]
 
     def _build_messages(self, text: str, data: dict) -> list[dict[str, str]]:
+        if self.mode == "recover_entities":
+            return [
+                {"role": "system", "content": self.prompt},
+                {
+                    "role": "user",
+                    "content": self.user_prompt.format(
+                        ground_truth=data[self.ground_truth_key].strip(), normalized=text.strip()
+                    ),
+                },
+            ]
         prompt = self.prompt
         if "{language}" in prompt or "{language_rules}" in prompt:
             language = data.get(self.language_key)
-            if not isinstance(language, str) or not language.strip():
-                msg = f"{self.language_key} must be a non-empty string for this prompt"
-                raise ValueError(msg)
             if "{language_rules}" in prompt:
-                code = language.strip().lower()
+                if language is None or not str(language).strip():
+                    msg = f"{self.language_key} must be non-empty for language_rules"
+                    raise ValueError(msg)
+                code = str(language).strip().lower()
                 if code not in self.language_rules:
                     msg = f"No language_rules configured for {code!r}"
                     raise ValueError(msg)
                 prompt = prompt.replace("{language_rules}", self.language_rules[code])
-            prompt = prompt.replace("{language}", language.strip())
+            language = str(language).strip() if language is not None and str(language).strip() else "English"
+            prompt = prompt.replace("{language}", language)
         if "{text}" in self.prompt:
             return [{"role": "user", "content": prompt.replace("{text}", text)}]
         return [{"role": "system", "content": prompt}, {"role": "user", "content": text}]
 
-    async def _generate(self, messages: list[list[dict[str, str]]]) -> list[ChatCompletion]:
+    async def _generate(
+        self, messages: list[list[dict[str, str]]], configs: list[GenerationConfig]
+    ) -> list[ChatCompletion]:
         client = AsyncOpenAIClient(
             base_url=self.endpoint,
             api_key=self.api_key,
@@ -192,10 +298,8 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             return list(
                 await asyncio.gather(
                     *(
-                        client.query_model_response(
-                            model=self.model_name, messages=message, generation_config=self.generation_config
-                        )
-                        for message in messages
+                        client.query_model_response(model=self.model_name, messages=message, generation_config=config)
+                        for message, config in zip(messages, configs, strict=True)
                     )
                 )
             )
@@ -206,7 +310,7 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         return self.process_batch([task])[0]
 
-    def _prepare_batch(
+    def _prepare_batch(  # noqa: C901
         self, tasks: list[AudioTask]
     ) -> tuple[list[tuple[int, str, str]], list[int], list[list[dict[str, str]]]]:
         pending: list[tuple[int, str, str]] = []
@@ -216,11 +320,23 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             if not isinstance(task, AudioTask):
                 msg = "AudioTextLLMStage only accepts AudioTask inputs"
                 raise TypeError(msg)
+            if self.mode == "recover_entities":
+                normalized = task.data.get(self.text_key, "")
+                normalized = normalized if isinstance(normalized, str) else ""
+                ground_truth = task.data.get(self.ground_truth_key, "")
+                if task.data.get(self.skip_me_key):
+                    pending.append((index, normalized, "skipped (flagged)"))
+                elif not normalized.strip() or not isinstance(ground_truth, str) or not ground_truth.strip():
+                    pending.append((index, normalized, "skipped (empty)"))
+                else:
+                    messages.append(self._build_messages(normalized, task.data))
+                    indices.append(index)
+                continue
             if self.skip_if_output_exists and self.output_text_key in task.data:
                 pending.append((index, task.data[self.output_text_key], "skipped (output exists)"))
                 continue
             if task.data.get(self.skip_me_key):
-                pending.append((index, task.data.get(self.output_text_key, ""), "skipped (flagged)"))
+                pending.append((index, "", "skipped (flagged)"))
                 continue
             if self.text_key not in task.data:
                 msg = f"Missing input field {self.text_key!r}"
@@ -240,18 +356,38 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         choice = response.choices[0] if response.choices else None
         content = choice.message.content if choice is not None else None
         result = content.strip() if isinstance(content, str) else ""
-        if choice is None:
-            ok, reason = False, "missing_choice"
-        elif choice.finish_reason != "stop":
-            ok, reason = False, f"finish_reason={choice.finish_reason}"
-        else:
+        if self.mode == "recover_entities":
+            result = self._clean_entity_response(result)
+            if not result:
+                return original, "fallback (empty output)"
+            return result, "unchanged" if result == original else "recovered"
+        if self.validation_mode != "none":
             ok, reason = self._validate(original, result)
-        if not ok:
-            return original, f"fallback ({reason})"
+            if not ok:
+                return original, f"fallback ({reason})"
         return result, "applied (unchanged)" if result == original else "applied (modified)"
 
+    @staticmethod
+    def _clean_entity_response(raw: str) -> str:
+        text = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0]
+        text = text.strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":  # noqa: PLR2004
+            text = text[1:-1].strip()
+        return text
+
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        pending, indices, messages = self._prepare_batch(tasks)
+        pending = []
+        requests = []
+        messages = []
+        for operation in self.operation_stages():
+            skipped, indices, operation_messages = operation._prepare_batch(tasks)
+            pending.extend((operation, *item) for item in skipped)
+            requests.extend((operation, index) for index in indices)
+            messages.extend(operation_messages)
         metrics = {
             "num_requests": float(len(messages)),
             "num_fallbacks": 0.0,
@@ -259,26 +395,32 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             "completion_tokens": 0.0,
         }
         if messages:
-            responses = asyncio.run(self._generate(messages))
-            if len(responses) != len(indices):
+            responses = asyncio.run(
+                self._generate(messages, [operation.generation_config for operation, _ in requests])
+            )
+            if len(responses) != len(requests):
                 msg = "Inference response count does not match request count"
                 raise RuntimeError(msg)
-            for index, response in zip(indices, responses, strict=True):
-                original = tasks[index].data[self.text_key]
-                result, note = self._read_response(original, response)
+            for (operation, index), response in zip(requests, responses, strict=True):
+                original = tasks[index].data[operation.text_key]
+                result, note = operation._read_response(original, response)
                 metrics["num_fallbacks"] += note.startswith("fallback (")
-                pending.append((index, result, note))
+                pending.append((operation, index, result, note))
                 if response.usage is not None:
                     metrics["prompt_tokens"] += response.usage.prompt_tokens or 0
                     metrics["completion_tokens"] += response.usage.completion_tokens or 0
 
         # Commit outputs only after every request and response has been handled.
-        for index, result, note in pending:
+        for operation, index, result, note in pending:
             data = tasks[index].data
-            data[self.output_text_key] = result
-            if not isinstance(data.get(self.notes_key), dict):
-                data[self.notes_key] = {}
-            data[self.notes_key][self.name] = note
+            data[operation.output_text_key] = result
+            if not isinstance(data.get(operation.notes_key), dict):
+                data[operation.notes_key] = {}
+            data[operation.notes_key][operation.name] = note
+            if operation.mode == "language_id":
+                verify_language(
+                    data, operation.output_text_key, operation.language_key, operation.skip_me_key, operation.notes_key
+                )
         self._log_metrics(metrics)
         return tasks
 

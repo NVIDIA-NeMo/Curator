@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark AudioTextLLMStage on preloaded audio transcripts."""
+"""Benchmark the configured audio text graph on a fixed, preloaded transcript cohort."""
 
 import argparse
+import copy
+import hashlib
 import time
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
 import hydra
+from fsspec import open as fsspec_open
 from loguru import logger
 from omegaconf import OmegaConf
 from utils import write_benchmark_results
@@ -37,52 +40,171 @@ from nemo_curator.tasks import AudioTask, FileGroupTask
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
 
 
-def _collect_output_metrics(tasks: list[AudioTask], stage: AudioTextLLMStage, num_input_rows: int) -> dict[str, int]:
+def _collect_output_metrics(  # noqa: C901
+    tasks: list[AudioTask], stages: list[AudioTextLLMStage], num_input_rows: int
+) -> dict[str, Any]:
     if len(tasks) != num_input_rows:
         msg = f"Audio text benchmark returned {len(tasks)} rows for {num_input_rows} input rows"
         raise RuntimeError(msg)
 
-    applied = fallbacks = skipped = 0
-    for task in tasks:
-        if not isinstance(task, AudioTask) or not isinstance(task.data.get(stage.output_text_key), str):
-            msg = "Audio text benchmark requires an AudioTask with a string output for every input"
-            raise TypeError(msg)
-        note = task.data.get(stage.notes_key, {}).get(stage.name, "")
-        if note in {"applied (modified)", "applied (unchanged)"}:
-            applied += 1
-        elif note.startswith("fallback ("):
-            fallbacks += 1
-        elif note.startswith("skipped ("):
-            skipped += 1
-        else:
-            msg = f"Missing or invalid processing note for {stage.name}: {note!r}"
-            raise RuntimeError(msg)
+    operations = {}
+    for stage in stages:
+        counts = {"num_applied": 0, "num_fallbacks": 0, "num_skipped": 0}
+        for task in tasks:
+            if not isinstance(task, AudioTask) or not isinstance(task.data.get(stage.output_text_key), str):
+                msg = f"Audio text benchmark requires an AudioTask with string output {stage.output_text_key!r}"
+                raise TypeError(msg)
+            notes = task.data.get(stage.notes_key)
+            note = notes.get(stage.name) if isinstance(notes, dict) else None
+            if not isinstance(note, str):
+                msg = f"Missing or invalid processing note for {stage.name}: {note!r}"
+                raise RuntimeError(msg)  # noqa: TRY004
+            if note in {"applied (modified)", "applied (unchanged)", "recovered", "unchanged"}:
+                counts["num_applied"] += 1
+            elif note.startswith("fallback ("):
+                counts["num_fallbacks"] += 1
+            elif note.startswith("skipped ("):
+                counts["num_skipped"] += 1
+            else:
+                msg = f"Missing or invalid processing note for {stage.name}: {note!r}"
+                raise RuntimeError(msg)
+            if (
+                stage.mode == "language_id"
+                and not note.startswith("skipped (")
+                and not isinstance(notes.get("LLMLanguageVerification"), str)
+            ):
+                msg = "Missing language verification result"
+                raise RuntimeError(msg)
+        counts["num_requests"] = counts["num_applied"] + counts["num_fallbacks"]
+        operations[stage.name] = counts
 
-    if applied + fallbacks == 0:
+    totals = {
+        key: sum(counts[key] for counts in operations.values())
+        for key in ("num_applied", "num_fallbacks", "num_skipped", "num_requests")
+    }
+    if totals["num_requests"] == 0:
         msg = "Audio text benchmark made no inference requests"
         raise RuntimeError(msg)
     return {
         "num_input_rows": num_input_rows,
         "num_output_rows": len(tasks),
-        "num_requests": applied + fallbacks,
-        "num_applied": applied,
-        "num_fallbacks": fallbacks,
-        "num_skipped": skipped,
+        "input_output_coverage_ratio": 1.0,
+        "num_operations": len(stages),
+        **totals,
+        "operations": operations,
     }
 
 
-def run_audio_text_llm_benchmark(input_manifest: str, overrides: list[str] | None = None) -> dict[str, Any]:
-    """Time one text stage, excluding manifest reads, Ray/server startup, and result writes."""
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(_CONFIG_DIR)):
-        cfg = hydra.compose(config_name="text", overrides=overrides or [])
+def _input_inventory(tasks: list[AudioTask], id_key: str) -> dict[str, dict]:
+    inventory = {}
+    for task in tasks:
+        if not isinstance(task.data, dict):
+            msg = "Each input manifest row must be a JSON object"
+            raise TypeError(msg)
+        identity = task.data.get(id_key)
+        if not isinstance(identity, str) or not identity.strip() or identity in inventory:
+            msg = f"Each input must have a unique nonempty string {id_key!r}: {identity!r}"
+            raise ValueError(msg)
+        inventory[identity] = copy.deepcopy(task.data)
+    return inventory
 
+
+def _validate_preserved_inputs(
+    tasks: list[AudioTask], inventory: dict[str, dict], stages: list[AudioTextLLMStage], id_key: str
+) -> None:
+    output_inventory = _input_inventory(tasks, id_key)
+    if output_inventory.keys() != inventory.keys():
+        msg = "Audio text benchmark output identities do not match the input cohort"
+        raise RuntimeError(msg)
+    mutable = {stage.output_text_key for stage in stages} | {stage.skip_me_key for stage in stages}
+    note_keys = {stage.notes_key for stage in stages}
+    changed_notes = {stage.name for stage in stages} | {"LLMLanguageVerification"}
+    for identity, original in inventory.items():
+        output = output_inventory[identity]
+        for key, value in original.items():
+            if key in note_keys and isinstance(value, dict):
+                if not isinstance(output.get(key), dict) or any(
+                    name not in output[key] or output[key][name] != note
+                    for name, note in value.items()
+                    if name not in changed_notes
+                ):
+                    msg = f"Audio text benchmark changed existing notes for {identity!r}"
+                    raise RuntimeError(msg)
+            elif key not in mutable | note_keys and (key not in output or output[key] != value):
+                msg = f"Audio text benchmark changed input field {key!r} for {identity!r}"
+                raise RuntimeError(msg)
+
+
+def _manifest_identity(input_manifest: str) -> dict[str, str | int]:
+    digest = hashlib.sha256()
+    size = 0
+    with fsspec_open(input_manifest, "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            size += len(block)
+            digest.update(block)
+    return {"input_manifest_bytes": size, "input_manifest_sha256": digest.hexdigest()}
+
+
+def _validate_workload_inputs(tasks: list[AudioTask], operations: list[AudioTextLLMStage], id_key: str) -> None:
+    if not operations or len({stage.name for stage in operations}) != len(operations):
+        msg = "Audio text benchmark requires operations with unique names"
+        raise ValueError(msg)
+    produced = set()
+    for stage in operations:
+        if id_key in {stage.output_text_key, stage.notes_key, stage.skip_me_key}:
+            msg = "The benchmark identity key must not be overwritten by the configured stages"
+            raise ValueError(msg)
+        for task in tasks:
+            if task.data.get(stage.skip_me_key):
+                continue
+            for key in set(stage.inputs()[1]) - produced:
+                if not isinstance(task.data.get(key), str):
+                    msg = f"Input {task.data[id_key]!r} requires string field {key!r} for {stage.name}"
+                    raise TypeError(msg)
+        produced.add(stage.output_text_key)
+
+
+def run_audio_text_llm_benchmark(  # noqa: PLR0913
+    input_manifest: str,
+    overrides: list[str] | None = None,
+    config_name: str = "text",
+    id_key: str = "audio_item_id",
+    expected_num_rows: int | None = None,
+    expected_manifest_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Time every configured text stage, excluding input reads, server startup and result writes."""
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(_CONFIG_DIR)):
+        cfg = hydra.compose(config_name=config_name, overrides=overrides or [])
+
+    manifest_identity = _manifest_identity(input_manifest)
     tasks = ManifestReaderStage().process(FileGroupTask(dataset_name="audio_text_benchmark", data=[input_manifest]))
     if not tasks:
         msg = "Audio text benchmark requires a nonempty input manifest"
         raise ValueError(msg)
+    if _manifest_identity(input_manifest) != manifest_identity:
+        msg = "Input manifest changed while loading the benchmark cohort"
+        raise RuntimeError(msg)
+    inventory = _input_inventory(tasks, id_key)
+    if expected_num_rows is not None and len(tasks) != expected_num_rows:
+        msg = f"Expected {expected_num_rows} input rows, found {len(tasks)}"
+        raise ValueError(msg)
+    if (
+        expected_manifest_sha256 is not None
+        and manifest_identity["input_manifest_sha256"] != expected_manifest_sha256.lower()
+    ):
+        msg = "Input manifest SHA-256 does not match the frozen cohort"
+        raise ValueError(msg)
 
-    # Use the tutorial's operation and serving configuration without its reader/writer.
-    cfg.stages = [cfg.stages[1]]
+    # Remove only the tutorial's reader and writer; every processing pass stays in the timed graph.
+    cfg.stages = [
+        stage
+        for stage in cfg.stages
+        if str(stage.get("_target_", "")).rsplit(".", 1)[-1]
+        not in {"ManifestReader", "ManifestReaderStage", "ManifestWriterStage"}
+    ]
+    if not cfg.stages:
+        msg = "Audio text benchmark requires configured AudioTextLLMStages"
+        raise ValueError(msg)
     with ExitStack() as stack:
         stack.enter_context(create_ray_client_from_yaml(cfg))
         server_start = time.perf_counter()
@@ -93,32 +215,39 @@ def run_audio_text_llm_benchmark(input_manifest: str, overrides: list[str] | Non
             startup_time = time.perf_counter() - server_start
 
         pipeline = create_pipeline_from_yaml(cfg, log_config=False)
-        stage = pipeline.stages[0]
-        if not isinstance(stage, AudioTextLLMStage):
+        if not all(isinstance(stage, AudioTextLLMStage) for stage in pipeline.stages):
             msg = "Audio text benchmark supports only AudioTextLLMStage"
             raise TypeError(msg)
+        operations = [operation for stage in pipeline.stages for operation in stage.operation_stages()]
+        _validate_workload_inputs(tasks, operations, id_key)
         executor = create_executor_from_yaml(cfg)
         logger.info(pipeline.describe())
         start = time.perf_counter()
         results = pipeline.run(executor=executor, initial_tasks=tasks)
         elapsed = time.perf_counter() - start
-        metrics = _collect_output_metrics(results or [], stage, len(tasks))
+        metrics = _collect_output_metrics(results or [], operations, len(tasks))
+        _validate_preserved_inputs(results, inventory, operations, id_key)
 
     return {
         "params": {
             "input_manifest": input_manifest,
+            "config_name": config_name,
+            "id_key": id_key,
+            "expected_num_rows": expected_num_rows,
+            "expected_manifest_sha256": expected_manifest_sha256,
             "overrides": overrides or [],
-            "operation": OmegaConf.to_container(cfg.operation, resolve=True),
+            "stages": OmegaConf.to_container(cfg.stages, resolve=True),
             "backend": cfg.backend,
             "model_name": cfg.model_name,
-            "batch_size": stage.batch_size,
-            "max_concurrent_requests": stage.max_concurrent_requests,
+            "inference_server": OmegaConf.to_container(cfg.inference_server, resolve=True),
         },
         "metrics": {
             "is_success": True,
             "time_taken_s": elapsed,
             "inference_server_startup_s": startup_time,
+            **manifest_identity,
             **metrics,
+            "throughput_rows_per_sec": len(tasks) / elapsed if elapsed > 0 else 0,
             "throughput_requests_per_sec": metrics["num_requests"] / elapsed if elapsed > 0 else 0,
             "fallback_ratio": metrics["num_fallbacks"] / metrics["num_requests"],
         },
@@ -130,18 +259,31 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True, help="JSONL audio manifest containing transcripts")
+    parser.add_argument("--config-name", choices=["text", "single_operation"], default="text")
+    parser.add_argument("--id-key", default="audio_item_id", help="Unique string identity preserved in each input row")
+    parser.add_argument("--expected-num-rows", type=int)
+    parser.add_argument("--expected-manifest-sha256")
     parser.add_argument(
         "--override",
         dest="overrides",
         action="append",
         default=[],
-        help="Repeatable tutorial Hydra override, e.g. operation=itn or backend=xenna",
+        help="Repeatable tutorial Hydra override, e.g. backend=xenna",
     )
     args = parser.parse_args()
     result: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
     success_code = 1
     try:
-        result.update(run_audio_text_llm_benchmark(args.input_manifest, args.overrides))
+        result.update(
+            run_audio_text_llm_benchmark(
+                input_manifest=args.input_manifest,
+                overrides=args.overrides,
+                config_name=args.config_name,
+                id_key=args.id_key,
+                expected_num_rows=args.expected_num_rows,
+                expected_manifest_sha256=args.expected_manifest_sha256,
+            )
+        )
         success_code = 0
     except Exception as error:
         logger.exception("Audio text benchmark failed")
