@@ -108,6 +108,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         max_length: Maximum segment length in seconds
         num_speakers_key: Optional output key for the distinct-speaker count derived
             from the diarization result. Disabled by default for legacy compatibility.
+        pred_text_key: Parent transcript key removed from fan-out children.
         xenna_num_workers: If set, caps workers cluster-wide. Prefer ``with_(num_workers=...)`` for new code.
     """
 
@@ -144,6 +145,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     segment_num_key: str = field(default="segment_num", kw_only=True)
     speaker_key: str = field(default="speaker", kw_only=True)
     original_file_key: str = field(default="original_file", kw_only=True)
+    pred_text_key: str = field(default="pred_text", kw_only=True)
     overlap_key: str = field(default="is_overlap", kw_only=True)
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"overlap_key"})
 
@@ -205,7 +207,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                     *([self.num_speakers_key] if self.num_speakers_key is not None else []),
                     self.overlap_key,
                 ],
-                removed_container_keys=(self.segments_key, self.overlap_segments_key),
+                removed_container_keys=(self.segments_key, self.overlap_segments_key, self.pred_text_key),
             )
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -306,6 +308,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                             *_fanout_path_keys(self.audio_filepath_key),
                             self.segments_key,
                             self.overlap_segments_key,
+                            self.pred_text_key,
                         ]
                     )
                 )
@@ -347,6 +350,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         original_file: Any,  # noqa: ANN401
     ) -> dict[str, Any]:
         excluded = {
+            self.pred_text_key,
             self.segments_key,
             self.overlap_segments_key,
             self.waveform_key,

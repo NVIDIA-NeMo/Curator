@@ -520,3 +520,29 @@ def test_gpu_sortformer_resident_fanout_with_source_hash(
         assert child.data[stage.waveform_key].shape[1] > 0
         assert not np.shares_memory(child.data[stage.waveform_key], waveform)
     assert len(list(output.glob("*.rttm"))) == 1
+
+
+@pytest.mark.parametrize("count_key", ["num_speakers", "speaker_count"])
+def test_fanout_children_publish_parent_distinct_speaker_count(
+    count_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage, _ = rh._make_stage("sortformer", monkeypatch, input_residency="waveform", fanout=True)
+    stage = replace(stage, num_speakers_key=count_key)
+    stage.diar_model.diarize.side_effect = None
+    stage.diar_model.diarize.return_value = [["0.2 0.6 speaker_0", "0.7 1.0 speaker_1"]]
+    waveform = np.zeros((1, 12), dtype=np.float32)
+
+    children = stage.process_batch(
+        [AudioTask(data={"waveform": waveform, "sample_rate": rh._SAMPLE_RATE, count_key: 99})]
+    )
+
+    assert len(children) == 2
+    assert [child.data[count_key] for child in children] == [2, 2]
+    assert count_key in stage.outputs()[1]
+    assert count_key in stage.describe().writes.data_keys
+
+
+@pytest.mark.parametrize("count_key", ["duration", "segment_num", "speaker", "original_file", "pred_text"])
+def test_fanout_count_key_cannot_overwrite_other_outputs(count_key: str) -> None:
+    with pytest.raises(ValueError, match=r"distinct|collide"):
+        InferenceSortformerStage(fanout=True, num_speakers_key=count_key)

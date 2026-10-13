@@ -131,6 +131,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     Adds VAD segments to each entry under segments_key (e.g. "vad_segments").
     Entries shorter than min_length are skipped (not emitted).
+    Fan-out children omit the parent transcript under pred_text_key.
     """
 
     min_length: float = 0.5
@@ -151,6 +152,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     duration_key: str = field(default="duration", kw_only=True)
     segment_num_key: str = field(default="segment_num", kw_only=True)
     original_file_key: str = field(default="original_file", kw_only=True)
+    pred_text_key: str = field(default="pred_text", kw_only=True)
 
     name: str = "WhisperXVAD"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
@@ -186,7 +188,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     self.segment_num_key,
                     self.original_file_key,
                 ],
-                removed_container_keys=(self.segments_key,),
+                removed_container_keys=(self.segments_key, self.pred_text_key),
             )
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -267,7 +269,9 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             cardinality_options=["1:1", "1:N fan-out"],
             iteration_key=self.segment_num_key if self.fanout else None,
             removes_keys=(
-                list(dict.fromkeys([*_fanout_path_keys(self.audio_filepath_key), self.segments_key]))
+                list(
+                    dict.fromkeys([*_fanout_path_keys(self.audio_filepath_key), self.segments_key, self.pred_text_key])
+                )
                 if self.fanout
                 else []
             ),
@@ -297,6 +301,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         original_file: Any,  # noqa: ANN401
     ) -> dict[str, Any]:
         excluded = {
+            self.pred_text_key,
             self.segments_key,
             self.waveform_key,
             self.sample_rate_key,

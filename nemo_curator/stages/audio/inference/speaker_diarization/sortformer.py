@@ -147,7 +147,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         filepath_key: Key in data for path to audio file. Defaults to "audio_filepath".
         diar_segments_key: Key in output data for diarization segments list. Defaults to "diar_segments".
         num_speakers_key: Optional output key for the distinct-speaker count derived
-            from diar_segments. Disabled by default for legacy compatibility.
+            from the parent's diar_segments, including on each fan-out child.
+            Disabled by default for legacy compatibility.
+        pred_text_key: Parent transcript key removed from fan-out children.
         rttm_out_dir: Optional directory to write RTTM files. Defaults to None.
         rttm_naming: "legacy" (default) retains ordinary session/basename filenames.
             "source_hash" includes a stable source digest to separate duplicate names
@@ -182,6 +184,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     segment_num_key: str = field(default="segment_num", kw_only=True)
     speaker_key: str = field(default="speaker", kw_only=True)
     original_file_key: str = field(default="original_file", kw_only=True)
+    pred_text_key: str = field(default="pred_text", kw_only=True)
     rttm_out_dir: str | None = None
     rttm_naming: Literal["legacy", "source_hash"] = field(default="legacy", kw_only=True)
     chunk_len: int = 340
@@ -239,8 +242,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                     self.segment_num_key,
                     self.speaker_key,
                     self.original_file_key,
+                    *([self.num_speakers_key] if self.num_speakers_key is not None else []),
                 ],
-                removed_container_keys=(self.diar_segments_key,),
+                removed_container_keys=(self.diar_segments_key, self.pred_text_key),
             )
 
     def setup_on_node(
@@ -331,7 +335,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.fanout:
-            return ["data"], [
+            output_keys = [
                 self.waveform_key,
                 self.sample_rate_key,
                 self.start_key,
@@ -343,7 +347,8 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 self.speaker_key,
                 self.original_file_key,
             ]
-        output_keys = [self.diar_segments_key]
+        else:
+            output_keys = [self.diar_segments_key]
         if self.num_speakers_key is not None:
             output_keys.append(self.num_speakers_key)
         return ["data"], output_keys
@@ -365,9 +370,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             cardinality = "1:N fan-out"
         else:
             writes = [self.diar_segments_key]
-            if self.num_speakers_key is not None:
-                writes.append(self.num_speakers_key)
             cardinality = "1:1"
+        if self.num_speakers_key is not None:
+            writes.append(self.num_speakers_key)
         return StageContract(
             reads_one_of=_inference_audio_read_specs(
                 self.input_residency,
@@ -388,7 +393,9 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             cardinality_options=["1:1", "1:N fan-out"],
             iteration_key=self.segment_num_key if self.fanout else None,
             removes_keys=(
-                list(dict.fromkeys([*_fanout_path_keys(self.filepath_key), self.diar_segments_key]))
+                list(
+                    dict.fromkeys([*_fanout_path_keys(self.filepath_key), self.diar_segments_key, self.pred_text_key])
+                )
                 if self.fanout
                 else []
             ),
@@ -422,6 +429,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         original_file: Any,  # noqa: ANN401
     ) -> dict[str, Any]:
         excluded = {
+            self.pred_text_key,
             self.diar_segments_key,
             self.waveform_key,
             self.sample_rate_key,
@@ -454,12 +462,15 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         sample_rate: int,
         original_file: Any,  # noqa: ANN401
     ) -> list[AudioTask]:
+        item = dict(task.data)
+        if self.num_speakers_key is not None:
+            item[self.num_speakers_key] = _count_distinct_speakers(segments)
         return [
             AudioTask(
                 dataset_name=task.dataset_name,
                 filepath_key=task.filepath_key or self.filepath_key,
                 data=self._segment_child_data(
-                    task.data,
+                    item,
                     segment,
                     index,
                     waveform,

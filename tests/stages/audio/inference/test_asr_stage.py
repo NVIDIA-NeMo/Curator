@@ -736,37 +736,34 @@ def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> 
     stage._load_audio.assert_not_called()
 
 
-@pytest.mark.parametrize(("dtype", "subtype"), [(np.int16, "PCM_16"), (np.int32, "PCM_32")])
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64, np.float32, np.float64])
 @pytest.mark.parametrize("channels", [1, 2])
 @pytest.mark.parametrize("as_torch", [False, True], ids=["numpy", "torch"])
-def test_resident_signed_pcm_matches_file_loading(
-    tmp_path: Path,
-    dtype: type[np.signedinteger],
-    subtype: str,
-    channels: int,
-    as_torch: bool,
+def test_resident_waveform_preserves_legacy_cast_only_semantics(
+    dtype: type[np.number], channels: int, as_torch: bool
 ) -> None:
-    limits = np.iinfo(dtype)
-    mono = np.array([limits.min, limits.min // 2, 0, limits.max // 2, limits.max], dtype=dtype)
+    mono = np.array([16384, -16384, 0, 1], dtype=dtype)
     channel_first = np.stack([mono] * channels) if channels > 1 else mono
     resident = torch.from_numpy(channel_first.copy()) if as_torch else channel_first
-    audio_path = tmp_path / f"resident-parity-{dtype.__name__}-{channels}.wav"
-    sf.write(audio_path, channel_first.T if channels > 1 else channel_first, _SR, subtype=subtype)
+    stage = _make_stage(waveform_key="waveform")
 
-    stage = ASRStage(
-        max_audio_sec_per_actor=2400.0,
-        adapter_target=_QWEN_ADAPTER_TARGET,
-        model_id="mock/model",
-        waveform_key="waveform",
-    )
-    file_waveform, file_sample_rate = stage._load_audio(str(audio_path))
+    prepared = stage._prepare_waveform(resident, _SR)
 
-    resident_prepared = stage._prepare_waveform(resident, _SR)
-    file_prepared = stage._prepare_waveform(file_waveform, file_sample_rate)
+    np.testing.assert_array_equal(prepared, mono.astype(np.float32))
+    assert prepared.dtype == np.float32
+    assert prepared.flags.c_contiguous
 
-    np.testing.assert_allclose(resident_prepared, file_prepared, rtol=0.0, atol=1e-7)
-    assert resident_prepared.dtype == np.float32
-    assert np.max(np.abs(resident_prepared)) <= 1.0
+
+def test_integer_list_waveform_reaches_adapter_without_skipping() -> None:
+    stage = _make_stage(waveform_key="waveform")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="transcribed")]
+    task = _make_waveform_task(waveform=[0, 1, -1], sample_rate=_SR)
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["pred_text"] == "transcribed"
+    prepared = stage._adapter.transcribe_batch.call_args.args[0][0]["waveform"]
+    np.testing.assert_array_equal(prepared, np.array([0, 1, -1], dtype=np.float32))
 
 
 @pytest.mark.parametrize(
@@ -1218,8 +1215,9 @@ def test_real_nemo_batch_preserves_language_and_serializable_output(resident: bo
 
 @rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
 @rh.pytest.mark.parametrize("resident", [False, True], ids=["file", "waveform"])
+@rh.pytest.mark.parametrize("transcript_key", ["pred_text", "parent_transcript"])
 def test_fanout_children_feed_asr_exact_slices(
-    kind: str, resident: bool, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
+    kind: str, resident: bool, transcript_key: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
     first_channel = rh.np.arange(12, dtype=rh.np.float32) / 10
     waveform = rh.np.stack([first_channel, first_channel + 2])
@@ -1227,6 +1225,7 @@ def test_fanout_children_feed_asr_exact_slices(
     rh._write_audio(audio_path, waveform)
     residency = "waveform" if resident else "file"
     stage, _seen = rh._make_stage(kind, monkeypatch, input_residency=residency, fanout=True)
+    stage.pred_text_key = transcript_key
     parent_data: dict[str, Any] = (
         {
             "waveform": waveform,
@@ -1237,6 +1236,7 @@ def test_fanout_children_feed_asr_exact_slices(
         if resident
         else {"audio_filepath": str(audio_path), "resampled_audio_filepath": str(audio_path)}
     )
+    parent_data[transcript_key] = "full recording transcript"
     children = stage.process_batch([rh.AudioTask(dataset_name="d", data=parent_data)])
     assert len(children) == 2
     expected = [waveform[:, 2:6], waveform[:, 7:10]]
@@ -1252,7 +1252,9 @@ def test_fanout_children_feed_asr_exact_slices(
         assert not rh.np.shares_memory(child.data["waveform"], waveform)
         assert {"audio_filepath", "resampled_audio_filepath"}.isdisjoint(child.data)
         assert dropped_containers[kind].isdisjoint(child.data)
+        assert transcript_key not in child.data
         assert child.data["original_file"]
+    assert transcript_key in rh.build_contract(stage).removes_keys
     if kind == "pyannote":
         assert [child.data["num_speakers"] for child in children] == [1, 1]
     asr = rh.ASRStage(
@@ -1263,10 +1265,13 @@ def test_fanout_children_feed_asr_exact_slices(
         sample_rate_key="sample_rate",
         target_sample_rate=rh._SAMPLE_RATE,
         keep_waveform=True,
+        pred_text_key=transcript_key,
+        skip_if_output_exists=True,
     )
     asr._adapter = rh.MagicMock()
     asr._adapter.transcribe_batch.return_value = [rh.ASRResult(text="one"), rh.ASRResult(text="two")]
     asr.process_batch(children)
+    assert [child.data[transcript_key] for child in children] == ["one", "two"]
     assert all("waveform" in child.data for child in children)
     asr_items = asr._adapter.transcribe_batch.call_args.args[0]
     rh.np.testing.assert_array_equal(asr_items[0]["waveform"], expected[0].mean(axis=0))
