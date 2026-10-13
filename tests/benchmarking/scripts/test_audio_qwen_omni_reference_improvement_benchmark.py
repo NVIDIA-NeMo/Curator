@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from omegaconf import DictConfig
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking" / "scripts"))
 
@@ -147,9 +148,38 @@ def test_main_reports_pipeline_failure(tmp_path: Path, output_row: dict, monkeyp
     assert manifest.read_bytes() == original_manifest
 
 
-@pytest.mark.parametrize("existing", ["results", "scratch", "params.json", "metrics.json", "tasks.pkl"])
+def test_main_merges_runner_parameters(tmp_path: Path, output_row: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest = _write_rows(tmp_path / "input.jsonl", [output_row])
+    results = tmp_path / "run"
+    results.mkdir()
+    (results / "scratch").mkdir()
+    runner_params = {"ray_num_gpus": 8, "entry_timeout_s": 7200}
+    (results / "params.json").write_text(json.dumps(runner_params))
+
+    def create_pipeline(cfg: DictConfig) -> Mock:
+        pipeline = Mock()
+        pipeline.run.side_effect = lambda _executor: _write_rows(Path(cfg.output_path), [output_row])
+        return pipeline
+
+    monkeypatch.setattr(benchmark, "create_pipeline_from_yaml", create_pipeline)
+    monkeypatch.setattr(benchmark, "setup_executor", Mock())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark", "--input-manifest", str(manifest), "--benchmark-results-path", str(results)],
+    )
+
+    assert benchmark.main() == 0
+    params = json.loads((results / "params.json").read_text())
+    assert {key: params[key] for key in runner_params} == runner_params
+    assert params["input_manifest"] == str(manifest)
+    assert json.loads((results / "metrics.json").read_text())["is_success"] is True
+
+
+@pytest.mark.parametrize("existing", ["results", "scratch", "scratch/audio.wav", "metrics.json", "tasks.pkl"])
 def test_main_preserves_preexisting_outputs(tmp_path: Path, existing: str, monkeypatch: pytest.MonkeyPatch) -> None:
     existing_path = tmp_path / existing
+    existing_path.parent.mkdir(parents=True, exist_ok=True)
     existing_path.write_bytes(b"existing output")
     monkeypatch.setattr(
         sys,
@@ -158,4 +188,4 @@ def test_main_preserves_preexisting_outputs(tmp_path: Path, existing: str, monke
     )
     assert benchmark.main() == 1
     assert existing_path.read_bytes() == b"existing output"
-    assert list(tmp_path.iterdir()) == [existing_path]
+    assert [path for path in tmp_path.rglob("*") if path.is_file()] == [existing_path]

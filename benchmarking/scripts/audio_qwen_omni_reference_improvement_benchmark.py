@@ -122,8 +122,12 @@ def _collect_output_metrics(output_path: Path, input_rows: dict[str, dict[str, A
 
 
 def _check_fresh_outputs(benchmark_results_path: Path) -> None:
-    for name in ("results", "scratch", "params.json", "metrics.json", "tasks.pkl"):
+    # The runner precreates an empty scratch directory and params.json;
+    # write_benchmark_results merges its metadata with our parameters.
+    for name in ("results", "scratch", "metrics.json", "tasks.pkl"):
         path = benchmark_results_path / name
+        if name == "scratch" and path.is_dir() and not path.is_symlink() and not any(path.iterdir()):
+            continue
         if path.exists() or path.is_symlink():
             msg = f"Benchmark output already exists: {path}; choose a fresh results directory"
             raise FileExistsError(msg)
