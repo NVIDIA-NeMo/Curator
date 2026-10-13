@@ -29,16 +29,16 @@ from tutorials.audio.text_processing import run
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
 # Resolved prompts from nithinraok/Curator at 1a260a35472229a8a75a122b9a2bb9d92d5855f9.
 PROMPT_HASHES = {
-    "recover_entities": "e6728bc4c8358c9e4f812ede9d553de09fab30eabe98c6e971aac8b7913340e8",
-    "pnc": "47e429e1d6ae5fb44aacae07164e6bdfc4d25cd1f3c9f7e965da93103b6ff39d",
-    "pnc_indic": "e21bc48756162d9effccaa577c56624ba0ea01e5c392714fc2ba716e21b1741a",
-    "tn": "e8f7ea8c70178f4e9bc0049cf21516e154713bc37e7d1a3c3fe5f1b33097ced4",
-    "itn": "0f2d8785bab5592a6d417fd4f250e3aeec5e89efa4e62a3e21c9cb46e7388511",
-    "disfluency": "db1d502ad02bf7cbd0116d39c2c3cecb3992419c73e10c6d3678b4df0e7cc67a",
-    "captioning": "054fc8cf5c35e6ee90486e41687a9b523480dc5e04d71576ada900f01b6fc48e",
-    "code_switching": "b9c035b7ec7cc539e73352a61191e806d14c64ee7418fa11e8ac563f94b45291",
-    "speech_qa": "9f04d3148446170e1541f21638eed25eb37e7aec048592e543de69a01efa81d0",
-    "language_id": "567741809a9bb3a524d55acd96b73071d21ecaa0ad105f70baf5f034247219f0",
+    "recover_entities": "e6728bc4c8358c9e4f812ede9d553de09fab30eabe98c6e971aac8b7913340e8",  # pragma: allowlist secret
+    "pnc": "47e429e1d6ae5fb44aacae07164e6bdfc4d25cd1f3c9f7e965da93103b6ff39d",  # pragma: allowlist secret
+    "pnc_indic": "e21bc48756162d9effccaa577c56624ba0ea01e5c392714fc2ba716e21b1741a",  # pragma: allowlist secret
+    "tn": "e8f7ea8c70178f4e9bc0049cf21516e154713bc37e7d1a3c3fe5f1b33097ced4",  # pragma: allowlist secret
+    "itn": "0f2d8785bab5592a6d417fd4f250e3aeec5e89efa4e62a3e21c9cb46e7388511",  # pragma: allowlist secret
+    "disfluency": "db1d502ad02bf7cbd0116d39c2c3cecb3992419c73e10c6d3678b4df0e7cc67a",  # pragma: allowlist secret
+    "captioning": "054fc8cf5c35e6ee90486e41687a9b523480dc5e04d71576ada900f01b6fc48e",  # pragma: allowlist secret
+    "code_switching": "b9c035b7ec7cc539e73352a61191e806d14c64ee7418fa11e8ac563f94b45291",  # pragma: allowlist secret
+    "speech_qa": "9f04d3148446170e1541f21638eed25eb37e7aec048592e543de69a01efa81d0",  # pragma: allowlist secret
+    "language_id": "567741809a9bb3a524d55acd96b73071d21ecaa0ad105f70baf5f034247219f0",  # pragma: allowlist secret
 }
 
 
