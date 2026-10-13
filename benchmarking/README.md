@@ -714,30 +714,36 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 `nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
-The benchmark requires the root `trt_llm` dependency profile in one Python 3.12
-environment on Linux x86_64:
+The benchmark requires the dedicated Indic ASR image on Linux x86_64. Build
+and check it from the repository root:
 
 ```bash
-uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
-source .venv/bin/activate
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
+docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
 ```
 
-This profile inherits `audio_cuda12` and selects the compatible TensorRT-LLM
-1.2.1 / Torch 2.9.1 native stack from the root `pyproject.toml` and `uv.lock`.
-Curator, Indic Canary, Parakeet TensorRT, and WER run in that same environment;
-there is no child environment or dependency installation during inference.
-`trt_llm` is mutually exclusive with `all`, `vllm`, and the other declared
-incompatible profiles. The normal `all` environment remains on Torch 2.11 and
-does not include `trt_llm`.
+The image keeps Python 3.12 / TensorRT-LLM 1.2.1 / Torch 2.9.1 together in
+`/opt/venv`, including the audio and benchmark dependencies. Curator, Indic
+Canary, Parakeet TensorRT, and WER run in that same environment; there is no
+child runtime or dependency installation during inference. The root
+`pyproject.toml` and `uv.lock` do not select this stack. Normal Curator profiles
+retain their existing dependencies and can still be selected together.
 
-Benchmark entry selection does not select a dependency profile: the harness
-runs each script with `python` from the launch environment. NeMo-CI must select
-the Python 3.12 `trt_llm` environment before invoking `benchmarking/run.py`.
-The stock Docker environment uses Python 3.13 and `all`, so choosing these
-entries or setting only `CURATOR_EXTRA=trt_llm` is insufficient. Existing
-NeMo-CI support that provisions an Indic Canary child runtime must also be
-updated before launching these entries; this PR does not add a Dockerfile or
-separate packaging specification.
+Run `python benchmarking/run.py` directly in this image, selecting the two
+Indic entries with `--entries-exact audio_indic_asr_xenna,audio_indic_asr_raydata`
+and passing your benchmark/path configuration. Mount the existing datasets,
+model bundles, and writable results directory. Do not build the stock
+`benchmarking/Dockerfile` on top of this image or run root `uv sync` in it:
+that would replace the native stack with the normal `all` dependencies.
+
+Benchmark YAML does not support per-entry Dockerfile selection. For NeMo-CI,
+publish the image built from the matching Curator commit and add
+`--test-image <published-image>` to `curator/run_benchmarks.py --pr 2456 ...`.
+The image supplies runtime code; the PR/ref selects benchmark job generation
+and metadata. Selecting entries alone still uses the generic image. Audit
+site-specific Indic launchers before submission: older launchers that inspect
+the removed root `trt_llm` extra or require its packages in `uv.lock` must no
+longer impose those checks.
 
 The host or container runtime must independently provide a CUDA-13-capable
 NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported

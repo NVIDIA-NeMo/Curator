@@ -34,36 +34,43 @@ recording, harness wall-clock timing, and its row/identity/coverage acceptance
 gates; a tutorial run is functional pipeline evidence, not EOS performance
 evidence.
 
-## Install the audio environment
+## Build the audio container
 
-Indic Canary uses a TensorRT encoder and a TensorRT-LLM decoder. The root
-`trt_llm` audio profile inherits `audio_cuda12` and selects Python 3.12-compatible
-TensorRT-LLM 1.2.1 / Torch 2.9.1 dependencies. Curator, Canary, Parakeet TensorRT,
-and WER run in one environment, resolved entirely by the root `pyproject.toml`
-and `uv.lock`.
+Indic Canary uses a TensorRT encoder and a TensorRT-LLM decoder. Its dedicated
+[`Dockerfile`](../../../docker/audio/Dockerfile.trt_llm) installs Python 3.12,
+TensorRT-LLM 1.2.1, and Torch 2.9.1 in one `/opt/venv` environment for Curator,
+Canary, Parakeet TensorRT, and WER. This native stack is isolated from Curator's
+normal dependency profiles; there is no root `trt_llm` extra or separate lockfile.
 
 From the repository root:
 
 ```bash
-uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups
-source .venv/bin/activate
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
+docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
 ```
 
-For `indic_asr_tutorial.ipynb`, include the existing development group to install
-Jupyter in that same environment:
+The build checks Python and native package versions. The second command also
+loads the actual TRT-LLM bindings and checks the GPU; a successful build alone
+does not establish driver compatibility or model inference parity.
+
+Run the remaining tutorial commands inside this image, mounting your data,
+engine bundles, and output directory (replace the host paths):
 
 ```bash
-uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups --group dev
-source .venv/bin/activate
+docker run --rm -it --gpus all --ipc=host \
+  -v /absolute/path/to/datasets:/data \
+  -v /absolute/path/to/models:/models:ro \
+  -v /absolute/path/to/outputs:/outputs \
+  curator-indic-trtllm bash
 ```
 
-Do not combine `trt_llm` with `all`, `vllm`, or the other incompatible profiles
-declared in `pyproject.toml`. The standard `all` profile retains Torch 2.11 and
-does not include `trt_llm`. No child environment is created at adapter setup,
-and no packages are installed during inference. Use the selected environment's
-Python for the tutorial and its notebook kernel.
+The image includes Jupyter for `indic_asr_tutorial.ipynb`; use its `/opt/venv`
+kernel and direct notebook outputs to your mounted output directory. No child
+environment is created at adapter setup, and no packages are installed during
+inference. Do not run root `uv sync` inside this image: it would replace the
+container's native stack with the normal Curator dependencies.
 
-The supported profile is Python 3.12 on Linux x86_64. Consumer GPUs require a native
+The supported container is Python 3.12 on Linux x86_64. Consumer GPUs require a native
 CUDA-13-capable NVIDIA driver. Supported data-center GPUs can instead use
 NVIDIA CUDA 13 forward-compatibility libraries supplied by the execution
 environment. Those driver libraries are a system prerequisite, not a Python
@@ -219,11 +226,13 @@ Both entries require one output per input identity, unchanged audio paths and
 durations, finite WER, a recognized primary/fallback provenance, and complete
 selected prediction text.
 
-Selecting those benchmark names does not install `trt_llm`. The benchmark
-harness invokes `python` from its existing launch environment. NeMo-CI must
-select the root Python 3.12 `trt_llm` environment before the harness starts;
-the stock Python 3.13 / `all` image and older child-runtime launch support do
-not meet this contract. See the environment requirements in
+Selecting those benchmark names does not select a Dockerfile or install
+TRT-LLM. The benchmark harness invokes `python` from its existing launch
+environment. Run `benchmarking/run.py` directly inside the dedicated image;
+NeMo-CI can select a published copy with `--test-image`. Do not wrap this image
+with `benchmarking/Dockerfile`, which re-syncs the normal `all` stack. Existing
+site-specific launchers that require the removed root extra must be updated
+before submission. See the environment requirements in
 [`benchmarking/README.md`](../../../benchmarking/README.md).
 
 ## Output fields

@@ -34,7 +34,7 @@ _ADAPTER_TARGET = "nemo_curator.models.asr.indic_canary.IndicCanaryTRTLLMASR"
 class InferenceIndicCanaryStage(ASRStage):
     """Transcribe Indic audio with an existing Canary TensorRT-LLM engine.
 
-    Install Curator's ``trt_llm`` audio dependency profile with CPython 3.12.
+    Use ``docker/audio/Dockerfile.trt_llm`` for the CPython 3.12 native stack.
     TensorRT-LLM is loaded directly in the Curator worker, sharing the selected
     audio environment with the other pipeline stages.
     """

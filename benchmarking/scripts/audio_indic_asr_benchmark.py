@@ -305,16 +305,13 @@ def _preflight_runtime_and_models(
     parakeet_tensorrt_engine_dir: Path,
 ) -> None:
     if sys.version_info[:2] != (3, 12):
-        msg = (
-            "Indic ASR requires the root trt_llm profile with Python 3.12: "
-            "uv sync --frozen --extra trt_llm --python 3.12 --no-default-groups"
-        )
+        msg = "Indic ASR requires Python 3.12 in the dedicated image built with docker/audio/Dockerfile.trt_llm."
         raise RuntimeError(msg)
     missing_modules = [module for module in ("tensorrt", "tensorrt_llm") if importlib.util.find_spec(module) is None]
     if missing_modules:
         msg = (
             "Indic ASR benchmark image is missing required runtime module(s): "
-            f"{missing_modules}. Install the root trt_llm profile."
+            f"{missing_modules}. Use the image built with docker/audio/Dockerfile.trt_llm."
         )
         raise RuntimeError(msg)
     # Loading the native bindings catches ABI failures that find_spec cannot.
