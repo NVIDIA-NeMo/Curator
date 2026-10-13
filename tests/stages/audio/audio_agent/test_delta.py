@@ -26,8 +26,8 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, StageContract
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, StageContract
 from nemo_curator.stages.audio.audio_agent import artifacts, delta, profiler
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 from nemo_curator.stages.base import _STAGE_REGISTRY, ProcessingStage
@@ -204,7 +204,6 @@ class TestNarrowingIsNotInvisible:
     def test_a_narrowable_source_answers_whether_narrowing_it_is_safe(self) -> None:
         """The conformance rule is "must not be silent", not "must be True"."""
         from nemo_curator.stages.audio._agent._conformance import assert_contract_wellformed
-
         from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage, ManifestReaderStage
 
         for cls in (CreateInitialManifestAudioFolderStage, ManifestReaderStage):
@@ -214,7 +213,6 @@ class TestNarrowingIsNotInvisible:
     def test_a_bounded_source_stops_the_narrowable_region(self) -> None:
         """A sorted top-N folder selection cannot be reproduced from changed files alone."""
         from nemo_curator.stages.audio._agent._conformance import assert_contract_wellformed
-
         from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage as Folder
 
         bounded = assert_contract_wellformed(Folder(data_dir="/tmp/x", max_samples=10))  # noqa: S108

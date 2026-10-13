@@ -35,9 +35,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from nemo_curator.stages.audio._agent._agent_registry import stage_params
 
 from nemo_curator.stages.audio import audio_agent as aa
+from nemo_curator.stages.audio._agent._agent_registry import stage_params
 from nemo_curator.stages.audio.audio_agent import cli, verbs
 from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class, resolved_contract_for
 

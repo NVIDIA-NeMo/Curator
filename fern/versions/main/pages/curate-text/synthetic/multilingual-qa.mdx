@@ -59,7 +59,7 @@ pipeline.add_stage(
         prompt="Generate a Q&A pair about science in {language}.",
         languages=["English", "French", "German", "Spanish"],
         client=llm_client,
-        model_name="meta/llama-3.3-70b-instruct",
+        model_name="nvidia/nemotron-3-super-120b-a12b",
         num_samples=50,
         generation_config=GenerationConfig(temperature=0.9),
     )
@@ -133,7 +133,7 @@ pipeline.add_stage(
         prompt=prompt,
         languages=["English", "French", "German", "Spanish", "Italian"],
         client=llm_client,
-        model_name="meta/llama-3.3-70b-instruct",
+        model_name="nvidia/nemotron-3-super-120b-a12b",
         num_samples=100,
         generation_config=generation_config,
     )
@@ -225,7 +225,7 @@ python synthetic_data_generation_example.py --num-samples 50
 python synthetic_data_generation_example.py \
     --num-samples 100 \
     --languages English French German \
-    --model-name meta/llama-3.3-70b-instruct \
+    --model-name nvidia/nemotron-3-super-120b-a12b \
     --temperature 0.9
 
 # Skip language filtering
@@ -240,7 +240,7 @@ python synthetic_data_generation_example.py \
 | --- | --- | --- |
 | `--api-key` | env var | NVIDIA API key (or set NVIDIA_API_KEY) |
 | `--base-url` | NVIDIA API | Base URL for the API endpoint |
-| `--model-name` | meta/llama-3.3-70b-instruct | Model to use for generation |
+| `--model-name` | nvidia/nemotron-3-super-120b-a12b | Model to use for generation |
 | `--languages` | English, French, German, Spanish, Italian | Languages to generate Q&A pairs for (use full names) |
 | `--num-samples` | 100 | Number of samples to generate |
 | `--temperature` | 0.9 | Sampling temperature |

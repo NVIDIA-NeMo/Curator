@@ -17,13 +17,13 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
     IOSpec,
     StageContract,
 )
-
 from nemo_curator.stages.audio.audio_agent.semantic_review import build_semantic_review
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.filtering.band import BandFilterStage

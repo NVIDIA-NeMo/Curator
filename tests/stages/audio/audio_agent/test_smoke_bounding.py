@@ -467,9 +467,8 @@ def test_unknown_disk_writer_fails_the_future_stage_guard(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract
-
     from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract
 
     # A stage that claims writes_to_disk without naming WHERE cannot be sandboxed. Guessing
     # which of its params look path-like would risk a smoke writing into the caller's real
@@ -497,9 +496,8 @@ def test_an_empty_declaration_is_accepted_from_the_stage_it_is_true_of(
     parameter, so an empty declaration is the honest answer -- and collapsing it into the
     undeclared case would refuse a stage that is in fact fine.
     """
-    from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract
-
     from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract
 
     class CreateInitialManifestReadSpeechStage:
         auto_download = False
@@ -525,9 +523,8 @@ def test_an_empty_declaration_from_any_other_writer_is_refused(
     as it does for a writer that never declared at all -- so the exemption is a name, not a
     shape anyone can adopt.
     """
-    from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract
-
     from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract
 
     monkeypatch.setattr(
         foundation,

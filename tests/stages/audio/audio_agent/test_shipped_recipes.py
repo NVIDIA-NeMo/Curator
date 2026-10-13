@@ -46,7 +46,6 @@ def _keys_the_recipe_writes(recipe: dict) -> set[str]:
     """
     from nemo_curator.stages.audio._agent._agent_registry import build_contract
     from nemo_curator.stages.audio._agent._composite import expand_composites
-
     from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class
 
     # Placeholders are passed through as the strings they are. Stripping them instead removes

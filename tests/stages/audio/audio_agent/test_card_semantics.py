@@ -449,7 +449,6 @@ def test_the_checkpoint_stage_card_describes_a_writer_that_is_not_a_sink() -> No
     checks this card says the right thing.
     """
     from nemo_curator.stages.audio._agent._catalog import get_agent_ready_stage_class
-
     from nemo_curator.stages.audio.audio_agent.index import KnowledgeIndex
     from nemo_curator.stages.audio.common import ManifestCheckpointStage
 

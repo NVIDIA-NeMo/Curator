@@ -17,8 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from nemo_curator.stages.audio._agent._planning import validate_pipeline
 
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
 from nemo_curator.stages.audio.audio_agent.semantic_review import build_semantic_review
 from nemo_curator.stages.audio.common import ManifestWriterStage

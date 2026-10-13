@@ -133,6 +133,10 @@ results = pipeline.run(executor)
 | `ignore_head_node` | `bool` | `False` | Exclude the head from setup and resource sizing; placement remains best-effort |
 | `show_progress` | `bool` | `True` | Display tqdm progress bars during stage execution and shuffle inserts |
 | `progress_interval` | `float` | `10.0` | Minimum interval in seconds between progress bar updates |
+| `config["resource_wait_timeout_s"]` | `float` | `5.0` | Maximum seconds to wait for stage resources; must be non-negative |
+| `config["resource_wait_interval_s"]` | `float` | `0.2` | Seconds between resource availability checks; must be positive |
+
+Before creating each actor pool, the executor waits for the stage's requested resources. If they are not available within `resource_wait_timeout_s`, execution raises `TimeoutError`. Increase this timeout when a previous stage may take longer to release resources.
 
 For either Ray executor, leave `ignore_head_node=False` on a single-node cluster. Set it only for environments such as Anyscale where the head cannot run workloads; excluding the only node leaves no nodes for per-node sizing.
 
@@ -193,6 +197,8 @@ results = pipeline.run(executor)
 Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for task stages. Configure fixed actor pools or task concurrency caps with `stage.with_(num_workers=N)` or `stage.with_(num_workers_per_node=N)`. Configure actor autoscaling with `min_workers`, `max_workers`, and `initial_workers` in `ray_stage_spec`. Per-node sizing uses a cluster-wide count plus best-effort `SPREAD` placement; it is not a hard node-affinity constraint. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-data-worker-pools) for copy-pasteable examples and conflict rules.
 
 Ray Data may fuse adjacent operators when their compute and resource requirements are compatible. Matching resources enables the optimization but does not guarantee it; Ray Data makes the final optimizer decision. The [resource matching and fusion reference](/reference/infra/stage-worker-sizing#resource-matching-and-ray-data-fusion) explains the video-stage CPU reservation behavior.
+
+For scheduler diagnosis, refer to [Ray Data Scheduler Diagnostics](/reference/infra/monitoring#ray-data-scheduler-diagnostics).
 
 ## Per-Stage Runtime Environments
 
