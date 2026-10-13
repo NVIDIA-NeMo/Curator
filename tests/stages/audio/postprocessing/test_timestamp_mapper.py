@@ -507,6 +507,8 @@ def test_sanitization_preserves_pathlike_original_file(mapped: bool, tmp_path: P
         [0.0, float("inf")],
         [2.0, 1.0],
         [1.0, 1.0],
+        [0, 10**1000],
+        {"start": -(10**1000), "end": 1, "speaker": "speaker_0"},
         {"start": 2.0, "end": 1.0, "speaker": "speaker_0"},
     ],
 )
@@ -806,6 +808,33 @@ def test_strict_sanitization_covers_nested_core_values_and_cycles() -> None:
 def test_sanitization_contract_matches_configuration() -> None:
     assert TimestampMapperStage().describe().gates.sanitizes_output is False
     assert TimestampMapperStage(sanitize_output=True).describe().gates.sanitizes_output is True
+
+
+@pytest.mark.parametrize("scalar", [False, True])
+def test_strict_sanitization_drops_cyclic_object_array_and_keeps_siblings(scalar: bool) -> None:
+    import numpy as np
+
+    array = np.empty((), dtype=object) if scalar else np.empty(2, dtype=object)
+    if scalar:
+        array[()] = array
+    else:
+        array[0], array[1] = array, 3
+    mapped = TimestampMapperStage(passthrough_keys=["scores"], sanitize_output=True).process(
+        _make_task({"audio_filepath": "a.wav", "duration": 1.0, "scores": {"cycle": array, "valid": 4}})
+    )
+
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data["scores"] == ({"valid": 4} if scalar else {"cycle": [3], "valid": 4})
+    json.dumps(mapped.data, allow_nan=False)
+
+
+def test_decimal_interval_smaller_than_float_precision_is_preserved() -> None:
+    start, end = Decimal("1.00000000000000000001"), Decimal("1.00000000000000000002")
+    mapped = TimestampMapperStage().process(_make_task({"audio_filepath": "a.wav", "diar_segments": [[start, end]]}))
+
+    assert isinstance(mapped, AudioTask)
+    assert mapped.data["diar_segments"] == [[start, end]]
+    assert mapped.data["speaking_duration"] == end - start
 
 
 def test_mapped_end_only_range_keeps_legacy_zero_start() -> None:

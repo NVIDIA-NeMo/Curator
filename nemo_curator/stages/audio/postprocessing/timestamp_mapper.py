@@ -88,15 +88,15 @@ def _segment_bounds(seg: Any) -> tuple[Any, Any] | None:  # noqa: ANN401 - shape
             return None
     try:
         start_value, end_value = float(start), float(end)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    if not math.isfinite(start_value) or not math.isfinite(end_value) or end_value <= start_value:
+    if not math.isfinite(start_value) or not math.isfinite(end_value):
         return None
     try:
         if end - start <= 0:
             return None
     except TypeError:
-        return start_value, end_value
+        return (start_value, end_value) if end_value > start_value else None
     return start, end
 
 
@@ -170,7 +170,14 @@ def _jsonable_value(value: Any, active_containers: set[int]) -> Any:  # noqa: AN
     if isinstance(value, np.generic):
         return _jsonable_value(value.item(), active_containers)
     if isinstance(value, np.ndarray):
-        return _jsonable_value(value.tolist(), active_containers)
+        container_id = id(value)
+        if container_id in active_containers:
+            return _DROP_VALUE
+        active_containers.add(container_id)
+        try:
+            return _jsonable_value(value.tolist(), active_containers)
+        finally:
+            active_containers.remove(container_id)
     if isinstance(value, Decimal):
         if not value.is_finite():
             return _DROP_VALUE
@@ -566,10 +573,13 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             result[self.original_end_ms_key] = math.ceil(last_end * 1000)
             result[self.duration_ms_key] = result[self.original_end_ms_key] - result[self.original_start_ms_key]
             result[self.duration_key] = result[self.duration_ms_key] / 1000.0
-            result[self.speaking_duration_key] = round(sum(end - start for _s, start, end in ordered), 3)
+            speaking_duration = sum(end - start for _s, start, end in ordered)
+            result[self.speaking_duration_key] = round(speaking_duration, 3) or speaking_duration
             # Echo the shape we were handed, so a diarizer's speaker labels survive.
             result[self.diar_segments_key] = [
-                {**seg, "start": start, "end": end} if isinstance(seg, Mapping) else [round(start, 3), round(end, 3)]
+                {**seg, "start": start, "end": end}
+                if isinstance(seg, Mapping)
+                else ([round(start, 3), round(end, 3)] if round(end, 3) > round(start, 3) else [start, end])
                 for seg, start, end in ordered
             ]
             self._copy_passthrough(item, result)
