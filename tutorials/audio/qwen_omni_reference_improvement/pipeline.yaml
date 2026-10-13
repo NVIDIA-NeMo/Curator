@@ -78,9 +78,11 @@ stages:
         trust_remote_code: true
         enable_prefix_caching: true
         prefix_caching_hash_algo: xxhash
+        # Keep vision slots enabled to avoid meta DeepStack buffers during startup
+        # in affected vLLM releases: https://github.com/vllm-project/vllm/issues/49384.
         limit_mm_per_prompt:
-          image: 0
-          video: 0
+          image: 1
+          video: 1
           audio: 2
         seed: 1234
       sampling_kwargs:
