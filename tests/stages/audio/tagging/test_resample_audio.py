@@ -768,7 +768,10 @@ def test_real_conversion_bounds_staging_name(tmp_path: Path, stem: str) -> None:
     assert list(destination.iterdir()) == [final]
 
 
-def test_memory_only_lifecycle_avoids_durable_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("sample_rate", [16000, np.int64(16000), np.float64(16000), torch.tensor(16000), "16000"])
+def test_memory_only_lifecycle_avoids_durable_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sample_rate: object
+) -> None:
     resolve_fs = resample_audio_module.url_to_fs
 
     def forbidden_destination(path: str) -> tuple[Any, str]:
@@ -783,7 +786,7 @@ def test_memory_only_lifecycle_avoids_durable_destination(tmp_path: Path, monkey
     assert stage.describe().gates.output_path_params == []
     assert stage.describe().gates.requires_ffmpeg
     output = stage.process_batch(
-        [AudioTask(data={stage.waveform_key: np.zeros(16000, dtype=np.float32), "sample_rate": 16000})]
+        [AudioTask(data={stage.waveform_key: np.zeros(16000, dtype=np.float32), "sample_rate": sample_rate})]
     )
     assert len(output) == 1
     assert output[0].data[stage.sample_rate_key] == 16000

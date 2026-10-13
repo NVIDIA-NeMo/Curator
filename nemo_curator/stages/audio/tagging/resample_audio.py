@@ -51,6 +51,7 @@ from nemo_curator.stages.audio._agent._residency import (
     produce_audio_filepath,
     reject_sinkless_conversion,
     residency_read_specs,
+    resident_sample_rate,
     resolve_audio_path,
     validate_audio_key_configuration,
     validate_input_residency,
@@ -82,18 +83,12 @@ def _bounded_output_stem(stem: str, extension: str) -> str:
 
 
 def _is_usable_sample_rate(value: object) -> bool:
-    """Whether a resident ``sample_rate`` can actually time a waveform.
-
-    Rejects ``None``, ``bool`` (an accidental ``int`` subclass), non-positive rates, and
-    fractional floats such as ``16000.5``; accepts a positive int or an integer-valued float.
-    """
-    if isinstance(value, bool) or value is None:
+    """Apply the same lossless rate validation as resident audio resolution."""
+    try:
+        resident_sample_rate(value, sample_rate_key="sample_rate", stage_name="ResampleAudioStage")
+    except ValueError:
         return False
-    if isinstance(value, int):
-        return value > 0
-    if isinstance(value, float):
-        return value > 0 and value.is_integer()
-    return False
+    return True
 
 
 @dataclass
