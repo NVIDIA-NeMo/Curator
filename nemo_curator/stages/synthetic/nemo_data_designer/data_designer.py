@@ -52,7 +52,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     verbose: bool = False
     use_create: bool = False
     artifact_path: str | None = None
-    resume: "dd.ResumeMode | None" = None
+    resume: dd.ResumeMode | None = None
     data_designer: DataDesigner = field(init=False)
 
     def __post_init__(self) -> None:

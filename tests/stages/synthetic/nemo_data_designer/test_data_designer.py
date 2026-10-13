@@ -103,7 +103,7 @@ class TestBaseDataDesignerStage:
                 use_create=True,
             )
 
-    def test_create_rejects_create_only_options_when_disabled(self) -> None:
+    def test_create_rejects_create_only_options_when_disabled(self, tmp_path: Path) -> None:
         real_builder = _minimal_config_builder()
 
         with pytest.raises(
@@ -112,7 +112,7 @@ class TestBaseDataDesignerStage:
         ):
             DataDesignerStage(
                 config_builder=real_builder,
-                artifact_path="/tmp/artifacts",
+                artifact_path=str(tmp_path / "artifacts"),
             )
 
         with pytest.raises(
@@ -181,11 +181,11 @@ class TestBaseDataDesignerStage:
         create_results.load_analysis.assert_called_once_with()
         assert out_batch.data is output_df
 
-    def test_get_dataset_name_is_deterministic(self) -> None:
+    def test_get_dataset_name_is_deterministic(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
-            artifact_path="/tmp/artifacts",
+            artifact_path=str(tmp_path / "artifacts"),
         )
 
         batch_a = DocumentBatch(
@@ -203,11 +203,11 @@ class TestBaseDataDesignerStage:
         assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_a)
         assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
 
-    def test_get_dataset_name_prefers_source_files(self) -> None:
+    def test_get_dataset_name_prefers_source_files(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
-            artifact_path="/tmp/artifacts",
+            artifact_path=str(tmp_path / "artifacts"),
         )
 
         batch_a = DocumentBatch(
@@ -226,11 +226,11 @@ class TestBaseDataDesignerStage:
 
         assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_b)
 
-    def test_get_dataset_name_uses_task_id_without_source_files(self) -> None:
+    def test_get_dataset_name_uses_task_id_without_source_files(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
-            artifact_path="/tmp/artifacts",
+            artifact_path=str(tmp_path / "artifacts"),
         )
 
         batch_a = DocumentBatch(
@@ -247,11 +247,11 @@ class TestBaseDataDesignerStage:
 
         assert stage._get_dataset_name(batch_a) != stage._get_dataset_name(batch_b)
 
-    def test_get_dataset_name_empty_task_id_is_deterministic(self) -> None:
+    def test_get_dataset_name_empty_task_id_is_deterministic(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
-            artifact_path="/tmp/artifacts",
+            artifact_path=str(tmp_path / "artifacts"),
         )
 
         batch_a = DocumentBatch(
@@ -265,11 +265,11 @@ class TestBaseDataDesignerStage:
 
         assert stage._get_dataset_name(batch_a) == stage._get_dataset_name(batch_b)
 
-    def test_get_dataset_name_sanitizes_dataset_name(self) -> None:
+    def test_get_dataset_name_sanitizes_dataset_name(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
-            artifact_path="/tmp/artifacts",
+            artifact_path=str(tmp_path / "artifacts"),
         )
 
         batch = DocumentBatch(
@@ -283,11 +283,11 @@ class TestBaseDataDesignerStage:
         assert "/" not in name
         assert " " not in name
 
-    def test_get_dataset_name_uses_dataset_fallback_for_empty_name(self) -> None:
+    def test_get_dataset_name_uses_dataset_fallback_for_empty_name(self, tmp_path: Path) -> None:
         stage = DataDesignerStage(
             config_builder=_minimal_config_builder(),
             use_create=True,
-            artifact_path="/tmp/artifacts",
+            artifact_path=str(tmp_path / "artifacts"),
         )
 
         batch = DocumentBatch(

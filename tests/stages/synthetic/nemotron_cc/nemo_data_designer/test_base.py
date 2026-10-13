@@ -21,8 +21,8 @@ import pytest
 import pytest_httpserver
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import (
     _FORMATTED_PROMPT_COL,
     NDDBaseSyntheticStage,
@@ -149,7 +149,7 @@ class TestNDDBaseSyntheticStage:
 
         captured_task_ids = []
 
-        def fake_parent_process(self, inner_batch):
+        def fake_parent_process(_self: DataDesignerStage, inner_batch: DocumentBatch) -> DocumentBatch:
             captured_task_ids.append(inner_batch.task_id)
             return inner_batch
 
