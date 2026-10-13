@@ -59,14 +59,17 @@ band_value: full_band
 
 enable_utmos: true
 utmos_mos_threshold: 3.4
+utmos_gpus: 0.1
 
 enable_sigmos: true
 sigmos_noise_threshold: 4.0
 sigmos_ovrl_threshold: 3.5
+sigmos_gpus: 0.1
 
 enable_speaker_separation: true
 speaker_exclude_overlaps: true
 speaker_min_duration: 0.8
+speaker_separation_gpus: 0.3
 
 processors:
   - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
@@ -99,14 +102,17 @@ processors:
       utmos:
         enable: ${enable_utmos}
         mos_threshold: ${utmos_mos_threshold}
+        gpus: ${utmos_gpus}
       sigmos:
         enable: ${enable_sigmos}
         noise_threshold: ${sigmos_noise_threshold}
         ovrl_threshold: ${sigmos_ovrl_threshold}
+        gpus: ${sigmos_gpus}
       speaker_separation:
         enable: ${enable_speaker_separation}
         exclude_overlaps: ${speaker_exclude_overlaps}
         min_duration: ${speaker_min_duration}
+        gpus: ${speaker_separation_gpus}
       # Empty config uses _DEFAULT_PASSTHROUGH_KEYS which includes:
       #   speaker_id, num_speakers, speaking_duration, sample_rate,
       #   utmos_mos, sigmos_noise, sigmos_ovrl, sigmos_sig, sigmos_col,

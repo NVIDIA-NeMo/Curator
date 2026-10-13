@@ -7,7 +7,7 @@ The pipeline downloads the dataset (4.88 GB compressed, 14,279 WAV files at 48kH
 ## Prerequisites
 
 - **Python**: 3.10+
-- **GPU**: Optional but recommended (see [GPU Memory Requirements](#gpu-memory-requirements))
+- **GPU**: Required by the default all-filter YAML; CPU-only overrides are shown under [GPU Memory Requirements](#gpu-memory-requirements)
 
 ### System Dependencies
 
@@ -463,9 +463,19 @@ The `metadata.csv` contains one row per extracted segment with columns:
 >
 > Default GPU resource allocations total **0.9 GPU** for the main branch (VAD `0.1` + UTMOS `0.1` + SIGMOS `0.1` + Speaker Separation `0.3`). When `--enable-speaker-separation` is set, `AudioDataFilterStage.decompose()` instantiates a **duplicated post-speaker filter branch** (VAD `0.1` + Band `0.0` + UTMOS `0.1` + SIGMOS `0.1` = **+0.3 GPU**), so the peak fractional allocation across all stages is **0.9 GPU** — safely within a single GPU. All fractions can be raised in [`default_config.yaml`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.yaml) for faster scheduling on multi-GPU nodes.
 
-The Torch VAD stage can run on CPU, but resource requests are explicit: set
-`vad.gpus: 0.0` rather than expecting a GPU-requesting actor to fall back.
-The ONNX VAD backend is CPU-only.
+The model stages can run on CPU, but resource requests are explicit. For the
+YAML pipeline, select the ONNX VAD runtime and clear every GPU reservation:
+
+```bash
+python run.py --config-path . --config-name pipeline.yaml \
+  raw_data_dir=./dns_data \
+  execution_mode=batch \
+  vad_backend=onnx vad_gpus=0.0 \
+  utmos_gpus=0.0 sigmos_gpus=0.0 speaker_separation_gpus=0.0
+```
+
+Do not only set `vad_gpus=0.0`: UTMOS, SIGMOS, and speaker separation each
+have their own default fractional GPU request.
 GPU is strongly recommended for UTMOS, SIGMOS, and Speaker Separation because
 their CPU inference is significantly slower. Band Filter and Silero VAD run
 efficiently on CPU.

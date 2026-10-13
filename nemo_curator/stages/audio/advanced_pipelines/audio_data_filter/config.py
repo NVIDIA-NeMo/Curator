@@ -42,11 +42,11 @@ _DEFAULT_CONFIG_PATH = Path(__file__).parent / "default_config.yaml"
 _MOS_MAX = 5.0
 
 
-def _deep_merge(base: dict, overrides: dict) -> dict:
+def _deep_merge(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
     """Recursively merge *overrides* into *base*, returning a new dict."""
     merged = copy.deepcopy(base)
     for key, value in overrides.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+        if key in merged and isinstance(merged[key], Mapping) and isinstance(value, Mapping):
             merged[key] = _deep_merge(merged[key], value)
         else:
             merged[key] = value

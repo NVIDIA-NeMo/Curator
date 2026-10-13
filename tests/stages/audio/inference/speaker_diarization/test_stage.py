@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from nemo_curator.models.audio.speaker_diarization.base import DiarizationResult
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.inference.speaker_diarization.stage import (
     InferenceSortformerStage,
@@ -425,3 +426,87 @@ def test_empty_batch_and_setup_requirement() -> None:
     assert stage.process_batch([]) == []
     with pytest.raises(RuntimeError, match="not initialized"):
         stage.process_batch([_waveform_task("one", 1)])
+
+
+def test_stage_is_agent_ready_for_waveform_input() -> None:
+    stage = InferenceSortformerStage(
+        waveform_key="waveform",
+        resources=Resources(cpus=1.0),
+    )
+    stage._adapter = _RecordingAdapter(
+        results=[DiarizationResult(segments=[{"start": 0.0, "end": 0.01, "speaker": "speaker_0"}])]
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        lambda: _waveform_task("agent", 160),
+        expected_cardinality="1:1 nested-list",
+        available_keys={"waveform", "sample_rate"},
+    )
+
+    assert contract.key_roles["diar_segments"] == "diar_segments"
+    assert contract.key_roles["num_speakers"] == "num_speakers"
+    assert contract.gates.lifecycle_side_effects is True
+    assert contract.gates.per_row_independent is True
+    assert contract.iteration_key == "diar_segments"
+    conditional_keys = {key for write in contract.conditional_writes for key in write.writes.data_keys}
+    assert {"diar_segments", "num_speakers", "additional_notes"} <= conditional_keys
+
+
+def test_agent_contract_accepts_upstream_read_error_without_promising_outputs() -> None:
+    stage = InferenceSortformerStage(
+        waveform_key="waveform",
+        read_error_key="failed",
+        resources=Resources(cpus=1.0),
+    )
+    stage._adapter = _RecordingAdapter()
+
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(task_id="failed", data={"failed": True}),
+        expected_cardinality="1:1 nested-list",
+        available_keys={"failed"},
+    )
+
+    assert contract.writes.data_keys == []
+    assert stage._adapter.items == []
+
+
+def test_agent_contract_fails_closed_for_static_catalog_and_custom_adapter() -> None:
+    static = InferenceSortformerStage.describe_static()
+    custom = InferenceSortformerStage(
+        adapter_target="example.CustomAdapter",
+        waveform_key="waveform",
+        resources=Resources(cpus=1.0),
+    ).describe()
+
+    assert static.gates.requires_gpu is True
+    assert static.gates.requires_internet_first_run is True
+    assert static.gates.per_row_independent is False
+    assert custom.gates.per_row_independent is False
+
+
+def test_configurable_session_and_read_error_keys_are_used(tmp_path: Path) -> None:
+    stage = InferenceSortformerStage(
+        waveform_key="waveform",
+        rttm_out_dir=str(tmp_path),
+        session_name_key="recording_id",
+        read_error_key="failed",
+        start_key="begin",
+        end_key="finish",
+        speaker_key="who",
+    )
+    adapter = _RecordingAdapter(
+        results=[DiarizationResult(segments=[{"start": 0.0, "end": 0.01, "speaker": "speaker_0"}])]
+    )
+    stage._adapter = adapter
+    task = _waveform_task("fallback", 160)
+    task.data["recording_id"] = "named/session"
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["rttm_filepath"] == "named%2Fsession.rttm"
+    assert result.data["diar_segments"] == [{"begin": 0.0, "finish": 0.01, "who": "speaker_0"}]
+    blocked = AudioTask(task_id="blocked", data={"failed": True})
+    assert stage.process_batch([blocked]) == [blocked]
+    assert len(adapter.items) == 1

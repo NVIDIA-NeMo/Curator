@@ -8,7 +8,7 @@ From the repository root:
 ```bash
 uv sync --extra audio_cuda12
 
-python - <<'PY'
+uv run python - <<'PY'
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage

@@ -23,23 +23,38 @@ diarization inference.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from numbers import Integral
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from urllib.parse import quote
 
 import numpy as np
 from loguru import logger
 
 from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+    StaticHints,
+)
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nemo_curator.models.audio.speaker_diarization.base import DiarizationResult, DiarizationSegment
+
+
+_DEFAULT_ADAPTER_TARGET = "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter"
 
 
 def _safe_rttm_basename(session_name: str) -> str:
@@ -111,7 +126,7 @@ def _write_rttm(
 
 
 @dataclass
-class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
+class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdapter]):
     """Diarize whole recordings through a YAML-selectable model adapter.
 
     Set ``waveform_key`` to consume an in-memory waveform plus
@@ -119,6 +134,15 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
     float32 audio at ``target_sample_rate``. Leave it as ``None`` to pass
     ``audio_filepath_key`` to an adapter for provider-native decoding or
     bounded file streaming after a lightweight header probe.
+
+    ``diar_segments_key`` contains ordered, retained intervals whose configured
+    ``start_key``/``end_key`` values are seconds and whose ``speaker_key`` labels
+    are local to one recording, not identities shared across recordings.
+    ``num_speakers_key`` is the count of distinct retained labels for the whole
+    recording, not for one interval. A zero accompanied by this stage's
+    ``notes_key`` entry means preparation failed, not that silence was proven.
+    ``rttm_filepath_key`` is a relative path below ``rttm_out_dir`` containing
+    the same normalized intervals.
 
     Args:
         adapter_target: Import path of a class implementing
@@ -138,6 +162,12 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
         fail_on_audio_error: Raise on task-local decode/preparation errors. If
             false, write an empty result and an explanatory note.
         adapter_kwargs: Provider-specific constructor settings.
+        session_name_key: Optional recording identity used for RTTM rows and
+            filenames before falling back to the audio filename or task ID.
+        read_error_key: Upstream failure flag that bypasses inference.
+        start_key: Start-time field inside each stored diarization interval.
+        end_key: End-time field inside each stored diarization interval.
+        speaker_key: Recording-local speaker-label field inside each interval.
     """
 
     # Keep every current-main constructor field in its original positional
@@ -161,7 +191,7 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=8.0))
 
-    adapter_target: str = "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter"
+    adapter_target: str = _DEFAULT_ADAPTER_TARGET
     model_id: str = "nvidia/diar_streaming_sortformer_4spk-v2.1"
     target_sample_rate: int = 16000
     waveform_key: str | None = None
@@ -177,6 +207,28 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
     prefetch_fail_on_error: bool = True
 
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
+
+    _: KW_ONLY
+    session_name_key: str = "session_name"
+    read_error_key: str = "read_error"
+    start_key: str = "start"
+    end_key: str = "end"
+    speaker_key: str = "speaker"
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        cardinality_options=["1:1", "1:1 nested-list"],
+        gates=Gates(
+            requires_gpu=True,
+            requires_internet_first_run=True,
+            lifecycle_side_effects=True,
+            per_row_independent=False,
+        ),
+    )
+    KEY_ROLE_OVERRIDES: ClassVar[Mapping[str, Role]] = {
+        "session_name_key": "item_id",
+        "rttm_filepath_key": "output_path",
+    }
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"notes_key", "read_error_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -196,6 +248,31 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
         self.target_sample_rate = int(self.target_sample_rate)
         self.batch_size = int(self.batch_size)
         self.adapter_kwargs = dict(self.adapter_kwargs)
+        input_keys = {
+            "audio_filepath_key": self.audio_filepath_key,
+            "session_name_key": self.session_name_key,
+            "read_error_key": self.read_error_key,
+        }
+        if self.waveform_key:
+            input_keys.update(waveform_key=self.waveform_key, sample_rate_key=self.sample_rate_key)
+        output_keys = {
+            "num_speakers_key": self.num_speakers_key,
+            "notes_key": self.notes_key,
+        }
+        if self.store_segments:
+            output_keys["diar_segments_key"] = self.diar_segments_key
+        if self.rttm_out_dir is not None:
+            output_keys["rttm_filepath_key"] = self.rttm_filepath_key
+        validate_audio_key_configuration(self.name, input_keys=input_keys, output_keys=output_keys)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={},
+            output_keys={
+                "start_key": self.start_key,
+                "end_key": self.end_key,
+                "speaker_key": self.speaker_key,
+            },
+        )
 
     def _apply_legacy_aliases(self) -> None:
         """Translate the pre-adapter constructor surface without hiding conflicts."""
@@ -285,6 +362,87 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
         if self.rttm_out_dir is not None:
             keys.append(self.rttm_filepath_key)
         return [], keys
+
+    def describe(self) -> StageContract:
+        """Describe configured task I/O without loading the selected adapter."""
+        model_input = (
+            IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
+            if self.waveform_key
+            else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
+        )
+        result_keys = [self.num_speakers_key]
+        if self.store_segments:
+            result_keys.append(self.diar_segments_key)
+
+        optional_reads = [self.notes_key]
+        if self.rttm_out_dir is not None:
+            optional_reads.append(self.session_name_key)
+            if self.waveform_key:
+                optional_reads.append(self.audio_filepath_key)
+        if self.skip_if_output_exists:
+            optional_reads.append(self.num_speakers_key)
+            if self.store_segments:
+                optional_reads.append(self.diar_segments_key)
+            if self.rttm_out_dir is not None:
+                optional_reads.append(self.rttm_filepath_key)
+
+        return StageContract(
+            reads_one_of=[model_input, IOSpec(data_keys=[self.read_error_key])],
+            preferred_reads=model_input if self.waveform_key else None,
+            optional_reads=IOSpec(data_keys=list(dict.fromkeys(optional_reads))),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=result_keys),
+                    condition=(
+                        f"'{self.read_error_key}' is absent or false, so a result is produced or safely reused"
+                    ),
+                ),
+                *(
+                    [
+                        ConditionalWrite(
+                            writes=IOSpec(segment_data_keys=[self.start_key, self.end_key, self.speaker_key]),
+                            condition="the retained diarization result contains at least one interval",
+                        )
+                    ]
+                    if self.store_segments
+                    else []
+                ),
+                *(
+                    [
+                        ConditionalWrite(
+                            writes=IOSpec(data_keys=[self.rttm_filepath_key], produces=["disk"]),
+                            condition=(f"'{self.read_error_key}' is absent or false and audio reaches the adapter"),
+                        )
+                    ]
+                    if self.rttm_out_dir is not None
+                    else []
+                ),
+                *(
+                    [
+                        ConditionalWrite(
+                            writes=IOSpec(data_keys=[self.notes_key]),
+                            condition="audio preparation fails and fail_on_audio_error is false",
+                            value_origin="augments_upstream_same_key",
+                        )
+                    ]
+                    if not self.fail_on_audio_error
+                    else []
+                ),
+            ],
+            metadata_reads=["_shard_key"] if self.rttm_out_dir is not None else [],
+            cardinality="1:1 nested-list" if self.store_segments else "1:1",
+            cardinality_options=["1:1", "1:1 nested-list"],
+            iteration_key=self.diar_segments_key if self.store_segments else None,
+            gates=Gates(
+                writes_to_disk=self.rttm_out_dir is not None,
+                output_path_params=["rttm_out_dir"],
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=self.model_path is None and self.diar_model is None,
+                lifecycle_side_effects=True,
+                requires_stable_task_id=self.rttm_out_dir is not None,
+                per_row_independent=self.adapter_target == _DEFAULT_ADAPTER_TARGET and self.rttm_out_dir is None,
+            ),
+        )
 
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
         source_rate = int(sample_rate)
@@ -419,7 +577,7 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
 
         pending: list[tuple[int, AudioTask, dict[str, Any]]] = []
         for index, task in enumerate(tasks):
-            if task.data.get("read_error") or self._already_has_output(task):
+            if task.data.get(self.read_error_key) or self._already_has_output(task):
                 continue
             item = self._prepare_task_item(task)
             if item is None:
@@ -480,7 +638,14 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
             segments.append(dict(segment))
         task.data[self.num_speakers_key] = len({str(segment["speaker"]) for segment in segments})
         if self.store_segments:
-            task.data[self.diar_segments_key] = segments
+            task.data[self.diar_segments_key] = [
+                {
+                    self.start_key: segment["start"],
+                    self.end_key: segment["end"],
+                    self.speaker_key: segment["speaker"],
+                }
+                for segment in segments
+            ]
         if self.rttm_out_dir is not None:
             path = _write_rttm(
                 segments,
@@ -495,7 +660,7 @@ class InferenceSortformerStage(AdapterInferenceStage[DiarizationAdapter]):
             notes.pop(self.name, None)
 
     def _session_name(self, task: AudioTask) -> str:
-        session_name = task.data.get("session_name")
+        session_name = task.data.get(self.session_name_key)
         if session_name:
             return str(session_name)
         filepath = task.data.get(self.audio_filepath_key)

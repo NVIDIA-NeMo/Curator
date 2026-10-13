@@ -9,19 +9,24 @@ Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 - Python 3.11+
 - NeMo Curator installed (see the [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
 - [`ffmpeg`](https://ffmpeg.org/) command-line tool (for stereo-to-mono conversion; pre-installed in the NeMo Curator container)
-- CallHome English dataset with `.wav` files and `eng/*.cha` ground-truth annotations
+- Licensed CallHome English audio and CHAT annotations, staged as shown below
 
-### Dataset Layout
+### Stage the Dataset
+
+The audio and CHAT annotations may be distributed separately and the source
+audio may require conversion. Convert the recordings to WAV, then stage each
+recording and its matching annotation under one directory before running the
+tutorial:
 
 ```
 /path/to/callhome_eng0/
 ├── 0638.wav
 ├── 4065.wav
-├── ...              # 176 WAV files total
+├── ...
 └── eng/
     ├── 0638.cha
     ├── 4065.cha
-    └── ...          # CHAT-format ground-truth annotations
+    └── ...          # matching CHAT-format annotations
 ```
 
 ## Usage
@@ -69,27 +74,19 @@ whole-recording preparation, result fields, RTTM files, and resume behavior.
 
 ## What the Script Does
 
-1. **File discovery (`CallHomeReaderStage`)** — Scans the dataset directory for WAV files with matching `.cha` annotations, skipping already-processed files. Emits one `AudioTask` per file.
-2. **Mono conversion (`EnsureMonoStage`)** — CallHome WAVs are stereo (one channel per speaker). This stage downmixes to mono 16 kHz via `ffmpeg` so the model sees both speakers.
+1. **File discovery (`CallHomeReaderStage`)** — Scans the dataset directory for WAV files with matching `.cha` annotations. Emits one `AudioTask` per file; checkpoint state, not an existing RTTM alone, controls resume.
+2. **Mono conversion (`EnsureMonoStage`)** — CallHome WAVs are stereo (one channel per speaker). This stage downmixes to mono 16 kHz under `<output-dir>/mono/`, so `--clean` removes derived audio before rebuilding it.
 3. **Diarization inference (`InferenceSortformerStage`)** — Loads each whole recording and sends it to `NeMoSortformerAdapter`. It adds `diar_segments` and `num_speakers`, and writes RTTM files to `<output-dir>/rttm/`.
 4. **DER evaluation (`DERComputationStage`)** — Compares predicted segments against CHA ground truth. Scoring is restricted to the UEM region (min/max annotated timestamps from CHA) with a configurable collar tolerance (default 0.25 s).
 
+Checkpoints are bound to the matched file inventory (path, size, and
+modification time) and all inference/scoring options. Use `--clean` after any
+dataset or option change, or after changing the tutorial or Curator code; the
+script rejects detected mismatches rather than reusing stale results.
+Completed stages are skipped on a matching rerun. A stage interrupted inside
+the executor runs again from its preceding completed stage boundary.
+
 `XennaExecutor` distributes tasks across workers for parallel processing. After the pipeline completes, the script prints macro-average, weighted-average, speaker count accuracy, and best/worst files.
-
-## Example Output
-
-```
-============================================================
-COMPLETED: 139 files evaluated (collar=0.25s)
-============================================================
-
-  Macro-avg  DER=6.2%  Miss=1.5%  FA=3.4%  Conf=1.3%
-  Weighted   DER=6.0%  Miss=1.4%  FA=3.3%  Conf=1.3%
-  Speaker count match: 109/139 (78%)
-
-  Best 5: 4588=0.0%, 4601=0.0%, 4637=0.2%, 4660=0.3%, 4822=0.5%
-  Worst 5: 4247=28.1%, 4325=22.4%, 4556=19.7%, 4870=18.3%, 4902=17.6%
-```
 
 ## Pipeline Integration
 

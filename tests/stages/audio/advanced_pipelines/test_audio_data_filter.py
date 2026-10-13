@@ -52,6 +52,12 @@ class TestDeepMerge:
         assert result["vad"]["threshold"] == 0.8
         assert result["vad"]["min_duration_sec"] == 2.0
 
+    def test_deep_merge_nested_omegaconf_partial(self) -> None:
+        base = {"vad": {"threshold": 0.5, "cpus": 1.0, "gpus": 0.1}}
+        overrides = OmegaConf.create({"vad": {"threshold": 0.8}})
+        result = _deep_merge(base, overrides)
+        assert result["vad"] == {"threshold": 0.8, "cpus": 1.0, "gpus": 0.1}
+
     def test_deep_merge_does_not_mutate_base(self) -> None:
         base = {"vad": {"threshold": 0.5}}
         overrides = {"vad": {"threshold": 0.9}}

@@ -25,6 +25,7 @@ import torch
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.models.audio.vad.base import VADResult, VADSegment
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.resources import Resources
@@ -530,3 +531,138 @@ def test_stage_is_picklable_without_loaded_adapter() -> None:
     assert restored.min_duration_sec == 1.0
     assert restored.adapter_kwargs == {"backend": "onnx"}
     assert restored._adapter is None
+
+
+@pytest.mark.parametrize(
+    ("nested", "cardinality"),
+    [(False, "1:N fan-out"), (True, "1:1 nested-list")],
+)
+def test_stage_is_agent_ready_for_each_output_shape(nested: bool, cardinality: str) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        results=[VADResult([VADSegment(0.25, 0.75)])],
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        _task,
+        expected_cardinality=cardinality,
+        available_keys={"waveform", "sample_rate", "audio_filepath"},
+        segments_key="segments",
+    )
+
+    assert contract.key_roles["waveform"] == "waveform"
+    assert contract.key_roles["sample_rate"] == "sample_rate"
+    assert contract.gates.lifecycle_side_effects is True
+    assert contract.gates.per_row_independent is True
+    if not nested:
+        assert {"num_samples", "segments", "vad_empty", "duration_sec"} <= set(contract.removes_keys)
+        assert "duration" not in contract.removes_keys
+
+
+def test_agent_contract_models_audit_placeholders_as_conditional() -> None:
+    stage, _ = _stage(
+        emit_audit_placeholders=True,
+        results=[VADResult([])],
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        _task,
+        expected_cardinality="1:N fan-out",
+        available_keys={"waveform", "sample_rate", "audio_filepath"},
+    )
+
+    assert contract.writes.data_keys == []
+    conditional_keys = {key for write in contract.conditional_writes for key in write.writes.data_keys}
+    assert {"waveform", "vad_empty", "read_error", "duration"} <= conditional_keys
+    assert contract.iteration_key is None
+    assert len(contract.conditional_reads) == 3
+
+
+def test_agent_contract_accepts_a_read_error_only_audit_row() -> None:
+    stage, adapter = _stage(emit_audit_placeholders=True, read_error_key="failed")
+
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(task_id="failed", data={"failed": True}),
+        expected_cardinality="1:N fan-out",
+        available_keys={"failed"},
+    )
+
+    assert contract.writes.data_keys == []
+    assert adapter.items == []
+
+
+def test_static_catalog_is_conservative_for_selectable_vad_adapters() -> None:
+    contract = VADSegmentationStage.describe_static()
+
+    assert contract.cardinality == "1:N fan-out"
+    assert contract.cardinality_options == ["1:N fan-out", "1:1 nested-list"]
+    assert contract.gates.lifecycle_side_effects is True
+    assert contract.gates.per_row_independent is False
+
+
+def test_nested_segment_task_keys_are_configurable() -> None:
+    stage, _ = _stage(
+        nested=True,
+        waveform_key="samples",
+        sample_rate_key="rate",
+        audio_filepath_key="path",
+        segments_key="speech",
+        output_waveform_key="pcm",
+        output_sample_rate_key="hz",
+        start_ms_key="begin_ms",
+        end_ms_key="finish_ms",
+        segment_num_key="index",
+        duration_key="seconds",
+        original_file_key="source",
+        diar_segments_key="turns",
+        diar_start_key="turn_begin",
+        diar_end_key="turn_end",
+        diar_speaker_key="who",
+        num_speakers_key="speaker_count",
+        num_samples_key="sample_count",
+        legacy_duration_keys=("old_duration",),
+        results=[VADResult([VADSegment(0.25, 0.75)])],
+    )
+    task = AudioTask(
+        task_id="custom",
+        data={
+            "samples": torch.zeros(1, 16000),
+            "rate": 16000,
+            "path": "/custom.wav",
+            "turns": [{"turn_begin": 0.0, "turn_end": 1.0, "who": "speaker_0"}],
+            "old_duration": 99.0,
+        },
+    )
+
+    result = stage.process(task)
+
+    assert result is task
+    assert "samples" not in result.data
+    assert set(result.data["speech"][0]) >= {
+        "pcm",
+        "hz",
+        "begin_ms",
+        "finish_ms",
+        "index",
+        "seconds",
+        "source",
+        "speaker_count",
+    }
+    assert not ({"waveform", "sample_rate", "start_ms", "end_ms", "segment_num"} & set(result.data["speech"][0]))
+    assert "old_duration" not in result.data["speech"][0]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"duration_key": "audio_filepath"},
+        {"nested": True, "segments_key": "waveform"},
+        {"output_waveform_key": "duration"},
+    ],
+)
+def test_cross_role_task_key_collisions_are_rejected(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match=r"only same-role|must be distinct"):
+        VADSegmentationStage(**kwargs)

@@ -2,7 +2,9 @@
 
 Filter an ASR manifest to keep only audio files containing exactly one speaker, using [Streaming Sortformer v2.1](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) for diarization with NeMo Curator's adapter-backed `InferenceSortformerStage`.
 
-The pipeline includes **per-task hash-based checkpointing** — if a run is interrupted, re-running with the same `--output-dir` resumes from where it left off.
+The pipeline checkpoints each completed stage. If a run is interrupted,
+re-running with the same inputs, options, and `--output-dir` starts at the
+first incomplete stage; work inside that interrupted stage is rerun.
 
 ## Prerequisites
 
@@ -31,13 +33,20 @@ python tutorials/audio/single_speaker_filter/run.py \
 
 ### Resume After Failure
 
-Simply re-run with the same `--output-dir`. Tasks whose inference checkpoint already exists are skipped:
+Simply re-run with the same `--output-dir`. Completed stages are skipped; an
+interrupted stage runs again from its input checkpoint:
 
 ```bash
 python tutorials/audio/single_speaker_filter/run.py \
   --manifest /path/to/manifest.jsonl \
   --output-dir /path/to/output
 ```
+
+The tutorial binds checkpoints to the manifest contents and inference options.
+If either changes—or after changing the tutorial or Curator code—use `--clean`;
+the script rejects detected input/configuration mismatches instead of serving
+stale results. Referenced audio bytes are not hashed, so also use `--clean`
+after replacing an audio file without changing the manifest.
 
 ### Clean Run
 
@@ -76,7 +85,7 @@ python tutorials/audio/single_speaker_filter/run.py \
 {"text": "the cat sat on a mat", "audio_filepath": "/data/file1.wav", "num_speakers": 1}
 ```
 
-`<output-dir>/checkpoints/` — per-stage checkpoint directories for resume support.
+`<output-dir>/checkpoints/` — completed stage boundaries for resume support.
 
 The stage keeps Curator fields, errors, output assembly, and resume semantics
 separate from the model implementation. The tutorial passes streaming model
