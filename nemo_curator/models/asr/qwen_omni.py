@@ -106,8 +106,9 @@ class QwenOmniASRAdapter:
     Qwen adapter capability rather than part of the shared ASR stage contract.
 
     Notable Args:
-        prompt_text / *_file: User prompt; ``{language}`` is interpolated
-            per-item when the stage supplies a language. ``*_file`` variants
+        prompt_text / *_file: User prompt; ``{language}`` and ``{transcript}``
+            are interpolated per-item from the language and optional reference
+            transcript supplied by the stage. ``*_file`` variants
             load text from a UTF-8 file at ``__post_init__`` time.
         en_prompt_text / en_prompt_file: override used when language is
             ``"English"``.
@@ -182,6 +183,8 @@ class QwenOmniASRAdapter:
 
     def download_weights_on_node(self) -> None:
         """Cache the model snapshot on local disk without touching the GPU."""
+        if Path(self.model_id).is_dir():
+            return
         kwargs: dict[str, Any] = {}
         if self.revision is not None:
             kwargs["revision"] = self.revision
@@ -268,9 +271,18 @@ class QwenOmniASRAdapter:
                     f"but batch item {index} was decoded at {sample_rate!r} Hz"
                 )
                 raise ValueError(msg)
+            reference_text = item.get("reference_text")
+            if "reference_text" in item and (not isinstance(reference_text, str) or not reference_text.strip()):
+                msg = f"QwenOmniASRAdapter batch item {index} reference_text must be a non-empty string"
+                raise ValueError(msg)
+            templates = (self._get_prompt_text(item.get("language")), self.system_prompt or "")
+            if reference_text is None and any("{transcript}" in template for template in templates):
+                msg = f"QwenOmniASRAdapter batch item {index} requires reference_text for the {{transcript}} prompt"
+                raise ValueError(msg)
         waveforms = [it["waveform"] for it in items]
         languages = [it.get("language") for it in items]
-        pred_texts, skipped_indices = self._run_inference(waveforms, languages)
+        reference_texts = [it.get("reference_text") for it in items]
+        pred_texts, skipped_indices = self._run_inference(waveforms, languages, reference_texts)
         return [
             ASRResult(
                 text=pred,
@@ -281,26 +293,29 @@ class QwenOmniASRAdapter:
 
     # Input preparation
 
-    def _resolve_prompt(self, template: str, language: str | None) -> str:
+    def _resolve_prompt(self, template: str, language: str | None, reference_text: str | None = None) -> str:
         result = template
         if language and "{language}" in result:
             result = result.replace("{language}", language)
+        if reference_text is not None:
+            result = result.replace("{transcript}", reference_text)
         return result
 
-    def _get_prompt_text(self, language: str | None) -> str:
+    def _get_prompt_text(self, language: str | None, reference_text: str | None = None) -> str:
         if language == "English" and self.en_prompt_text:
-            return self._resolve_prompt(self.en_prompt_text, language)
-        return self._resolve_prompt(self.prompt_text, language)
+            return self._resolve_prompt(self.en_prompt_text, language, reference_text)
+        return self._resolve_prompt(self.prompt_text, language, reference_text)
 
     def _build_audio_prompt_messages(
         self,
         waveform: np.ndarray,
         language: str | None = None,
+        reference_text: str | None = None,
     ) -> list[dict[str, Any]]:
-        prompt = self._get_prompt_text(language)
+        prompt = self._get_prompt_text(language, reference_text)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
-            sys_prompt = self._resolve_prompt(self.system_prompt, language)
+            sys_prompt = self._resolve_prompt(self.system_prompt, language, reference_text)
             messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
         text_content = {"type": "text", "text": prompt}
         audio_content = {"type": "audio", "audio": waveform}
@@ -316,8 +331,9 @@ class QwenOmniASRAdapter:
         self,
         waveform: np.ndarray,
         language: str | None = None,
+        reference_text: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self._build_audio_prompt_messages(waveform, language)
+        return self._build_audio_prompt_messages(waveform, language, reference_text)
 
     def _pack_vllm_inputs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         """Render chat ``messages`` into a vLLM request dict."""
@@ -340,6 +356,7 @@ class QwenOmniASRAdapter:
         self,
         waveform: np.ndarray,
         language: str | None = None,
+        reference_text: str | None = None,
     ) -> dict[str, Any] | None:
         try:
             if waveform.size == 0:
@@ -348,7 +365,7 @@ class QwenOmniASRAdapter:
             if waveform.size < _MIN_QWEN_AUDIO_SAMPLES:
                 logger.warning("Skipping too-short waveform ({} samples)", waveform.size)
                 return None
-            messages = self._build_messages(waveform, language)
+            messages = self._build_messages(waveform, language, reference_text)
             inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -364,9 +381,14 @@ class QwenOmniASRAdapter:
         self,
         waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
+        reference_texts: list[str | None] | None = None,
     ) -> list[dict[str, Any] | None]:
         langs = languages or [None] * len(waveforms)
-        return [self._prepare_single(waveform, language) for waveform, language in zip(waveforms, langs, strict=True)]
+        references = reference_texts or [None] * len(waveforms)
+        return [
+            self._prepare_single(waveform, language, reference_text)
+            for waveform, language, reference_text in zip(waveforms, langs, references, strict=True)
+        ]
 
     @staticmethod
     def _first_output_text(output: Any) -> str:  # noqa: ANN401
@@ -398,11 +420,12 @@ class QwenOmniASRAdapter:
         self,
         waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
+        reference_texts: list[str | None] | None = None,
     ) -> tuple[list[str], set[int]]:
         """Run batched inference on in-memory waveforms."""
         n = len(waveforms)
 
-        prepared = self._prepare_batch(waveforms, languages)
+        prepared = self._prepare_batch(waveforms, languages, reference_texts)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [p for p in prepared if p is not None]
         skipped_indices = set(range(n)) - set(valid_indices)

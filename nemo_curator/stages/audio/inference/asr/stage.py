@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 import torch
@@ -32,6 +32,7 @@ import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
@@ -119,20 +120,35 @@ def _set_note(
 
 
 @dataclass
-class ASRStage(AdapterInferenceStage[ASRAdapter]):
+class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     """Audio speech-recognition stage with a pluggable adapter.
 
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
     and ``additional_notes``. When ``extras_key`` is configured, it also writes
     non-empty adapter metadata as one nested dictionary under that key.
 
-    Audio longer than ``max_inference_duration_s`` is always split into
+    Audio longer than ``max_inference_duration_s`` is split into
     model-safe segments and stitched back to one result per parent row. Every
     segment prepared by one backend-provided ``process_batch`` call is packed
     into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
     ``local_bucketing`` first orders those segments by duration to reduce GPU
     padding; disabling it preserves their input order.
+
+    Args:
+        reference_text_key: Optional input column holding a non-empty transcript
+            for the whole audio item. Passed unchanged as ``reference_text`` to
+            adapters supporting transcript refinement. The original column is
+            retained; the refined transcript is written to ``pred_text_key``.
+            Such inputs must fit ``max_inference_duration_s``: splitting audio
+            cannot align a whole-item reference with individual chunks.
+            Enables an explicit empty ``skip_me_key`` for unflagged rows so
+            downstream transcript-quality filters can inspect every result.
     """
+
+    BATCH_ONLY: ClassVar[bool] = True
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"}
+    )
 
     # Adapter selection.
     adapter_target: str
@@ -150,6 +166,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
+    reference_text_key: str | None = None
     language_key: str | None = None
     extras_key: str | None = None
     skip_me_key: str = _SKIP_ME_KEY
@@ -188,6 +205,11 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
         if self.pred_text_key in {self.skip_me_key, self.notes_key}:
             msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
             raise ValueError(msg)
+        if self.reference_text_key is not None:
+            if not isinstance(self.reference_text_key, str) or not self.reference_text_key.strip():
+                msg = "ASRStage.reference_text_key must be non-empty or None"
+                raise ValueError(msg)
+            self.reference_text_key = self.reference_text_key.strip()
         if self.language_key is not None:
             self.language_key = self.language_key.strip()
             if not self.language_key:
@@ -209,6 +231,15 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             }:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
+        if self.reference_text_key is not None and self.reference_text_key in {
+            self.pred_text_key,
+            self.language_key,
+            self.extras_key,
+            self.skip_me_key,
+            self.notes_key,
+        }:
+            msg = "ASRStage.reference_text_key cannot collide with an output column"
+            raise ValueError(msg)
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
@@ -269,6 +300,58 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             ),
         )
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        required, data_keys = super().inputs()
+        if self.reference_text_key is not None:
+            data_keys.append(self.reference_text_key)
+        return required, data_keys
+
+    def describe(self) -> StageContract:
+        writes = [self.pred_text_key]
+        if self.reference_text_key is not None:
+            writes.append(self.skip_me_key)
+        conditional_writes = [
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.notes_key]),
+                condition="input language is missing or unsupported by the configured allowlist",
+                value_origin="augments_upstream_same_key",
+            ),
+        ]
+        if self.reference_text_key is None:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]), condition="inference marks the row skipped"
+                )
+            )
+        if self.language_key is not None:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.language_key]), condition="an existing prediction is not reused"
+                )
+            )
+        if self.extras_key is not None:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.extras_key]), condition="adapter returns non-empty metadata"
+                )
+            )
+        return StageContract(
+            reads=IOSpec(data_keys=self.inputs()[1], accepts=["waveform" if self.waveform_key else "file"]),
+            optional_reads=IOSpec(
+                data_keys=list(dict.fromkeys(key for key in [self.source_lang_key, *self.outputs()[1]] if key))
+            ),
+            writes=IOSpec(data_keys=writes),
+            conditional_writes=conditional_writes,
+            cardinality="1:1",
+            removes_keys=[self.waveform_key] if self.waveform_key and not self.keep_waveform else [],
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                # Custom adapters and sampling settings can make outputs depend on batch composition.
+                per_row_independent=False,
+            ),
+        )
+
     def outputs(self) -> tuple[list[str], list[str]]:
         optional_outputs = [self.pred_text_key, self.skip_me_key, self.notes_key]
         if self.language_key is not None:
@@ -309,6 +392,14 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                 "language_code": self._resolve_language_code(task),
                 "task_id": task.task_id,
             }
+            if self.reference_text_key is not None:
+                reference_text = task.data[self.reference_text_key]
+                if not isinstance(reference_text, str) or not reference_text.strip():
+                    msg = (
+                        f"Task {task.task_id} column {self.reference_text_key!r} must be a non-empty reference string"
+                    )
+                    raise ValueError(msg)
+                item["reference_text"] = reference_text
             if self.waveform_key:
                 item["waveform"] = task.data[self.waveform_key]
                 item["sample_rate"] = task.data[self.sample_rate_key]
@@ -381,8 +472,10 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             items,
             results,
         )
-        if self.waveform_key and not self.keep_waveform:
-            for task in tasks:
+        for task in tasks:
+            if self.reference_text_key is not None:
+                task.data.setdefault(self.skip_me_key, "")
+            if self.waveform_key and not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
         if output_exists_skipped:
             logger.info(
@@ -404,7 +497,7 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
             tasks_to_process.append(task)
         return tasks_to_process, output_exists_skipped
 
-    def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+    def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:  # noqa: C901
         """Transcribe one stage batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
@@ -440,6 +533,12 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                 max_duration_s=self.max_inference_duration_s,
                 owner="ASRStage",
             )
+            if self.reference_text_key is not None and len(segments) > 1:
+                msg = (
+                    f"Task {item['task_id']} with reference_text_key exceeds max_inference_duration_s="
+                    f"{self.max_inference_duration_s}; provide aligned audio/transcript segments before ASRStage"
+                )
+                raise ValueError(msg)
             for segment in segments:
                 adapter_parent_indices.append(index)
                 adapter_items.append(
@@ -455,6 +554,8 @@ class ASRStage(AdapterInferenceStage[ASRAdapter]):
                         "task_id": item["task_id"],
                     }
                 )
+                if self.reference_text_key is not None:
+                    adapter_items[-1]["reference_text"] = item["reference_text"]
 
         if adapter_items:
             adapter_results = self._run_adapter_batches(adapter_items)

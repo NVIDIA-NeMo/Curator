@@ -783,6 +783,74 @@ present.
 
 ---
 
+### Qwen-Omni human-reference improvement (draft)
+
+`audio_qwen_omni_reference_improvement_xenna` and
+`audio_qwen_omni_reference_improvement_raydata` run the same
+[tutorial pipeline](../tutorials/audio/qwen_omni_reference_improvement/README.md)
+through the YAML pipeline loader. They use a shared, deterministic prefix of
+LibriSpeech `train.clean.100` totaling at least five hours, with its human `text`
+labels supplied in the Qwen prompt. The final clip is kept whole, so the duration
+may slightly exceed five hours. Neither entry nor its data setup is enabled:
+the cohort size and runtime are **uncalibrated**, and no throughput threshold or
+8-H100 runtime claim is made.
+
+Stage the public data and the launcher's pinned model before running either
+entry (replace the path placeholders with shared paths visible to all workers):
+
+```bash
+python benchmarking/data_prep/prepare_librispeech_data.py \
+  --output-path {datasets_path}/qwen_omni_reference_librispeech_clean_5h_71cacbfb \
+  --cache-dir {datasets_path}/_hf_cache/librispeech \
+  --hf-repo-id openslr/librispeech_asr \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
+  --hf-config all --hf-split train.clean.100 --target-audio-hours 5.0
+
+hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --revision 26291f793822fb6be9555850f06dfe95f2d7e695 \
+  --local-dir {model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct
+```
+
+The benchmark retains the tutorial's TP=2, batch size 32, maximum 16 sequences,
+4,096-token context, 256 output tokens, and 0.90 GPU memory utilization. It runs
+reference prompting, hallucination handling, reference selection, regex
+cleanup, and abbreviation concatenation. It does not run SED or a recovery ASR
+model. Use the tutorial's Qwen-compatible environment, including `ffmpeg` on
+every worker, before opting these entries into a session.
+
+For an individual run on an existing Ray cluster:
+
+```bash
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+python benchmarking/scripts/audio_qwen_omni_reference_improvement_benchmark.py \
+  --input-manifest {datasets_path}/qwen_omni_reference_librispeech_clean_5h_71cacbfb/manifest.jsonl \
+  --model-id {model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct \
+  --benchmark-results-path /shared/results/qwen-reference-xenna \
+  --executor xenna --execution-mode streaming
+
+python benchmarking/scripts/audio_qwen_omni_reference_improvement_benchmark.py \
+  --input-manifest {datasets_path}/qwen_omni_reference_librispeech_clean_5h_71cacbfb/manifest.jsonl \
+  --model-id {model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct \
+  --benchmark-results-path /shared/results/qwen-reference-raydata \
+  --executor ray_data
+```
+
+Use a fresh results directory for each run. The benchmark leaves staged inputs
+untouched, resamples into `scratch/`, and writes
+`results/qwen_omni_reference_improvement.jsonl`. Validation rejects duplicate,
+missing, or extra audio paths, changed or empty references, empty predictions,
+and invalid durations. Metrics report exact output coverage, reference
+preservation, reference/ground-truth fallback counts, skipped rows, audio hours,
+and throughput measured over `pipeline.run` (including worker/model startup,
+resampling, inference, cleanup, and writing). The runner additionally requires
+zero skipped rows. `params.json` records the resolved tutorial configuration;
+`metrics.json` records errors and a failed process exit when execution or output
+validation fails. WER against a label already included in the prompt is not an
+independent transcription-quality measure, so this benchmark does not report it.
+
+---
+
 ## Writing Benchmark Scripts
 
 ### Script Location

@@ -49,6 +49,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest with NeMo FastConformer through the shared ASR adapter | [**nemo_fastconformer/**](nemo_fastconformer/) | Recommended (1 per ASR actor) | Bundled sample or your own manifest |
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
+| Improve human transcripts with audio-conditioned Qwen3-Omni and reference recovery | [**qwen_omni_reference_improvement/**](qwen_omni_reference_improvement/) | Yes (2 per ASR actor) | Your audio and aligned human labels |
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
 | Diarize whole recordings with Streaming Sortformer through the shared diarization adapter | [**sortformer/**](sortformer/) | Yes (1 per actor) | Bundled sample or your own manifest |
@@ -66,6 +67,7 @@ python nemo_curator/config/run.py \
 | `nemo_fastconformer/` | Model only | Two bundled audio files | Downloads the configured NeMo ASR checkpoint on first use |
 | `fleurs/` | Yes | ~50 MB per language split | Downloads from HuggingFace `google/fleurs` |
 | `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
+| `qwen_omni_reference_improvement/` | Model only | Varies | Requires existing human labels; paired benchmark uses staged LibriSpeech |
 | `qwen_asr/` | Model only | Two bundled audio files | Downloads Qwen3-ASR weights on first use |
 | `faster_whisper/` | Model only | Two bundled audio files | Downloads the configured Faster-Whisper checkpoint on first use |
 | `sortformer/` | Model only | Two bundled audio files | Downloads the configured Sortformer v2.1 checkpoint on first use |
@@ -106,6 +108,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `nemo_fastconformer/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
 | `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
 | `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
+| `qwen_omni_reference_improvement/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
 | `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
 | `sortformer/` | None | `audio_cuda12` |

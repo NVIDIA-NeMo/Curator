@@ -28,6 +28,7 @@ from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 _SR = 16000
 
@@ -111,6 +112,13 @@ def test_qwen_adapter_download_weights_forwards_its_revision(mock_download: Magi
     adapter.download_weights_on_node()
 
     mock_download.assert_called_once_with("mock/qwen-omni", revision="abc123")
+
+
+@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+def test_qwen_adapter_download_weights_reuses_local_directory(mock_download: MagicMock, tmp_path: Path) -> None:
+    QwenOmniASRAdapter(model_id=str(tmp_path)).download_weights_on_node()
+
+    mock_download.assert_not_called()
 
 
 @pytest.mark.parametrize("num_gpus", [0, -1, 1.5, True])
@@ -259,6 +267,64 @@ def test_qwen_adapter_transcribe_batch_packages_results() -> None:
     assert [r.skipped for r in results] == [False, False, True]
     assert llm.generate.call_count == 1
     assert len(llm.generate.call_args_list[0].args[0]) == 2
+
+
+def test_qwen_adapter_reference_prompts_preserve_alignment_when_audio_is_skipped() -> None:
+    adapter = QwenOmniASRAdapter(
+        prompt_text="Improve {language}: {transcript}",
+        en_prompt_text="Correct English: {transcript}",
+        system_prompt="Reference: {transcript}",
+        prompt_content_order="audio_text",
+    )
+    items = [
+        {"waveform": np.zeros(n, dtype=np.float32), "sample_rate": _SR, "language": language, "reference_text": ref}
+        for n, language, ref in [
+            (_SR, "English", "first {language} {transcript}"),
+            (0, "English", "skipped reference"),
+            (_SR, "Hindi", "नमस्ते दुनिया"),
+        ]
+    ]
+    with _mock_external_qwen_runtime(adapter, generated_batches=[[_vllm_output("first"), _vllm_output("third")]]) as (
+        llm,
+        mm_info,
+    ):
+        results = adapter.transcribe_batch(items)
+
+    prompts = [call.args[0] for call in mm_info.call_args_list]
+    assert prompts[0][-1]["content"][1]["text"] == "Correct English: first {language} {transcript}"
+    assert prompts[1][-1]["content"][1]["text"] == "Improve Hindi: नमस्ते दुनिया"
+    assert prompts[0][0]["content"][0]["text"] == "Reference: first {language} {transcript}"
+    assert prompts[1][0]["content"][0]["text"] == "Reference: नमस्ते दुनिया"
+    assert [result.text for result in results] == ["first", "", "third"]
+    assert [result.skipped for result in results] == [False, True, False]
+    llm.generate.assert_called_once()
+
+
+@pytest.mark.parametrize("reference", [None, "", " \n ", 42, ["text"]])
+def test_qwen_adapter_rejects_malformed_reference_before_inference(reference: object) -> None:
+    adapter = QwenOmniASRAdapter(prompt_text="Improve {transcript}")
+    with _mock_external_qwen_runtime(adapter) as (llm, mm_info), pytest.raises(ValueError, match="non-empty string"):
+        adapter.transcribe_batch(
+            [{"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "reference_text": reference}]
+        )
+
+    mm_info.assert_not_called()
+    llm.generate.assert_not_called()
+
+
+@pytest.mark.parametrize("template_field", ["prompt_text", "en_prompt_text", "system_prompt"])
+def test_qwen_adapter_requires_reference_for_transcript_placeholder(template_field: str) -> None:
+    adapter = QwenOmniASRAdapter(**{template_field: "Improve {transcript}"})
+    with (
+        _mock_external_qwen_runtime(adapter) as (llm, mm_info),
+        pytest.raises(ValueError, match="requires reference_text"),
+    ):
+        adapter.transcribe_batch(
+            [{"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "language": "English"}]
+        )
+
+    mm_info.assert_not_called()
+    llm.generate.assert_not_called()
 
 
 def test_qwen_adapter_rejects_non_16khz_audio_before_inference() -> None:
