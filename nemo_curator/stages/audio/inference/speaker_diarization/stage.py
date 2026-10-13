@@ -141,7 +141,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
     are local to one recording, not identities shared across recordings.
     ``num_speakers_key`` is the count of distinct retained labels for the whole
     recording, not for one interval. A zero accompanied by this stage's
-    ``notes_key`` entry means preparation failed, not that silence was proven.
+    ``notes_key`` entry means preparation or decoding failed, not that silence was proven.
     ``rttm_filepath_key`` is a relative path below ``rttm_out_dir`` containing
     the same normalized intervals.
 
@@ -414,7 +414,9 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                     [
                         ConditionalWrite(
                             writes=IOSpec(data_keys=[self.rttm_filepath_key], produces=["disk"]),
-                            condition=(f"'{self.read_error_key}' is absent or false and audio reaches the adapter"),
+                            condition=(
+                                f"'{self.read_error_key}' is absent or false and the adapter returns a diarization result"
+                            ),
                         )
                     ]
                     if self.rttm_out_dir is not None
@@ -424,7 +426,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                     [
                         ConditionalWrite(
                             writes=IOSpec(data_keys=[self.notes_key]),
-                            condition="audio preparation fails and fail_on_audio_error is false",
+                            condition="audio preparation or file decoding fails and fail_on_audio_error is false",
                             value_origin="augments_upstream_same_key",
                         )
                     ]

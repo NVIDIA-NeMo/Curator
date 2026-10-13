@@ -442,7 +442,7 @@ def test_audio_preparation_memory_failures_propagate(error: Exception, monkeypat
     monkeypatch.setattr(stage, "_resolve_audio", fail)
 
     with pytest.raises(type(error), match="out of memory"):
-        stage.process(_task())
+        stage.process_batch([_task()])
 
 
 def test_adapter_failures_propagate() -> None:
@@ -510,7 +510,7 @@ def test_result_emission_memory_failures_propagate(error: Exception, monkeypatch
     monkeypatch.setattr(stage, "_emit_segments", fail)
 
     with pytest.raises(type(error), match="out of memory"):
-        stage.process(_task())
+        stage.process_batch([_task()])
 
 
 def test_degenerate_segments_are_skipped() -> None:

@@ -7,8 +7,9 @@ From the repository root:
 
 ```bash
 uv sync --extra audio_cuda12
+source .venv/bin/activate
 
-uv run python - <<'PY'
+python - <<'PY'
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
@@ -27,6 +28,9 @@ pipeline.add_stage(ManifestWriterStage(output_path="sortformer_output.jsonl"))
 pipeline.run(RayDataExecutor())
 PY
 ```
+
+Run the pipeline with the activated environment's Python so Ray workers reuse
+that environment rather than launching their own `uv run` environments.
 
 Each input row must contain `audio_filepath`. The output preserves the row and
 adds:

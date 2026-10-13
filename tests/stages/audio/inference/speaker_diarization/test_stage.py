@@ -688,7 +688,7 @@ def test_configurable_session_and_read_error_keys_are_used(tmp_path: Path) -> No
 
     result = stage.process_batch([task])[0]
 
-    assert result.data["rttm_filepath"] == "named%2Fsession.rttm"
+    assert result.data["rttm_filepath"] == f"{_rttm_task_dir('fallback')}/named%2Fsession.rttm"
     assert result.data["diar_segments"] == [{"begin": 0.0, "finish": 0.01, "who": "speaker_0"}]
     blocked = AudioTask(task_id="blocked", data={"failed": True})
     assert stage.process_batch([blocked]) == [blocked]
