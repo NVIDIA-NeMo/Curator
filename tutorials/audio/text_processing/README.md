@@ -1,207 +1,156 @@
 # Process audio transcripts with Dynamo
 
-This tutorial reads a JSONL audio manifest, applies `AudioTextLLMStage`, and
-writes an output manifest. Records remain `AudioTask` objects throughout the
-processing chain. Audio paths, segments, and other record fields are preserved;
-the tutorial does not load or decode audio.
+This tutorial reads a JSONL audio manifest, applies the complete text-processing
+chain, and writes an output manifest. Every pass uses `AudioTextLLMStage` and
+keeps records as `AudioTask` objects. Audio paths, segments, and unrelated fields
+are preserved; audio is never loaded or decoded.
 
-`run.py` uses Curator's existing YAML pipeline and executor builders. The stage
-calls the shared `AsyncOpenAIClient`; one `InferenceServer` owns the Dynamo
-deployment and its GPUs. The text-processing workers request CPUs only.
+The default configuration follows the active text graph and serving settings in
+[`text_dynamo_1node_gemma4_indic_packer.sh`](https://gitlab-master.nvidia.com/nkoluguri/granary-v2-asr/-/blob/d1d341d7184d7c5c90beb012cc79bf4bcfb2cb33/slurm_pipeline/text_pipeline/text_dynamo_1node_gemma4_indic_packer.sh),
+using the Curator implementation at
+[`1a260a3`](https://github.com/nithinraok/Curator/tree/1a260a35472229a8a75a122b9a2bb9d92d5855f9/examples/audio/text_processing).
+The launcher enables entity recovery and eight text operations. Its filename
+includes “packer,” but instruction packing is not enabled by that command.
+This tutorial uses the current manifest reader/writer and serving APIs; it does
+not reproduce Slurm submission, shard scheduling, or resume markers.
 
 ## Install and configure
 
-From the Curator repository root, install the audio and serving dependencies:
+From the Curator repository root:
 
 ```bash
 uv sync --extra audio_cuda12 --extra inference_server
 source .venv/bin/activate
 ```
 
-Local serving requires compatible NVIDIA GPUs, model access, and the `etcd`
-and `nats-server` executables on `PATH`. The default model is
-`Qwen/Qwen3.5-35B-A3B-FP8`, with one replica and tensor parallelism of one.
-Choose a model and tensor-parallel size that fit your hardware. The configuration
-is a functional starting point; throughput and model quality are not benchmarked
-by this tutorial.
+Managed serving requires eight compatible NVIDIA GPUs with enough memory for
+`RedHatAI/gemma-4-31B-it-FP8-dynamic`, model access, and the `etcd` and
+`nats-server` executables on `PATH`. Four Dynamo replicas each use tensor
+parallelism of two. The Gemma model's isolated runtime requests
+`transformers>=5`; the repository's global dependency constraints are unchanged.
+Use a Gemma-4-capable Dynamo/vLLM stack; the reference launcher requires vLLM
+0.19 or later, Dynamo 1.2 or later, and Transformers 5.x.
 
-For stage throughput and fallback metrics, use the
-[audio text benchmark](../../../benchmarking/README.md#audio-text-stage-benchmark),
-which reuses this configuration and measures only the text-stage pipeline.
+`run.py` uses Curator's YAML pipeline and executor builders. One
+`InferenceServer` owns the model and GPUs. The text workers use CPUs and the
+shared `AsyncOpenAIClient`. The configuration specifies 12 workers per stage,
+batches of 128, and at most 256 simultaneous requests per worker. These are
+reference settings, not measured throughput guarantees. The server uses an
+8,192-token context, 256 concurrent sequences, 8,192 batched tokens, automatic
+KV-cache dtype, 95% GPU memory utilization, and text-only model loading.
 
-To use an existing OpenAI-compatible server, install the audio stack and pass
-`endpoint` and `model_name`. The runner then manages only its Ray client and
-pipeline; it does not start or stop the external inference server. The endpoint
-must be reachable by every pipeline worker and include `/v1`.
+For throughput and fallback metrics, use the
+[audio text benchmark](../../../benchmarking/README.md#audio-text-pipeline-benchmark),
+which reuses the graph and excludes manifest I/O and model startup from its
+processing timer.
 
-## Run punctuation and capitalization
+## Run the full chain
 
-Create a UTF-8 JSONL manifest whose records contain a transcript and language:
+Create a UTF-8 JSONL manifest with normalized text, its reference transcription,
+and the expected language:
 
 ```json
-{"audio_filepath":"/data/sample.wav","text":"hello how are you","source_lang":"en","duration":2.4}
+{"audio_filepath":"/data/sample.wav","abbreviated_text":"आज हम दिल्ली जाएंगे","granary_v1_prediction":"आज हम दिल्ली जाएंगे","source_lang":"hi","duration":2.4}
 ```
 
-Run from the repository root, using absolute paths available to all workers:
+Run from the repository root with absolute paths available to all workers:
 
 ```bash
 python tutorials/audio/text_processing/run.py \
   manifest_path=/data/input.jsonl \
-  output_path=/data/pnc_output.jsonl
+  output_path=/data/text_output.jsonl
 ```
 
-The default `operation=pnc` adds `pnc_text`; it leaves `text` unchanged. To
-process a manifest whose ASR output is called `pred_text`, add
-`text_key=pred_text`. Use `language_key=language` if the language field has
-that name.
+The configured data flow is:
 
-Existing output is replaced by `ManifestWriterStage`. Use a distinct output
-file; the runner rejects an output path that resolves to the input file. This
-tutorial accepts a single input manifest path. For multi-node execution, use
-a shared filesystem for both paths. All manifest values must be JSON-serializable.
+| Pass | Input field(s) | Output field(s) |
+| --- | --- | --- |
+| Entity recovery | `granary_v1_prediction`, `abbreviated_text` | `entity_recovered_text` |
+| Punctuation and capitalization | `entity_recovered_text` | `pnc_text` |
+| Language prediction and verification | `pnc_text`, `source_lang` | `llm_language_prediction`, `_skipme`, verification note |
+| Text normalization | `pnc_text` | `tn_raw` |
+| Parallel captioning, code switching, speech QA | `tn_raw` | `captioning_text`, `code_switched_text`, `speech_qa_text` |
+| Inverse text normalization | `tn_raw` | `itn_raw` |
+| Disfluency removal | `itn_raw` | `itn_clean` |
 
-An existing server can be used as follows:
+The three independent operations share one stage, client, and concurrency limit.
+The other passes execute in the order above. Their prompts remain separate
+requests; they are not combined into one model instruction. All nine operations
+preserve the original input fields and write notes under `additional_notes`.
+
+Use `text_key=pred_text`, `ground_truth_key=reference_text`, or
+`language_key=language` to map differently named input fields. The default PnC
+prompt is the reference's standard template. `pnc_indic`, with explicit rules
+for 22 Indic languages, remains an optional single-operation preset.
+
+Language verification compares the text prediction with `source_lang`. A
+single-language mismatch or an unparseable prediction flags `_skipme`, preventing
+later model requests. Parsed multilingual predictions are kept, including when
+the expected language is absent. Verification records its decision under
+`additional_notes.LLMLanguageVerification`; rows are retained in the output.
+This is text-based language prediction, not acoustic language identification.
+
+The tutorial accepts one input manifest file. `ManifestWriterStage` replaces
+existing output, and the runner rejects an output path resolving to the input
+file. Use shared filesystem paths for multi-node execution. Manifest values must
+be JSON-serializable.
+
+To use an existing OpenAI-compatible server, pass its `/v1` endpoint and model
+name. Every worker must be able to reach the endpoint. The runner leaves that
+server's lifecycle to its owner; a CPU-only client cluster can use:
 
 ```bash
 python tutorials/audio/text_processing/run.py \
   manifest_path=/data/input.jsonl \
-  output_path=/data/pnc_output.jsonl \
+  output_path=/data/text_output.jsonl \
   endpoint=http://inference-host:8000/v1 \
-  model_name=served-text-model
+  model_name=served-text-model ray_client.num_gpus=0
 ```
 
-## Select the operation
+## Run one operation
 
-Each operation is configuration for the same `AudioTextLLMStage`:
-
-| `operation` | Output field | Purpose | Validation mode |
-| --- | --- | --- | --- |
-| `pnc` | `pnc_text` | Punctuation and capitalization | `itn` |
-| `pnc_indic` | `pnc_text` | Punctuation with explicit rules for 22 Indic languages | `itn` |
-| `tn` | `tn_raw` | Written forms to spoken forms | `tn` |
-| `itn` | `itn_raw` | Spoken forms to written forms | `itn` |
-| `disfluency` | `itn_clean` | Remove repetitions and speech disfluencies | `itn` |
-| `captioning` | `captioning_text` | Summarize transcript content | `none` |
-| `code_switching` | `code_switched_text` | Restore English words written phonetically in another script | `none` |
-| `speech_qa` | `speech_qa_text` | Produce a transcript-grounded Q/A pair or `SKIP` | `none` |
-| `language_id` | `llm_language_prediction` | Predict primary and mixed languages from transcript text | `none` |
-
-For example, apply ITN to a punctuation-restored transcript:
+`single_operation.yaml` retains the smaller workflow and its one-replica Qwen
+serving configuration. For example, apply ITN to an existing transcript:
 
 ```bash
-python tutorials/audio/text_processing/run.py \
-  manifest_path=/data/pnc_output.jsonl \
+python tutorials/audio/text_processing/run.py --config-name single_operation \
+  manifest_path=/data/input.jsonl \
   output_path=/data/itn_output.jsonl \
   operation=itn text_key=pnc_text
 ```
 
-The operation YAML files preserve the prompt templates from
-[`nkoluguri/text-dynamo-inference`](https://github.com/nithinraok/Curator/tree/nkoluguri/text-dynamo-inference/nemo_curator/stages/audio/text_filtering/prompts).
-`pnc_indic` also includes its 22-language punctuation rules. These prompts are
-model instructions; they do not establish model quality or guarantee immutable
-character preservation. `language_id` predicts from text, not acoustic evidence.
-Speech QA and language predictions remain text fields; the stage does not parse
-them into new record schemas. A generated `SKIP` is stored in `speech_qa_text`
-and does not remove the record.
+Available presets are `recover_entities`, `pnc`, `pnc_indic`, `tn`, `itn`,
+`disfluency`, `captioning`, `code_switching`, `speech_qa`, and `language_id`.
+`recover_entities` also reads `ground_truth_key`; `language_id` includes the
+same verification used by the full chain. A generated speech-QA `SKIP` is stored
+as text and does not remove the record.
 
-Prompts support `{text}`, `{language}`, and `{language_rules}`. Language-aware
-templates read `language_key`; the Indic template additionally requires a
-matching entry in `operation.language_rules`. Keep the language codes in the
-manifest consistent with that mapping.
+## Sampling and validation
 
-Validation checks are transcript safeguards, not correctness scores. `itn`
-checks for excessive changes and newly introduced Latin words; `tn` allows
-number expansion and checks for language/script drift. Generative operations
-use `none` because their output is intentionally different from the transcript.
-The inherited TN heuristic targets non-English script input and can reject
-valid English number expansions, such as `100` to `one hundred`. When those
-checks do not suit your data, set `operation.validation_mode=none` explicitly.
-The disfluency preset requires at least 50% word retention, compared with 30%
-for the other transcript presets, once the input has at least eight words.
-Empty or truncated model output falls back to the input text regardless of
-validation mode. Rejected rewrites also fall back to the input, with the reason
-stored under `additional_notes[stage_name]`. Already-flagged records and empty
-transcripts do not invoke the model. Exhausted request retries fail the batch;
-they are not written as successful rewrites.
+The reference presets use temperature 0, top-p 1, seed 0, and
+`chat_template_kwargs.enable_thinking=false`. Entity recovery allows 1,024
+output tokens; each other operation allows 512. For another model, adjust the
+operation's generation parameters and the server configuration together.
+For example, `tn.generation_config.max_tokens=1024` updates the full chain,
+while `operation.generation_config.max_tokens=1024` updates a single operation.
 
-## Chain PnC, TN, and ITN
+Prompts support `{text}`, `{language}`, and `{language_rules}`. Entity recovery
+uses separate system/user templates with `{ground_truth}` and `{normalized}`.
+The operation YAMLs preserve the reference's resolved prompt text.
 
-For a chain, save the following as `config/chain.yaml` beside `text.yaml`, then
-run with `--config-name chain`. Hydra loads the existing operation prompts;
-there is no second pipeline implementation.
+Rewrite validation is a safeguard, not a correctness score. ITN validation
+checks word additions, novel Latin tokens, and excessive deletion. TN permits
+expansion while checking English leakage and script drift. Its inherited
+heuristic targets non-English script input and can reject valid English number
+expansions such as `100` to `one hundred`. Set `tn.validation_mode=none` in the
+full chain, or `operation.validation_mode=none` for a single operation, when
+those checks are inappropriate. Disfluency removal requires 50% word retention;
+other transcript rewrites require 30%, once the input has at least eight words.
 
-```yaml
-defaults:
-  - text
-  - operation@tn: tn
-  - operation@itn: itn
-  - _self_
-
-stages:
-  - _target_: nemo_curator.stages.audio.ManifestReader
-    manifest_path: ${manifest_path}
-
-  - &text_stage
-    _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    name: PnCRestoration
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    prompt: ${operation.prompt}
-    language_key: ${language_key}
-    language_rules: ${operation.language_rules}
-    text_key: ${text_key}
-    output_text_key: pnc_text
-    validation_mode: itn
-    generation_config: ${operation.generation_config}
-    batch_size: ${batch_size}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
-
-  - <<: *text_stage
-    name: TextNormalization
-    prompt: ${tn.prompt}
-    language_rules: null
-    text_key: pnc_text
-    output_text_key: tn_raw
-    validation_mode: tn
-    generation_config: ${tn.generation_config}
-
-  - <<: *text_stage
-    name: ITNRestoration
-    prompt: ${itn.prompt}
-    language_rules: null
-    text_key: tn_raw
-    output_text_key: itn_raw
-    generation_config: ${itn.generation_config}
-
-  - _target_: nemo_curator.stages.audio.ManifestWriterStage
-    output_path: ${output_path}
-```
-
-Each pass has a distinct stage name and output field. Downstream passes use the
-preceding output explicitly. All passes share the same Dynamo deployment.
-
-## Execution and sampling
-
-Ray Data is the default executor. Use `backend=xenna execution_mode=streaming`
-or `backend=xenna execution_mode=batch` to select Xenna. `batch_size` limits
-the candidate records per stage call; `max_concurrent_requests` limits in-flight
-requests within each worker. Total server load also depends on worker count and
-the number of active stages.
-
-The presets use `temperature=0`, `top_p=1`, `seed=0`, `max_tokens=512`, and
-`chat_template_kwargs.enable_thinking=false` for the default Qwen model. For
-another model, adjust `operation.generation_config.extra_kwargs` to match its
-supported request parameters. For example, set
-`operation.generation_config.max_tokens=1024` for longer transcripts, while
-keeping the full prompt plus output within the server's model context limit.
-
-Server deployment settings remain under `inference_server`, for example
-`inference_server.models.0.engine_kwargs.tensor_parallel_size=2`. Request
-sampling stays in the operation configuration. Neither setting allocates GPUs
-to the HTTP text stage.
-
-This tutorial does not include contextual ASR, entity recovery, acoustic
-language identification, task fusion, or instruction-dataset packing.
+TN/ITN validation failures fall back to the input with a reason in the operation
+note. Unvalidated operations retain the response text, including empty or
+length-limited responses, matching the reference. Entity recovery removes reasoning
+blocks, code fences, and enclosing quotes; an empty cleaned response falls back
+to the normalized input. Empty inputs and already-flagged rows skip inference.
+Exhausted request retries fail the batch. Ray Data is the default executor;
+`backend=xenna execution_mode=streaming` or `execution_mode=batch` selects Xenna.

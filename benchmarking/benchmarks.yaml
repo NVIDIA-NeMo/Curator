@@ -150,6 +150,11 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
+  # Pre-staged human-label improvement metadata; no audio files are needed.
+  - name: "audio_text_gemma4_indic"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/audio_text_gemma4_indic/manifest.jsonl"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -1063,6 +1068,42 @@ entries:
         exact_value: 450.0
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
+
+  # Opt-in until a shared cohort and hardware performance baseline are frozen.
+  # Both entries run the complete nine-operation Gemma graph from the tutorial.
+  - name: audio_text_llm_xenna
+    enabled: false
+    script: audio_text_llm_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_text_gemma4_indic,jsonl}
+      --config-name=text
+      --override=backend=xenna
+    timeout_s: 14340
+    requirements:
+      - metric: num_operations
+        exact_value: 9
+      - metric: input_output_coverage_ratio
+        exact_value: 1.0
+      - metric: num_requests
+        min_value: 1
+
+  - name: audio_text_llm_raydata
+    enabled: false
+    script: audio_text_llm_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_text_gemma4_indic,jsonl}
+      --config-name=text
+      --override=backend=ray_data
+    timeout_s: 14340
+    requirements:
+      - metric: num_operations
+        exact_value: 9
+      - metric: input_output_coverage_ratio
+        exact_value: 1.0
+      - metric: num_requests
+        min_value: 1
 
   # Shared 750-hour workload; the executor selects workers.
   - name: audio_librispeech_xenna

@@ -1,0 +1,24 @@
+name: RecoverEntities
+mode: recover_entities
+text_key: ${text_key}
+ground_truth_key: ${ground_truth_key}
+output_text_key: entity_recovered_text
+validation_mode: none
+min_word_retention_ratio: 0.3
+generation_config:
+  max_tokens: 1024
+  temperature: 0.0
+  top_p: 1.0
+  seed: 0
+  extra_kwargs:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+language_rules: null
+prompt: "You are given TWO transcriptions of the same audio clip:\n\n- INITIAL: Initial reference with named entity spelling/casing.\n- NORMALIZED: Normalized transcription.\n\nYour task:\n\n1. In the INITIAL text, identify ONLY proper-noun named entities made of letters/words only (no digits): people, places, organizations, companies, products, brands, and acronyms/initialisms. \n\n2. If a candidate contains any digit (0-9), it is NOT an entity and must be excluded.\n\n3. Titles/honorifics are NOT entities and must be excluded.\n\n4. For each remaining entity, locate its match in the NORMALIZED text and substitute it with the INITIAL spelling/casing. Change ONLY the entity itself — leave all normalization untouched: keep numbers, dates, times, money, units, and titles in their written form.\n\n\nReturn ONLY the resulting NORMALIZED text. No explanations, labels, or extra formatting."
+user_prompt: |-
+  INITIAL:
+  "{ground_truth}"
+
+  NORMALIZED:
+  "{normalized}"

@@ -13,7 +13,7 @@ generation_config:
       chat_template_kwargs:
         enable_thinking: false
 language_rules: null
-prompt: |
+prompt: |-
   # Inverse Text Normalization
 
   Convert spoken-form text to standard written form: numbers, dates, times, currencies, measurements, and symbols become their conventional written representations.

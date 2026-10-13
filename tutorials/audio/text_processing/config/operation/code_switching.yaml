@@ -13,7 +13,7 @@ generation_config:
       chat_template_kwargs:
         enable_thinking: false
 language_rules: null
-prompt: |
+prompt: |-
   You are a {language} language expert. Your task is to restore code-switching in a {language} transcript: whenever a word in the transcript is actually an English word that was written phonetically in {language} script, rewrite it using its original English (Latin) spelling.
 
   Context: the input transcript was produced by a human transcriber who wrote everything in {language} script, including English words the speaker actually pronounced in English. We want the transcript to reflect the real code-switched utterance: {language} words stay in {language} script, English words appear in Latin script.

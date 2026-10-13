@@ -13,7 +13,7 @@ generation_config:
       chat_template_kwargs:
         enable_thinking: false
 language_rules: null
-prompt: |
+prompt: |-
   # Text Normalization ({language})
 
   Convert the written-form transcript below in **{language}** to spoken form. **Only** apply conversions from the table (numbers, dates, times, money, units, symbols, etc.). Use **{language}** conventions; English examples show the pattern.
