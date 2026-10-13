@@ -142,6 +142,9 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._vad_model = None
         self._device = None
         validate_input_residency(self.input_residency, stage_name=self.name)
+        if self.nested and self.segments_key in {self.waveform_key, "waveform"}:
+            msg = "segments_key must be distinct from waveform cleanup keys in nested mode"
+            raise ValueError(msg)
         metadata_output_keys = {
             "segments_key": self.segments_key,
             "start_ms_key": self.start_ms_key,
@@ -415,7 +418,7 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         try:
             audio_result = self._resolve_audio(task.data)
-        except (OSError, RuntimeError) as e:  # corrupt/unreadable audio -> skip the row, don't crash the batch
+        except (OSError, RuntimeError, ValueError, TypeError) as e:
             logger.error(f"Failed to load audio for {task.data.get(self.audio_filepath_key)!r}: {e}")
             return []
         if audio_result is None:

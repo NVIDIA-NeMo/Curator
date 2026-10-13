@@ -350,6 +350,19 @@ def test_resident_waveform_without_sample_rate_does_not_fall_back_to_file(tmp_pa
     stage._get_vad_segments.assert_not_called()
 
 
+def test_nested_container_cannot_alias_canonical_waveform_cleanup() -> None:
+    with pytest.raises(ValueError, match="waveform cleanup"):
+        VADSegmentationStage(nested=True, segments_key="waveform", waveform_key="samples", output_waveform_key="clip")
+
+
+@pytest.mark.parametrize("sample_rate", [0, -1, True, 16000.5, "invalid"])
+def test_invalid_resident_rate_skips_row_before_vad(sample_rate: object) -> None:
+    stage = _stubbed_vad_stage(input_residency="waveform")
+
+    assert stage.process(AudioTask(data={"waveform": torch.ones(1, 3200), "sample_rate": sample_rate})) == []
+    stage._get_vad_segments.assert_not_called()
+
+
 def test_empty_nested_result_preserves_default_parent_waveform() -> None:
     waveform = torch.zeros(1, 1600)
     stage = _stubbed_vad_stage(segments=[], nested=True, input_residency="waveform")
