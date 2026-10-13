@@ -12,8 +12,8 @@
 #
 #     INPUT_DIR       — directory containing JSONL/Parquet source files
 #     OUTPUT_DIR      — directory where processed output files are written
-#     CONTAINER_IMAGE — NeMo Curator NGC container tag (see
-#                       https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator)
+#     CONTAINER_IMAGE — registry image reachable by the cluster, or a shared
+#                       image path supported by the site's SLURM integration
 #
 #   Optional (sensible defaults are used when not set):
 #
@@ -27,7 +27,7 @@
 # ── Minimal usage ────────────────────────────────────────────────────────────
 #   export INPUT_DIR=/shared/data/my-dataset
 #   export OUTPUT_DIR=/shared/output/my-dataset
-#   export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
+#   export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh
 #   sbatch --array=0-19 tutorials/slurm/submit_array.sh
 #
 # ── Override resources without editing this file ─────────────────────────────
@@ -77,9 +77,8 @@ fi
 # flags below; they are not forwarded as environment variables into the container.
 if [[ -z "${CONTAINER_IMAGE:-}" ]]; then
     echo "ERROR: CONTAINER_IMAGE is not set." >&2
-    echo "  Choose a tag from https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator" >&2
-    echo "  then set it before calling sbatch:" >&2
-    echo "    export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>" >&2
+    echo "  Set it to a cluster-accessible registry image or shared image path:" >&2
+    echo "    export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh" >&2
     echo "    sbatch --array=0-19 tutorials/slurm/submit_array.sh" >&2
     exit 2
 fi
