@@ -248,6 +248,35 @@ class TestBaseDataDesignerStage:
         assert stage._custom_metrics["num_input_records"] == 2.0
         assert stage._custom_metrics["num_output_records"] == 3.0
 
+    def test_keep_failed_rows_requires_row_id_column(self) -> None:
+        with pytest.raises(ValueError, match="'row_id_column' must be set"):
+            DataDesignerStage(config_builder=_minimal_config_builder(), keep_failed_rows=True)
+
+    def test_run_config_is_applied_to_data_designer(self) -> None:
+        stage = DataDesignerStage(
+            config_builder=_minimal_config_builder(), run_config=dd.RunConfig(max_in_flight_tasks=8)
+        )
+        assert stage.data_designer.run_config.max_in_flight_tasks == 8
+
+    def test_process_keeps_failed_rows_with_null_generated_columns(self) -> None:
+        """A row Data Designer drops comes back with its input columns and a null generated column."""
+        real_builder = _minimal_config_builder()
+        stage = DataDesignerStage(config_builder=real_builder, keep_failed_rows=True, row_id_column="id")
+        stage.setup()
+        output_df = pd.DataFrame({"id": [1, 3], "text": ["a", "c"], "generated": ["A", "C"]})
+        stage.data_designer.preview = MagicMock(
+            return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
+        )
+
+        input_df = pd.DataFrame({"id": [1, 2, 3], "text": ["a", "b", "c"]})
+        out = stage.process(DocumentBatch(data=input_df, dataset_name="ds")).data.sort_values("id")
+
+        assert out["id"].tolist() == [1, 2, 3]
+        assert out["text"].tolist() == ["a", "b", "c"]
+        assert out["generated"].iloc[0] == "A"
+        assert pd.isna(out["generated"].iloc[1])
+        assert out["generated"].iloc[2] == "C"
+
     def test_process_with_mock_llm_endpoint(self, httpserver: pytest_httpserver.HTTPServer) -> None:
         """Run process() against a fake HTTP LLM endpoint (OpenAI-style) instead of mocking preview()."""
         # Minimal OpenAI chat-completions response so the engine gets valid JSON.
