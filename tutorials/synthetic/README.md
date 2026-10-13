@@ -4,7 +4,7 @@ Hands-on tutorials for generating synthetic data with NeMo Curator using Ray-bas
 
 ## Documentation
 
-For comprehensive documentation, refer to the [Synthetic Data Generation Guide](../../docs/curate-text/synthetic/index.md).
+For comprehensive documentation, refer to the [Synthetic Data Generation Guide](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic).
 
 ## Getting Started
 
@@ -59,7 +59,7 @@ This approach is lightweight and portable — no additional frameworks are requi
 
 ### NeMo Data Designer (NDD)-based
 
-[NeMo Data Designer](https://developer.nvidia.com/nemo-data-designer) is NVIDIA's high-level synthetic data generation framework.
+[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) is NVIDIA's high-level synthetic data generation framework.
 Instead of hand-crafting prompt strings and managing API calls, you declare your data schema — samplers for structured fields (names, dates, UUIDs), Jinja-style expression columns, and LLM-generated text columns — using a `DataDesignerConfigBuilder`.
 NDD then orchestrates prompt rendering, batching, and concurrency automatically via its `ModelConfig` / `ModelProvider` / `ChatCompletionInferenceParams` API.
 
@@ -162,6 +162,6 @@ python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipel
 
 ## Additional Resources
 
-- [LLM Client Configuration](../../docs/curate-text/synthetic/llm-client.md)
+- [LLM Client Configuration](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/llm-client)
 - [Nemotron-CC synthetic data generation code](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/recipes/data/curation/nemotron-cc/step_4-sdg.py) uses `Qwen/Qwen3-30B-A3B-Instruct-2507` by default.
-- [Task Reference](../../docs/curate-text/synthetic/nemotron-cc/tasks.md)
+- [Task Reference](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/nemotron-cc/tasks)

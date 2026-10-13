@@ -8,175 +8,140 @@ content_type: "tutorial"
 modality: "text-only"
 ---
 
-# Get Started with Text Curation
+<a id="get-started-with-text-curation" />
+# Quickstart for NeMo Curator Text Curation
 
-This guide provides step-by-step instructions for setting up NeMo Curator’s text curation capabilities. Follow these instructions to prepare your environment and execute your first text curation pipeline.
+Use this quickstart to install NeMo Curator, run a text quality-filtering pipeline, and inspect its task count. For full setup options, refer to the [Installation Guide](/get-started/installation).
 
 ## Prerequisites
 
-To use NeMo Curator’s text curation modules, ensure your system meets the following requirements:
+Prepare the following environment:
 
-* Python 3.10, 3.11, or 3.12
-  * packaging &gt;= 22.0
-* uv (for package management and installation)
-* Ubuntu 22.04/20.04
-* NVIDIA GPU (optional for most text modules, required for GPU-accelerated operations)
-  * Volta™ or higher (compute capability 7.0+)
-  * CUDA 12 (or later)
+- Python 3.11, 3.12, or 3.13.
+- Ubuntu 20.04 or 22.04, `packaging` 22.0 or later, Git, and `uv` for package management.
+- Use an NVIDIA GPU with CUDA 12 only for GPU-accelerated operations; most text modules run without a GPU.
+- For GPU modules, use a Volta-class or newer GPU with compute capability 7.0 or later.
+
+## Quickstart Steps
+
+Complete these steps to install Curator, prepare input data, and run a filtering pipeline.
+
+1. <a id="installation-options" />Install NeMo Curator from PyPI when the needed release is available; use source for development or an unpublished release. A local container is also available for deployments that require one.
+   <Tabs>
+   <Tab title="PyPI Installation">
+
+   For a specific release, verify that its package version is available on PyPI and matches the release notes.
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/0.12.1/install.sh | sh
+   source $HOME/.local/bin/env
+   uv venv
+   source .venv/bin/activate
+   curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+   uv pip install \
+     --override text_cuda12-overrides.txt \
+     --torch-backend cu129 \
+     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+     "nemo-curator[text_cuda12]"
+   ```
+
+   For `text_cuda12`, use this tested dependency override. Standard `pip install` and plain `uv pip install` without the override are not supported.
+
+   </Tab>
+   <Tab title="Source Installation">
+
+   The repository clone tracks development. For CPU-only text processing, use the `text_cpu` extra. For a released version, check out its published release tag before running `uv sync`.
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/0.12.1/install.sh | sh
+   source $HOME/.local/bin/env
+   git clone https://github.com/NVIDIA-NeMo/Curator.git
+   cd Curator
+   uv sync --extra text_cuda12 --all-groups
+   source .venv/bin/activate
+   ```
+
+   </Tab>
+   <Tab title="Build an Image">
+
+   Build a local image with the repository Dockerfile. For released versions, use the matching source tag. Refer to [Build an Image](/reference/infra/container-environments#build-an-image) for the build and run procedure.
+
+   </Tab>
+   </Tabs>
+
+2. <a id="prepare-your-environment" /><a id="set-up-data-directory" />Prepare a directory and one JSONL input file for your pipeline.
+
+   ```bash
+   mkdir -p ~/nemo_curator/data/sample
+   mkdir -p ~/nemo_curator/data/curated
+   cat > ~/nemo_curator/data/sample/example.jsonl <<'EOF'
+   {"id":"example-1","text":"NeMo Curator provides a repeatable pipeline for preparing training data. This sample contains enough words to pass the minimum word count filter. Teams can load, filter, deduplicate, and transform text datasets with reusable processing stages. The same pipeline can run locally or across a distributed cluster. Teams can reuse its stages across dataset preparation workflows."}
+   EOF
+   ```
+
+   Add JSONL files to `~/nemo_curator/data/sample/`. Each line must be a JSON object with at least `text` and `id` fields. Refer to [Read Existing Data](/curate-text/load-data/read-existing) for input options.
+
+3. <a id="basic-text-curation-example" />Create and run a text filtering pipeline.
+
+   ```python
+   from nemo_curator.pipeline import Pipeline
+   from nemo_curator.stages.text.io.reader import JsonlReader
+   from nemo_curator.stages.text.io.writer import JsonlWriter
+   from nemo_curator.stages.text.filters import ScoreFilter
+   from nemo_curator.stages.text.filters.heuristic import WordCountFilter, NonAlphaNumericFilter
+
+   pipeline = Pipeline(
+       name="text_curation_pipeline",
+       description="Basic text quality filtering pipeline"
+   )
+   pipeline.add_stage(
+       JsonlReader(
+           file_paths="~/nemo_curator/data/sample/",
+           files_per_partition=4,
+           fields=["text", "id"]
+       )
+   )
+   pipeline.add_stage(
+       ScoreFilter(
+           filter_obj=WordCountFilter(min_words=50, max_words=100000),
+           text_field="text",
+           score_field="word_count"
+       )
+   )
+   pipeline.add_stage(
+       ScoreFilter(
+           filter_obj=NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.25),
+           text_field="text",
+           score_field="non_alpha_score"
+       )
+   )
+   pipeline.add_stage(JsonlWriter("~/nemo_curator/data/curated"))
+   results = pipeline.run()
+   print(f"Pipeline completed successfully! Processed {len(results) if results else 0} tasks.")
+   ```
+
+4. Confirm that the pipeline prints `Pipeline completed successfully!` and a task count. The number of processed tasks depends on your input files and filters.
 
 <Tip>
-If `uv` is not installed, refer to the [Installation Guide](/get-started/installation) for setup instructions, or install it quickly using:
+If you download datasets or models from Hugging Face, set `HF_TOKEN` to reduce rate limiting. Create a token at [Hugging Face Settings](https://huggingface.co/settings/tokens).
 
 ```bash
-curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
-source $HOME/.local/bin/env
+export HF_TOKEN="your_token_here"
 ```
-
 </Tip>
-
----
-
-## Installation Options
-
-You can install NeMo Curator using one of the following methods:
-
-<Tabs>
-<Tab title="PyPI Installation">
-
-Install `text_cuda12` with uv and Curator's tested dependency override:
-
-```bash
-curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
-uv pip install \
-  --override text_cuda12-overrides.txt \
-  --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-  "nemo-curator[text_cuda12]"
-```
-
-<Warning>
-Standard `pip install` and plain `uv pip install` without the override are not
-supported for `text_cuda12`. vLLM 0.22 requires `numba==0.65.0`, while RAPIDS
-25.10 declares `numba<0.62`.
-</Warning>
-
-</Tab>
-
-<Tab title="Source Installation">
-
-Install the latest version directly from GitHub:
-
-```bash
-git clone https://github.com/NVIDIA-NeMo/Curator.git
-cd Curator
-uv sync --extra text_cuda12 --all-groups
-source .venv/bin/activate
-```
-
-<Note>
-Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `.[text_cpu]` for text processing only, or `.[all]` for all modules.
-</Note>
-
-</Tab>
-
-<Tab title="NeMo Curator Container">
-
-NeMo Curator is available as a standalone container:
-
-```bash
-# Pull the container
-docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
-
-# Run the container
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
-```
-
-<Note>
-For details on container environments and configurations, see [Container Environments](/reference/infra/container-environments).
-
-</Note>
-
-</Tab>
-</Tabs>
-
-## Prepare Your Environment
-
-NeMo Curator uses a pipeline-based architecture for processing text data. Before running your first pipeline, ensure you have a proper directory structure:
-
-## Set Up Data Directory
-
-Create the following directories for your text datasets:
-
-```bash
-mkdir -p ~/nemo_curator/data/sample
-mkdir -p ~/nemo_curator/data/curated
-```
-
-<Note>
-For this example, you need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to [Read Existing Data ](/curate-text/load-data/read-existing) and [Data Loading ](/curate-text/load-data) for information on downloading data.
-</Note>
-
-<Tip>
-**Set your HuggingFace token** to avoid rate limiting when downloading models or datasets:
-
-    export HF_TOKEN="your_token_here"
-
-Without a token, repeated downloads from Hugging Face may result in `429 Client Error` (rate limiting). Get a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-</Tip>
-
-## Basic Text Curation Example
-
-Here's a simple example to get started with NeMo Curator's pipeline-based architecture:
-
-```python
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.filters import ScoreFilter
-from nemo_curator.stages.text.filters.heuristic import WordCountFilter, NonAlphaNumericFilter
-
-# Create a pipeline for text curation
-pipeline = Pipeline(
-    name="text_curation_pipeline",
-    description="Basic text quality filtering pipeline"
-)
-
-# Add stages to the pipeline
-pipeline.add_stage(
-    JsonlReader(
-        file_paths="~/nemo_curator/data/sample/",
-        files_per_partition=4,
-        fields=["text", "id"]
-    )
-)
-
-# Add quality filtering stages
-pipeline.add_stage(
-    ScoreFilter(
-        filter_obj=WordCountFilter(min_words=50, max_words=100000),
-        text_field="text",
-        score_field="word_count"
-    )
-)
-
-pipeline.add_stage(
-    ScoreFilter(
-        filter_obj=NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.25),
-        text_field="text",
-        score_field="non_alpha_score"
-    )
-)
-
-# Write the curated results
-pipeline.add_stage(
-    JsonlWriter("~/nemo_curator/data/curated")
-)
-# Execute the pipeline
-results = pipeline.run()
-
-print(f"Pipeline completed successfully! Processed {len(results) if results else 0} tasks.")
-```
 
 ## Next Steps
 
-Explore the [Text Curation documentation](/curate-text) for more advanced filtering techniques, GPU acceleration options, and large-scale processing workflows.
+Explore these resources to build on the text pipeline:
+
+<CardGroup cols={2}>
+
+<Card title="Text Curation" href="/curate-text">
+Explore text loading, filtering, and processing guides.
+</Card>
+
+<Card title="Text Data Loading" href="/curate-text/load-data">
+Review supported input formats and readers.
+</Card>
+
+</CardGroup>
