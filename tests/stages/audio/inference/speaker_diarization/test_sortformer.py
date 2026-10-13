@@ -16,6 +16,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from nemo_curator.models.audio.speaker_diarization.sortformer import parse_sortformer_segments
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import (
     InferenceSortformerStage,
@@ -35,24 +37,14 @@ def test_compatibility_parser_aliases_model_adapter_helper() -> None:
     assert _parse_sortformer_segments is parse_sortformer_segments
 
 
-def test_legacy_preloaded_model_supports_direct_process_without_setup() -> None:
+def test_direct_process_is_disabled_for_gpu_stage() -> None:
     model = MagicMock()
-    model.sortformer_modules = MagicMock()
-    model.parameters.return_value = iter([])
-    model.diarize.return_value = [["0.00 1.00 speaker_0"]]
-    stage = InferenceSortformerStage(
-        diar_model=model,
-        adapter_kwargs={"bounded_stft": False, "max_positional_encoding_length": None},
-    )
+    stage = InferenceSortformerStage(diar_model=model)
 
     task = AudioTask(data={"audio_filepath": "/provider/virtual.wav"})
-    result = stage.process(task)
-
-    assert result.data["diar_segments"] == [{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}]
-    assert result is not task
-    assert result.filepath_key == "audio_filepath"
-    assert "diar_segments" not in task.data
-    model.diarize.assert_called_once_with(audio=["/provider/virtual.wav"], batch_size=1)
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        stage.process(task)
+    model.diarize.assert_not_called()
 
 
 def test_legacy_preloaded_model_supports_direct_diarize_without_setup() -> None:

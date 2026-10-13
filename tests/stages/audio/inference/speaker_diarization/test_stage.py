@@ -388,7 +388,7 @@ def test_contract_and_validation(tmp_path: Path) -> None:
     assert stage.outputs() == ([], ["num_speakers", "additional_notes", "rttm_filepath"])
     stage._adapter = _RecordingAdapter()
     task = AudioTask(task_id="one", data={"audio": np.zeros(1, dtype=np.float32), "sample_rate": 16000})
-    assert stage.process(task).data["num_speakers"] == 1
+    assert stage.process_batch([task])[0].data["num_speakers"] == 1
     with pytest.raises(ValueError, match="rttm_out_dir"):
         InferenceSortformerStage(store_segments=False)
 
@@ -483,6 +483,7 @@ def test_agent_contract_fails_closed_for_static_catalog_and_custom_adapter() -> 
     assert static.gates.requires_gpu is True
     assert static.gates.requires_internet_first_run is True
     assert static.gates.per_row_independent is False
+    assert static.batch_only is True
     assert custom.gates.per_row_independent is False
 
 

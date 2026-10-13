@@ -46,12 +46,12 @@ from nemo_curator.stages.audio._agent._residency import validate_audio_key_confi
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from nemo_curator.models.audio.speaker_diarization.base import DiarizationResult, DiarizationSegment
+    from nemo_curator.tasks import AudioTask
 
 
 _DEFAULT_ADAPTER_TARGET = "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter"
@@ -215,6 +215,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
     end_key: str = "end"
     speaker_key: str = "speaker"
 
+    BATCH_ONLY: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         cardinality_options=["1:1", "1:1 nested-list"],
         gates=Gates(
@@ -495,32 +496,8 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         raise RuntimeError(msg)
 
     def process(self, task: AudioTask) -> AudioTask:
-        """Diarize one task, preserving the original stage's direct-call API."""
-        if self._adapter is None and self.diar_model is not None:
-            # The original public stage allowed ``diar_model=...`` followed by
-            # a direct ``process`` call without executor lifecycle hooks. Keep
-            # that narrow compatibility path; normal pipeline execution still
-            # initializes every adapter through ``setup``.
-            adapter = self._create_adapter()
-            adapter.load_model(num_gpus=0)
-            self._adapter = adapter
-        # The pre-adapter public ``process`` method returned a new task and
-        # populated ``filepath_key`` for downstream path validation. Executor
-        # batching continues to mutate its candidate tasks in place, but keep
-        # the direct-call contract for existing callers.
-        output_task = AudioTask(
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key or self.audio_filepath_key,
-            data=dict(task.data),
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
-        output_task._source_id = task._source_id
-        results = self.process_batch([output_task])
-        if len(results) != 1:
-            msg = f"{type(self).__name__}.process expected one output, got {len(results)}"
-            raise RuntimeError(msg)
-        return results[0]
+        msg = f"{type(self).__name__} only supports process_batch"
+        raise NotImplementedError(msg)
 
     def _prepare_task_item(self, task: AudioTask) -> dict[str, Any] | None:
         if not self.validate_input(task):

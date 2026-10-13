@@ -82,6 +82,7 @@ def test_stage_uses_shared_adapter_lifecycle_and_preserves_defaults() -> None:
     assert stage.duration_key == "duration"
     assert stage.batch_size == 1
     assert stage.resources.gpus == 0.0
+    assert stage.BATCH_ONLY is True
 
 
 def test_current_main_positional_constructor_order_is_preserved() -> None:
@@ -256,28 +257,9 @@ def test_batch_validates_public_subclass_inputs_before_inference() -> None:
     assert adapter.items == []
 
 
-def test_batch_dispatches_public_process_override_without_recursing() -> None:
-    class CustomVADSegmentationStage(VADSegmentationStage):
-        process_calls = 0
-
-        def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-            self.process_calls += 1
-            result = super().process(task)
-            assert isinstance(result, AudioTask)
-            result.data["custom_process"] = True
-            return result
-
-    stage = CustomVADSegmentationStage(nested=True)
-    adapter = _RecordingAdapter(results=[VADResult([VADSegment(0.0, 0.5)])])
-    stage._adapter = adapter
-    task = _task()
-
-    result = stage.process_batch([task])
-
-    assert result == [task]
-    assert stage.process_calls == 1
-    assert result[0].data["custom_process"] is True
-    assert len(adapter.items) == 1
+def test_process_is_unsupported() -> None:
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        VADSegmentationStage().process(_task())
 
 
 def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
@@ -289,7 +271,7 @@ def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
         {"start": 0.5, "end": 1.0, "speaker": "speaker_1"},
     ]
 
-    result = stage.process(task)
+    result = stage.process_batch([task])
 
     assert isinstance(result, list)
     assert len(result) == 1
@@ -312,7 +294,7 @@ def test_fanout_preserves_speaker_separation_count_for_interval_segments() -> No
     task = _task()
     task.data.update({"diar_segments": [(0.0, 0.5), (0.5, 1.0)], "num_speakers": 2})
 
-    child = stage.process(task)[0]
+    child = stage.process_batch([task])[0]
 
     assert child.data["num_speakers"] == 2
 
@@ -325,7 +307,7 @@ def test_custom_duration_key_is_used_without_leaking_parent_duration() -> None:
     task = _task()
     task.data["duration"] = 99.0
 
-    child = stage.process(task)[0]
+    child = stage.process_batch([task])[0]
 
     assert child.data["duration_sec"] == 0.5
     assert "duration" not in child.data
@@ -340,7 +322,7 @@ def test_file_input_is_loaded_without_storing_parent_waveform(monkeypatch: pytes
     )
     task = AudioTask(task_id="file", data={"audio_filepath": "/audio/file.wav"})
 
-    child = stage.process(task)[0]
+    child = stage.process_batch([task])[0]
 
     np.testing.assert_allclose(adapter.items[0]["waveform"], 0.5)
     assert child.data["waveform"].shape == (2, 8000)
@@ -363,7 +345,7 @@ def test_nested_file_input_preserves_discovered_parent_sample_rate(
     monkeypatch.setattr(stage, "_load_audio", lambda _path: (np.ones(22050, dtype=np.float32), 22050))
     task = AudioTask(task_id="file", data={"audio_filepath": "/audio/file.wav"})
 
-    result = stage.process(task)
+    result = stage.process_batch([task])[0]
 
     assert result is task
     assert result.data["sample_rate"] == 22050
@@ -382,7 +364,7 @@ def test_nested_mode_keeps_one_parent_and_stores_segment_dicts() -> None:
     )
     task = _task()
 
-    result = stage.process(task)
+    result = stage.process_batch([task])[0]
 
     assert result is task
     assert [segment["segment_num"] for segment in result.data["segments"]] == [0, 1]
@@ -394,7 +376,7 @@ def test_nested_no_speech_is_an_auditable_placeholder() -> None:
     stage, _ = _stage(nested=True, results=[VADResult([])])
     task = _task()
 
-    result = stage.process(task)
+    result = stage.process_batch([task])[0]
 
     assert result is task
     assert result.data["vad_empty"] is True
@@ -406,14 +388,14 @@ def test_nested_no_speech_is_an_auditable_placeholder() -> None:
 def test_fanout_no_speech_preserves_legacy_drop_behavior() -> None:
     stage, _ = _stage(results=[VADResult([])])
 
-    assert stage.process(_task()) == []
+    assert stage.process_batch([_task()]) == []
 
 
 def test_fanout_no_speech_can_emit_an_auditable_placeholder() -> None:
     stage, _ = _stage(emit_audit_placeholders=True, results=[VADResult([])])
     task = _task()
 
-    result = stage.process(task)
+    result = stage.process_batch([task])
 
     assert result == [task]
     assert task.data["vad_empty"] is True
@@ -425,7 +407,7 @@ def test_read_error_passes_through_without_adapter_call() -> None:
     stage, adapter = _stage(emit_audit_placeholders=True)
     task = AudioTask(task_id="failed", data={"read_error": True, "waveform": torch.zeros(10)})
 
-    result = stage.process(task)
+    result = stage.process_batch([task])
 
     assert result == [task]
     assert adapter.items == []
@@ -436,7 +418,7 @@ def test_audio_preparation_error_is_auditable_when_requested() -> None:
     stage, adapter = _stage(emit_audit_placeholders=True)
     task = AudioTask(task_id="missing", data={"some_key": "value"})
 
-    result = stage.process(task)
+    result = stage.process_batch([task])
 
     assert result == [task]
     assert task.data["read_error"] is True
@@ -447,7 +429,7 @@ def test_audio_preparation_error_can_fail_fast() -> None:
     stage, _ = _stage(fail_on_audio_error=True)
 
     with pytest.raises(RuntimeError, match="Failed to prepare VAD audio"):
-        stage.process(AudioTask(task_id="missing", data={}))
+        stage.process_batch([AudioTask(task_id="missing", data={})])
 
 
 def test_adapter_failures_propagate() -> None:
@@ -460,7 +442,7 @@ def test_adapter_failures_propagate() -> None:
     stage._adapter = _BrokenAdapter()
 
     with pytest.raises(RuntimeError, match="provider failed"):
-        stage.process(_task())
+        stage.process_batch([_task()])
 
 
 def test_nested_batch_isolates_per_recording_adapter_errors() -> None:
@@ -490,7 +472,7 @@ def test_adapter_cardinality_must_match() -> None:
     stage, _ = _stage(results=[])
 
     with pytest.raises(RuntimeError, match="must match 1:1"):
-        stage.process(_task())
+        stage.process_batch([_task()])
 
 
 def test_invalid_adapter_segments_become_an_auditable_placeholder() -> None:
@@ -499,7 +481,7 @@ def test_invalid_adapter_segments_become_an_auditable_placeholder() -> None:
         results=[VADResult([VADSegment(0.5, 0.75), VADSegment(float("nan"), 0.9)])],
     )
 
-    result = stage.process(_task())
+    result = stage.process_batch([_task()])
 
     assert result[0].data["read_error"] is True
     assert "waveform" not in result[0].data
@@ -511,7 +493,7 @@ def test_degenerate_segments_are_skipped() -> None:
         results=[VADResult([VADSegment(0.5, 0.5), VADSegment(0.75, 0.5)])],
     )
 
-    result = stage.process(_task())
+    result = stage.process_batch([_task()])
 
     assert result[0].data["vad_empty"] is True
 
@@ -601,6 +583,7 @@ def test_static_catalog_is_conservative_for_selectable_vad_adapters() -> None:
     assert contract.cardinality_options == ["1:N fan-out", "1:1 nested-list"]
     assert contract.gates.lifecycle_side_effects is True
     assert contract.gates.per_row_independent is False
+    assert contract.batch_only is True
 
 
 def test_nested_segment_task_keys_are_configurable() -> None:
@@ -637,7 +620,7 @@ def test_nested_segment_task_keys_are_configurable() -> None:
         },
     )
 
-    result = stage.process(task)
+    result = stage.process_batch([task])[0]
 
     assert result is task
     assert "samples" not in result.data

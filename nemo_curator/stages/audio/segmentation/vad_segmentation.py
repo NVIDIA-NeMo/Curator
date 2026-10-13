@@ -150,6 +150,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
     num_samples_key: str = "num_samples"
     legacy_duration_keys: tuple[str, ...] = ("duration", "duration_sec")
 
+    BATCH_ONLY: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         cardinality_options=["1:N fan-out", "1:1 nested-list"],
         gates=Gates(lifecycle_side_effects=True, per_row_independent=False),
@@ -723,13 +724,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         return output_tasks
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        results = self._process_vad_batch([task])
-        if self.nested:
-            if len(results) != 1:
-                msg = f"Nested VAD must return one task, got {len(results)}"
-                raise RuntimeError(msg)
-            return results[0]
-        return results
+        msg = f"{type(self).__name__} only supports process_batch"
+        raise NotImplementedError(msg)
 
     def _emit_adapter_result(
         self,
@@ -799,11 +795,9 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         return [result for task_results in results_by_index if task_results for result in task_results]
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """Validate a Ray-shaped batch while retaining public subclass dispatch."""
+        """Run one VAD batch."""
         if len(tasks) == 0:
             return []
-        if type(self).process is not VADSegmentationStage.process:
-            return super().process_batch(tasks)
 
         for task in tasks:
             if not self.validate_input(task):
