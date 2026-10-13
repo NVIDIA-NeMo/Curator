@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -32,7 +32,6 @@ import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
@@ -120,7 +119,7 @@ def _set_note(
 
 
 @dataclass
-class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
+class ASRStage(AdapterInferenceStage[ASRAdapter]):
     """Audio speech-recognition stage with a pluggable adapter.
 
     The stage writes ``pred_text_key`` and optional control columns ``_skipme``
@@ -144,11 +143,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             Enables an explicit empty ``skip_me_key`` for unflagged rows so
             downstream transcript-quality filters can inspect every result.
     """
-
-    BATCH_ONLY: ClassVar[bool] = True
-    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"}
-    )
 
     # Adapter selection.
     adapter_target: str
@@ -305,52 +299,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if self.reference_text_key is not None:
             data_keys.append(self.reference_text_key)
         return required, data_keys
-
-    def describe(self) -> StageContract:
-        writes = [self.pred_text_key]
-        if self.reference_text_key is not None:
-            writes.append(self.skip_me_key)
-        conditional_writes = [
-            ConditionalWrite(
-                writes=IOSpec(data_keys=[self.notes_key]),
-                condition="input language is missing or unsupported by the configured allowlist",
-                value_origin="augments_upstream_same_key",
-            ),
-        ]
-        if self.reference_text_key is None:
-            conditional_writes.append(
-                ConditionalWrite(
-                    writes=IOSpec(data_keys=[self.skip_me_key]), condition="inference marks the row skipped"
-                )
-            )
-        if self.language_key is not None:
-            conditional_writes.append(
-                ConditionalWrite(
-                    writes=IOSpec(data_keys=[self.language_key]), condition="an existing prediction is not reused"
-                )
-            )
-        if self.extras_key is not None:
-            conditional_writes.append(
-                ConditionalWrite(
-                    writes=IOSpec(data_keys=[self.extras_key]), condition="adapter returns non-empty metadata"
-                )
-            )
-        return StageContract(
-            reads=IOSpec(data_keys=self.inputs()[1], accepts=["waveform" if self.waveform_key else "file"]),
-            optional_reads=IOSpec(
-                data_keys=list(dict.fromkeys(key for key in [self.source_lang_key, *self.outputs()[1]] if key))
-            ),
-            writes=IOSpec(data_keys=writes),
-            conditional_writes=conditional_writes,
-            cardinality="1:1",
-            removes_keys=[self.waveform_key] if self.waveform_key and not self.keep_waveform else [],
-            gates=Gates(
-                requires_gpu=self.resources.requires_gpu,
-                requires_internet_first_run=True,
-                # Custom adapters and sampling settings can make outputs depend on batch composition.
-                per_row_independent=False,
-            ),
-        )
 
     def outputs(self) -> tuple[list[str], list[str]]:
         optional_outputs = [self.pred_text_key, self.skip_me_key, self.notes_key]

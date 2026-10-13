@@ -25,7 +25,6 @@ from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
-from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_contract_wellformed
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
 from nemo_curator.stages.resources import Resources
@@ -230,35 +229,6 @@ def test_reference_text_rejects_unaligned_long_audio_before_inference() -> None:
         stage.process_batch([task])
 
     stage._adapter.transcribe_batch.assert_not_called()
-
-
-@pytest.mark.parametrize("waveform_key", [None, "waveform"])
-@pytest.mark.parametrize("reference_text_key", [None, "draft_text"])
-def test_asr_stage_is_agent_ready(waveform_key: str | None, reference_text_key: str | None) -> None:
-    stage = _make_stage(waveform_key=waveform_key, reference_text_key=reference_text_key)
-    stage._adapter.transcribe_batch.return_value = [ASRResult(text="refined text")]
-
-    def fixture() -> AudioTask:
-        task = _make_waveform_task() if waveform_key else _make_task()
-        if reference_text_key:
-            task.data[reference_text_key] = "draft text"
-        return task
-
-    contract = assert_agent_ready(stage, fixture_factory=fixture, available_keys=set(fixture().data))
-    assert contract.reads.data_keys == stage.inputs()[1]
-    if reference_text_key:
-        assert contract.key_roles[reference_text_key] == "reference_text"
-
-
-def test_agent_contract_allows_reusing_source_language_column() -> None:
-    stage = ASRStage(
-        adapter_target=_QWEN_ADAPTER_TARGET,
-        model_id="mock/qwen-omni",
-        max_audio_sec_per_actor=2400.0,
-        language_key="source_lang",
-    )
-    contract = assert_contract_wellformed(stage)
-    assert contract.optional_reads.data_keys.count("source_lang") == 1
 
 
 def test_multi_task_batch_preserves_order() -> None:
