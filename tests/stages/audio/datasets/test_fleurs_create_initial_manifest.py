@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from nemo_curator.stages.audio._agent._agent_ready import to_json_schema
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import role_index

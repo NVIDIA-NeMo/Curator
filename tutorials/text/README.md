@@ -11,7 +11,7 @@ Hands-on tutorials for curating text data with NeMo Curator. Complete working ex
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[Download & Extract](download-and-extract/)** | Data acquisition workflows | `download_extract_tutorial.ipynb` |
-| **[Deduplication](deduplication/)** | Remove duplicate content | Fuzzy and semantic deduplication notebooks |
+| **[Deduplication](deduplication/)** | Remove duplicate content | Exact, fuzzy, and semantic deduplication notebooks |
 | **[Classification](distributed-data-classification/)** | Quality assessment and categorization | `quality-classification.ipynb`, `domain-classification.ipynb`, `fineweb-edu-classification.ipynb`, and more |
 | **[PEFT Curation](peft-curation/)** | Instruction-tuning data preparation | `main.py`, `stages.py` |
 | **[TinyStories](tinystories/)** | End-to-end processing pipeline | `main.py`, `stages.py` |

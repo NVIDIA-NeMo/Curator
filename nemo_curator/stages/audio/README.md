@@ -129,7 +129,7 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
-- `ManifestWriterStage` (`common.py`) — writes
+- `ManifestWriterStage` (`common/manifest_writer.py`) — writes
   entries to JSONL, returns `AudioTask`.
 
 ### Setting `batch_size` for GPU inference
@@ -236,7 +236,7 @@ To drop an entry from the pipeline:
   entries that pass the filter (omit entries that should be dropped).
   This avoids `None` reaching the backend adapter, which calls
   `task.add_stage_perf()` on every element.  See `PreserveByValueStage`
-  in `common.py` for the canonical pattern — its `process()` raises
+  in `common/value_filters.py` for the canonical pattern — its `process()` raises
   `NotImplementedError` and all logic lives in `process_batch`.
 - **GPU / IO stage**: omit the entry from the returned list in `process_batch`.
 
@@ -490,7 +490,7 @@ pipeline.run(executor)
 │     → backends/base.py                             stage.setup_on_node(node_info, worker_metadata)
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup()
 │     → backends/base.py                             stage.setup(worker_metadata)
-│       → stages/audio/common.py                       GetAudioDurationStage.setup() imports soundfile
+│       → stages/audio/common/duration.py                       GetAudioDurationStage.setup() imports soundfile
 │
 ├─ Per batch (batch_size=1, so 1 AudioTask per call):
 │   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
@@ -508,7 +508,7 @@ pipeline.run(executor)
 │   │        │
 │   │    ┌───┘
 │   │    │  GetAudioDurationStage.process(task)
-│   │    │    stages/audio/common.py
+│   │    │    stages/audio/common/duration.py
 │   │    │    audio_filepath = task.data[self.audio_filepath_key]
 │   │    │    raw, samplerate = soundfile.read(audio_filepath)
 │   │    │    task.data[self.duration_key] = raw.shape[0] / samplerate
@@ -1028,7 +1028,7 @@ Appends the entry as a single JSON line to
 4. For CPU stages: override `process(task: AudioTask) -> AudioTask | None`
    — mutate `task.data` in-place and return `task` (or `None` to filter)
 5. For filtering stages: override `process_batch` to return only passing
-   entries (see `PreserveByValueStage` in `common.py`); `process()` should
+   entries (see `PreserveByValueStage` in `common/value_filters.py`); `process()` should
    raise `NotImplementedError`
 6. For GPU / IO stages: override `process_batch(tasks) -> list[AudioTask]`,
    call `self.validate_input(task)` per task at the top, guard with
