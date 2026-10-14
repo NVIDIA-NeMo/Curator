@@ -786,17 +786,14 @@ present.
 ### Qwen-Omni human-reference improvement (draft)
 
 `audio_qwen_omni_reference_improvement_xenna` and
-`audio_qwen_omni_reference_improvement_raydata` run the same
-[tutorial pipeline](../tutorials/audio/qwen_omni_reference_improvement/README.md)
-through the YAML pipeline loader. They use a shared, deterministic prefix of
-LibriSpeech `train.clean.100` totaling at least five hours, with its human `text`
-labels supplied in the Qwen prompt. The final clip is kept whole, so the duration
-may slightly exceed five hours. Neither entry nor its data setup is enabled.
-This default five-hour recipe remains **uncalibrated**; the EOS measurements
-below use a larger cohort from an existing audio benchmark cache.
+`audio_qwen_omni_reference_improvement_raydata` load the complete
+[tutorial YAML](../tutorials/audio/qwen_omni_reference_improvement/pipeline.yaml).
+They use its prompts, model revision, batching, and postprocessing unchanged.
+The tutorial uses 0.02 hours of LibriSpeech; the default benchmark uses a
+five-hour prefix of the same pinned split. Both entries and their data setup
+remain disabled pending acceptance.
 
-Stage the public data and the launcher's pinned model before running either
-entry (replace the path placeholders with shared paths visible to all workers):
+Stage the benchmark data and model at paths visible to every worker:
 
 ```bash
 python benchmarking/data_prep/prepare_librispeech_data.py \
@@ -811,66 +808,33 @@ hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
   --local-dir {model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct
 ```
 
-The benchmark retains the tutorial's TP=2, batch size 32, maximum 16 sequences,
-4,096-token context, 256 output tokens, and 0.90 GPU memory utilization. It runs
-reference prompting, hallucination handling, reference selection, regex
-cleanup, and abbreviation concatenation. It does not run SED or a recovery ASR
-model. Use the tutorial's Qwen-compatible environment, including `ffmpeg` on
-every worker, before opting these entries into a session.
-
-For an individual run on an existing Ray cluster:
+Set your paths and enable the selected entry in `benchmarking/benchmarks.yaml`,
+then run it through the existing benchmark runner:
 
 ```bash
-export VLLM_WORKER_MULTIPROC_METHOD=spawn
+python benchmarking/run.py --config benchmarking/benchmarks.yaml \
+  --entries-exact audio_qwen_omni_reference_improvement_xenna
 
-python benchmarking/scripts/audio_qwen_omni_reference_improvement_benchmark.py \
-  --input-manifest {datasets_path}/qwen_omni_reference_librispeech_clean_5h_71cacbfb/manifest.jsonl \
-  --model-id {model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct \
-  --benchmark-results-path /shared/results/qwen-reference-xenna \
-  --executor xenna --execution-mode streaming
-
-python benchmarking/scripts/audio_qwen_omni_reference_improvement_benchmark.py \
-  --input-manifest {datasets_path}/qwen_omni_reference_librispeech_clean_5h_71cacbfb/manifest.jsonl \
-  --model-id {model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct \
-  --benchmark-results-path /shared/results/qwen-reference-raydata \
-  --executor ray_data
+python benchmarking/run.py --config benchmarking/benchmarks.yaml \
+  --entries-exact audio_qwen_omni_reference_improvement_raydata
 ```
 
-Use a fresh results directory for each run. The benchmark leaves staged inputs
-untouched, resamples into `scratch/`, and writes
-`results/qwen_omni_reference_improvement.jsonl`. Validation rejects duplicate,
-missing, or extra audio paths, changed or empty references, empty predictions,
-and invalid durations. Metrics report exact output coverage, reference
-preservation, reference/ground-truth fallback counts, skipped rows, audio hours,
-and throughput measured over `pipeline.run` (including worker/model startup,
-resampling, inference, cleanup, and writing). The runner additionally requires
-zero skipped rows. `params.json` records the resolved tutorial configuration;
-`metrics.json` records errors and a failed process exit when execution or output
-validation fails. WER against a label already included in the prompt is not an
-independent transcription-quality measure, so this benchmark does not report it.
+Use the tutorial's environment and a fresh session for each run. The benchmark
+writes `results/qwen_omni_reference_improvement.jsonl`, `metrics.json`, and the
+resolved configuration in `params.json`. It checks exact input/output coverage,
+unchanged references, nonempty predictions, valid durations, and fallback
+accounting. Entry requirements reject skipped rows. Timing covers `pipeline.run`,
+including model startup, resampling, inference, cleanup, and writing. WER against
+labels already supplied in the prompt is not an independent quality measure.
 
-EOS validation on 2026-10-14 at code commit `c9e4c5fb` reused 14,290 unique
-LibriSpeech clips (51.031389 audio hours), with one exclusive eight-H100 node per
-executor. The pinned environment used PyTorch 2.9.1+cu128, vLLM 0.15.1, and
-Ray 2.54.0. Both outputs passed coverage, original-reference preservation,
-nonempty prediction, and duration checks, with zero skipped rows.
-
-| Executor | Full native process | `pipeline.run` | Output rows |
-| --- | ---: | ---: | ---: |
-| Xenna streaming | 567.71 s | 563.12 s | 14,290 |
-| Ray Data | 812.24 s | 807.00 s | 14,290 |
-
-Full native time includes imports and model startup; it excludes queueing,
-container import, and the separate readiness probe. Xenna missed the frozen
-600–900-second target by 32.29 seconds. Its earlier run at `ed747e70` also
-finished below that target (573.26 seconds); the cohort was not resized.
-Ray Data completed after fixing a pre-existing NumPy batch truth-value check
-in the shared ASR stage. After excluding worker setup and teardown, all eight
-Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above 10%
-utilization. Ray Data repeatedly restored workers and failed the all-eight-GPU
-activity check. These single-run measurements do not establish a speedup or
-transcription-quality improvement. See
-[EOS validation pipeline 73730345](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/73730345).
+Earlier [EOS validation](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/73730345)
+at `c9e4c5fb` used 14,290 clips / 51.031389 audio hours from an existing cache,
+with an exclusive eight-H100 node per executor. Both produced all rows with
+references preserved and zero skips. Full process times were **567.71 seconds
+for Xenna** and **812.24 seconds for Ray Data**. Acceptance failed: Xenna was
+below the 600-second minimum, and Ray Data showed useful inference activity on
+six of eight GPUs. These results predate the single-YAML simplification; the
+default five-hour recipe and multi-node execution remain unvalidated.
 
 ---
 

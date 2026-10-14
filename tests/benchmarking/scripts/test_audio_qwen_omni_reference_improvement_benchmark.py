@@ -18,7 +18,10 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
+from nemo_curator.pipeline import Pipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking" / "scripts"))
 
@@ -134,7 +137,7 @@ def test_main_reports_pipeline_failure(tmp_path: Path, output_row: dict, monkeyp
     pipeline = Mock()
     pipeline.run.side_effect = RuntimeError("worker failed")
     monkeypatch.setattr(benchmark, "create_pipeline_from_yaml", Mock(return_value=pipeline))
-    monkeypatch.setattr(benchmark, "setup_executor", Mock())
+    monkeypatch.setattr(benchmark, "create_executor_from_yaml", Mock())
     monkeypatch.setattr(
         sys,
         "argv",
@@ -158,11 +161,11 @@ def test_main_merges_runner_parameters(tmp_path: Path, output_row: dict, monkeyp
 
     def create_pipeline(cfg: DictConfig) -> Mock:
         pipeline = Mock()
-        pipeline.run.side_effect = lambda _executor: _write_rows(Path(cfg.output_path), [output_row])
+        pipeline.run.side_effect = lambda **_kwargs: _write_rows(Path(cfg.output_path), [output_row])
         return pipeline
 
     monkeypatch.setattr(benchmark, "create_pipeline_from_yaml", create_pipeline)
-    monkeypatch.setattr(benchmark, "setup_executor", Mock())
+    monkeypatch.setattr(benchmark, "create_executor_from_yaml", Mock())
     monkeypatch.setattr(
         sys,
         "argv",
@@ -176,8 +179,45 @@ def test_main_merges_runner_parameters(tmp_path: Path, output_row: dict, monkeyp
     assert json.loads((results / "metrics.json").read_text())["is_success"] is True
 
 
+@pytest.mark.parametrize("backend", [None, "xenna", "ray_data"])
+def test_benchmark_preserves_tutorial_settings(
+    tmp_path: Path, output_row: dict, monkeypatch: pytest.MonkeyPatch, backend: str | None
+) -> None:
+    manifest = _write_rows(tmp_path / "input.jsonl", [output_row])
+    results = tmp_path / "run"
+    model = tmp_path / "model"
+    model.mkdir()
+    expected = OmegaConf.load(benchmark._PIPELINE_CONFIG)
+    expected.manifest_path = str(manifest)
+    expected.output_path = str(results / "results/qwen_omni_reference_improvement.jsonl")
+    expected.workspace_dir = str(results / "scratch")
+    expected.model_id = str(model)
+    if backend is not None:
+        expected.backend = backend
+    expected_pipeline = create_pipeline_from_yaml(expected)
+    expected_executor = create_executor_from_yaml(expected)
+
+    def run(pipeline: Pipeline, executor: object) -> None:
+        assert pipeline.stages == expected_pipeline.stages
+        assert type(executor) is type(expected_executor)
+        if expected.backend == "xenna":
+            assert executor.config == expected_executor.config
+        _write_rows(Path(expected.output_path), [output_row])
+
+    monkeypatch.setattr(Pipeline, "run", run)
+    result = benchmark.run_audio_qwen_omni_reference_improvement_benchmark(
+        str(results), str(manifest), model_id=str(model), executor=backend
+    )
+
+    assert result["params"]["pipeline_config"] == OmegaConf.to_container(expected, resolve=True)
+    assert result["metrics"]["output_coverage_ratio"] == 1.0
+
+
 @pytest.mark.parametrize("existing", ["results", "scratch", "scratch/audio.wav", "metrics.json", "tasks.pkl"])
-def test_main_preserves_preexisting_outputs(tmp_path: Path, existing: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("direct_call", [False, True])
+def test_preserves_preexisting_outputs(
+    tmp_path: Path, existing: str, monkeypatch: pytest.MonkeyPatch, direct_call: bool
+) -> None:
     existing_path = tmp_path / existing
     existing_path.parent.mkdir(parents=True, exist_ok=True)
     existing_path.write_bytes(b"existing output")
@@ -186,6 +226,10 @@ def test_main_preserves_preexisting_outputs(tmp_path: Path, existing: str, monke
         "argv",
         ["benchmark", "--input-manifest", "/unused.jsonl", "--benchmark-results-path", str(tmp_path)],
     )
-    assert benchmark.main() == 1
+    if direct_call:
+        with pytest.raises(FileExistsError):
+            benchmark.run_audio_qwen_omni_reference_improvement_benchmark(str(tmp_path), "/unused.jsonl")
+    else:
+        assert benchmark.main() == 1
     assert existing_path.read_bytes() == b"existing output"
     assert [path for path in tmp_path.rglob("*") if path.is_file()] == [existing_path]

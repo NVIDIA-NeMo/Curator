@@ -25,9 +25,9 @@ from typing import Any
 
 from loguru import logger
 from omegaconf import OmegaConf
-from utils import setup_executor, write_benchmark_results
+from utils import write_benchmark_results
 
-from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
 
 _PIPELINE_CONFIG = (
     Path(__file__).resolve().parents[2] / "tutorials/audio/qwen_omni_reference_improvement/pipeline.yaml"
@@ -137,7 +137,7 @@ def run_audio_qwen_omni_reference_improvement_benchmark(
     benchmark_results_path: str,
     input_manifest: str,
     model_id: str | None = None,
-    executor: str = "xenna",
+    executor: str | None = None,
     execution_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run the shared tutorial graph and validate every output against its input."""
@@ -148,26 +148,26 @@ def run_audio_qwen_omni_reference_improvement_benchmark(
     cfg.manifest_path = str(Path(input_manifest).resolve())
     cfg.output_path = str(results_path / "results" / "qwen_omni_reference_improvement.jsonl")
     cfg.workspace_dir = str(results_path / "scratch")
-    cfg.backend = executor
-    cfg.execution_mode = execution_mode or "streaming"
+    if executor is not None:
+        cfg.backend = executor
+    if execution_mode is not None:
+        cfg.execution_mode = execution_mode
     if model_id is not None:
         if not Path(model_id).is_dir():
             msg = f"Pre-staged model directory does not exist: {model_id}"
             raise FileNotFoundError(msg)
         cfg.model_id = str(Path(model_id).resolve())
-        cfg.model_revision = None
     pipeline = create_pipeline_from_yaml(cfg)
-    executor_config = {"execution_mode": cfg.execution_mode} if executor == "xenna" else None
-    executor_obj = setup_executor(executor, config=executor_config)
+    executor_obj = create_executor_from_yaml(cfg)
 
     run_start = time.perf_counter()
-    pipeline.run(executor_obj)
+    pipeline.run(executor=executor_obj)
     run_time_s = time.perf_counter() - run_start
     output_metrics = _collect_output_metrics(Path(cfg.output_path), input_rows)
     return {
         "params": {
-            "executor": executor,
-            "execution_mode": cfg.execution_mode if executor == "xenna" else None,
+            "executor": cfg.backend,
+            "execution_mode": cfg.execution_mode if cfg.backend == "xenna" else None,
             "input_manifest": cfg.manifest_path,
             "benchmark_results_path": str(results_path),
             "pipeline_config_path": str(_PIPELINE_CONFIG),
@@ -193,7 +193,7 @@ def main() -> int:
     parser.add_argument(
         "--model-id", default=None, help="Pre-staged Qwen model directory; otherwise use tutorial model ID."
     )
-    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
+    parser.add_argument("--executor", choices=["xenna", "ray_data"], default=None)
     parser.add_argument("--execution-mode", choices=["streaming", "batch"], default=None)
     parser.add_argument("--save-tasks", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
