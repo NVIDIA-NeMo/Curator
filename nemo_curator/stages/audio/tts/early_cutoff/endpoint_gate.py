@@ -300,6 +300,22 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key.split(".")[0]]
 
+    def validate_input(self, task: AudioTask) -> bool:
+        """Require one supported text field on a flat row or on every segment."""
+        segments = task.data.get("segments")
+        payloads = (
+            [segment for segment in segments if isinstance(segment, dict)]
+            if isinstance(segments, list)
+            else [task.data]
+        )
+        missing = [index for index, payload in enumerate(payloads) if self._resolve_text(payload) is MISSING]
+        if payloads and not missing:
+            return True
+        keys = (self.text_key, *_TEXT_FALLBACKS)
+        location = f"segments {missing}" if isinstance(segments, list) and payloads else "row"
+        logger.error("Task {} missing required text field {} in {}", task.task_id, keys, location)
+        return False
+
     def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         try:
             self._load_models()
@@ -662,6 +678,9 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         pending: dict[str, list] = {}
         for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
             self._annotate_payload(task.data, task.task_id, pending)
         for language, items in pending.items():
             self._flush(items, language)

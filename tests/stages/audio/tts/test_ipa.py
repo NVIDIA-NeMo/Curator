@@ -99,12 +99,20 @@ def test_overwrite_recomputes_existing_ipa() -> None:
 
 def test_text_validation_errors() -> None:
     stage = _stage()
-    missing = stage.process(AudioTask(data={}))
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={})])
     empty = stage.process(AudioTask(data={"tn_raw": "  "}))
     invalid = stage.process(AudioTask(data={"tn_raw": 123}))
-    assert missing.data["ipa"] == {"ipa": None, "error": "missing_text"}
     assert empty.data["ipa"] == {"ipa": None, "error": "empty_text"}
     assert invalid.data["ipa"] == {"ipa": None, "error": "invalid_text"}
+
+
+def test_missing_text_in_any_segment_fails_batch() -> None:
+    stage = _stage()
+    task = AudioTask(data={"segments": [{"tn_raw": "hello"}, {"source_lang": "en"}]})
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    assert all("ipa" not in segment for segment in task.data["segments"])
 
 
 def test_records_ipa_failure() -> None:

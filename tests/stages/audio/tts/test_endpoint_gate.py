@@ -14,6 +14,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.stages.audio.tts.early_cutoff.endpoint_gate import EarlyCutOffEndpointGateStage
 from nemo_curator.stages.audio.tts.early_cutoff.phonemization import PhonemizedReference
 from nemo_curator.tasks import AudioTask
@@ -45,8 +47,17 @@ def test_setup_error_annotates_without_dropping() -> None:
 def test_missing_text() -> None:
     stage = _ready_stage()
     task = AudioTask(data={"source_lang": "en"})
-    stage.process(task)
-    assert task.data["early_cut_off_detection"]["error"]["code"] == "missing_text"
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    assert "early_cut_off_detection" not in task.data
+
+
+def test_missing_text_in_any_segment_fails_batch() -> None:
+    stage = _ready_stage()
+    task = AudioTask(data={"segments": [{"tn_raw": "hello"}, {"source_lang": "en"}]})
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    assert all("early_cut_off_detection" not in segment for segment in task.data["segments"])
 
 
 def test_unsupported_language() -> None:
