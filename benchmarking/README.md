@@ -701,7 +701,7 @@ sync. They account for 58,233 ms. The shared runnable cohort therefore has
 216,164 unique mono 16 kHz clips / 1,914,327,468 ms (531.75763 hours). Its
 116,382,162-byte canonical manifest has SHA-256
 `0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
-Both timed entries consume this byte-identical retained cohort and also require
+Both executor modes consume this byte-identical retained cohort and also require
 the production-compatible model artifacts to be staged at:
 
 ```text
@@ -729,21 +729,36 @@ child runtime or dependency installation during inference. The root
 `pyproject.toml` and `uv.lock` do not select this stack. Normal Curator profiles
 retain their existing dependencies and can still be selected together.
 
-Run `python benchmarking/run.py` directly in this image, selecting the two
-Indic entries with `--entries-exact audio_indic_asr_xenna,audio_indic_asr_raydata`
-and passing your benchmark/path configuration. Mount the existing datasets,
-model bundles, and writable results directory. Do not build the stock
-`benchmarking/Dockerfile` on top of this image or run root `uv sync` in it:
-that would replace the native stack with the normal `all` dependencies.
+The Indic run entries are intentionally absent from `benchmarks.yaml`; the
+dataset mapping and `nightly-data-setup.yaml` entry remain available. The
+benchmark script keeps the standard audio benchmark interface, executor helper,
+and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
+it derives correctness metrics from the final JSONL rather than retained tasks;
+`--save-tasks` therefore writes an empty task list, not stage snapshots.
 
-Benchmark YAML does not support per-entry Dockerfile selection. For NeMo-CI,
-publish the image built from the matching Curator commit and add
-`--test-image <published-image>` to `curator/run_benchmarks.py --pr 2456 ...`.
-The image supplies runtime code; the PR/ref selects benchmark job generation
-and metadata. Selecting entries alone still uses the generic image. Audit
-site-specific Indic launchers before submission: older launchers that inspect
-the removed root `trt_llm` extra or require its packages in `uv.lock` must no
-longer impose those checks.
+For a standalone run, mount the staged corpus at `/datasets`, the model bundles
+at `/model_weights`, and a writable result directory at `/results`. Inside the
+dedicated image, from `/opt/Curator`, run:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python benchmarking/scripts/audio_indic_asr_benchmark.py \
+  --benchmark-results-path=/results/indic_asr_xenna \
+  --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
+  --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+  --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
+  --regex-yaml=tutorials/audio/indic_asr/regex.yaml \
+  --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
+  --executor=xenna --no-save-tasks
+```
+
+The defaults retain the eight-GPU workload and frozen cohort checks. Use
+`--executor=ray_data` and a different, unused results path for the same-data
+comparison. Dataset setup remains separate and is not rerun by this script.
+Do not build the stock `benchmarking/Dockerfile` on top of this image or run
+root `uv sync` in it: that would replace the dedicated native stack with the
+normal `all` dependencies. A site-specific harness configuration must explicitly
+select this image; the standard nightly environment does not supply it.
 
 The host or container runtime must independently provide a CUDA-13-capable
 NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported
@@ -763,7 +778,7 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| Hindi Indic ASR | Production Slurm pipeline only | Paired Xenna and Ray Data runs share the 216,164-clip / 531.75763h retained cohort from the pinned 216,169-row public Hindi source after rejecting five exactly identified corrupt FLACs. Both run eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. Xenna alone is gated to 600-900s full process wall time on the default EOS 8xH100 node; Ray Data is an ungated same-data comparison. |
+| Hindi Indic ASR | Production Slurm pipeline only | Retained standalone benchmark: Xenna and Ray Data share the 216,164-clip / 531.75763h cohort after rejecting five exactly identified corrupt FLACs. Both use eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. The prior Xenna calibration target was 600-900s full process wall time on 8xH100; neither executor is registered in the standard nightly matrix. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---

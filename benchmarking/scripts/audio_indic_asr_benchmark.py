@@ -28,7 +28,7 @@ import statistics
 import sys
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -36,27 +36,24 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage, load_audio_file
+from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
 from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
 from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.preprocessing.indic_asr import PrepareIndicASRInputStage
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     RegexSubstitutionStage,
     SelectBestPredictionStage,
     WhisperHallucinationStage,
 )
-from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask
 
 EXPECTED_NUM_ROWS = 216_164
 EXPECTED_TOTAL_DURATION_MS = 1_914_327_468
 EXPECTED_MANIFEST_BYTES = 116_382_162
 EXPECTED_MANIFEST_SHA256 = "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"
-SAMPLE_RATE = 16_000
-MAX_DURATION_ERROR_S = 0.001
 GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 CANARY_REQUIRED_FILES = (
     "encoder/encoder.plan",
@@ -102,78 +99,6 @@ class InputInventory:
     @property
     def total_duration_ms(self) -> int:
         return sum(self.durations_ms_by_id.values())
-
-
-@dataclass
-class PrepareIndicASRInputStage(ProcessingStage[AudioTask, AudioTask]):
-    """Load validated 16 kHz audio and initialize the Granary-v2 fields."""
-
-    name: str = "prepare_indic_asr_input"
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-    audio_root: str | None = None
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath", "audio_item_id", "duration", "source_lang", "text"]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [
-            "additional_notes",
-            "granary_v1_prediction",
-            "reference_text",
-            "sampling_rate",
-            "waveform",
-            "_skipme",
-        ]
-
-    def process(self, task: AudioTask) -> AudioTask:
-        data = task.data
-        audio_item_id = data["audio_item_id"]
-        reference_text = data.pop("text")
-        if not isinstance(audio_item_id, str) or not audio_item_id:
-            msg = "audio_item_id must be a nonempty string"
-            raise RuntimeError(msg)
-        if not isinstance(reference_text, str) or not reference_text.strip():
-            msg = f"Reference text is empty for {audio_item_id}"
-            raise RuntimeError(msg)
-        if data["source_lang"] != "hi":
-            msg = f"Expected source_lang='hi' for {audio_item_id}, found {data['source_lang']!r}"
-            raise RuntimeError(msg)
-
-        audio_path = Path(data["audio_filepath"])
-        if not audio_path.is_absolute():
-            if self.audio_root is None:
-                msg = f"Relative audio path requires audio_root for {audio_item_id}: {audio_path}"
-                raise RuntimeError(msg)
-            audio_path = Path(self.audio_root) / audio_path
-        audio_path = audio_path.expanduser().resolve()
-        if not audio_path.is_file():
-            msg = f"Input audio is missing for {audio_item_id}: {audio_path}"
-            raise FileNotFoundError(msg)
-        data["audio_filepath"] = str(audio_path)
-
-        waveform, sample_rate = load_audio_file(str(audio_path), mono=True)
-        duration_s = float(data["duration"])
-        measured_duration_s = waveform.shape[-1] / sample_rate
-        if sample_rate != SAMPLE_RATE or waveform.shape[0] != 1:
-            msg = f"Expected mono {SAMPLE_RATE} Hz audio for {audio_item_id}"
-            raise RuntimeError(msg)
-        if not math.isclose(duration_s, measured_duration_s, rel_tol=0, abs_tol=MAX_DURATION_ERROR_S):
-            msg = (
-                f"Manifest duration mismatch for {audio_item_id}: "
-                f"manifest={duration_s}, measured={measured_duration_s}"
-            )
-            raise RuntimeError(msg)
-
-        notes = data.get("additional_notes")
-        notes = notes if isinstance(notes, dict) else {}
-        notes.update({"primary_model": "indic_canary", "recovery_model": "parakeet_riva"})
-        data["additional_notes"] = notes
-        data["granary_v1_prediction"] = reference_text
-        data["reference_text"] = reference_text
-        data["sampling_rate"] = sample_rate
-        data["waveform"] = waveform
-        data["_skipme"] = ""
-        return task
 
 
 def _normalize_input_row(

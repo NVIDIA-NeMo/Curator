@@ -1,132 +1,104 @@
 # Hindi Indic ASR Pipeline
 
-This tutorial executes the full processor graph used by the
-`audio_indic_asr_xenna` and `audio_indic_asr_raydata` benchmarks directly from
-`pipeline.yaml`. It follows the same YAML-first method as the ALM and Qwen ASR
-tutorials: the shared `nemo_curator/config/run.py` runner instantiates the
-benchmark's existing pipeline factory through its `workflow` configuration,
-then selects Xenna or Ray Data. The shared runner needs no Indic-specific changes.
+Transcribe Hindi audio with Indic Canary, produce a Parakeet recovery
+transcript, check hallucinations, select and clean the final text, and calculate
+word error rate (WER) against the input reference.
 
-There is no tutorial-specific Python wrapper.
+Like the [audio-tagging tutorial](../tagging/README.md), this tutorial lists each
+stage explicitly in [pipeline.yaml](pipeline.yaml). It uses Curator's shared
+YAML runner; there is no tutorial-specific inference wrapper.
 
-## Pipeline
+## Prerequisites
 
-```text
-ManifestReader
-  -> PrepareIndicASRInputStage
-  -> InferenceIndicCanaryStage (primary; TensorRT-LLM)
-  -> WhisperHallucinationStage
-  -> InferenceParakeetStage (TensorRT recovery)
-  -> WhisperHallucinationStage
-  -> SelectBestPredictionStage
-  -> RegexSubstitutionStage
-  -> AbbreviationConcatStage
-  -> GetPairwiseWerStage
-  -> ManifestWriterStage
-```
+- Linux x86_64, Docker, and the NVIDIA Container Toolkit.
+- A GPU compatible with **both** supplied TensorRT engine bundles. The retained
+  configuration reserves 50 GiB for Canary and 24 GiB for Parakeet; one 80 GB
+  H100 is a suitable memory target when both engines were built for H100.
+  Two short clips reduce processing work, not static model memory.
+- A driver compatible with the CUDA 13 native libraries. Supported data-center
+  deployments may supply NVIDIA's forward-compatibility libraries; this is a
+  system prerequisite, not a Python package.
+- Compatible **prebuilt Indic Canary and Hindi Parakeet engine bundles**.
+  These model artifacts are not included or downloaded by this tutorial.
+  See [model files](#model-files) before attempting inference.
 
-The factory shares the benchmark's model parameters, batch sizes, text fields,
-GPU-memory reservations, cleanup stages, and writer count; the YAML supplies
-paths and worker counts.
-CPU preparation, cleanup, and writer calls group up to 64 rows to amortize
-scheduling overhead; each row still receives the same transformations. The
-writer remains a single worker appending to one output manifest.
-The benchmark harness remains responsible for four-way input sharding, GPU
-recording, harness wall-clock timing, and its row/identity/coverage acceptance
-gates; a tutorial run is functional pipeline evidence, not EOS performance
-evidence.
+The audio samples and their references are public and need no Hugging Face
+token. The complete inference run still requires the separately supplied model
+artifacts and suitable hardware; it is not a model-download-from-scratch guide.
 
-## Build the audio container
+## Install the environment
 
-Indic Canary uses a TensorRT encoder and a TensorRT-LLM decoder. Its dedicated
-[`Dockerfile`](../../../docker/audio/Dockerfile.trt_llm) installs Python 3.12,
-TensorRT-LLM 1.2.1, and Torch 2.9.1 in one `/opt/venv` environment for Curator,
-Canary, Parakeet TensorRT, and WER. This native stack is isolated from Curator's
-normal dependency profiles; there is no root `trt_llm` extra or separate lockfile.
-
-From the repository root:
+Run from the root of this Curator checkout:
 
 ```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
-docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-asr .
+docker run --rm --gpus all curator-indic-asr python docker/audio/check_trt_llm.py
 ```
 
-The build checks Python and native package versions. The second command also
-loads the actual TRT-LLM bindings and checks the GPU; a successful build alone
-does not establish driver compatibility or model inference parity.
+The [dedicated audio Dockerfile](../../../docker/audio/Dockerfile.trt_llm)
+creates one clean Python 3.12 environment with Torch 2.9.1, TensorRT-LLM 1.2.1,
+and TensorRT 10.14.1.48.post1. It includes Curator, the audio dependencies,
+SoundFile, and the required WAV/FLAC decoding libraries. No pre-existing host
+Python environment is used.
 
-Run the remaining tutorial commands inside this image, mounting your data,
-engine bundles, and output directory (replace the host paths):
+The build checks installed versions. The second command additionally checks
+the native model libraries and performs a CUDA operation; it does not load
+your model engines. Fix any failure there before running the pipeline.
+Do **not** run root `uv sync` inside this image: it would replace the dedicated
+native stack with Curator's normal dependency profile.
+
+Create persistent data and output directories, then start the container.
+Replace the engine mount with the absolute path to your model directory:
 
 ```bash
+mkdir -p indic-asr-work/data indic-asr-work/output
 docker run --rm -it --gpus all --ipc=host \
-  -v /absolute/path/to/datasets:/data \
-  -v /absolute/path/to/models:/models:ro \
-  -v /absolute/path/to/outputs:/outputs \
-  curator-indic-trtllm bash
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -v "$PWD/indic-asr-work/data:/data" \
+  -v "$PWD/indic-asr-work/output:/outputs" \
+  -v /absolute/path/to/engines:/models:ro \
+  curator-indic-asr bash
 ```
 
-The image includes Jupyter for `indic_asr_tutorial.ipynb`; use its `/opt/venv`
-kernel and direct notebook outputs to your mounted output directory. No child
-environment is created at adapter setup, and no packages are installed during
-inference. Do not run root `uv sync` inside this image: it would replace the
-container's native stack with the normal Curator dependencies.
+Run the following commands **inside this container**, from `/opt/Curator`.
 
-The supported container is Python 3.12 on Linux x86_64. Consumer GPUs require a native
-CUDA-13-capable NVIDIA driver. Supported data-center GPUs can instead use
-NVIDIA CUDA 13 forward-compatibility libraries supplied by the execution
-environment. Those driver libraries are a system prerequisite, not a Python
-dependency. Parakeet uses plain TensorRT in the same Curator environment.
+## Download two public Hindi clips
 
-## Prepare the pinned public Hindi dataset
-
-The benchmark data setup uses the open Hugging Face dataset
-`ketav/parakeet-hindi-asr` at revision
-`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0`.
+The quick start uses the Hindi validation split of
+[Google FLEURS](https://huggingface.co/datasets/google/fleurs), licensed
+[CC BY 4.0](https://huggingface.co/datasets/google/fleurs/blob/70bb2e84b976b7e960aa89f1c648e09c59f894dd/README.md).
+The downloader pins revision `70bb2e84b976b7e960aa89f1c648e09c59f894dd`,
+verifies file hashes, and preserves the original reference transcripts.
 
 ```bash
-python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
-  --output-path DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11 \
-  --cache-dir DATASETS_ROOT/_hf_cache/audio_indic_asr \
-  --subset-hours 1 \
-  --subset-manifest DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest-1h.jsonl
+python tutorials/audio/indic_asr/download_samples.py --output-dir /data/indic_asr
 ```
 
-The upstream source contract is kept separate from the runnable cohort. The
-pinned source manifest has 216,169 rows / 1,914,385,701 ms and SHA-256
-`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`.
-The 40,543,034,328-byte archive has SHA-256
-`9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20`;
-it is a superset, and only members referenced by the source manifest define
-this train cohort.
+It fetches only a small prefix of the audio archive (at most 2 MiB) and the
+transcript table, not the entire dataset. It creates these two original mono
+16 kHz WAV files and a two-row `manifest.jsonl`:
 
-The setup decodes every referenced FLAC to EOF and rejects exactly this pinned
-corrupt set:
+| Audio file | Duration |
+| --- | ---: |
+| `audio/10003386135529782184.wav` | 12.24 seconds |
+| `audio/10028896103651079035.wav` | 10.26 seconds |
+| Total | 22.50 seconds |
 
-| Archive member | Payload bytes | Source duration (ms) | Decode result |
-| --- | ---: | ---: | --- |
-| `audio/hindi_017643.flac` | 0 | 7,457 | Empty; format not recognized |
-| `audio/hindi_017655.flac` | 262,144 | 17,362 | Truncated; decoder lost sync |
-| `audio/hindi_017656.flac` | 262,144 | 15,329 | Truncated; decoder lost sync |
-| `audio/hindi_017666.flac` | 0 | 9,242 | Empty; format not recognized |
-| `audio/hindi_018619.flac` | 0 | 8,843 | Empty; format not recognized |
+The original Hindi references are:
 
-Those five rows total 58,233 ms. The canonical `manifest.jsonl` used by both
-benchmark entries therefore contains 216,164 unique mono 16 kHz clips /
-1,914,327,468 ms (531.75763 hours), is 116,382,162 bytes, and has SHA-256
-`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
-Its paths have the form `audio/<clip>.flac`; the tutorial passes the dataset
-directory to `PrepareIndicASRInputStage`, which resolves them before loading
-audio. `manifest-1h.jsonl` is a deterministic at-least-one-hour prefix of that
-same retained cohort for the local functional run below.
+1. **10003386135529782184.wav:** मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।
+2. **10028896103651079035.wav:** वैज्ञानिकों का मानना है कि ओसेलोट्स गंध के द्वारा जानवरों का पीछा करते और खाते (शिकार) हैं, यह सूँघते हुए कि वे ज़मीन पर कहाँ रहे होंगे।
 
-## Stage the engines
+Repeating the download command reuses identical files. It refuses to overwrite
+conflicting audio or manifests.
 
-The tutorial and benchmark expect these production-compatible bundles:
+## Model files
+
+Mount your compatible engine bundles with this layout:
 
 ```text
-MODEL_WEIGHTS_ROOT/audio_indic_asr/
-├── indic_canary_trtllm/engine_bfloat16_64_new/
+/models/
+├── indic_canary/
 │   ├── encoder/encoder.plan
 │   ├── encoder/config.json
 │   ├── decoder/config.json
@@ -134,131 +106,195 @@ MODEL_WEIGHTS_ROOT/audio_indic_asr/
 │   ├── decoder/vocab.json
 │   ├── preprocessor/config.json
 │   └── preprocessor/mel_basis.pt
-└── parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001/
+└── parakeet/
     ├── encoder.plan
     ├── metadata.json
     └── model.nemo
 ```
 
-TensorRT plans are hardware-specific. Build or obtain bundles for the GPU on
-which the pipeline will run.
+Each directory is a complete bundle, not a Hugging Face model ID. TensorRT
+plans must match the GPU architecture and native runtime used here; a random
+Canary or Parakeet checkpoint is not a replacement for these Hindi engines.
+The runtime does not build missing engines automatically.
 
-## Run with Xenna
+For owners of the source checkpoints, the reference branch has
+[Indic Canary conversion instructions](https://github.com/nithinraok/Curator/blob/nkoluguri/integration-test/scripts/audio/indic_canary_trtllm_conversion/README.md).
+Those instructions require the matching Indic checkpoint and NeMo fork; they
+do not supply a public ready-to-run engine bundle.
 
-Run the shared YAML runner from the repository root:
+## Run the two-clip pipeline
+
+The YAML lists all eleven stages, their input/output text keys, model settings,
+and file paths. The quick-start defaults use one actor for each ASR model and
+a model batch size of two; no stage is skipped.
 
 ```bash
-RAY_DATA_OP_RESERVATION_RATIO=0 \
-RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB=4096 \
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/indic_asr \
   --config-name pipeline \
-  dataset_dir=DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11 \
-  indic_canary_engine_dir=MODEL_WEIGHTS_ROOT/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
-  parakeet_tensorrt_engine_dir=MODEL_WEIGHTS_ROOT/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  output_path=./indic_asr_output/xenna.jsonl \
-  backend=xenna \
-  execution_mode=streaming
+  dataset_dir=/data/indic_asr \
+  indic_canary_engine_dir=/models/indic_canary \
+  parakeet_tensorrt_engine_dir=/models/parakeet \
+  output_path=/outputs/indic_asr_xenna.jsonl
 ```
 
-## Run with Ray Data
+To use Ray Data, run the same command with
+`backend=ray_data output_path=/outputs/indic_asr_ray_data.jsonl` instead of the
+Xenna output argument. Both paths use the same input files and stages.
 
-Use the same manifest, audio root, engines, processor settings, and actor
-counts. Change only the executor and output path:
+Use a **fresh output path** for every run: the manifest writer overwrites an
+existing output. Model loading may dominate the runtime of this short sample.
+
+Check the result without assuming that either model reproduces the reference
+exactly. For Ray Data, pass `/outputs/indic_asr_ray_data.jsonl` instead:
 
 ```bash
-RAY_DATA_OP_RESERVATION_RATIO=0 \
-RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB=4096 \
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/indic_asr \
-  --config-name pipeline \
-  dataset_dir=DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11 \
-  indic_canary_engine_dir=MODEL_WEIGHTS_ROOT/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
-  parakeet_tensorrt_engine_dir=MODEL_WEIGHTS_ROOT/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  output_path=./indic_asr_output/ray_data.jsonl \
-  backend=ray_data
+python - /outputs/indic_asr_xenna.jsonl <<'PY'
+import json
+import math
+import sys
+from pathlib import Path
+
+inputs = [json.loads(line) for line in Path("/data/indic_asr/manifest.jsonl").read_text().splitlines()]
+outputs = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
+assert len(inputs) == len(outputs) == 2
+assert {row["audio_item_id"] for row in inputs} == {row["audio_item_id"] for row in outputs}
+for row in outputs:
+    for key in ("primary_model_prediction", "fallback_model_prediction",
+                "best_prediction", "cleaned_text", "abbreviated_text"):
+        assert isinstance(row[key], str) and row[key].strip(), (row["audio_item_id"], key)
+    assert math.isfinite(row["wer_pct"]) and row["wer_pct"] >= 0
+    assert "waveform" not in row
+    print(row["audio_item_id"], row["abbreviated_text"], row["wer_pct"])
+PY
 ```
 
-Choose a fresh output path for every tutorial run: the manifest writer
-overwrites an existing file. The benchmark harness separately rejects an
-existing output manifest.
+## Use your own audio
 
-## Small one-GPU functional run
+Provide a JSONL manifest with one row per clip:
 
-For a short local manifest, retain every stage and reduce only concurrency:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 \
-RAY_DATA_OP_RESERVATION_RATIO=0 \
-RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB=4096 \
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/indic_asr \
-  --config-name pipeline \
-  dataset_dir=DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11 \
-  manifest_path=DATASETS_ROOT/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest-1h.jsonl \
-  indic_canary_engine_dir=/models/indic_canary_engine_for_this_gpu \
-  parakeet_tensorrt_engine_dir=/models/parakeet_engine_for_this_gpu \
-  output_path=/tmp/indic_asr_1h.jsonl \
-  backend=xenna \
-  read_concurrency=1 \
-  prep_workers=1 \
-  primary_workers=1 \
-  fallback_workers=1
+```json
+{"audio_filepath":"audio/my_clip.wav","audio_item_id":"my_clip","duration":6.26,"sampling_rate":16000,"source_lang":"hi","text":"इस ऑडियो का वास्तविक संदर्भ प्रतिलेख"}
 ```
 
-This still executes all eleven stages. The GPU must satisfy both engine
-architectures, the CUDA 13 driver requirement, and the configured model-memory
-reservations; reducing the row count does not reduce static engine memory.
+`duration` must match decoded audio duration within 1 ms; replace the example
+value with your file's duration. Relative paths resolve against `dataset_dir`.
+Supply Hindi audio at 16 kHz and a nonempty reference in `text`. The preparation
+stage converts loaded audio to mono, validates it, preserves the reference,
+and initializes the model fields. References are used for WER, not supplied
+as ASR prompts.
 
-## Benchmark entries and acceptance
+Use clips between **0.5 and 40 seconds** for this configuration. Split longer
+recordings before creating the manifest: the Canary adapter truncates input
+after 40 seconds, even though Parakeet's engine mode can process longer audio.
 
-`benchmarking/benchmarks.yaml` contains the canonical performance entries:
+## Output and troubleshooting
 
-- `audio_indic_asr_xenna` uses the full 216,164-row retained cohort, requires
-  the exact duration, manifest byte count, and manifest hash above, and gates
-  harness `exec_time_s` between 600 and 900 seconds on the standard eight-H100
-  EOS runner.
-- `audio_indic_asr_raydata` uses that byte-identical cohort and the same exact
-  correctness requirements, but has no runtime gate.
+Each output row retains its identity and audio metadata, plus both model
+predictions, `best_prediction`, `best_prediction_source`, `cleaned_text`,
+`abbreviated_text`, `wer_pct`, `_skipme`, and `additional_notes`.
 
-Both entries require one output per input identity, unchanged audio paths and
-durations, finite WER, a recognized primary/fallback provenance, and complete
-selected prediction text.
+- **Missing TensorRT-LLM or native import error:** use the dedicated container
+  and its smoke check, not the normal `all` or `audio_tensorrt` environment.
+- **CUDA or engine deserialization failure:** check the host driver, GPU
+  architecture, and the versions used to build both engine bundles.
+- **Insufficient GPU memory:** shortening the manifest does not shrink the
+  engines; retain the documented model-memory requirements.
+- **Missing audio:** verify the manifest and its paths under `dataset_dir`.
+- **Missing model file:** compare your bundle to the full layout above.
 
-Selecting those benchmark names does not select a Dockerfile or install
-TRT-LLM. The benchmark harness invokes `python` from its existing launch
-environment. Run `benchmarking/run.py` directly inside the dedicated image;
-NeMo-CI can select a published copy with `--test-image`. Do not wrap this image
-with `benchmarking/Dockerfile`, which re-syncs the normal `all` stack. Existing
-site-specific launchers that require the removed root extra must be updated
-before submission. See the environment requirements in
-[`benchmarking/README.md`](../../../benchmarking/README.md).
+## What each stage does: one recorded row
 
-## Output fields
+This example uses `parakeet_hindi_asr_train_hindi_219834`, a 6.26-second Hindi
+clip from [ketav/parakeet-hindi-asr](https://huggingface.co/datasets/ketav/parakeet-hindi-asr/tree/35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0).
+It is a historical input/output pair recorded with Curator commit
+[`89cccf46`](https://github.com/NVIDIA-NeMo/Curator/commit/89cccf463f14f382a0be276d8d6cad9096ee70a5),
+not expected output for the two FLEURS clips above. Both executors produced
+the same final bytes for this identity.
 
-Each JSONL row retains the input identity and includes:
+### What was recorded, and what is reconstructed
 
-- `primary_model_prediction` from Indic Canary;
-- `fallback_model_prediction` from Parakeet TensorRT;
-- `best_prediction` and `best_prediction_source`;
-- `cleaned_text` and `abbreviated_text`;
-- `wer_pct`, `_skipme`, and `additional_notes`.
+The run retained the input manifest and final output JSONL, including both ASR
+predictions, selected/cleaned text, and stage notes. It did **not** retain a full
+`AudioTask` snapshot after every stage: only the final JSONL rows were persisted.
+The saved task archives are empty, and the execution logs do not contain this
+row's intermediate contents either.
 
-## Troubleshooting
+Consequently, the two endpoint JSONL lines below are original recorded bytes;
+the stage-by-stage account is a reconstruction from the implementation and the
+fields preserved in the final row. The model predictions are recorded values,
+not newly generated examples. Waveform arrays, model features, decoder tokens,
+and complete earlier task states cannot be recovered as original snapshots.
+The waveform is described by shape and type instead of inventing its samples.
 
-- **Missing TensorRT-LLM or native import failure**: rebuild the dedicated
-  audio image above and rerun its runtime check. Confirm `python --version`
-  is Python 3.12. Do not run root `uv sync` or install TRT-LLM into an active
-  `all` / Torch 2.11 environment.
-- **CUDA initialization error**: verify the driver supports CUDA 13 and the
-  engine was built for the current GPU architecture.
-- **Missing audio**: `dataset_dir` must contain both `manifest.jsonl` and its
-  referenced `audio/` tree.
-- **Missing engine file**: compare the bundle with the complete layout above.
-- **Output already exists**: choose a fresh path before running the tutorial;
-  its manifest writer overwrites existing files.
-- **EOS timing comparison**: use the benchmark harness's `exec_time_s`, not a
-  shell timer around this tutorial command.
+For this example, a CPU-only reconstruction decoded the original audio and
+replayed the preparation, filtering, selection, cleanup, WER, and writer stages,
+using the recorded predictions at the two model-result boundaries. The replayed
+writer output matched the captured final line byte for byte. This validates
+the reconstruction; it is not a new model-inference run or an original trace.
+
+The hashes below cover each UTF-8 JSONL record **including its trailing LF**;
+the JSON code blocks preserve that line, its key order, spacing, and spelling.
+
+| Record | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Original input | 395 | `e13552b3090921d501773a158387aabcdfeec421809c2864b112bd8af9a2afcd` |
+| Final output | 1741 | `35db141c11388becf519185ff56c549c4558935edcea8b853ce66121e292674d` |
+
+### Original input: verbatim
+
+```json
+{"audio_filepath":"audio/hindi_219834.flac","audio_item_id":"parakeet_hindi_asr_train_hindi_219834","corpus":"Parakeet Hindi ASR","duration":6.26,"sampling_rate":16000,"source_audio_filepath":"/data/hindi_data/audio/hindi_219834.wav","source_lang":"hi","text":"पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ"}
+```
+
+The recorded run resolved the relative input path to
+`/tmp/curator/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/audio/hindi_219834.flac`
+before its reader. This tutorial resolves relative paths in
+`PrepareIndicASRInputStage` using `dataset_dir`; `source_audio_filepath` remains
+unchanged. An input path in this historical example is provenance, not a file
+that the quick-start commands require.
+
+### Stage-by-stage mutations
+
+To avoid repeating long strings in every row, the table uses these aliases
+for the exact recorded text values; the aliases are not fields in the data:
+
+```text
+R (reference): पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ
+P (Canary):    पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ
+F (Parakeet):  पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएं।
+```
+
+Each row below describes changes to `AudioTask.data` for the **same input row**; fields not
+mentioned remain unchanged. Nested notes accumulate rather than replacing the
+whole `additional_notes` object. Model-stage text and final notes are recorded;
+the placement of changes at each boundary is reconstructed. The explicit
+[`pipeline.yaml`](pipeline.yaml) lists the stages in this order.
+
+| Stage / function | What it does | Mutation for this row |
+| --- | --- | --- |
+| 1. `ManifestReader` → `ManifestReaderStage.process()` | Partitions manifest files, parses JSONL, and creates one `AudioTask` per row; it does not decode audio or run ASR. | Carries the input fields and the already-normalized absolute `audio_filepath`. No transcript fields have been added yet. |
+| 2. `PrepareIndicASRInputStage.process()` | Loads audio, requires Hindi and a nonempty reference, validates mono 16 kHz audio and duration within 1 ms, and initializes the pipeline fields. | Removes `text`; adds `reference_text=R`, `granary_v1_prediction=R`, `_skipme=""`, and `waveform` (float32, shape `[1, 100159]`). Keeps `sampling_rate=16000`. Initializes notes with `primary_model="indic_canary"` and `recovery_model="parakeet_riva"`. |
+| 3. `InferenceIndicCanaryStage` → `ASRStage.process_batch()` / `assemble()` | Transcribes with the TensorRT encoder and TensorRT-LLM decoder: beam size 4, at most 347 new tokens, `pnc=false`. Keeps the waveform for the next model. | Adds `primary_model_prediction=P` and `asr_language="hi"`; reference text is not supplied to the model. The 6.26-second clip does not need the 40-second truncation path. |
+| 4. `WhisperHallucinationStage.process()` — primary | Checks repeated words, unusually long words, known hallucination phrases, and excessive character rate. It annotates a row rather than dropping it. | Adds `additional_notes.WhisperHallucination_primary="passed"`; `_skipme` stays empty and `P` is unchanged. |
+| 5. `InferenceParakeetStage` → `ASRStage.process_batch()` / `assemble()` | Runs the Parakeet TensorRT encoder with the NeMo/PyTorch RNN-T decoder. It runs on eligible Hindi rows even when the primary check passed. | Adds `fallback_model_prediction=F`, keeps `asr_language="hi"`, and removes `waveform` because `keep_waveform=false`. The different spelling/punctuation in `F` is genuine model output. |
+| 6. `WhisperHallucinationStage.process()` — recovery | Checks the fallback transcript. With `overwrite=true`, a valid fallback can clear a prior hallucination flag and record recovery. | Adds `additional_notes.WhisperHallucination_asr="passed"`; no recovery is needed here, so `_skipme` remains empty. |
+| 7. `SelectBestPredictionStage.process()` | Chooses a transcript using support/recovery notes and, when needed, cross-model agreement. Ordinary valid rows keep the primary result. Short-audio ground-truth substitution is disabled in this configuration. | Adds `best_prediction=P`, `best_prediction_source="primary"`, and `additional_notes.SelectBestPrediction="used primary"`. No agreement score is calculated for this unflagged row; neither `F` nor `R` replaces `P`. |
+| 8. `RegexSubstitutionStage.process()` | Applies the ordered Granary regex rules to the selected transcript, including punctuation/formatting normalization, bracketed-content removal, character filtering, and whitespace cleanup. Already-flagged rows are not normalized. | Adds `cleaned_text=P`. This particular text needs no changes; the stage does not correct the reference spelling. |
+| 9. `AbbreviationConcatStage.process()` | Joins eligible spaced single-letter abbreviations using its language-aware rules, and records a note when a join occurs. | Adds `abbreviated_text=P`. There is no eligible abbreviation in this row, so no abbreviation note is added. |
+| 10. `GetPairwiseWerStage.process()` | Compares `abbreviated_text` with `reference_text` using word-level edit distance, stores a percentage rounded to four decimal places, and leaves both strings unchanged. | Adds `wer_pct=11.1111`: one substitution (`फाश्टेग` → `फास्टैग`) among nine reference words, or `100 × 1 / 9`. |
+| 11. `ManifestWriterStage.process()` | Serializes `task.data` as UTF-8 JSONL using `ensure_ascii=False`, through the single configured writer. | Writes the complete recorded row below, including both predictions and notes; no waveform is present. It does not rewrite the transcripts or omit this row. |
+
+The decoded clip contains 100,159 samples at 16 kHz: 6.2599375 seconds. The
+manifest's `duration=6.26` is rounded and remains unchanged in the output.
+
+“Recovery” describes the fallback-selection policy, not conditional execution
+of Parakeet. Both models ran on this row. This example follows the normal
+primary-selection path: it does not demonstrate hallucination recovery, a regex
+edit, or an abbreviation join.
+
+### Final output: verbatim
+
+```json
+{"audio_filepath": "/tmp/curator/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/audio/hindi_219834.flac", "audio_item_id": "parakeet_hindi_asr_train_hindi_219834", "corpus": "Parakeet Hindi ASR", "duration": 6.26, "sampling_rate": 16000, "source_audio_filepath": "/data/hindi_data/audio/hindi_219834.wav", "source_lang": "hi", "additional_notes": {"primary_model": "indic_canary", "recovery_model": "parakeet_riva", "WhisperHallucination_primary": "passed", "WhisperHallucination_asr": "passed", "SelectBestPrediction": "used primary"}, "granary_v1_prediction": "पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ", "reference_text": "पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ", "_skipme": "", "primary_model_prediction": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "asr_language": "hi", "fallback_model_prediction": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएं।", "best_prediction": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "best_prediction_source": "primary", "cleaned_text": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "abbreviated_text": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "wer_pct": 11.1111}
+```

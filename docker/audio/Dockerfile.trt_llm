@@ -86,7 +86,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && find /opt/venv -type d -path '*/site-packages/ray/jars' -prune -exec rm -rf {} + \
     && find /opt/venv -type d -path '*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*' -exec rm -rf {} +
 
-# The tutorial's Hydra targets include the repository-local benchmarking package.
+# Keep repository-local tutorial and benchmark entry points importable.
 ENV PYTHONPATH=/opt/Curator
 COPY . /opt/Curator
 COPY <<'EOF' /opt/venv/env.sh
