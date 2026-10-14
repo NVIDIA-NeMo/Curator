@@ -298,6 +298,31 @@ These build arguments support the tutorial's 40-second window, four beams,
 and 347-new-token limit. Their command-line arguments have been checked,
 but fresh checkpoint conversion has not been validated here.
 
+## Measured pipeline throughput: Xenna streaming
+
+EOS job `487195911` in pipeline `73816659`, run on October 14, 2026 at
+Curator commit `de9680b0`, measured the same eleven-stage chain on a full
+Hindi cohort. This is separate from the two-clip tutorial above: the larger
+run used eight workers per model and batches of 64, rather than one worker
+per model and batches of two.
+
+| Measurement | Result |
+| --- | --- |
+| Executor mode | Xenna streaming |
+| Hardware | 8 × NVIDIA H100 80GB HBM3 on one EOS node |
+| Input and output | 216,164 unique clips; 531.75763 audio hours |
+| Pipeline wall time (`pipeline_time_s`) | 554.05 seconds |
+| Whole-node pipeline throughput | 3,455.13 audio-hours/hour |
+| Pipeline throughput per GPU | **431.89 audio-hours/GPU-hour** |
+
+Per-GPU throughput is `531.75763 × 3600 / 554.0537785505876 / 8`.
+The timer includes executor and model initialization, all eleven stages
+(including audio loading and output writing), and executor cleanup. It
+excludes queue time, container startup, dataset download, pre-run runtime
+checks and input-manifest verification/sharding, and post-run output
+validation. This is pipeline throughput, not model-only inference or
+full-process throughput.
+
 ## What each stage does
 
 <details>
@@ -305,16 +330,13 @@ but fresh checkpoint conversion has not been validated here.
 
 This is the first FLEURS clip downloaded above:
 `fleurs_hi_in_validation_1602_10003386135529782184` (12.24 seconds).
-The input and output come from the [two-clip EOS tutorial run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/486969634)
-at Curator commit [`8abedf2b`](https://github.com/NVIDIA-NeMo/Curator/commit/8abedf2bd3dcf98825e14247983a007ad0432ec7).
-Both Xenna and Ray Data produced the same bytes for this row; their files
-have different row order. This run predates the Parakeet CUDA-graph change
-and does not validate that newer setting.
+The input and output come from the [two-clip EOS tutorial run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/487195910)
+(pipeline `73816659`) at Curator commit [`de9680b0`](https://github.com/NVIDIA-NeMo/Curator/commit/de9680b0cff1d19089d0889267e20998f0a6d51e).
+Both Xenna and Ray Data produced byte-identical output files, including this row.
 
 The input and final output below are original recorded bytes. Intermediate
-task snapshots were not saved, so the stage descriptions are reconstructed.
-A CPU replay of the same source, using the original audio and recorded
-model predictions, reproduced the final bytes. It did not rerun either model.
+task snapshots were not saved, so the stage descriptions are reconstructed
+from that source code and the recorded results.
 
 Hashes include the trailing newline of each UTF-8 JSONL record:
 
