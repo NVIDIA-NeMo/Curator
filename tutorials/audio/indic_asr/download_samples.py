@@ -25,12 +25,12 @@ from urllib.request import Request, urlopen
 
 import soundfile as sf
 
-REVISION = "70bb2e84b976b7e960aa89f1c648e09c59f894dd"
+REVISION = "70bb2e84b976b7e960aa89f1c648e09c59f894dd"  # pragma: allowlist secret
 BASE_URL = f"https://huggingface.co/datasets/google/fleurs/resolve/{REVISION}/data/hi_in"
-METADATA_SHA256 = "cea87c57a37a0d38ed0afce30e68a35ad7b3945414648430fee09a54ca7b72ba"
+METADATA_SHA256 = "cea87c57a37a0d38ed0afce30e68a35ad7b3945414648430fee09a54ca7b72ba"  # pragma: allowlist secret
 SAMPLES = {
-    "10003386135529782184.wav": "eaf505bbf7f4ce5543af9242678b0a992f11d933a4878685b7bbfd817c4e422d",
-    "10028896103651079035.wav": "f9910565cad24bb9a7a3129d1e6a171393fd041d339f961c8233ba0bd1276fef",
+    "10003386135529782184.wav": "eaf505bbf7f4ce5543af9242678b0a992f11d933a4878685b7bbfd817c4e422d",  # pragma: allowlist secret
+    "10028896103651079035.wav": "f9910565cad24bb9a7a3129d1e6a171393fd041d339f961c8233ba0bd1276fef",  # pragma: allowlist secret
 }
 SAMPLE_RATE = 16000
 ARCHIVE_PREFIX_BYTES = 2 * 1024 * 1024

@@ -51,15 +51,21 @@ EXPECTED_NUM_ROWS = 216_164
 EXPECTED_TOTAL_DURATION_MS = 1_914_327_468
 EXPECTED_REJECTED_DURATION_MS = 58_233
 EXPECTED_CANONICAL_MANIFEST_BYTES = 116_382_162
-EXPECTED_CANONICAL_MANIFEST_SHA256 = "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"
+EXPECTED_CANONICAL_MANIFEST_SHA256 = (
+    "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"  # pragma: allowlist secret
+)
 EXPECTED_AUDIO_INVENTORY_BYTES = 22_136_933
-EXPECTED_AUDIO_INVENTORY_SHA256 = "5f96be6dc78711107fa8ad1e1d1c4d05a1b1ef1e02eb4026b42519f1a8de8166"
+EXPECTED_AUDIO_INVENTORY_SHA256 = (
+    "5f96be6dc78711107fa8ad1e1d1c4d05a1b1ef1e02eb4026b42519f1a8de8166"  # pragma: allowlist secret
+)
 EXPECTED_AUDIO_BYTES = 36_406_201_076
 EXPECTED_DECODED_FRAMES = 30_629_236_133
 EXPECTED_REFERENCED_MEMBER_BYTES = 36_406_725_364
 EXPECTED_UNREFERENCED_AUDIO_COUNT = 33_246
 EXPECTED_UNREFERENCED_AUDIO_NAMES_BYTES = 797_904
-EXPECTED_UNREFERENCED_AUDIO_NAMES_SHA256 = "396b930cf1a68f69c4596bcf58bd85805fe6c3f2c2ddfe4c654ab6dc76d82d5b"
+EXPECTED_UNREFERENCED_AUDIO_NAMES_SHA256 = (
+    "396b930cf1a68f69c4596bcf58bd85805fe6c3f2c2ddfe4c654ab6dc76d82d5b"  # pragma: allowlist secret
+)
 
 SAMPLE_RATE = 16_000
 CHANNELS = 1
@@ -109,7 +115,7 @@ REJECTED_AUDIO_MEMBERS = (
         filename="hindi_017643.flac",
         archive_member="audio/hindi_017643.flac",
         archive_size=0,
-        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # pragma: allowlist secret
         line_number=16_722,
         source_audio_filepath="/data/hindi_data/audio/hindi_017643.wav",
         source_duration_ms=7_457,
@@ -121,7 +127,7 @@ REJECTED_AUDIO_MEMBERS = (
         filename="hindi_017655.flac",
         archive_member="audio/hindi_017655.flac",
         archive_size=262_144,
-        sha256="d268fbd944bd439a4fe66efbf70f3764531b932644727feda1b144765cb6898b",
+        sha256="d268fbd944bd439a4fe66efbf70f3764531b932644727feda1b144765cb6898b",  # pragma: allowlist secret
         line_number=16_734,
         source_audio_filepath="/data/hindi_data/audio/hindi_017655.wav",
         source_duration_ms=17_362,
@@ -133,7 +139,7 @@ REJECTED_AUDIO_MEMBERS = (
         filename="hindi_017656.flac",
         archive_member="audio/hindi_017656.flac",
         archive_size=262_144,
-        sha256="7360b6d905953510ac85c8aa4a2eb5bf947d02f31d4e92a2c782fa553b8faaf7",
+        sha256="7360b6d905953510ac85c8aa4a2eb5bf947d02f31d4e92a2c782fa553b8faaf7",  # pragma: allowlist secret
         line_number=16_735,
         source_audio_filepath="/data/hindi_data/audio/hindi_017656.wav",
         source_duration_ms=15_329,
@@ -145,7 +151,7 @@ REJECTED_AUDIO_MEMBERS = (
         filename="hindi_017666.flac",
         archive_member="audio/hindi_017666.flac",
         archive_size=0,
-        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # pragma: allowlist secret
         line_number=16_745,
         source_audio_filepath="/data/hindi_data/audio/hindi_017666.wav",
         source_duration_ms=9_242,
@@ -157,7 +163,7 @@ REJECTED_AUDIO_MEMBERS = (
         filename="hindi_018619.flac",
         archive_member="audio/hindi_018619.flac",
         archive_size=0,
-        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # pragma: allowlist secret
         line_number=17_644,
         source_audio_filepath="/data/hindi_data/audio/hindi_018619.wav",
         source_duration_ms=8_843,

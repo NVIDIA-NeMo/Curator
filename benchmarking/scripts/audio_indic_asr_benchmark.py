@@ -53,7 +53,9 @@ from nemo_curator.stages.resources import Resources
 EXPECTED_NUM_ROWS = 216_164
 EXPECTED_TOTAL_DURATION_MS = 1_914_327_468
 EXPECTED_MANIFEST_BYTES = 116_382_162
-EXPECTED_MANIFEST_SHA256 = "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"
+EXPECTED_MANIFEST_SHA256 = (
+    "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"  # pragma: allowlist secret
+)
 GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 CANARY_REQUIRED_FILES = (
     "encoder/encoder.plan",
