@@ -791,9 +791,9 @@ present.
 through the YAML pipeline loader. They use a shared, deterministic prefix of
 LibriSpeech `train.clean.100` totaling at least five hours, with its human `text`
 labels supplied in the Qwen prompt. The final clip is kept whole, so the duration
-may slightly exceed five hours. Neither entry nor its data setup is enabled:
-the cohort size and runtime are **uncalibrated**, and no throughput threshold or
-8-H100 runtime claim is made.
+may slightly exceed five hours. Neither entry nor its data setup is enabled.
+This default five-hour recipe remains **uncalibrated**; the EOS measurements
+below use a larger cohort from an existing audio benchmark cache.
 
 Stage the public data and the launcher's pinned model before running either
 entry (replace the path placeholders with shared paths visible to all workers):
@@ -848,6 +848,29 @@ zero skipped rows. `params.json` records the resolved tutorial configuration;
 `metrics.json` records errors and a failed process exit when execution or output
 validation fails. WER against a label already included in the prompt is not an
 independent transcription-quality measure, so this benchmark does not report it.
+
+EOS validation on 2026-10-14 at code commit `c9e4c5fb` reused 14,290 unique
+LibriSpeech clips (51.031389 audio hours), with one exclusive eight-H100 node per
+executor. The pinned environment used PyTorch 2.9.1+cu128, vLLM 0.15.1, and
+Ray 2.54.0. Both outputs passed coverage, original-reference preservation,
+nonempty prediction, and duration checks, with zero skipped rows.
+
+| Executor | Full native process | `pipeline.run` | Output rows |
+| --- | ---: | ---: | ---: |
+| Xenna streaming | 567.71 s | 563.12 s | 14,290 |
+| Ray Data | 812.24 s | 807.00 s | 14,290 |
+
+Full native time includes imports and model startup; it excludes queueing,
+container import, and the separate readiness probe. Xenna missed the frozen
+600–900-second target by 32.29 seconds. Its earlier run at `ed747e70` also
+finished below that target (573.26 seconds); the cohort was not resized.
+Ray Data completed after fixing a pre-existing NumPy batch truth-value check
+in the shared ASR stage. After excluding worker setup and teardown, all eight
+Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above 10%
+utilization. Ray Data repeatedly restored workers and failed the all-eight-GPU
+activity check. These single-run measurements do not establish a speedup or
+transcription-quality improvement. See
+[EOS validation pipeline 73730345](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/73730345).
 
 ---
 
