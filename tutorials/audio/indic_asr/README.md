@@ -3,8 +3,9 @@
 This tutorial executes the full processor graph used by the
 `audio_indic_asr_xenna` and `audio_indic_asr_raydata` benchmarks directly from
 `pipeline.yaml`. It follows the same YAML-first method as the ALM and Qwen ASR
-tutorials: the shared `nemo_curator/config/run.py` runner instantiates every
-stage, then selects Xenna or Ray Data from one configuration.
+tutorials: the shared `nemo_curator/config/run.py` runner instantiates the
+benchmark's existing pipeline factory through its `workflow` configuration,
+then selects Xenna or Ray Data. The shared runner needs no Indic-specific changes.
 
 There is no tutorial-specific Python wrapper.
 
@@ -24,8 +25,9 @@ ManifestReader
   -> ManifestWriterStage
 ```
 
-The YAML matches the benchmark's model parameters, batch sizes, text fields,
-worker counts, GPU-memory reservations, cleanup stages, and writer count.
+The factory shares the benchmark's model parameters, batch sizes, text fields,
+GPU-memory reservations, cleanup stages, and writer count; the YAML supplies
+paths and worker counts.
 CPU preparation, cleanup, and writer calls group up to 64 rows to amortize
 scheduling overhead; each row still receives the same transformations. The
 writer remains a single worker appending to one output manifest.
@@ -247,10 +249,10 @@ Each JSONL row retains the input identity and includes:
 
 ## Troubleshooting
 
-- **Missing TensorRT-LLM or native import failure**: rerun the root `uv sync`
-  command above and activate its environment. Confirm `python --version` is
-  Python 3.12; do not install this profile into an active `all` / Torch 2.11
-  environment with `uv pip install`.
+- **Missing TensorRT-LLM or native import failure**: rebuild the dedicated
+  audio image above and rerun its runtime check. Confirm `python --version`
+  is Python 3.12. Do not run root `uv sync` or install TRT-LLM into an active
+  `all` / Torch 2.11 environment.
 - **CUDA initialization error**: verify the driver supports CUDA 13 and the
   engine was built for the current GPU architecture.
 - **Missing audio**: `dataset_dir` must contain both `manifest.jsonl` and its

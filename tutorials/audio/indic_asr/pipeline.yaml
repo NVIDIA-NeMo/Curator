@@ -40,116 +40,31 @@ prep_workers: 24
 primary_workers: 8
 fallback_workers: 8
 
-gpu_actor_runtime_env:
-  env_vars:
-    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
-
-stages:
-  - _target_: nemo_curator.stages.audio.common.ManifestReader
-    manifest_path: ${manifest_path}
-    files_per_partition: 1
-    stage_with:
-      manifest_reader_stage:
-        num_workers: ${read_concurrency}
-
-  - _target_: benchmarking.scripts.audio_indic_asr_benchmark.PrepareIndicASRInputStage
+# Reuse the benchmark's stage settings through the shared runner's workflow API.
+workflow:
+  - _target_: benchmarking.scripts.audio_indic_asr_benchmark._build_pipeline
+    input_manifests:
+      _target_: builtins.tuple
+      _args_:
+        - - _target_: pathlib.Path
+            _args_: ["${manifest_path}"]
+    output_manifest:
+      _target_: pathlib.Path
+      _args_: ["${output_path}"]
+    indic_canary_engine_dir:
+      _target_: pathlib.Path
+      _args_: ["${indic_canary_engine_dir}"]
+    parakeet_tensorrt_engine_dir:
+      _target_: pathlib.Path
+      _args_: ["${parakeet_tensorrt_engine_dir}"]
+    regex_yaml:
+      _target_: pathlib.Path
+      _args_: ["${regex_yaml}"]
+    hall_phrases:
+      _target_: pathlib.Path
+      _args_: ["${hall_phrases}"]
+    read_concurrency: ${read_concurrency}
+    prep_workers: ${prep_workers}
+    primary_workers: ${primary_workers}
+    fallback_workers: ${fallback_workers}
     audio_root: ${dataset_dir}
-    stage_with:
-      batch_size: 64
-      num_workers: ${prep_workers}
-
-  - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
-    name: IndicCanary_primary
-    engine_dir: ${indic_canary_engine_dir}
-    num_beams: 4
-    max_new_tokens: 347
-    pnc: false
-    kv_cache_free_gpu_memory_fraction: 0.1
-    cross_kv_cache_fraction: 0.1
-    source_lang_key: source_lang
-    pred_text_key: primary_model_prediction
-    keep_waveform: true
-    batch_size: 64
-    num_workers_override: ${primary_workers}
-    resources:
-      gpu_memory_gb: 50
-    stage_with:
-      runtime_env: ${gpu_actor_runtime_env}
-
-  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
-    name: WhisperHallucination_primary
-    common_hall_file: ${hall_phrases}
-    text_key: primary_model_prediction
-    language_key: source_lang
-    stage_with:
-      batch_size: 64
-
-  - _target_: nemo_curator.stages.audio.inference.parakeet.InferenceParakeetStage
-    name: ParakeetRiva_recovery
-    model_id: ${parakeet_tensorrt_engine_dir}/model.nemo
-    supported_langs:
-      _target_: builtins.set
-      _args_: [[hi]]
-    backend: tensorrt
-    tensorrt_engine_dir: ${parakeet_tensorrt_engine_dir}
-    chunking_mode: engine
-    source_lang_key: source_lang
-    pred_text_key: fallback_model_prediction
-    keep_waveform: false
-    batch_size: 64
-    num_workers_override: ${fallback_workers}
-    resources:
-      gpu_memory_gb: 24
-    stage_with:
-      runtime_env: ${gpu_actor_runtime_env}
-
-  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
-    name: WhisperHallucination_asr
-    common_hall_file: ${hall_phrases}
-    text_key: fallback_model_prediction
-    language_key: source_lang
-    overwrite: true
-    recovery_value: Recovered:ASR
-    stage_with:
-      batch_size: 64
-
-  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
-    primary_text_key: primary_model_prediction
-    fallback_text_key: fallback_model_prediction
-    output_key: best_prediction
-    source_key: best_prediction_source
-    primary_source_label: primary
-    fallback_source_label: fallback
-    reference_text_key: granary_v1_prediction
-    use_ground_truth_for_short_audio: false
-    primary_model_type: indic_canary
-    language_key: source_lang
-    stage_with:
-      batch_size: 64
-
-  - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
-    regex_params_yaml: ${regex_yaml}
-    text_key: best_prediction
-    output_text_key: cleaned_text
-    stage_with:
-      batch_size: 64
-
-  - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
-    text_key: cleaned_text
-    output_text_key: abbreviated_text
-    source_lang_key: source_lang
-    stage_with:
-      batch_size: 64
-
-  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
-    text_key: reference_text
-    pred_text_key: abbreviated_text
-    wer_key: wer_pct
-    stage_with:
-      batch_size: 64
-
-  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
-    output_path: ${output_path}
-    stage_with:
-      batch_size: 64
-      num_workers: 1

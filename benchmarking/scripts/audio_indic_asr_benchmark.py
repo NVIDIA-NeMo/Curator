@@ -343,6 +343,7 @@ def _build_pipeline(  # noqa: PLR0913
     prep_workers: int,
     primary_workers: int,
     fallback_workers: int,
+    audio_root: str | None = None,
 ) -> Pipeline:
     reader = ManifestReader(
         manifest_path=[str(path) for path in input_manifests],
@@ -353,7 +354,7 @@ def _build_pipeline(  # noqa: PLR0913
         description="Hindi Indic Canary ASR with Parakeet TensorRT recovery and Granary-v2 text cleanup",
         stages=[
             reader,
-            PrepareIndicASRInputStage().with_(batch_size=64, num_workers=prep_workers),
+            PrepareIndicASRInputStage(audio_root=audio_root).with_(batch_size=64, num_workers=prep_workers),
             InferenceIndicCanaryStage(
                 name="IndicCanary_primary",
                 engine_dir=str(indic_canary_engine_dir),
