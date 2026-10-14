@@ -356,20 +356,12 @@ flagged rows bypass text cleanup.
 
 This is the first FLEURS clip downloaded above:
 `fleurs_hi_in_validation_1602_10003386135529782184` (12.24 seconds).
-The input and output come from the [two-clip EOS tutorial run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/487195910)
-(pipeline `73816659`) at Curator commit [`de9680b0`](https://github.com/NVIDIA-NeMo/Curator/commit/de9680b0cff1d19089d0889267e20998f0a6d51e).
+The input and output come from the two-clip EOS tutorial run.
 Both Xenna and Ray Data produced byte-identical output files, including this row.
 
 The input and final output below are original recorded bytes. Intermediate
 task snapshots were not saved, so the stage descriptions are reconstructed
-from that source code and the recorded results.
-
-Hashes include the trailing newline of each UTF-8 JSONL record:
-
-| Record | Bytes | SHA-256 |
-| --- | ---: | --- |
-| Original input | 698 | `552cc98ba5bb6aa673f10eeea71507e6aba77b4eab7925d556f000e8cd16440c` |
-| Final output | 3481 | `263091664aa75e6878c681ec2283ba369ee08f6e7c3b455afa5a8cbe1a0bdc56` |
+from the source code and the recorded results.
 
 ### Original input: verbatim
 
