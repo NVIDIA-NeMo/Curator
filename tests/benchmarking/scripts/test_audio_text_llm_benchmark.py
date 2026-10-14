@@ -23,7 +23,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from openai import AsyncOpenAI
 
 from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
@@ -37,11 +37,19 @@ import audio_text_llm_benchmark as benchmark
 
 _OVERRIDES = [
     "model_name=test-model",
-    "text_key=transcript",
-    "operation.prompt=Add punctuation.",
-    "operation.validation_mode=itn",
+    "cache_root=/tmp/audio-text-test-cache",
     "batch_size=2",
     "max_concurrent_requests=1",
+    "stages.1.prompt=RECOVER",
+    "stages.1.user_prompt='{normalized}'",
+    "stages.2.prompt=PNC",
+    "stages.3.prompt=LID",
+    "stages.4.prompt=TN",
+    "stages.5.operations.0.prompt=CAPTION",
+    "stages.5.operations.1.prompt=CODE",
+    "stages.5.operations.2.prompt=QA",
+    "stages.6.prompt=ITN",
+    "stages.7.prompt=DISFLUENCY",
 ]
 
 
@@ -87,7 +95,7 @@ class _LocalExecutor(BaseExecutor):
 
 
 @pytest.fixture
-def runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:  # noqa: C901
+def runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:  # noqa: C901, PLR0915
     state = SimpleNamespace(
         clock=0,
         events=[],
@@ -113,9 +121,13 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:  # noqa: C901
                 state.status, json={"error": {"message": "invalid request", "type": "invalid_request"}}
             )
         text = body["messages"][-1]["content"]
-        content = None if text == "fallback" else text.title() + "."
+        operation = body["messages"][0]["content"]
+        content = text
+        if operation == "PNC":
+            content = None if text == "fallback" else text.title() + "."
+        elif operation == "LID":
+            content = "Primary: English\nLanguages: English"
         if state.full:
-            operation = body["messages"][0]["content"]
             if operation == "RECOVER":
                 content = "यह गलत" if "यह गलत" in text else '<think>checking</think>\n"राम आया"'
             elif operation == "PNC":
@@ -201,7 +213,10 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:  # noqa: C901
 def _manifest(tmp_path: Path, rows: list[dict]) -> str:
     path = tmp_path / "input.jsonl"
     path.write_text(
-        "".join(json.dumps({"audio_item_id": f"row-{index}", **row}) + "\n" for index, row in enumerate(rows))
+        "".join(
+            json.dumps({"audio_item_id": f"row-{index}", "source_lang": "en", **row}) + "\n"
+            for index, row in enumerate(rows)
+        )
     )
     return str(path)
 
@@ -211,11 +226,11 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
     tmp_path: Path, runtime: SimpleNamespace, managed_server: bool
 ) -> None:
     rows = [
-        {"transcript": "hello", "audio_filepath": "untouched.wav", "nested": {"keep": [1, 2]}},
-        {"transcript": "fallback"},
+        {"text": "hello", "abbreviated_text": "hello", "audio_filepath": "untouched.wav", "nested": {"keep": [1, 2]}},
+        {"text": "fallback", "abbreviated_text": "fallback"},
         {"_skipme": True},
-        {"transcript": " "},
-        {"transcript": "last"},
+        {"text": " ", "abbreviated_text": " "},
+        {"text": "last", "abbreviated_text": "last"},
     ]
     overrides = [
         *_OVERRIDES,
@@ -223,39 +238,55 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
     ]
 
     manifest = _manifest(tmp_path, rows)
-    result = benchmark.run_audio_text_llm_benchmark(manifest, overrides, config_name="single_operation")
+    result = benchmark.run_audio_text_llm_benchmark(manifest, overrides)
 
     assert runtime.ray_num_gpus == (None if managed_server else 0)
     assert result["metrics"] == {
         "is_success": True,
-        "time_taken_s": 6,
+        "time_taken_s": 42,
         "inference_server_startup_s": 13 if managed_server else 0,
         "num_input_rows": 5,
         "num_output_rows": 5,
         "input_output_coverage_ratio": 1.0,
         "input_manifest_bytes": Path(manifest).stat().st_size,
         "input_manifest_sha256": hashlib.sha256(Path(manifest).read_bytes()).hexdigest(),
-        "num_operations": 1,
-        "num_requests": 3,
-        "num_applied": 2,
+        "num_operations": 9,
+        "num_requests": 27,
+        "num_applied": 26,
         "num_fallbacks": 1,
-        "num_skipped": 2,
-        "throughput_requests_per_sec": 0.5,
-        "throughput_rows_per_sec": 5 / 6,
-        "fallback_ratio": 1 / 3,
-        "operations": {"PnCRestoration": {"num_requests": 3, "num_applied": 2, "num_fallbacks": 1, "num_skipped": 2}},
+        "num_skipped": 18,
+        "throughput_requests_per_sec": 27 / 42,
+        "throughput_rows_per_sec": 5 / 42,
+        "fallback_ratio": 1 / 27,
+        "operations": {
+            operation.name: {
+                "num_requests": 3,
+                "num_applied": 2 if operation.name == "PnCRestoration" else 3,
+                "num_fallbacks": 1 if operation.name == "PnCRestoration" else 0,
+                "num_skipped": 2,
+            }
+            for stage in runtime.stages
+            for operation in stage.operation_stages()
+        },
     }
     tasks = result["tasks"]
     assert [task.data["pnc_text"] for task in tasks] == ["Hello.", "fallback", "", " ", "Last."]
     assert all(task is original for task, original in zip(tasks, runtime.inputs, strict=True))
     assert tasks[0].data["nested"] == rows[0]["nested"]
     assert tasks[0].data["audio_filepath"] == "untouched.wav"
-    assert all(len(task._stage_perf) == 1 for task in tasks)
-    assert result["params"]["stages"][0]["text_key"] == "transcript"
-    assert result["params"]["stages"][0]["validation_mode"] == "itn"
-    assert len(runtime.clients) == 2
+    assert all(len(task._stage_perf) == 7 for task in tasks)
+    with benchmark.hydra.initialize_config_dir(version_base=None, config_dir=str(benchmark._CONFIG_DIR)):
+        tutorial = benchmark.hydra.compose(
+            config_name="text_pipeline", overrides=[*overrides, "endpoint=http://dynamo.test/v1"]
+        )
+    assert result["params"]["stages"] == [
+        OmegaConf.to_container(stage, resolve=True) for stage in tutorial.stages[1:-1]
+    ]
+    assert result["params"]["inference_server"] == OmegaConf.to_container(tutorial.inference_server, resolve=True)
+    assert result["params"]["config_path"] == str(benchmark._CONFIG_DIR / "text_pipeline.yaml")
+    assert len(runtime.clients) == 14
     assert all(client.is_closed() for client in runtime.clients)
-    assert [request["messages"][-1]["content"] for request in runtime.requests] == ["hello", "fallback", "last"]
+    assert len(runtime.requests) == 27
     assert all(request["model"] == "test-model" for request in runtime.requests)
     assert runtime.events == [
         "read",
@@ -275,19 +306,17 @@ def test_logical_counts_survive_retries_and_independent_row_serialization(
     runtime.retry_once = True
     runtime.serialize = True
     runtime.usage = usage
-    rows = [{"transcript": "first"}, {"transcript": "second"}, {"transcript": "third"}]
-    result = benchmark.run_audio_text_llm_benchmark(
-        _manifest(tmp_path, rows), [*_OVERRIDES, "max_retries=1"], config_name="single_operation"
-    )
+    rows = [{"text": text, "abbreviated_text": text} for text in ("first", "second", "third")]
+    result = benchmark.run_audio_text_llm_benchmark(_manifest(tmp_path, rows), [*_OVERRIDES, "max_retries=1"])
     metrics = result["metrics"]
-    assert metrics["num_requests"] == metrics["num_applied"] == 3
+    assert metrics["num_requests"] == metrics["num_applied"] == 27
     assert metrics["num_output_rows"] == 3
-    assert len(runtime.requests) == 4
-    assert metrics["throughput_requests_per_sec"] == 3 / 4
+    assert len(runtime.requests) == 28
+    assert metrics["throughput_requests_per_sec"] == 27 / 28
     assert "num_request_attempts" not in metrics
     assert "stage_metrics" not in metrics
     assert "throughput_completion_tokens_per_sec" not in metrics
-    assert len(runtime.clients) == 2
+    assert len(runtime.clients) == 14
     assert all(client.is_closed() for client in runtime.clients)
 
 
@@ -300,13 +329,13 @@ def test_full_graph_processes_recovery_dependencies_and_language_skips(
     rows = [
         {
             "audio_item_id": "wrong",
-            "granary_v1_prediction": "यह गलत",
+            "text": "यह गलत",
             "abbreviated_text": "यह गलत",
             "source_lang": "hi",
         },
         {
             "audio_item_id": "flagged",
-            "granary_v1_prediction": "मूल",
+            "text": "मूल",
             "abbreviated_text": "मूल",
             "source_lang": "hi",
             "_skipme": "upstream",
@@ -317,13 +346,13 @@ def test_full_graph_processes_recovery_dependencies_and_language_skips(
             [
                 {
                     "audio_item_id": "equal",
-                    "granary_v1_prediction": "राम आया",
+                    "text": "राम आया",
                     "abbreviated_text": "राम आया",
                     "source_lang": "hi",
                 },
                 {
                     "audio_item_id": "repaired",
-                    "granary_v1_prediction": "राम आया",
+                    "text": "राम आया",
                     "abbreviated_text": "रम आया",
                     "source_lang": "hi",
                     "additional_notes": {"upstream": "keep"},
@@ -331,23 +360,10 @@ def test_full_graph_processes_recovery_dependencies_and_language_skips(
             ]
         )
     overrides = [
+        *_OVERRIDES,
         "endpoint=http://dynamo.test/v1",
-        "model_name=test-model",
-        "batch_size=2",
         "max_concurrent_requests=2",
     ]
-    prompts = {
-        "recover_entities": "RECOVER",
-        "pnc": "PNC",
-        "language_id": "LID",
-        "tn": "TN",
-        "captioning": "CAPTION",
-        "code_switching": "CODE",
-        "speech_qa": "QA",
-        "itn": "ITN",
-        "disfluency": "DISFLUENCY",
-    }
-    overrides.extend(f"{key}.prompt={prompt}" for key, prompt in prompts.items())
     manifest = _manifest(tmp_path, rows)
 
     result = benchmark.run_audio_text_llm_benchmark(
@@ -375,7 +391,7 @@ def test_full_graph_processes_recovery_dependencies_and_language_skips(
         assert outputs["repaired"]["additional_notes"]["RecoverEntities"] == "recovered"
         assert outputs["repaired"]["additional_notes"]["upstream"] == "keep"
         assert outputs["repaired"]["abbreviated_text"] == "रम आया"
-        assert outputs["repaired"]["granary_v1_prediction"] == "राम आया"
+        assert outputs["repaired"]["text"] == "राम आया"
         assert outputs["repaired"]["itn_clean"] == "राम आया"
         assert outputs["repaired"]["captioning_text"] == "यह विवरण है।"
     assert all(client.is_closed() for client in runtime.clients)
@@ -386,7 +402,7 @@ def test_full_graph_processes_recovery_dependencies_and_language_skips(
 def test_cohort_preflight_rejects_mismatch_before_startup(
     tmp_path: Path, runtime: SimpleNamespace, invalid: str
 ) -> None:
-    rows = [{"transcript": "hello"}, {"transcript": "last"}]
+    rows = [{"text": text, "abbreviated_text": text} for text in ("hello", "last")]
     kwargs = {}
     if invalid == "duplicate":
         rows[0]["audio_item_id"] = rows[1]["audio_item_id"] = "duplicate"
@@ -395,9 +411,7 @@ def test_cohort_preflight_rejects_mismatch_before_startup(
     else:
         kwargs["expected_manifest_sha256"] = "0" * 64
     with pytest.raises(ValueError, match=r"unique nonempty string|Expected 3 input rows|SHA-256"):
-        benchmark.run_audio_text_llm_benchmark(
-            _manifest(tmp_path, rows), _OVERRIDES, config_name="single_operation", **kwargs
-        )
+        benchmark.run_audio_text_llm_benchmark(_manifest(tmp_path, rows), _OVERRIDES, **kwargs)
     assert runtime.events == ["read"]
     assert runtime.requests == []
 
@@ -410,10 +424,9 @@ def test_cli_records_failure_and_closes_owned_resources(
     argv = [
         "benchmark",
         "--input-manifest",
-        _manifest(tmp_path, [{"transcript": "hello"}]),
+        _manifest(tmp_path, [{"text": "hello", "abbreviated_text": "hello"}]),
         "--benchmark-results-path",
         str(output_path),
-        "--config-name=single_operation",
     ]
     for override in _OVERRIDES:
         argv.extend(["--override", override])
@@ -434,12 +447,12 @@ def test_cli_records_failure_and_closes_owned_resources(
     assert runtime.events[-3:] == ["executor:done", "server:stop", "ray:stop"]
 
 
-@pytest.mark.parametrize("rows", [[], [{"_skipme": True}], [{"transcript": " "}]])
+@pytest.mark.parametrize("rows", [[], [{"_skipme": True}], [{"text": " ", "abbreviated_text": " "}]])
 def test_empty_workload_cannot_be_reported_as_success(
     tmp_path: Path, runtime: SimpleNamespace, rows: list[dict]
 ) -> None:
     with pytest.raises((ValueError, RuntimeError), match=r"nonempty input manifest|no inference requests"):
-        benchmark.run_audio_text_llm_benchmark(_manifest(tmp_path, rows), _OVERRIDES, config_name="single_operation")
+        benchmark.run_audio_text_llm_benchmark(_manifest(tmp_path, rows), _OVERRIDES)
 
     assert runtime.requests == []
     assert runtime.clients == []
@@ -462,11 +475,14 @@ def test_corrupt_output_fails_after_real_inference(
     tmp_path: Path, runtime: SimpleNamespace, damage: str, error: type[Exception], message: str
 ) -> None:
     runtime.damage = damage
-    rows = [{"transcript": "hello", "nested": {"keep": [1, 2]}}, {"transcript": "last"}]
+    rows = [
+        {"text": "hello", "abbreviated_text": "hello", "nested": {"keep": [1, 2]}},
+        {"text": "last", "abbreviated_text": "last"},
+    ]
     with pytest.raises(error, match=message):
-        benchmark.run_audio_text_llm_benchmark(_manifest(tmp_path, rows), _OVERRIDES, config_name="single_operation")
+        benchmark.run_audio_text_llm_benchmark(_manifest(tmp_path, rows), _OVERRIDES)
 
-    assert len(runtime.requests) == 2
+    assert len(runtime.requests) == 18
     assert runtime.events[-2:] == ["server:stop", "ray:stop"]
 
 

@@ -21,31 +21,27 @@ from pathlib import Path
 import hydra
 import pytest
 from hydra.errors import InstantiationException
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import InterpolationToMissingValueError
 
 from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.core.serve.dynamo.infra import engine_kwargs_to_cli_flags
-from nemo_curator.core.serve.dynamo.vllm import (
-    dynamo_runtime_env,
-    merge_model_runtime_envs,
-    resolve_disagg_role_config,
-)
+from nemo_curator.core.serve.dynamo.vllm import dynamo_runtime_env
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
+from nemo_curator.tasks import AudioTask
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
+TUTORIAL_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing"
 # Resolved prompts from nithinraok/Curator at 1a260a35472229a8a75a122b9a2bb9d92d5855f9.
 PROMPT_HASHES = {
-    "recover_entities": "e6728bc4c8358c9e4f812ede9d553de09fab30eabe98c6e971aac8b7913340e8",  # pragma: allowlist secret
-    "pnc": "47e429e1d6ae5fb44aacae07164e6bdfc4d25cd1f3c9f7e965da93103b6ff39d",  # pragma: allowlist secret
-    "pnc_indic": "e21bc48756162d9effccaa577c56624ba0ea01e5c392714fc2ba716e21b1741a",  # pragma: allowlist secret
-    "tn": "e8f7ea8c70178f4e9bc0049cf21516e154713bc37e7d1a3c3fe5f1b33097ced4",  # pragma: allowlist secret
-    "itn": "0f2d8785bab5592a6d417fd4f250e3aeec5e89efa4e62a3e21c9cb46e7388511",  # pragma: allowlist secret
-    "disfluency": "db1d502ad02bf7cbd0116d39c2c3cecb3992419c73e10c6d3678b4df0e7cc67a",  # pragma: allowlist secret
-    "captioning": "054fc8cf5c35e6ee90486e41687a9b523480dc5e04d71576ada900f01b6fc48e",  # pragma: allowlist secret
-    "code_switching": "b9c035b7ec7cc539e73352a61191e806d14c64ee7418fa11e8ac563f94b45291",  # pragma: allowlist secret
-    "speech_qa": "9f04d3148446170e1541f21638eed25eb37e7aec048592e543de69a01efa81d0",  # pragma: allowlist secret
-    "language_id": "567741809a9bb3a524d55acd96b73071d21ecaa0ad105f70baf5f034247219f0",  # pragma: allowlist secret
+    "RecoverEntities": "e6728bc4c8358c9e4f812ede9d553de09fab30eabe98c6e971aac8b7913340e8",  # pragma: allowlist secret
+    "PnCRestoration": "47e429e1d6ae5fb44aacae07164e6bdfc4d25cd1f3c9f7e965da93103b6ff39d",  # pragma: allowlist secret
+    "LanguageID": "567741809a9bb3a524d55acd96b73071d21ecaa0ad105f70baf5f034247219f0",  # pragma: allowlist secret
+    "TextNormalization": "e8f7ea8c70178f4e9bc0049cf21516e154713bc37e7d1a3c3fe5f1b33097ced4",  # pragma: allowlist secret
+    "Captioning": "054fc8cf5c35e6ee90486e41687a9b523480dc5e04d71576ada900f01b6fc48e",  # pragma: allowlist secret
+    "CodeSwitching": "b9c035b7ec7cc539e73352a61191e806d14c64ee7418fa11e8ac563f94b45291",  # pragma: allowlist secret
+    "SpeechQA": "9f04d3148446170e1541f21638eed25eb37e7aec048592e543de69a01efa81d0",  # pragma: allowlist secret
+    "ITNRestoration": "0f2d8785bab5592a6d417fd4f250e3aeec5e89efa4e62a3e21c9cb46e7388511",  # pragma: allowlist secret
+    "DisfluencyRemoval": "db1d502ad02bf7cbd0116d39c2c3cecb3992419c73e10c6d3678b4df0e7cc67a",  # pragma: allowlist secret
 }
 
 
@@ -54,56 +50,65 @@ def shared_ray_cluster() -> None:
     """Configuration and lifecycle tests do not start a Ray cluster."""
 
 
-@pytest.mark.parametrize("operation", PROMPT_HASHES)
-def test_operation_config_creates_audio_stage(operation: str):
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        cfg = hydra.compose(
-            config_name="single_operation",
+@pytest.fixture
+def pipeline_config() -> DictConfig:
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(TUTORIAL_DIR)):
+        return hydra.compose(
+            config_name="text_pipeline",
             overrides=[
-                f"operation={operation}",
                 "manifest_path=/data/input.jsonl",
                 "output_path=/data/output.jsonl",
                 "endpoint=http://inference-host:8000/v1",
+                "cache_root=/cache",
             ],
         )
 
-    stage = hydra.utils.instantiate(cfg.stages[1])
+
+def test_tutorial_has_one_self_contained_yaml_and_no_custom_runner():
+    assert sorted(path.relative_to(TUTORIAL_DIR).as_posix() for path in TUTORIAL_DIR.rglob("*.yaml")) == [
+        "text_pipeline.yaml"
+    ]
+    assert not list(TUTORIAL_DIR.rglob("*.yml"))
+    assert not list(TUTORIAL_DIR.rglob("run.py"))
+
+
+@pytest.mark.parametrize("operation_name", PROMPT_HASHES)
+def test_pipeline_preserves_reference_prompts_and_audio_contract(pipeline_config: DictConfig, operation_name: str):
+    pipeline = create_pipeline_from_yaml(pipeline_config, log_config=False)
+    operations = {
+        operation.name: operation for stage in pipeline.stages[1:-1] for operation in stage.operation_stages()
+    }
+    stage = operations[operation_name]
     assert isinstance(stage, AudioTextLLMStage)
     assert stage.resources.gpus == 0
-    assert stage.output_text_key == cfg.operation.output_text_key
     assert stage.generation_config.extra_kwargs == {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
     assert stage.prompt == stage.prompt.strip()
-    assert hashlib.sha256(stage.prompt.encode()).hexdigest() == PROMPT_HASHES[operation]
-    messages = stage._build_messages("नमस्ते दुनिया", {"source_lang": "hi", "granary_v1_prediction": "मूल पाठ"})
-    assert any("नमस्ते दुनिया" in message["content"] for message in messages)
-    assert all("{language_rules}" not in message["content"] for message in messages)
-    if operation == "pnc_indic":
-        assert len(stage.language_rules) == 22
-        assert stage.language_rules["hi"] in messages[0]["content"]
-    elif operation == "recover_entities":
+    assert hashlib.sha256(stage.prompt.encode()).hexdigest() == PROMPT_HASHES[operation_name]
+    messages = stage._build_messages("hello world", {"source_lang": "en", "text": "Hello World"})
+    assert any("hello world" in message["content"] for message in messages)
+    assert all("{language}" not in message["content"] for message in messages)
+    if operation_name == "RecoverEntities":
         assert stage.mode == "recover_entities"
-        assert messages[1] == {"role": "user", "content": 'INITIAL:\n"मूल पाठ"\n\nNORMALIZED:\n"नमस्ते दुनिया"'}
+        assert messages[1] == {"role": "user", "content": 'INITIAL:\n"Hello World"\n\nNORMALIZED:\n"hello world"'}
         assert stage.generation_config.max_tokens == 1024
-    elif operation == "language_id":
+    elif operation_name == "LanguageID":
         assert stage.mode == "language_id"
         assert "_skipme" in stage.outputs()[1]
 
+    task = AudioTask(data={stage.text_key: "", "audio_filepath": "/data/original.wav", "metadata": {"keep": True}})
+    assert stage.process(task) is task
+    assert task.data["audio_filepath"] == "/data/original.wav"
+    assert task.data["metadata"] == {"keep": True}
+    assert stage.output_text_key in task.data
 
-def test_full_config_preserves_reference_dependencies_and_serving_geometry():
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        cfg = hydra.compose(
-            config_name="text",
-            overrides=[
-                "manifest_path=/data/input.jsonl",
-                "output_path=/data/output.jsonl",
-                "endpoint=http://inference-host:8000/v1",
-                "text_key=normalized",
-                "ground_truth_key=reference",
-                "language_key=language",
-            ],
-        )
 
-    stages = [hydra.utils.instantiate(stage_cfg) for stage_cfg in cfg.stages[1:-1]]
+def test_pipeline_preserves_english_dependencies_and_fused_order(pipeline_config: DictConfig):
+    assert pipeline_config.ground_truth_key == "text"
+    assert pipeline_config.text_key == "abbreviated_text"
+    pipeline_config.text_key = "normalized"
+    pipeline_config.ground_truth_key = "reference"
+    pipeline_config.language_key = "language"
+    stages = create_pipeline_from_yaml(pipeline_config, log_config=False).stages[1:-1]
     assert all(isinstance(stage, AudioTextLLMStage) for stage in stages)
     assert [stage.name for stage in stages] == [
         "RecoverEntities",
@@ -118,11 +123,12 @@ def test_full_config_preserves_reference_dependencies_and_serving_geometry():
     for stage in stages:
         assert set(stage.inputs()[1]) <= available
         available.update(stage.outputs()[1])
-        assert stage.resources.gpus == 0
-        assert stage.num_workers() == 12
-        assert stage.batch_size == 128
-        assert stage.max_concurrent_requests == 256
-        assert stage.request_timeout_s == 600
+        assert (stage.num_workers(), stage.batch_size, stage.max_concurrent_requests, stage.request_timeout_s) == (
+            12,
+            128,
+            256,
+            600,
+        )
 
     operations = [operation for stage in stages for operation in stage.operation_stages()]
     assert [(operation.text_key, operation.output_text_key) for operation in operations] == [
@@ -137,22 +143,27 @@ def test_full_config_preserves_reference_dependencies_and_serving_geometry():
         ("itn_raw", "itn_clean"),
     ]
     assert stages[0].ground_truth_key == "reference"
-    assert stages[2].mode == "language_id"
+    assert stages[3].validation_mode == "none"
     assert [operation.name for operation in stages[4].operation_stages()] == [
         "Captioning",
         "CodeSwitching",
         "SpeechQA",
     ]
     assert all(operation.language_key == "language" for operation in operations)
-    assert all(operation.prompt == operation.prompt.strip() for operation in operations)
     assert [operation.generation_config.max_tokens for operation in operations] == [1024, *([512] * 8)]
 
-    model = hydra.utils.instantiate(cfg.inference_server.models[0])
+
+def test_serving_config_uses_existing_api_and_reference_geometry(pipeline_config: DictConfig):
+    model = hydra.utils.instantiate(pipeline_config.inference_server.models[0])
+    backend = hydra.utils.instantiate(pipeline_config.inference_server.backend)
     assert model.model_identifier == "RedHatAI/gemma-4-31B-it-FP8-dynamic"
-    assert model.num_replicas * model.engine_kwargs["tensor_parallel_size"] == 8
-    assert cfg.ray_client.num_gpus == 0
-    assert model.engine_kwargs == {
-        "tensor_parallel_size": 2,
+    assert model.num_replicas == 4
+    assert model.engine_kwargs["tensor_parallel_size"] == 2
+    assert model.mode == "aggregated"
+    assert backend is not None
+    assert pipeline_config.ray_client.num_gpus == 0
+    assert pipeline_config.inference_server.health_check_timeout_s == 1200
+    expected = {
         "max_model_len": 8192,
         "gpu_memory_utilization": 0.95,
         "kv_cache_dtype": "auto",
@@ -160,127 +171,67 @@ def test_full_config_preserves_reference_dependencies_and_serving_geometry():
         "max_num_batched_tokens": 8192,
         "language_model_only": True,
         "trust_remote_code": True,
+        "enable_prefix_caching": True,
+        "enable_chunked_prefill": True,
+        "async_scheduling": False,
+        "enforce_eager": False,
+        "revision": "d4ab4f579dd3516f97d8a6a4c98d0653480bad15",  # pragma: allowlist secret
     }
-    assert model.runtime_env == {"uv": {"packages": ["transformers>=5"]}}
-    assert cfg.inference_server.health_check_timeout_s == 1200
+    assert all(model.engine_kwargs[key] == value for key, value in expected.items())
+    runtime_env = dynamo_runtime_env(model)
+    assert "transformers>=5" in runtime_env["uv"]["packages"]
+    assert any(package.startswith("ai-dynamo[vllm]") for package in runtime_env["uv"]["packages"])
+    assert all(value.startswith("/cache/") for value in runtime_env["env_vars"].values())
+    flags = engine_kwargs_to_cli_flags(model.engine_kwargs)
+    assert "--no-async-scheduling" in flags
+    assert "--no-enforce-eager" in flags
+    assert json.loads(flags[flags.index("--compilation-config") + 1]) == {"cache_dir": "/cache/vllm/compile"}
 
 
-@pytest.mark.parametrize("serving", ["reference", "explicit", "tp1_uni", "kv", "disaggregated"])
-def test_english_serving_profiles_preserve_graph_and_eight_gpu_budget(serving: str):
-    overrides = [
-        "manifest_path=/data/input.jsonl",
-        "output_path=/data/output.jsonl",
-        "endpoint=http://inference-host:8000/v1",
-    ]
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        baseline = hydra.compose(
-            config_name="text", overrides=[*overrides, "ground_truth_key=text", "tn.validation_mode=none"]
-        )
-        cfg = hydra.compose(config_name="english", overrides=[*overrides, "cache_root=/cache", f"serving={serving}"])
-
-    assert OmegaConf.to_container(cfg.stages, resolve=True) == OmegaConf.to_container(baseline.stages, resolve=True)
-    assert cfg.tn.validation_mode == "none"
-    assert (cfg.batch_size, cfg.num_workers, cfg.max_concurrent_requests) == (128, 12, 256)
-    model = hydra.utils.instantiate(cfg.inference_server.models[0])
-    backend = hydra.utils.instantiate(cfg.inference_server.backend)
-    if serving == "disaggregated":
-        roles = [resolve_disagg_role_config(model, role) for role in ("prefill", "decode")]
-        assert sum(replicas * kwargs["tensor_parallel_size"] for replicas, kwargs in roles) == 8
-        assert backend.router.mode == "kv"
-    else:
-        assert model.mode == "aggregated"
-        assert model.num_replicas * model.engine_kwargs["tensor_parallel_size"] == 8
-    if serving == "tp1_uni":
-        assert model.engine_kwargs["distributed_executor_backend"] == "uni"
-    if serving == "kv":
-        assert backend.router.mode == "kv"
-        assert not backend.router.kv_events
-
-    for key in ("max_model_len", "gpu_memory_utilization", "kv_cache_dtype", "max_num_seqs", "max_num_batched_tokens"):
-        assert model.engine_kwargs[key] == baseline.serving.model.engine_kwargs[key]
-    assert model.engine_kwargs["language_model_only"] is True
-    for runtime_env in (dynamo_runtime_env(model), merge_model_runtime_envs([model])):
-        assert "transformers>=5" in runtime_env["uv"]["packages"]
-        assert any(package.startswith("ai-dynamo[vllm]") for package in runtime_env["uv"]["packages"])
-        if serving != "reference":
-            assert all(value.startswith("/cache/") for value in runtime_env["env_vars"].values())
-
-    if serving != "reference":
-        kwargs = model.engine_kwargs
-        assert kwargs["enable_prefix_caching"] is True
-        assert kwargs["enable_chunked_prefill"] is True
-        assert kwargs["async_scheduling"] is False
-        assert kwargs["enforce_eager"] is False
-        assert kwargs["revision"] == "d4ab4f579dd3516f97d8a6a4c98d0653480bad15"  # pragma: allowlist secret
-        flags = engine_kwargs_to_cli_flags(kwargs)
-        assert "--no-async-scheduling" in flags
-        assert "--no-enforce-eager" in flags
-        assert json.loads(flags[flags.index("--compilation-config") + 1]) == {"cache_dir": "/cache/vllm/compile"}
+def test_managed_serving_requires_an_explicit_cache_directory():
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(TUTORIAL_DIR)):
+        cfg = hydra.compose(config_name="text_pipeline")
+    with pytest.raises(InterpolationToMissingValueError):
+        OmegaConf.to_container(cfg.inference_server.models[0], resolve=True)
 
 
-def test_english_requires_cache_path_and_supports_explicit_tuning():
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        cfg = hydra.compose(config_name="english")
-        with pytest.raises(InterpolationToMissingValueError):
-            OmegaConf.to_container(cfg.inference_server.models[0], resolve=True)
+def test_shared_runner_requires_endpoint_before_building_audio_pipeline():
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(TUTORIAL_DIR)):
         cfg = hydra.compose(
-            config_name="english",
-            overrides=[
-                "cache_root=/cache",
-                "serving=tp1_uni",
-                "serving.model.engine_kwargs.enforce_eager=true",
-            ],
+            config_name="text_pipeline",
+            overrides=["manifest_path=/data/input.jsonl", "output_path=/data/output.jsonl"],
         )
-    model = hydra.utils.instantiate(cfg.inference_server.models[0])
-    assert model.engine_kwargs["tensor_parallel_size"] == 1
-    assert model.engine_kwargs["enforce_eager"] is True
-
-
-@pytest.mark.parametrize("config_name", ["text", "english", "single_operation"])
-def test_shared_runner_requires_endpoint_before_building_audio_pipeline(config_name: str):
-    overrides = ["manifest_path=/data/input.jsonl", "output_path=/data/output.jsonl"]
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        cfg = hydra.compose(config_name=config_name, overrides=overrides)
-        with pytest.raises(InterpolationToMissingValueError):
-            create_pipeline_from_yaml(cfg, log_config=False)
-        cfg = hydra.compose(config_name=config_name, overrides=[*overrides, "endpoint=http://inference-host:8000/v1"])
-
+    with pytest.raises(InterpolationToMissingValueError):
+        create_pipeline_from_yaml(cfg, log_config=False)
+    cfg.endpoint = "http://inference-host:8000/v1"
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
-    assert len(pipeline.stages) == (3 if config_name == "single_operation" else 9)
-    assert pipeline.stages[1].endpoint == "http://inference-host:8000/v1"
-    assert cfg.ray_client.num_gpus == 0
+    assert len(pipeline.stages) == 9
+    assert pipeline.stages[1].endpoint == cfg.endpoint
 
 
-@pytest.mark.parametrize("config_name", ["text", "english", "single_operation"])
-def test_tutorial_rejects_output_replacing_its_input(config_name: str):
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        cfg = hydra.compose(
-            config_name=config_name,
-            overrides=["manifest_path=/data/input.jsonl", "output_path=/data/input.jsonl"],
-        )
-
+def test_tutorial_rejects_output_replacing_its_input(pipeline_config: DictConfig):
+    pipeline_config.output_path = pipeline_config.manifest_path
     with pytest.raises(InstantiationException) as error:
-        hydra.utils.instantiate(cfg.stages[-1])
+        hydra.utils.instantiate(pipeline_config.stages[-1])
     assert isinstance(error.value.__cause__, ValueError)
 
 
-@pytest.mark.parametrize("config_name", ["text", "english", "single_operation"])
-def test_tutorial_composes_with_shared_runner_cli(config_name: str):
+def test_tutorial_composes_with_shared_runner_cli():
     repo_root = Path(__file__).parents[2]
     result = subprocess.run(  # noqa: S603
         [
             sys.executable,
             str(repo_root / "nemo_curator/config/run.py"),
             "--config-path",
-            "../../tutorials/audio/text_processing/config",
+            "../../tutorials/audio/text_processing",
             "--config-name",
-            config_name,
+            "text_pipeline",
             "--cfg",
             "job",
             "manifest_path=/data/input.jsonl",
             "output_path=/data/output.jsonl",
             "endpoint=http://inference-host:8000/v1",
-            *(["cache_root=/cache"] if config_name == "english" else []),
+            "cache_root=/cache",
         ],
         cwd=repo_root,
         check=True,
@@ -291,4 +242,4 @@ def test_tutorial_composes_with_shared_runner_cli(config_name: str):
     assert cfg.manifest_path == "/data/input.jsonl"
     assert cfg.output_path == "/data/output.jsonl"
     assert cfg.inference_server._target_ == "nemo_curator.core.serve.InferenceServer"
-    assert len(cfg.stages) == (3 if config_name == "single_operation" else 9)
+    assert len(create_pipeline_from_yaml(cfg, log_config=False).stages) == 9

@@ -37,7 +37,7 @@ from nemo_curator.stages.audio.common import ManifestReaderStage
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
-_CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
+_CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing"
 
 
 def _collect_output_metrics(  # noqa: C901
@@ -164,10 +164,9 @@ def _validate_workload_inputs(tasks: list[AudioTask], operations: list[AudioText
         produced.add(stage.output_text_key)
 
 
-def run_audio_text_llm_benchmark(  # noqa: PLR0913
+def run_audio_text_llm_benchmark(
     input_manifest: str,
     overrides: list[str] | None = None,
-    config_name: str = "text",
     id_key: str = "audio_item_id",
     expected_num_rows: int | None = None,
     expected_manifest_sha256: str | None = None,
@@ -175,8 +174,8 @@ def run_audio_text_llm_benchmark(  # noqa: PLR0913
     """Time every configured text stage, excluding input reads, server startup and result writes."""
     with hydra.initialize_config_dir(version_base=None, config_dir=str(_CONFIG_DIR)):
         cfg = hydra.compose(
-            config_name=config_name,
-            overrides=["endpoint=null", "++ray_client.num_gpus=null", *(overrides or [])],
+            config_name="text_pipeline",
+            overrides=["endpoint=null", "ray_client.num_gpus=null", *(overrides or [])],
         )
 
     manifest_identity = _manifest_identity(input_manifest)
@@ -234,7 +233,7 @@ def run_audio_text_llm_benchmark(  # noqa: PLR0913
     return {
         "params": {
             "input_manifest": input_manifest,
-            "config_name": config_name,
+            "config_path": str(_CONFIG_DIR / "text_pipeline.yaml"),
             "id_key": id_key,
             "expected_num_rows": expected_num_rows,
             "expected_manifest_sha256": expected_manifest_sha256,
@@ -262,7 +261,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True, help="JSONL audio manifest containing transcripts")
-    parser.add_argument("--config-name", choices=["text", "english", "single_operation"], default="text")
     parser.add_argument("--id-key", default="audio_item_id", help="Unique string identity preserved in each input row")
     parser.add_argument("--expected-num-rows", type=int)
     parser.add_argument("--expected-manifest-sha256")
@@ -281,7 +279,6 @@ def main() -> int:
             run_audio_text_llm_benchmark(
                 input_manifest=args.input_manifest,
                 overrides=args.overrides,
-                config_name=args.config_name,
                 id_key=args.id_key,
                 expected_num_rows=args.expected_num_rows,
                 expected_manifest_sha256=args.expected_manifest_sha256,

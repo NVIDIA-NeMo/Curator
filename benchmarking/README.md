@@ -670,25 +670,23 @@ present.
 
 ## Audio Text Pipeline Benchmark
 
-`scripts/audio_text_llm_benchmark.py` runs every text processing stage from the
-shared [tutorial YAML](../tutorials/audio/text_processing/config/english.yaml):
+`scripts/audio_text_llm_benchmark.py` uses the same
+[text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml) as the tutorial:
 RecoverEntities → PnC → language identification and verification → TN → parallel
 captioning, code switching and speech QA → ITN → disfluency removal. The reader
 preloads JSONL into `AudioTask` records; the benchmark omits the tutorial reader
 and writer from the timed pipeline and never opens audio files.
 
-The default graph uses `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four Dynamo replicas
-with tensor parallelism two (eight GPUs), 12 workers, batches of 128, and at most
-256 concurrent requests per worker. The benchmark can start the configured
-`InferenceServer` through its existing public API, or use an existing compatible
-OpenAI endpoint with `--override=endpoint=http://host:8000/v1`. The English
-profile persists compilation caches under `cache_root` and disables the
-Indic-oriented TN guard so English number expansion is accepted. The original
-recipe remains available with `--config-name=text`.
-Unlike the tutorial runner, the benchmark defaults to managed serving. Ray
-auto-detects local GPUs unless `ray_client.num_gpus` is overridden; the registered
-eight-GPU pair sets it explicitly. The server and model must be supported by the
-installed Curator serving dependencies.
+The stage graph, prompts, generation options and tuning all come from that file.
+Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four Dynamo replicas with tensor
+parallelism two (eight GPUs), 12 workers, batches of 128, and 256 concurrent
+requests per worker. Compilation caches persist under `cache_root`.
+
+The benchmark starts the configured `InferenceServer` through its existing API.
+Ray auto-detects GPUs unless overridden; the registered pair explicitly requests
+eight. To use an existing OpenAI-compatible server, pass
+`--override=endpoint=http://host:8000/v1 --override=ray_client.num_gpus=0`.
+The server and model must be supported by the installed serving dependencies.
 
 Use one fixed, pre-staged human-label improvement cohort that fits in driver
 memory. Every row needs a unique string `audio_item_id`, `source_lang: en`, the human
@@ -709,7 +707,6 @@ count and SHA-256 with the corresponding options when running a frozen cohort:
 ```bash
 python benchmarking/scripts/audio_text_llm_benchmark.py \
   --input-manifest=/data/audio_text_gemma4_english/manifest.jsonl \
-  --config-name=english \
   --override=cache_root=/data/audio_text_cache \
   --override=ray_client.num_gpus=8 \
   --benchmark-results-path=/results/audio_text/xenna \
@@ -719,18 +716,16 @@ python benchmarking/scripts/audio_text_llm_benchmark.py \
 ```
 
 Run the same command with a fresh result directory and `backend=ray_data` for
-the paired executor result. To benchmark one operation, replace
-`--config-name=english` with `--config-name=single_operation`, remove the
-`cache_root` override, and add `--override=operation=pnc`. Provide the selected
-operation's input text and language fields.
+the paired executor result. Keep stage and serving overrides identical to the
+tutorial or comparison run; change only the cohort, paths and executor.
 
 The timer includes executor setup inside `Pipeline.run` and every configured
 text operation; it excludes manifest loading/validation, Ray/server startup,
 server teardown, output validation and result writes. There is no warmup pass.
 Server startup is reported separately. For cold/warm comparisons, run twice with
 the same persistent cache path and runtime; use a fresh path for the cold run
-rather than deleting another experiment's cache. Compare the same serving
-profile and cohort. The harness also reports complete process
+rather than deleting another experiment's cache. Compare the same server settings
+and cohort. The harness also reports complete process
 `exec_time_s`. Compare the same timing metric across both executors.
 
 The standard `params.json`, `metrics.json`, and `tasks.pkl` retain the resolved
