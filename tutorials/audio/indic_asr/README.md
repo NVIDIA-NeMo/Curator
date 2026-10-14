@@ -20,7 +20,8 @@ YAML runner; there is no tutorial-specific inference wrapper.
   system prerequisite, not a Python package.
 - Compatible **prebuilt Indic Canary and Hindi Parakeet engine bundles**.
   These model artifacts are not included or downloaded by this tutorial.
-  See [model files](#model-files) before attempting inference.
+  Owners of the matching source checkpoints can build them separately; see
+  [model files](#model-files) before attempting inference.
 
 The audio samples and their references are public and need no Hugging Face
 token. The complete inference run still requires the separately supplied model
@@ -123,16 +124,96 @@ plans must match the GPU architecture and native runtime used here; a random
 Canary or Parakeet checkpoint is not a replacement for these Hindi engines.
 The runtime does not build missing engines automatically.
 
-For owners of the source checkpoints, the reference branch has
-[Indic Canary conversion instructions](https://github.com/nithinraok/Curator/blob/nkoluguri/integration-test/scripts/audio/indic_canary_trtllm_conversion/README.md).
-Those instructions require the matching Indic checkpoint and NeMo fork; they
-do not supply a public ready-to-run engine bundle.
+### Checkpoint provenance and public releases
+
+The [reference launcher at commit `3931b631`](https://gitlab-master.nvidia.com/nkoluguri/granary-v2-asr/-/blob/3931b631b1a9f23215abdb240b647ef6a3a54b34/slurm_pipeline/asr/run_asr_indic_slurm.sh)
+names an internal Parakeet `epoch_37.nemo` and prebuilt Canary engines. It does
+not identify the Canary source checkpoint or provide public download URLs and
+checkpoint hashes. Consequently, it does not establish that the exact weights
+used for this tutorial are publicly downloadable.
+
+Related public model pages include NVIDIA's
+[Parakeet RNNT collection, with an Indic variant](https://catalog.ngc.nvidia.com/orgs/nvidia/-/collections/parakeet-1-1b-rnnt-multilingual/-),
+and the Canary-based [Indic-Transcribe Core](https://huggingface.co/bodhan-ai/indic-transcribe-core)
+and [Flex](https://huggingface.co/bodhan-ai/indic-transcribe-flex) releases.
+These have their own access and license conditions; the Indic-Transcribe files
+are gated. None has been established here as the identical source checkpoint
+or a validated replacement for these engines. Do not substitute a model based
+only on its family name: for example,
+[`nvidia/canary-1b-flash`](https://huggingface.co/nvidia/canary-1b-flash) does not
+support Hindi.
+
+### Optional: build bundles from matching checkpoints
+
+**This is a separate model-owner workflow, not part of the two-clip quick
+start.** You need the matching checkpoints, a GPU and build stack compatible
+with the intended inference deployment, and permission to use the weights.
+Build into a new writable directory, then mount its completed bundles at
+`/models:ro` for inference. The inference container above deliberately mounts
+that destination read-only.
+
+**Parakeet:** this checkout already includes
+[`build_indic_parakeet_rnnt_tensorrt_engine.py`](../../../nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py).
+In a build environment with CUDA, NeMo ASR, ONNX export support, and the same
+TensorRT version as inference, run from the Curator root, replacing both
+absolute paths:
+
+```bash
+python nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
+  --model /absolute/path/to/indic-parakeet.nemo \
+  --output-dir /absolute/path/to/engines/parakeet \
+  --min-batch 1 --opt-batch 8 --max-batch 16 \
+  --min-frames 8 --opt-frames 800 --max-frames 4001 \
+  --max-symbols-per-step 10 --workspace-gb 8
+```
+
+It exports the FP16 encoder, builds TensorRT, checks encoder numerical
+agreement, and packages `encoder.plan`, `metadata.json`, and the original
+checkpoint as `model.nemo`. Success prints
+`INDIC_PARAKEET_RNNT_TENSORRT_ENCODER_PARITY_PASSED`; this checks the encoder,
+not full transcription parity. The checkpoint must restore with the installed
+NeMo and contain the expected RNN-T encoder, decoder, and joint network.
+
+**Canary:** its converter is **not included in this checkout**. Obtain the
+[reference conversion directory pinned at `1e2d6399`](https://github.com/nithinraok/Curator/tree/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion)
+and follow its README to prepare a separate build environment. It requires
+the matching Indic Canary `.nemo` **and the AI4Bharat NeMo fork containing
+`CanaryMultilingualTokenizer`**. Its documented stack uses Python 3.12,
+official TensorRT-LLM 1.2.1, NumPy 1.26.4, MPI, and CUDA build tools. The
+tutorial's inference image uses stock NeMo and NumPy 2.3.5; it is not a
+validated substitute for that conversion environment. Do not downgrade or
+replace packages inside the inference image to perform conversion.
+
+After that separate setup, run from the reference conversion directory,
+replacing the checkpoint, NeMo fork, and output paths:
+
+```bash
+python build_engine.py \
+  --nemo_model_path /absolute/path/to/indic-canary.nemo \
+  --nemo_repo_path /absolute/path/to/indic-canary-NeMo \
+  --engine_dir /absolute/path/to/engines/indic_canary \
+  --dtype bfloat16 --max_batch_size 64 --max_beam_width 4 \
+  --max_audio_seconds 40 --max_prompt_tokens 10
+```
+
+Success prints `CANARY_TRTLLM_ENGINE_BUILD_PASSED`. Always pass the matching
+Hindi checkpoint; the converter's default public model is not Hindi-capable.
+Check all seven Canary files in the layout above, including
+`encoder/config.json` and `decoder/rank0.engine`: the converter's final
+presence check covers only five files, not the complete runtime contract.
+These profiles retain the 40-second window and capacity for the tutorial's
+four-beam, 347-new-token decoding settings. Both build commands were checked
+against their CLI definitions, but the tutorial validation reuses existing
+bundles: it does **not** validate fresh conversion of a public checkpoint.
 
 ## Run the two-clip pipeline
 
 The YAML lists all eleven stages, their input/output text keys, model settings,
 and file paths. The quick-start defaults use one actor for each ASR model and
 a model batch size of two; no stage is skipped.
+The Parakeet TensorRT adapter enables NeMo's batched-greedy decoder CUDA
+graphs, matching the reference implementation; its non-TensorRT adapter is
+unchanged.
 
 ```bash
 set -o pipefail
