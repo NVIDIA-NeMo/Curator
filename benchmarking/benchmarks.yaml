@@ -150,15 +150,6 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
-  # Pinned public Apache-2.0 Hindi ASR train split at revision
-  # 35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0. The source manifest has 216,169
-  # rows / 1,914,385,701 ms and SHA-256 407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4.
-  # Full decoding rejects corrupt hindi_017643, 017655, 017656, 017666, and
-  # 018619 FLACs; the runnable cohort retains 216,164 rows / 1,914,327,468 ms.
-  - name: "audio_indic_asr_hindi_531h"
-    formats:
-    - type: "jsonl"
-      path: "{datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
