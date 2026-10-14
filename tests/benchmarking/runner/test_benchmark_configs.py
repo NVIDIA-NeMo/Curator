@@ -112,7 +112,7 @@ def test_audio_text_opt_in_preserves_the_paired_workload() -> None:
         assert entries[name]["enabled"] is True
         assert entries[name]["script"] == "audio_text_llm_benchmark.py"
         assert "--input-manifest={dataset:audio_text_gemma4_english,jsonl}" in entries[name]["args"]
-        assert "--config-name=english" in entries[name]["args"]
+        assert "--config-name" not in entries[name]["args"]
         assert "--override=cache_root={results_path}/audio_text_cache" in entries[name]["args"]
         assert "--override=ray_client.num_gpus=8" in entries[name]["args"]
         assert _requirement(entries[name], "num_operations")["exact_value"] == 9
