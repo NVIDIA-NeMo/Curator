@@ -5,7 +5,7 @@ defaults:
 # Explicit switches for the pinned vLLM 0.23.0 runtime; GPU tuning is pending.
 model:
   engine_kwargs:
-    revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15
+    revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
     enable_prefix_caching: true
     enable_chunked_prefill: true
     async_scheduling: false
