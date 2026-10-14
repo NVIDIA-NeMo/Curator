@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
 from runner.entry import Entry
+from runner.session import Session
 
 
 def test_curator_repo_dir_placeholder_uses_explicit_curator_repo_dir(
@@ -47,3 +50,38 @@ def test_curator_repo_dir_placeholder_fails_when_curator_repo_dir_is_not_set(
 
     with pytest.raises(RuntimeError, match="CURATOR_BENCHMARK_CURATOR_REPO_DIR must be set"):
         Entry.substitute_reserved_placeholders("{curator_repo_dir}/nemo_curator", tmp_path, object())
+
+
+@pytest.mark.parametrize("save_tasks", [False, True])
+def test_task_retention_setting_reaches_subprocess(tmp_path: Path, save_tasks: bool) -> None:
+    session = Session.from_dict(
+        {
+            "paths": [{"name": "results_path", "host_path": str(tmp_path)}],
+            "save_tasks": save_tasks,
+            "entries": [
+                {
+                    "name": "test",
+                    "script": "benchmark.py",
+                }
+            ],
+        }
+    )
+    command = session.entries[0].get_command_to_run(tmp_path, session.path_resolver, session.dataset_resolver)
+    assert command.endswith(" --save-tasks" if save_tasks else " --no-save-tasks")
+
+
+def test_omitted_retention_setting_preserves_legacy_script_command(tmp_path: Path) -> None:
+    script = tmp_path / "legacy.py"
+    script.write_text("import argparse\nparser = argparse.ArgumentParser()\nparser.parse_args()\n")
+    session = Session.from_dict(
+        {
+            "paths": [{"name": "results_path", "host_path": str(tmp_path)}],
+            "entries": [{"name": "legacy", "script": str(script)}],
+        }
+    )
+    command = session.entries[0].get_command_to_run(tmp_path, session.path_resolver, session.dataset_resolver)
+    assert "--save-tasks" not in command
+    assert "--no-save-tasks" not in command
+    arguments = shlex.split(command)
+    arguments[0] = sys.executable
+    subprocess.run(arguments, check=True, capture_output=True)  # noqa: S603
