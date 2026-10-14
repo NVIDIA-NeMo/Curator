@@ -27,11 +27,15 @@ models:
     dynamo_model:
       num_replicas: 8
       mode: aggregated
+      runtime_env:
+        config:
+          setup_timeout_seconds: 1800
       engine_kwargs:
         tensor_parallel_size: 1
         max_model_len: 32768  # size prompt truncation (pair.jinja) to fit this
-        max_num_seqs: 8
-        gpu_memory_utilization: 0.85
+        max_num_seqs: 64
+        gpu_memory_utilization: 0.92
+        enable_prefix_caching: true
     inference_parameters:
       # Was 0.0 (deterministic): the model's 5 automatic conversation restarts on a
       # non-retryable failure just re-sampled the identical greedy output, so a bad
@@ -45,18 +49,19 @@ models:
       # 15 scores + reasoning per call needs more room than a single-score rubric.
       max_tokens: 6144
       timeout: 600
-      max_parallel_requests: 32
+      max_parallel_requests: 64
 
 dynamo_server:
   subprocess_env:
     DYN_SYSTEM_PORT: "0"
 
 inference_server:
-  health_check_timeout_s: 1800
+  health_check_timeout_s: 3600
 
 execution:
   stages:
     - name: pair_semantic_judgment
+      num_workers: 8
       judges:
         - name: pair_semantic_judgment
           model_alias: judge
