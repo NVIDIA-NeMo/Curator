@@ -641,7 +641,11 @@ def main() -> int:
     parser.add_argument("--prep-workers", type=int, default=24)
     parser.add_argument("--primary-workers", type=int, default=8)
     parser.add_argument("--fallback-workers", type=int, default=8)
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     params = vars(args)
     logger.info(f"Audio Indic ASR benchmark arguments: {params}")
@@ -656,7 +660,7 @@ def main() -> int:
         results["metrics"]["error_message"] = str(e)
     finally:
         _, write_benchmark_results = _load_benchmark_utils()
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
     return exit_code
 
 
