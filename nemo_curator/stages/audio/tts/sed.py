@@ -28,6 +28,7 @@ Framewise AudioSet tagging and event postprocessing run in one stage, so the fra
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -54,7 +55,20 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 DEFAULT_CHECKPOINT_FILENAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
+DEFAULT_CHECKPOINT_SHA256 = (
+    "dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142"  # pragma: allowlist secret
+)
+_DOWNLOAD_ATTEMPTS = 3
 DEFAULT_CLASSIFIER_THRESHOLD = 0.11975032188418763
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 SPEECH_CLASSES: tuple[str, ...] = (
     "Speech",
@@ -560,16 +574,27 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Fetch the public PANNs checkpoint when missing (the 32 kHz adapter only validates the download)."""
+        """Fetch the public PANNs checkpoint, re-downloading truncated copies (torch.hub does not verify them)."""
         checkpoint = self._checkpoint()
-        if checkpoint.is_file():
-            return
         if checkpoint.name != DEFAULT_CHECKPOINT_FILENAME:
-            msg = f"CNN14 checkpoint {checkpoint} does not exist"
-            raise FileNotFoundError(msg)
+            if not checkpoint.is_file():
+                msg = f"CNN14 checkpoint {checkpoint} does not exist"
+                raise FileNotFoundError(msg)
+            return
         from nemo_curator.models.sed.panns import PANNsSEDAdapter
 
-        PANNsSEDAdapter(checkpoint_path=str(checkpoint)).download_weights_on_node()
+        for _ in range(_DOWNLOAD_ATTEMPTS):
+            if checkpoint.is_file() and _sha256(checkpoint) == DEFAULT_CHECKPOINT_SHA256:
+                return
+            checkpoint.unlink(missing_ok=True)
+            try:
+                PANNsSEDAdapter(checkpoint_path=str(checkpoint)).download_weights_on_node()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("CNN14 checkpoint download failed: {}", exc)
+        if checkpoint.is_file() and _sha256(checkpoint) == DEFAULT_CHECKPOINT_SHA256:
+            return
+        msg = f"CNN14 checkpoint {checkpoint} failed the sha256 check after {_DOWNLOAD_ATTEMPTS} downloads"
+        raise RuntimeError(msg)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         import torch

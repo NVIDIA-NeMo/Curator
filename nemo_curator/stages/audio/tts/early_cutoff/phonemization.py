@@ -24,7 +24,7 @@ from typing import Any, Sequence
 
 
 MODEL_ID = "facebook/wav2vec2-lv-60-espeak-cv-ft"
-MODEL_REVISION = "ae45363bf3413b374fecd9dc8bc1df0e24c3b7f4"
+MODEL_REVISION = "ae45363bf3413b374fecd9dc8bc1df0e24c3b7f4"  # pragma: allowlist secret
 NORMALIZATION_VERSION = "nfc-lower-ws-v1"
 
 PHONEMIZER_LANGUAGE_BY_ISO: dict[str, str] = {

@@ -12,23 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GranaryHiFi TTS data stages: turn Granary ASR manifests into TTS training shards.
-
-Pipeline order (see ``tutorials/audio/granary_hifi``):
-
-0. optional enhancement: ``StudioVoiceEnhancementStage`` (Maxine) or ``ResembleEnhanceStage`` (ReUse) ->
-   ``enhanced_audio``; every audio-reading stage then picks ``audio_source="original"|"enhanced"``
-1. annotation (per Granary sample row, segments annotated in place, rows never dropped)
-   ``SegmentDiarizationStage`` -> ``SpeakerClusteringStage`` -> ``SegmentSEDStage`` -> ``UTMOSv2AnnotationStage``
-   -> ``BandwidthAnnotationStage``
-2. ``SegmentFilterStage`` (common filter, drops failing segments) -> ``ContextSelectionStage``
-3. ``ManifestIpaStage`` (espeak IPA from tn_raw) -> ``EarlyCutOffEndpointGateStage`` -> ``EarlyCutOffMFAResolverStage``
-   -> ``TrainingFlagsStage``
-4. artifacts (per manifest file) ``LhotseSharBuildStage`` -> ``CodecCodesStage`` -> ``SharValidationStage``,
-   then ``publish_shars``.
-
-Names are resolved lazily so importing one stage does not import every model dependency.
-"""
+"""GranaryHiFi TTS data stages; see ``tutorials/audio/granary_hifi/README.md``."""
 
 from importlib import import_module
 

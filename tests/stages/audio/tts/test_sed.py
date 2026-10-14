@@ -207,3 +207,34 @@ def test_custom_detection_config_is_applied() -> None:
     assert len(detect_speech_events(framewise, FPS, AUDIOSET_LABELS)) == 2  # default merge gap 0.1 s = 5 frames
     config = SpeechEventConfig(merge_max_gap=0.2)
     assert len(detect_speech_events(framewise, FPS, AUDIOSET_LABELS, config)) == 1
+
+
+def test_default_checkpoint_redownloaded_until_hash_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    import torch
+
+    from nemo_curator.models.sed.panns import PANNsSEDAdapter
+    from nemo_curator.stages.audio.tts import sed
+
+    good = b"complete checkpoint"
+    payloads = [b"trunc", good]
+    monkeypatch.setattr(torch.hub, "get_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(sed, "DEFAULT_CHECKPOINT_SHA256", hashlib.sha256(good).hexdigest())
+
+    def fake_download(adapter: PANNsSEDAdapter) -> None:
+        Path(adapter.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(adapter.checkpoint_path).write_bytes(payloads.pop(0))
+
+    monkeypatch.setattr(PANNsSEDAdapter, "download_weights_on_node", fake_download)
+    checkpoint = tmp_path / "checkpoints" / sed.DEFAULT_CHECKPOINT_FILENAME
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"stale")  # a truncated earlier download in the cache
+    SegmentSEDStage(enable_classifier=False).setup_on_node()
+    assert checkpoint.read_bytes() == good
+    assert payloads == []
+
+    payloads.extend([b"bad"] * 3)
+    checkpoint.unlink()
+    with pytest.raises(RuntimeError, match="sha256"):
+        SegmentSEDStage(enable_classifier=False).setup_on_node()

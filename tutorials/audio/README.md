@@ -100,7 +100,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
-| `granary_hifi/` | `espeak-ng` (IPA); Montreal Forced Aligner (end-of-word check); optional `utmosv2`, `tritonclient`, resemble-enhance | `audio_cuda12` |
+| `granary_hifi/` | `espeak-ng` (IPA); Montreal Forced Aligner (end-of-word check); UTMOSv2 (from GitHub); optional resemble-enhance | `audio_tts` |
 
 Install pip extras from the repo root:
 

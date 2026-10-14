@@ -87,6 +87,18 @@ def test_scores_segments_at_native_rate(tmp_path: Path, monkeypatch: pytest.Monk
     assert created == [{"pretrained": True, "checkpoint_path": "/ckpt/fold0.pth"}]
 
 
+def test_default_weights_come_from_hf_hub(monkeypatch: pytest.MonkeyPatch) -> None:
+    created, fetched = [], []
+    monkeypatch.setitem(sys.modules, "utmosv2", _fake_utmosv2_module(_FakeUtmosModel(), created))
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download", lambda **kw: fetched.append(kw) or "/hf/fold2_s42_best_model.pth"
+    )
+    UTMOSv2AnnotationStage(device="cpu", create_model_kwargs={"fold": 2}).setup()
+
+    assert fetched == [{"repo_id": "sarulab-speech/UTMOSv2", "filename": "fold2_s42_best_model.pth"}]
+    assert created == [{"fold": 2, "pretrained": True, "checkpoint_path": "/hf/fold2_s42_best_model.pth"}]
+
+
 def test_missing_package_raises_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing score fails the MOS filter condition, so a missing package must not degrade silently."""
     monkeypatch.setitem(sys.modules, "utmosv2", None)  # makes `import utmosv2` raise ImportError

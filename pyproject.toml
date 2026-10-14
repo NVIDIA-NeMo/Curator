@@ -142,6 +142,13 @@ audio_cuda12 = [
     "torchlibrosa>=0.1.0",
 ]
 
+# GranaryHiFi TTS stages (tutorials/audio/granary_hifi); UTMOSv2 is installed from GitHub (not on PyPI).
+audio_tts = [
+    "nemo_curator[audio_cuda12]",
+    "phonemizer>=3.3",  # early cut-off gate
+    "tritonclient>=2.60,<2.72",  # StudioVoice; grpcio comes via audio_cuda12 ([grpc] would repin it)
+]
+
 image_cpu = [
     "Pillow",
     "torchvision"

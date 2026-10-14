@@ -84,8 +84,8 @@ class UTMOSv2AnnotationStage(ProcessingStage[AudioTask, AudioTask]):
     Requires the optional ``utmosv2`` package (``setup`` raises without it unless ``allow_missing_package``).
 
     Args:
-        checkpoint_path: Local UTMOSv2 checkpoint ``None`` lets
-            ``utmosv2`` download its default pretrained weights.
+        checkpoint_path: Local UTMOSv2 checkpoint; ``None`` downloads the
+            pretrained fold weights from the Hugging Face Hub.
         cache_dir: When set, HF / transformers caches point here and offline mode is forced.
         device: Device passed to ``model.predict``.
         create_model_kwargs: Extra keyword arguments for ``utmosv2.create_model``.
@@ -146,6 +146,13 @@ class UTMOSv2AnnotationStage(ProcessingStage[AudioTask, AudioTask]):
         kwargs = dict(self.create_model_kwargs)
         if self.checkpoint_path:
             kwargs["checkpoint_path"] = str(Path(self.checkpoint_path).expanduser())
+        elif self.pretrained:
+            # utmosv2's own download shells out to wget
+            from huggingface_hub import hf_hub_download
+
+            kwargs["checkpoint_path"] = hf_hub_download(
+                repo_id="sarulab-speech/UTMOSv2", filename=f"fold{kwargs.get('fold', 0)}_s42_best_model.pth"
+            )
         self.model = utmosv2.create_model(pretrained=self.pretrained, **kwargs)
 
     def score_segment(self, segment: dict[str, Any]) -> dict[str, Any]:

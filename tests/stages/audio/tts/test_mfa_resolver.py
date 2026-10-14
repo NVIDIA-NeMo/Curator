@@ -159,12 +159,24 @@ class FakeMFA:
         self.fail = fail
         self.mfa_root = mfa_root
 
+    @property
+    def aligns(self) -> list[list[str]]:
+        return [call for call in self.calls if call[1] == "align"]
+
+    def _download(self, kind: str, name: str) -> None:
+        if self.mfa_root is None:
+            return
+        suffix = ".dict" if kind == "dictionary" else ".zip"
+        path = self.mfa_root / "pretrained_models" / kind / f"{name}{suffix}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("WORLD W ER L D\n" if kind == "dictionary" else "zip\n")
+
     def _extract_models(self, dictionary: str, acoustic: str) -> None:
-        """Like MFA's first use of a pretrained model name: extract it under MFA_ROOT_DIR."""
+        """Like MFA: a downloaded pretrained acoustic model is extracted on first use; unknown names fail."""
         if self.mfa_root is None or Path(dictionary).exists():
             return
-        (self.mfa_root / "pretrained_models/dictionary").mkdir(parents=True, exist_ok=True)
-        (self.mfa_root / f"pretrained_models/dictionary/{dictionary}.dict").write_text("WORLD W ER L D\n")
+        if not (self.mfa_root / f"pretrained_models/dictionary/{dictionary}.dict").is_file():
+            raise subprocess.CalledProcessError(2, [], stderr=f'Could not find a model named "{dictionary}"')
         model_dir = self.mfa_root / f"extracted_models/acoustic/{acoustic}_acoustic"
         model_dir.mkdir(parents=True, exist_ok=True)
         (model_dir / "final.mdl").write_text("model\n")
@@ -175,6 +187,9 @@ class FakeMFA:
         self.envs.append(kwargs.get("env"))
         if self.fail:
             raise subprocess.CalledProcessError(1, command, stderr="kaldi exploded")
+        if command[1:3] == ["model", "download"]:
+            self._download(command[3], command[4])
+            return subprocess.CompletedProcess(command, 0, "", "")
         corpus, out, tmp = (
             Path(command[2]),
             Path(command[5]),
@@ -375,7 +390,13 @@ def test_stage_resolves_all_branches(tmp_path: Path, calibration_dir: Path) -> N
     [out] = resolver.process_batch([task])
 
     # one MFA run per language with candidates (en, it)
-    assert sorted(call[3] for call in runner.calls) == ["english_us_arpa", "italian_cv"]
+    assert sorted(call[3] for call in runner.aligns) == ["english_us_arpa", "italian_cv"]
+    assert sorted(call[3:] for call in runner.calls if call[1] == "model") == [
+        ["acoustic", "english_us_arpa"],
+        ["acoustic", "italian_cv"],
+        ["dictionary", "english_us_arpa"],
+        ["dictionary", "italian_cv"],
+    ]
     assert runner.envs[0]["MFA_ROOT_DIR"] == str(tmp_path / "mfa_root")
     assert runner.envs[0]["PATH"].startswith(str(tmp_path / "mfa_root" / "runtime" / "bin"))
 
@@ -553,13 +574,14 @@ def test_mfa_root_bootstraps_once_then_uses_local_bundle(tmp_path: Path, calibra
         task = AudioTask(data={"segments": [segment(tmp_path, name, gate("en"))]})
         resolver.process_batch([task])
         assert annotation(task, 0)["decision"] == "DROP"
-    assert runner.calls[0][3:5] == ["english_us_arpa", "english_us_arpa"]  # bootstrap by model name
-    assert Path(runner.calls[1][3]).name == "dictionary.dict"  # then the private bundle copy
-    assert Path(runner.calls[1][4]).name == "acoustic"
+    assert runner.calls[0][1:4] == ["model", "download", "dictionary"]  # download, then bootstrap by model name
+    assert runner.aligns[0][3:5] == ["english_us_arpa", "english_us_arpa"]
+    assert Path(runner.aligns[1][3]).name == "dictionary.dict"  # then the private bundle copy
+    assert Path(runner.aligns[1][4]).name == "acoustic"
     assert (root / "model_bundles/en.tar").is_file()
     assert (root / "model_bundles/en.tar.json").is_file()
     assert (root / "alignment_locks/en.lock").is_file()
-    local = Path(runner.calls[1][4]).parent
+    local = Path(runner.aligns[1][4]).parent
     resolver.teardown()
     assert not local.exists()
 
@@ -588,10 +610,12 @@ def test_model_cache_repairs_stale_lock_state(tmp_path: Path) -> None:
     command = ["mfa", "align", "/corpus", "english_us_arpa", "english_us_arpa", "/aligned"]
     cache.run(command, "en", tmp_path / "work")
     cache.run(command, "en", tmp_path / "work")
-    assert calls[0][3:5] == ["english_us_arpa"] * 2
-    assert Path(calls[1][3]).name == "dictionary.dict"
-    assert Path(calls[1][4]).name == "acoustic"
-    assert calls[1][4] != str(acoustic)
+    assert calls[0] == ["mfa", "model", "download", "acoustic", "english_us_arpa"]  # dictionary already present
+    aligns = calls[1:]
+    assert aligns[0][3:5] == ["english_us_arpa"] * 2
+    assert Path(aligns[1][3]).name == "dictionary.dict"
+    assert Path(aligns[1][4]).name == "acoustic"
+    assert aligns[1][4] != str(acoustic)
     assert (root / "model_bundles/en.tar").is_file()
     assert not (acoustic / "partial").exists()
     cache.cleanup()

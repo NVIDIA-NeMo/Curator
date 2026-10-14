@@ -22,6 +22,7 @@ See ``README.md`` for the stage list, input fields and requirements.
 from __future__ import annotations
 
 import argparse
+import glob
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,7 +59,7 @@ def _add_common(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--ray_temp_dir",
         default=None,
-        help="Private Ray temp dir (keep it short). Isolates this run from other Ray clusters sharing /tmp/ray.",
+        help="Private Ray temp dir.",
     )
     ap.add_argument(
         "--execution_mode",
@@ -329,7 +330,10 @@ def _build_shar_stages(args: argparse.Namespace) -> list[ProcessingStage]:
 
 
 def main() -> None:
-    args = _build_arg_parser().parse_args()
+    parser = _build_arg_parser()
+    args = parser.parse_args()
+    if "://" not in args.input_manifest and not glob.glob(str(Path(args.input_manifest).expanduser())):
+        parser.error(f"--input_manifest matches nothing: {args.input_manifest}")
     if args.command == "annotate":
         stages, name = _annotate_stages(args), "granary_hifi_annotate"
     else:
@@ -369,6 +373,9 @@ def main() -> None:
             require_codes=not args.skip_codec,
         )
         logger.info(f"published: {summary}")
+        if not summary.get("shards"):
+            msg = "build_shar: no shards published; see the warnings above"
+            raise SystemExit(msg)
     logger.info(f"{name} complete.")
 
 

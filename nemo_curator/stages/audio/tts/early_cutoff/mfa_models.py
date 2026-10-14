@@ -183,16 +183,25 @@ class MfaModelCache:
         os.replace(sidecar_tmp, self._sidecar(bundle))
         logger.info("Built MFA model bundle {}", bundle)
 
+    def _download_models(self, command: Sequence[str]) -> None:
+        """``mfa align`` only accepts pretrained model names that were downloaded first."""
+        root = self._root
+        for kind, name, suffix in (("dictionary", str(command[3]), ".dict"), ("acoustic", str(command[4]), ".zip")):
+            if Path(name).exists() or (root and (root / "pretrained_models" / kind / f"{name}{suffix}").is_file()):
+                continue
+            self._run([str(command[0]), "model", "download", kind, name])
+
     def _bootstrap(self, command: Sequence[str], language: str, bundle: Path) -> bool:
         """Make the extracted model complete and freeze it into the bundle.
 
-        If the model is not extracted yet, ``command`` itself is run (MFA downloads/extracts the model while
+        If the model is not extracted yet, it is downloaded and ``command`` itself is run (MFA extracts the model while
         aligning); returns ``True`` in that case so the alignment is not repeated.
         """
         aligned = False
         resolved = self.extracted_command(command)
         if resolved is None:
             self._remove_corrupt_acoustic_model(command)
+            self._download_models(command)
             self._run(command)
             aligned = True
             resolved = self.extracted_command(command)

@@ -302,3 +302,20 @@ def test_process_batch_empty_and_multiple() -> None:
     tasks = [AudioTask(data={"segments": [good_segment()]}), AudioTask(data={"segments": [good_segment(duration=0)]})]
     out = stage.process_batch(tasks)
     assert [len(t.data["segments"]) for t in out] == [1, 0]
+
+
+def test_warns_when_a_field_is_missing_on_every_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        "nemo_curator.stages.audio.tts.segment_filter.logger.warning", lambda msg, *a: warnings.append(msg.format(*a))
+    )
+    stage = SegmentFilterStage(preset="ytc", language="en")
+    stage.process_batch([AudioTask(data={"segments": [good_segment()]})])
+    assert warnings == []
+
+    bad = good_segment()
+    del bad["utmosv2"]
+    stage.process_batch([AudioTask(data={"segments": [bad, copy.deepcopy(bad)]})])
+    assert len(warnings) == 1
+    assert "utmos" in warnings[0]
+    assert "2/2" in warnings[0]

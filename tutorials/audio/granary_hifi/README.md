@@ -22,37 +22,39 @@ Only the segment filter drops segments. Training-time filtering (`valid_* == tru
 
 ## Requirements
 
-- `nemo_curator[audio_cuda12]`; `utmosv2`; `tritonclient[grpc]` for StudioVoice.
-- `espeak-ng` 1.52 and Montreal Forced Aligner 3.4.1 on `PATH`; the early cut-off endpoint bundle.
-- Model files: TitaNet large, `Cnn14_DecisionLevelMax_mAP=0.385.pth`, `gbt_multiclass_model.joblib`, UTMOSv2 weights.
-- Codec: either the public `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` model from Hugging Face or the private
-  local `25fps_spectral_codec_with_bandwidth_extension.nemo`.
+- `uv sync --extra audio_tts`, plus UTMOSv2: `uv pip install git+https://github.com/sarulab-speech/UTMOSv2.git`.
+- `espeak-ng` (1.51 or 1.52) and Montreal Forced Aligner 3.4.1 on `PATH`; the early cut-off endpoint bundle.
+- Model files: `gbt_multiclass_model.joblib` (SED classifier); the other models download automatically.
+- Codec: either the public `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` model from Hugging Face or a local
+  `25fps_spectral_codec_with_bandwidth_extension.nemo`.
 - ReUse: a separate `resemble-enhance` venv (`--resemble_python`, `numpy<2`) and its weights (`--resemble_run_dir`).
-- Single workstation: install `nvidia-ml-py`, set `CUDA_VISIBLE_DEVICES`, and use `--execution_mode batch` if there are
-  fewer GPUs than GPU stages.
+- Single workstation: set `CUDA_VISIBLE_DEVICES` and use `--execution_mode batch` if there are fewer GPUs than GPU
+  stages.
 
 ## Run
 
 ```bash
 python tutorials/audio/granary_hifi/run.py annotate --preset ytc \
   --input_manifest in.jsonl --output_manifest annotated/ --tar_root /data/audio \
-  --titanet_path speakerverification_en_titanet_large.nemo \
-  --sed_checkpoint Cnn14_DecisionLevelMax_mAP=0.385.pth --sed_classifier gbt_multiclass_model.joblib \
+  --sed_classifier gbt_multiclass_model.joblib \
   --early_cut_off_bundle_dir endpoint_bundle/ --mfa_root_dir /opt/mfa
 
 # Public 21.5 fps NeMo NanoCodec (downloaded from Hugging Face).
 python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest 'annotated/*.jsonl' --shar_dir shar/ \
+  --input_manifest 'annotated/*.jsonl' --tar_root /data/audio --shar_dir shar/ \
   --codec_model nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps --publish_root published/
 
-# Or use the private local 25 fps spectral codec.
+# Or use a local 25 fps spectral codec.
 python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest 'annotated/*.jsonl' --shar_dir shar/ \
+  --input_manifest 'annotated/*.jsonl' --tar_root /data/audio --shar_dir shar/ \
   --codec_model 25fps_spectral_codec_with_bandwidth_extension.nemo --publish_root published/
 ```
 
 `--enhancement studio_voice|reuse` enhances every segment first; all later steps and the shards then use the enhanced
 audio (`build_shar` detects it). Default `none` uses the original audio.
+
+`--preset default` uses the general filter thresholds (the same as `yodas`). All flags: `run.py annotate --help`,
+`run.py build_shar --help`.
 
 `annotate --skip` takes step names: `enhancement diarization speaker_clustering sed utmos bandwidth filter context ipa
 early_cut_off mfa_resolver training_flags`. The `librilight` preset uses the row-level `speaker_id` instead of
@@ -64,8 +66,15 @@ and `JsonlWriter` writes parallel JSONL shards into that directory.
 
 ## Input
 
-One JSONL row per recording:
+One JSONL row per recording (shown indented; dotted names elsewhere in this README are nested keys):
 
-- `orig_sample_id`, `orig_sample_rate`, `source_lang`;
-- `segments`: list of `{duration, GranaryV2.pnc_text, GranaryV2.tn_raw, GranaryHifi.AudioMetadata.{tar_key,
-  tar_member, tar_member_offset, tar_member_bytes}}` (relative `tar_key`s are resolved with `--tar_root`).
+```json
+{"orig_sample_id": "rec1", "orig_sample_rate": 16000, "source_lang": "it",
+ "segments": [{"duration": 8.2,
+               "GranaryV2": {"pnc_text": "Penso che sia importante.", "tn_raw": "Penso che sia importante."},
+               "GranaryHifi": {"AudioMetadata": {"tar_key": "audio/rec1.tar", "tar_member": "rec1_0.wav",
+                                                 "tar_member_offset": 512, "tar_member_bytes": 526050}}}]}
+```
+
+`tar_member_offset` is the byte offset of the member data (`TarInfo.offset_data`); relative `tar_key`s are resolved
+with `--tar_root`.

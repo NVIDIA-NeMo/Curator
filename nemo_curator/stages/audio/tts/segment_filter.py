@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nemo_curator.stages.audio.tts.fields import MISSING, get_dotted, set_dotted
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -486,9 +488,22 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
             stats["samples_without_kept_segments"] += 1
         return stats
 
+    def _warn_on_missing_fields(self, stats: Counter[str]) -> None:
+        total = stats["input_segments"]
+        for condition in self._conditions:
+            missing = stats[f"condition_{safe_name(condition.id)}_missing"]
+            if total and missing == total:
+                logger.warning(
+                    "SegmentFilter: {} missing on {}/{} segments; check upstream annotation errors",
+                    condition.field,
+                    missing,
+                    total,
+                )
+
     def process(self, task: AudioTask) -> AudioTask:
         stats = self.filter_row(task.data)
         self.counters.update(stats)
+        self._warn_on_missing_fields(stats)
         self._log_metrics({key: float(value) for key, value in stats.items()})
         return task
 
@@ -499,5 +514,6 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
         for task in tasks:
             totals.update(self.filter_row(task.data))
         self.counters.update(totals)
+        self._warn_on_missing_fields(totals)
         self._log_metrics({key: float(value) for key, value in totals.items()})
         return list(tasks)
