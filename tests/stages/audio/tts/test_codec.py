@@ -163,10 +163,37 @@ def test_stage_with_injected_model(tmp_path: Path) -> None:
     registry_path = build_registry(tmp_path)
     stage = CodecCodesStage(codec_model=FakeCodec(), device="cpu")
     stage.setup()
+    assert stage.frame_rate == 25.0
     task = FileGroupTask(dataset_name="d", data=[str(registry_path)])
     assert stage.process(task).data == [str(registry_path)]
     with pytest.raises(ValueError, match="model_path"):
         CodecCodesStage()
+
+
+def test_stage_loads_public_hf_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.stages.audio.tts import codec
+
+    loaded: list[str] = []
+
+    def fake_from_pretrained(model_name: str) -> FakeCodec:
+        loaded.append(model_name)
+        return FakeCodec()
+
+    monkeypatch.setattr(codec, "load_pretrained_codec_model", fake_from_pretrained)
+    stage = CodecCodesStage(model_path=codec.PUBLIC_CODEC_MODEL, device="cpu")
+    stage.setup()
+    assert loaded == [codec.PUBLIC_CODEC_MODEL]
+    assert stage.codec_name == codec.PUBLIC_CODEC_NAME
+    assert stage.frame_rate == 25.0
+
+
+def test_stage_rejects_conflicting_model_sources_and_frame_rate() -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        CodecCodesStage(model_path="private.nemo", codec_model=FakeCodec())
+
+    stage = CodecCodesStage(codec_model=FakeCodec(), frame_rate=21.5, device="cpu")
+    with pytest.raises(ValueError, match="does not match codec frame rate"):
+        stage.setup()
 
 
 @pytest.mark.skipif(not REAL_CODEC.is_file(), reason="25 fps codec .nemo not available")

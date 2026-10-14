@@ -121,7 +121,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     sh.add_argument("--language", default=None, help="Overrides the row source_lang; required if rows have none.")
     sh.add_argument("--max_cuts_per_shard", type=int, default=4096)
-    sh.add_argument("--codec_model", default=None, help="25fps_spectral_codec_with_bandwidth_extension.nemo")
+    sh.add_argument(
+        "--codec_model",
+        default=None,
+        help=("Local .nemo path or Hugging Face NeMo model ID, e.g. nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps."),
+    )
     sh.add_argument("--skip_codec", action="store_true")
     sh.add_argument("--enhanced_fallback", action="store_true", help="Original audio where no enhanced copy exists.")
     sh.add_argument("--publish_root", default=None, help="Hard-link published layout here (same filesystem).")
@@ -273,6 +277,12 @@ def _manifest_audio_source(manifest: str) -> str:
 _DATASET_NAMES = {"ytc": "YTC", "yodas": "YODAS", "voxpopuli": "VoxPopuli", "librilight": "LibriLight"}
 
 
+def _codec_name(args: argparse.Namespace) -> str:
+    from nemo_curator.stages.audio.tts.codec import DEFAULT_CODEC_NAME, PUBLIC_CODEC_NAME, is_local_codec_model
+
+    return DEFAULT_CODEC_NAME if not args.codec_model or is_local_codec_model(args.codec_model) else PUBLIC_CODEC_NAME
+
+
 def _build_shar_stages(args: argparse.Namespace) -> list[ProcessingStage]:
     from nemo_curator.stages.audio import tts
     from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -280,6 +290,7 @@ def _build_shar_stages(args: argparse.Namespace) -> list[ProcessingStage]:
     if not args.skip_codec and not args.codec_model:
         msg = "build_shar: --codec_model is required (or --skip_codec)"
         raise SystemExit(msg)
+    codec_name = _codec_name(args)
     stages: list[ProcessingStage] = [
         FilePartitioningStage(file_paths=args.input_manifest, files_per_partition=1, file_extensions=[".jsonl"]),
         tts.LhotseSharBuildStage(
@@ -295,8 +306,16 @@ def _build_shar_stages(args: argparse.Namespace) -> list[ProcessingStage]:
         ),
     ]
     if not args.skip_codec:
-        stages.append(tts.CodecCodesStage(model_path=_abs(args.codec_model)))
-    stages.append(tts.SharValidationStage(require_codes=not args.skip_codec))
+        from nemo_curator.stages.audio.tts.codec import is_local_codec_model
+
+        model = _abs(args.codec_model) if is_local_codec_model(args.codec_model) else args.codec_model
+        stages.append(
+            tts.CodecCodesStage(
+                model_path=model,
+                codec_name=codec_name,
+            )
+        )
+    stages.append(tts.SharValidationStage(codec_name=codec_name, require_codes=not args.skip_codec))
     return stages
 
 
@@ -330,10 +349,14 @@ def main() -> None:
         from nemo_curator.stages.audio.tts.shar_validation import PublishLayout, publish_shars
 
         registries = sorted({path for task in results or [] for path in task.data})
+        codec_name = _codec_name(args)
+        codec_key = (
+            "nemoNanoCodec22kHz1.89kbps21.5fps" if codec_name != "25fpsSpectralCodecBWE" else "spectralCodecBWE25fps"
+        )
         summary = publish_shars(
             registries,
             _abs(args.publish_root),
-            PublishLayout.for_dataset(args.preset),
+            PublishLayout.for_dataset(args.preset, codec_name=codec_name, codec_key=codec_key),
             require_codes=not args.skip_codec,
         )
         logger.info(f"published: {summary}")

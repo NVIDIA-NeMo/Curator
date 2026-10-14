@@ -1,7 +1,7 @@
 # GranaryHiFi: Granary ASR manifests → TTS training shards
 
 Turns Granary manifests (one JSONL row per recording, `segments` with tar-member audio in `GranaryHifi.AudioMetadata`)
-into Lhotse SHAR shards with target/context audio, IPA, 25 fps codec codes and training flags.
+into Lhotse SHAR shards with target/context audio, IPA, neural codec codes and training flags.
 
 | Step | Stage | Writes (per segment) |
 |---|---|---|
@@ -24,8 +24,9 @@ Only the segment filter drops segments. Training-time filtering (`valid_* == tru
 
 - `nemo_curator[audio_cuda12]`; `utmosv2`; `tritonclient[grpc]` for StudioVoice.
 - `espeak-ng` 1.52 and Montreal Forced Aligner 3.4.1 on `PATH`; the early cut-off endpoint bundle.
-- Model files: TitaNet large, `Cnn14_DecisionLevelMax_mAP=0.385.pth`, `gbt_multiclass_model.joblib`, UTMOSv2 weights,
-  `25fps_spectral_codec_with_bandwidth_extension.nemo`.
+- Model files: TitaNet large, `Cnn14_DecisionLevelMax_mAP=0.385.pth`, `gbt_multiclass_model.joblib`, UTMOSv2 weights.
+- Codec: either the public `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` model from Hugging Face or the private
+  local `25fps_spectral_codec_with_bandwidth_extension.nemo`.
 - ReUse: a separate `resemble-enhance` venv (`--resemble_python`, `numpy<2`) and its weights (`--resemble_run_dir`).
 - Single workstation: install `nvidia-ml-py`, set `CUDA_VISIBLE_DEVICES`, and use `--execution_mode batch` if there are
   fewer GPUs than GPU stages.
@@ -39,6 +40,12 @@ python tutorials/audio/granary_hifi/run.py annotate --preset ytc \
   --sed_checkpoint Cnn14_DecisionLevelMax_mAP=0.385.pth --sed_classifier gbt_multiclass_model.joblib \
   --early_cut_off_bundle_dir endpoint_bundle/ --mfa_root_dir /opt/mfa
 
+# Public 21.5 fps NeMo NanoCodec (downloaded from Hugging Face).
+python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
+  --input_manifest annotated.jsonl --shar_dir shar/ \
+  --codec_model nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps --publish_root published/
+
+# Or use the private local 25 fps spectral codec.
 python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
   --input_manifest annotated.jsonl --shar_dir shar/ \
   --codec_model 25fps_spectral_codec_with_bandwidth_extension.nemo --publish_root published/
@@ -49,7 +56,8 @@ audio (`build_shar` detects it). Default `none` uses the original audio.
 
 `annotate --skip` takes step names: `enhancement diarization speaker_clustering sed utmos bandwidth filter context ipa
 early_cut_off mfa_resolver training_flags`. The `librilight` preset uses the row-level `speaker_id` instead of
-speaker clustering. `build_shar --skip_codec` skips codec codes.
+speaker clustering. `build_shar --skip_codec` skips codec codes. `--codec_model` accepts either a Hugging Face model
+ID or a local `.nemo` path; codec frame rate is read from the loaded model.
 
 ## Input
 

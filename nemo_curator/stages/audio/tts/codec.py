@@ -51,6 +51,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask
 
 DEFAULT_CODEC_NAME = "25fpsSpectralCodecBWE"
+PUBLIC_CODEC_MODEL = "nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps"
+PUBLIC_CODEC_NAME = "nemoNanoCodec22kHz1.89kbps21.5fps"
 # Training-only HF discriminators are replaced by an allow-listed no-op module; weights load with strict=False.
 _DISCRIMINATOR_STUB = {"_target_": "torch.nn.Identity"}
 
@@ -101,6 +103,19 @@ def restore_codec_model(model_path: str, map_location: str = "cpu", *, check_key
     if check_keys:
         check_codec_keys(model, model_path)
     return model
+
+
+def load_pretrained_codec_model(model_name: str) -> Any:  # noqa: ANN401
+    """Download and load a public NeMo audio codec from Hugging Face."""
+    from nemo.collections.tts.models import AudioCodecModel
+
+    return AudioCodecModel.from_pretrained(model_name, map_location="cpu")
+
+
+def is_local_codec_model(model: str) -> bool:
+    """Return whether ``model`` denotes a local checkpoint rather than a Hugging Face model ID."""
+    path = Path(model).expanduser()
+    return path.is_file() or path.is_absolute() or path.suffix == ".nemo" or model.startswith((".", "~"))
 
 
 def resample_poly(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
@@ -331,15 +346,17 @@ def extract_codes_for_registry(
 class CodecCodesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     """Extract 25 fps spectral codec codes for SHAR shards listed in ``shar_registry.json`` files.
 
-    ``model_path`` is a local ``.nemo`` (``25fps_spectral_codec_with_bandwidth_extension.nemo``). A pre-loaded codec
-    model can be injected through ``codec_model`` (tests). Output codes live next to the shard's audio under
-    ``<rate>/<codec_name>/{target_codes,context_codes}/``. ``check_keys`` verifies that the ``strict=False`` load
-    ignored only ``discriminator.*`` weights.
+    ``model_path`` accepts either a local ``.nemo`` path (for example,
+    ``25fps_spectral_codec_with_bandwidth_extension.nemo``) or a Hugging Face NeMo model ID. A pre-loaded codec model
+    can instead be injected through ``codec_model`` (tests). Exactly one model source is required. Output codes live
+    next to the shard's audio under
+    ``<rate>/<codec_name>/{target_codes,context_codes}/``. For local checkpoints, ``check_keys`` verifies that the
+    ``strict=False`` load ignored only ``discriminator.*`` weights.
     """
 
     model_path: str | None = None
     codec_name: str = DEFAULT_CODEC_NAME
-    frame_rate: float = 25.0
+    frame_rate: float | None = None
     inference_batch_size: int = 128
     device: str = "cuda"
     codec_model: Any | None = None
@@ -351,9 +368,12 @@ class CodecCodesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
-        if self.model_path is None and self.codec_model is None:
-            msg = "model_path (or codec_model) is required"
+        sources = sum(source is not None for source in (self.model_path, self.codec_model))
+        if sources != 1:
+            msg = "exactly one of model_path or codec_model is required"
             raise ValueError(msg)
+        if self.model_path and not is_local_codec_model(self.model_path) and self.codec_name == DEFAULT_CODEC_NAME:
+            self.codec_name = PUBLIC_CODEC_NAME
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -368,20 +388,40 @@ class CodecCodesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         if device.startswith("cuda") and not torch.cuda.is_available():
             logger.warning("CUDA is not available; codec extraction falls back to CPU (much slower)")
             device = "cpu"
-        model = (
-            self.codec_model
-            if self.codec_model is not None
-            else restore_codec_model(str(self.model_path), check_keys=self.check_keys)
-        )
+        if self.codec_model is not None:
+            model = self.codec_model
+        elif self.model_path is not None and not is_local_codec_model(self.model_path):
+            model = load_pretrained_codec_model(self.model_path)
+        else:
+            model = restore_codec_model(str(self.model_path), check_keys=self.check_keys)
         if hasattr(model, "to"):
             model = model.to(device)
         if hasattr(model, "eval"):
             model.eval()
         self._encoder = CodecEncoder(model, device)
+        actual_frame_rate = self._encoder.sample_rate / self._encoder.samples_per_frame
+        if self.frame_rate is None:
+            self.frame_rate = actual_frame_rate
+        elif not np.isclose(self.frame_rate, actual_frame_rate, rtol=0.0, atol=1e-3):
+            msg = (
+                f"Configured frame_rate={self.frame_rate} does not match codec frame rate "
+                f"{actual_frame_rate:.6g} ({self._encoder.sample_rate}/{self._encoder.samples_per_frame})"
+            )
+            raise ValueError(msg)
+        logger.info(
+            "Loaded codec {}: sample_rate={}, samples_per_frame={}, frame_rate={:.6g}",
+            self.codec_name,
+            self._encoder.sample_rate,
+            self._encoder.samples_per_frame,
+            self.frame_rate,
+        )
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
         if self._encoder is None:
             self.setup()
+        if self.frame_rate is None:
+            msg = "Codec frame rate was not initialized"
+            raise RuntimeError(msg)
         for registry in task.data:
             extract_codes_for_registry(
                 registry,
