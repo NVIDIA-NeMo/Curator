@@ -28,7 +28,9 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
+from nemo_curator.stages.audio import ManifestReader
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -77,7 +79,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "annotate", help="Enhance (optional), annotate, filter, select contexts, IPA, early cut-off, flags."
     )
     _add_common(an)
-    an.add_argument("--output_manifest", required=True)
+    an.add_argument("--output_manifest", required=True, help="Output directory for sharded JSONL manifests.")
     an.add_argument("--preset", required=True, choices=["default", "ytc", "yodas", "voxpopuli", "librilight"])
     an.add_argument("--skip", nargs="*", default=[], choices=ANNOTATE_STEPS, help="Steps to leave out.")
     an.add_argument("--source_lang_key", default="source_lang")
@@ -249,7 +251,12 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
             )
         elif step == "training_flags":
             stages.append(tts.TrainingFlagsStage(text_key=TN_RAW))
-    stages.append(ManifestWriterStage(output_path=args.output_manifest))
+    stages.extend(
+        [
+            AudioToDocumentStage(),
+            JsonlWriter(path=args.output_manifest, mode="overwrite", write_kwargs={"force_ascii": False}),
+        ]
+    )
     return stages
 
 

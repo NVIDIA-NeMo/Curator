@@ -24,7 +24,6 @@ _NON_SERIALIZABLE_KEYS = frozenset(
         "audio",
         "audio_data",
         "audio_array",
-        "segments",
     }
 )
 
@@ -57,30 +56,38 @@ class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
 
     @staticmethod
     def _sanitize(data: dict) -> dict:
-        """Remove non-serializable keys and any remaining tensor values."""
+        """Remove non-serializable audio values recursively while preserving segment metadata."""
         cleaned = {}
-        for k, v in data.items():
+        for k, value in data.items():
             if k in _NON_SERIALIZABLE_KEYS:
                 continue
-            if _is_tensor(v):
+            if _is_tensor(value):
                 logger.warning(
                     f"[AudioToDocumentStage] Dropping non-serializable "
                     f"key {k!r} (torch.Tensor) before DataFrame conversion"
                 )
                 continue
-            cleaned[k] = v
+            if isinstance(value, dict):
+                cleaned_value = AudioToDocumentStage._sanitize(value)
+            elif isinstance(value, list):
+                cleaned_value = [
+                    AudioToDocumentStage._sanitize(item) if isinstance(item, dict) else item for item in value
+                ]
+            else:
+                cleaned_value = value
+            cleaned[k] = cleaned_value
         return cleaned
 
     def process_batch(self, tasks: list[AudioTask]) -> list[DocumentBatch]:
         if len(tasks) == 0:
             return []
-        df = pd.DataFrame([self._sanitize(t.data) for t in tasks])
+        dataframe = pd.DataFrame([self._sanitize(t.data) for t in tasks])
         perf = []
         for t in tasks:
             perf.extend(t._stage_perf)
         return [
             DocumentBatch(
-                data=df,
+                data=dataframe,
                 dataset_name=",".join(dict.fromkeys(t.dataset_name for t in tasks)),
                 _stage_perf=perf,
             )

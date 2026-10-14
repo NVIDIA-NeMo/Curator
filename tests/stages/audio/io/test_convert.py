@@ -12,10 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
+import torch
 
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import AudioTask, DocumentBatch
 
 
@@ -80,3 +84,37 @@ def test_process_batch_single_task() -> None:
     assert len(result) == 1
     assert len(result[0].data) == 1
     assert result[0].data.iloc[0]["text"] == "hi"
+
+
+def test_process_batch_preserves_segments_and_removes_nested_waveforms() -> None:
+    task = AudioTask(
+        dataset_name="ds",
+        data={
+            "segments": [
+                {"text": "first", "waveform": torch.zeros(10)},
+                {"text": "second", "annotation": {"score": 1.0, "audio": torch.ones(4)}},
+            ],
+            "waveform": torch.zeros(20),
+        },
+    )
+
+    doc = AudioToDocumentStage().process_batch([task])[0]
+    row = doc.data.iloc[0]
+    assert "waveform" not in row
+    assert row["segments"] == [
+        {"text": "first"},
+        {"text": "second", "annotation": {"score": 1.0}},
+    ]
+
+
+def test_sanitized_segments_are_json_serializable(tmp_path: Path) -> None:
+    task = AudioTask(
+        dataset_name="ds",
+        data={"segments": [{"text": "hello", "waveform": torch.zeros(10)}]},
+    )
+    document = AudioToDocumentStage().process_batch([task])[0]
+    output = JsonlWriter(path=str(tmp_path / "output")).process(document)
+
+    written = Path(output.data[0]).read_text(encoding="utf-8")
+    assert '"segments":[{"text":"hello"}]' in written
+    assert "waveform" not in written

@@ -35,19 +35,19 @@ Only the segment filter drops segments. Training-time filtering (`valid_* == tru
 
 ```bash
 python tutorials/audio/granary_hifi/run.py annotate --preset ytc \
-  --input_manifest in.jsonl --output_manifest annotated.jsonl --tar_root /data/audio \
+  --input_manifest in.jsonl --output_manifest annotated/ --tar_root /data/audio \
   --titanet_path speakerverification_en_titanet_large.nemo \
   --sed_checkpoint Cnn14_DecisionLevelMax_mAP=0.385.pth --sed_classifier gbt_multiclass_model.joblib \
   --early_cut_off_bundle_dir endpoint_bundle/ --mfa_root_dir /opt/mfa
 
 # Public 21.5 fps NeMo NanoCodec (downloaded from Hugging Face).
 python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest annotated.jsonl --shar_dir shar/ \
+  --input_manifest 'annotated/*.jsonl' --shar_dir shar/ \
   --codec_model nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps --publish_root published/
 
 # Or use the private local 25 fps spectral codec.
 python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest annotated.jsonl --shar_dir shar/ \
+  --input_manifest 'annotated/*.jsonl' --shar_dir shar/ \
   --codec_model 25fps_spectral_codec_with_bandwidth_extension.nemo --publish_root published/
 ```
 
@@ -58,6 +58,9 @@ audio (`build_shar` detects it). Default `none` uses the original audio.
 early_cut_off mfa_resolver training_flags`. The `librilight` preset uses the row-level `speaker_id` instead of
 speaker clustering. `build_shar --skip_codec` skips codec codes. `--codec_model` accepts either a Hugging Face model
 ID or a local `.nemo` path; codec frame rate is read from the loaded model.
+
+`annotate --output_manifest` is an output directory. The final `AudioToDocumentStage` removes cached waveform tensors
+and `JsonlWriter` writes parallel JSONL shards into that directory.
 
 ## Input
 
