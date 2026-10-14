@@ -2,7 +2,6 @@ defaults:
   - text
   - _self_
   - override serving: explicit
-  - override runtime: preinstalled
 
 # An existing writable cache directory visible to all serving workers.
 cache_root: ???

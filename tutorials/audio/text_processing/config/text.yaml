@@ -1,6 +1,5 @@
 defaults:
   - serving: reference
-  - runtime: isolated
   - operation@recover_entities: recover_entities
   - operation@pnc: pnc
   - operation@language_id: language_id
@@ -33,15 +32,16 @@ max_concurrent_requests: 256
 request_timeout_s: 600
 max_retries: 3
 
-# An existing /v1 endpoint skips managed server startup.
-endpoint: null
+# The shared runner uses an already running OpenAI-compatible server.
+endpoint: ???
 model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
 model_name: ${model_identifier}
 
 ray_client:
   _target_: nemo_curator.core.client.RayClient
-  num_gpus: 8
+  num_gpus: 0
 
+# Used by the audio benchmark or a separate InferenceServer owner, not the runner.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all
@@ -151,3 +151,4 @@ stages:
 
   - _target_: nemo_curator.stages.audio.ManifestWriterStage
     output_path: ${output_path}
+    input_manifest_path: ${manifest_path}

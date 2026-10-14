@@ -2,8 +2,13 @@ defaults:
   - reference
   - _self_
 
-# Explicit switches for the pinned vLLM 0.23.0 runtime; GPU tuning is pending.
+# Existing serving options; GPU tuning is pending.
 model:
+  runtime_env:
+    env_vars:
+      VLLM_CACHE_ROOT: ${cache_root}/vllm
+      TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
+      TRITON_CACHE_DIR: ${cache_root}/triton
   engine_kwargs:
     revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
     enable_prefix_caching: true
@@ -11,4 +16,4 @@ model:
     async_scheduling: false
     enforce_eager: false
     compilation_config:
-      cache_dir: ${cache_root}/vllm-0.23.0-cu129/compile
+      cache_dir: ${cache_root}/vllm/compile

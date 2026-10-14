@@ -4,8 +4,10 @@ model:
   model_identifier: ${model_identifier}
   model_name: ${model_name}
   num_replicas: 4
-  install_runtime_dependencies: ${runtime.install_runtime_dependencies}
-  runtime_env: ${runtime.env}
+  runtime_env:
+    uv:
+      packages:
+        - transformers>=5
   engine_kwargs:
     tensor_parallel_size: 2
     max_model_len: 8192

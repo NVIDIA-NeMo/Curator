@@ -22,14 +22,16 @@ max_concurrent_requests: 16
 request_timeout_s: 120
 max_retries: 3
 
-# Set endpoint to an existing OpenAI-compatible /v1 URL to skip server startup.
-endpoint: null
+# The shared runner uses an already running OpenAI-compatible server.
+endpoint: ???
 model_identifier: Qwen/Qwen3.5-35B-A3B-FP8
 model_name: ${model_identifier}
 
 ray_client:
   _target_: nemo_curator.core.client.RayClient
+  num_gpus: 0
 
+# Used by the audio benchmark or a separate InferenceServer owner, not the runner.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all
@@ -75,3 +77,4 @@ stages:
 
   - _target_: nemo_curator.stages.audio.ManifestWriterStage
     output_path: ${output_path}
+    input_manifest_path: ${manifest_path}

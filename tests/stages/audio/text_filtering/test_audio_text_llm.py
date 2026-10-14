@@ -16,7 +16,6 @@
 
 import asyncio
 import json
-import sys
 import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,7 +25,6 @@ import pytest
 from openai import APIStatusError, APITimeoutError, AsyncOpenAI
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.ray_data.utils import is_actor_stage
 from nemo_curator.models.client import openai_client
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.stages.audio.text_filtering.audio_text_llm import AudioTextLLMStage
@@ -62,22 +60,6 @@ def endpoint(monkeypatch: pytest.MonkeyPatch) -> Callable:
         return clients
 
     return install
-
-
-@pytest.fixture(autouse=True)
-def close_stage_workers(monkeypatch: pytest.MonkeyPatch):
-    stages = []
-    make_stage = _stage
-
-    def track_stage(**kwargs) -> AudioTextLLMStage:
-        stage = make_stage(**kwargs)
-        stages.append(stage)
-        return stage
-
-    monkeypatch.setattr(sys.modules[__name__], "_stage", track_stage)
-    yield
-    for stage in stages:
-        stage.teardown()
 
 
 def _stage(**kwargs) -> AudioTextLLMStage:
@@ -131,10 +113,10 @@ def test_out_of_order_responses_preserve_audio_payload_and_task_envelope(endpoin
     assert task._metadata == {"manifest": "source.jsonl"}
     assert task._stage_perf == ["upstream-stat"]
     assert clients
-    assert all(not client.is_closed() for client in clients)
+    assert all(client.is_closed() for client in clients)
 
 
-def test_repeated_batches_reuse_worker_client_and_loop_until_teardown(endpoint: Callable) -> None:
+def test_repeated_batches_close_clients_without_reusing_closed_event_loops(endpoint: Callable) -> None:
     active = maximum_active = 0
     loops = []
 
@@ -149,22 +131,16 @@ def test_repeated_batches_reuse_worker_client_and_loop_until_teardown(endpoint: 
 
     clients = endpoint(handle)
     stage = _stage(max_concurrent_requests=2)
-    assert is_actor_stage(stage)
-    assert stage._client is None
     for _ in range(2):
         tasks = [AudioTask(data={"text": f"row {index}"}) for index in range(5)]
         assert stage.process_batch(tasks) == tasks
     assert maximum_active == 2
-    assert len(clients) == 1
-    assert len(set(loops)) == 1
-    assert clients[0].max_retries == 0
-    assert not clients[0].is_closed()
-    stage.teardown()
+    assert len(clients) == 2
+    assert len(set(loops)) == 2
     assert all(client.is_closed() for client in clients)
-    stage.teardown()
 
 
-def test_batch_deadline_cancels_requests_preserves_inputs_and_closes_worker(
+def test_batch_deadline_cancels_requests_preserves_inputs_and_closes_client(
     endpoint: Callable, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cancelled = threading.Event()
@@ -177,17 +153,16 @@ def test_batch_deadline_cancels_requests_preserves_inputs_and_closes_worker(
 
     clients = endpoint(handle)
     stage = _stage(max_retries=0)
-    monkeypatch.setattr(stage, "_batch_timeout", lambda _count: 0.1)
+    monkeypatch.setattr(stage, "_batch_timeout", lambda _count, _client: 0.1)
     task = AudioTask(data={"text": "original", "processed_text": "old"})
-    with pytest.raises(TimeoutError, match="batch exceeded"):
+    with pytest.raises(TimeoutError):
         stage.process(task)
     assert cancelled.wait(timeout=1)
     assert task.data == {"text": "original", "processed_text": "old"}
     assert clients[0].is_closed()
-    assert stage._loop_runner is None
 
 
-def test_timeout_retries_use_only_shared_budget(endpoint: Callable) -> None:
+def test_timeout_preserves_existing_client_retry_policy(endpoint: Callable) -> None:
     attempts = 0
 
     def handle(_request: httpx.Request) -> httpx.Response:
@@ -197,13 +172,11 @@ def test_timeout_retries_use_only_shared_budget(endpoint: Callable) -> None:
         raise httpx.ReadTimeout(message)
 
     clients = endpoint(handle)
-    stage = _stage(max_retries=1)
-    stage.setup()
-    stage._client.base_delay = 0
+    stage = _stage(max_retries=0)
     task = AudioTask(data={"text": "original"})
     with pytest.raises(APITimeoutError, match="timed out"):
         stage.process(task)
-    assert attempts == 2
+    assert attempts == clients[0].max_retries + 1
     assert task.data == {"text": "original"}
     assert clients[0].is_closed()
 
@@ -224,16 +197,30 @@ def test_cleanup_failure_preserves_original_request_error(endpoint: Callable, mo
         stage.process(task)
     assert task.data == {"text": "original"}
     assert clients[0].is_closed()
-    assert stage._loop_runner is None
 
 
-def test_batch_deadline_accounts_for_retry_waves() -> None:
+def test_batch_deadline_accounts_for_both_retry_layers_and_waves(
+    endpoint: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    endpoint(lambda _request: _completion("done"))
     stage = _stage(request_timeout_s=10, max_retries=3, max_concurrent_requests=2)
-    stage.setup()
-    assert stage._batch_timeout(5) == 270
+    batch_timeout = stage._batch_timeout
+    deadlines = []
+
+    def record_deadline(num_requests: int, client: openai_client.AsyncOpenAIClient) -> float:
+        deadline = batch_timeout(num_requests, client)
+        sdk_retries = client.client.max_retries
+        per_request = 10 * (sdk_retries + 1) + 60 * sdk_retries
+        assert deadline == 3 * (per_request * 4 + 7 + 3) + 120
+        deadlines.append(deadline)
+        return deadline
+
+    monkeypatch.setattr(stage, "_batch_timeout", record_deadline)
+    stage.process_batch([AudioTask(data={"text": str(index)}) for index in range(5)])
+    assert len(deadlines) == 1
 
 
-def test_batches_reuse_the_http_connection() -> None:
+def test_one_batch_reuses_the_http_connection() -> None:
     peers = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -255,14 +242,13 @@ def test_batches_reuse_the_http_connection() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
-    stage = _stage(endpoint=f"http://127.0.0.1:{server.server_port}/v1")
+    stage = _stage(endpoint=f"http://127.0.0.1:{server.server_port}/v1", max_concurrent_requests=1)
     try:
-        for text in ("first", "second"):
-            assert stage.process(AudioTask(data={"text": text})).data["processed_text"] == "processed"
+        tasks = [AudioTask(data={"text": text}) for text in ("first", "second")]
+        assert all(task.data["processed_text"] == "processed" for task in stage.process_batch(tasks))
         assert len(peers) == 2
         assert peers[0] == peers[1]
     finally:
-        stage.teardown()
         server.shutdown()
         server.server_close()
         thread.join(timeout=1)
@@ -457,7 +443,7 @@ def test_retryable_http_failure_recovers_and_reuses_client(endpoint: Callable, s
     assert attempts == 2
     assert task.data["processed_text"] == "recovered"
     assert clients
-    assert all(not client.is_closed() for client in clients)
+    assert all(client.is_closed() for client in clients)
 
 
 @pytest.mark.parametrize(
@@ -583,7 +569,7 @@ def test_parallel_prompts_share_concurrency_and_keep_per_operation_configs(endpo
     tasks = [AudioTask(data={"text": f"row {i}"}) for i in range(3)]
     assert stage.process_batch(tasks) is tasks
     assert len(clients) == 1
-    assert not clients[0].is_closed()
+    assert clients[0].is_closed()
     assert maximum == 2
     assert {body["max_tokens"] for body in requests} == {10, 20}
     assert all(task.data["caption"] == "Caption" and task.data["qa"] == "QA" for task in tasks)

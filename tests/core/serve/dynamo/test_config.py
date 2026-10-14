@@ -83,13 +83,3 @@ class TestDynamoVLLMModelConfig:
             DynamoVLLMModelConfig(model_identifier="m", kv_events_config={"publisher": "zmq"})
         with pytest.raises(TypeError, match="kv_transfer_config"):
             DynamoVLLMModelConfig(model_identifier="m", kv_transfer_config={"kv_connector": "Nixl"})
-
-
-@pytest.mark.parametrize(
-    "options", [{"max_waiting_requests": -1}, {"max_waiting_requests": 0, "max_concurrent_requests": 0}]
-)
-def test_admission_rejects_invalid_limits(options: dict) -> None:
-    from nemo_curator.core.serve import DynamoAdmissionConfig
-
-    with pytest.raises(ValueError, match="must be >="):
-        DynamoAdmissionConfig(**options)

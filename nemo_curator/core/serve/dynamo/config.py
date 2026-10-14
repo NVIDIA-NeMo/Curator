@@ -71,26 +71,6 @@ class DynamoRouterConfig:
 
 
 @dataclass
-class DynamoAdmissionConfig:
-    """Opt-in queue admission for one aggregated model's replicas.
-
-    Missing worker metrics reject requests with HTTP 503; an overloaded replica
-    rejects requests with HTTP 429 and reduces the shared concurrency window.
-    """
-
-    max_waiting_requests: int
-    max_concurrent_requests: int = 8192
-
-    def __post_init__(self) -> None:
-        if self.max_waiting_requests < 0:
-            msg = "max_waiting_requests must be >= 0"
-            raise ValueError(msg)
-        if self.max_concurrent_requests < 1:
-            msg = "max_concurrent_requests must be >= 1"
-            raise ValueError(msg)
-
-
-@dataclass
 class DynamoVLLMModelConfig(BaseModelConfig):
     """Dynamo vLLM model config.
 
@@ -98,13 +78,10 @@ class DynamoVLLMModelConfig(BaseModelConfig):
     else is forwarded to ``python -m dynamo.vllm`` via ``dynamo_kwargs``.
     ``kv_events_config`` and ``kv_transfer_config`` are Curator-managed
     (``init=False``): events are derived from router state + port allocation,
-    transfer defaults to NixlConnector for disagg. ``install_runtime_dependencies=False``
-    trusts the image's existing Dynamo/vLLM/Ray stack; explicit ``runtime_env``
-    package requests still apply.
+    transfer defaults to NixlConnector for disagg.
     """
 
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
-    install_runtime_dependencies: bool = True
     num_replicas: int = 1
     mode: Literal["aggregated", "disagg"] = "aggregated"
     prefill: DynamoRoleConfig | None = None
@@ -142,4 +119,3 @@ class DynamoServerConfig(BaseServerConfig):
     event_plane: str = DEFAULT_DYNAMO_EVENT_PLANE
     router: DynamoRouterConfig = field(default_factory=DynamoRouterConfig)
     subprocess_env: dict[str, str] = field(default_factory=dict)
-    admission: DynamoAdmissionConfig | None = None

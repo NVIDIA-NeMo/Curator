@@ -114,6 +114,7 @@ def test_audio_text_opt_in_preserves_the_paired_workload() -> None:
         assert "--input-manifest={dataset:audio_text_gemma4_english,jsonl}" in entries[name]["args"]
         assert "--config-name=english" in entries[name]["args"]
         assert "--override=cache_root={results_path}/audio_text_cache" in entries[name]["args"]
+        assert "--override=ray_client.num_gpus=8" in entries[name]["args"]
         assert _requirement(entries[name], "num_operations")["exact_value"] == 9
         assert _requirement(entries[name], "input_output_coverage_ratio")["exact_value"] == 1.0
     assert entries[names[0]]["args"].replace("backend=xenna", "backend=ray_data") == entries[names[1]]["args"]

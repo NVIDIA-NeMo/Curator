@@ -20,9 +20,7 @@ import asyncio
 from collections.abc import Iterable
 from unittest.mock import patch
 
-import httpx
 import pytest
-from openai import APITimeoutError
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
 
@@ -70,31 +68,6 @@ class TestAsyncLLMClient:
         """Test that AsyncLLMClient cannot be instantiated directly."""
         with pytest.raises(TypeError):
             AsyncLLMClient()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "error",
-        [TimeoutError(), httpx.ReadTimeout(""), APITimeoutError(request=httpx.Request("POST", "http://test"))],
-    )
-    async def test_timeout_errors_retry_with_empty_messages(self, error: Exception) -> None:
-        class Client(AsyncLLMClient):
-            attempts = 0
-
-            def setup(self) -> None:
-                pass
-
-            async def _query_model_impl(self, **kwargs: object) -> list[str]:
-                self.attempts += 1
-                if self.attempts == 1:
-                    raise error
-                return ["recovered"]
-
-        client = Client(max_retries=1, base_delay=0)
-        with patch("nemo_curator.models.client.llm_client.secrets.randbelow", return_value=0):
-            assert await client.query_model(messages=[], model="test") == ["recovered"]
-        assert client.attempts == 2
-        assert client.num_request_attempts == 2
-        assert client.num_retries == 1
 
     @pytest.mark.asyncio
     async def test_query_model_success(self) -> None:

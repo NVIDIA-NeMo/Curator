@@ -1,5 +1,0 @@
-install_runtime_dependencies: true
-env:
-  uv:
-    packages:
-      - transformers>=5
