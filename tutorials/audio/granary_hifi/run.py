@@ -212,7 +212,9 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
                 )
             )
         elif step == "bandwidth":
-            stages.append(tts.BandwidthAnnotationStage(**audio))
+            from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
+
+            stages.append(BandwidthEstimationStage(output_key="bandwidth", **audio).with_(batch_size=16))
         elif step == "filter":
             stages.append(tts.SegmentFilterStage(preset=args.preset, language=args.language))
         elif step == "context":

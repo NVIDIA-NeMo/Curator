@@ -9,7 +9,7 @@ into Lhotse SHAR shards with target/context audio, IPA, neural codec codes and t
 | diarization | `SegmentDiarizationStage` | `diarization.{num_speakers, diarized_speech_rate, ...}` |
 | speaker clustering | `SpeakerClusteringStage` | `speaker_cluster.{speaker_id, cluster_similarity, cluster_margin}` |
 | sound events | `SegmentSEDStage` | `sed.weighted_*` |
-| quality | `UTMOSv2AnnotationStage`, `BandwidthAnnotationStage` | `utmosv2.score`, `bandwidth.bandwidth` |
+| quality | `UTMOSv2AnnotationStage`, `BandwidthEstimationStage` | `utmosv2.score`, `bandwidth.bandwidth` |
 | segment filter | `SegmentFilterStage(preset=ytc\|yodas\|voxpopuli\|librilight)` | drops failing segments |
 | context selection | `ContextSelectionStage` | `context.*` |
 | phonemization | `ManifestIpaStage` | `ipa.ipa` |

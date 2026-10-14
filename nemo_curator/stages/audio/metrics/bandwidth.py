@@ -21,8 +21,56 @@ import librosa
 import numpy as np
 from loguru import logger
 
+from nemo_curator.stages.audio.common import resolve_waveform_from_item
+from nemo_curator.stages.audio.tts.audio_io import (
+    TAR_KEY_FIELD,
+    TAR_MEMBER_FIELD,
+    SegmentAudioError,
+    load_segment_audio,
+    make_audio_config,
+)
+from nemo_curator.stages.audio.tts.fields import get_dotted, set_dotted
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+
+_MIN_N_FFT = 2
+
+
+def estimate_bandwidth(  # noqa: PLR0913
+    audio: np.ndarray,
+    sample_rate: int,
+    n_fft: int = 512,
+    *,
+    stride_seconds: float = 0.01,
+    top_db: float = 100.0,
+    frequency_threshold: float = -50.0,
+) -> int:
+    """Estimate the highest frequency bin near the signal's spectral peak."""
+    hop_length = int(sample_rate * stride_seconds)
+    if hop_length < 1:
+        msg = f"stride_seconds={stride_seconds} produces invalid hop_length={hop_length} for sample_rate={sample_rate}"
+        raise ValueError(msg)
+    if n_fft < _MIN_N_FFT:
+        msg = "n_fft must be at least 2"
+        raise ValueError(msg)
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if audio.size == 0:
+        return 0
+
+    spec = librosa.stft(y=audio, n_fft=n_fft, hop_length=hop_length, window="blackmanharris")
+    power_spec = np.mean(np.abs(spec) ** 2, axis=1)
+    power_spec = librosa.power_to_db(power_spec, ref=n_fft, top_db=top_db)
+
+    peak = float(np.max(power_spec))
+    freq_width = sample_rate / n_fft
+    for idx in range(len(power_spec) - 1, -1, -1):
+        if power_spec[idx] - peak > frequency_threshold:
+            return int(idx * freq_width)
+    return 0
+
+
+def empty_annotation(error: str) -> dict[str, Any]:
+    return {"bandwidth": None, "bandwidth_sample_rate": None, "error": error}
 
 
 @dataclass
@@ -52,46 +100,100 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
     frequency_threshold: float = -50.0
     audio_filepath_key: str = "audio_filepath"
     segments_key: str = "segments"
+    output_key: str | None = None
+    tar_root: str | None = None
+    strip_tar_key_prefixes: tuple[str, ...] = ()
+    audio_source: str = "original"
+    enhanced_key: str = "enhanced_audio"
+    enhanced_fallback: bool = False
 
     # Stage metadata
     name: str = "BandwidthEstimation"
 
+    def __post_init__(self) -> None:
+        super().__init__()
+        if self.n_fft < _MIN_N_FFT:
+            msg = "n_fft must be at least 2"
+            raise ValueError(msg)
+        if self.stride_seconds <= 0:
+            msg = "stride_seconds must be positive"
+            raise ValueError(msg)
+        if self.top_db <= 0:
+            msg = "top_db must be positive"
+            raise ValueError(msg)
+
     def inputs(self) -> tuple[list[str], list[str]]:
+        if self.output_key is not None:
+            return [], []
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
+        if self.output_key is not None:
+            return [], [self.output_key.split(".")[0]]
         return [], [self.audio_filepath_key, "metrics"]
 
     def validate_input(self, task: AudioTask) -> bool:
         """OR-shaped: needs audio_filepath AND (segments OR duration)."""
         data = task.data
-        if not hasattr(data, self.audio_filepath_key):
+        if self.output_key is not None:
+            return True
+        if not data.get(self.audio_filepath_key):
             logger.error(f"Task {task.task_id} missing '{self.audio_filepath_key}'")
             return False
-        if hasattr(data, self.segments_key) or hasattr(data, "duration"):
+        if self.segments_key in data or "duration" in data:
             return True
         logger.error(f"Task {task.task_id} missing required attributes: need '{self.segments_key}' OR 'duration'")
         return False
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""
-        hop_length = int(sample_rate * self.stride_seconds)
+        return estimate_bandwidth(
+            audio,
+            sample_rate,
+            self.n_fft,
+            stride_seconds=self.stride_seconds,
+            top_db=self.top_db,
+            frequency_threshold=self.frequency_threshold,
+        )
 
-        spec = librosa.stft(y=audio, n_fft=self.n_fft, hop_length=hop_length, window="blackmanharris")
-        power_spec = np.abs(spec) ** 2
-        power_spec = np.mean(power_spec, axis=1)
-        power_spec = librosa.power_to_db(power_spec, ref=self.n_fft, top_db=self.top_db)
+    def _load_annotation_audio(self, item: dict[str, Any], task_id: str) -> tuple[np.ndarray, int] | str:
+        if get_dotted(item, TAR_MEMBER_FIELD) or get_dotted(item, TAR_KEY_FIELD):
+            try:
+                return load_segment_audio(item, None, make_audio_config(self))
+            except SegmentAudioError as exc:
+                return exc.code
+        audio = resolve_waveform_from_item(item, task_id)
+        if audio is None:
+            return "missing_audio"
+        waveform, sample_rate = audio
+        return waveform.detach().cpu().numpy().reshape(-1), int(sample_rate)
 
-        bandwidth = 0
-        peak = np.max(power_spec)
-        freq_width = sample_rate / self.n_fft
+    def _annotation(self, item: dict[str, Any], task_id: str) -> dict[str, Any]:
+        audio = self._load_annotation_audio(item, task_id)
+        if isinstance(audio, str):
+            return empty_annotation(audio)
+        samples, sample_rate = audio
+        try:
+            return {
+                "bandwidth": self._estimate_bandwidth(samples, sample_rate),
+                "bandwidth_sample_rate": sample_rate,
+                "error": None,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Bandwidth estimation failed for {}: {}", task_id, exc)
+            return empty_annotation("bandwidth_failed")
 
-        for idx in range(len(power_spec) - 1, -1, -1):
-            if power_spec[idx] - peak > self.frequency_threshold:
-                bandwidth = idx * freq_width
-                break
-
-        return bandwidth
+    def _annotate_task(self, task: AudioTask) -> None:
+        if self.output_key is None:
+            msg = "output_key is required for annotation mode"
+            raise RuntimeError(msg)
+        segments = task.data.get(self.segments_key)
+        if isinstance(segments, list):
+            for index, segment in enumerate(segments):
+                if isinstance(segment, dict):
+                    set_dotted(segment, self.output_key, self._annotation(segment, f"{task.task_id}:{index}"))
+            return
+        set_dotted(task.data, self.output_key, self._annotation(task.data, task.task_id))
 
     def get_bandwidth(self, audio_segment: dict[str, Any], audio: "np.ndarray", sample_rate: int) -> None:
         """Get the bandwidth of an audio segment."""
@@ -119,6 +221,9 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Estimate bandwidth for audio entry."""
+        if self.output_key is not None:
+            self._annotate_task(task)
+            return task
         data_entry = task.data
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:

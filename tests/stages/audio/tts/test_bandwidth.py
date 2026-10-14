@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from nemo_curator.stages.audio.tts.bandwidth import BandwidthAnnotationStage, estimate_bandwidth
+from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage, estimate_bandwidth
 from nemo_curator.tasks import AudioTask
 from tests.stages.audio.tts.test_audio_io import make_tar_segments
 
@@ -35,7 +35,7 @@ def test_annotates_waveform_without_dropping() -> None:
     sr = 16000
     waveform = torch.zeros(1, sr)
     task = AudioTask(data={"waveform": waveform, "sample_rate": sr, "tn_raw": "x"})
-    result = BandwidthAnnotationStage().process(task)
+    result = BandwidthEstimationStage(output_key="bandwidth").process(task)
     assert result is task
     assert result.data["bandwidth"]["error"] is None
     assert result.data["bandwidth"]["bandwidth"] is not None
@@ -45,7 +45,7 @@ def test_annotates_waveform_without_dropping() -> None:
 
 def test_missing_audio_writes_error() -> None:
     task = AudioTask(data={"tn_raw": "hello"})
-    result = BandwidthAnnotationStage().process(task)
+    result = BandwidthEstimationStage(output_key="bandwidth").process(task)
     assert result.data["bandwidth"] == {
         "bandwidth": None,
         "bandwidth_sample_rate": None,
@@ -58,7 +58,7 @@ def test_granary_tar_member_segments_at_native_rate(tmp_path: Path) -> None:
     segments = make_tar_segments(tmp_path, [("a.wav", 0.5, 48000), ("b.wav", 0.5, 16000)])
     segments[1]["GranaryHifi"]["AudioMetadata"]["tar_member_offset"] = None
     task = AudioTask(data={"orig_sample_id": "v", "segments": segments})
-    BandwidthAnnotationStage().process(task)
+    BandwidthEstimationStage(output_key="bandwidth").process(task)
     first, second = (s["bandwidth"] for s in task.data["segments"])
     assert first["error"] is None
     assert first["bandwidth_sample_rate"] == 48000
