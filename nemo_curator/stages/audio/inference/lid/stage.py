@@ -28,6 +28,7 @@ from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import soundfile
 from loguru import logger
 
 from nemo_curator.models.audio.lid.base import AudioLIDAdapter, AudioLIDResult
@@ -59,10 +60,11 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
     confidence ``0.0`` is a completed model result and is not recomputed.
 
     Missing, unreadable, empty, and too-short audio receive a completed empty
-    result so another run can resume deterministically. Audio preparation
+    result so another run can resume deterministically. Row-local input/decode
     failures set the shared ``_skipme`` field only when
     ``fail_on_audio_error=True``; a short clip is a valid model miss and never
-    sets that shared terminal flag.
+    sets that shared terminal flag. Systemic failures propagate without a
+    completion marker.
 
     Args:
         adapter_target: Import path of a class implementing ``AudioLIDAdapter``.
@@ -77,7 +79,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         max_duration_sec: Maximum leading audio sent to the adapter; non-positive
             values disable truncation.
         skip_if_output_exists: Reuse this model's existing mapping entry.
-        fail_on_audio_error: Mark audio preparation failures terminal via
+        fail_on_audio_error: Mark row-local input/decode failures terminal via
             ``_skipme=audio_load_error``.
         retry_skip_reasons: Exact prior skip reasons that this stage may clear
             before resume/inference. This lets a final selector-owned rejection
@@ -258,7 +260,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
                 else:
                     waveform, source_sample_rate = self._load_audio(audio_path)
                 prepared = self._prepare_waveform(waveform, source_sample_rate)
-            except Exception as exc:  # noqa: BLE001 - malformed task audio is handled per row
+            except (KeyError, TypeError, ValueError, soundfile.SoundFileError) as exc:
                 logger.warning(
                     "Audio LID {}: failed to prepare task {} from {}: {}", self.model_id, task.task_id, audio_path, exc
                 )

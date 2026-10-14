@@ -148,19 +148,21 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.output_key, self.notes_key, self.skip_me_key]
 
     def process(self, task: AudioTask) -> AudioTask:
-        raw_results = task.data.pop(self.results_key, {})
+        raw_results = task.data.get(self.results_key, {})
+        if not isinstance(raw_results, dict):
+            msg = f"task.data[{self.results_key!r}] must be a mapping, got {type(raw_results).__name__}"
+            raise TypeError(msg)
         if not raw_results:
+            task.data.pop(self.results_key, None)
             return self._reject(
                 task,
                 output="",
                 reason=_MISSING_PREDICTIONS,
                 note="skipped (missing predictions)",
             )
-        if not isinstance(raw_results, dict):
-            msg = f"task.data[{self.results_key!r}] must be a mapping, got {type(raw_results).__name__}"
-            raise TypeError(msg)
 
         predictions = self._parse_predictions(raw_results)
+        task.data.pop(self.results_key)
         self._add_component_notes(task, predictions)
 
         primary = predictions.get(self.speechbrain_model_id)
@@ -222,9 +224,9 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
             except KeyError as exc:
                 msg = f"Invalid LID result for {model_id}: missing {exc.args[0]!r}"
                 raise ValueError(msg) from exc
-            if not isinstance(language, str) or not isinstance(tag, str):
+            if not isinstance(language, str) or not isinstance(tag, str) or not tag.strip():
                 msg = f"Invalid LID result: {raw}"
-                raise ValueError(msg)  # noqa: TRY004 - preserve the reference selector's public error type
+                raise ValueError(msg)
             try:
                 numeric_confidence = float(confidence)
             except (TypeError, ValueError) as exc:
@@ -238,6 +240,10 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
                 confidence=numeric_confidence,
                 tag=tag,
             )
+        tags = [prediction.tag for prediction in predictions.values()]
+        if len(tags) != len(set(tags)):
+            msg = "LID result tags must be distinct"
+            raise ValueError(msg)
         return predictions
 
     def _add_component_notes(self, task: AudioTask, predictions: dict[str, _Prediction]) -> None:

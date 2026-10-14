@@ -188,10 +188,21 @@ def test_custom_indic_set_changes_only_the_non_indic_agreement_rule() -> None:
 
 
 def test_unknown_model_ids_are_rejected() -> None:
-    task = _task({"UnknownLID": _prediction("en", 0.5, "unknown")})
+    original = {"UnknownLID": _prediction("en", 0.5, "unknown")}
+    task = _task(original)
     with pytest.raises(ValueError, match="Invalid model name: UnknownLID"):
         SelectAudioLanguageStage().process(task)
-    assert "lid" not in task.data
+    assert task.data["lid"] is original
+
+
+def test_a_falsey_non_mapping_results_field_is_rejected_without_data_loss() -> None:
+    original: list[object] = []
+    task = _task(None, lid=original)
+
+    with pytest.raises(TypeError, match="must be a mapping"):
+        SelectAudioLanguageStage().process(task)
+
+    assert task.data["lid"] is original
 
 
 @pytest.mark.parametrize(
@@ -203,8 +214,35 @@ def test_unknown_model_ids_are_rejected() -> None:
     ],
 )
 def test_invalid_component_results_are_rejected(raw: object) -> None:
+    original = {_WHISPER: raw}
+    task = _task(original)
     with pytest.raises(ValueError, match="Invalid LID result"):
-        SelectAudioLanguageStage().process(_task({_WHISPER: raw}))
+        SelectAudioLanguageStage().process(task)
+    assert task.data["lid"] is original
+
+
+@pytest.mark.parametrize("tag", ["", "   "])
+def test_blank_component_tags_are_rejected_without_data_loss(tag: str) -> None:
+    original = {_WHISPER: _prediction("en", 0.5, tag)}
+    task = _task(original)
+
+    with pytest.raises(ValueError, match="Invalid LID result"):
+        SelectAudioLanguageStage().process(task)
+
+    assert task.data["lid"] is original
+
+
+def test_duplicate_component_tags_are_rejected_without_data_loss() -> None:
+    original = {
+        _SPEECHBRAIN: _prediction("en", 0.6, "primary"),
+        _WHISPER: _prediction("en", 0.9, "primary"),
+    }
+    task = _task(original)
+
+    with pytest.raises(ValueError, match="tags must be distinct"):
+        SelectAudioLanguageStage().process(task)
+
+    assert task.data["lid"] is original
 
 
 def test_process_batch_selects_each_task_independently() -> None:

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import gc
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -56,34 +57,37 @@ class WhisperTensorRTEncoder:
     _OUTPUT = "audio_features"
 
     def __init__(self, engine_path: str | Path, session: Any = None) -> None:  # noqa: ANN401
-        if session is None:
-            from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
+        with ExitStack() as cleanup:
+            if session is None:
+                from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
 
-            session = TensorRTEncoderSession(engine_path)
-        self.session = session
-        for name, names in ((self._INPUT, session.input_names), (self._OUTPUT, session.output_names)):
-            if name not in names:
-                msg = f"Whisper encoder engine is missing tensor {name!r}; found {sorted(names)}"
+                session = TensorRTEncoderSession(engine_path)
+                cleanup.callback(session.close)
+            for name, names in ((self._INPUT, session.input_names), (self._OUTPUT, session.output_names)):
+                if name not in names:
+                    msg = f"Whisper encoder engine is missing tensor {name!r}; found {sorted(names)}"
+                    raise ValueError(msg)
+
+            min_shape, _, max_shape = session.input_shape_range(self._INPUT)
+            min_shape = tuple(min_shape)
+            max_shape = tuple(max_shape)
+            if (
+                len(min_shape) != _MEL_INPUT_RANK
+                or len(max_shape) != _MEL_INPUT_RANK
+                or any(
+                    isinstance(dimension, bool) or not isinstance(dimension, int) or dimension <= 0
+                    for dimension in (*min_shape, *max_shape)
+                )
+            ):
+                msg = f"Whisper encoder has invalid mel profile: min={min_shape!r}, max={max_shape!r}"
                 raise ValueError(msg)
-
-        min_shape, _, max_shape = session.input_shape_range(self._INPUT)
-        min_shape = tuple(min_shape)
-        max_shape = tuple(max_shape)
-        if (
-            len(min_shape) != _MEL_INPUT_RANK
-            or len(max_shape) != _MEL_INPUT_RANK
-            or any(
-                isinstance(dimension, bool) or not isinstance(dimension, int) or dimension <= 0
-                for dimension in (*min_shape, *max_shape)
-            )
-        ):
-            msg = f"Whisper encoder has invalid mel profile: min={min_shape!r}, max={max_shape!r}"
-            raise ValueError(msg)
-        if min_shape[1:] != max_shape[1:]:
-            msg = f"Whisper encoder requires fixed mel dimensions, got min={min_shape!r}, max={max_shape!r}"
-            raise ValueError(msg)
-        self.min_batch = min_shape[0]
-        self.max_batch, self.n_mels, self.n_frames = max_shape
+            if min_shape[1:] != max_shape[1:]:
+                msg = f"Whisper encoder requires fixed mel dimensions, got min={min_shape!r}, max={max_shape!r}"
+                raise ValueError(msg)
+            self.min_batch = min_shape[0]
+            self.max_batch, self.n_mels, self.n_frames = max_shape
+            cleanup.pop_all()
+        self.session = session
 
     def __call__(self, mel: torch.Tensor) -> torch.Tensor:
         return self.forward(mel)

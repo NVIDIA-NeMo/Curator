@@ -110,6 +110,22 @@ def test_tensorrt_encoder_validates_tensor_names(
         WhisperTensorRTEncoder("unused.plan", session=session)
 
 
+def test_tensorrt_encoder_closes_owned_session_when_validation_fails() -> None:
+    session = _FakeTensorRTSession()
+    session.input_names = []
+
+    with (
+        patch(
+            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoderSession",
+            return_value=session,
+        ),
+        pytest.raises(ValueError, match="mel"),
+    ):
+        WhisperTensorRTEncoder("invalid.plan")
+
+    assert session.closed
+
+
 def test_tensorrt_encoder_validates_exact_mel_shape() -> None:
     encoder = WhisperTensorRTEncoder("unused.plan", session=_FakeTensorRTSession())
 

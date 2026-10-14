@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -176,6 +177,15 @@ def test_file_mode_loads_audio_for_the_adapter(tmp_path: Path) -> None:
     assert task.data["lid"][_MODEL_ID]["language"] == "ta"
 
 
+def test_an_unreadable_file_gets_an_empty_completed_result(tmp_path: Path) -> None:
+    stage, adapter = _stage(waveform_key=None)
+
+    (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(tmp_path / "missing.wav")})])
+
+    assert task.data["lid"][_MODEL_ID] == {"language": "", "confidence": 0.0, "tag": "primary"}
+    assert adapter.calls == []
+
+
 def test_a_short_clip_gets_an_empty_completed_result_without_a_skip_flag() -> None:
     stage, adapter = _stage(min_duration_sec=1.0)
 
@@ -209,6 +219,27 @@ def test_fail_on_audio_error_marks_the_empty_result_terminal() -> None:
 
     assert task.data["lid"][_MODEL_ID]["confidence"] == 0.0
     assert task.data["_skipme"] == "audio_load_error"
+    assert adapter.calls == []
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        MemoryError("host memory exhausted"),
+        torch.OutOfMemoryError("device memory exhausted"),
+        OSError(errno.ENOSPC, "disk full"),
+        ModuleNotFoundError("librosa is unavailable"),
+        RuntimeError("unexpected preparation failure"),
+    ],
+)
+def test_systemic_failures_are_not_saved_as_a_completed_empty_result(error: Exception) -> None:
+    stage, adapter = _stage()
+    task = _task()
+
+    with patch.object(stage, "_prepare_waveform", side_effect=error), pytest.raises(type(error)):
+        stage.process_batch([task])
+
+    assert "lid" not in task.data
     assert adapter.calls == []
 
 

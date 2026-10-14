@@ -38,7 +38,13 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
         "setup",
         "teardown",
     }
-    for stage_type in (ASRStage, SEDInferenceStage, InferenceSortformerStage, VADSegmentationStage, AudioLIDInferenceStage):
+    for stage_type in (
+        ASRStage,
+        SEDInferenceStage,
+        InferenceSortformerStage,
+        VADSegmentationStage,
+        AudioLIDInferenceStage,
+    ):
         assert common_methods.isdisjoint(stage_type.__dict__)
 
     # VAD accepts either an in-memory waveform or a file and therefore owns
