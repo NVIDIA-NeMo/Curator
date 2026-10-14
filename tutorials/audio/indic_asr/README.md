@@ -40,6 +40,8 @@ creates one clean Python 3.12 environment with Torch 2.9.1, TensorRT-LLM 1.2.1,
 and TensorRT 10.14.1.48.post1. It includes Curator, the audio dependencies,
 SoundFile, and the required WAV/FLAC decoding libraries. No pre-existing host
 Python environment is used.
+The native versions above are pinned; other allowed dependency versions are
+resolved at build time. Reuse the built image to retain the same environment.
 
 The build checks installed versions. The second command additionally checks
 the native model libraries and performs a CUDA operation; it does not load
@@ -51,16 +53,20 @@ Create persistent data and output directories, then start the container.
 Replace the engine mount with the absolute path to your model directory:
 
 ```bash
-mkdir -p indic-asr-work/data indic-asr-work/output
+mkdir -p indic-asr-work/data indic-asr-work/output indic-asr-work/ray-logs
 docker run --rm -it --gpus all --ipc=host \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -v "$PWD/indic-asr-work/data:/data" \
   -v "$PWD/indic-asr-work/output:/outputs" \
+  -v "$PWD/indic-asr-work/ray-logs:/tmp/ray" \
   -v /absolute/path/to/engines:/models:ro \
   curator-indic-asr bash
 ```
 
 Run the following commands **inside this container**, from `/opt/Curator`.
+Data, outputs, and Ray worker logs remain in `indic-asr-work` after the
+container exits. Docker writes these files as root; host-side edits may need
+elevated permissions.
 
 ## Download two public Hindi clips
 
@@ -129,24 +135,48 @@ and file paths. The quick-start defaults use one actor for each ASR model and
 a model batch size of two; no stage is skipped.
 
 ```bash
+set -o pipefail
+test ! -e /outputs/indic_asr_xenna.jsonl && \
 python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
   indic_canary_engine_dir=/models/indic_canary \
   parakeet_tensorrt_engine_dir=/models/parakeet \
-  output_path=/outputs/indic_asr_xenna.jsonl
+  output_path=/outputs/indic_asr_xenna.jsonl \
+  2>&1 | tee /outputs/indic_asr_xenna.log
 ```
 
-To use Ray Data, run the same command with
-`backend=ray_data output_path=/outputs/indic_asr_ray_data.jsonl` instead of the
-Xenna output argument. Both paths use the same input files and stages.
+Alternatively, run Ray Data on the same input files and stages:
 
-Use a **fresh output path** for every run: the manifest writer overwrites an
-existing output. Model loading may dominate the runtime of this short sample.
+```bash
+set -o pipefail
+test ! -e /outputs/indic_asr_ray_data.jsonl && \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/indic_asr \
+  --config-name pipeline \
+  dataset_dir=/data/indic_asr \
+  indic_canary_engine_dir=/models/indic_canary \
+  parakeet_tensorrt_engine_dir=/models/parakeet \
+  backend=ray_data output_path=/outputs/indic_asr_ray_data.jsonl \
+  2>&1 | tee /outputs/indic_asr_ray_data.log
+```
+
+The `test` guard refuses to run if its output JSONL already exists. For another
+run, choose a new JSONL and log filename in the command, and use that JSONL in
+the check below. The manifest writer itself overwrites existing output, so do
+not remove the guard. Run only one pipeline at a time in this container.
+
+`tee` saves console output under `/outputs`; `pipefail` keeps an inference or
+log-write failure from appearing successful. Inspect the console log and the
+persisted `ray-logs` directory if a command fails. Model loading may dominate
+the runtime of this short sample.
 
 Check the result without assuming that either model reproduces the reference
-exactly. For Ray Data, pass `/outputs/indic_asr_ray_data.jsonl` instead:
+exactly. This checks identity, reference and metadata preservation, usable
+unflagged transcripts, and independently recomputes word-level WER without
+normalizing spelling or punctuation. For Ray Data, pass
+`/outputs/indic_asr_ray_data.jsonl` instead:
 
 ```bash
 python - /outputs/indic_asr_xenna.jsonl <<'PY'
@@ -157,17 +187,44 @@ from pathlib import Path
 
 inputs = [json.loads(line) for line in Path("/data/indic_asr/manifest.jsonl").read_text().splitlines()]
 outputs = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
-assert len(inputs) == len(outputs) == 2
-assert {row["audio_item_id"] for row in inputs} == {row["audio_item_id"] for row in outputs}
+inputs_by_id = {row["audio_item_id"]: row for row in inputs}
+assert len(inputs) == len(inputs_by_id) == len(outputs) == 2
+assert set(inputs_by_id) == {row["audio_item_id"] for row in outputs}
 for row in outputs:
+    original = inputs_by_id[row["audio_item_id"]]
+    assert row["reference_text"] == row["granary_v1_prediction"] == original["text"]
+    assert row["audio_filepath"] == str((Path("/data/indic_asr") / original["audio_filepath"]).resolve())
+    for key in ("duration", "sampling_rate", "source_lang", "dataset", "dataset_revision", "license"):
+        assert row[key] == original[key], (row["audio_item_id"], key)
+    assert row["_skipme"] == "", (row["audio_item_id"], row["_skipme"], row["additional_notes"])
     for key in ("primary_model_prediction", "fallback_model_prediction",
                 "best_prediction", "cleaned_text", "abbreviated_text"):
         assert isinstance(row[key], str) and row[key].strip(), (row["audio_item_id"], key)
-    assert math.isfinite(row["wer_pct"]) and row["wer_pct"] >= 0
-    assert "waveform" not in row
+    source = row["best_prediction_source"]
+    assert source in ("primary", "fallback"), source
+    assert row["best_prediction"] == row[f"{source}_model_prediction"]
+    wer = row["wer_pct"]
+    assert type(wer) in (int, float) and math.isfinite(wer) and wer >= 0
+    reference, prediction = original["text"].split(), row["abbreviated_text"].split()
+    assert reference
+    costs = list(range(len(prediction) + 1))
+    for i, reference_word in enumerate(reference, 1):
+        next_costs = [i]
+        for j, predicted_word in enumerate(prediction, 1):
+            next_costs.append(min(costs[j] + 1, next_costs[j - 1] + 1,
+                                  costs[j - 1] + (reference_word != predicted_word)))
+        costs = next_costs
+    assert wer == round(costs[-1] / len(reference) * 100.0, 4), row["audio_item_id"]
+    assert "waveform" not in row and "text" not in row
     print(row["audio_item_id"], row["abbreviated_text"], row["wer_pct"])
 PY
 ```
+
+A nonempty `_skipme` means the pipeline flagged that row; it can still finish
+successfully while this usability check fails. Inspect `additional_notes` and
+both predictions rather than treating a flagged row as a crash. WER may exceed
+100% when there are enough inserted words; a passing check validates the
+calculation and data flow, not transcription quality.
 
 ## Use your own audio
 
