@@ -22,6 +22,7 @@ diarization inference.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import KW_ONLY, dataclass, field
 from numbers import Integral
@@ -32,7 +33,7 @@ from urllib.parse import quote
 import numpy as np
 from loguru import logger
 
-from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter
+from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter, DiarizationInputError
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
@@ -140,7 +141,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
     are local to one recording, not identities shared across recordings.
     ``num_speakers_key`` is the count of distinct retained labels for the whole
     recording, not for one interval. A zero accompanied by this stage's
-    ``notes_key`` entry means preparation failed, not that silence was proven.
+    ``notes_key`` entry means preparation or decoding failed, not that silence was proven.
     ``rttm_filepath_key`` is a relative path below ``rttm_out_dir`` containing
     the same normalized intervals.
 
@@ -155,7 +156,8 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         diar_segments_key: Manifest field for JSON-safe diarization intervals.
         num_speakers_key: Manifest field for the distinct speaker count.
         store_segments: Store intervals in the task in addition to any RTTM.
-        rttm_out_dir: Optional RTTM root; shard metadata is preserved below it.
+        rttm_out_dir: Optional RTTM root; each task writes below its existing
+            shard metadata and a stable task-ID digest to prevent collisions.
         skip_if_output_exists: Reuse complete output by key presence. An empty
             interval list is a complete result. When RTTM output is enabled,
             the referenced file must exist safely below ``rttm_out_dir``.
@@ -412,7 +414,9 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                     [
                         ConditionalWrite(
                             writes=IOSpec(data_keys=[self.rttm_filepath_key], produces=["disk"]),
-                            condition=(f"'{self.read_error_key}' is absent or false and audio reaches the adapter"),
+                            condition=(
+                                f"'{self.read_error_key}' is absent or false and the adapter returns a diarization result"
+                            ),
                         )
                     ]
                     if self.rttm_out_dir is not None
@@ -422,7 +426,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                     [
                         ConditionalWrite(
                             writes=IOSpec(data_keys=[self.notes_key]),
-                            condition="audio preparation fails and fail_on_audio_error is false",
+                            condition="audio preparation or file decoding fails and fail_on_audio_error is false",
                             value_origin="augments_upstream_same_key",
                         )
                     ]
@@ -526,6 +530,8 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                     "task_id": task.task_id,
                 }
         except Exception as exc:
+            if self._is_memory_exhaustion(exc):
+                raise
             if not self.waveform_key:
                 # Header probing is only a scheduling hint. The selected
                 # adapter owns file decoding and may support a path or codec
@@ -543,6 +549,29 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
             logger.warning("Sortformer: failed to prepare task {} from {}: {}", task.task_id, source, exc)
             self._write_empty_error(task, "audio_load_error")
             return None
+
+    def _diarize_items(
+        self,
+        items: list[dict[str, Any]],
+    ) -> list[DiarizationResult | None]:
+        """Run one adapter batch, bisecting only known file-local failures."""
+        if self._adapter is None:
+            msg = "Diarization adapter is not initialized; setup() was not called"
+            raise RuntimeError(msg)
+        try:
+            results = self._adapter.diarize_batch(items)
+        except DiarizationInputError as exc:
+            if self.waveform_key is not None or self.fail_on_audio_error:
+                raise
+            if len(items) == 1:
+                logger.warning("Sortformer: adapter failed task {}: {}", items[0]["task_id"], exc)
+                return [None]
+            midpoint = len(items) // 2
+            return self._diarize_items(items[:midpoint]) + self._diarize_items(items[midpoint:])
+        if len(results) != len(items):
+            msg = f"Diarization adapter returned {len(results)} results for {len(items)} items (must match 1:1)"
+            raise RuntimeError(msg)
+        return list(results)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Prepare, diarize, scatter results, and preserve input task order."""
@@ -564,12 +593,12 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         pending.sort(key=lambda value: (value[2]["audio_seconds"], value[0]))
         items = [value[2] for value in pending]
         if items:
-            results = self._adapter.diarize_batch(items)
-            if len(results) != len(items):
-                msg = f"Diarization adapter returned {len(results)} results for {len(items)} items (must match 1:1)"
-                raise RuntimeError(msg)
+            results = self._diarize_items(items)
             for (_, task, _), result in zip(pending, results, strict=True):
-                self._write_result(task, result)
+                if result is None:
+                    self._write_empty_error(task, "audio_load_error")
+                else:
+                    self._write_result(task, result)
 
         return tasks
 
@@ -646,6 +675,10 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         return task.task_id
 
     @staticmethod
-    def _rttm_shard_key(task: AudioTask) -> str | None:
+    def _rttm_shard_key(task: AudioTask) -> str:
+        if not task.task_id:
+            msg = "RTTM output requires a non-empty task_id"
+            raise ValueError(msg)
+        task_key = hashlib.sha256(task.task_id.encode()).hexdigest()
         shard_key = task._metadata.get("_shard_key")
-        return shard_key if isinstance(shard_key, str) and shard_key else None
+        return f"{shard_key}/{task_key}" if isinstance(shard_key, str) and shard_key else task_key
