@@ -6,6 +6,32 @@ provides the primary transcript and Parakeet provides a recovery candidate.
 The pipeline checks both transcripts, selects and cleans the final text,
 and measures word error rate (WER) against a reference transcript.
 
+The same eleven stages run in this order with either executor:
+
+```mermaid
+flowchart TD
+    read["1. ManifestReader<br/>Read each clip's path, metadata, and reference text"]
+    prepare["2. PrepareIndicASRInputStage<br/>Load mono 16 kHz audio; validate Hindi, duration, and reference"]
+    canary["3. InferenceIndicCanaryStage<br/>Generate the primary transcript with TensorRT + TensorRT-LLM"]
+    primary_check["4. WhisperHallucinationStage — primary<br/>Flag suspicious repetition, phrases, word length, or character rate"]
+    parakeet["5. InferenceParakeetStage<br/>Generate a recovery candidate with TensorRT + NeMo/PyTorch RNN-T"]
+    recovery_check["6. WhisperHallucinationStage — recovery<br/>Check Parakeet's text; a passing candidate can clear Canary's flag"]
+    select["7. SelectBestPredictionStage<br/>Prefer Canary, use recovered Parakeet, or check agreement if flagged"]
+    clean["8. RegexSubstitutionStage<br/>Clean punctuation, character sets, and whitespace into cleaned_text"]
+    abbreviate["9. AbbreviationConcatStage<br/>Join eligible spaced abbreviations into abbreviated_text"]
+    wer["10. GetPairwiseWerStage<br/>Compare final text with the reference to calculate wer_pct"]
+    write["11. ManifestWriterStage<br/>Write predictions, final text, notes, flags, and WER to JSONL"]
+
+    read --> prepare --> canary --> primary_check --> parakeet
+    parakeet --> recovery_check --> select --> clean --> abbreviate --> wer --> write
+```
+
+**Both ASR models run on every valid clip.** Parakeet is not conditional on
+the first hallucination check failing. The two `WhisperHallucinationStage`
+steps are rule-based text checks, not Whisper model inference. A flag does
+not remove a row: unresolved flags remain in `_skipme` in the output, and
+flagged rows bypass text cleanup.
+
 ## 1. Build and check the environment
 
 On a Linux x86_64 host with Docker and the NVIDIA Container Toolkit, run
@@ -324,32 +350,6 @@ validation. This is pipeline throughput, not model-only inference or
 full-process throughput.
 
 ## What each stage does
-
-The same eleven stages run in this order with either executor:
-
-```mermaid
-flowchart TD
-    read["1. ManifestReader<br/>Read each clip's path, metadata, and reference text"]
-    prepare["2. PrepareIndicASRInputStage<br/>Load mono 16 kHz audio; validate Hindi, duration, and reference"]
-    canary["3. InferenceIndicCanaryStage<br/>Generate the primary transcript with TensorRT + TensorRT-LLM"]
-    primary_check["4. WhisperHallucinationStage — primary<br/>Flag suspicious repetition, phrases, word length, or character rate"]
-    parakeet["5. InferenceParakeetStage<br/>Generate a recovery candidate with TensorRT + NeMo/PyTorch RNN-T"]
-    recovery_check["6. WhisperHallucinationStage — recovery<br/>Check Parakeet's text; a passing candidate can clear Canary's flag"]
-    select["7. SelectBestPredictionStage<br/>Prefer Canary, use recovered Parakeet, or check agreement if flagged"]
-    clean["8. RegexSubstitutionStage<br/>Clean punctuation, character sets, and whitespace into cleaned_text"]
-    abbreviate["9. AbbreviationConcatStage<br/>Join eligible spaced abbreviations into abbreviated_text"]
-    wer["10. GetPairwiseWerStage<br/>Compare final text with the reference to calculate wer_pct"]
-    write["11. ManifestWriterStage<br/>Write predictions, final text, notes, flags, and WER to JSONL"]
-
-    read --> prepare --> canary --> primary_check --> parakeet
-    parakeet --> recovery_check --> select --> clean --> abbreviate --> wer --> write
-```
-
-**Both ASR models run on every valid clip.** Parakeet is not conditional on
-the first hallucination check failing. The two `WhisperHallucinationStage`
-steps are rule-based text checks, not Whisper model inference. A flag does
-not remove a row: unresolved flags remain in `_skipme` in the output, and
-flagged rows bypass text cleanup.
 
 <details>
 <summary>Follow one recorded Hindi row through all eleven stages</summary>
