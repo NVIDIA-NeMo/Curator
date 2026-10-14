@@ -49,8 +49,9 @@ inference_server:
       runtime_env:
         uv:
           packages:
-            - transformers>=5
+            - transformers==5.8.0
         env_vars:
+          VLLM_USE_DEEP_GEMM: "0"
           VLLM_CACHE_ROOT: ${cache_root}/vllm
           TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
           TRITON_CACHE_DIR: ${cache_root}/triton

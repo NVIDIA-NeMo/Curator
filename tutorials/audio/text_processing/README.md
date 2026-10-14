@@ -74,6 +74,8 @@ starting that server and keep it specific to the runtime and GPU architecture.
 The normal YAML runner ignores this server block; editing it does not
 reconfigure an existing endpoint.
 
-The model's `runtime_env` requests Transformers 5 and persistent cache paths;
-the repository uses vLLM `0.22.0+cu129`. Local checks use a stub endpoint; GPU
-compatibility, model quality, and throughput require separate validation.
+The model's `runtime_env` pins Transformers `5.8.0` for Gemma configuration
+compatibility, disables DeepGEMM, and sets persistent cache paths. Curator's
+base environment uses vLLM `0.22.0+cu129`; Dynamo selects its own compatible
+vLLM version in the model's actor environment. Local checks use a stub endpoint;
+GPU compatibility, model quality, and throughput require separate validation.
