@@ -204,5 +204,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
     def teardown(self) -> None:
+        if hasattr(self, "model"):
+            del self.model
         gc.collect()
         torch.cuda.empty_cache()
