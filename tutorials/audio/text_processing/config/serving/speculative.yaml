@@ -8,7 +8,7 @@ model:
     speculative_config:
       method: mtp
       model: google/gemma-4-31B-it-assistant
-      revision: 627c5ec1458b9086b841a91e0512fd31fd2fbbf1
+      revision: 627c5ec1458b9086b841a91e0512fd31fd2fbbf1  # pragma: allowlist secret - public model revision
       num_speculative_tokens: 4
       draft_tensor_parallel_size: ${serving.model.engine_kwargs.tensor_parallel_size}
       quantization: null
