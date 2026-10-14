@@ -1,9 +1,10 @@
 # Indic Granary ASR Pipeline
 
 Run the Indic Granary automatic speech recognition (ASR) pipeline on two
-Hindi audio clips. It transcribes with Indic Canary and Parakeet, checks for
-suspicious transcripts, selects and cleans the final text, and measures
-word error rate (WER) against a reference transcript.
+Hindi audio clips. Both models transcribe each valid clip: Indic Canary
+provides the primary transcript and Parakeet provides a recovery candidate.
+The pipeline checks both transcripts, selects and cleans the final text,
+and measures word error rate (WER) against a reference transcript.
 
 ## 1. Build and check the environment
 
@@ -234,34 +235,16 @@ An engine bundle contains files prepared for a specific GPU and TensorRT
 runtime. A Hugging Face model ID or a `.nemo` checkpoint alone cannot replace
 it. The pipeline does not build missing engines.
 
-## Building model bundles (optional)
+### Building model bundles (optional)
 
-Skip this section if you already have the bundles.
-
-<details>
-<summary>Checkpoint sources and separate build instructions</summary>
-
-### Which checkpoints do I need?
-
-The [reference launcher at `3931b631`](https://gitlab-master.nvidia.com/nkoluguri/granary-v2-asr/-/blob/3931b631b1a9f23215abdb240b647ef6a3a54b34/slurm_pipeline/asr/run_asr_indic_slurm.sh)
-uses an internal Parakeet `epoch_37.nemo` and prebuilt Canary engines.
-It does not identify the Canary source checkpoint or link the exact weights
-to public downloads.
-
-Related releases include NVIDIA's
-[Parakeet RNNT collection](https://catalog.ngc.nvidia.com/orgs/nvidia/-/collections/parakeet-1-1b-rnnt-multilingual/-)
-and [Indic-Transcribe Core](https://huggingface.co/bodhan-ai/indic-transcribe-core)
-and [Flex](https://huggingface.co/bodhan-ai/indic-transcribe-flex).
-They have their own access/license conditions; Indic-Transcribe is gated.
-These are **not verified replacements** for the tutorial's engines.
-In particular, [`nvidia/canary-1b-flash`](https://huggingface.co/nvidia/canary-1b-flash)
-does not support Hindi.
+If you have the matching `.nemo` checkpoints instead of engine bundles, use
+these commands to build them first. Skip this step if your bundles are ready.
 
 Build with matching source checkpoints and a GPU/runtime compatible with
 inference. Use a **separate build environment and writable output directory**,
 not the inference container's read-only `/models` mount.
 
-### Parakeet
+#### Parakeet: use the builder in this checkout
 
 This checkout includes the
 [Parakeet builder](../../../nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py).
@@ -283,7 +266,7 @@ numerical check passed—not full transcription parity. The checkpoint must
 restore with the installed NeMo and contain an RNN-T encoder, decoder, and
 joint network.
 
-### Canary
+#### Canary: use the reference converter
 
 The converter is not in this checkout. Get the
 [reference conversion directory at `1e2d6399`](https://github.com/nithinraok/Curator/tree/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion)
@@ -314,6 +297,23 @@ These build arguments support the tutorial's 40-second window, four beams,
 and 347-new-token limit. Their command-line arguments have been checked,
 but fresh checkpoint conversion has not been validated here.
 
+<details>
+<summary>Which source checkpoints can I use?</summary>
+
+The [reference launcher at `3931b631`](https://gitlab-master.nvidia.com/nkoluguri/granary-v2-asr/-/blob/3931b631b1a9f23215abdb240b647ef6a3a54b34/slurm_pipeline/asr/run_asr_indic_slurm.sh)
+uses an internal Parakeet `epoch_37.nemo` and prebuilt Canary engines.
+It does not identify the Canary source checkpoint or link the exact weights
+to public downloads.
+
+Related releases include NVIDIA's
+[Parakeet RNNT collection](https://catalog.ngc.nvidia.com/orgs/nvidia/-/collections/parakeet-1-1b-rnnt-multilingual/-)
+and [Indic-Transcribe Core](https://huggingface.co/bodhan-ai/indic-transcribe-core)
+and [Flex](https://huggingface.co/bodhan-ai/indic-transcribe-flex).
+They have their own access/license conditions; Indic-Transcribe is gated.
+These are **not verified replacements** for the tutorial's engines.
+In particular, [`nvidia/canary-1b-flash`](https://huggingface.co/nvidia/canary-1b-flash)
+does not support Hindi.
+
 </details>
 
 ## What each stage does
@@ -321,52 +321,51 @@ but fresh checkpoint conversion has not been validated here.
 <details>
 <summary>Follow one recorded Hindi row through all eleven stages</summary>
 
-This historical example is a 6.26-second clip from
-[ketav/parakeet-hindi-asr](https://huggingface.co/datasets/ketav/parakeet-hindi-asr/tree/35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0),
-recorded at Curator commit
-[`89cccf46`](https://github.com/NVIDIA-NeMo/Curator/commit/89cccf463f14f382a0be276d8d6cad9096ee70a5).
-It is **not expected output for the two FLEURS clips** above.
+This is the first FLEURS clip downloaded above:
+`fleurs_hi_in_validation_1602_10003386135529782184` (12.24 seconds).
+The input and output come from the [two-clip EOS tutorial run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/486969634)
+at Curator commit [`8abedf2b`](https://github.com/NVIDIA-NeMo/Curator/commit/8abedf2bd3dcf98825e14247983a007ad0432ec7).
+Both Xenna and Ray Data produced the same bytes for this row; their files
+have different row order. This run predates the Parakeet CUDA-graph change
+and does not validate that newer setting.
 
-The input and final output below are original recorded bytes; both executors
-produced the same output for this row. Intermediate task snapshots were not
-saved, so the stage descriptions are reconstructed. A CPU replay using the
-original audio and recorded model predictions reproduced the final bytes.
-It was not a new inference run or a recording of intermediate model tensors.
+The input and final output below are original recorded bytes. Intermediate
+task snapshots were not saved, so the stage descriptions are reconstructed.
+A CPU replay of the same source, using the original audio and recorded
+model predictions, reproduced the final bytes. It did not rerun either model.
 
 Hashes include the trailing newline of each UTF-8 JSONL record:
 
 | Record | Bytes | SHA-256 |
 | --- | ---: | --- |
-| Original input | 395 | `e13552b3090921d501773a158387aabcdfeec421809c2864b112bd8af9a2afcd` |
-| Final output | 1741 | `35db141c11388becf519185ff56c549c4558935edcea8b853ce66121e292674d` |
+| Original input | 698 | `552cc98ba5bb6aa673f10eeea71507e6aba77b4eab7925d556f000e8cd16440c` |
+| Final output | 3481 | `263091664aa75e6878c681ec2283ba369ee08f6e7c3b455afa5a8cbe1a0bdc56` |
 
 ### Original input: verbatim
 
 ```json
-{"audio_filepath":"audio/hindi_219834.flac","audio_item_id":"parakeet_hindi_asr_train_hindi_219834","corpus":"Parakeet Hindi ASR","duration":6.26,"sampling_rate":16000,"source_audio_filepath":"/data/hindi_data/audio/hindi_219834.wav","source_lang":"hi","text":"पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ"}
+{"audio_filepath": "audio/10003386135529782184.wav", "audio_item_id": "fleurs_hi_in_validation_1602_10003386135529782184", "source_lang": "hi", "duration": 12.24, "sampling_rate": 16000, "text": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "dataset": "google/fleurs", "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd", "license": "CC-BY-4.0"}
 ```
 
-The historical run made the audio path absolute before reading it; this
-tutorial instead resolves relative paths in `PrepareIndicASRInputStage`
-using `dataset_dir`. You do not need the historical file paths to run the
-two-clip example.
+The reader keeps the relative audio path; the preparation stage resolves
+it to `/data/indic_asr/audio/10003386135529782184.wav` inside the container.
 
 ### Stage-by-stage changes
 
 The table uses these shorthand labels for the exact recorded text:
 
 ```text
-R (reference): पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ
-P (Canary):    पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ
-F (Parakeet):  पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएं।
+R (reference): मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।
+P (Canary):    मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है
+F (Parakeet):  मेजर किनखाना भूमध्यसागर में समान क्षेत्रों की तरह रोटी, सब्जियों और मांस विशेषरूप से सूअर का मांस पर आधारित है, और जैतून के तेल का उपयोग करता है।
 ```
 
 Fields not mentioned stay unchanged; entries in `additional_notes` accumulate.
 
 | Stage / function | What happens to this row |
 | --- | --- |
-| 1. `ManifestReaderStage.process()` | Reads the manifest into an `AudioTask`. This historical run had already made the audio path absolute. |
-| 2. `PrepareIndicASRInputStage.process()` | Loads mono 16 kHz audio into `waveform` (float32, `[1, 100159]`). Moves `text` to `reference_text=R` and `granary_v1_prediction=R`; initializes `_skipme=""` and model notes. |
+| 1. `ManifestReaderStage.process()` | Reads the manifest into an `AudioTask`, keeping the original fields and relative audio path. |
+| 2. `PrepareIndicASRInputStage.process()` | Resolves the audio path and loads mono 16 kHz audio into `waveform` (float32, `[1, 195840]`). Moves `text` to `reference_text=R` and `granary_v1_prediction=R`; initializes `_skipme=""` and model notes. |
 | 3. `InferenceIndicCanaryStage` → `ASRStage.process_batch()` / `assemble()` | Runs the TensorRT encoder and TensorRT-LLM decoder with four beams, at most 347 new tokens, and `pnc=false`. Adds `primary_model_prediction=P` and `asr_language="hi"`; keeps the waveform. |
 | 4. `WhisperHallucinationStage.process()` — primary | Checks for suspicious repetition, long words, known phrases, and excessive character rate. Adds `WhisperHallucination_primary="passed"` to the notes; leaves `P` unchanged. |
 | 5. `InferenceParakeetStage` → `ASRStage.process_batch()` / `assemble()` | Runs the TensorRT encoder and NeMo/PyTorch RNN-T decoder. Adds `fallback_model_prediction=F` and removes the waveform. Parakeet runs even though the primary check passed. |
@@ -374,17 +373,17 @@ Fields not mentioned stay unchanged; entries in `additional_notes` accumulate.
 | 7. `SelectBestPredictionStage.process()` | Selects `P`: sets `best_prediction=P`, `best_prediction_source="primary"`, and the note `SelectBestPrediction="used primary"`. No cross-model agreement score or reference substitution is needed. |
 | 8. `RegexSubstitutionStage.process()` | Applies the Granary text-cleanup rules. This row needs no changes, so `cleaned_text=P`. |
 | 9. `AbbreviationConcatStage.process()` | Joins eligible spaced abbreviations. None occurs here, so `abbreviated_text=P`. |
-| 10. `GetPairwiseWerStage.process()` | Compares the final text with `R`. One substitution (`फाश्टेग` → `फास्टैग`) among nine reference words gives `wer_pct=11.1111`. |
+| 10. `GetPairwiseWerStage.process()` | Compares the final text with `R`, including its original punctuation. Ten substitutions among 30 reference words give `wer_pct=33.3333`. |
 | 11. `ManifestWriterStage.process()` | Writes the complete row as UTF-8 JSONL, preserving both predictions and notes, without the waveform. |
 
-The decoded audio has 100,159 samples (6.2599375 seconds). The rounded
-`duration=6.26` stays unchanged. Both models ran; this row selects Canary
+The clip contains 195,840 samples at 16 kHz (12.24 seconds). Both models
+ran even though Canary passed the first check. This row selects Canary
 without needing recovery, a regex edit, or an abbreviation join.
 
 ### Final output: verbatim
 
 ```json
-{"audio_filepath": "/tmp/curator/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/audio/hindi_219834.flac", "audio_item_id": "parakeet_hindi_asr_train_hindi_219834", "corpus": "Parakeet Hindi ASR", "duration": 6.26, "sampling_rate": 16000, "source_audio_filepath": "/data/hindi_data/audio/hindi_219834.wav", "source_lang": "hi", "additional_notes": {"primary_model": "indic_canary", "recovery_model": "parakeet_riva", "WhisperHallucination_primary": "passed", "WhisperHallucination_asr": "passed", "SelectBestPrediction": "used primary"}, "granary_v1_prediction": "पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ", "reference_text": "पिछले दो महीनों की मेरी फाश्टेग बिल रीडिंग दिखाएँ", "_skipme": "", "primary_model_prediction": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "asr_language": "hi", "fallback_model_prediction": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएं।", "best_prediction": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "best_prediction_source": "primary", "cleaned_text": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "abbreviated_text": "पिछले दो महीनों की मेरी फास्टैग बिल रीडिंग दिखाएँ", "wer_pct": 11.1111}
+{"audio_filepath": "/data/indic_asr/audio/10003386135529782184.wav", "audio_item_id": "fleurs_hi_in_validation_1602_10003386135529782184", "source_lang": "hi", "duration": 12.24, "sampling_rate": 16000, "dataset": "google/fleurs", "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd", "license": "CC-BY-4.0", "additional_notes": {"primary_model": "indic_canary", "recovery_model": "parakeet_riva", "WhisperHallucination_primary": "passed", "WhisperHallucination_asr": "passed", "SelectBestPrediction": "used primary"}, "granary_v1_prediction": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "reference_text": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "_skipme": "", "primary_model_prediction": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "asr_language": "hi", "fallback_model_prediction": "मेजर किनखाना भूमध्यसागर में समान क्षेत्रों की तरह रोटी, सब्जियों और मांस विशेषरूप से सूअर का मांस पर आधारित है, और जैतून के तेल का उपयोग करता है।", "best_prediction": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "best_prediction_source": "primary", "cleaned_text": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "abbreviated_text": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "wer_pct": 33.3333}
 ```
 
 </details>
