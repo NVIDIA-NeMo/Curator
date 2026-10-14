@@ -15,20 +15,26 @@
 """Prompt-based transcript processing through an OpenAI-compatible endpoint."""
 
 import asyncio
+import math
 import re
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from loguru import logger
 from openai.types.chat import ChatCompletion
 
+from nemo_curator.models.client.async_runner import PersistentEventLoop
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.stages.audio.text_filtering.language_utils import verify_language
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import WorkerMetadata
 
 
 @dataclass
@@ -57,8 +63,9 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     independent text operations into one concurrent batch with a shared client.
     Dependent operations belong in separate pipeline stages.
 
-    Connections are reused within a batch and closed on its event loop before
-    returning. No client or event loop is serialized between workers.
+    Each worker reuses one client and event loop across batches. Runtime state
+    is created in ``setup`` and closed in ``teardown``, after cancelling pending
+    requests. A batch deadline includes request retries and semaphore waves.
     """
 
     endpoint: str
@@ -70,6 +77,8 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     operations: list[dict] | None = None
     num_workers_override: int | None = None
     _operations: list["AudioTextLLMStage"] = field(default_factory=list, init=False, repr=False)
+    _client: AsyncOpenAIClient | None = field(default=None, init=False, repr=False)
+    _loop_runner: PersistentEventLoop | None = field(default=None, init=False, repr=False)
     text_key: str = "text"
     output_text_key: str = "processed_text"
     language_key: str = "source_lang"
@@ -284,28 +293,54 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             return [{"role": "user", "content": prompt.replace("{text}", text)}]
         return [{"role": "system", "content": prompt}, {"role": "user", "content": text}]
 
-    async def _generate(
-        self, messages: list[list[dict[str, str]]], configs: list[GenerationConfig]
-    ) -> list[ChatCompletion]:
-        client = AsyncOpenAIClient(
+    def setup(self, _worker_metadata: "WorkerMetadata | None" = None) -> None:
+        if self._loop_runner is not None:
+            return
+        self._client = AsyncOpenAIClient(
             base_url=self.endpoint,
             api_key=self.api_key,
             max_concurrent_requests=self.max_concurrent_requests,
             max_retries=self.max_retries,
             timeout=self.request_timeout_s,
         )
+        # The shared client owns retries; SDK retries would multiply the batch deadline.
+        self._client.openai_kwargs["max_retries"] = 0
+        self._loop_runner = PersistentEventLoop(self.name)
+        self._loop_runner.start()
+
+    def teardown(self) -> None:
+        if self._loop_runner is None:
+            return
         try:
-            return list(
-                await asyncio.gather(
-                    *(
-                        client.query_model_response(model=self.model_name, messages=message, generation_config=config)
-                        for message, config in zip(messages, configs, strict=True)
-                    )
-                )
-            )
+            if self._client is not None and hasattr(self._client, "client"):
+                self._loop_runner.run(self._client.client.close(), timeout=30.0)
         finally:
-            if hasattr(client, "client"):
-                await client.client.close()
+            try:
+                self._loop_runner.close()
+            finally:
+                self._loop_runner = None
+                self._client = None
+
+    def _batch_timeout(self, num_requests: int) -> float:
+        waves = max(1, math.ceil(num_requests / self.max_concurrent_requests))
+        retry_wait = self._client.base_delay * (2**self.max_retries - 1) + self.max_retries
+        return waves * (self.request_timeout_s * (self.max_retries + 1) + retry_wait) + 120.0
+
+    async def _generate(
+        self, messages: list[list[dict[str, str]]], configs: list[GenerationConfig]
+    ) -> list[ChatCompletion]:
+        requests = [
+            asyncio.create_task(
+                self._client.query_model_response(model=self.model_name, messages=message, generation_config=config)
+            )
+            for message, config in zip(messages, configs, strict=True)
+        ]
+        try:
+            return list(await asyncio.gather(*requests))
+        finally:
+            for request in requests:
+                request.cancel()
+            await asyncio.gather(*requests, return_exceptions=True)
 
     def process(self, task: AudioTask) -> AudioTask:
         return self.process_batch([task])[0]
@@ -390,14 +425,28 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             messages.extend(operation_messages)
         metrics = {
             "num_requests": float(len(messages)),
+            "num_request_attempts": 0.0,
+            "num_retries": 0.0,
+            "num_usage_reports": 0.0,
             "num_fallbacks": 0.0,
             "prompt_tokens": 0.0,
             "completion_tokens": 0.0,
         }
         if messages:
-            responses = asyncio.run(
-                self._generate(messages, [operation.generation_config for operation, _ in requests])
-            )
+            self.setup()
+            attempts_before = self._client.num_request_attempts
+            retries_before = self._client.num_retries
+            try:
+                responses = self._loop_runner.run(
+                    self._generate(messages, [operation.generation_config for operation, _ in requests]),
+                    timeout=self._batch_timeout(len(messages)),
+                )
+            except BaseException:
+                with logger.catch(message=f"{self.name}: worker cleanup failed after inference failure"):
+                    self.teardown()
+                raise
+            metrics["num_request_attempts"] = float(self._client.num_request_attempts - attempts_before)
+            metrics["num_retries"] = float(self._client.num_retries - retries_before)
             if len(responses) != len(requests):
                 msg = "Inference response count does not match request count"
                 raise RuntimeError(msg)
@@ -407,6 +456,7 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
                 metrics["num_fallbacks"] += note.startswith("fallback (")
                 pending.append((operation, index, result, note))
                 if response.usage is not None:
+                    metrics["num_usage_reports"] += 1
                     metrics["prompt_tokens"] += response.usage.prompt_tokens or 0
                     metrics["completion_tokens"] += response.usage.completion_tokens or 0
 

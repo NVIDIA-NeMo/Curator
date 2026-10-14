@@ -38,10 +38,12 @@ from nemo_curator.backends.utils import check_total_gpu_capacity
 from nemo_curator.core.serve.base import InferenceBackend
 from nemo_curator.core.serve.dynamo.config import DynamoServerConfig
 from nemo_curator.core.serve.dynamo.constants import (
+    ADMISSION_ACTOR_LABEL,
     DEFAULT_ETCD_PORT,
     DEFAULT_NATS_PORT,
     ETCD_ACTOR_LABEL,
     FRONTEND_ACTOR_LABEL,
+    INFRA_ADMISSION_BUNDLE,
     INFRA_ETCD_BUNDLE,
     INFRA_FRONTEND_BUNDLE,
     INFRA_NATS_BUNDLE,
@@ -78,7 +80,7 @@ from nemo_curator.core.utils import ignore_ray_head_node
 if TYPE_CHECKING:
     from ray.util.placement_group import PlacementGroup
 
-    from nemo_curator.core.serve.dynamo.config import DynamoRouterConfig, DynamoVLLMModelConfig
+    from nemo_curator.core.serve.dynamo.config import DynamoAdmissionConfig, DynamoRouterConfig, DynamoVLLMModelConfig
     from nemo_curator.core.serve.server import InferenceServer
 
 
@@ -111,6 +113,7 @@ class DynamoBackend(InferenceBackend):
         self._nats_actor: ManagedSubprocess | None = None
         self._worker_actors: list[ManagedSubprocess] = []
         self._frontend_actor: ManagedSubprocess | None = None
+        self._admission_actor: ManagedSubprocess | None = None
         self._actor_name_prefix: str = ""
         self._pg_name_prefix: str = ""
 
@@ -125,6 +128,8 @@ class DynamoBackend(InferenceBackend):
         if not self._models:
             msg = "At least one DynamoVLLMModelConfig is required."
             raise ValueError(msg)
+
+        self._validate_admission()
 
         if not backend_cfg.etcd_endpoint:
             _check_binary("etcd")
@@ -149,7 +154,8 @@ class DynamoBackend(InferenceBackend):
             # Materialize the actor-venv override file on every node before
             # any worker with DYNAMO_VLLM_RUNTIME_ENV is spawned; uv reads the
             # path from the node where the runtime_env install runs.
-            ensure_actor_overrides_on_all_nodes(ignore_head_node=ignore_ray_head_node())
+            if any(model.install_runtime_dependencies for model in self._models):
+                ensure_actor_overrides_on_all_nodes(ignore_head_node=ignore_ray_head_node())
 
             self._sweep_orphan_actors()
             remove_named_pgs_with_prefix(self._pg_name_prefix)
@@ -182,18 +188,28 @@ class DynamoBackend(InferenceBackend):
     # Deployment
     # ------------------------------------------------------------------
 
-    def _deploy_and_healthcheck(self, server: InferenceServer, backend_cfg: DynamoServerConfig) -> None:
+    def _deploy_and_healthcheck(  # noqa: PLR0915
+        self, server: InferenceServer, backend_cfg: DynamoServerConfig
+    ) -> None:
         """Validate, create PGs, launch infra/workers/frontend, health-check."""
         self._validate_unique_model_names(self._models)
         topology = _get_gpu_topology()
         self._validate_gpu_requirements(self._models, topology=topology)
 
         infra_pg_name = f"{self._actor_name_prefix}_pg_infra"
-        self._infra_pg = build_infra_pg(name=infra_pg_name, num_bundles=INFRA_NUM_BUNDLES)
+        self._infra_pg = build_infra_pg(
+            name=infra_pg_name, num_bundles=INFRA_NUM_BUNDLES + int(backend_cfg.admission is not None)
+        )
         self._infra_ip = get_bundle_node_ip(self._infra_pg, INFRA_ETCD_BUNDLE)
         server._host = self._infra_ip
 
-        server.port = get_free_port_in_bundle(self._infra_pg, INFRA_FRONTEND_BUNDLE, server.port)
+        public_bundle = INFRA_ADMISSION_BUNDLE if backend_cfg.admission is not None else INFRA_FRONTEND_BUNDLE
+        server.port = get_free_port_in_bundle(self._infra_pg, public_bundle, server.port)
+        frontend_port = (
+            get_free_port_in_bundle(self._infra_pg, INFRA_FRONTEND_BUNDLE, server.port + 1)
+            if backend_cfg.admission is not None
+            else server.port
+        )
 
         if backend_cfg.etcd_endpoint:
             etcd_endpoint = backend_cfg.etcd_endpoint
@@ -222,6 +238,7 @@ class DynamoBackend(InferenceBackend):
         expected_models: set[str] = set()
         placements: list[dict[str, Any]] = []
         disagg_worker_offset = 0
+        metrics_urls: list[str] = []
 
         for model_config in self._models:
             model_name = model_config.resolved_model_name
@@ -255,6 +272,7 @@ class DynamoBackend(InferenceBackend):
                     router_mode=effective_router_mode,
                     router_kv_events=effective_router_kv_events,
                     topology=topology,
+                    **({"metrics_urls": metrics_urls} if backend_cfg.admission is not None else {}),
                 )
             self._replica_pgs.extend(pgs)
             self._worker_actors.extend(actors)
@@ -271,7 +289,7 @@ class DynamoBackend(InferenceBackend):
         self._write_manifest(manifest_data, ready=False)
 
         self._frontend_actor = self._launch_frontend(
-            server.port,
+            frontend_port,
             base_env,
             backend_cfg=backend_cfg,
             effective_router_mode=effective_router_mode,
@@ -279,12 +297,29 @@ class DynamoBackend(InferenceBackend):
             runtime_env=merge_model_runtime_envs(self._models),
         )
 
+        if backend_cfg.admission is not None:
+            if len(metrics_urls) != self._models[0].num_replicas:
+                msg = "Dynamo admission requires a metrics endpoint for every replica"
+                raise ValueError(msg)
+            self._admission_actor = self._launch_admission_proxy(
+                port=server.port,
+                upstream=f"http://{self._infra_ip}:{frontend_port}",
+                metrics_urls=metrics_urls,
+                config=backend_cfg.admission,
+            )
         self._wait_for_models(server, expected_models)
         self._write_manifest(manifest_data, ready=True)
 
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
+
+    def _validate_admission(self) -> None:
+        if self._backend_cfg.admission is not None and (
+            len(self._models) != 1 or self._models[0].mode != "aggregated"
+        ):
+            msg = "Dynamo admission requires one aggregated model per server; use separate servers for isolation"
+            raise ValueError(msg)
 
     @staticmethod
     def _resolve_effective_router(
@@ -541,6 +576,38 @@ class DynamoBackend(InferenceBackend):
             runtime_env=runtime_env,
         )
 
+    def _launch_admission_proxy(
+        self,
+        *,
+        port: int,
+        upstream: str,
+        metrics_urls: list[str],
+        config: DynamoAdmissionConfig,
+    ) -> ManagedSubprocess:
+        python_args = [
+            "-m",
+            "nemo_curator.core.serve.dynamo.admission_proxy",
+            "--port",
+            str(port),
+            "--upstream",
+            upstream,
+            "--max-waiting-requests",
+            str(config.max_waiting_requests),
+            "--max-concurrent-requests",
+            str(config.max_concurrent_requests),
+        ]
+        for url in metrics_urls:
+            python_args += ["--metrics-url", url]
+        return ManagedSubprocess.spawn(
+            ADMISSION_ACTOR_LABEL,
+            self._infra_pg,
+            INFRA_ADMISSION_BUNDLE,
+            num_gpus=0,
+            python_args=python_args,
+            runtime_dir=self._runtime_dir,
+            actor_name_prefix=self._actor_name_prefix,
+        )
+
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
@@ -599,6 +666,8 @@ class DynamoBackend(InferenceBackend):
 
     def _all_actor_procs(self) -> list[ManagedSubprocess]:
         procs: list[ManagedSubprocess] = []
+        if self._admission_actor is not None:
+            procs.append(self._admission_actor)
         if self._frontend_actor is not None:
             procs.append(self._frontend_actor)
         procs.extend(self._worker_actors)
@@ -650,6 +719,7 @@ class DynamoBackend(InferenceBackend):
         )
         ManagedSubprocess.stop_many(refreshed)
 
+        self._admission_actor = None
         self._frontend_actor = None
         self._worker_actors.clear()
         self._etcd_actor = None

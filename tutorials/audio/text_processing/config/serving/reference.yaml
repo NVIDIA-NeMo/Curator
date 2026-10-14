@@ -1,0 +1,19 @@
+model:
+  _target_: nemo_curator.core.serve.DynamoVLLMModelConfig
+  _convert_: all
+  model_identifier: ${model_identifier}
+  model_name: ${model_name}
+  num_replicas: 4
+  install_runtime_dependencies: ${runtime.install_runtime_dependencies}
+  runtime_env: ${runtime.env}
+  engine_kwargs:
+    tensor_parallel_size: 2
+    max_model_len: 8192
+    gpu_memory_utilization: 0.95
+    kv_cache_dtype: auto
+    max_num_seqs: 256
+    max_num_batched_tokens: 8192
+    language_model_only: true
+    trust_remote_code: true
+backend:
+  _target_: nemo_curator.core.serve.DynamoServerConfig

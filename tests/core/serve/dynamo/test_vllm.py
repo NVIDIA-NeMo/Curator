@@ -426,3 +426,44 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+def test_preinstalled_runtime_keeps_environment_without_package_installs() -> None:
+    model = DynamoVLLMModelConfig(
+        model_identifier="m",
+        install_runtime_dependencies=False,
+        runtime_env={"env_vars": {"VLLM_CACHE_ROOT": "/cache/vllm"}},
+    )
+    expected = {"env_vars": {"VLLM_CACHE_ROOT": "/cache/vllm"}}
+    assert dynamo_vllm.dynamo_runtime_env(model) == expected
+    assert dynamo_vllm.merge_model_runtime_envs([model]) == expected
+    managed = DynamoVLLMModelConfig(model_identifier="other")
+    combined = dynamo_vllm.merge_model_runtime_envs([model, managed])
+    assert combined["uv"] == dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]
+    assert combined["env_vars"] == expected["env_vars"]
+
+
+def test_admission_metrics_are_discovered_only_on_replica_rank_zero(captured_spawn: list[dict[str, Any]]) -> None:
+    model = DynamoVLLMModelConfig(model_identifier="m", engine_kwargs={"tensor_parallel_size": 8})
+    metrics_urls = []
+    with (
+        mock.patch.object(dynamo_vllm, "build_replica_pg", return_value=object()),
+        mock.patch.object(dynamo_vllm, "get_bundle_node_ip", return_value="10.0.0.5"),
+        mock.patch.object(dynamo_vllm, "get_free_port_in_bundle", return_value=24567),
+    ):
+        dynamo_vllm.launch_replicas(
+            model,
+            base_env={},
+            namespace="curator",
+            request_plane="nats",
+            event_plane="nats",
+            runtime_dir="/tmp/rt",  # noqa: S108
+            actor_name_prefix="test",
+            router_mode=None,
+            router_kv_events=False,
+            topology=_TWO_NODES_4GPU,
+            metrics_urls=metrics_urls,
+        )
+    assert metrics_urls == ["http://10.0.0.5:24567/metrics"]
+    assert captured_spawn[0]["subprocess_env"]["DYN_SYSTEM_PORT"] == "24567"
+    assert "DYN_SYSTEM_PORT" not in captured_spawn[1]["subprocess_env"]

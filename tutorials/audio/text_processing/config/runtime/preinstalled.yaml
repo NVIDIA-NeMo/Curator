@@ -1,0 +1,13 @@
+# Required experiment stack; verify the image before reuse. These do not install.
+versions:
+  ai-dynamo: 1.3.1
+  vllm: 0.23.0+cu129
+  transformers: 5.8.0
+  torch: 2.11.0+cu129
+  ray: 2.57.0
+install_runtime_dependencies: false
+env:
+  env_vars:
+    VLLM_CACHE_ROOT: ${cache_root}/vllm-0.23.0-cu129
+    TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torch-2.11.0-cu129
+    TRITON_CACHE_DIR: ${cache_root}/triton-vllm-0.23.0-cu129

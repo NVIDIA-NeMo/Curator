@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+import weakref
 from unittest import mock
 
 import pytest
 from ray.data import ActorPoolStrategy, TaskPoolStrategy
 
-from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter, create_actor_from_stage
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage, Resources
 from nemo_curator.tasks import EmptyTask
@@ -80,6 +82,23 @@ class ConfigurableTaskStage(ConfigurableActorStage):
 
 
 class TestRayDataStageAdapter:
+    @pytest.mark.parametrize("explicit_teardown", [False, True])
+    def test_actor_releases_stage_once_without_retaining_actor(self, explicit_teardown: bool):
+        stage = ConfigurableActorStage()
+        stage.teardown = mock.Mock()
+        with mock.patch(
+            "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id", return_value=(None, None)
+        ):
+            actor = create_actor_from_stage(stage)()
+        actor_ref = weakref.ref(actor)
+        if explicit_teardown:
+            actor.teardown()
+            actor.teardown()
+        del actor
+        gc.collect()
+        assert actor_ref() is None
+        stage.teardown.assert_called_once()
+
     def test_process_dataset_uses_compute_for_actor_stages_and_ray_default_for_task_stages(self):
         fixed_actor_kwargs = _map_batches_kwargs(ConfigurableActorStage(num_workers=3))
         autoscaling_actor_kwargs = _map_batches_kwargs(

@@ -1,0 +1,9 @@
+defaults:
+  - explicit
+  - _self_
+
+backend:
+  router:
+    _target_: nemo_curator.core.serve.DynamoRouterConfig
+    mode: kv
+    kv_events: false

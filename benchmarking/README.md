@@ -752,7 +752,7 @@ eight-GPU activity target.
 ## Audio Text Pipeline Benchmark
 
 `scripts/audio_text_llm_benchmark.py` runs every text processing stage from the
-shared [tutorial YAML](../tutorials/audio/text_processing/config/text.yaml):
+shared [tutorial YAML](../tutorials/audio/text_processing/config/english.yaml):
 RecoverEntities → PnC → language identification and verification → TN → parallel
 captioning, code switching and speech QA → ITN → disfluency removal. The reader
 preloads JSONL into `AudioTask` records; the benchmark omits the tutorial reader
@@ -760,15 +760,17 @@ and writer from the timed pipeline and never opens audio files.
 
 The default graph uses `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four Dynamo replicas
 with tensor parallelism two (eight GPUs), 12 workers, batches of 128, and at most
-256 concurrent requests per worker. The model's isolated runtime requests
-`transformers>=5`, leaving the repository's global dependency constraints
-unchanged. Managed serving still requires a Gemma-4-capable Dynamo/vLLM stack.
+256 concurrent requests per worker. The English profile requires the pinned
+preinstalled runtime documented in the tutorial, reuses worker clients across
+batches, and persists compilation caches under `cache_root`. It disables the
+Indic-oriented TN guard so English number expansion is accepted. The original
+recipe remains available with `--config-name=text`.
 An existing compatible OpenAI endpoint can be supplied with
 `--override=endpoint=http://host:8000/v1`.
 
 Use one fixed, pre-staged human-label improvement cohort that fits in driver
-memory. Every row needs a unique string `audio_item_id`, `source_lang`, the human
-label in `granary_v1_prediction`, and the normalized transcript in
+memory. Every row needs a unique string `audio_item_id`, `source_lang: en`, the human
+label in `text`, and the normalized transcript in
 `abbreviated_text`. Use `--id-key` if the frozen source uses another identity key.
 The benchmark records manifest bytes and SHA-256, preserves input metadata, and
 rejects duplicate or missing identities, changed source fields, missing outputs
@@ -778,13 +780,15 @@ human-gold cohort; it still makes a recovery request when both strings are
 nonempty. Do not manufacture ASR predictions by relabeling human text.
 
 Stage the same manifest for both executors at
-`<datasets_path>/audio_text_gemma4_indic/manifest.jsonl`. Retain its upstream
+`<datasets_path>/audio_text_gemma4_english/manifest.jsonl`. Retain its upstream
 provenance, selection rule and language distribution alongside it. Pin its row
 count and SHA-256 with the corresponding options when running a frozen cohort:
 
 ```bash
 python benchmarking/scripts/audio_text_llm_benchmark.py \
-  --input-manifest=/data/audio_text_gemma4_indic/manifest.jsonl \
+  --input-manifest=/data/audio_text_gemma4_english/manifest.jsonl \
+  --config-name=english \
+  --override=cache_root=/data/audio_text_cache \
   --benchmark-results-path=/results/audio_text/xenna \
   --expected-num-rows=COHORT_ROWS \
   --expected-manifest-sha256=COHORT_SHA256 \
@@ -799,14 +803,24 @@ text and language fields.
 The timer includes executor setup inside `Pipeline.run` and every configured
 text operation; it excludes manifest loading/validation, Ray/server startup,
 server teardown, output validation and result writes. There is no warmup pass.
-Server startup is reported separately; the harness also reports complete process
+Server startup is reported separately. For cold/warm comparisons, run twice with
+the same persistent cache path and runtime; use a fresh path for the cold run
+rather than deleting another experiment's cache. Compare the same serving
+profile and cohort. Add `--override=serving=speculative` for the optional pinned
+Gemma MTP profile; the tutorial documents admission and other serving options.
+The harness also reports complete process
 `exec_time_s`. Compare the same timing metric across both executors.
 
 The standard `params.json`, `metrics.json`, and `tasks.pkl` retain the resolved
 stage configuration, manifest identity, returned rows, row/request throughput,
 and per-operation plus aggregate applied/fallback/skipped counts. Requests count
 logical model calls, including rejected completions; transport retries are not
-additional logical requests. A downstream pass may have zero requests after
+additional logical requests. Separate request-attempt and retry counters measure
+client completion attempts from completed batches; executor replay or terminated
+batches require server logs for a complete physical-attempt count. Batch IDs
+prevent duplicated statistics after distributed serialization. Per-stage batch
+counts, processing/idle time, and token usage are retained; token throughput is
+reported only when every completion includes usage. A downstream pass may have zero requests after
 language verification rejects rows. These structural checks establish execution
 coverage, not model quality or semantic parity; inspect fallback counts and
 operation outputs separately.

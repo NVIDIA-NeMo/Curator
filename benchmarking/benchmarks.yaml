@@ -151,10 +151,10 @@ datasets:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
   # Pre-staged human-label improvement metadata; no audio files are needed.
-  - name: "audio_text_gemma4_indic"
+  - name: "audio_text_gemma4_english"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/audio_text_gemma4_indic/manifest.jsonl"
+      path: "{datasets_path}/audio_text_gemma4_english/manifest.jsonl"
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -1076,8 +1076,9 @@ entries:
     script: audio_text_llm_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:audio_text_gemma4_indic,jsonl}
-      --config-name=text
+      --input-manifest={dataset:audio_text_gemma4_english,jsonl}
+      --config-name=english
+      --override=cache_root={results_path}/audio_text_cache
       --override=backend=xenna
     timeout_s: 14340
     requirements:
@@ -1093,8 +1094,9 @@ entries:
     script: audio_text_llm_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:audio_text_gemma4_indic,jsonl}
-      --config-name=text
+      --input-manifest={dataset:audio_text_gemma4_english,jsonl}
+      --config-name=english
+      --override=cache_root={results_path}/audio_text_cache
       --override=backend=ray_data
     timeout_s: 14340
     requirements:
