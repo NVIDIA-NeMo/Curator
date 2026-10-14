@@ -112,6 +112,33 @@ def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
     assert stage.process_batch([]) == []
 
 
+@pytest.mark.parametrize("num_tasks", [0, 1, 2])
+def test_numpy_task_batch_preserves_reference_prediction_alignment(num_tasks: int) -> None:
+    stage = _make_stage(waveform_key="waveform", reference_text_key="draft_text")
+    tasks = np.empty(num_tasks, dtype=object)
+    for index in range(num_tasks):
+        task = _make_waveform_task(waveform=np.full(_SR, index + 1, dtype=np.float32))
+        task.data["draft_text"] = f"reference-{index}"
+        tasks[index] = task
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=f"{item['reference_text']}:{item['waveform'][0]:.0f}") for item in items
+    ]
+
+    results = stage.process_batch(tasks)
+
+    assert len(results) == num_tasks
+    assert all(result is tasks[index] for index, result in enumerate(results))
+    assert [task.data["pred_text"] for task in results] == [
+        f"reference-{index}:{index + 1}" for index in range(num_tasks)
+    ]
+    assert [task.data["draft_text"] for task in results] == [f"reference-{index}" for index in range(num_tasks)]
+    assert all(task.data["_skipme"] == "" for task in results)
+    if num_tasks:
+        stage._adapter.transcribe_batch.assert_called_once()
+    else:
+        stage._adapter.transcribe_batch.assert_not_called()
+
+
 def test_basic_inference() -> None:
     stage = _make_stage()
     stage._adapter.transcribe_batch.return_value = [
