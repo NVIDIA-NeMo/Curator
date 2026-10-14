@@ -5,54 +5,20 @@ Hindi audio clips. It transcribes with Indic Canary and Parakeet, checks for
 suspicious transcripts, selects and cleans the final text, and measures
 word error rate (WER) against a reference transcript.
 
-## Before you start
-
-You need:
-
-- Linux x86_64, Docker, and the NVIDIA Container Toolkit.
-- A GPU compatible with both model engine bundles. An 80 GB H100 is suitable
-  for H100-built engines; the configuration reserves 50 GiB for Canary and
-  24 GiB for Parakeet.
-- An NVIDIA driver compatible with CUDA 13, or a supported data-center
-  forward-compatibility setup.
-- **Your own compatible Indic Canary and Hindi Parakeet engine bundles.**
-  The tutorial downloads the audio, not the models. See [model files](#model-files)
-  below, or [building bundles](#building-model-bundles-optional) if you have
-  the matching source checkpoints.
-
-## Model files
-
-Put both bundles under one directory on your machine. That directory will
-be mounted as `/models` inside the container:
-
-```text
-/models/
-├── indic_canary/
-│   ├── encoder/encoder.plan
-│   ├── encoder/config.json
-│   ├── decoder/config.json
-│   ├── decoder/rank0.engine
-│   ├── decoder/vocab.json
-│   ├── preprocessor/config.json
-│   └── preprocessor/mel_basis.pt
-└── parakeet/
-    ├── encoder.plan
-    ├── metadata.json
-    └── model.nemo
-```
-
-An engine bundle contains files prepared for a specific GPU and TensorRT
-runtime. A Hugging Face model ID or a `.nemo` checkpoint alone cannot replace
-it. The pipeline does not build missing engines.
-
 ## 1. Build and check the environment
 
-Run these commands **on your host**, from the root of this Curator checkout:
+On a Linux x86_64 host with Docker and the NVIDIA Container Toolkit, run
+from the root of this Curator checkout:
 
 ```bash
 docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-asr .
 docker run --rm --gpus all curator-indic-asr python docker/audio/check_trt_llm.py
 ```
+
+**GPU:** an 80 GB H100 is suitable for H100-built engine bundles. The
+configuration reserves 50 GiB for Canary and 24 GiB for Parakeet. Use an
+NVIDIA driver compatible with CUDA 13, or a supported data-center
+forward-compatibility setup.
 
 The [audio Dockerfile](../../../docker/audio/Dockerfile.trt_llm) installs
 Curator with Python 3.12, Torch 2.9.1, TensorRT-LLM 1.2.1, and
@@ -61,6 +27,11 @@ and GPU access. Fix any errors before continuing.
 
 Reuse this image for subsequent runs. Do not run `uv sync` inside it:
 that would replace the inference environment.
+
+Before opening the container, supply compatible Indic Canary and Hindi
+Parakeet engine bundles in the [model-file layout](#model-files) below.
+The tutorial downloads audio, not models. If you have the matching source
+checkpoints, see [building bundles](#building-model-bundles-optional).
 
 Create the work directories and open the container. **Replace
 `/absolute/path/to/engines`** with your model directory:
@@ -237,6 +208,31 @@ downloaded FLEURS samples.
   available memory, and the TensorRT version used to build the engines.
 - **Missing file:** check the container mounts, model layout, and audio paths.
 - **Pipeline error:** inspect the saved console log and `indic-asr-work/ray-logs`.
+
+## Model files
+
+Put both bundles under one directory on your machine. That directory will
+be mounted as `/models` inside the container:
+
+```text
+/models/
+├── indic_canary/
+│   ├── encoder/encoder.plan
+│   ├── encoder/config.json
+│   ├── decoder/config.json
+│   ├── decoder/rank0.engine
+│   ├── decoder/vocab.json
+│   ├── preprocessor/config.json
+│   └── preprocessor/mel_basis.pt
+└── parakeet/
+    ├── encoder.plan
+    ├── metadata.json
+    └── model.nemo
+```
+
+An engine bundle contains files prepared for a specific GPU and TensorRT
+runtime. A Hugging Face model ID or a `.nemo` checkpoint alone cannot replace
+it. The pipeline does not build missing engines.
 
 ## Building model bundles (optional)
 
