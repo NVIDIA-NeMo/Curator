@@ -17,9 +17,12 @@ import secrets
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import TypeVar
 
+from httpx import TimeoutException
 from loguru import logger
+from openai import APIStatusError, APITimeoutError
 
 _T = TypeVar("_T")
 
@@ -93,6 +96,8 @@ class AsyncLLMClient(ABC):
         self.max_concurrent_requests = max_concurrent_requests
         self.max_retries = max_retries
         self.base_delay = base_delay
+        self.num_request_attempts = 0
+        self.num_retries = 0
         # Semaphore for controlling concurrent requests
         self._semaphore = None
         self._semaphore_loop = None
@@ -168,14 +173,21 @@ class AsyncLLMClient(ABC):
                         or "httpx.ReadError" in str(last_exception)
                     )
 
-                    if is_rate_limit or is_connection_error:
+                    is_timeout = isinstance(last_exception, (TimeoutError, TimeoutException, APITimeoutError)) or any(
+                        marker in str(last_exception).lower() for marker in ("timeout", "timed out")
+                    )
+                    is_transient_http = isinstance(last_exception, APIStatusError) and (
+                        last_exception.status_code in {HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.CONFLICT}
+                        or last_exception.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
+                    )
+                    if is_rate_limit or is_connection_error or is_timeout or is_transient_http:
                         if is_rate_limit:
                             logger.warning(
                                 f"Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s..."
                             )
                         else:
                             logger.warning(
-                                f"Connection error detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s..."
+                                f"Transient request error detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s..."
                             )
                             logger.warning(f"Error details: {str(last_exception)[:200]}...")
                             if "localhost" in str(last_exception):
@@ -192,6 +204,8 @@ class AsyncLLMClient(ABC):
 
                 # Attempt the query
                 try:
+                    self.num_request_attempts += 1
+                    self.num_retries += int(attempt > 0)
                     return await request()
                 except Exception as e:
                     last_exception = e

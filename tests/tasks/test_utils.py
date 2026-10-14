@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pickle
+
 import numpy as np
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
@@ -90,6 +92,27 @@ class TestTaskPerfUtils:
 
         assert metrics["FanoutStage_process_time_sum"] == 6.0
         assert metrics["FanoutStage_custom.num_rows_sum"] == 300.0
+
+    def test_serialized_rows_preserve_batch_identity_without_merging_equal_batches(self) -> None:
+        batches = [
+            StagePerfStats(stage_name="Stage", process_time=2, custom_metrics={"requests": 3}) for _ in range(2)
+        ]
+        tasks = [
+            pickle.loads(pickle.dumps(EmptyTask(_stage_perf=[batch])))  # noqa: S301
+            for batch in batches
+            for _ in range(3)
+        ]
+        assert len({id(task._stage_perf[0]) for task in tasks}) == 6
+        metrics = TaskPerfUtils.collect_stage_metrics(tasks)["Stage"]
+        assert metrics["process_time"].tolist() == [2, 2]
+        assert metrics["custom.requests"].tolist() == [3, 3]
+        assert "batch_id" not in metrics
+
+    def test_legacy_stats_without_batch_id_still_deduplicate_shared_object(self) -> None:
+        perf = StagePerfStats(stage_name="Legacy", process_time=2)
+        del perf.batch_id
+        tasks = [EmptyTask(_stage_perf=[perf]) for _ in range(2)]
+        assert TaskPerfUtils.collect_stage_metrics(tasks)["Legacy"]["process_time"].tolist() == [2]
 
     def test_aggregate_task_metrics_with_pipeline_prefixes(self) -> None:
         """Test aggregating task metrics with pipeline prefixes."""

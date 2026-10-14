@@ -1,0 +1,13 @@
+defaults:
+  - text
+  - _self_
+  - override serving: explicit
+  - override runtime: preinstalled
+
+# An existing writable cache directory visible to all serving workers.
+cache_root: ???
+ground_truth_key: text
+
+# Match the reference's --disable_tn_validation for English number expansion.
+tn:
+  validation_mode: none

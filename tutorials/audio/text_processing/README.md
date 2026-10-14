@@ -115,6 +115,92 @@ python nemo_curator/config/run.py \
   model_name=served-text-model ray_client.num_gpus=0
 ```
 
+## English workflow and serving options
+
+`english.yaml` uses the same nine operations, seven text stages, prompts, and
+generation settings. It disables the TN guard for English number expansion,
+matching the native reference's `--disable_tn_validation` option; the other
+guards are unchanged. Its reference transcription field is `text`:
+
+```json
+{"audio_filepath":"/data/sample.flac","abbreviated_text":"she paid 100 dollars","text":"she paid one hundred dollars","source_lang":"en","duration":2.4}
+```
+
+Supply English rows and a writable cache location available on every serving
+node. This configuration does not detect or filter the manifest's language.
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/text_processing/config \
+  --config-name english \
+  manifest_path=/data/english_input.jsonl \
+  output_path=/data/english_text_output.jsonl \
+  cache_root=/data/curator_cache
+```
+
+The default English serving profile retains four TP2 replicas, the eight-GPU
+budget, the memory/token limits above, and the 128/12/256 client settings. It
+explicitly enables prefix caching and chunked prefill, disables async
+scheduling, and leaves eager execution disabled. The target revision is pinned
+in `serving/explicit.yaml`. These are controlled tuning settings, not a measured
+speedup. `text.yaml` retains the original serving defaults and installation
+behavior.
+
+English defaults to `runtime=preinstalled`, which skips actor dependency
+installation and reuses the image's packages. The required experiment stack is Dynamo
+1.3.1, vLLM 0.23.0+cu129, Transformers 5.8.0, Torch 2.11.0+cu129, and Ray 2.57.0.
+`runtime.versions` records that prerequisite; it does not install or check the
+versions. Image verification is pending. Use an immutable image with this stack
+on every Ray node and verify its identity before comparing runs. `runtime=isolated` restores the existing
+Dynamo actor installer and `transformers>=5`; it does not reproduce those exact
+package versions.
+
+The preinstalled runtime directs vLLM, TorchInductor, and Triton caches under
+`cache_root`; compilation also uses an explicit cache directory. Keep that
+directory persistent between compatible runs. Change it when changing the
+runtime or GPU architecture. Model weights keep their existing Hugging Face
+cache location. These options use the existing
+[vLLM 0.23.0 engine arguments](https://docs.vllm.ai/en/v0.23.0/configuration/engine_args/).
+
+Choose one serving profile with `serving=NAME`; all retain eight GPUs:
+
+| Profile | Change from the explicit TP2 settings | Constraint |
+| --- | --- | --- |
+| `reference` | Leave engine switches at the original defaults | Use `--config-name text` for the original runtime too |
+| `explicit` | Explicit caching/scheduling switches and model revision | English default |
+| `tp1_uni` | Eight TP1 replicas, `distributed_executor_backend=uni` | Each GPU must fit the whole model and KV cache |
+| `kv` | Dynamo KV-aware routing with approximate cache tracking | Cache reuse depends on actual request prefixes |
+| `disaggregated` | Two TP2 prefill and two TP2 decode workers, KV routing | Requires compatible NIXL transfer; each TP group stays on one node |
+| `speculative` | Four-token Gemma assistant MTP | Requires the pinned vLLM Gemma 4 MTP path and extra draft-model memory |
+
+The speculative profile pins `google/gemma-4-31B-it-assistant` and its revision,
+uses `method=mtp`, leaves draft quantization unset, and matches draft TP to target
+TP. Gemma assistants use the
+[Gemma 4 MTP implementation](https://docs.vllm.ai/en/v0.23.0/features/speculative_decoding/mtp/).
+The FP8 target/assistant pair, TP1 memory fit, KV routing, and disaggregated
+transfer still require GPU validation. Configuration composition tests do not
+establish runtime compatibility or throughput. Do not combine speculative
+decoding with disaggregation without separately validating that combination.
+
+Individual switches remain ordinary Hydra overrides, for example
+`serving.model.engine_kwargs.enforce_eager=true` or
+`serving.model.engine_kwargs.async_scheduling=true`. Change one setting at a time
+and compare both throughput and outputs; eager execution disables the graph
+optimization being evaluated, and async scheduling compatibility depends on
+the serving mode. Revision pins belong to these Gemma checkpoints: replace
+them together when choosing another model.
+
+Optional queue admission is shared across all text workers and requires one
+aggregated model. Append this override to enable it:
+
+```bash
+'+serving.backend.admission={_target_:nemo_curator.core.serve.DynamoAdmissionConfig,max_waiting_requests:64,max_concurrent_requests:1024}'
+```
+
+Those bounds are examples, not tuned values. Admission uses the busiest replica
+to limit overload; retryable HTTP responses use the existing client retry
+policy. Disaggregated serving does not support this admission option.
+
 ## Run one operation
 
 `single_operation.yaml` retains the smaller workflow and its one-replica Qwen
@@ -152,9 +238,11 @@ Rewrite validation is a safeguard, not a correctness score. ITN validation
 checks word additions, novel Latin tokens, and excessive deletion. TN permits
 expansion while checking English leakage and script drift. Its inherited
 heuristic targets non-English script input and can reject valid English number
-expansions such as `100` to `one hundred`. Set `tn.validation_mode=none` in the
+expansions such as `100` to `one hundred`. The English profile sets
+`tn.validation_mode=none`; use `--disable_tn_validation` in the native reference
+to compare the same policy. `text.yaml` retains the guard. Set `tn.validation_mode=none` in the
 full chain, or `operation.validation_mode=none` for a single operation, when
-those checks are inappropriate. Disfluency removal requires 50% word retention;
+those checks are inappropriate for a separate workflow. Disfluency removal requires 50% word retention;
 other transcript rewrites require 30%, once the input has at least eight words.
 
 TN/ITN validation failures fall back to the input with a reason in the operation

@@ -14,6 +14,7 @@
 
 import hashlib
 import json
+import pickle
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -78,6 +79,12 @@ class _LocalExecutor(BaseExecutor):
                 return [outputs[0]] * len(outputs)
             if self.state.damage == "metadata":
                 outputs[0].data["nested"]["keep"].append(3)
+            if self.state.damage == "attempts":
+                outputs[0]._stage_perf[0].custom_metrics["num_request_attempts"] += 1
+            if self.state.damage == "metrics":
+                outputs[0]._stage_perf[0].custom_metrics.clear()
+            if self.state.serialize:
+                outputs = [pickle.loads(pickle.dumps(task)) for task in outputs]  # noqa: S301
             return list(reversed(outputs)) if self.state.reverse else outputs
         finally:
             self.state.events.append("executor:done")
@@ -86,13 +93,25 @@ class _LocalExecutor(BaseExecutor):
 @pytest.fixture
 def runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:  # noqa: C901
     state = SimpleNamespace(
-        clock=0, events=[], clients=[], requests=[], status=200, damage=None, reverse=False, full=False
+        clock=0,
+        events=[],
+        clients=[],
+        requests=[],
+        status=200,
+        damage=None,
+        reverse=False,
+        full=False,
+        serialize=False,
+        retry_once=False,
+        usage=True,
     )
 
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         state.requests.append(body)
         assert request.url == "http://dynamo.test/v1/chat/completions"
+        if state.retry_once and len(state.requests) == 1:
+            return httpx.Response(429, json={"error": {"message": "retry later", "type": "rate_limit_error"}})
         if state.status != 200:
             return httpx.Response(
                 state.status, json={"error": {"message": "invalid request", "type": "invalid_request"}}
@@ -127,6 +146,7 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:  # noqa: C901
                 "object": "chat.completion",
                 "created": 0,
                 "model": "test-model",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13} if state.usage else None,
                 "choices": [
                     {
                         "index": 0,
@@ -202,7 +222,7 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
     manifest = _manifest(tmp_path, rows)
     result = benchmark.run_audio_text_llm_benchmark(manifest, overrides, config_name="single_operation")
 
-    assert result["metrics"] == {
+    assert {key: value for key, value in result["metrics"].items() if key != "stage_metrics"} == {
         "is_success": True,
         "time_taken_s": 6,
         "inference_server_startup_s": 13 if managed_server else 0,
@@ -213,10 +233,18 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
         "input_manifest_sha256": hashlib.sha256(Path(manifest).read_bytes()).hexdigest(),
         "num_operations": 1,
         "num_requests": 3,
+        "num_request_attempts": 3,
+        "num_retries": 0,
+        "num_usage_reports": 3,
+        "prompt_tokens": 30,
+        "completion_tokens": 9,
+        "token_usage_complete": True,
         "num_applied": 2,
         "num_fallbacks": 1,
         "num_skipped": 2,
         "throughput_requests_per_sec": 0.5,
+        "throughput_request_attempts_per_sec": 0.5,
+        "throughput_completion_tokens_per_sec": 1.5,
         "throughput_rows_per_sec": 5 / 6,
         "fallback_ratio": 1 / 3,
         "operations": {"PnCRestoration": {"num_requests": 3, "num_applied": 2, "num_fallbacks": 1, "num_skipped": 2}},
@@ -229,7 +257,11 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
     assert all(len(task._stage_perf) == 1 for task in tasks)
     assert result["params"]["stages"][0]["text_key"] == "transcript"
     assert result["params"]["stages"][0]["validation_mode"] == "itn"
-    assert len(runtime.clients) == 2
+    stage_metrics = result["metrics"]["stage_metrics"]["PnCRestoration"]
+    assert stage_metrics["num_batches"] == 3
+    assert stage_metrics["num_requests"] == stage_metrics["num_request_attempts"] == 3
+    assert stage_metrics["process_time_s"] >= 0
+    assert len(runtime.clients) == 1
     assert all(client.is_closed() for client in runtime.clients)
     assert [request["messages"][-1]["content"] for request in runtime.requests] == ["hello", "fallback", "last"]
     assert all(request["model"] == "test-model" for request in runtime.requests)
@@ -242,6 +274,47 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
         *(["server:stop"] if managed_server else []),
         "ray:stop",
     ]
+
+
+def test_retry_accounting_survives_independent_row_serialization(tmp_path: Path, runtime: SimpleNamespace) -> None:
+    runtime.retry_once = True
+    runtime.serialize = True
+    rows = [{"transcript": "first"}, {"transcript": "second"}, {"transcript": "third"}]
+    result = benchmark.run_audio_text_llm_benchmark(
+        _manifest(tmp_path, rows), [*_OVERRIDES, "max_retries=1"], config_name="single_operation"
+    )
+    metrics = result["metrics"]
+    assert metrics["num_requests"] == 3
+    assert metrics["num_request_attempts"] == len(runtime.requests) == 4
+    assert metrics["num_retries"] == 1
+    assert metrics["prompt_tokens"] == 30
+    assert metrics["completion_tokens"] == 9
+    assert metrics["stage_metrics"]["PnCRestoration"]["num_batches"] == 2
+    perfs = [task._stage_perf[0] for task in result["tasks"]]
+    assert perfs[0] is not perfs[1]
+    assert perfs[0].batch_id == perfs[1].batch_id
+    assert perfs[0].batch_id != perfs[2].batch_id
+
+
+def test_missing_server_usage_does_not_claim_token_throughput(tmp_path: Path, runtime: SimpleNamespace) -> None:
+    runtime.usage = False
+    result = benchmark.run_audio_text_llm_benchmark(
+        _manifest(tmp_path, [{"transcript": "hello"}]), _OVERRIDES, config_name="single_operation"
+    )
+    assert result["metrics"]["token_usage_complete"] is False
+    assert result["metrics"]["num_usage_reports"] == 0
+    assert result["metrics"]["throughput_completion_tokens_per_sec"] is None
+
+
+@pytest.mark.parametrize("damage", ["attempts", "metrics"])
+def test_missing_or_inconsistent_request_metrics_cannot_report_success(
+    tmp_path: Path, runtime: SimpleNamespace, damage: str
+) -> None:
+    runtime.damage = damage
+    with pytest.raises(RuntimeError, match=r"accounting disagrees|Missing inference metrics"):
+        benchmark.run_audio_text_llm_benchmark(
+            _manifest(tmp_path, [{"transcript": "hello"}]), _OVERRIDES, config_name="single_operation"
+        )
 
 
 @pytest.mark.parametrize("all_rejected", [False, True])

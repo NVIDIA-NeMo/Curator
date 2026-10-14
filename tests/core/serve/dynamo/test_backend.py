@@ -531,3 +531,114 @@ class TestDynamoBackendLaunchFrontend:
         assert python_args[python_args.index("--router-mode") + 1] == "kv"
         assert "--router-kv-events" in python_args
         assert "--no-router-kv-events" not in python_args
+
+
+@pytest.mark.parametrize(
+    "models",
+    [
+        [DynamoVLLMModelConfig(model_identifier="one"), DynamoVLLMModelConfig(model_identifier="two")],
+        [DynamoVLLMModelConfig(model_identifier="one", mode="disagg")],
+    ],
+)
+def test_admission_rejects_shared_model_windows_before_allocating(models: list) -> None:
+    from nemo_curator.core.serve import DynamoAdmissionConfig
+
+    server = InferenceServer(models=models, backend=DynamoServerConfig(admission=DynamoAdmissionConfig(10)))
+    with (
+        mock.patch.object(dynamo_backend.ray, "init") as ray_init,
+        pytest.raises(ValueError, match="one aggregated model"),
+    ):
+        DynamoBackend(server).start()
+    ray_init.assert_not_called()
+
+
+def test_admission_deployment_wires_private_frontend_and_reaps_proxy() -> None:
+    from nemo_curator.core.serve import DynamoAdmissionConfig
+
+    config = DynamoServerConfig(
+        etcd_endpoint="http://etcd:2379",
+        nats_url="nats://nats:4222",
+        admission=DynamoAdmissionConfig(10),
+    )
+    server = InferenceServer(models=[DynamoVLLMModelConfig(model_identifier="m", num_replicas=2)], backend=config)
+    backend = DynamoBackend(server)
+    backend._runtime_dir = "/tmp/rt"  # noqa: S108
+    backend._actor_name_prefix = "test"
+    proxy = mock.Mock()
+    frontend = mock.Mock()
+    worker = mock.Mock()
+
+    def launch(_model: object, **kwargs: object) -> tuple:
+        kwargs["metrics_urls"].extend(["http://one:9000/metrics", "http://two:9000/metrics"])
+        return [], [worker], []
+
+    with (
+        mock.patch.object(backend, "_validate_gpu_requirements"),
+        mock.patch.object(dynamo_backend, "_get_gpu_topology", return_value=[]),
+        mock.patch.object(dynamo_backend, "build_infra_pg", return_value=object()) as build,
+        mock.patch.object(dynamo_backend, "get_bundle_node_ip", return_value="10.0.0.5"),
+        mock.patch.object(dynamo_backend, "get_free_port_in_bundle", side_effect=[8000, 8001]),
+        mock.patch.object(dynamo_backend, "launch_replicas", side_effect=launch),
+        mock.patch.object(backend, "_launch_frontend", return_value=frontend) as launch_frontend,
+        mock.patch.object(backend, "_launch_admission_proxy", return_value=proxy) as launch_proxy,
+        mock.patch.object(backend, "_wait_for_models") as ready,
+        mock.patch.object(backend, "_write_manifest"),
+    ):
+        backend._deploy_and_healthcheck(server, config)
+    assert build.call_args.kwargs["num_bundles"] == 4
+    assert launch_frontend.call_args.args[0] == 8001
+    assert launch_proxy.call_args.kwargs == {
+        "port": 8000,
+        "upstream": "http://10.0.0.5:8001",
+        "metrics_urls": ["http://one:9000/metrics", "http://two:9000/metrics"],
+        "config": config.admission,
+    }
+    ready.assert_called_once_with(server, {"m"})
+    assert backend._all_actor_procs() == [proxy, frontend, worker]
+    with (
+        mock.patch.object(dynamo_backend, "reacquire_detached_actor_handles", side_effect=lambda procs, **_: procs),
+        mock.patch.object(dynamo_backend.ManagedSubprocess, "stop_many") as stop,
+        mock.patch.object(dynamo_backend.ray.util, "remove_placement_group"),
+    ):
+        backend._teardown_actors_and_pgs()
+    stop.assert_called_once_with([proxy, frontend, worker])
+    assert backend._all_actor_procs() == []
+
+
+@pytest.mark.parametrize("install_dependencies", [False, True])
+def test_failed_admission_startup_cleans_up_and_honors_runtime_policy(install_dependencies: bool) -> None:
+    from nemo_curator.core.serve import DynamoAdmissionConfig
+
+    server = InferenceServer(
+        models=[DynamoVLLMModelConfig(model_identifier="m", install_runtime_dependencies=install_dependencies)],
+        backend=DynamoServerConfig(
+            etcd_endpoint="http://etcd:2379", nats_url="nats://nats:4222", admission=DynamoAdmissionConfig(10)
+        ),
+    )
+    backend = DynamoBackend(server)
+    proxy = mock.Mock()
+    context = mock.Mock()
+    context.get_temp_dir.return_value = "/tmp"  # noqa: S108
+    context.get_session_name.return_value = "session_test"
+
+    def fail_after_proxy(*_args: object) -> None:
+        backend._admission_actor = proxy
+        msg = "readiness failed"
+        raise RuntimeError(msg)
+
+    with (
+        mock.patch.object(dynamo_backend.ray, "init", return_value=contextlib.nullcontext()),
+        mock.patch.object(dynamo_backend.ray, "get_runtime_context", return_value=context),
+        mock.patch.object(dynamo_backend.os, "makedirs"),
+        mock.patch.object(dynamo_backend, "ensure_actor_overrides_on_all_nodes") as overrides,
+        mock.patch.object(backend, "_sweep_orphan_actors"),
+        mock.patch.object(dynamo_backend, "remove_named_pgs_with_prefix"),
+        mock.patch.object(backend, "_deploy_and_healthcheck", side_effect=fail_after_proxy),
+        mock.patch.object(dynamo_backend, "reacquire_detached_actor_handles", side_effect=lambda procs, **_: procs),
+        mock.patch.object(dynamo_backend.ManagedSubprocess, "stop_many") as stop,
+        pytest.raises(RuntimeError, match="readiness failed"),
+    ):
+        backend.start()
+    assert overrides.called is install_dependencies
+    stop.assert_called_once_with([proxy])
+    assert backend._all_actor_procs() == []

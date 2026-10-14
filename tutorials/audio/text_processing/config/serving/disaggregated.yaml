@@ -1,0 +1,14 @@
+defaults:
+  - kv
+  - _self_
+
+# Requires NIXL support for this model/runtime and each TP group on one node.
+model:
+  mode: disagg
+  num_replicas: 1
+  prefill:
+    _target_: nemo_curator.core.serve.DynamoRoleConfig
+    num_replicas: 2
+  decode:
+    _target_: nemo_curator.core.serve.DynamoRoleConfig
+    num_replicas: 2

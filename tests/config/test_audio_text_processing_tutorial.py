@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -20,7 +21,14 @@ from pathlib import Path
 import hydra
 import pytest
 from omegaconf import OmegaConf
+from omegaconf.errors import InterpolationToMissingValueError
 
+from nemo_curator.core.serve.dynamo.infra import engine_kwargs_to_cli_flags
+from nemo_curator.core.serve.dynamo.vllm import (
+    dynamo_runtime_env,
+    merge_model_runtime_envs,
+    resolve_disagg_role_config,
+)
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
@@ -154,7 +162,100 @@ def test_full_config_preserves_reference_dependencies_and_serving_geometry():
     assert cfg.inference_server.health_check_timeout_s == 1200
 
 
-@pytest.mark.parametrize("config_name", ["text", "single_operation"])
+@pytest.mark.parametrize("serving", ["reference", "explicit", "tp1_uni", "kv", "disaggregated", "speculative"])
+def test_english_serving_profiles_preserve_graph_and_eight_gpu_budget(serving: str):
+    overrides = ["manifest_path=/data/input.jsonl", "output_path=/data/output.jsonl"]
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
+        baseline = hydra.compose(
+            config_name="text", overrides=[*overrides, "ground_truth_key=text", "tn.validation_mode=none"]
+        )
+        cfg = hydra.compose(config_name="english", overrides=[*overrides, "cache_root=/cache", f"serving={serving}"])
+
+    assert OmegaConf.to_container(cfg.stages, resolve=True) == OmegaConf.to_container(baseline.stages, resolve=True)
+    assert cfg.tn.validation_mode == "none"
+    assert (cfg.batch_size, cfg.num_workers, cfg.max_concurrent_requests) == (128, 12, 256)
+    model = hydra.utils.instantiate(cfg.inference_server.models[0])
+    backend = hydra.utils.instantiate(cfg.inference_server.backend)
+    if serving == "disaggregated":
+        roles = [resolve_disagg_role_config(model, role) for role in ("prefill", "decode")]
+        assert sum(replicas * kwargs["tensor_parallel_size"] for replicas, kwargs in roles) == 8
+        assert backend.router.mode == "kv"
+    else:
+        assert model.mode == "aggregated"
+        assert model.num_replicas * model.engine_kwargs["tensor_parallel_size"] == 8
+    assert backend.admission is None
+    if serving == "tp1_uni":
+        assert model.engine_kwargs["distributed_executor_backend"] == "uni"
+    if serving == "kv":
+        assert backend.router.mode == "kv"
+        assert not backend.router.kv_events
+
+    for key in ("max_model_len", "gpu_memory_utilization", "kv_cache_dtype", "max_num_seqs", "max_num_batched_tokens"):
+        assert model.engine_kwargs[key] == baseline.serving.model.engine_kwargs[key]
+    assert model.engine_kwargs["language_model_only"] is True
+    assert model.install_runtime_dependencies is False
+    assert cfg.runtime.versions == {
+        "ai-dynamo": "1.3.1",
+        "vllm": "0.23.0+cu129",
+        "transformers": "5.8.0",
+        "torch": "2.11.0+cu129",
+        "ray": "2.57.0",
+    }
+    for runtime_env in (dynamo_runtime_env(model), merge_model_runtime_envs([model])):
+        assert set(runtime_env) == {"env_vars"}
+        assert all(value.startswith("/cache/") for value in runtime_env["env_vars"].values())
+
+    if serving != "reference":
+        kwargs = model.engine_kwargs
+        assert kwargs["enable_prefix_caching"] is True
+        assert kwargs["enable_chunked_prefill"] is True
+        assert kwargs["async_scheduling"] is False
+        assert kwargs["enforce_eager"] is False
+        assert kwargs["revision"] == "d4ab4f579dd3516f97d8a6a4c98d0653480bad15"  # pragma: allowlist secret
+        flags = engine_kwargs_to_cli_flags(kwargs)
+        assert "--no-async-scheduling" in flags
+        assert "--no-enforce-eager" in flags
+        assert json.loads(flags[flags.index("--compilation-config") + 1]) == {
+            "cache_dir": "/cache/vllm-0.23.0-cu129/compile"
+        }
+        if serving == "speculative":
+            assert json.loads(flags[flags.index("--speculative-config") + 1]) == {
+                "method": "mtp",
+                "model": "google/gemma-4-31B-it-assistant",
+                "revision": "627c5ec1458b9086b841a91e0512fd31fd2fbbf1",  # pragma: allowlist secret
+                "num_speculative_tokens": 4,
+                "draft_tensor_parallel_size": 2,
+                "quantization": None,
+            }
+
+
+def test_english_requires_cache_path_and_supports_explicit_tuning():
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
+        cfg = hydra.compose(config_name="english")
+        with pytest.raises(InterpolationToMissingValueError):
+            OmegaConf.to_container(cfg.inference_server.models[0], resolve=True)
+        cfg = hydra.compose(
+            config_name="english",
+            overrides=[
+                "cache_root=/cache",
+                "serving=speculative",
+                "serving.model.num_replicas=8",
+                "serving.model.engine_kwargs.tensor_parallel_size=1",
+                "+serving.model.engine_kwargs.distributed_executor_backend=uni",
+                "serving.model.engine_kwargs.enforce_eager=true",
+                "+serving.backend.admission={_target_:nemo_curator.core.serve.DynamoAdmissionConfig,"
+                "max_waiting_requests:64,max_concurrent_requests:1024}",
+            ],
+        )
+    model = hydra.utils.instantiate(cfg.inference_server.models[0])
+    backend = hydra.utils.instantiate(cfg.inference_server.backend)
+    assert model.engine_kwargs["speculative_config"]["draft_tensor_parallel_size"] == 1
+    assert model.engine_kwargs["enforce_eager"] is True
+    assert backend.admission.max_waiting_requests == 64
+    assert backend.admission.max_concurrent_requests == 1024
+
+
+@pytest.mark.parametrize("config_name", ["text", "english", "single_operation"])
 def test_tutorial_composes_with_shared_runner_cli(config_name: str):
     repo_root = Path(__file__).parents[2]
     result = subprocess.run(  # noqa: S603
@@ -169,6 +270,7 @@ def test_tutorial_composes_with_shared_runner_cli(config_name: str):
             "job",
             "manifest_path=/data/input.jsonl",
             "output_path=/data/output.jsonl",
+            *(["cache_root=/cache"] if config_name == "english" else []),
         ],
         cwd=repo_root,
         check=True,
@@ -179,4 +281,4 @@ def test_tutorial_composes_with_shared_runner_cli(config_name: str):
     assert cfg.manifest_path == "/data/input.jsonl"
     assert cfg.output_path == "/data/output.jsonl"
     assert cfg.inference_server._target_ == "nemo_curator.core.serve.InferenceServer"
-    assert len(cfg.stages) == (9 if config_name == "text" else 3)
+    assert len(cfg.stages) == (3 if config_name == "single_operation" else 9)

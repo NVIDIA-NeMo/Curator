@@ -17,6 +17,7 @@
 import argparse
 import copy
 import hashlib
+import math
 import time
 from contextlib import ExitStack
 from pathlib import Path
@@ -36,6 +37,7 @@ from nemo_curator.config.run import (
 from nemo_curator.stages.audio.common import ManifestReaderStage
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
 
@@ -107,6 +109,62 @@ def _input_inventory(tasks: list[AudioTask], id_key: str) -> dict[str, dict]:
             raise ValueError(msg)
         inventory[identity] = copy.deepcopy(task.data)
     return inventory
+
+
+def _collect_inference_metrics(
+    tasks: list[AudioTask], stages: list[AudioTextLLMStage], output_metrics: dict[str, Any]
+) -> dict[str, Any]:
+    collected = TaskPerfUtils.collect_stage_metrics(tasks)
+    counts = (
+        "num_requests",
+        "num_request_attempts",
+        "num_retries",
+        "num_usage_reports",
+        "prompt_tokens",
+        "completion_tokens",
+    )
+    stage_metrics = {}
+    for stage in stages:
+        metrics = collected.get(stage.name, {})
+        if any(f"custom.{key}" not in metrics for key in counts):
+            msg = f"Missing inference metrics for stage {stage.name!r}"
+            raise RuntimeError(msg)
+        num_batches = len(metrics["process_time"])
+        if any(
+            len(metrics[f"custom.{key}"]) != num_batches
+            or any(
+                not math.isfinite(value) or value < 0 or not value.is_integer() for value in metrics[f"custom.{key}"]
+            )
+            for key in counts
+        ):
+            msg = f"Invalid inference counters for stage {stage.name!r}"
+            raise RuntimeError(msg)
+        totals = {key: int(metrics[f"custom.{key}"].sum()) for key in counts}
+        logical_requests = sum(
+            output_metrics["operations"][operation.name]["num_requests"] for operation in stage.operation_stages()
+        )
+        if (
+            totals["num_requests"] != logical_requests
+            or totals["num_request_attempts"] != logical_requests + totals["num_retries"]
+            or metrics["num_items_processed"].sum() != len(tasks)
+        ):
+            msg = f"Inference request accounting disagrees with output notes for stage {stage.name!r}"
+            raise RuntimeError(msg)
+        if totals["num_usage_reports"] > logical_requests:
+            msg = f"Too many token usage reports for stage {stage.name!r}"
+            raise RuntimeError(msg)
+        stage_metrics[stage.name] = {
+            **totals,
+            "num_batches": num_batches,
+            "process_time_s": float(metrics["process_time"].sum()),
+            "actor_idle_time_s": float(metrics["actor_idle_time"].sum()),
+        }
+    totals = {key: sum(stage[key] for stage in stage_metrics.values()) for key in counts}
+    return {
+        **totals,
+        "token_usage_complete": totals["num_usage_reports"] == totals["num_requests"],
+        "stage_metrics": stage_metrics,
+    }
 
 
 def _validate_preserved_inputs(
@@ -227,6 +285,7 @@ def run_audio_text_llm_benchmark(  # noqa: PLR0913
         elapsed = time.perf_counter() - start
         metrics = _collect_output_metrics(results or [], operations, len(tasks))
         _validate_preserved_inputs(results, inventory, operations, id_key)
+        metrics.update(_collect_inference_metrics(results, pipeline.stages, metrics))
 
     return {
         "params": {
@@ -249,6 +308,10 @@ def run_audio_text_llm_benchmark(  # noqa: PLR0913
             **metrics,
             "throughput_rows_per_sec": len(tasks) / elapsed if elapsed > 0 else 0,
             "throughput_requests_per_sec": metrics["num_requests"] / elapsed if elapsed > 0 else 0,
+            "throughput_request_attempts_per_sec": metrics["num_request_attempts"] / elapsed if elapsed > 0 else 0,
+            "throughput_completion_tokens_per_sec": (
+                metrics["completion_tokens"] / elapsed if metrics["token_usage_complete"] and elapsed > 0 else None
+            ),
             "fallback_ratio": metrics["num_fallbacks"] / metrics["num_requests"],
         },
         "tasks": results,
@@ -259,7 +322,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True, help="JSONL audio manifest containing transcripts")
-    parser.add_argument("--config-name", choices=["text", "single_operation"], default="text")
+    parser.add_argument("--config-name", choices=["text", "english", "single_operation"], default="text")
     parser.add_argument("--id-key", default="audio_item_id", help="Unique string identity preserved in each input row")
     parser.add_argument("--expected-num-rows", type=int)
     parser.add_argument("--expected-manifest-sha256")
