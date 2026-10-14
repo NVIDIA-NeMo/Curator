@@ -179,9 +179,14 @@ def test_serving_config_uses_existing_api_and_reference_geometry(pipeline_config
     }
     assert all(model.engine_kwargs[key] == value for key, value in expected.items())
     runtime_env = dynamo_runtime_env(model)
-    assert "transformers>=5" in runtime_env["uv"]["packages"]
+    assert "transformers==5.8.0" in runtime_env["uv"]["packages"]
     assert any(package.startswith("ai-dynamo[vllm]") for package in runtime_env["uv"]["packages"])
-    assert all(value.startswith("/cache/") for value in runtime_env["env_vars"].values())
+    assert runtime_env["env_vars"] == {
+        "VLLM_USE_DEEP_GEMM": "0",
+        "VLLM_CACHE_ROOT": "/cache/vllm",
+        "TORCHINDUCTOR_CACHE_DIR": "/cache/torchinductor",
+        "TRITON_CACHE_DIR": "/cache/triton",
+    }
     flags = engine_kwargs_to_cli_flags(model.engine_kwargs)
     assert "--no-async-scheduling" in flags
     assert "--no-enforce-eager" in flags
