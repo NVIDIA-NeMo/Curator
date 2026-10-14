@@ -1072,6 +1072,7 @@ entries:
       --input-manifest={dataset:audio_text_gemma4_english,jsonl}
       --config-name=english
       --override=cache_root={results_path}/audio_text_cache
+      --override=ray_client.num_gpus=8
       --override=backend=xenna
     timeout_s: 14340
     requirements:
@@ -1090,6 +1091,7 @@ entries:
       --input-manifest={dataset:audio_text_gemma4_english,jsonl}
       --config-name=english
       --override=cache_root={results_path}/audio_text_cache
+      --override=ray_client.num_gpus=8
       --override=backend=ray_data
     timeout_s: 14340
     requirements:

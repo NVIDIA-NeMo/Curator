@@ -369,6 +369,39 @@ class TestManifestReaderIntegration:
 class TestManifestWriterStage:
     """Unit tests for ManifestWriterStage."""
 
+    @pytest.mark.parametrize("alias", ["same", "relative", "symlink", "hardlink"])
+    def test_rejects_output_alias_of_input(self, tmp_path: Path, alias: str) -> None:
+        source = tmp_path / "input.jsonl"
+        original = '{"text": "Keep this transcript."}\n'
+        source.write_text(original)
+        output = source
+        if alias == "relative":
+            output = tmp_path / "unused" / ".." / "input.jsonl"
+        elif alias in {"symlink", "hardlink"}:
+            output = tmp_path / "output.jsonl"
+            if alias == "symlink":
+                output.symlink_to(source)
+            else:
+                output.hardlink_to(source)
+        with pytest.raises(ValueError, match="must differ"):
+            ManifestWriterStage(output_path=str(output), input_manifest_path=str(source))
+        assert source.read_text() == original
+
+    def test_rejects_same_remote_input_without_accessing_storage(self) -> None:
+        path = "s3://audio/transcripts.jsonl"
+        with pytest.raises(ValueError, match="must differ"):
+            ManifestWriterStage(output_path=path, input_manifest_path=path)
+
+    def test_separate_output_preserves_input(self, tmp_path: Path) -> None:
+        source, output = tmp_path / "input.jsonl", tmp_path / "output.jsonl"
+        source.write_text('{"text": "Original"}\n')
+        output.write_text('{"text": "Previous output"}\n')
+        writer = ManifestWriterStage(output_path=str(output), input_manifest_path=str(source))
+        writer.setup()
+        writer.process(AudioTask(data={"text": "Processed"}))
+        assert source.read_text() == '{"text": "Original"}\n'
+        assert json.loads(output.read_text()) == {"text": "Processed"}
+
     def test_writes_entry_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ManifestWriterStage(output_path=str(out))

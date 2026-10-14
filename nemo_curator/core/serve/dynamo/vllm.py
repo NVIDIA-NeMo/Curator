@@ -150,17 +150,15 @@ _DISAGG_NIXL_PORT_SEED = 20097
 
 
 def dynamo_runtime_env(model_config: DynamoVLLMModelConfig) -> dict[str, Any]:
-    """Merge runtime settings, optionally trusting the preinstalled image stack."""
-    base = DYNAMO_VLLM_RUNTIME_ENV if model_config.install_runtime_dependencies else {}
-    return BaseModelConfig.merge_runtime_envs(base, model_config.runtime_env or None)
+    """Merge the user's ``runtime_env`` with the Dynamo-vLLM package pin."""
+    return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, model_config.runtime_env or None)
 
 
 def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, Any]:
     """Merge every model's ``runtime_env`` onto the Dynamo-vLLM pin for the shared frontend actor."""
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
-    base = DYNAMO_VLLM_RUNTIME_ENV if any(model.install_runtime_dependencies for model in models) else {}
-    return BaseModelConfig.merge_runtime_envs(base, user_merged)
+    return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
 
 
 def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
@@ -270,7 +268,6 @@ def launch_replicas(  # noqa: PLR0913
     router_mode: str | None,
     router_kv_events: bool,
     topology: list[dict[str, Any]] | None = None,
-    metrics_urls: list[str] | None = None,
 ) -> tuple[list[PlacementGroup], list[ManagedSubprocess], list[dict[str, Any]]]:
     """Plan PGs and launch every worker actor for one non-disagg model.
 
@@ -317,7 +314,6 @@ def launch_replicas(  # noqa: PLR0913
                     actor_name_prefix=actor_name_prefix,
                     router_mode=router_mode,
                     router_kv_events=router_kv_events,
-                    metrics_urls=metrics_urls,
                 )
             )
 
@@ -351,7 +347,6 @@ def _launch_vllm_worker(  # noqa: PLR0913
     actor_name_prefix: str,
     router_mode: str | None,
     router_kv_events: bool,
-    metrics_urls: list[str] | None = None,
 ) -> ManagedSubprocess:
     """Spawn one ``python -m dynamo.vllm`` actor, pinned to bundle *node_rank*.
 
@@ -418,11 +413,6 @@ def _launch_vllm_worker(  # noqa: PLR0913
     python_args += engine_kwargs_to_cli_flags(model_config.engine_kwargs)
     python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
 
-    worker_env = _worker_subprocess_env(base_env, runtime_dir)
-    if metrics_urls is not None and is_rank_zero:
-        metrics_port = get_free_port_in_bundle(pg, node_rank, 18081 + replica_index)
-        worker_env["DYN_SYSTEM_PORT"] = str(metrics_port)
-        metrics_urls.append(f"http://{get_bundle_node_ip(pg, node_rank)}:{metrics_port}/metrics")
     label = build_worker_actor_name(model_name, replica_index, node_rank, tp_size)
     return ManagedSubprocess.spawn(
         label,
@@ -432,7 +422,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
-        subprocess_env=worker_env,
+        subprocess_env=_worker_subprocess_env(base_env, runtime_dir),
         runtime_env=dynamo_runtime_env(model_config),
     )
 

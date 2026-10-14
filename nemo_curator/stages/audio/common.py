@@ -17,6 +17,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
+from pathlib import Path
 from typing import Any
 
 import soundfile
@@ -243,15 +244,28 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        input_manifest_path: Optional source manifest that must not be overwritten.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    input_manifest_path: str | None = None
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
+        if self.input_manifest_path is not None:
+            same_path = self.input_manifest_path == self.output_path
+            if "://" not in self.input_manifest_path and "://" not in self.output_path:
+                source = Path(self.input_manifest_path).resolve()
+                destination = Path(self.output_path).resolve()
+                same_path = source == destination or (
+                    source.exists() and destination.exists() and source.samefile(destination)
+                )
+            if same_path:
+                msg = "output_path must differ from input_manifest_path: the writer replaces existing output."
+                raise ValueError(msg)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""

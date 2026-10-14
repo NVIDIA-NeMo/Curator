@@ -14,7 +14,6 @@
 
 from nemo_curator.core.serve.base import BaseModelConfig, BaseServerConfig
 from nemo_curator.core.serve.dynamo.config import (
-    DynamoAdmissionConfig,
     DynamoRoleConfig,
     DynamoRouterConfig,
     DynamoServerConfig,
@@ -26,7 +25,6 @@ from nemo_curator.core.serve.server import InferenceServer, is_inference_server_
 __all__ = [
     "BaseModelConfig",
     "BaseServerConfig",
-    "DynamoAdmissionConfig",
     "DynamoRoleConfig",
     "DynamoRouterConfig",
     "DynamoServerConfig",

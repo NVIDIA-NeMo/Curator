@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import copy
-import weakref
 from collections.abc import Callable
 from typing import Any
 
@@ -194,7 +193,6 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
         def __init__(self):
             """Initialize the stage processor."""
             super().__init__(stage)
-            self._teardown_finalizer = weakref.finalize(self, self.stage.teardown)
             self.setup_done = False
             node_info, worker_metadata = get_worker_metadata_and_node_id()
             self.setup_on_node(node_info, worker_metadata)
@@ -202,9 +200,6 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
 
         def __call__(self, batch: dict[str, Any]) -> dict[str, Any]:
             return self._process_batch_internal(batch)
-
-        def teardown(self) -> None:
-            self._teardown_finalizer()
 
     # Set the class name to match the stage name
     stage_name = stage.__class__.__name__ + "Actor"

@@ -10,7 +10,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
-- [Audio Text Stage Benchmark](#audio-text-stage-benchmark)
+- [Audio Text Pipeline Benchmark](#audio-text-pipeline-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -679,13 +679,16 @@ and writer from the timed pipeline and never opens audio files.
 
 The default graph uses `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four Dynamo replicas
 with tensor parallelism two (eight GPUs), 12 workers, batches of 128, and at most
-256 concurrent requests per worker. The English profile requires the pinned
-preinstalled runtime documented in the tutorial, reuses worker clients across
-batches, and persists compilation caches under `cache_root`. It disables the
+256 concurrent requests per worker. The benchmark can start the configured
+`InferenceServer` through its existing public API, or use an existing compatible
+OpenAI endpoint with `--override=endpoint=http://host:8000/v1`. The English
+profile persists compilation caches under `cache_root` and disables the
 Indic-oriented TN guard so English number expansion is accepted. The original
 recipe remains available with `--config-name=text`.
-An existing compatible OpenAI endpoint can be supplied with
-`--override=endpoint=http://host:8000/v1`.
+Unlike the tutorial runner, the benchmark defaults to managed serving. Ray
+auto-detects local GPUs unless `ray_client.num_gpus` is overridden; the registered
+eight-GPU pair sets it explicitly. The server and model must be supported by the
+installed Curator serving dependencies.
 
 Use one fixed, pre-staged human-label improvement cohort that fits in driver
 memory. Every row needs a unique string `audio_item_id`, `source_lang: en`, the human
@@ -708,6 +711,7 @@ python benchmarking/scripts/audio_text_llm_benchmark.py \
   --input-manifest=/data/audio_text_gemma4_english/manifest.jsonl \
   --config-name=english \
   --override=cache_root=/data/audio_text_cache \
+  --override=ray_client.num_gpus=8 \
   --benchmark-results-path=/results/audio_text/xenna \
   --expected-num-rows=COHORT_ROWS \
   --expected-manifest-sha256=COHORT_SHA256 \
@@ -715,9 +719,10 @@ python benchmarking/scripts/audio_text_llm_benchmark.py \
 ```
 
 Run the same command with a fresh result directory and `backend=ray_data` for
-the paired executor result. To benchmark one operation instead, add
-`--config-name=single_operation --override=operation=pnc` and provide its input
-text and language fields.
+the paired executor result. To benchmark one operation, replace
+`--config-name=english` with `--config-name=single_operation`, remove the
+`cache_root` override, and add `--override=operation=pnc`. Provide the selected
+operation's input text and language fields.
 
 The timer includes executor setup inside `Pipeline.run` and every configured
 text operation; it excludes manifest loading/validation, Ray/server startup,
@@ -725,22 +730,18 @@ server teardown, output validation and result writes. There is no warmup pass.
 Server startup is reported separately. For cold/warm comparisons, run twice with
 the same persistent cache path and runtime; use a fresh path for the cold run
 rather than deleting another experiment's cache. Compare the same serving
-profile and cohort. Add `--override=serving=speculative` for the optional pinned
-Gemma MTP profile; the tutorial documents admission and other serving options.
-The harness also reports complete process
+profile and cohort. The harness also reports complete process
 `exec_time_s`. Compare the same timing metric across both executors.
 
 The standard `params.json`, `metrics.json`, and `tasks.pkl` retain the resolved
 stage configuration, manifest identity, returned rows, row/request throughput,
 and per-operation plus aggregate applied/fallback/skipped counts. Requests count
 logical model calls, including rejected completions; transport retries are not
-additional logical requests. Separate request-attempt and retry counters measure
-client completion attempts from completed batches; executor replay or terminated
-batches require server logs for a complete physical-attempt count. Batch IDs
-prevent duplicated statistics after distributed serialization. Per-stage batch
-counts, processing/idle time, and token usage are retained; token throughput is
-reported only when every completion includes usage. A downstream pass may have zero requests after
-language verification rejects rows. These structural checks establish execution
+additional logical requests. Physical attempts, retries and token throughput
+require separate serving telemetry. Batch performance statistics remain in
+`tasks.pkl`, but the benchmark does not aggregate them: independently serialized
+rows can carry duplicate copies of a batch's statistics. A downstream pass may
+have zero requests after language verification rejects rows. These structural checks establish execution
 coverage, not model quality or semantic parity; inspect fallback counts and
 operation outputs separately.
 
