@@ -14,17 +14,26 @@
 
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from hydra import compose, initialize, initialize_config_dir
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
+from nemo_curator.config import run
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
+
+
+@pytest.fixture(scope="session")
+def shared_ray_cluster() -> None:
+    """Configuration and lifecycle tests do not start a Ray cluster."""
 
 
 def test_pipeline_with_jsonl_reader_stage():
@@ -397,6 +406,7 @@ def test_unknown_xenna_execution_mode_raises_error():
         create_executor_from_yaml(cfg)
 
 
+@pytest.mark.parametrize("has_executor", [True, False])
 @patch("nemo_curator.config.run.create_executor_from_yaml")
 @patch("nemo_curator.config.run.create_pipeline_from_yaml")
 @patch("nemo_curator.config.run.create_ray_client_from_yaml")
@@ -404,15 +414,141 @@ def test_main_passes_configured_executor_to_pipeline(
     mock_create_ray_client: MagicMock,
     mock_create_pipeline: MagicMock,
     mock_create_executor: MagicMock,
+    has_executor: bool,
 ):
     cfg = OmegaConf.create({"stages": []})
-    executor = mock_create_executor.return_value
+    executor = mock_create_executor.return_value if has_executor else None
+    mock_create_executor.return_value = executor
 
     main.__wrapped__(cfg)
 
-    mock_create_ray_client.return_value.start.assert_called_once_with()
-    mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
-    mock_create_ray_client.return_value.stop.assert_called_once_with()
+    mock_create_ray_client.return_value.__enter__.assert_called_once()
+    mock_create_pipeline.assert_called_once_with(cfg, log_config=True)
+    if has_executor:
+        mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
+    else:
+        mock_create_pipeline.return_value.run.assert_called_once_with()
+    mock_create_ray_client.return_value.__exit__.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "failure_phase"),
+    [
+        (None, "startup"),
+        (None, "build"),
+        (None, "run"),
+        ("http://external:8000/v1", "build"),
+        ("http://external:8000/v1", "run"),
+    ],
+)
+def test_runner_cleans_up_owned_services_after_failure(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str | None, failure_phase: str
+):
+    events = []
+
+    @contextmanager
+    def service(name: str, value: object) -> Iterator[object]:
+        events.append(f"start:{name}")
+        if name == "server" and failure_phase == "startup":
+            msg = "startup failed"
+            raise RuntimeError(msg)
+        try:
+            yield value
+        finally:
+            events.append(f"stop:{name}")
+
+    cfg = OmegaConf.create({"endpoint": endpoint, "inference_server": {}})
+    server = SimpleNamespace(endpoint="http://local:8000/v1")
+    instantiate = Mock(return_value=service("server", server))
+    pipeline = Mock()
+    pipeline.run.side_effect = RuntimeError("run failed")
+
+    def build_pipeline(_cfg: DictConfig, *, log_config: bool) -> Mock:
+        assert cfg.endpoint == (endpoint or server.endpoint)
+        assert not log_config
+        if failure_phase == "build":
+            msg = "build failed"
+            raise RuntimeError(msg)
+        return pipeline
+
+    build = Mock(side_effect=build_pipeline)
+    executor = object()
+    monkeypatch.setattr(run, "create_ray_client_from_yaml", lambda _: service("ray", object()))
+    monkeypatch.setattr(run.hydra.utils, "instantiate", instantiate)
+    monkeypatch.setattr(run, "create_pipeline_from_yaml", build)
+    monkeypatch.setattr(run, "create_executor_from_yaml", lambda _: executor)
+
+    with pytest.raises(RuntimeError, match=f"{failure_phase} failed"):
+        run.main.__wrapped__(cfg)
+
+    if failure_phase == "run":
+        pipeline.run.assert_called_once_with(executor=executor)
+    else:
+        pipeline.run.assert_not_called()
+    if endpoint:
+        instantiate.assert_not_called()
+        assert cfg.endpoint == endpoint
+        assert events == ["start:ray", "stop:ray"]
+    else:
+        instantiate.assert_called_once_with(cfg.inference_server)
+        if failure_phase == "startup":
+            build.assert_not_called()
+            assert events == ["start:ray", "start:server", "stop:ray"]
+        else:
+            assert cfg.endpoint == server.endpoint
+            assert events == ["start:ray", "start:server", "stop:server", "stop:ray"]
+
+
+@pytest.mark.parametrize("alias_type", ["same", "relative", "symlink", "hardlink"])
+def test_runner_rejects_output_alias_of_input_before_starting_services(
+    alias_type: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text('{"text":"hello"}\n')
+    output = tmp_path / "output.jsonl"
+    if alias_type == "same":
+        output = manifest
+    elif alias_type == "relative":
+        monkeypatch.chdir(tmp_path)
+        output = Path("input.jsonl")
+    elif alias_type == "symlink":
+        output.symlink_to(manifest)
+    else:
+        output.hardlink_to(manifest)
+    cfg = OmegaConf.create({"manifest_path": str(manifest), "output_path": str(output)})
+    start = Mock()
+    monkeypatch.setattr(run, "create_ray_client_from_yaml", start)
+
+    with pytest.raises(ValueError, match="output_path must differ"):
+        run.main.__wrapped__(cfg)
+
+    start.assert_not_called()
+    assert manifest.read_text() == '{"text":"hello"}\n'
+
+
+def test_runner_rejects_identical_cloud_input_and_output_before_starting_services(monkeypatch: pytest.MonkeyPatch):
+    cfg = OmegaConf.create({"manifest_path": "s3://bucket/input.jsonl", "output_path": "s3://bucket/input.jsonl"})
+    start = Mock()
+    monkeypatch.setattr(run, "create_ray_client_from_yaml", start)
+
+    with pytest.raises(ValueError, match="output_path must differ"):
+        run.main.__wrapped__(cfg)
+
+    start.assert_not_called()
+
+
+@pytest.mark.parametrize("manifest_path", [["input.jsonl"], "s3://bucket/input.jsonl"])
+def test_runner_keeps_list_and_cloud_manifest_configs(monkeypatch: pytest.MonkeyPatch, manifest_path: str | list[str]):
+    cfg = OmegaConf.create({"manifest_path": manifest_path, "output_path": "s3://bucket/output.jsonl"})
+    pipeline = Mock()
+    monkeypatch.setattr(run, "Path", Mock(side_effect=AssertionError("not a local single manifest")))
+    monkeypatch.setattr(run, "create_ray_client_from_yaml", Mock(return_value=MagicMock()))
+    monkeypatch.setattr(run, "create_pipeline_from_yaml", Mock(return_value=pipeline))
+    monkeypatch.setattr(run, "create_executor_from_yaml", Mock(return_value=None))
+
+    run.main.__wrapped__(cfg)
+
+    pipeline.run.assert_called_once_with()
 
 
 def test_qwen_tutorial_yaml_matches_reference_runner_config():

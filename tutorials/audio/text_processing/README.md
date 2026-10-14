@@ -31,8 +31,8 @@ parallelism of two. The Gemma model's isolated runtime requests
 Use a Gemma-4-capable Dynamo/vLLM stack; the reference launcher requires vLLM
 0.19 or later, Dynamo 1.2 or later, and Transformers 5.x.
 
-`run.py` uses Curator's YAML pipeline and executor builders. One
-`InferenceServer` owns the model and GPUs. The text workers use CPUs and the
+The tutorial uses Curator's shared YAML runner, `nemo_curator/config/run.py`.
+One `InferenceServer` owns the model and GPUs. The text workers use CPUs and the
 shared `AsyncOpenAIClient`. The configuration specifies 12 workers per stage,
 batches of 128, and at most 256 simultaneous requests per worker. These are
 reference settings, not measured throughput guarantees. The server uses an
@@ -56,10 +56,16 @@ and the expected language:
 Run from the repository root with absolute paths available to all workers:
 
 ```bash
-python tutorials/audio/text_processing/run.py \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/text_processing/config \
+  --config-name text \
   manifest_path=/data/input.jsonl \
   output_path=/data/text_output.jsonl
 ```
+
+`--config-path` is relative to the shared runner; manifest and output paths are
+relative to the current working directory. The runner starts the configured
+server and stops it before Ray, including when pipeline execution fails.
 
 The configured data flow is:
 
@@ -100,7 +106,9 @@ name. Every worker must be able to reach the endpoint. The runner leaves that
 server's lifecycle to its owner; a CPU-only client cluster can use:
 
 ```bash
-python tutorials/audio/text_processing/run.py \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/text_processing/config \
+  --config-name text \
   manifest_path=/data/input.jsonl \
   output_path=/data/text_output.jsonl \
   endpoint=http://inference-host:8000/v1 \
@@ -113,7 +121,9 @@ python tutorials/audio/text_processing/run.py \
 serving configuration. For example, apply ITN to an existing transcript:
 
 ```bash
-python tutorials/audio/text_processing/run.py --config-name single_operation \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/text_processing/config \
+  --config-name single_operation \
   manifest_path=/data/input.jsonl \
   output_path=/data/itn_output.jsonl \
   operation=itn text_key=pnc_text
