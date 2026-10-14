@@ -237,47 +237,48 @@ it. The pipeline does not build missing engines.
 
 ### Building model bundles (optional)
 
-If you have the matching `.nemo` checkpoints instead of engine bundles, use
-these commands to build them first. Skip this step if your bundles are ready.
+Skip this section if your engine bundles are ready. If you only have `.nemo`
+checkpoints, use the corresponding builder below.
 
-Build with matching source checkpoints and a GPU/runtime compatible with
-inference. Use a **separate build environment and writable output directory**,
-not the inference container's read-only `/models` mount.
+Use matching source checkpoints and writable output directories.
 
-#### Parakeet: use the builder in this checkout
+#### Parakeet
 
-This checkout includes the
-[Parakeet builder](../../../nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py).
-In an environment with CUDA, NeMo ASR, ONNX export support, and the same
-TensorRT version as inference, run from the Curator root. Replace both paths:
+Run the following **on the host, from the Curator root**. Replace the checkpoint path:
 
 ```bash
-python nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
-  --model /absolute/path/to/indic-parakeet.nemo \
-  --output-dir /absolute/path/to/engines/parakeet \
+PARAKEET_CHECKPOINT=/absolute/path/to/indic-parakeet.nemo
+test -f "$PARAKEET_CHECKPOINT" &&
+mkdir -p indic-asr-work/engines &&
+docker run --rm --gpus all --ipc=host \
+  --mount "type=bind,src=$PARAKEET_CHECKPOINT,dst=/checkpoints/parakeet.nemo,readonly" \
+  --mount "type=bind,src=$PWD/indic-asr-work/engines,dst=/engine-output" \
+  curator-indic-asr \
+  python nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
+  --model /checkpoints/parakeet.nemo \
+  --output-dir /engine-output/parakeet \
   --min-batch 1 --opt-batch 8 --max-batch 16 \
   --min-frames 8 --opt-frames 800 --max-frames 4001 \
   --max-symbols-per-step 10 --workspace-gb 8
 ```
 
-It creates `encoder.plan`, `metadata.json`, and `model.nemo`.
+The builder writes `encoder.plan`, `metadata.json`, and `model.nemo` under
+`indic-asr-work/engines/parakeet` on the host. That directory must be absent or
+empty; existing bundles are not overwritten. Once the Canary bundle is also
+under `indic-asr-work/engines/indic_canary`, use the absolute path to
+`indic-asr-work/engines` as the model directory in step 1.
+
 `INDIC_PARAKEET_RNNT_TENSORRT_ENCODER_PARITY_PASSED` means the encoder's
 numerical check passed—not full transcription parity. The checkpoint must
-restore with the installed NeMo and contain an RNN-T encoder, decoder, and
-joint network.
+contain an RNN-T encoder, decoder, and joint network.
 
-#### Canary: use the reference converter
+#### Canary
 
-The converter is not in this checkout. Get the
-[reference conversion directory at `1e2d6399`](https://github.com/nithinraok/Curator/tree/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion)
-and follow its setup instructions. You need the matching Indic Canary
-`.nemo` and the **AI4Bharat NeMo fork with `CanaryMultilingualTokenizer`**.
-Its documented build stack uses Python 3.12, official TensorRT-LLM 1.2.1,
-NumPy 1.26.4, MPI, and CUDA build tools. The inference image's stock NeMo
-and NumPy 2.3.5 are not a validated replacement; leave that image unchanged.
-
-In the separate build environment, run from the reference conversion
-directory after replacing all three paths:
+The Canary converter is not in this checkout. Use
+`scripts/audio/indic_canary_trtllm_conversion/build_engine.py` from the
+`nithinraok/Curator` reference at commit `1e2d6399`. Supply the matching Indic
+Canary `.nemo` and AI4Bharat NeMo fork. Run from that conversion directory,
+replacing all three paths:
 
 ```bash
 python build_engine.py \
@@ -296,25 +297,6 @@ Always supply the matching Hindi checkpoint rather than its default model.
 These build arguments support the tutorial's 40-second window, four beams,
 and 347-new-token limit. Their command-line arguments have been checked,
 but fresh checkpoint conversion has not been validated here.
-
-<details>
-<summary>Which source checkpoints can I use?</summary>
-
-The [reference launcher at `3931b631`](https://gitlab-master.nvidia.com/nkoluguri/granary-v2-asr/-/blob/3931b631b1a9f23215abdb240b647ef6a3a54b34/slurm_pipeline/asr/run_asr_indic_slurm.sh)
-uses an internal Parakeet `epoch_37.nemo` and prebuilt Canary engines.
-It does not identify the Canary source checkpoint or link the exact weights
-to public downloads.
-
-Related releases include NVIDIA's
-[Parakeet RNNT collection](https://catalog.ngc.nvidia.com/orgs/nvidia/-/collections/parakeet-1-1b-rnnt-multilingual/-)
-and [Indic-Transcribe Core](https://huggingface.co/bodhan-ai/indic-transcribe-core)
-and [Flex](https://huggingface.co/bodhan-ai/indic-transcribe-flex).
-They have their own access/license conditions; Indic-Transcribe is gated.
-These are **not verified replacements** for the tutorial's engines.
-In particular, [`nvidia/canary-1b-flash`](https://huggingface.co/nvidia/canary-1b-flash)
-does not support Hindi.
-
-</details>
 
 ## What each stage does
 
