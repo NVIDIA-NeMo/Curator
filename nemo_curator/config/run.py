@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import ExitStack
+from pathlib import Path
 from typing import Any
 
 import hydra
@@ -123,19 +125,34 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
 
 @hydra.main(version_base=None, config_name="pipeline")
 def main(cfg: DictConfig) -> None:
-    ray_client = create_ray_client_from_yaml(cfg)
-    ray_client.start()
+    manifest = cfg.get("manifest_path")
+    output = cfg.get("output_path")
+    if isinstance(manifest, str) and isinstance(output, str):
+        same_path = manifest == output
+        # Resolve filesystem aliases only for local, single-manifest pipelines.
+        if "://" not in manifest and "://" not in output:
+            manifest_path = Path(manifest).resolve()
+            output_path = Path(output).resolve()
+            same_path = manifest_path == output_path or (
+                manifest_path.exists() and output_path.exists() and manifest_path.samefile(output_path)
+            )
+        if same_path:
+            msg = "output_path must differ from manifest_path: the writer replaces existing output."
+            raise ValueError(msg)
 
-    pipeline = create_pipeline_from_yaml(cfg)
-    executor = create_executor_from_yaml(cfg)
+    with ExitStack() as stack:
+        stack.enter_context(create_ray_client_from_yaml(cfg))
+        if cfg.get("inference_server") is not None and not cfg.get("endpoint"):
+            server = stack.enter_context(hydra.utils.instantiate(cfg.inference_server))
+            cfg.endpoint = server.endpoint
 
-    # Execute pipeline
-    print("Starting pipeline execution...")
-    _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
+        pipeline = create_pipeline_from_yaml(cfg, log_config="inference_server" not in cfg)
+        executor = create_executor_from_yaml(cfg)
+
+        print("Starting pipeline execution...")
+        _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
 
     print("\nPipeline completed!")
-
-    ray_client.stop()
 
 
 if __name__ == "__main__":

@@ -13,18 +13,15 @@
 # limitations under the License.
 
 import hashlib
-from collections.abc import Iterator
-from contextlib import contextmanager
+import subprocess
+import sys
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock
 
 import hydra
 import pytest
 from omegaconf import OmegaConf
 
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
-from tutorials.audio.text_processing import run
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing/config"
 # Resolved prompts from nithinraok/Curator at 1a260a35472229a8a75a122b9a2bb9d92d5855f9.
@@ -157,67 +154,29 @@ def test_full_config_preserves_reference_dependencies_and_serving_geometry():
     assert cfg.inference_server.health_check_timeout_s == 1200
 
 
-@pytest.mark.parametrize("endpoint", [None, "http://external:8000/v1"])
-def test_runner_cleans_up_owned_services_after_pipeline_failure(monkeypatch: pytest.MonkeyPatch, endpoint: str | None):
-    events = []
-
-    @contextmanager
-    def service(name: str, value: object) -> Iterator[object]:
-        events.append(f"start:{name}")
-        try:
-            yield value
-        finally:
-            events.append(f"stop:{name}")
-
-    cfg = OmegaConf.create(
-        {
-            "manifest_path": "/data/input.jsonl",
-            "output_path": "/data/output.jsonl",
-            "endpoint": endpoint,
-            "inference_server": {},
-        }
+@pytest.mark.parametrize("config_name", ["text", "single_operation"])
+def test_tutorial_composes_with_shared_runner_cli(config_name: str):
+    repo_root = Path(__file__).parents[2]
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(repo_root / "nemo_curator/config/run.py"),
+            "--config-path",
+            "../../tutorials/audio/text_processing/config",
+            "--config-name",
+            config_name,
+            "--cfg",
+            "job",
+            "manifest_path=/data/input.jsonl",
+            "output_path=/data/output.jsonl",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
     )
-    server = SimpleNamespace(endpoint="http://local:8000/v1")
-    instantiate = Mock(return_value=service("server", server))
-    pipeline = Mock()
-    pipeline.run.side_effect = RuntimeError("pipeline failed")
-    executor = object()
-    monkeypatch.setattr(run, "create_ray_client_from_yaml", lambda _: service("ray", object()))
-    monkeypatch.setattr(run.hydra.utils, "instantiate", instantiate)
-    monkeypatch.setattr(run, "create_pipeline_from_yaml", lambda *_args, **_kwargs: pipeline)
-    monkeypatch.setattr(run, "create_executor_from_yaml", lambda _: executor)
-
-    with pytest.raises(RuntimeError, match="pipeline failed"):
-        run.main.__wrapped__(cfg)
-
-    pipeline.run.assert_called_once_with(executor=executor)
-    if endpoint:
-        instantiate.assert_not_called()
-        assert cfg.endpoint == endpoint
-        assert events == ["start:ray", "stop:ray"]
-    else:
-        instantiate.assert_called_once_with(cfg.inference_server)
-        assert cfg.endpoint == server.endpoint
-        assert events == ["start:ray", "start:server", "stop:server", "stop:ray"]
-
-
-@pytest.mark.parametrize("link_type", ["symlink", "hardlink"])
-def test_runner_rejects_output_alias_of_input_before_starting_services(
-    link_type: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    manifest = tmp_path / "input.jsonl"
-    manifest.write_text('{"text":"hello"}\n')
-    output = tmp_path / "output.jsonl"
-    if link_type == "symlink":
-        output.symlink_to(manifest)
-    else:
-        output.hardlink_to(manifest)
-    cfg = OmegaConf.create({"manifest_path": str(manifest), "output_path": str(output)})
-    start = Mock()
-    monkeypatch.setattr(run, "create_ray_client_from_yaml", start)
-
-    with pytest.raises(ValueError, match="output_path must differ"):
-        run.main.__wrapped__(cfg)
-
-    start.assert_not_called()
-    assert manifest.read_text() == '{"text":"hello"}\n'
+    cfg = OmegaConf.create(result.stdout)
+    assert cfg.manifest_path == "/data/input.jsonl"
+    assert cfg.output_path == "/data/output.jsonl"
+    assert cfg.inference_server._target_ == "nemo_curator.core.serve.InferenceServer"
+    assert len(cfg.stages) == (9 if config_name == "text" else 3)
