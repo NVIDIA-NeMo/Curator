@@ -403,7 +403,7 @@ class TestEnsureActorOverridesOnAllNodes:
     ``--override`` constraints file before workers are spawned."""
 
     def test_writes_current_ray_version_at_path(self, shared_ray_client: None, tmp_path: Path) -> None:
-        """The fan-out writes ``ray=={ray.__version__}`` plus the nixl-cu13
+        """The fan-out writes ``ray=={ray.__version__}`` plus the nixl-cu12
         exclusion at the configured path on every alive node. Catches
         regressions where the content is hardcoded and silently drifts after
         a Curator ray bump.
@@ -412,7 +412,7 @@ class TestEnsureActorOverridesOnAllNodes:
         with mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path):
             dynamo_vllm.ensure_actor_overrides_on_all_nodes()
 
-        assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+        assert override_path.read_text() == f"ray=={ray.__version__}\nnixl-cu12 ; sys_platform == 'never'\n"
 
 
 def test_dynamo_runtime_env_matches_base_environment() -> None:
@@ -426,3 +426,12 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+def test_dynamo_actor_install_uses_cuda13_wheels() -> None:
+    options = dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["uv_pip_install_options"]
+    assert options[options.index("--torch-backend") + 1] == "cu130"
+    vllm_index = dynamo_vllm._vllm_cu130_index_url()
+    if vllm_index is not None:
+        assert vllm_index.endswith("/cu130")
+        assert options[options.index("--extra-index-url") + 1] == vllm_index

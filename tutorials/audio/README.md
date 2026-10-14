@@ -6,7 +6,7 @@ Hands-on tutorials for curating audio data with NeMo Curator.
 
 ## Platform support
 
-Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda12` extras omit several dependencies on arm64/aarch64 (NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack — use amd64 for ASR, diarization, and tagging tutorials below.
+Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda13` extras omit several dependencies on arm64/aarch64 (NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack — use amd64 for ASR, diarization, and tagging tutorials below.
 
 ## Getting started in 5 minutes
 
@@ -35,7 +35,7 @@ PIPELINE COMPLETE
 **With a GPU?** Run FastConformer on the bundled two-file manifest:
 
 ```bash
-uv sync --extra audio_cuda12 && source .venv/bin/activate
+uv sync --extra audio_cuda13 && source .venv/bin/activate
 
 python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/nemo_fastconformer \
@@ -90,23 +90,23 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 
 | Tutorial | System packages | Pip extras |
 |---|---|---|
-| `nemo_fastconformer/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
-| `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
-| `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
-| `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
-| `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
-| `sortformer/` | None | `audio_cuda12` |
+| `nemo_fastconformer/` | `ffmpeg` | `audio_cpu` or `audio_cuda13` |
+| `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda13` |
+| `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda13`, `vllm` |
+| `qwen_asr/` | `ffmpeg` | `audio_cuda13`, `vllm` |
+| `faster_whisper/` | `ffmpeg` | `audio_cuda13` (GPU) or `audio_cpu` (CPU) |
+| `sortformer/` | None | `audio_cuda13` |
 | `alm/` | `ffmpeg` | `audio_cpu` |
-| `tagging/` | `ffmpeg` | `audio_cuda12` |
-| `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
-| `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
-| `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
+| `tagging/` | `ffmpeg` | `audio_cuda13` |
+| `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda13` |
+| `single_speaker_filter/` | `ffmpeg` | `audio_cuda13` |
+| `readspeech/` | `ffmpeg` | `audio_cuda13` (recommended) or `audio_cpu` |
 
 Install pip extras from the repo root:
 
 ```bash
 # GPU (recommended)
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 
 # CPU only
 uv sync --extra audio_cpu

@@ -74,28 +74,28 @@ python -c "import nemo_curator; print(nemo_curator.__version__)"
 ```
 
 <a id="path-b-gpu-text-pipeline-cuda-12-supported-linux" />
-### Path B — GPU Text Pipeline for CUDA 12 on Linux
+### Path B — GPU Text Pipeline for CUDA 13 on Linux
 
 The bundled quickstart starts Ray, downloads a Hugging Face model, and runs a sentiment classification pipeline on GPU.
 
-**Prerequisites:** CUDA 12 toolkit, NVIDIA driver supporting CUDA 12, Linux x86_64, ~16 GB GPU memory, network access to Hugging Face.
+**Prerequisites:** CUDA 13 toolkit, NVIDIA driver supporting CUDA 13, Linux x86_64, ~16 GB GPU memory, network access to Hugging Face.
 
 ```bash
 uv venv && source .venv/bin/activate
-curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda13-overrides.txt
 uv pip install \
-  --override text_cuda12-overrides.txt \
-  --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-  "nemo-curator[text_cuda12]"
+  --override text_cuda13-overrides.txt \
+  --torch-backend cu130 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
+  "nemo-curator[text_cuda13]"
 python tutorials/quickstart.py
 ```
 
-Standard `pip install` is not supported for `text_cuda12` because vLLM and
+Standard `pip install` is not supported for `text_cuda13` because vLLM and
 RAPIDS declare incompatible Numba requirements. The supported `uv pip install`
 command above applies Curator's tested override. Any `uv pip install` command
-that includes `text_cuda12`, including `nemo-curator[all]`, needs the override
-file. From a source checkout, `uv sync --extra text_cuda12` and `uv sync
+that includes `text_cuda13`, including `nemo-curator[all]`, needs the override
+file. From a source checkout, `uv sync --extra text_cuda13` and `uv sync
 --extra all` apply the project override automatically.
 
 <a id="path-c-build-a-docker-image" />

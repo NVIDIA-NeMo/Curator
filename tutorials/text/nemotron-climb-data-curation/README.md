@@ -25,14 +25,14 @@ The following Python libraries are needed to run this tutorial:
 - `lm-eval`
 - `lightgbm`
 
-NeMo Curator should be installed with the `text_cuda12` extra. See the installation options on the [Text Quickstart](https://docs.nvidia.com/nemo/curator/get-started/text) for more information. Installation commands for the other libraries above are included within their respective sections.
+NeMo Curator should be installed with the `text_cuda13` extra. See the installation options on the [Text Quickstart](https://docs.nvidia.com/nemo/curator/get-started/text) for more information. Installation commands for the other libraries above are included within their respective sections.
 
 As an example, Curator can be installed from source and additional dependencies can be installed with:
 
 ```bash
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
-uv sync --extra text_cuda12 --all-groups
+uv sync --extra text_cuda13 --all-groups
 source .venv/bin/activate
 cd ..
 uv pip install xformers
@@ -50,7 +50,7 @@ To run NeMo Curator, the following system requirements are needed:
 - Ubuntu 22.04/20.04
 - NVIDIA GPU with:
   - Volta™ or higher (compute capability 7.0+)
-  - CUDA 12.x
+  - CUDA 13.x
 
 For step 6 (proxy model training with Megatron-LM), refer to the [Megatron Core Installation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/get-started/install.html) for information about the system requirements for running Megatron-LM; the [NeMo Framework container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo) was used for testing this step.
 

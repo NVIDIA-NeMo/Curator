@@ -24,7 +24,7 @@ We tested the tutorial on 8 H100 GPUs with request concurrency values of 32 and
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 pip install uv
-uv sync --extra interleaved_cuda12 --extra inference_server --extra cv2
+uv sync --extra interleaved_cuda13 --extra inference_server --extra cv2
 ```
 
 OpenCV is required for PDF page rendering and postprocessing but is not part of

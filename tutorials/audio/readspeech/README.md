@@ -19,13 +19,13 @@ Install NeMo Curator with audio dependencies using [uv](https://docs.astral.sh/u
 
 ```bash
 # GPU (recommended)
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 
 # CPU only
 uv sync --extra audio_cpu
 ```
 
-The full pipeline requires: `soundfile`, `torchaudio`, `librosa`, `scipy`, `pydub`, `onnxruntime`/`onnxruntime-gpu`, `silero-vad`, and `nemo_toolkit[asr]`. These are all included in the `audio_cuda12` / `audio_cpu` extras.
+The full pipeline requires: `soundfile`, `torchaudio`, `librosa`, `scipy`, `pydub`, `onnxruntime`/`onnxruntime-gpu`, `silero-vad`, and `nemo_toolkit[asr]`. These are all included in the `audio_cuda13` / `audio_cpu` extras.
 
 ## Quick Start
 

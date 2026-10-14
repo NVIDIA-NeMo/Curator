@@ -19,7 +19,7 @@ This scalable data preprocessing tool focuses on data curation pipelines for tex
 ### CUDA Environment (Optional)
 - **CUDA Version**: 12.x (12.0+) for GPU acceleration
 - **GPU Requirements**: NVIDIA GPU with Volta™ architecture or higher (compute capability 7.0+)
-- **GPU Libraries**: RAPIDS (cuDF, cuML), PyTorch with CUDA 12 support, CuPy
+- **GPU Libraries**: RAPIDS (cuDF, cuML), PyTorch with CUDA 13 support, CuPy
 - **Note**: GPU features are optional and CPU fallbacks are provided
 
 ## Key Technologies and Frameworks
@@ -55,8 +55,8 @@ git clone <repository-url>
 cd Curator
 uv sync
 
-# For GPU development (requires CUDA 12.x)
-uv sync --extra deduplication_cuda12x
+# For GPU development (requires CUDA 13.x)
+uv sync --extra deduplication_cuda13
 ```
 
 ### Optional Feature Groups
@@ -476,7 +476,7 @@ nemo_curator/
 - Monitor GPU memory usage during development
 
 ### CUDA Compatibility
-- Ensure CUDA 12.x compatibility for all GPU code
+- Ensure CUDA 13.x compatibility for all GPU code
 - Test both single-GPU and multi-GPU scenarios
 - Handle graceful degradation when GPU resources are unavailable
 

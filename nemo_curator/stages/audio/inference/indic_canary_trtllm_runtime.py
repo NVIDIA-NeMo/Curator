@@ -134,13 +134,13 @@ def _require_tensorrt_llm() -> None:
             return
 
     # The Canary stack is deliberately a mutually exclusive root profile. It
-    # cannot be combined with audio_cuda12/audio_tensorrt in one environment.
+    # cannot be combined with audio_cuda13/audio_tensorrt in one environment.
     msg = (
         "tensorrt_llm is required for the Indic Canary ASR runtime but could "
         "not be loaded. Create the dedicated Curator profile with CPython 3.12 on "
         "Linux x86_64:\n"
         "    uv sync --python 3.12 --extra audio_canary_trtllm --no-default-groups\n"
-        "Do not combine audio_canary_trtllm with audio_cuda12 or audio_tensorrt."
+        "Do not combine audio_canary_trtllm with audio_cuda13 or audio_tensorrt."
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 

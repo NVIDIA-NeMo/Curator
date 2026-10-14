@@ -172,17 +172,17 @@ uv pip install "nemo-curator[video_cpu]"
 uv pip install "nemo-curator[audio_cpu]"
 ```
 
-**Single modality (GPU/CUDA 12):**
+**Single modality (GPU/CUDA 13):**
 ```bash
-uv pip install "nemo-curator[text_cuda12]"
-uv pip install "nemo-curator[image_cuda12]"
-uv pip install "nemo-curator[video_cuda12]"
-uv pip install "nemo-curator[audio_cuda12]"
+uv pip install "nemo-curator[text_cuda13]"
+uv pip install "nemo-curator[image_cuda13]"
+uv pip install "nemo-curator[video_cuda13]"
+uv pip install "nemo-curator[audio_cuda13]"
 ```
 
 **Multiple modalities - combine extras:**
 ```bash
-uv pip install "nemo-curator[text_cuda12,image_cuda12]"
+uv pip install "nemo-curator[text_cuda13,image_cuda13]"
 ```
 
 ### Version Constraints to Know
@@ -365,7 +365,7 @@ Next steps:
 If installation fails, check:
 
 1. **"No matching distribution"** - Wrong Python version (need 3.10-3.12)
-2. **CUDA errors** - Ensure CUDA 12.x drivers installed (`nvidia-smi`)
+2. **CUDA errors** - Ensure CUDA 13.x drivers installed (`nvidia-smi`)
 3. **scikit-learn conflicts** - NeMo Curator requires <1.8.0
 4. **FFmpeg encoder missing** - Run the FFmpeg install script
 5. **Out of memory** - Check GPU VRAM requirements above

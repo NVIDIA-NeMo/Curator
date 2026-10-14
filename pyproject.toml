@@ -74,7 +74,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cuda12 = [
+cuda13 = [
     "gpustat",
     "nvidia-ml-py",
 ]
@@ -83,28 +83,28 @@ cv2 = [
     "opencv-python-headless",
 ]
 vllm = [
-    "vllm[flashinfer,runai,otel]==0.22.0+cu129; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "vllm[flashinfer,runai,otel]==0.22.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "quack-kernels>=0.4.1; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
-    "nemo_curator[cuda12]",
+    "nemo_curator[cuda13]",
     "nemo_curator[vllm]",
     "ai-dynamo>=1.3.1; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
-    "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "nixl-cu13>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "ray[serve]>=2.57.0",
 ]
 
 # Installs CPU + GPU text curation modules
-deduplication_cuda12 = [
-    "cudf-cu12==26.8.*",
-    "cudf-streaming-cu12==26.8.*",
-    "cuml-cu12==26.8.*",
-    "pylibcugraph-cu12==26.8.*",
-    "pylibraft-cu12==26.8.*",
-    "raft-dask-cu12==26.8.*",
-    "rapidsmpf-cu12==26.8.*",
+deduplication_cuda13 = [
+    "cudf-cu13==26.8.*",
+    "cudf-streaming-cu13==26.8.*",
+    "cuml-cu13==26.8.*",
+    "pylibcugraph-cu13==26.8.*",
+    "pylibraft-cu13==26.8.*",
+    "raft-dask-cu13==26.8.*",
+    "rapidsmpf-cu13==26.8.*",
 ]
 
 audio_common = [
@@ -131,12 +131,14 @@ audio_cpu = [
     "onnxruntime>=1.20.1,<1.24",
 ]
 
-audio_cuda12 = [
-    "cuda-python>=12.3",
+audio_cuda13 = [
+    "cuda-python>=13.0.1,<14",
     "nemo_curator[audio_common]",
-    "nemo_curator[cuda12]",
-    "nvidia-cudnn-cu12",
-    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "nemo_curator[cuda13]",
+    "nvidia-cudnn-cu13",
+    # CTranslate2 wheels still load CUDA 12 cuBLAS for Faster-Whisper.
+    "nvidia-cublas-cu12>=12.8,<13; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    "onnxruntime-gpu>=1.27,<2; platform_machine == 'x86_64'",
     # Do not use qwen-asr[vllm], whose vLLM 0.14.0 pin conflicts with Curator's shared vLLM version.
     "qwen-asr==0.0.6; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "qwen-omni-utils>=0.0.9",
@@ -144,8 +146,8 @@ audio_cuda12 = [
 ]
 
 audio_tensorrt = [
-    "nemo_curator[audio_cuda12]",
-    "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+    "nemo_curator[audio_cuda13]",
+    "tensorrt-cu13==10.13.3.9.post1; platform_machine == 'x86_64' and platform_system == 'Linux'",
 ]
 
 image_cpu = [
@@ -153,12 +155,12 @@ image_cpu = [
     "torchvision"
 ]
 
-# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
-image_cuda12 = [
+# NVIDIA DALI for CUDA 13
+image_cuda13 = [
     "nemo_curator[image_cpu]",
-    "nemo_curator[cuda12]",
-    "nemo_curator[deduplication_cuda12]",
-    "nvidia-dali-cuda120",
+    "nemo_curator[cuda13]",
+    "nemo_curator[deduplication_cuda13]",
+    "nvidia-dali-cuda130",
 ]
 
 # Translation Dependencies
@@ -229,9 +231,9 @@ lance = [
     "pylance>=7",
 ]
 
-text_cuda12 = [
-    "nemo_curator[cuda12]",
-    "nemo_curator[deduplication_cuda12]",
+text_cuda13 = [
+    "nemo_curator[cuda13]",
+    "nemo_curator[deduplication_cuda13]",
     "nemo_curator[text_cpu]",
     "nemo_curator[vllm]",
 ]
@@ -244,11 +246,11 @@ video_cpu = [
     "easydict",
 ]
 
-video_cuda12 = [
+video_cuda13 = [
     "nemo_curator[video_cpu]",
-    "nemo_curator[cuda12]",
+    "nemo_curator[cuda13]",
     "nemo_curator[vllm]",
-    "cvcuda_cu12",
+    "cvcuda_cu13",
     "pycuda",
     "torch<=2.11.0",
     "torchaudio",
@@ -256,7 +258,7 @@ video_cuda12 = [
 
 # NVDEC HW decode; opt-in, kept off `all` (wheel vendors CVE ffmpeg). CPU-decode fallback exists.
 video_media = [
-    "nemo_curator[video_cuda12]",
+    "nemo_curator[video_cuda13]",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
@@ -267,10 +269,10 @@ math_cpu = [
     "python-magic==0.4.24",  # Python bindings for the libmagic runtime
 ]
 
-math_cuda12 = [
+math_cuda13 = [
     "nemo_curator[math_cpu]",
-    "nemo_curator[cuda12]",
-    "nemo_curator[deduplication_cuda12]",
+    "nemo_curator[cuda13]",
+    "nemo_curator[deduplication_cuda13]",
     "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
@@ -284,9 +286,9 @@ interleaved_cpu = [
     "timm",
 ]
 
-interleaved_cuda12 = [
+interleaved_cuda13 = [
     "nemo_curator[interleaved_cpu]",
-    "nemo_curator[cuda12]",
+    "nemo_curator[cuda13]",
     "nemo_curator[vllm]",
 ]
 
@@ -295,24 +297,24 @@ sdg_cpu = [
     "data-designer==0.9.1",
 ]
 
-sdg_cuda12 = [
-    "nemo_curator[cuda12]",
+sdg_cuda13 = [
+    "nemo_curator[cuda13]",
     "nemo_curator[sdg_cpu]",
     "nemo_curator[inference_server]",
 ]
 
 # All dependencies
 all = [
-    "nemo_curator[audio_cuda12]",
-    "nemo_curator[image_cuda12]",
+    "nemo_curator[audio_cuda13]",
+    "nemo_curator[image_cuda13]",
     "nemo_curator[inference_server]",
-    "nemo_curator[interleaved_cuda12]",
+    "nemo_curator[interleaved_cuda13]",
     "nemo_curator[lance]",
-    "nemo_curator[math_cuda12]",
-    "nemo_curator[sdg_cuda12]",
-    "nemo_curator[text_cuda12]",
+    "nemo_curator[math_cuda13]",
+    "nemo_curator[sdg_cuda13]",
+    "nemo_curator[text_cuda13]",
     "nemo_curator[translation_all]",
-    "nemo_curator[video_cuda12]",
+    "nemo_curator[video_cuda13]",
 ]
 
 [dependency-groups]
@@ -362,13 +364,14 @@ override-dependencies = [
     "hydra-core==1.3.4", # Overrides nemo-toolkit[asr]'s <=1.3.2 cap for the security update
     "huggingface-hub>=0.34,<1.0", # Overrides Transformers' <1 cap and data-designer==0.9.1's >=1.0.1 requirement
     "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
+    "nvidia-nvjitlink>=13.3,<14", # RAPIDS 26.8 needs CUDA 13.3 nvJitLink; overrides PyTorch's CUDA 13.0 toolkit pin
     "packaging>=25", # Required by data-designer==0.9.1; overrides Lightning's packaging<25 cap from nemo-toolkit[asr]
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
+    "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu130 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
-    "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
+    "nixl-cu13>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 13 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "pandas>=3.0.0, <= 3.0.4", # Override data-designers constraint of <3
     "pyarrow>=19,<24", # Matches RAPIDS/cuDF; overrides data-designer==0.9.1's pyarrow>=24 requirement
@@ -383,12 +386,12 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu129"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]
-name = "vllm-cu129"
-url = "https://wheels.vllm.ai/0.22.0/cu129"
+name = "vllm-cu130"
+url = "https://wheels.vllm.ai/0.22.0/cu130"
 explicit = true
 
 [tool.uv.sources]
@@ -404,14 +407,16 @@ torchvision = [
     { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
+
+# Audio decoding uses CPU TorchCodec; CUDA wheels require NPP even in CPU extras.
 torchcodec = [
     { index = "pypi", extra = "audio-common" },
 ]
 vllm = [
-    { index = "vllm-cu129", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "vllm-cu130", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
 ]
 nixl = { index = "pypi" }
-nixl-cu12 = { index = "pypi" }
+nixl-cu13 = { index = "pypi" }
 
 [tool.coverage.paths]
 source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]

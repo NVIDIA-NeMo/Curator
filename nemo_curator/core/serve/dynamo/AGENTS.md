@@ -18,10 +18,10 @@ configuration.
 
 ## Base venv vs. actor venv
 
-Curator's `pyproject.toml` pins `vllm[flashinfer,runai,otel]==0.22.0+cu129`
+Curator's `pyproject.toml` pins `vllm[flashinfer,runai,otel]==0.22.0`
 (the `vllm` extra) and constrains `transformers>=4.56.0,<5.0`. `ai-dynamo>=1.3.1`
 is a separate optional dependency via `inference_server` (pulled in by
-`sdg_cuda12`, not `text_cuda12`) — so the driver/base venv can already have
+`sdg_cuda13`, not `text_cuda13`) — so the driver/base venv can already have
 both Dynamo and vLLM installed, but never as `ai-dynamo[vllm]`:
 `inference_server` lists plain `ai-dynamo` and Curator's own `vllm` extra
 independently, and `ai-dynamo`'s own `vllm` requirement sits behind its
@@ -37,11 +37,11 @@ top of the clone, keeping it pinned to the driver instead of drifting. A
 model needing more (a newer `transformers`, an extra loader package) adds it
 through the same `runtime_env`, merged via `merge_runtime_envs()`.
 
-**This stack targets CUDA 12.x, not CUDA 13.x, everywhere.** `vllm` is
-pinned to `==0.22.0+cu129`; `_ACTOR_VENV_CUDA_TAG` builds the actor venv
-against that same `cu129` wheel index; `nixl-cu13` is explicitly excluded
-(`_ACTOR_VENV_NIXL_CU13_EXCLUSION`) because it has previously been pulled in
-transitively. A `cu13`-tagged wheel landing anywhere in this stack is one
+**This stack targets CUDA 13.x everywhere.** `vllm` is
+pinned to `==0.22.0`; `_ACTOR_VENV_CUDA_TAG` builds the actor venv
+against that same `cu130` wheel index; `nixl-cu12` is explicitly excluded
+(`_ACTOR_VENV_NIXL_CU12_EXCLUSION`) to prevent a transitive dependency from
+installing the wrong CUDA backend. A `cu12`-tagged wheel landing anywhere in this stack is one
 checkable cause of a startup/kernel-warmup failure — check the CUDA tag on
 any newly-resolved wheel before assuming a model/prompt/config issue. If
 tags check out, the installed CUTLASS/QuACK build may just be too old for
@@ -153,16 +153,16 @@ and error:
    creation (before any `dynamo.vllm` subprocess log) is a `runtime_env`/
    actor-venv problem; one inside worker subprocess logs (actor already
    exists) is a `subprocess_env`/installed-package problem.
-2. **Check the CUDA tag on every newly-resolved wheel** against the `cu129`
+2. **Check the CUDA tag on every newly-resolved wheel** against the `cu130`
    baseline — see "Base venv vs. actor venv" above for what this class of
    failure looks like and its two causes.
 3. **The additive `runtime_env` install can disturb a pin already cloned
-   into the actor venv** (silently upgrade `ray`, or introduce `nixl-cu13`)
+   into the actor venv** (silently upgrade `ray`, or introduce `nixl-cu12`)
    unless something pins or excludes it. `_ACTOR_VENV_OVERRIDES_PATH` is
    the existing guard: `ensure_actor_overrides_on_all_nodes()` writes a
    `--override` file to a fixed node-local path before any actor using
    `DYNAMO_VLLM_RUNTIME_ENV` lands, pinning `ray==<driver version>` and
-   excluding `nixl-cu13`. Reuse this — via `_ACTOR_VENV_UV_OPTIONS`, the
+   excluding `nixl-cu12`. Reuse this — via `_ACTOR_VENV_UV_OPTIONS`, the
    override file, or a per-model `runtime_env["uv"]["uv_pip_install_options"]`
    — rather than patching an already-built venv.
 4. **Rule out GPU memory contention before chasing a compatibility fix.** A

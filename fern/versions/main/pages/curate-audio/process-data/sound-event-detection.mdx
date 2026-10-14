@@ -25,7 +25,7 @@ Create a JSONL file with one audio file per line. Each row must include `audio_f
 From the NeMo Curator repository root, install the audio CUDA extra and run the maintained YAML configuration:
 
 ```bash
-uv run --extra audio_cuda12 python nemo_curator/config/run.py \
+uv run --extra audio_cuda13 python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/sed \
   --config-name pipeline \
   manifest_path=/absolute/path/to/input.jsonl \

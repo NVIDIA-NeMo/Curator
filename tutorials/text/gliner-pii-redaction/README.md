@@ -4,7 +4,7 @@ This tutorial demonstrates the use of NVIDIA's [GLiNER PII model](https://huggin
 
 This tutorial requires at least 1 NVIDIA GPU with:
   - Volta™ or higher (compute capability 7.0+)
-  - CUDA 12.x
+  - CUDA 13.x
 
 Before running this tutorial, see this [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html#admin-installation) page for instructions on how to install NeMo Curator. Be sure to use an installation method which includes GPU dependencies.
 

@@ -19,7 +19,7 @@ Prepare the following environment:
 
 - Python 3.11, 3.12, or 3.13.
 - Ubuntu 20.04 or 22.04, `packaging` 22.0 or later, Git, and `uv` for package management.
-- Use an NVIDIA GPU with CUDA 12 only for GPU-accelerated operations; most text modules run without a GPU.
+- Use an NVIDIA GPU with CUDA 13 only for GPU-accelerated operations; most text modules run without a GPU.
 - For GPU modules, use a Volta-class or newer GPU with compute capability 7.0 or later.
 
 ## Quickstart Steps
@@ -37,15 +37,15 @@ Complete these steps to install Curator, prepare input data, and run a filtering
    source $HOME/.local/bin/env
    uv venv
    source .venv/bin/activate
-   curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+   curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda13-overrides.txt
    uv pip install \
-     --override text_cuda12-overrides.txt \
-     --torch-backend cu129 \
-     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-     "nemo-curator[text_cuda12]"
+     --override text_cuda13-overrides.txt \
+     --torch-backend cu130 \
+     --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
+     "nemo-curator[text_cuda13]"
    ```
 
-   For `text_cuda12`, use this tested dependency override. Standard `pip install` and plain `uv pip install` without the override are not supported.
+   For `text_cuda13`, use this tested dependency override. Standard `pip install` and plain `uv pip install` without the override are not supported.
 
    </Tab>
    <Tab title="Source Installation">
@@ -57,7 +57,7 @@ Complete these steps to install Curator, prepare input data, and run a filtering
    source $HOME/.local/bin/env
    git clone https://github.com/NVIDIA-NeMo/Curator.git
    cd Curator
-   uv sync --extra text_cuda12 --all-groups
+   uv sync --extra text_cuda13 --all-groups
    source .venv/bin/activate
    ```
 

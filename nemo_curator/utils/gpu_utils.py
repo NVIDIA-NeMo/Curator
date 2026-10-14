@@ -28,7 +28,7 @@ _cudnn_loaded: bool = False
 
 
 def ensure_cudnn_loaded() -> bool:
-    """Discover and pre-load cuDNN from the ``nvidia-cudnn-cu12`` pip package.
+    """Discover and pre-load cuDNN from the ``nvidia-cudnn-cu13`` pip package.
 
     ONNX Runtime relies on the system dynamic linker to locate
     ``libcudnn*.so`` files, but pip-installed packages place them inside
@@ -56,7 +56,7 @@ def ensure_cudnn_loaded() -> bool:
         import nvidia.cudnn
     except ImportError:
         logger.debug(
-            "nvidia-cudnn-cu12 is not installed; "
+            "nvidia-cudnn-cu13 is not installed; "
             "cuDNN must be available on the system LD_LIBRARY_PATH for GPU inference."
         )
         return False

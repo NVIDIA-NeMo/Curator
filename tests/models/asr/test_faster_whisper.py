@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -93,9 +94,13 @@ def test_load_model_uses_stage_owned_gpu_count() -> None:
     model_class = MagicMock()
     adapter = FasterWhisperASR(compute_type="float16", revision="abc123")
 
-    with patch("nemo_curator.models.asr.faster_whisper._whisper_model_class", return_value=model_class):
+    with (
+        patch("nemo_curator.models.asr.faster_whisper._whisper_model_class", return_value=model_class),
+        patch("nemo_curator.models.asr.faster_whisper._load_cuda12_cublas") as load_cublas,
+    ):
         adapter.load_model(num_gpus=1)
 
+    load_cublas.assert_called_once_with()
     model_class.assert_called_once_with("large-v3", device="cuda", compute_type="float16", revision="abc123")
 
 
@@ -103,9 +108,13 @@ def test_load_model_uses_cpu_compute_type() -> None:
     model_class = MagicMock()
     adapter = FasterWhisperASR(compute_type="float16", cpu_compute_type="int8_float32")
 
-    with patch("nemo_curator.models.asr.faster_whisper._whisper_model_class", return_value=model_class):
+    with (
+        patch("nemo_curator.models.asr.faster_whisper._whisper_model_class", return_value=model_class),
+        patch("nemo_curator.models.asr.faster_whisper._load_cuda12_cublas") as load_cublas,
+    ):
         adapter.load_model(num_gpus=0)
 
+    load_cublas.assert_not_called()
     model_class.assert_called_once_with(
         "large-v3",
         device="cpu",
@@ -266,3 +275,53 @@ def test_adapter_rejects_non_mono_waveform() -> None:
 
     with pytest.raises(ValueError, match="mono 1-D waveform"):
         adapter.transcribe_batch([item])
+
+
+def test_cuda12_cublas_preloads_dependencies_in_order(tmp_path: Path) -> None:
+    package = ModuleType("nvidia.cublas")
+    package.__path__ = [str(tmp_path)]
+    with (
+        patch.dict("sys.modules", {"nvidia.cublas": package}),
+        patch.object(faster_whisper_module.sys, "platform", "linux"),
+        patch.object(faster_whisper_module.ctypes, "CDLL") as load,
+    ):
+        faster_whisper_module._load_cuda12_cublas()
+
+    assert [call.args[0] for call in load.call_args_list] == [
+        str(tmp_path / "lib" / "libcublasLt.so.12"),
+        str(tmp_path / "lib" / "libcublas.so.12"),
+    ]
+    assert all(call.kwargs["mode"] == faster_whisper_module.ctypes.RTLD_LOCAL for call in load.call_args_list)
+
+
+def test_cuda12_cublas_allows_system_libraries_without_pip_package() -> None:
+    with (
+        patch.dict("sys.modules", {"nvidia.cublas": None}),
+        patch.object(faster_whisper_module.sys, "platform", "linux"),
+        patch.object(faster_whisper_module.ctypes, "CDLL") as load,
+    ):
+        faster_whisper_module._load_cuda12_cublas()
+
+    load.assert_not_called()
+
+
+def test_cuda12_cublas_does_not_load_linux_libraries_on_other_platforms() -> None:
+    with (
+        patch.object(faster_whisper_module.sys, "platform", "win32"),
+        patch.object(faster_whisper_module.ctypes, "CDLL") as load,
+    ):
+        faster_whisper_module._load_cuda12_cublas()
+
+    load.assert_not_called()
+
+
+def test_cuda12_cublas_propagates_native_load_errors(tmp_path: Path) -> None:
+    package = ModuleType("nvidia.cublas")
+    package.__path__ = [str(tmp_path)]
+    with (
+        patch.dict("sys.modules", {"nvidia.cublas": package}),
+        patch.object(faster_whisper_module.sys, "platform", "linux"),
+        patch.object(faster_whisper_module.ctypes, "CDLL", side_effect=OSError("missing dependency")),
+        pytest.raises(OSError, match="missing dependency"),
+    ):
+        faster_whisper_module._load_cuda12_cublas()

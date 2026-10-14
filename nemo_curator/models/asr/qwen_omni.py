@@ -59,9 +59,9 @@ def _require_qwen_omni_stack(*, context: str) -> None:
         missing.append("transformers (Qwen3OmniMoeProcessor)")
     if missing:
         msg = (
-            f"QwenOmniASRAdapter {context} requires the audio_cuda12 and vllm extras. "
+            f"QwenOmniASRAdapter {context} requires the audio_cuda13 and vllm extras. "
             f"Missing: {', '.join(missing)}. Install with: "
-            "uv sync --extra audio_cuda12 --extra vllm"
+            "uv sync --extra audio_cuda13 --extra vllm"
         )
         raise ImportError(msg)
 
