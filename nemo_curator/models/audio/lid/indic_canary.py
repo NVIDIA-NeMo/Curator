@@ -308,7 +308,7 @@ class IndicCanaryLIDAdapter:
         waveforms: list[torch.Tensor] = []
         for index, item in enumerate(items):
             waveform = _waveform_from_item(item, owner=type(self).__name__)
-            if waveform.size >= self.min_samples:
+            if waveform.size and waveform.size >= self.min_samples:
                 valid_indices.append(index)
                 waveforms.append(torch.from_numpy(waveform[: self.max_samples]))
         if not waveforms:

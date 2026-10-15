@@ -212,6 +212,22 @@ def test_identify_batch_preserves_short_rows_and_truncates_long_rows() -> None:
     assert captured == [16_000, 32_000]
 
 
+@pytest.mark.parametrize("lengths", [(0,), (0, 16_000, 0)])
+def test_zero_minimum_duration_preserves_empty_rows(lengths: tuple[int, ...]) -> None:
+    adapter = IndicCanaryLIDAdapter(engine_dir="unused", min_duration_sec=0)
+    adapter._model = _Runtime(Path("unused"))
+    prediction = AudioLIDResult("hi", 1.0)
+    with patch.object(adapter, "_identify_waveforms", return_value=[prediction]) as identify:
+        results = adapter.identify_batch([{"waveform": np.zeros(length, dtype=np.float32)} for length in lengths])
+
+    assert results == [prediction if length else AudioLIDResult("", 0.0) for length in lengths]
+    if any(lengths):
+        identify.assert_called_once()
+        assert [waveform.numel() for waveform in identify.call_args.args[0]] == [16_000]
+    else:
+        identify.assert_not_called()
+
+
 def test_identify_batch_respects_engine_capacity_and_runtime_contract() -> None:
     adapter = _loaded_adapter()
     adapter.max_duration_sec = 2.0

@@ -27,6 +27,7 @@ import soundfile
 import torch
 
 from nemo_curator.models.audio.lid.base import AudioLIDResult
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.lid.stage import AudioLIDInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -266,6 +267,32 @@ def test_configured_selector_skip_reason_reenters_inference() -> None:
     assert len(adapter.calls) == 1
 
 
+def test_custom_skip_key_controls_retry_and_preserves_default_named_data() -> None:
+    stage, adapter = _stage(skip_me_key="rejection", retry_skip_reasons=["retry"])
+    retried = _task(rejection="retry", _skipme="unrelated data")
+    skipped = _task(rejection="upstream")
+
+    stage.process_batch([retried, skipped])
+
+    assert "rejection" not in retried.data
+    assert retried.data["_skipme"] == "unrelated data"
+    assert retried.data["lid"][_MODEL_ID]["language"] == "ta"
+    assert skipped.data["rejection"] == "upstream"
+    assert "lid" not in skipped.data
+    assert len(adapter.calls[0]) == 1
+
+
+def test_audio_error_uses_the_custom_skip_key() -> None:
+    stage, _ = _stage(skip_me_key="rejection", fail_on_audio_error=True)
+    task = AudioTask(data={"sample_rate": _SAMPLE_RATE})
+
+    stage.process_batch([task])
+
+    assert task.data["rejection"] == "audio_load_error"
+    assert "_skipme" not in task.data
+    assert stage.outputs() == ([], ["lid", "rejection"])
+
+
 def test_retry_skip_reasons_rejects_empty_or_non_string_values() -> None:
     with pytest.raises(ValueError, match="retry_skip_reasons"):
         _stage(retry_skip_reasons=[""])
@@ -344,6 +371,59 @@ def test_stage_declares_file_or_waveform_inputs_and_shared_outputs() -> None:
     assert file_stage.inputs() == ([], ["audio_filepath"])
     assert waveform_stage.inputs() == ([], ["samples", "sr"])
     assert file_stage.outputs() == ([], ["lid", "_skipme"])
+
+
+@pytest.mark.parametrize("scenario", ["inference", "upstream_skip", "resume", "audio_error"])
+def test_stage_is_agent_ready_for_each_result_path(scenario: str) -> None:
+    stage, _ = _stage(skip_if_output_exists=True, fail_on_audio_error=True)
+
+    def fixture() -> AudioTask:
+        if scenario == "upstream_skip":
+            return _task(_skipme="upstream")
+        if scenario == "resume":
+            return _task(lid={_MODEL_ID: {"language": "", "confidence": 0.0, "tag": "primary"}})
+        if scenario == "audio_error":
+            return _task(waveform=None)
+        return _task()
+
+    contract = assert_agent_ready(
+        stage, fixture_factory=fixture, expected_cardinality="1:1", available_keys={"waveform", "sample_rate"}
+    )
+
+    assert contract.batch_only
+    assert contract.reads.accepts == ["waveform"]
+    assert contract.writes.data_keys == []
+    assert contract.gates.per_row_independent is False
+    assert contract.gates.lifecycle_side_effects
+    assert contract.gates.requires_gpu == stage.resources.requires_gpu
+
+
+def test_file_stage_contract_and_remapped_results_are_agent_ready(tmp_path: Path) -> None:
+    audio_path = tmp_path / "sample.wav"
+    soundfile.write(audio_path, np.zeros(_SAMPLE_RATE, dtype=np.float32), _SAMPLE_RATE)
+    stage, _ = _stage(waveform_key=None, audio_filepath_key="path", results_key="predictions", skip_me_key="reject")
+    task = AudioTask(data={"path": str(audio_path)})
+
+    contract = assert_agent_ready(stage, fixture_factory=lambda: task, available_keys={"path"})
+
+    assert contract.reads.accepts == ["file"]
+    assert contract.key_roles["predictions"] == "prediction"
+    assert task.data["predictions"][_MODEL_ID]["language"] == "ta"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"results_key": "_skipme"},
+        {"results_key": "waveform"},
+        {"skip_me_key": "sample_rate"},
+        {"skip_me_key": ""},
+        {"sample_rate_key": "waveform"},
+    ],
+)
+def test_destructive_key_mappings_are_rejected(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="must"):
+        _stage(**kwargs)
 
 
 def test_metadata_extraction_runner_three_model_topology_is_representable() -> None:

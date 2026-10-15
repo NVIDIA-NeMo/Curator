@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -76,13 +78,20 @@ def _set_note(data: dict[str, Any], key: str, value: Any, notes_key: str) -> Non
 
 
 @dataclass
-class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
+class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Apply the reference ensemble precedence policy to JSON-safe LID results.
 
     The stable component IDs are configurable, while their defaults preserve
     the reference pipeline's exact names. Results are removed after selection
     because their model-specific confidence values have served their routing
     purpose; the chosen confidence remains under ``notes_key``.
+
+    ``output_key`` contains the chosen lowercase language code for this task,
+    ``""`` when predictions are missing, or ``"skipped"`` on disagreement.
+    Notes retain each component's label and confidence plus the chosen model's
+    [0, 1] confidence under ``confidence_key`` (zero on rejection). This is not
+    a consensus probability or a guarantee that every segment has that language;
+    the components may classify different leading windows of the same recording.
 
     Successful selection clears a pre-existing ``_skipme`` only when its value
     is one of this selector's own three rejection reasons. An unrelated skip
@@ -107,6 +116,9 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SelectBestLIDPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
+    KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction", "output_key": "prediction"}
+    INTERNAL_KEY_FIELDS = frozenset({"confidence_key", "skip_me_key", "notes_key"})
+
     def __post_init__(self) -> None:
         key_fields = (
             "results_key",
@@ -124,6 +136,15 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
             if not isinstance(value, str) or not value.strip():
                 msg = f"SelectAudioLanguageStage.{field_name} must be a non-empty string"
                 raise ValueError(msg)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={"results_key": self.results_key},
+            output_keys={
+                "output_key": self.output_key,
+                "skip_me_key": self.skip_me_key,
+                "notes_key": self.notes_key,
+            },
+        )
 
         model_ids = (
             self.speechbrain_model_id,
@@ -146,6 +167,21 @@ class SelectAudioLanguageStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key, self.notes_key, self.skip_me_key]
+
+    def describe(self) -> StageContract:
+        """Describe selection, its audit notes, and consumed component results."""
+        return StageContract(
+            optional_reads=IOSpec(data_keys=[self.results_key, self.notes_key, self.skip_me_key]),
+            writes=IOSpec(data_keys=[self.output_key, self.notes_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]),
+                    condition="selection rejects the task and no unrelated upstream skip reason is present",
+                ),
+            ],
+            removes_keys=[self.results_key],
+            cardinality="1:1",
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         raw_results = task.data.get(self.results_key, {})

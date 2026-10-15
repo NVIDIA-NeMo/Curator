@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 import torch
 
+from nemo_curator.models.audio.lid.base import AudioLIDResult
 from nemo_curator.models.audio.lid.speechbrain import SpeechBrainLIDAdapter, _normalize_language
 
 
@@ -44,6 +45,12 @@ def test_label_normalization_accepts_speechbrain_singletons() -> None:
 def test_rejects_incompatible_sample_rate() -> None:
     with pytest.raises(ValueError, match="requires sample_rate=16000, got 8000"):
         SpeechBrainLIDAdapter(sample_rate=8_000)
+
+
+@pytest.mark.parametrize("source", ["", " "])
+def test_rejects_empty_provider_source(source: str) -> None:
+    with pytest.raises(ValueError, match="source must be a non-empty string"):
+        SpeechBrainLIDAdapter(source=source)
 
 
 def test_identify_batch_pads_valid_rows_and_preserves_empty_order() -> None:
@@ -97,13 +104,71 @@ def test_load_model_forwards_worker_device_and_actor_savedir(tmp_path: Path) -> 
         patch("torch.cuda.is_available", return_value=False),
     ):
         adapter.load_model(num_gpus=0)
+        adapter.load_model(num_gpus=0)
 
+    classifier_type.from_hparams.assert_called_once()
     kwargs = classifier_type.from_hparams.call_args.kwargs
     assert kwargs["source"] == str(tmp_path)
     assert kwargs["overrides"] == {"pretrained_path": str(tmp_path)}
     assert Path(kwargs["savedir"]).parent == tmp_path / "actors"
     assert kwargs["run_opts"] == {"device": "cpu"}
     assert adapter._classifier is classifier
+
+
+def test_pinned_source_resolves_from_local_cache(tmp_path: Path) -> None:
+    adapter = SpeechBrainLIDAdapter(source="organization/custom-lid", revision="abc123", cache_dir="/cache")
+    with patch("nemo_curator.models.audio.lid.speechbrain._snapshot_download", return_value=str(tmp_path)) as download:
+        assert adapter._load_source() == str(tmp_path)
+
+    download.assert_called_once_with(
+        repo_id="organization/custom-lid", revision="abc123", cache_dir="/cache", local_files_only=True
+    )
+
+
+def test_unavailable_cuda_fails_before_loading_classifier() -> None:
+    adapter = SpeechBrainLIDAdapter()
+    with (
+        patch("torch.cuda.is_available", return_value=False),
+        patch("nemo_curator.models.audio.lid.speechbrain._encoder_classifier_class") as classifier,
+        pytest.raises(RuntimeError, match="CUDA is not available"),
+    ):
+        adapter.load_model(num_gpus=1)
+
+    classifier.assert_not_called()
+    assert adapter._classifier is None
+
+
+@pytest.mark.parametrize("cache_error", [None, RuntimeError("CUDA unavailable during cleanup")])
+def test_unload_releases_classifier_even_if_cuda_cleanup_fails(cache_error: Exception | None) -> None:
+    adapter = SpeechBrainLIDAdapter()
+    adapter._classifier = _Classifier()
+    adapter._device = torch.device("cpu")
+    with patch("torch.cuda.empty_cache", side_effect=cache_error) as empty_cache:
+        adapter.unload_model()
+
+    empty_cache.assert_called_once()
+    assert adapter._classifier is None
+    assert adapter._device is None
+
+
+def test_empty_input_does_not_reach_classifier() -> None:
+    adapter = SpeechBrainLIDAdapter()
+    assert adapter.identify_batch([]) == []
+    classifier = MagicMock()
+    adapter._classifier = classifier
+
+    assert adapter.identify_batch([{"waveform": np.array([], dtype=np.float32)}]) == [AudioLIDResult("", 0.0)]
+    classifier.classify_batch.assert_not_called()
+
+
+@pytest.mark.parametrize(("scores", "labels"), [([], ["en"]), ([0.0], [])])
+def test_incomplete_classifier_outputs_fail_instead_of_dropping_rows(scores: list[float], labels: list[str]) -> None:
+    adapter = SpeechBrainLIDAdapter()
+    adapter._classifier = MagicMock()
+    adapter._classifier.classify_batch.return_value = None, torch.tensor(scores), None, labels
+
+    with pytest.raises(RuntimeError, match="for 1 inputs"):
+        adapter.identify_batch([{"waveform": np.ones(400, dtype=np.float32)}])
 
 
 def test_load_model_binds_weights_to_resolved_snapshot(tmp_path: Path) -> None:

@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
 from torch.nn import functional
 
+from nemo_curator.models.audio.lid.base import AudioLIDResult
 from nemo_curator.models.audio.lid.whisper import WhisperLIDAdapter, WhisperTensorRTEncoder
 
 
@@ -210,3 +212,116 @@ def test_local_checkpoint_is_validated_without_importing_whisper(tmp_path) -> No
         adapter.download_weights_on_node()
 
     import_whisper.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "field"),
+    [
+        ({"sample_rate": 8_000}, "sample_rate"),
+        ({"model_size": ""}, "model_size"),
+        ({"model_batch_size": 0}, "model_batch_size"),
+        ({"model_batch_size": True}, "model_batch_size"),
+        ({"backend": "unknown"}, "backend"),
+    ],
+)
+def test_invalid_model_configuration_fails_before_loading(kwargs: dict[str, object], field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        WhisperLIDAdapter(**kwargs)
+
+
+@pytest.mark.parametrize(("backend", "num_gpus"), [("torch", 0), ("tensorrt", 1)])
+def test_model_lifecycle_loads_once_and_releases_owned_resources(backend: str, num_gpus: int, tmp_path: Path) -> None:
+    model = torch.nn.Linear(2, 2)
+    provider = SimpleNamespace(load_model=MagicMock(return_value=model))
+    encoder = MagicMock()
+    adapter = WhisperLIDAdapter(backend=backend, tensorrt_engine_path="encoder.plan", download_root=str(tmp_path))
+    with (
+        patch("nemo_curator.models.audio.lid.whisper._import_whisper", return_value=provider),
+        patch("nemo_curator.models.audio.lid.whisper.WhisperTensorRTEncoder", return_value=encoder) as encoder_type,
+        patch("torch.cuda.is_available", return_value=bool(num_gpus)),
+    ):
+        adapter.load_model(num_gpus=num_gpus)
+        adapter.load_model(num_gpus=num_gpus)
+
+    device = torch.device("cuda" if num_gpus else "cpu")
+    provider.load_model.assert_called_once_with("medium", device=device, download_root=str(tmp_path))
+    assert not model.training
+    assert adapter._model is model
+    assert adapter._mel_dtype == (torch.float16 if num_gpus else torch.float32)
+    if backend == "tensorrt":
+        encoder_type.assert_called_once_with("encoder.plan")
+    else:
+        encoder_type.assert_not_called()
+    adapter._hann_window = torch.ones(400)
+    with patch("torch.cuda.empty_cache") as empty_cache:
+        adapter.unload_model()
+
+    empty_cache.assert_called_once()
+    assert encoder.close.call_count == num_gpus
+    assert adapter._model is adapter._encoder is adapter._device is adapter._hann_window is None
+    assert adapter._mel_dtype == torch.float32
+
+
+def test_unavailable_cuda_fails_before_loading_whisper() -> None:
+    adapter = WhisperLIDAdapter()
+    with (
+        patch("torch.cuda.is_available", return_value=False),
+        patch.object(adapter, "_load_openai_model") as load_model,
+        pytest.raises(RuntimeError, match="CUDA is not available"),
+    ):
+        adapter.load_model(num_gpus=1)
+
+    load_model.assert_not_called()
+    assert adapter._model is None
+
+
+def test_download_only_constructs_a_temporary_cpu_model() -> None:
+    adapter = WhisperLIDAdapter()
+    with patch.object(adapter, "_load_openai_model") as load_model:
+        adapter.download_weights_on_node()
+
+    load_model.assert_called_once_with("cpu")
+    assert adapter._model is None
+
+
+def test_missing_local_checkpoint_fails_before_provider_load(tmp_path: Path) -> None:
+    adapter = WhisperLIDAdapter(model_path=str(tmp_path / "missing.pt"))
+    with (
+        patch("nemo_curator.models.audio.lid.whisper._import_whisper") as import_whisper,
+        pytest.raises(FileNotFoundError, match="Whisper checkpoint not found"),
+    ):
+        adapter.download_weights_on_node()
+
+    import_whisper.assert_not_called()
+
+
+def test_nonempty_input_requires_loaded_model_but_empty_batch_does_not() -> None:
+    adapter = WhisperLIDAdapter()
+    assert adapter.identify_batch([]) == []
+    with pytest.raises(RuntimeError, match="call load_model"):
+        adapter.identify_batch([{"waveform": np.ones(400, dtype=np.float32)}])
+
+
+def test_empty_waveforms_do_not_reach_whisper() -> None:
+    adapter = WhisperLIDAdapter()
+    adapter._device = torch.device("cpu")
+    adapter._model = _FakeWhisperModel()
+    with patch("nemo_curator.models.audio.lid.whisper._import_whisper"):
+        assert adapter.identify_batch([{"waveform": np.array([], dtype=np.float32)}]) == [AudioLIDResult("", 0.0)]
+
+    assert adapter._model.last_input is None
+
+
+@pytest.mark.parametrize(("probabilities", "message"), [([], "0 predictions"), ([{}], "empty language-probability")])
+def test_invalid_model_outputs_fail_instead_of_dropping_rows(probabilities: list, message: str) -> None:
+    adapter = WhisperLIDAdapter()
+    adapter._device = torch.device("cpu")
+    adapter._model = MagicMock()
+    adapter._model.dims.n_mels = 80
+    adapter._model.detect_language.return_value = None, probabilities
+    provider = SimpleNamespace(audio=_FakeWhisperAudio, pad_or_trim=_pad_or_trim)
+    with (
+        patch("nemo_curator.models.audio.lid.whisper._import_whisper", return_value=provider),
+        pytest.raises(RuntimeError, match=message),
+    ):
+        adapter.identify_batch([{"waveform": np.ones(400, dtype=np.float32)}])

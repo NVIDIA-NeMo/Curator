@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import pytest
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.postprocessing.lid_selection import SelectAudioLanguageStage
 from nemo_curator.tasks import AudioTask
 
@@ -287,3 +288,33 @@ def test_selector_declares_its_io_contract() -> None:
 def test_duplicate_configured_model_ids_are_rejected() -> None:
     with pytest.raises(ValueError, match="must be distinct"):
         SelectAudioLanguageStage(indic_canary_model_id=_SPEECHBRAIN)
+
+
+@pytest.mark.parametrize("scenario", ["accepted", "missing", "disagreement", "upstream_skip"])
+def test_selector_is_agent_ready_for_each_selection_path(scenario: str) -> None:
+    def fixture() -> AudioTask:
+        if scenario == "missing":
+            return _task()
+        if scenario == "disagreement":
+            return _task(_full_results(primary="hi", canary="ta", whisper="hi"))
+        return _task(_full_results(), **({"_skipme": "upstream"} if scenario == "upstream_skip" else {}))
+
+    contract = assert_agent_ready(SelectAudioLanguageStage(), fixture_factory=fixture, expected_cardinality="1:1")
+
+    assert contract.writes.data_keys == ["source_lang", "additional_notes"]
+    assert contract.removes_keys == ["lid"]
+    assert contract.conditional_writes[0].writes.data_keys == ["_skipme"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"notes_key": "source_lang"},
+        {"skip_me_key": "source_lang"},
+        {"results_key": "additional_notes"},
+        {"results_key": "source_lang"},
+    ],
+)
+def test_destructive_key_mappings_are_rejected(kwargs: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="must"):
+        SelectAudioLanguageStage(**kwargs)

@@ -25,13 +25,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Integral, Real
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 import soundfile
 from loguru import logger
 
 from nemo_curator.models.audio.lid.base import AudioLIDAdapter, AudioLIDResult
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
@@ -40,20 +42,22 @@ if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
 
 
-_SKIP_ME_KEY = "_skipme"
 _AUDIO_LOAD_ERROR = "audio_load_error"
 _WAVEFORM_DIMENSIONS = 2
 
 
 @dataclass
-class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
+class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter]):
     """Identify spoken language through a YAML-selectable model adapter.
 
     ``model_id`` is a stable ensemble/output identity, such as
     ``"SpeechBrainLangID"``. It is deliberately not passed to the adapter:
     provider-native checkpoint names belong in ``adapter_kwargs``. A completed
     result is stored at ``task.data[results_key][model_id]`` as a plain mapping
-    containing ``language``, ``confidence``, and ``tag``.
+    containing ``language``, ``confidence``, and ``tag``. The lowercase language
+    code describes this task's leading audio window, not every speaker or
+    segment in the complete recording. Confidence is a provider-specific value
+    in [0, 1], not a calibrated score comparable across ensemble models.
 
     With ``skip_if_output_exists=True``, membership of the stage's own
     ``model_id`` is the completion marker. In particular, an empty language or
@@ -61,7 +65,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
 
     Missing, unreadable, empty, and too-short audio receive a completed empty
     result so another run can resume deterministically. Row-local input/decode
-    failures set the shared ``_skipme`` field only when
+    failures set the shared ``skip_me_key`` field only when
     ``fail_on_audio_error=True``; a short clip is a valid model miss and never
     sets that shared terminal flag. Systemic failures propagate without a
     completion marker.
@@ -75,9 +79,10 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         sample_rate_key: Source sample-rate key for in-memory waveforms.
         audio_filepath_key: File key used when ``waveform_key`` is ``None``.
         results_key: Shared mapping populated by every ensemble component.
+        skip_me_key: Shared terminal skip-reason key (default ``"_skipme"``).
         min_duration_sec: Clips shorter than this receive an empty result.
-        max_duration_sec: Maximum leading audio sent to the adapter; non-positive
-            values disable truncation.
+        max_duration_sec: Maximum leading audio sent to the adapter; zero
+            disables truncation.
         skip_if_output_exists: Reuse this model's existing mapping entry.
         fail_on_audio_error: Mark row-local input/decode failures terminal via
             ``_skipme=audio_load_error``.
@@ -114,6 +119,11 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
     batch_size: int = 16
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
+    skip_me_key: str = field(default="_skipme", kw_only=True)
+
+    BATCH_ONLY = True
+    KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction"}
+    INTERNAL_KEY_FIELDS = frozenset({"skip_me_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -132,6 +142,15 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         if self.waveform_key is not None and (not isinstance(self.waveform_key, str) or not self.waveform_key.strip()):
             msg = "AudioLIDInferenceStage.waveform_key must be None or a non-empty string"
             raise ValueError(msg)
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={
+                "audio_filepath_key": self.audio_filepath_key,
+                "sample_rate_key": self.sample_rate_key,
+                **({"waveform_key": self.waveform_key} if self.waveform_key is not None else {}),
+            },
+            output_keys={"results_key": self.results_key, "skip_me_key": self.skip_me_key},
+        )
         if not isinstance(self.sample_rate, Integral) or isinstance(self.sample_rate, bool) or self.sample_rate <= 0:
             msg = f"AudioLIDInferenceStage.sample_rate must be a positive integer, got {self.sample_rate!r}"
             raise ValueError(msg)
@@ -187,7 +206,40 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         )
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.results_key, _SKIP_ME_KEY]
+        return [], [self.results_key, self.skip_me_key]
+
+    def describe(self) -> StageContract:
+        """Declare task-local results without loading the configurable adapter."""
+        conditional_writes = [
+            ConditionalWrite(
+                writes=IOSpec(data_keys=[self.results_key]),
+                condition=f"'{self.skip_me_key}' does not block processing and this model's result is not reused",
+                value_origin="augments_upstream_same_key",
+            ),
+        ]
+        if self.fail_on_audio_error:
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]),
+                    condition="audio preparation fails and fail_on_audio_error is true",
+                )
+            )
+        return StageContract(
+            reads=IOSpec(
+                data_keys=self.inputs()[1],
+                accepts=["waveform" if self.waveform_key is not None else "file"],
+            ),
+            optional_reads=IOSpec(data_keys=[self.results_key, self.skip_me_key, self.audio_filepath_key]),
+            conditional_writes=conditional_writes,
+            cardinality="1:1",
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                lifecycle_side_effects=True,
+                # Arbitrary adapters have no reviewed batch-independence guarantee.
+                per_row_independent=False,
+            ),
+        )
 
     def num_workers(self) -> int | None:
         """Return the configured cluster-wide actor cap, if any."""
@@ -202,12 +254,12 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
         retry_reasons = set(self.retry_skip_reasons)
         retried = 0
         for task in tasks:
-            if task.data.get(_SKIP_ME_KEY) in retry_reasons:
-                task.data.pop(_SKIP_ME_KEY, None)
+            if task.data.get(self.skip_me_key) in retry_reasons:
+                task.data.pop(self.skip_me_key, None)
                 retried += 1
         if retried:
             logger.info("Audio LID {}: retrying {}/{} selector-rejected tasks", self.model_id, retried, len(tasks))
-        skip_indices = {index for index, task in enumerate(tasks) if task.data.get(_SKIP_ME_KEY)}
+        skip_indices = {index for index, task in enumerate(tasks) if task.data.get(self.skip_me_key)}
         skip_indices.update(self._resume_indices(tasks))
         valid_indices, items = self._prepare_items(tasks, skip_indices)
         if not items:
@@ -266,7 +318,7 @@ class AudioLIDInferenceStage(AdapterInferenceStage[AudioLIDAdapter]):
                 )
                 self._write_empty(task)
                 if self.fail_on_audio_error:
-                    task.data[_SKIP_ME_KEY] = _AUDIO_LOAD_ERROR
+                    task.data[self.skip_me_key] = _AUDIO_LOAD_ERROR
                 continue
 
             if prepared.size / self.sample_rate < self.min_duration_sec:
