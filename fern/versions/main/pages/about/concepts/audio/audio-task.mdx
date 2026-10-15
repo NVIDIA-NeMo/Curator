@@ -17,7 +17,7 @@ This guide covers the `AudioTask` data structure, which serves as the core conta
 `AudioTask` is a specialized data structure that extends NeMo Curator's base `Task` class to handle audio-specific processing requirements. Each `AudioTask` holds a single manifest entry, matching the convention used by `VideoTask` and `FileGroupTask`:
 
 - **Single-Entry Model**: One manifest entry per task (`Task[dict]`), enabling straightforward per-sample processing
-- **File Path Management**: Automatically validates audio file existence and accessibility
+- **Optional File Path Validation**: `validate()` checks file existence only when `filepath_key` is configured and that key is present in the task data
 - **Metadata Handling**: Preserves audio characteristics and processing results throughout pipeline stages
 
 ## Structure and Components
@@ -64,9 +64,9 @@ audio_task.data.audio_filepath     # attribute-style
 
 ## Data Validation
 
-### Automatic Validation
+### Explicit Validation
 
-`AudioTask` provides built-in validation for audio data integrity. The `_AttrDict` data type enables `hasattr`-based validation, matching the pattern used by all other modalities.
+`AudioTask` provides an explicit `validate()` method. When `filepath_key` is set and that key is present in the task data, calling this method checks that the referenced local path exists. It does not reject a missing configured key. Constructing an `AudioTask` does not call `validate()` automatically, and tasks emitted by `ManifestReader` do not set `filepath_key`.
 
 ## Metadata Management
 
@@ -82,7 +82,7 @@ audio_sample = {
 
     # Fields added by processing stages
     "pred_text": "asr prediction",    # Added by ASR inference stages
-    "wer": 12.5,                     # Added by GetPairwiseWerStage
+    "wer_pct": 12.5,                 # Added by GetPairwiseWerStage
     "duration": 3.2,                 # Added by GetAudioDurationStage
 
     # Optional user-provided metadata
@@ -109,8 +109,9 @@ AudioTask handles various error conditions:
 # Missing files
 audio_task = AudioTask(data={
     "audio_filepath": "/missing/file.wav", "text": "sample"
-})
-# Validation fails, but processing continues with warnings
+}, filepath_key="audio_filepath")
+if not audio_task.validate():
+    print("Audio file is missing")
 
 # Corrupted audio files
 corrupted_sample = {
@@ -135,18 +136,19 @@ AudioTask memory footprint is minimal since each task holds a single manifest en
 
 ### Processing Patterns
 
-Audio stages follow two processing patterns:
+Audio stages use several processing patterns:
 
 | Pattern | Stages | Method |
 |---------|--------|--------|
 | **Per-task** | CPU stages (`GetAudioDurationStage`, `GetPairwiseWerStage`) | `process(task) → AudioTask` — mutates `task.data` in-place |
-| **Batched** | GPU stages (`InferenceAsrNemoStage`), IO stages (`AudioToDocumentStage`), filtering (`PreserveByValueStage`) | `process_batch(tasks) → list[AudioTask]` |
+| **Batched audio transform/filter** | `ASRStage`, `PreserveByValueStage` | `process_batch(tasks) → list[AudioTask]` |
+| **Batched conversion** | `AudioToDocumentStage` | `process_batch(tasks) → list[DocumentBatch]` |
 
 ## Integration with Processing Stages
 
 ### Stage Input/Output
 
-AudioTask serves as input and output for audio processing stages. All audio stages subclass `ProcessingStage[AudioTask, AudioTask]` directly:
+AudioTask serves as input and output for most audio transform and filter stages, which subclass `ProcessingStage[AudioTask, AudioTask]`. Source and conversion stages can use different task types; for example, `AudioToDocumentStage` is `ProcessingStage[AudioTask, DocumentBatch]`.
 
 ```python
 # CPU stage: mutates task in-place and returns it
@@ -165,9 +167,9 @@ flowchart TD
     A["AudioTask (raw)<br/>• audio_filepath<br/>• text"] --> B[ASR Inference Stage]
     B --> C["AudioTask (with predictions)<br/>• audio_filepath<br/>• text<br/>• pred_text"]
     C --> D[Quality Assessment Stage]
-    D --> E["AudioTask (with metrics)<br/>• audio_filepath<br/>• text<br/>• pred_text<br/>• wer<br/>• duration"]
+    D --> E["AudioTask (with metrics)<br/>• audio_filepath<br/>• text<br/>• pred_text<br/>• wer_pct<br/>• duration"]
     E --> F[Filter Stage]
-    F --> G["AudioTask (filtered)<br/>• audio_filepath<br/>• text<br/>• pred_text<br/>• wer<br/>• duration"]
+    F --> G["AudioTask (filtered)<br/>• audio_filepath<br/>• text<br/>• pred_text<br/>• wer_pct<br/>• duration"]
     G --> H[Export Stage]
     H --> I[Output Files]
 

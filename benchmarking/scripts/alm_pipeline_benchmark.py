@@ -254,6 +254,9 @@ def main() -> int:
         help="Xenna execution mode (streaming or batch). Only applies to xenna executor. Default: streaming.",
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     pre_args, _ = parser.parse_known_args()
 
     if pre_args.config:
@@ -262,6 +265,7 @@ def main() -> int:
     else:
         args = parser.parse_args()
 
+    save_tasks = vars(args).pop("save_tasks")
     if not args.benchmark_results_path or not args.input_manifest:
         parser.error("--benchmark-results-path and --input-manifest are required (provide directly or via --config)")
 
@@ -285,7 +289,7 @@ def main() -> int:
         result_dict.update(run_alm_pipeline_benchmark(**run_args))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

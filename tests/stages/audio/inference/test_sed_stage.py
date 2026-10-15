@@ -27,7 +27,7 @@ import torch
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import _instantiate_stage
-from nemo_curator.models.sed.base import SEDResult
+from nemo_curator.models.audio.sed.base import SEDResult
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -35,7 +35,7 @@ from nemo_curator.tasks import AudioTask
 _SR = 16000
 _HOP = 320
 _CLASSES = 527
-_ADAPTER_TARGET = "nemo_curator.models.sed.panns.PANNsSEDAdapter"
+_ADAPTER_TARGET = "nemo_curator.models.audio.sed.panns.PANNsSEDAdapter"
 _CHECKPOINT = "/weights/Cnn14.pth"
 _PIPELINE_YAML = Path(__file__).parents[4] / "tutorials" / "audio" / "sed" / "pipeline.yaml"
 
@@ -448,6 +448,21 @@ def test_setup_on_node_can_warn_and_retry_during_worker_setup() -> None:
     with (
         patch("hydra.utils.get_class", return_value=_LifecycleAdapter),
         patch.object(_LifecycleAdapter, "download_weights_on_node", side_effect=RuntimeError("offline")),
+    ):
+        stage.setup_on_node()
+
+
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_setup_on_node_never_swallows_memory_failures(error: Exception) -> None:
+    stage = SEDInferenceStage(
+        adapter_target="package.Adapter",
+        adapter_kwargs={"marker": "auto"},
+        prefetch_fail_on_error=False,
+    )
+    with (
+        patch("hydra.utils.get_class", return_value=_LifecycleAdapter),
+        patch.object(_LifecycleAdapter, "download_weights_on_node", side_effect=error),
+        pytest.raises(type(error), match="out of memory"),
     ):
         stage.setup_on_node()
 
