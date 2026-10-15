@@ -179,25 +179,20 @@ your transcript column has another name. Change `manifest_path` and use fresh
 output and workspace locations. The six-clip check above is specific to the
 public sample.
 
-## Measured pipeline throughput
-
-A larger [recorded run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/488667650)
-on October 15, 2026 used these processing settings at commit `2508e59d`, before
-the folder rename:
+## Observed throughput
 
 | Measurement | Result |
 | --- | --- |
 | Executor | Xenna streaming |
-| Hardware | One node with 8 × NVIDIA H100 80 GB GPUs |
+| Hardware | One node with 8 × NVIDIA H100 80GB HBM3 GPUs |
+| Batch size | 32 |
+| GPUs per ASR worker | 2 |
 | Input and output | 22,710 clips; 80.612589 audio hours |
 | Pipeline time | 748.45 seconds |
+| Whole-node pipeline throughput | **387.74 audio-hours/hour** |
 | Pipeline throughput per allocated GPU | **48.47 audio-hours/GPU-hour** |
-
-Throughput is `80.612589 × 3600 / 748.448695 / 8`. The timer includes model
-startup, audio loading, all eight stages, writing, and executor shutdown.
-It excludes queue time, container startup, data/model preparation, readiness
-checks, and output validation. This is one measured run; performance in a
-different environment or on the small sample can differ.
+| Timing scope | Model startup, all eight stages, and executor shutdown |
+| Measured runs | 1 |
 
 ## Follow one clip through the stages
 
