@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import math
 import time
@@ -171,19 +172,20 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
         pipeline = Pipeline(name="audio_librispeech", description="LibriSpeech ASR, WER, and duration pipeline")
         asr_batch_size = 16
         pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
-        pipeline.add_stage(
-            ASRStage(
-                adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-                model_id=model_name,
-                audio_filepath_key="audio_filepath",
-                batch_size=asr_batch_size,
-                max_audio_sec_per_actor=240.0,
-                max_inference_duration_s=120.0,
-                local_bucketing=True,
-                fail_on_audio_error=True,
-                adapter_kwargs={"use_cuda_graph_decoder": False},
-            )
-        )
+        asr_kwargs = {
+            "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            "model_id": model_name,
+            "audio_filepath_key": "audio_filepath",
+            "batch_size": asr_batch_size,
+            "max_inference_duration_s": 120.0,
+            "local_bucketing": True,
+            "fail_on_audio_error": True,
+            "adapter_kwargs": {"use_cuda_graph_decoder": False},
+        }
+        # The benchmark suite can be newer than the Curator image being measured.
+        if "max_audio_sec_per_actor" in inspect.signature(ASRStage).parameters:
+            asr_kwargs["max_audio_sec_per_actor"] = 240.0
+        pipeline.add_stage(ASRStage(**asr_kwargs))
         pipeline.add_stage(
             GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct").with_(
                 batch_size=asr_batch_size

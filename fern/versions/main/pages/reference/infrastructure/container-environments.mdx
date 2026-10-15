@@ -87,7 +87,7 @@ For video, save this as `Dockerfile.video`:
 
 ```dockerfile
 FROM nemo-curator:local
-RUN bash /opt/Curator/docker/common/install_h264_support.sh
+RUN bash /opt/Curator/tools/install_ffmpeg.sh
 ```
 
 Build the image and start a shell inside it:

@@ -117,5 +117,5 @@ Refer to the quickstart options in [Get Started with Video Curation](/get-starte
 
 - "Encoder not found": Your `ffmpeg` build may lack the encoder; verify with `ffmpeg -encoders`.
 - "No NVENC capable devices found": Install NVIDIA drivers/CUDA and ensure the GPU is visible in `nvidia-smi`.
-- `SoftwareCodecMissingError`: install software H.264/HEVC/AV1 support with `bash /opt/Curator/docker/common/install_h264_support.sh`, or use `--transcode-encoder libvpx-vp9`.
+- `SoftwareCodecMissingError`: install software H.264/HEVC/AV1 support with `bash /opt/Curator/tools/install_h264_support.sh`, or use `--transcode-encoder libvpx-vp9`.
 - Output mismatch or low quality: Revisit encoder defaults; set explicit bit rate/quality settings as needed, or enable `use_input_bit_rate`.
