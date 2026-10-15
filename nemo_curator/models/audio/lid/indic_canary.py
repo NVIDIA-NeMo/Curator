@@ -97,7 +97,8 @@ def _resolve_runtime_class(path: str) -> type:
     except ImportError as exc:
         msg = (
             "Indic Canary LID requires its TensorRT-LLM runtime dependencies. "
-            "Use the tested isolated/container environment from the metadata-extraction deployment."
+            "Use docker/audio/Dockerfile.trt_llm and run "
+            "python docker/audio/check_trt_llm.py on a compatible GPU."
         )
         raise ImportError(msg) from exc
     runtime_class = getattr(module, class_name, None)

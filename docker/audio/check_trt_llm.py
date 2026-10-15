@@ -43,6 +43,13 @@ def main() -> None:
     from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
 
     _require_tensorrt_llm()
+    from cuda.bindings import runtime as cuda_runtime
+
+    # Torch uses CUDA 12; check the CUDA 13 runtime used by TensorRT separately.
+    status, device_count = cuda_runtime.cudaGetDeviceCount()
+    if status != cuda_runtime.cudaError_t.cudaSuccess or device_count < 1:
+        msg = f"TensorRT's CUDA runtime cannot use this host GPU: {status!s}, devices={device_count}"
+        raise RuntimeError(msg)
     for name in (
         "nemo.collections.asr.models",
         "nemo_text_processing.text_normalization",
@@ -50,7 +57,11 @@ def main() -> None:
         "nemo_curator.stages.audio.metrics.wer",
         "nemo_curator.stages.audio.preprocessing.indic_asr",
         "nemo_curator.stages.audio.inference.indic_canary",
+        "nemo_curator.stages.audio.inference.lid.stage",
         "nemo_curator.stages.audio.inference.parakeet",
+        "nemo_curator.models.audio.lid.speechbrain",
+        "nemo_curator.models.audio.lid.indic_canary",
+        "nemo_curator.models.audio.lid.whisper",
         "nemo_curator.stages.audio.text_filtering",
         "nemo_curator.config.run",
         "benchmarking.scripts.audio_indic_asr_benchmark",
@@ -66,7 +77,7 @@ def main() -> None:
     values = torch.arange(16, dtype=torch.float32, device="cuda").reshape(4, 4)
     torch.testing.assert_close(values @ torch.eye(4, device="cuda"), values)
     torch.cuda.synchronize()
-    print("Native Canary/Parakeet imports and CUDA execution passed; model-engine parity is a separate check.")
+    print("Native Canary/Parakeet/LID imports and CUDA execution passed; model-engine parity is a separate check.")
 
 
 if __name__ == "__main__":
