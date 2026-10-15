@@ -65,7 +65,72 @@ stages:
         temperature: 0.0
         top_k: 1
         repetition_penalty: 1.0
-      prompt_text: Transcribe the audio.
+      prompt_text: |-
+        You receive an audio file.
+
+        Goal: To transcribe the audio, normalize numbers into words, and include any disfluencies that are present in the audio.
+
+        TRANSCRIPTION RULES:
+        1) Normalize numeric expressions into words exactly as they are SPOKEN in the audio.
+        - Mixed format is forbidden:
+            Bad: "5 percent", "2 zeros"
+            Good: "five percent", "two zeros"
+        - Normalize: percentages, currencies, units, ranges, decimals, dates/years — ONLY if they are spoken.
+        - If a unit (for example “percent”) is NOT spoken, do not add it.
+        2) Include any disfluencies present in the audio.
+        - Disfluencies as "um", "uh" that are present in the audio should be added to the text.
+        - If a word is repeated in the audio, include every repetition in the text.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+
+        OUTPUT FORMAT:
+        - Return only the final text.
+        - No explanations, no JSON, no lists.
+      en_prompt_text: |-
+        You receive English audio. The audio is the ground truth.
+
+        MAIN GOAL: Listen carefully to the audio and transcribe exactly what is spoken, including all disfluencies present in the audio.
+        - Do NOT invent words or content not spoken in the audio.
+        - Do NOT remove substantive content that is spoken in the audio.
+        - Do NOT paraphrase, polish grammar or rewrite sentences.
+        - Normalize numbers to their written form.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+        - Do not ever transliterate, translate, re-spell, normalize, or "correct" an entity into another script.
+        - If enetities are part code switched data it should stay the same.
+
+        KEEP DISFLUENCIES:
+        - Keep fillers, repetitions, false starts, colloquial reductions, and grammatical errors spoken in the audio.
+        - Add hesitation markers and fillers natural to English wherever they are spoken in the audio.
+        - Do NOT clean up, normalize, or remove disfluencies spoken in the audio.
+        - Add consecutive instances of the same word or short phrase when spoken unintentionally.
+          - Example: "I I think" if that is what is spoken.
+
+
+        BACKGROUND / QUIET / OVERLAPPING SPEECH:
+        - Keep all audible speech, including quieter, distant, or overlapping voices — not just the loudest speaker.
+        - Add background or secondary speech that is audible; do not drop words because they sound like background.
+
+        FALSE STARTS:
+        - Add incomplete words or phrases the speaker abandons, marked with a hyphen.
+          - Example: "I was go- going to the store."
+        - Do NOT remove false starts spoken in the audio.
+
+        COLLOQUIAL REDUCTIONS:
+        - If the speaker used reductions, use the spoken form: "want to" → "wanna", "going to" → "gonna", etc.
+        - Preserve forms such as "wanna", "gonna", "kinda", "lemme", "lotta", "outta", "Imma", "sorta", "ya", "m'kay", "finna", "tryna", etc. Do NOT expand them.
+
+        WRONG GRAMMAR:
+        - Keep grammatical errors as spoken. Do NOT correct subject-verb agreement, tense errors, or other grammar issues.
+
+        NUMERICALS:
+        - Keep numbers as spoken in words. Do NOT convert them to digits.
+          - Example: keep "oh eleven" or "zero eleven".
+
+        Output format:
+        - Return ONLY the transcription text.
   - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_primary
     common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt

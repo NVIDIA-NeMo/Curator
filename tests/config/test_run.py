@@ -510,8 +510,9 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for audio resampling")
 @pytest.mark.parametrize("transcript_key", ["text", "draft_text"])
+@pytest.mark.parametrize("language", ["en", "fr"])
 def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
-    tmp_path: Path, transcript_key: str
+    tmp_path: Path, transcript_key: str, language: str
 ) -> None:
     repo_root = Path(__file__).parents[2]
     config_dir = repo_root / "tutorials/audio/qwen_omni_asr"
@@ -521,7 +522,7 @@ def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
     for index, label in enumerate(labels):
         audio_path = tmp_path / f"sample_{index}.wav"
         shutil.copyfile(fixture, audio_path)
-        rows.append({"audio_filepath": str(audio_path), transcript_key: label, "source_lang": "en"})
+        rows.append({"audio_filepath": str(audio_path), transcript_key: label, "source_lang": language})
     manifest = tmp_path / "input.jsonl"
     manifest.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     output_path = tmp_path / "output.jsonl"
@@ -553,8 +554,12 @@ def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
     with patch("nemo_curator.models.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
         tasks = asr.process_batch(tasks)
     prompts = adapter._llm.generate.call_args.args[0]
+    expected_prompt = cfg.stages[2].adapter_kwargs["en_prompt_text" if language == "en" else "prompt_text"]
     assert len(prompts) == len(labels)
-    assert all(prompt["prompt"] == "Transcribe the audio." for prompt in prompts)
+    assert all(prompt["prompt"] == expected_prompt for prompt in prompts)
+    assert all(label not in prompt["prompt"] for prompt in prompts for label in labels)
+    assert "{transcript}" not in expected_prompt
+    assert "reference" not in expected_prompt.lower()
     for stage in postprocessing:
         stage.setup()
         tasks = stage.process_batch(tasks)

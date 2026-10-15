@@ -788,7 +788,8 @@ present.
 [audio_qwen_omni_asr_benchmark.py](scripts/audio_qwen_omni_asr_benchmark.py)
 transcribes audio with Qwen3-Omni, checks the generated text, selects a transcript,
 and cleans it. Existing transcripts are used only for fallback after inference;
-Qwen receives audio with its default `Transcribe the audio.` prompt.
+Qwen receives audio with the English or multilingual prompt from the YAML,
+preserving disfluencies and spoken numbers without a supplied transcript.
 Both Xenna and Ray Data load the complete
 [tutorial YAML](../tutorials/audio/qwen_omni_asr/pipeline.yaml), including its
 pinned model revision, batching, and all eight stages. Only the input

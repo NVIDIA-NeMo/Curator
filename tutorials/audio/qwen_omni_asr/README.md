@@ -1,8 +1,9 @@
 # Qwen Omni ASR
 
 Use Qwen3-Omni to transcribe audio, check the result, and clean the selected
-text. The model uses the default prompt, `Transcribe the audio.` Existing
-transcripts are used only as a fallback when the generated text is flagged.
+text. The prompts preserve disfluencies, repetitions, false starts, colloquial
+speech, and spoken numbers as words. Existing transcripts are used only as a
+fallback when the generated text is flagged.
 
 ```mermaid
 flowchart TD
@@ -197,7 +198,7 @@ the generated text and stage decisions depend on the run.
 | --- | --- |
 | 1. `ManifestReader` | Reads the path and transcript into an `AudioTask`, keeping both fields. |
 | 2. `ResampleAudioStage` | Adds `audio_item_id`, creates a mono 16 kHz WAV, and records its path and duration. |
-| 3. `ASRStage` with `QwenOmniASRAdapter` | Transcribes the audio with the default prompt and writes `primary_model_prediction`. The original `text` is preserved and is not sent to Qwen. |
+| 3. `ASRStage` with `QwenOmniASRAdapter` | Transcribes the audio with the configured prompt and writes `primary_model_prediction`. The original `text` is preserved and is not sent to Qwen. |
 | 4. `WhisperHallucinationStage` | Checks repetition, known suspicious phrases, word lengths, and character rate, recording its decision in `additional_notes`. |
 | 5. `SelectBestPredictionStage` | Selects Qwen's text or falls back to the original transcript when flagged, writing `best_prediction` and `best_prediction_source`. |
 | 6. `RegexSubstitutionStage` | Applies the YAML's punctuation, character, and whitespace rules to create `cleaned_text`. |
