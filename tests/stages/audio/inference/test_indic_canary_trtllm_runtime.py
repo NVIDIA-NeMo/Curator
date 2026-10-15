@@ -160,7 +160,7 @@ def test_missing_optional_runtime_is_reported_at_construction(
 ) -> None:
     monkeypatch.setattr(runtime, "_TRTLLM_IMPORT_ERROR", ImportError("not installed"))
 
-    with pytest.raises(ImportError, match="audio_canary_trtllm"):
+    with pytest.raises(ImportError, match=r"docker/audio/Dockerfile\.trt_llm"):
         runtime.CanaryTRTLLM(tmp_path)
 
 
