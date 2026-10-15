@@ -19,6 +19,7 @@ These stages prepare audio for further processing:
 - ChannelCountStage: Record, select on, or convert the channel count (never resamples)
 - SampleRateFilterStage: Keep only acceptable sample rates, recording each (header-only read)
 - MonoConversionStage: Convert to mono and verify sample rate in one step
+- PrepareIndicASRInputStage: Prepare Hindi audio and reference fields for Indic ASR
 - SegmentConcatenationStage: Concatenate multiple audio segments
 
 Channel policy and rate policy are separate stages so a pipeline can set one without the
@@ -41,12 +42,14 @@ Example:
 
 from .channel_count import ChannelCountStage
 from .concatenation import SegmentConcatenationStage
+from .indic_asr import PrepareIndicASRInputStage
 from .mono_conversion import MonoConversionStage
 from .sample_rate_filter import SampleRateFilterStage
 
 __all__ = [
     "ChannelCountStage",
     "MonoConversionStage",
+    "PrepareIndicASRInputStage",
     "SampleRateFilterStage",
     "SegmentConcatenationStage",
 ]
