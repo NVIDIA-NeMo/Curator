@@ -842,9 +842,9 @@ size, paths and executor when comparing with the tutorial.
 Each run writes `text_pipeline.jsonl` under `--output-dir` and standard
 `params.json`, `metrics.json` and `tasks.pkl` under `--benchmark-results-path`.
 Use `--no-save-tasks` to omit the pickle. Parameters retain the resolved pipeline
-and serving configuration plus the manifest SHA-256. Validation checks identities,
-preserved source fields, all nine operation outcomes, and the written JSONL
-against the returned tasks. An entirely skipped workload fails validation.
+and serving configuration; metrics record the actual manifest SHA-256. Validation
+checks identities, preserved source fields, all nine operation outcomes, and the
+written JSONL against the returned tasks. An entirely skipped workload fails validation.
 
 The pipeline timer includes reader, all text operations, writer, and executor
 setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
@@ -857,10 +857,13 @@ persistent cache path and runtime, using a new cache path for the cold run.
 Metrics include row throughput and per-operation applied, fallback and skipped
 counts. Requests count logical model calls, including rejected completions;
 transport retries are not extra logical requests. Physical attempts and token
-throughput require serving telemetry. Batch statistics remain in `tasks.pkl`
-without summing duplicated copies carried by individual rows. These checks prove
-execution coverage, not semantic parity or model quality. Inspect the output
-fields and fallback counts before interpreting throughput.
+throughput require serving telemetry. The shared result writer also aggregates
+batch statistics into `task_*` metrics, even with `--no-save-tasks`. It deduplicates
+by object identity, so separately deserialized copies can inflate batch totals.
+Use the independently calculated row/request throughput and operation counts for
+comparisons. These checks prove execution coverage, not semantic parity or model
+quality. Inspect the output fields and fallback counts before interpreting
+throughput.
 
 ## Writing Benchmark Scripts
 

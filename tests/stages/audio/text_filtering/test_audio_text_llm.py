@@ -83,6 +83,8 @@ def test_agent_contract_supports_remapped_keys_and_optional_language(endpoint: C
         notes_key="audit",
         skip_me_key="skip_reason",
     )
+    assert stage.validate_input(AudioTask(data={"transcript": "hello"}))
+    assert not stage.validate_input(AudioTask(data={}))
     contract = assert_agent_ready(
         stage,
         lambda: AudioTask(data={"transcript": "hello"}),
@@ -102,7 +104,9 @@ def test_agent_contract_supports_remapped_keys_and_optional_language(endpoint: C
     assert not contract.gates.requires_gpu
 
 
-@pytest.mark.parametrize("data", [{}, {"normalized": "hello", "reference": "Hello"}])
+@pytest.mark.parametrize(
+    "data", [{}, {"normalized": "hello"}, {"reference": "Hello"}, {"normalized": "hello", "reference": "Hello"}]
+)
 def test_agent_recovery_contract_accepts_its_empty_input_fallback(endpoint: Callable, data: dict) -> None:
     endpoint(lambda _request: _completion("Hello."))
     stage = _stage(
@@ -111,6 +115,7 @@ def test_agent_recovery_contract_accepts_its_empty_input_fallback(endpoint: Call
         text_key="normalized",
         ground_truth_key="reference",
     )
+    assert stage.validate_input(AudioTask(data=dict(data)))
     contract = assert_agent_ready(
         stage, lambda: AudioTask(data=dict(data)), available_keys=data, expected_cardinality="1:1"
     )
@@ -122,13 +127,20 @@ def test_agent_recovery_contract_accepts_its_empty_input_fallback(endpoint: Call
 
 
 @pytest.mark.parametrize("prediction", ["English", "French", "unparseable"])
-def test_agent_language_contract_declares_skip_as_conditional(endpoint: Callable, prediction: str) -> None:
+@pytest.mark.parametrize("source_language", ["en", None])
+def test_agent_language_contract_declares_skip_as_conditional(
+    endpoint: Callable, prediction: str, source_language: str | None
+) -> None:
     endpoint(lambda _request: _completion(prediction))
     stage = _stage(mode="language_id", output_text_key="detected_language", skip_me_key="skip_reason")
+    data = {"text": "hello"}
+    if source_language is not None:
+        data["source_lang"] = source_language
+    assert stage.validate_input(AudioTask(data=dict(data)))
     contract = assert_agent_ready(
         stage,
-        lambda: AudioTask(data={"text": "hello", "source_lang": "en"}),
-        available_keys={"text", "source_lang"},
+        lambda: AudioTask(data=dict(data)),
+        available_keys=data,
         expected_cardinality="1:1",
     )
     stage.teardown()
@@ -143,10 +155,17 @@ def test_agent_contract_covers_all_fused_operation_keys(endpoint: Callable) -> N
     stage = _stage(
         prompt="",
         operations=[
-            {"name": "first", "prompt": "Rewrite", "text_key": "first_input", "output_text_key": "first_output"},
+            {
+                "name": "first",
+                "prompt": "Rewrite {language}",
+                "text_key": "first_input",
+                "output_text_key": "first_output",
+            },
             {"name": "second", "prompt": "Rewrite", "text_key": "second_input", "output_text_key": "second_output"},
         ],
     )
+    assert stage.validate_input(AudioTask(data={"first_input": "hello", "second_input": "world"}))
+    assert not stage.validate_input(AudioTask(data={"first_input": "hello"}))
     contract = assert_agent_ready(
         stage,
         lambda: AudioTask(data={"first_input": "hello", "second_input": "world"}),
@@ -568,8 +587,11 @@ def test_missing_required_prompt_context_raises(
     prompt: str, data: dict, rules: dict | None, endpoint: Callable
 ) -> None:
     clients = endpoint(lambda _request: _completion("unused"))
+    stage = _stage(prompt=prompt, language_rules=rules)
+    task = AudioTask(data=data)
+    assert stage.validate_input(task) is ("source_lang" in data)
     with pytest.raises((ValueError, KeyError)):
-        _stage(prompt=prompt, language_rules=rules).process(AudioTask(data=data))
+        stage.process(task)
     assert clients == []
 
 
