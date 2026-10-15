@@ -15,16 +15,20 @@
 # ruff: noqa: INP001
 
 import asyncio
+import gc
 import json
 import threading
+import weakref
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
 import pytest
+from cloudpickle import dumps, loads
 from openai import APIStatusError, APITimeoutError, AsyncOpenAI
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.ray_data.utils import is_actor_stage
 from nemo_curator.models.client import openai_client
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.stages.audio.text_filtering.audio_text_llm import AudioTextLLMStage
@@ -116,7 +120,7 @@ def test_out_of_order_responses_preserve_audio_payload_and_task_envelope(endpoin
     assert all(client.is_closed() for client in clients)
 
 
-def test_repeated_batches_close_clients_without_reusing_closed_event_loops(endpoint: Callable) -> None:
+def test_repeated_batches_reuse_client_and_event_loop_until_teardown(endpoint: Callable) -> None:
     active = maximum_active = 0
     loops = []
 
@@ -135,31 +139,148 @@ def test_repeated_batches_close_clients_without_reusing_closed_event_loops(endpo
         tasks = [AudioTask(data={"text": f"row {index}"}) for index in range(5)]
         assert stage.process_batch(tasks) == tasks
     assert maximum_active == 2
-    assert len(clients) == 2
-    assert len(set(loops)) == 2
+    assert len(clients) == 1
+    assert len(set(loops)) == 1
+    assert not clients[0].is_closed()
+    assert not loops[0].is_closed()
+    stage.teardown()
+    stage.teardown()
     assert all(client.is_closed() for client in clients)
+    assert loops[0].is_closed()
 
 
-def test_batch_deadline_cancels_requests_preserves_inputs_and_closes_client(
+def test_batch_deadline_drains_requests_and_next_batch_recovers(
     endpoint: Callable, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    cancelled = threading.Event()
+    cancelled = []
+    fail = True
+    loops = []
 
     async def handle(_request: httpx.Request) -> httpx.Response:
+        loops.append(asyncio.get_running_loop())
+        if not fail:
+            return _completion("recovered")
         try:
             await asyncio.Event().wait()
         finally:
-            cancelled.set()
+            cancelled.append(True)
 
     clients = endpoint(handle)
     stage = _stage(max_retries=0)
     monkeypatch.setattr(stage, "_batch_timeout", lambda _count, _client: 0.1)
-    task = AudioTask(data={"text": "original", "processed_text": "old"})
+    tasks = [AudioTask(data={"text": "original", "processed_text": "old"}) for _ in range(2)]
     with pytest.raises(TimeoutError):
-        stage.process(task)
-    assert cancelled.wait(timeout=1)
-    assert task.data == {"text": "original", "processed_text": "old"}
+        stage.process_batch(tasks)
+    assert len(cancelled) == 2
+    assert all(task.data == {"text": "original", "processed_text": "old"} for task in tasks)
     assert clients[0].is_closed()
+    assert loops[0].is_closed()
+    fail = False
+    stage.process_batch(tasks)
+    assert len(clients) == 2
+    assert loops[-1] is not loops[0]
+    assert all(task.data["processed_text"] == "recovered" for task in tasks)
+    stage.teardown()
+
+
+@pytest.mark.parametrize("used", [False, True])
+def test_serialized_stage_has_independent_lazy_runtime_and_remains_a_ray_data_task(
+    endpoint: Callable, used: bool
+) -> None:
+    clients = endpoint(lambda _request: _completion("processed"))
+    stage = _stage(num_workers_override=12)
+    if used:
+        stage.process(AudioTask(data={"text": "original"}))
+    restored = loads(dumps(stage))
+    assert not is_actor_stage(stage)
+    assert not is_actor_stage(restored)
+    assert restored.num_workers() == 12
+    assert restored._runner is None
+    assert restored._client is None
+    restored.process(AudioTask(data={"text": "restored"}))
+    assert len(clients) == 1 + used
+    restored.teardown()
+    if used:
+        assert not clients[0].is_closed()
+    stage.teardown()
+    assert all(client.is_closed() for client in clients)
+
+
+def test_garbage_collection_closes_runtime_without_retaining_stage(endpoint: Callable) -> None:
+    clients = endpoint(lambda _request: _completion("processed"))
+    stage = _stage()
+    stage.process(AudioTask(data={"text": "original"}))
+    loop = stage._runner.get_loop()
+    reference = weakref.ref(stage)
+    del stage
+    gc.collect()
+    assert reference() is None
+    assert clients[0].is_closed()
+    assert loop.is_closed()
+
+
+def test_async_caller_rejection_preserves_runtime_for_sync_reuse(
+    endpoint: Callable, recwarn: pytest.WarningsRecorder
+) -> None:
+    clients = endpoint(lambda _request: _completion("processed"))
+    stage = _stage()
+    stage.process(AudioTask(data={"text": "original"}))
+    loop = stage._runner.get_loop()
+
+    async def invalid_calls() -> None:
+        with pytest.raises(RuntimeError, match="synchronous worker thread"):
+            stage.process(AudioTask(data={"text": "async"}))
+        with pytest.raises(RuntimeError, match="synchronous worker thread"):
+            stage.teardown()
+
+    asyncio.run(invalid_calls())
+    assert not clients[0].is_closed()
+    assert not loop.is_closed()
+    assert stage.process(AudioTask(data={"text": "sync"})).data["processed_text"] == "processed"
+    assert len(clients) == 1
+    stage.teardown()
+    assert clients[0].is_closed()
+    assert loop.is_closed()
+    gc.collect()
+    assert not any(issubclass(warning.category, RuntimeWarning) for warning in recwarn)
+
+
+def test_concurrent_batch_and_teardown_cannot_close_an_active_runtime(endpoint: Callable) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    errors = []
+
+    async def handle(_request: httpx.Request) -> httpx.Response:
+        started.set()
+        assert await asyncio.to_thread(release.wait, timeout=5)
+        return _completion("processed")
+
+    clients = endpoint(handle)
+    stage = _stage()
+    task = AudioTask(data={"text": "original"})
+
+    def process() -> None:
+        try:
+            stage.process(task)
+        except Exception as error:  # noqa: BLE001
+            errors.append(error)
+
+    thread = threading.Thread(target=process, daemon=True)
+    thread.start()
+    try:
+        assert started.wait(timeout=5)
+        with pytest.raises(RuntimeError, match="Concurrent batches"):
+            stage.process(AudioTask(data={"text": "second"}))
+        with pytest.raises(RuntimeError, match="while a batch is running"):
+            stage.teardown()
+        assert not clients[0].is_closed()
+    finally:
+        release.set()
+        thread.join(timeout=5)
+        stage.teardown()
+    assert not thread.is_alive()
+    assert errors == []
+    assert task.data["processed_text"] == "processed"
 
 
 def test_timeout_preserves_existing_client_retry_policy(endpoint: Callable) -> None:
@@ -220,7 +341,7 @@ def test_batch_deadline_accounts_for_both_retry_layers_and_waves(
     assert len(deadlines) == 1
 
 
-def test_one_batch_reuses_the_http_connection() -> None:
+def test_repeated_batches_reuse_the_http_connection() -> None:
     peers = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -244,11 +365,13 @@ def test_one_batch_reuses_the_http_connection() -> None:
     thread.start()
     stage = _stage(endpoint=f"http://127.0.0.1:{server.server_port}/v1", max_concurrent_requests=1)
     try:
-        tasks = [AudioTask(data={"text": text}) for text in ("first", "second")]
-        assert all(task.data["processed_text"] == "processed" for task in stage.process_batch(tasks))
-        assert len(peers) == 2
-        assert peers[0] == peers[1]
+        for _ in range(2):
+            tasks = [AudioTask(data={"text": text}) for text in ("first", "second")]
+            assert all(task.data["processed_text"] == "processed" for task in stage.process_batch(tasks))
+        assert len(peers) == 4
+        assert len(set(peers)) == 1
     finally:
+        stage.teardown()
         server.shutdown()
         server.server_close()
         thread.join(timeout=1)
@@ -569,11 +692,12 @@ def test_parallel_prompts_share_concurrency_and_keep_per_operation_configs(endpo
     tasks = [AudioTask(data={"text": f"row {i}"}) for i in range(3)]
     assert stage.process_batch(tasks) is tasks
     assert len(clients) == 1
-    assert clients[0].is_closed()
+    assert not clients[0].is_closed()
     assert maximum == 2
     assert {body["max_tokens"] for body in requests} == {10, 20}
     assert all(task.data["caption"] == "Caption" and task.data["qa"] == "QA" for task in tasks)
     assert all(set(task.data["additional_notes"]) == {"caption", "qa"} for task in tasks)
+    stage.teardown()
 
 
 def test_parallel_http_failure_is_atomic_across_operations(endpoint: Callable) -> None:

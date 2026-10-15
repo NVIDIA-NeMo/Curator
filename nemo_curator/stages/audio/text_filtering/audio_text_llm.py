@@ -17,7 +17,9 @@
 import asyncio
 import math
 import re
+import threading
 import unicodedata
+import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -59,9 +61,11 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     independent text operations into one concurrent batch with a shared client.
     Dependent operations belong in separate pipeline stages.
 
-    Each batch shares one client across its requests and closes it before
-    returning. Pending requests are cancelled on failure. A batch deadline
-    bounds request retries and semaphore waits.
+    Each stage instance reuses one client and event loop across sequential batches.
+    Teardown or a failed batch closes both; pending requests are cancelled and
+    drained before cleanup. Garbage collection also attempts cleanup. A batch
+    deadline bounds request retries and semaphore waits. Concurrent calls on
+    the same stage instance are not supported.
     """
 
     endpoint: str
@@ -93,6 +97,59 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     skip_if_output_exists: bool = False
     name: str = "AudioTextLLM"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    _runner: asyncio.Runner | None = field(default=None, init=False, repr=False, compare=False)
+    _client: AsyncOpenAIClient | None = field(default=None, init=False, repr=False, compare=False)
+    _cleanup: weakref.finalize | None = field(default=None, init=False, repr=False, compare=False)
+    _runtime_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+
+    def __getstate__(self) -> dict:
+        return {
+            key: value
+            for key, value in self.__dict__.items()
+            if key not in {"_runner", "_client", "_cleanup", "_runtime_lock"}
+        }
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._runtime_lock = threading.Lock()
+
+    @staticmethod
+    def _close_runtime(runner: asyncio.Runner, client: AsyncOpenAIClient, name: str) -> None:
+        async def close_client() -> None:
+            if hasattr(client, "client"):
+                await asyncio.wait_for(client.client.close(), timeout=30.0)
+
+        close = close_client()
+        try:
+            with logger.catch(message=f"{name}: client cleanup failed"):
+                runner.run(close)
+        finally:
+            close.close()
+            with logger.catch(message=f"{name}: event loop cleanup failed"):
+                runner.close()
+
+    def _reset_runtime(self) -> None:
+        try:
+            if self._cleanup is not None:
+                self._cleanup()
+        finally:
+            self._runner = self._client = self._cleanup = None
+
+    def teardown(self) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            msg = "AudioTextLLMStage requires a synchronous worker thread"
+            raise RuntimeError(msg)
+        if not self._runtime_lock.acquire(blocking=False):
+            msg = "Cannot tear down AudioTextLLMStage while a batch is running"
+            raise RuntimeError(msg)
+        try:
+            self._reset_runtime()
+        finally:
+            self._runtime_lock.release()
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         for key in (
@@ -298,14 +355,8 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     async def _generate(
         self, messages: list[list[dict[str, str]]], configs: list[GenerationConfig]
     ) -> list[ChatCompletion]:
-        client = AsyncOpenAIClient(
-            base_url=self.endpoint,
-            api_key=self.api_key,
-            max_concurrent_requests=self.max_concurrent_requests,
-            max_retries=self.max_retries,
-            timeout=self.request_timeout_s,
-        )
-        client.setup()
+        client = self._client
+        assert client is not None  # noqa: S101
         requests = [
             asyncio.create_task(
                 client.query_model_response(model=self.model_name, messages=message, generation_config=config)
@@ -320,9 +371,6 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             for request in requests:
                 request.cancel()
             await asyncio.gather(*requests, return_exceptions=True)
-            if hasattr(client, "client"):
-                with logger.catch(message=f"{self.name}: client cleanup failed"):
-                    await asyncio.wait_for(client.client.close(), timeout=30.0)
 
     def process(self, task: AudioTask) -> AudioTask:
         return self.process_batch([task])[0]
@@ -397,6 +445,25 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         return text
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            msg = "AudioTextLLMStage requires a synchronous worker thread"
+            raise RuntimeError(msg)
+        if not self._runtime_lock.acquire(blocking=False):
+            msg = "Concurrent batches on the same AudioTextLLMStage instance are not supported"
+            raise RuntimeError(msg)
+        try:
+            return self._process_batch(tasks)
+        except BaseException:
+            self._reset_runtime()
+            raise
+        finally:
+            self._runtime_lock.release()
+
+    def _process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         pending = []
         requests = []
         messages = []
@@ -413,7 +480,20 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             "completion_tokens": 0.0,
         }
         if messages:
-            responses = asyncio.run(
+            if self._runner is None:
+                self._runner = asyncio.Runner()
+                self._client = AsyncOpenAIClient(
+                    base_url=self.endpoint,
+                    api_key=self.api_key,
+                    max_concurrent_requests=self.max_concurrent_requests,
+                    max_retries=self.max_retries,
+                    timeout=self.request_timeout_s,
+                )
+                self._cleanup = weakref.finalize(
+                    self, type(self)._close_runtime, self._runner, self._client, self.name
+                )
+                self._client.setup()
+            responses = self._runner.run(
                 self._generate(messages, [operation.generation_config for operation, _ in requests])
             )
             if len(responses) != len(requests):

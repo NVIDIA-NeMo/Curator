@@ -284,7 +284,7 @@ def test_real_stage_accounting_preserves_rows_and_excludes_startup(
     ]
     assert result["params"]["inference_server"] == OmegaConf.to_container(tutorial.inference_server, resolve=True)
     assert result["params"]["config_path"] == str(benchmark._CONFIG_DIR / "text_pipeline.yaml")
-    assert len(runtime.clients) == 14
+    assert len(runtime.clients) == 7
     assert all(client.is_closed() for client in runtime.clients)
     assert len(runtime.requests) == 27
     assert all(request["model"] == "test-model" for request in runtime.requests)
@@ -316,7 +316,7 @@ def test_logical_counts_survive_retries_and_independent_row_serialization(
     assert "num_request_attempts" not in metrics
     assert "stage_metrics" not in metrics
     assert "throughput_completion_tokens_per_sec" not in metrics
-    assert len(runtime.clients) == 14
+    assert len(runtime.clients) == 7
     assert all(client.is_closed() for client in runtime.clients)
 
 
