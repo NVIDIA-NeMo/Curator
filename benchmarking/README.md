@@ -790,8 +790,9 @@ three-model language identification, language selection, Opus writing, and
 JSONL output. It loads the same YAML as the tutorial, so model settings and
 stage order stay aligned across both entrypoints.
 
-Use the dedicated `docker/audio/Dockerfile.trt_llm` image and local model
-layout described in the [tutorial](../tutorials/audio/granary_metadata/README.md).
+Use the dedicated `docker/audio/Dockerfile.trt_llm` image with the pinned NeMo
+extension and local model layout described in the
+[tutorial](../tutorials/audio/granary_metadata/README.md).
 The reference eight-speaker Sortformer and Indic Canary bundles must be
 supplied separately. The SED engine and provenance sidecar must match the
 16 kHz frontend. This benchmark is not registered in the standard nightly
@@ -849,11 +850,37 @@ number of allocated GPUs to report audio-hours/GPU-hour. The timer
 excludes dataset downloading and container construction. Tasks are not
 retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
 
+In the [EOS benchmark run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/74129562),
+each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
+30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
+`1b277ece135811e22d0051769c7c3c3199dc396b` and the tutorial's pinned NeMo
+runtime. The input manifest SHA-256 is
+`9c6f7d8f61af7c74d5d574d21ec19c70c07f399564592d8fd9d39eb06998e99e`.
+
+| Executor | Harness wall time (`exec_time_s`) | Pipeline time (`time_taken_s`) | Output validation |
+| --- | ---: | ---: | --- |
+| [Xenna streaming](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/489699528) | 869.274 s | 830.459 s | Passed; 100% source coverage |
+| [Ray Data](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/489699529) | 2358.060 s | 2315.235 s | Passed; 100% source coverage |
+
+Xenna met the 600–900 second wall-time target; Ray Data took 2.71× as long.
+Each executor emitted 38,416 speech clips plus one no-speech audit row, with
+218 language-rejection flags. Segment intervals, speaker counts, selected
+languages, skip reasons, and SED events matched across executors. Encoded Opus
+files are not byte-identical; decoded audio matched exactly for the two retained
+sample pairs, while full-corpus decoded parity was not checked.
+The harness wall time includes input inspection and output validation, which
+are outside the pipeline timer. Data staging and model-engine preparation
+precede measurement; each executor writes to a fresh output directory.
+GPU samples show processing activity across all eight devices for Xenna;
+Ray Data left physical GPU 7 idle and used GPU 6 only sparsely. These timings
+compare the configured executors on equal allocations; they do not establish
+eight-GPU scaling efficiency.
+
 The graph currently loads each recording into memory and uses one parent per
 VAD stage call. The production reader's bounded handling of recordings up
-to 11 hours and its 64-parent VAD scheduling are not reproduced here. No
-end-to-end model result, parity result, calibrated cohort size, or throughput
-measurement is claimed for this draft.
+to 11 hours and its 64-parent VAD scheduling are not reproduced here.
+Numerical parity with the production Granary pipeline and long-recording
+memory scaling remain unverified.
 
 ---
 

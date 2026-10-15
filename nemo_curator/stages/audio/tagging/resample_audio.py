@@ -372,6 +372,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             info = soundfile.info(path)
         except Exception:  # noqa: BLE001 - unreadable or not-audio -> convert it again
             return False
+        expected_subtype = "FLOAT" if self.target_codec == "pcm_f32le" else "PCM_16"
+        if info.subtype != expected_subtype:
+            return False
         if info.samplerate != self.target_sample_rate or info.channels != self.target_nchannels:
             return False
         if input_audio_path is None:
