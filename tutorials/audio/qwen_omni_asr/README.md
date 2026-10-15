@@ -205,6 +205,60 @@ the generated text and stage decisions depend on the run.
 | 7. `AbbreviationConcatStage` | Joins eligible spaced abbreviations into `abbreviated_text`. |
 | 8. `ManifestWriterStage` | Writes the complete row to JSONL, including the original transcript, generated text, and decisions. |
 
+<details>
+<summary>Recorded output for this clip</summary>
+
+This row comes from the Xenna benchmark described below. Only the two file
+paths are shortened; generated text and stage decisions are shown as recorded.
+
+```json
+{
+  "audio_filepath": "374-180298-0000.flac",
+  "text": "CHAPTER SIXTEEN I MIGHT HAVE TOLD YOU OF THE BEGINNING OF THIS LIAISON IN A FEW LINES BUT I WANTED YOU TO SEE EVERY STEP BY WHICH WE CAME I TO AGREE TO WHATEVER MARGUERITE WISHED",
+  "audio_item_id": "374-180298-0000_f5f9f2e0",
+  "resampled_audio_filepath": "374-180298-0000_f5f9f2e0.wav",
+  "duration": 14.53,
+  "primary_model_prediction": "Chapter sixteen. I might have told you of the beginning of this liaison in a few lines, but I wanted you to see every step by which we came. I too agreed to whatever Marguerite wished.",
+  "_skipme": "",
+  "additional_notes": {
+    "WhisperHallucination_primary": "passed",
+    "SelectBestPrediction": "used primary"
+  },
+  "best_prediction": "Chapter sixteen. I might have told you of the beginning of this liaison in a few lines, but I wanted you to see every step by which we came. I too agreed to whatever Marguerite wished.",
+  "best_prediction_source": "primary",
+  "cleaned_text": "Chapter sixteen. I might have told you of the beginning of this liaison in a few lines, but I wanted you to see every step by which we came. I too agreed to whatever Marguerite wished.",
+  "abbreviated_text": "Chapter sixteen. I might have told you of the beginning of this liaison in a few lines, but I wanted you to see every step by which we came. I too agreed to whatever Marguerite wished."
+}
+```
+
+</details>
+
+## Observed throughput
+
+One measured run per executor used the same 22,710 unique English LibriSpeech
+clips, totaling 80.61259 audio hours. Each run used one EOS node with
+8 × NVIDIA H100 80GB HBM3 GPUs, batch size 32, two GPUs per ASR worker, and
+automatic worker scaling.
+
+| Measurement | Xenna streaming | Ray Data |
+| --- | --- | --- |
+| Full benchmark process | 748.54 seconds | 1,275.65 seconds |
+| Pipeline time | 742.96 seconds | 1,270.40 seconds |
+| Whole-node pipeline throughput | **390.61 audio-hours/hour** | **228.44 audio-hours/hour** |
+| Pipeline throughput per allocated GPU | **48.83 audio-hours/GPU-hour** | **28.55 audio-hours/GPU-hour** |
+
+Both runs wrote all 22,710 clips, preserved the input transcripts, selected the
+original transcript for five clips, and left zero rows flagged. Xenna's full
+process time met the 10–15 minute target; Ray Data used the identical cohort.
+Pipeline time includes model startup, all eight stages, and executor shutdown.
+Full process time also includes imports and output validation. Data and model
+staging are excluded from both measurements.
+
+All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
+10% utilization after model initialization. Ray Data did not meet the
+eight-GPU activity target. Per-GPU throughput divides whole-node throughput by
+all eight allocated GPUs.
+
 ## Troubleshooting
 
 - **No new run starts:** one of the guarded output, log, or workspace paths

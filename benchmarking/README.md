@@ -841,6 +841,27 @@ resampling, inference, cleanup, writing, and executor shutdown. It excludes
 data/model staging and output validation. These checks establish completion and
 output structure, not transcription accuracy.
 
+#### Observed throughput
+
+One run per executor used 22,710 unique English LibriSpeech clips totaling
+80.61259 audio hours. Each run used one EOS node with 8 × NVIDIA H100 80GB HBM3
+GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | --- | --- | --- | --- |
+| Xenna streaming | 748.54 s | 742.96 s | 390.61 | 48.83 |
+| Ray Data | 1,275.65 s | 1,270.40 s | 228.44 | 28.55 |
+
+Both produced all 22,710 outputs, preserved the input transcripts, used the
+original transcript for five clips, and left zero rows flagged. Xenna met the
+600–900 second full-process target. Ray Data used the same cohort. Full process
+time includes imports and output validation; staging is excluded. Per-GPU
+throughput divides whole-node throughput by all eight allocated GPUs.
+
+All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
+10% utilization after model initialization. Ray Data did not meet the
+eight-GPU activity target.
+
 ---
 
 ## Writing Benchmark Scripts
