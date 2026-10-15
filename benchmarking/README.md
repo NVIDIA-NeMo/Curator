@@ -21,15 +21,22 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 Assuming the working directory is the NeMo Curator repo root dir:
 ```bash
-./benchmarking/tools/build_docker.sh --tag-as-latest
+docker build -f docker/Dockerfile -t nemo-curator:local .
+export CURATOR_BENCHMARKING_IMAGE=nemo-curator:local
 ```
 
-This builds the `curator_benchmarking` image with:
+This builds the standard Curator image with:
 - CUDA support
-- Python 3.12 environment
+- Python 3.13 environment
 - NeMo Curator from source in repo root dir
 - All NeMo Curator dependencies
 - Benchmarking framework and scripts
+
+The default build includes OpenCV, Lynx, and FFmpeg/ffprobe with the video codecs
+and WAV resampling needed by the suite. A separate benchmarking image is not
+required. Keep `CURATOR_BENCHMARKING_IMAGE` set when invoking `run.sh`, whose
+legacy default image name is `nemo_curator_benchmarking:latest`. Datasets, model
+weights, credentials, and suitable hardware must still be provided separately.
 
 Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
 

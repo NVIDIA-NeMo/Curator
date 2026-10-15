@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025-2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     curl \
     git \
+    lynx \
     libmagic1t64 \
     vim && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
@@ -90,6 +91,13 @@ COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
 
+# Include software codecs and WAV resampling for examples and benchmarks.
+COPY docker/common/install_h264_support.sh .
+RUN bash install_h264_support.sh --with-libopenh264 && \
+    rm install_h264_support.sh && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 FROM nemo_curator_dep AS nemo_curator
 
 ARG CURATOR_EXTRA=all
@@ -102,16 +110,44 @@ COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_cur
 
 # Install Curator
 RUN if [ -n "${CURATOR_EXTRA}" ]; then \
-        uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
+        uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} --extra cv2 ${CURATOR_GROUPS} --no-cache; \
     else \
-        uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
+        uv sync --link-mode copy --locked --extra cv2 ${CURATOR_GROUPS} --no-cache; \
     fi && \
     # Curator uses Python Ray workers only; remove Java/cross-language support.
     # Remove the directory, not just JAR files, so Ray disables Java workers.
     find /opt/venv -type d -path "*/site-packages/ray/jars" -prune -exec rm -rf {} + && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
-    # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
-    (uv pip uninstall opencv-python-headless || true)
+    # Fail the build if OpenCV cannot load its installed Python or native dependencies.
+    python -c "import cv2"
+
+# Fail the build if required codecs are missing or WAV resampling/probing fails.
+# GPU codecs are checked for availability only; execution needs runtime hardware.
+RUN python - <<'PY'
+import json
+import subprocess
+import tempfile
+import wave
+from pathlib import Path
+
+for option, required in (
+    ("-encoders", {"libopenh264", "libvpx-vp9", "pcm_s16le", "h264_nvenc", "hevc_nvenc", "av1_nvenc"}),
+    ("-decoders", {"h264", "hevc", "av1", "pcm_s16le"}),
+):
+    output = subprocess.check_output(["ffmpeg", "-hide_banner", option], text=True)
+    available = {line.split()[1] for line in output.splitlines() if len(line.split()) >= 2}
+    assert required <= available, f"Missing FFmpeg capabilities: {required - available}"
+
+with tempfile.TemporaryDirectory() as directory:
+    source, destination = (Path(directory) / name for name in ("input.wav", "output.wav"))
+    with wave.open(str(source), "wb") as audio:
+        audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+        audio.writeframes(b"\0\0" * 800)
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(source), "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le", str(destination)], check=True)
+    output = subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,sample_rate,channels", "-of", "json", str(destination)], text=True)
+    stream = json.loads(output)["streams"][0]
+    assert (stream["codec_name"], stream["sample_rate"], stream["channels"]) == ("pcm_s16le", "16000", 1)
+PY
 
 # Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
 # GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime

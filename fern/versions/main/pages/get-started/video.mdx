@@ -34,7 +34,8 @@ Prepare the software, GPU, and input data before you run a video pipeline:
 Install `uv` if it is not already available. Refer to the [NeMo Curator Installation Guide](/get-started/installation) for setup details.
 
 Some video operations, including target-resolution frame resizing and motion-vector
-filtering, use OpenCV. The base installation does not include it; add
+filtering, use OpenCV. Current default repository Docker builds include OpenCV
+and the FFmpeg capabilities described below. The base Python package installation does not include OpenCV; add
 `uv pip install "nemo-curator[cv2]"` before using those operations. Motion-vector
 decoding also requires the `video_cpu` or `video_cuda12` extra, which provides
 PyAV and its FFmpeg libraries. Stages that invoke the `ffmpeg` executable still
@@ -59,7 +60,7 @@ Complete these five steps to install Curator, verify FFmpeg, run the splitting e
    <Tabs>
    <Tab title="Build an Image (Recommended)">
 
-   Follow [Build an Image](/reference/infra/container-environments#build-an-image), then build the video image using [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). Check out a published release tag first when you need a released version.
+   Follow [Build an Image](/reference/infra/container-environments#build-an-image). Current default builds include the required media dependencies; use [Verify Audio and Video Dependencies](/reference/infra/container-environments#verify-audio-and-video-dependencies) to check them. Check out a published release tag first when you need a released version; older Dockerfiles may need additional setup.
 
    </Tab>
    <Tab title="Source Installation">
@@ -130,7 +131,7 @@ Complete these five steps to install Curator, verify FFmpeg, run the splitting e
      --verbose
    ```
 
-   Use `--transcode-encoder libvpx-vp9` when your GPU does not include NVENC hardware. `libopenh264` requires a user-installed FFmpeg build.
+   Use `--transcode-encoder libvpx-vp9` when your GPU does not include NVENC hardware. `libopenh264` is also included in current default repository Docker builds; other environments need an FFmpeg build that enables it.
 
 5. Confirm that the output directory contains clips, embeddings, and a manifest. Refer to [Pipeline Output](#pipeline-output) for the file layout and manifest example.
 
@@ -140,7 +141,7 @@ Use the following reference sections to configure storage, FFmpeg, models, and p
 
 ## Install FFmpeg and Encoders
 
-Video pipelines use FFmpeg to decode and encode clips. Install FFmpeg 8.0 or later with an encoder supported by your GPU and a software H.264 decoder. The maintained script below builds FFmpeg with NVENC, `libvpx-vp9`, and software H.264/HEVC/AV1 decoders.
+Video pipelines use FFmpeg to decode and encode clips. Current default repository Docker builds include the required codecs, so use the verification commands below without reinstalling FFmpeg. For source/package environments or older images lacking these capabilities, install FFmpeg 8.0 or later with an encoder supported by your GPU and a software H.264 decoder. The maintained script below builds FFmpeg with NVENC, `libvpx-vp9`, and software H.264/HEVC/AV1 decoders.
 
 <Tabs>
    <Tab title="Debian/Ubuntu (Script)">
@@ -176,7 +177,7 @@ If an encoder or decoder is missing, reinstall FFmpeg with the required options 
 Refer to [Clip Encoding](/curate-video/process-data/transcoding) to select an encoder and verify NVENC support on your system.
 
 <Note>
-On GPUs without NVENC hardware, such as NVIDIA A100 and NVIDIA H100, use `--transcode-encoder libvpx-vp9`. Software H.264 decoding is provided by `install_h264_support.sh`; the optional `libopenh264` encoder is separate.
+On GPUs without NVENC hardware, such as NVIDIA A100 and NVIDIA H100, use `--transcode-encoder libvpx-vp9`. Current default repository Docker builds include software H.264 decoding and the `libopenh264` encoder. When running the standalone installer, add `--with-libopenh264` to enable that encoder.
 </Note>
 
 ## Available Models
@@ -244,7 +245,7 @@ The example uses fixed-stride splitting. The `transnetv2` option supports scene-
 | **Embedding** | &nbsp; | &nbsp; |
 | `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
 | **Encoding** | &nbsp; | &nbsp; |
-| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9`, `libopenh264` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. `libopenh264` is accepted but requires a user-installed FFmpeg build. Refer to [software codec support](/get-started/installation#software-h264hevcav1-codec-support-advanced). |
+| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9`, `libopenh264` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. Current default repository Docker builds include `libopenh264`; other environments may need [software codec support](/get-started/installation#software-h264hevcav1-codec-support-advanced). |
 | `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding (only valid with `h264_nvenc`). |
 | **Optional Features** | &nbsp; | &nbsp; |
 | `--generate-captions` | Flag | Generate text captions for each clip |
