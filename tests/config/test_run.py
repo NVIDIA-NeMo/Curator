@@ -510,7 +510,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for audio resampling")
 @pytest.mark.parametrize("transcript_key", ["text", "draft_text"])
-def test_qwen_omni_asr_yaml_preserves_transcripts_and_recovers_hallucinations(
+def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
     tmp_path: Path, transcript_key: str
 ) -> None:
     repo_root = Path(__file__).parents[2]
@@ -553,8 +553,8 @@ def test_qwen_omni_asr_yaml_preserves_transcripts_and_recovers_hallucinations(
     with patch("nemo_curator.models.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
         tasks = asr.process_batch(tasks)
     prompts = adapter._llm.generate.call_args.args[0]
-    assert all(label in prompt["prompt"] for label, prompt in zip(labels, prompts, strict=True))
-    assert all("{transcript}" not in prompt["prompt"] for prompt in prompts)
+    assert len(prompts) == len(labels)
+    assert all(prompt["prompt"] == "Transcribe the audio." for prompt in prompts)
     for stage in postprocessing:
         stage.setup()
         tasks = stage.process_batch(tasks)

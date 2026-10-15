@@ -1,15 +1,14 @@
 # Qwen Omni ASR
 
-Use Qwen3-Omni to transcribe audio with an existing transcript, check the
-result, and clean the selected text. The model listens for missing speech,
-including hesitations and repetitions, while preserving names and writing
-spoken numbers as words.
+Use Qwen3-Omni to transcribe audio, check the result, and clean the selected
+text. The model uses the default prompt, `Transcribe the audio.` Existing
+transcripts are used only as a fallback when the generated text is flagged.
 
 ```mermaid
 flowchart TD
     read["1. ManifestReader<br/>Read audio paths and existing transcripts"]
     resample["2. ResampleAudioStage<br/>Create mono 16 kHz WAV files"]
-    asr["3. ASRStage + Qwen3-Omni<br/>Generate text from audio and transcript"]
+    asr["3. ASRStage + Qwen3-Omni<br/>Transcribe the audio"]
     check["4. WhisperHallucinationStage<br/>Check for suspicious text"]
     select["5. SelectBestPredictionStage<br/>Select model text or the original transcript"]
     clean["6. RegexSubstitutionStage<br/>Clean punctuation and whitespace"]
@@ -18,22 +17,23 @@ flowchart TD
     read --> resample --> asr --> check --> select --> clean --> abbreviate --> write
 ```
 
-All eight stages, prompts, and model settings are in [pipeline.yaml](pipeline.yaml).
+All eight stages and model settings are in [pipeline.yaml](pipeline.yaml).
 Run it through the standard `nemo_curator/config/run.py` entry point.
 `WhisperHallucinationStage` checks text; it does not run a Whisper model.
 If that check flags Qwen's text, the pipeline can select the original
 transcript before cleanup. It retains every row.
 
-This tutorial requires an existing transcript for each clip. For transcription
-without one, see [Qwen3-Omni in-process ASR](../qwen_omni_inprocess/).
+This tutorial requires an existing transcript for each clip for the fallback
+stage; Qwen does not receive it. For transcription without that fallback,
+see [Qwen3-Omni in-process ASR](../qwen_omni_inprocess/).
 [Qwen3-ASR](../qwen_asr/) uses a different model.
 
 ## 1. Set up the environment
 
 Use Linux x86_64 with CUDA, FFmpeg, and at least two GPUs with enough memory for
-`Qwen/Qwen3-Omni-30B-A3B-Instruct`. Each ASR worker uses two GPUs together;
-the recorded example below used H100 80 GB GPUs. Model startup and the first
-weight download can take several minutes, even for a small input.
+`Qwen/Qwen3-Omni-30B-A3B-Instruct`. Each ASR worker uses two GPUs together.
+Model startup and the first weight download can take several minutes, even for
+a small input.
 
 From the Curator repository root:
 
@@ -148,8 +148,8 @@ PY
 ```
 
 This checks completion and output structure. Listen to the audio when assessing
-transcription quality: matching text already supplied to the model is not an
-independent quality measurement.
+transcription quality, and check `best_prediction_source` to distinguish model
+predictions from fallback text.
 
 | Output field | Meaning |
 | --- | --- |
@@ -168,44 +168,23 @@ Create a JSONL manifest with one row per clip:
 {"audio_filepath": "/data/clip.wav", "text": "The existing transcript.", "source_lang": "en"}
 ```
 
-Use existing audio files and nonempty transcripts aligned to each **whole clip**.
-Clips must be at most 30 seconds; split longer recordings and align their
-transcripts before running. FFmpeg converts supported input formats to mono
-16 kHz WAV. Use absolute audio paths visible to the workers.
+Use existing audio files and nonempty transcripts for the fallback stage.
+ASR splits recordings longer than 30 seconds into chunks, transcribes each,
+and joins their predictions into one transcript per input clip. FFmpeg converts
+supported input formats to mono 16 kHz WAV. Use absolute audio paths visible
+to the workers.
 
 Supply `source_lang` for non-English audio; missing language defaults to English.
 The supported codes are listed in the YAML. Set `transcript_key=my_column` if
-your transcript column has another name. Change `manifest_path` and use fresh
-output and workspace locations. The six-clip check above is specific to the
-public sample.
-
-## Observed throughput
-
-| Measurement | Result |
-| --- | --- |
-| Executor | Xenna streaming |
-| Hardware | One node with 8 × NVIDIA H100 80GB HBM3 GPUs |
-| Batch size | 32 |
-| GPUs per ASR worker | 2 |
-| Input and output | 22,710 clips; 80.612589 audio hours |
-| Pipeline time | 748.45 seconds |
-| Whole-node pipeline throughput | **387.74 audio-hours/hour** |
-| Pipeline throughput per allocated GPU | **48.47 audio-hours/GPU-hour** |
-| Timing scope | Model startup, all eight stages, and executor shutdown |
-| Measured runs | 1 |
+your fallback transcript column has another name. Change `manifest_path` and
+use fresh output and workspace locations. The six-clip check above is specific
+to the public sample.
 
 ## Follow one clip through the stages
 
-<details>
-<summary>Recorded input, output, and the changes each stage makes</summary>
-
-This is the first sample, `374-180298-0000.flac` (14.53 seconds), from a
-recorded run. Only the two machine-specific paths have been shortened below;
-all other values are unchanged. Generated IDs depend on the original file
-path, so yours can differ. Intermediate task snapshots were not saved: the
-stage explanations follow the implementation and the recorded input/output.
-
-**Complete input:**
+This is the first public sample, `374-180298-0000.flac` (14.53 seconds), with
+its audio path shortened. The table describes the configured transformations;
+the generated text and stage decisions depend on the run.
 
 ```json
 {
@@ -217,37 +196,13 @@ stage explanations follow the implementation and the recorded input/output.
 | Stage | What happens to this row |
 | --- | --- |
 | 1. `ManifestReader` | Reads the path and transcript into an `AudioTask`, keeping both fields. |
-| 2. `ResampleAudioStage` | Adds `audio_item_id`, creates a mono 16 kHz WAV, and records its path and `duration=14.53`. The prepared waveform contains 232,480 samples. |
-| 3. `ASRStage` with `QwenOmniASRAdapter` | Uses English by default, puts the existing transcript into the prompt alongside the audio, and writes `primary_model_prediction`. The original `text` stays unchanged. |
-| 4. `WhisperHallucinationStage` | Checks repetition, known suspicious phrases, word lengths, and character rate. This row passes, recorded in `additional_notes`. |
-| 5. `SelectBestPredictionStage` | Selects Qwen's text as `best_prediction`, sets the source to `primary`, and records `used primary`. A flagged transcript can instead use the original text. |
-| 6. `RegexSubstitutionStage` | Applies the YAML's punctuation, character, and whitespace rules to create `cleaned_text`. This row's selected text needs no changes. |
-| 7. `AbbreviationConcatStage` | Joins eligible spaced abbreviations into `abbreviated_text`. This row needs no changes. |
+| 2. `ResampleAudioStage` | Adds `audio_item_id`, creates a mono 16 kHz WAV, and records its path and duration. |
+| 3. `ASRStage` with `QwenOmniASRAdapter` | Transcribes the audio with the default prompt and writes `primary_model_prediction`. The original `text` is preserved and is not sent to Qwen. |
+| 4. `WhisperHallucinationStage` | Checks repetition, known suspicious phrases, word lengths, and character rate, recording its decision in `additional_notes`. |
+| 5. `SelectBestPredictionStage` | Selects Qwen's text or falls back to the original transcript when flagged, writing `best_prediction` and `best_prediction_source`. |
+| 6. `RegexSubstitutionStage` | Applies the YAML's punctuation, character, and whitespace rules to create `cleaned_text`. |
+| 7. `AbbreviationConcatStage` | Joins eligible spaced abbreviations into `abbreviated_text`. |
 | 8. `ManifestWriterStage` | Writes the complete row to JSONL, including the original transcript, generated text, and decisions. |
-
-**Complete output:**
-
-```json
-{
-  "audio_filepath": "/data/audio/374-180298-0000.flac",
-  "text": "CHAPTER SIXTEEN I MIGHT HAVE TOLD YOU OF THE BEGINNING OF THIS LIAISON IN A FEW LINES BUT I WANTED YOU TO SEE EVERY STEP BY WHICH WE CAME I TO AGREE TO WHATEVER MARGUERITE WISHED",
-  "audio_item_id": "374-180298-0000_f5f9f2e0",
-  "resampled_audio_filepath": "/work/audio_resampled/374-180298-0000_f5f9f2e0.wav",
-  "duration": 14.53,
-  "primary_model_prediction": "CHAPTER SIXTEEN I might have told you of the beginning of this liaison in a few lines but I wanted you to see every step by which we came I to agree to whatever Marguerite wished",
-  "_skipme": "",
-  "additional_notes": {
-    "WhisperHallucination_primary": "passed",
-    "SelectBestPrediction": "used primary"
-  },
-  "best_prediction": "CHAPTER SIXTEEN I might have told you of the beginning of this liaison in a few lines but I wanted you to see every step by which we came I to agree to whatever Marguerite wished",
-  "best_prediction_source": "primary",
-  "cleaned_text": "CHAPTER SIXTEEN I might have told you of the beginning of this liaison in a few lines but I wanted you to see every step by which we came I to agree to whatever Marguerite wished",
-  "abbreviated_text": "CHAPTER SIXTEEN I might have told you of the beginning of this liaison in a few lines but I wanted you to see every step by which we came I to agree to whatever Marguerite wished"
-}
-```
-
-</details>
 
 ## Troubleshooting
 
@@ -259,4 +214,4 @@ stage explanations follow the implementation and the recorded input/output.
   check free memory, and verify any local model directory contains the pinned
   weights. The console log includes worker startup messages.
 - **Empty or flagged text:** inspect `_skipme`, `additional_notes`, the language
-  code, and whether the supplied transcript matches the entire clip.
+  code, and the audio. Check the original transcript if fallback text was selected.

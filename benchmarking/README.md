@@ -786,10 +786,12 @@ present.
 ### Qwen Omni ASR
 
 [audio_qwen_omni_asr_benchmark.py](scripts/audio_qwen_omni_asr_benchmark.py)
-runs Qwen3-Omni on audio and an existing transcript, checks the generated text,
-selects a transcript, and cleans it. Both Xenna and Ray Data load the complete
+transcribes audio with Qwen3-Omni, checks the generated text, selects a transcript,
+and cleans it. Existing transcripts are used only for fallback after inference;
+Qwen receives audio with its default `Transcribe the audio.` prompt.
+Both Xenna and Ray Data load the complete
 [tutorial YAML](../tutorials/audio/qwen_omni_asr/pipeline.yaml), including its
-prompts, pinned model revision, batching, and all eight stages. Only the input
+pinned model revision, batching, and all eight stages. Only the input
 size, paths, and executor change. The script is standalone; it is not registered
 in `benchmarks.yaml`.
 
@@ -835,38 +837,8 @@ rejected. `num_input_text_fallbacks` counts these reused transcripts;
 `num_skipped_tasks` counts rows that remain flagged and need inspection.
 The pipeline timer, `time_taken_s`, includes model startup, audio loading,
 resampling, inference, cleanup, writing, and executor shutdown. It excludes
-data/model staging and output validation. Agreement with a transcript supplied
-in the prompt is not an independent measure of accuracy.
-
-#### Measured EOS results
-
-[Pipeline 73992409](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/73992409)
-ran the shared YAML at commit `2508e59d` on October 15, 2026, before the naming
-and documentation changes. It reused **22,710 clips / 80.612589 audio hours**
-from the pinned LibriSpeech cache, on one exclusive node with eight H100s per
-executor. The five-hour example above is a smaller workload.
-
-| Measurement | Xenna streaming | Ray Data |
-| --- | ---: | ---: |
-| Whole subprocess (`exec_time_s`) | **753.48 s (12m33s)** | 1265.92 s (21m06s) |
-| Pipeline (`time_taken_s`) | 748.45 s | 1260.30 s |
-| Input / output rows | 22,710 / 22,710 | 22,710 / 22,710 |
-| Missing / duplicate / skipped rows | 0 / 0 / 0 | 0 / 0 / 0 |
-| Original transcripts reused | 2 | 2 |
-| GPUs meeting the useful-inference activity check | **8 / 8** | **6 / 8** |
-
-Both runs preserved every input transcript. Xenna met the 600–900-second
-whole-subprocess target. Ray Data completed correctly but failed the separate
-eight-GPU activity check: its workers repeatedly stopped and reloaded the
-model, and two GPUs only performed initialization. Each device needed at least
-30 seconds above 10% utilization after its model was ready. This establishes
-sampled activity, not continuous saturation or linear scaling.
-
-The whole-subprocess timer additionally includes Python startup and output
-validation; it excludes queue time, container import, staging, and readiness
-checks. One run per executor was measured, without retries. These measurements
-do not establish transcription accuracy, repeatability, multi-node performance,
-or performance in a different dependency environment.
+data/model staging and output validation. These checks establish completion and
+output structure, not transcription accuracy.
 
 ---
 

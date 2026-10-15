@@ -75,9 +75,6 @@ class ASRAdapter(Protocol):
     * ``language_code`` (``str | None``): original language code from the
       configured stage input column.
     * ``task_id`` (``str | None``): carried through for diagnostics.
-    * ``reference_text`` (optional ``str``): non-empty transcript for this
-      whole audio item, supplied only when ``reference_text_key`` is configured.
-      Adapters that support reference-conditioned inference may consume it.
 
     Attributes:
         model_id: Identifier of the underlying model checkpoint.

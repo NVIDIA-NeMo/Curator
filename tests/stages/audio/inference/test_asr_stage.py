@@ -26,7 +26,6 @@ from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
-from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -49,7 +48,6 @@ def _make_stage(  # noqa: PLR0913
     waveform_key: str | None = None,
     keep_waveform: bool = False,
     extras_key: str | None = None,
-    reference_text_key: str | None = None,
     fail_on_audio_error: bool = False,
 ) -> ASRStage:
     """Build an ASRStage wired to a mock adapter (no real model load)."""
@@ -68,7 +66,6 @@ def _make_stage(  # noqa: PLR0913
         waveform_key=waveform_key,
         keep_waveform=keep_waveform,
         extras_key=extras_key,
-        reference_text_key=reference_text_key,
         fail_on_audio_error=fail_on_audio_error,
     )
     mock_adapter = MagicMock()
@@ -112,33 +109,6 @@ def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
     assert stage.process_batch([]) == []
 
 
-@pytest.mark.parametrize("num_tasks", [0, 1, 2])
-def test_numpy_task_batch_preserves_reference_prediction_alignment(num_tasks: int) -> None:
-    stage = _make_stage(waveform_key="waveform", reference_text_key="draft_text")
-    tasks = np.empty(num_tasks, dtype=object)
-    for index in range(num_tasks):
-        task = _make_waveform_task(waveform=np.full(_SR, index + 1, dtype=np.float32))
-        task.data["draft_text"] = f"reference-{index}"
-        tasks[index] = task
-    stage._adapter.transcribe_batch.side_effect = lambda items: [
-        ASRResult(text=f"{item['reference_text']}:{item['waveform'][0]:.0f}") for item in items
-    ]
-
-    results = stage.process_batch(tasks)
-
-    assert len(results) == num_tasks
-    assert all(result is tasks[index] for index, result in enumerate(results))
-    assert [task.data["pred_text"] for task in results] == [
-        f"reference-{index}:{index + 1}" for index in range(num_tasks)
-    ]
-    assert [task.data["draft_text"] for task in results] == [f"reference-{index}" for index in range(num_tasks)]
-    assert all(task.data["_skipme"] == "" for task in results)
-    if num_tasks:
-        stage._adapter.transcribe_batch.assert_called_once()
-    else:
-        stage._adapter.transcribe_batch.assert_not_called()
-
-
 def test_basic_inference() -> None:
     stage = _make_stage()
     stage._adapter.transcribe_batch.return_value = [
@@ -175,87 +145,6 @@ def test_adapter_not_initialized_raises() -> None:
     )
     with pytest.raises(RuntimeError, match="setup"):
         stage.process_batch([_make_task()])
-
-
-@pytest.mark.parametrize("local_bucketing", [False, True])
-def test_reference_text_stays_aligned_with_audio_after_skips_and_bucketing(local_bucketing: bool) -> None:
-    stage = _make_stage(
-        waveform_key="waveform",
-        reference_text_key="draft_text",
-        max_audio_sec_per_actor=5.0,
-        max_inference_duration_s=5.0,
-        local_bucketing=local_bucketing,
-        supported_language_codes=["en"],
-        skip_if_output_exists=True,
-    )
-    tasks = [_make_waveform_task(waveform=np.full(n * _SR, n, dtype=np.float32)) for n in [3, 4, 2, 1]]
-    for index, task in enumerate(tasks):
-        task.data["draft_text"] = f"reference-{index}"
-    tasks[1].data["source_lang"] = "pl"
-    tasks[2].data["pred_text"] = "cached"
-    stage._adapter.transcribe_batch.side_effect = lambda items: [
-        ASRResult(text=f"{item['reference_text']}:{item['waveform'][0]:.0f}") for item in items
-    ]
-
-    results = stage.process_batch(tasks)
-
-    assert [task.data["pred_text"] for task in results] == ["reference-0:3", "", "cached", "reference-3:1"]
-    assert [task.data["draft_text"] for task in results] == [f"reference-{index}" for index in range(4)]
-    assert [task.data["_skipme"] for task in results] == ["", "language_not_supported", "", ""]
-
-
-@pytest.mark.parametrize("reference", [None, "", " \n ", 42, ["text"]])
-def test_malformed_reference_text_fails_before_inference(reference: object) -> None:
-    stage = _make_stage(reference_text_key="draft_text")
-    task = _make_task()
-    task.data["draft_text"] = reference
-
-    with pytest.raises(ValueError, match="non-empty reference string"):
-        stage.process_batch([task])
-
-    stage._adapter.transcribe_batch.assert_not_called()
-
-
-def test_reference_text_is_required_when_configured() -> None:
-    stage = _make_stage(reference_text_key="draft_text")
-
-    with pytest.raises(ValueError, match="missing required columns"):
-        stage.process_batch([_make_task()])
-
-    stage._adapter.transcribe_batch.assert_not_called()
-
-
-@pytest.mark.parametrize("existing_flag", ["", "other_filter"])
-def test_reference_conditioned_results_can_feed_hallucination_filter(existing_flag: str) -> None:
-    stage = _make_stage(reference_text_key="draft_text")
-    stage._adapter.transcribe_batch.return_value = [ASRResult(text="A clear sentence.")]
-    task = _make_task()
-    task.data.update({"draft_text": "A clear sentnce.", "duration": 1.0})
-    if existing_flag:
-        task.data["_skipme"] = existing_flag
-
-    result = stage.process_batch([task])[0]
-    hallucination = WhisperHallucinationStage(common_hall_file="unused.txt")
-
-    assert hallucination.validate_input(result)
-    assert hallucination.process(result).data["_skipme"] == existing_flag
-
-
-@pytest.mark.parametrize("reference_text_key", ["", " ", "pred_text", "_skipme"])
-def test_invalid_reference_text_key_is_rejected(reference_text_key: str) -> None:
-    with pytest.raises(ValueError, match="reference_text_key"):
-        _make_stage(reference_text_key=reference_text_key)
-
-
-def test_reference_text_rejects_unaligned_long_audio_before_inference() -> None:
-    stage = _make_stage(reference_text_key="draft_text", waveform_key="waveform", max_inference_duration_s=1.0)
-    task = _make_waveform_task(waveform=np.zeros(_SR + 1, dtype=np.float32))
-    task.data["draft_text"] = "full transcript"
-
-    with pytest.raises(ValueError, match="provide aligned audio/transcript segments"):
-        stage.process_batch([task])
-
-    stage._adapter.transcribe_batch.assert_not_called()
 
 
 def test_multi_task_batch_preserves_order() -> None:

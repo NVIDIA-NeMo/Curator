@@ -49,7 +49,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest with NeMo FastConformer through the shared ASR adapter | [**nemo_fastconformer/**](nemo_fastconformer/) | Recommended (1 per ASR actor) | Bundled sample or your own manifest |
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
-| Run Qwen3-Omni on audio and existing transcripts | [**qwen_omni_asr/**](qwen_omni_asr/) | Yes (2 per ASR actor) | Public LibriSpeech sample or your own audio and transcripts |
+| Transcribe audio with Qwen3-Omni, check the text, and clean it | [**qwen_omni_asr/**](qwen_omni_asr/) | Yes (2 per ASR actor) | Public LibriSpeech sample or your own audio and fallback transcripts |
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
 | Diarize whole recordings with Streaming Sortformer through the shared diarization adapter | [**sortformer/**](sortformer/) | Yes (1 per actor) | Bundled sample or your own manifest |
