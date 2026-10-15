@@ -509,16 +509,19 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for audio resampling")
-def test_reference_improvement_yaml_preserves_labels_and_recovers_hallucinations(tmp_path: Path) -> None:
+@pytest.mark.parametrize("transcript_key", ["text", "draft_text"])
+def test_qwen_omni_asr_yaml_preserves_transcripts_and_recovers_hallucinations(
+    tmp_path: Path, transcript_key: str
+) -> None:
     repo_root = Path(__file__).parents[2]
-    config_dir = repo_root / "tutorials/audio/qwen_omni_reference_improvement"
+    config_dir = repo_root / "tutorials/audio/qwen_omni_asr"
     fixture = repo_root / "tests/fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
     labels = ["The original label.", "Another human label."]
     rows = []
     for index, label in enumerate(labels):
         audio_path = tmp_path / f"sample_{index}.wav"
         shutil.copyfile(fixture, audio_path)
-        rows.append({"audio_filepath": str(audio_path), "text": label, "source_lang": "en"})
+        rows.append({"audio_filepath": str(audio_path), transcript_key: label, "source_lang": "en"})
     manifest = tmp_path / "input.jsonl"
     manifest.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     output_path = tmp_path / "output.jsonl"
@@ -529,6 +532,7 @@ def test_reference_improvement_yaml_preserves_labels_and_recovers_hallucinations
                 f"manifest_path={manifest}",
                 f"output_path={output_path}",
                 f"workspace_dir={tmp_path / 'workspace'}",
+                f"transcript_key={transcript_key}",
             ],
         )
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
@@ -556,7 +560,7 @@ def test_reference_improvement_yaml_preserves_labels_and_recovers_hallucinations
         tasks = stage.process_batch(tasks)
         stage.teardown()
     output = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
-    assert [row["text"] for row in output] == labels
+    assert [row[transcript_key] for row in output] == labels
     assert [row["best_prediction"] for row in output] == ["The revised label.", labels[1]]
     assert [row["best_prediction_source"] for row in output] == ["primary", "reference"]
     assert [row["abbreviated_text"] for row in output] == ["The revised label.", labels[1]]

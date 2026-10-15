@@ -122,11 +122,6 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/librispeech_all_train_750h_71cacbfb/manifest.jsonl"
-  # Public human-reference prefix; draft workload, pending GPU calibration.
-  - name: "qwen_omni_reference_librispeech_5h"
-    formats:
-    - type: "jsonl"
-      path: "{datasets_path}/qwen_omni_reference_librispeech_clean_5h_71cacbfb/manifest.jsonl"
   # AMI SDM meetings up to 60 minutes, totaling at least 30 hours.
   - name: "audio_tagging_ami_sdm"
     formats:
@@ -1123,53 +1118,6 @@ entries:
         max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
-
-  # Same tutorial graph, model, and human-reference cohort on both executors.
-  # Disabled until TP=2 GPU validation and workload/runtime calibration complete.
-  - name: audio_qwen_omni_reference_improvement_xenna
-    enabled: false
-    script: audio_qwen_omni_reference_improvement_benchmark.py
-    environment:
-      VLLM_WORKER_MULTIPROC_METHOD: spawn
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:qwen_omni_reference_librispeech_5h,jsonl}
-      --model-id={model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct
-      --executor=xenna
-      --execution-mode=streaming
-    requirements:
-      - metric: num_tasks_processed
-        min_value: 1
-      - metric: total_audio_duration_hours
-        min_value: 5.0
-      - metric: output_coverage_ratio
-        exact_value: 1.0
-      - metric: reference_preservation_ratio
-        exact_value: 1.0
-      - metric: num_skipped_tasks
-        exact_value: 0
-
-  - name: audio_qwen_omni_reference_improvement_raydata
-    enabled: false
-    script: audio_qwen_omni_reference_improvement_benchmark.py
-    environment:
-      VLLM_WORKER_MULTIPROC_METHOD: spawn
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:qwen_omni_reference_librispeech_5h,jsonl}
-      --model-id={model_weights_path}/qwen3-omni/Qwen3-Omni-30B-A3B-Instruct
-      --executor=ray_data
-    requirements:
-      - metric: num_tasks_processed
-        min_value: 1
-      - metric: total_audio_duration_hours
-        min_value: 5.0
-      - metric: output_coverage_ratio
-        exact_value: 1.0
-      - metric: reference_preservation_ratio
-        exact_value: 1.0
-      - metric: num_skipped_tasks
-        exact_value: 0
 
   - name: audio_readspeech_xenna
     enabled: true

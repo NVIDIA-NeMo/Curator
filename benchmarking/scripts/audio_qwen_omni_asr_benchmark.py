@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark the Qwen-Omni reference-improvement tutorial on a staged manifest."""
+"""Benchmark the Qwen Omni ASR tutorial on a staged manifest."""
 
 from __future__ import annotations
 
@@ -29,9 +29,7 @@ from utils import write_benchmark_results
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
 
-_PIPELINE_CONFIG = (
-    Path(__file__).resolve().parents[2] / "tutorials/audio/qwen_omni_reference_improvement/pipeline.yaml"
-)
+_PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/qwen_omni_asr/pipeline.yaml"
 
 
 def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
@@ -43,15 +41,15 @@ def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
             try:
                 row = json.loads(line)
                 audio_path = row["audio_filepath"]
-                reference = row["text"]
+                transcript = row["text"]
             except (json.JSONDecodeError, KeyError, TypeError) as error:
                 msg = f"Invalid manifest row {path}:{line_number}"
                 raise ValueError(msg) from error
             if not isinstance(audio_path, str) or not audio_path.strip():
                 msg = f"Invalid audio_filepath in {path}:{line_number}"
                 raise ValueError(msg)
-            if not isinstance(reference, str) or not reference.strip():
-                msg = f"Empty or invalid reference text in {path}:{line_number}"
+            if not isinstance(transcript, str) or not transcript.strip():
+                msg = f"Empty or invalid input transcript in {path}:{line_number}"
                 raise ValueError(msg)
             if audio_path in rows:
                 msg = f"Duplicate audio_filepath in {path}: {audio_path}"
@@ -74,12 +72,11 @@ def _collect_output_metrics(output_path: Path, input_rows: dict[str, dict[str, A
         raise ValueError(msg)
 
     total_duration_s = 0.0
-    reference_fallbacks = 0
-    ground_truth_fallbacks = 0
+    input_text_fallbacks = 0
     skipped = 0
     for audio_path, row in output_rows.items():
         if row["text"] != input_rows[audio_path]["text"]:
-            msg = f"Reference text changed for {audio_path}"
+            msg = f"Input transcript changed for {audio_path}"
             raise ValueError(msg)
         for field in ("primary_model_prediction", "best_prediction", "abbreviated_text"):
             if not isinstance(row.get(field), str) or not row[field].strip():
@@ -99,23 +96,21 @@ def _collect_output_metrics(output_path: Path, input_rows: dict[str, dict[str, A
             msg = f"Unexpected prediction source for {audio_path}: {source}"
             raise ValueError(msg)
         if source in ("reference", "ground_truth") and row["best_prediction"] != row["text"].strip():
-            msg = f"Reference fallback does not match reference text for {audio_path}"
+            msg = f"Fallback does not match input transcript for {audio_path}"
             raise ValueError(msg)
         skip_reason = row.get("_skipme", "")
         if not isinstance(skip_reason, str):
             msg = f"Invalid skip reason for {audio_path}: {skip_reason}"
             raise ValueError(msg)  # noqa: TRY004
-        reference_fallbacks += source == "reference"
-        ground_truth_fallbacks += source == "ground_truth"
+        input_text_fallbacks += source in ("reference", "ground_truth")
         skipped += bool(skip_reason)
         total_duration_s += duration
 
     return {
         "num_tasks_processed": len(output_rows),
         "output_coverage_ratio": len(output_rows) / len(input_rows),
-        "reference_preservation_ratio": 1.0,
-        "num_reference_fallbacks": reference_fallbacks,
-        "num_ground_truth_fallbacks": ground_truth_fallbacks,
+        "input_text_preservation_ratio": 1.0,
+        "num_input_text_fallbacks": input_text_fallbacks,
         "num_skipped_tasks": skipped,
         "total_audio_duration_hours": total_duration_s / 3600,
     }
@@ -133,7 +128,7 @@ def _check_fresh_outputs(benchmark_results_path: Path) -> None:
             raise FileExistsError(msg)
 
 
-def run_audio_qwen_omni_reference_improvement_benchmark(
+def run_audio_qwen_omni_asr_benchmark(
     benchmark_results_path: str,
     input_manifest: str,
     model_id: str | None = None,
@@ -146,7 +141,7 @@ def run_audio_qwen_omni_reference_improvement_benchmark(
     input_rows = _read_manifest(Path(input_manifest))
     cfg = OmegaConf.load(_PIPELINE_CONFIG)
     cfg.manifest_path = str(Path(input_manifest).resolve())
-    cfg.output_path = str(results_path / "results" / "qwen_omni_reference_improvement.jsonl")
+    cfg.output_path = str(results_path / "results" / "qwen_omni_asr.jsonl")
     cfg.workspace_dir = str(results_path / "scratch")
     if executor is not None:
         cfg.backend = executor
@@ -207,9 +202,9 @@ def main() -> int:
 
     results: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
     try:
-        results.update(run_audio_qwen_omni_reference_improvement_benchmark(**vars(args)))
+        results.update(run_audio_qwen_omni_asr_benchmark(**vars(args)))
     except Exception as error:
-        logger.exception("Qwen-Omni reference-improvement benchmark failed")
+        logger.exception("Qwen Omni ASR benchmark failed")
         results["metrics"]["error_message"] = str(error)
     finally:
         write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)

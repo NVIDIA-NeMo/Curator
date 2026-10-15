@@ -25,7 +25,7 @@ from nemo_curator.pipeline import Pipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking" / "scripts"))
 
-import audio_qwen_omni_reference_improvement_benchmark as benchmark
+import audio_qwen_omni_asr_benchmark as benchmark
 
 
 def _write_rows(path: Path, rows: list[dict]) -> Path:
@@ -52,7 +52,7 @@ def test_output_metrics_count_fallbacks_and_skips(tmp_path: Path, output_row: di
         output_row,
         {
             **output_row,
-            "audio_filepath": "/audio/reference.flac",
+            "audio_filepath": "/audio/original.flac",
             "best_prediction_source": "reference",
             "best_prediction": "HELLO WORLD",
         },
@@ -70,9 +70,8 @@ def test_output_metrics_count_fallbacks_and_skips(tmp_path: Path, output_row: di
     assert benchmark._collect_output_metrics(path, input_rows) == {
         "num_tasks_processed": 4,
         "output_coverage_ratio": 1.0,
-        "reference_preservation_ratio": 1.0,
-        "num_reference_fallbacks": 1,
-        "num_ground_truth_fallbacks": 1,
+        "input_text_preservation_ratio": 1.0,
+        "num_input_text_fallbacks": 2,
         "num_skipped_tasks": 1,
         "total_audio_duration_hours": 8 / 3600,
     }
@@ -81,8 +80,8 @@ def test_output_metrics_count_fallbacks_and_skips(tmp_path: Path, output_row: di
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("text", "Different reference", "Reference text changed"),
-        ("text", " ", "Empty or invalid reference"),
+        ("text", "Different transcript", "Input transcript changed"),
+        ("text", " ", "Empty or invalid input transcript"),
         ("primary_model_prediction", "", "Empty or invalid primary_model_prediction"),
         ("best_prediction", None, "Empty or invalid best_prediction"),
         ("abbreviated_text", "\t", "Empty or invalid abbreviated_text"),
@@ -90,7 +89,7 @@ def test_output_metrics_count_fallbacks_and_skips(tmp_path: Path, output_row: di
         ("duration", float("inf"), "Invalid duration"),
         ("duration", True, "Invalid duration"),
         ("best_prediction_source", "fallback", "Unexpected prediction source"),
-        ("best_prediction_source", "reference", "Reference fallback does not match"),
+        ("best_prediction_source", "reference", "Fallback does not match"),
         ("_skipme", False, "Invalid skip reason"),
     ],
 )
@@ -189,7 +188,7 @@ def test_benchmark_preserves_tutorial_settings(
     model.mkdir()
     expected = OmegaConf.load(benchmark._PIPELINE_CONFIG)
     expected.manifest_path = str(manifest)
-    expected.output_path = str(results / "results/qwen_omni_reference_improvement.jsonl")
+    expected.output_path = str(results / "results/qwen_omni_asr.jsonl")
     expected.workspace_dir = str(results / "scratch")
     expected.model_id = str(model)
     if backend is not None:
@@ -205,7 +204,7 @@ def test_benchmark_preserves_tutorial_settings(
         _write_rows(Path(expected.output_path), [output_row])
 
     monkeypatch.setattr(Pipeline, "run", run)
-    result = benchmark.run_audio_qwen_omni_reference_improvement_benchmark(
+    result = benchmark.run_audio_qwen_omni_asr_benchmark(
         str(results), str(manifest), model_id=str(model), executor=backend
     )
 
@@ -228,7 +227,7 @@ def test_preserves_preexisting_outputs(
     )
     if direct_call:
         with pytest.raises(FileExistsError):
-            benchmark.run_audio_qwen_omni_reference_improvement_benchmark(str(tmp_path), "/unused.jsonl")
+            benchmark.run_audio_qwen_omni_asr_benchmark(str(tmp_path), "/unused.jsonl")
     else:
         assert benchmark.main() == 1
     assert existing_path.read_bytes() == b"existing output"

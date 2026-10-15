@@ -1,5 +1,5 @@
-# Improve existing human transcripts with Qwen3-Omni, then recover hallucinations
-# from the original text and normalize the selected prediction.
+# Run Qwen3-Omni on audio and an existing transcript, then check and clean
+# the generated text.
 # Run from the repository root; see README.md for the input contract.
 
 defaults:
@@ -13,9 +13,9 @@ hydra:
   output_subdir: null
 
 manifest_path: ???
-output_path: ./qwen_omni_reference_improvement_output.jsonl
-workspace_dir: /tmp/qwen_omni_reference_improvement_workspace
-reference_text_key: text
+output_path: ./qwen_omni_asr_output.jsonl
+workspace_dir: /tmp/qwen_omni_asr_workspace
+transcript_key: text
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
 model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695
 backend: xenna
@@ -33,14 +33,14 @@ stages:
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}
-    reference_text_key: ${reference_text_key}
+    reference_text_key: ${transcript_key}
     default_language: en
     supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
     unsupported_language_marks_skip: false
     pred_text_key: primary_model_prediction
     batch_size: 32
     max_audio_sec_per_actor: 960.0
-    # Whole-utterance references cannot be reused across automatic audio chunks.
+    # Full-clip transcripts cannot be reused across automatic audio chunks.
     max_inference_duration_s: 30.0
     local_bucketing: false
     resources:
@@ -155,7 +155,7 @@ stages:
     max_char_rate: 40.0
   - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
     primary_text_key: primary_model_prediction
-    reference_text_key: ${reference_text_key}
+    reference_text_key: ${transcript_key}
     use_reference_on_hallucination: true
     use_ground_truth_for_short_audio: false
     output_key: best_prediction
