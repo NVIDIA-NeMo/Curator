@@ -26,7 +26,8 @@ RUN curl -fsSL https://www.ffmpeg.org/releases/ffmpeg-8.0.1.tar.bz2 -o /tmp/ffmp
         --disable-autodetect --disable-network --disable-doc --disable-ffplay \
         --enable-protocol=file,pipe --enable-demuxer=wav,flac \
         --enable-decoder=flac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
-        --enable-parser=flac --enable-filter=aresample \
+        --enable-encoder=pcm_s16le,pcm_f32le --enable-muxer=wav \
+        --enable-parser=flac --enable-filter=aresample,aformat,anull \
     && make -j8 && make install && ldconfig \
     && rm -rf /tmp/ffmpeg-8.0.1 /tmp/ffmpeg.tar.bz2
 

@@ -27,8 +27,10 @@ import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
+import soundfile as sf
 from fsspec.core import url_to_fs
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -45,6 +47,9 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     Takes a manifest containing audio file paths and resamples them to
     target sample rate and format, while creating a new manifest with
     updated paths.
+
+    ``target_codec="pcm_f32le"`` preserves floating-point samples in WAV
+    intermediates; the default remains signed 16-bit PCM.
 
     """
 
@@ -63,6 +68,12 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata
     name: str = "ResampleAudio"
+    target_codec: Literal["pcm_s16le", "pcm_f32le"] = field(default="pcm_s16le", kw_only=True)
+
+    def __post_init__(self) -> None:
+        if self.target_codec not in {"pcm_s16le", "pcm_f32le"}:
+            msg = "target_codec must be pcm_s16le or pcm_f32le"
+            raise ValueError(msg)
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -121,6 +132,10 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         # Convert audio file if not already done
         fs, output_path = url_to_fs(output_audio_path)
         skipped_conversion = fs.exists(output_path)
+        if skipped_conversion:
+            expected_subtype = "FLOAT" if self.target_codec == "pcm_f32le" else "PCM_16"
+            with fs.open(output_path, "rb") as cached_audio:
+                skipped_conversion = sf.info(cached_audio).subtype == expected_subtype
         if not skipped_conversion:
             output_stem, output_extension = os.path.splitext(output_audio_path)
             temporary_audio_path = f"{output_stem}.{uuid.uuid4().hex}.tmp{output_extension}"
@@ -135,7 +150,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
                 "-ac",
                 str(self.target_nchannels),
                 "-acodec",
-                "pcm_s16le",
+                self.target_codec,
                 temporary_audio_path,
             ]
 

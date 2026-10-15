@@ -53,6 +53,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
 | Diarize whole recordings with Streaming Sortformer through the shared diarization adapter | [**sortformer/**](sortformer/) | Yes (1 per actor) | Bundled sample or your own manifest |
 | Run the Hindi Indic Canary + Parakeet benchmark processor graph with Xenna or Ray Data | [**indic_asr/**](indic_asr/) | Yes (8× H100 for benchmark-equivalent results) | Separate pinned Hugging Face data preparation; hardware-compatible TensorRT engines required |
+| Extract Granary speech clips, speaker turns, sound events, and language metadata | [**granary_metadata/**](granary_metadata/) | Yes; hardware-compatible TensorRT engines required | Two public FLEURS clips or your own recordings; local model bundles required |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
@@ -70,6 +71,7 @@ python nemo_curator/config/run.py \
 | `faster_whisper/` | Model only | Two bundled audio files | Downloads the configured Faster-Whisper checkpoint on first use |
 | `sortformer/` | Model only | Two bundled audio files | Downloads the configured Sortformer v2.1 checkpoint on first use |
 | `indic_asr/` | Separate preparation script | 216,164 retained clips / 531.75763 hours | Pins `ketav/parakeet-hindi-asr`; prebuilt Indic Canary and Parakeet TensorRT engines are separate |
+| `granary_metadata/` | Audio only | Two FLEURS clips / 22.50 seconds | Reuses the Indic sample downloader; supply Sortformer, Silero, CNN14, and language-ID model bundles |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
 | `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
@@ -110,6 +112,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
 | `sortformer/` | None | `audio_cuda12` |
 | `indic_asr/` | CUDA 13-capable driver or supported forward-compat stack; TensorRT engine bundles | Dedicated `docker/audio/Dockerfile.trt_llm` image (Python 3.12, Linux x86_64) |
+| `granary_metadata/` | CUDA 13-capable driver or supported forward-compat stack; FFmpeg; libsndfile with Opus; TensorRT engine bundles | Dedicated `docker/audio/Dockerfile.trt_llm` image (Python 3.12, Linux x86_64) |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
