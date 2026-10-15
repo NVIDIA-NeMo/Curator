@@ -349,9 +349,9 @@ def _check_gpu_gate(stage: Any, c: StageContract, name: str) -> None:  # noqa: A
     """A stage that reserves GPU resources must not report that it needs none.
 
     One-sided deliberately. The reverse -- declaring the gate while reserving nothing -- is
-    legitimate: InferenceSortformerStage passes ``map_location="cuda"`` unconditionally, so it
-    needs a GPU whatever its ``resources`` say. Only the false negative is dangerous, because
-    it lets the planner put a GPU stage on a CPU-only worker.
+    legitimate when runtime requirements are stricter than scheduler reservations. Only the
+    false negative is dangerous, because it lets the planner put a GPU stage on a CPU-only
+    worker.
     """
     resources = getattr(stage, "resources", None)
     if resources is not None and bool(getattr(resources, "requires_gpu", False)) and not c.gates.requires_gpu:
