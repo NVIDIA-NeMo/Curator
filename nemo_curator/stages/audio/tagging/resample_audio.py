@@ -30,6 +30,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
+import soundfile as sf
 from fsspec.core import url_to_fs
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -131,6 +132,10 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         # Convert audio file if not already done
         fs, output_path = url_to_fs(output_audio_path)
         skipped_conversion = fs.exists(output_path)
+        if skipped_conversion:
+            expected_subtype = "FLOAT" if self.target_codec == "pcm_f32le" else "PCM_16"
+            with fs.open(output_path, "rb") as cached_audio:
+                skipped_conversion = sf.info(cached_audio).subtype == expected_subtype
         if not skipped_conversion:
             output_stem, output_extension = os.path.splitext(output_audio_path)
             temporary_audio_path = f"{output_stem}.{uuid.uuid4().hex}.tmp{output_extension}"

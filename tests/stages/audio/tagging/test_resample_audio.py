@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -42,6 +43,31 @@ class TestResampleAudioStage:
         if codec == "pcm_f32le":
             actual, rate = sf.read(audio_path, dtype="float32")
             assert rate == 16000
+            np.testing.assert_array_equal(actual, samples)
+
+    @pytest.mark.parametrize("previous_codec", ["pcm_s16le", "pcm_f32le"])
+    @pytest.mark.parametrize("requested_codec", ["pcm_s16le", "pcm_f32le"])
+    def test_cached_audio_uses_requested_codec(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, previous_codec: str, requested_codec: str
+    ) -> None:
+        source = tmp_path / "source.wav"
+        samples = np.full(1600, 1e-7, dtype=np.float32)
+        sf.write(source, samples, 16000, subtype="FLOAT")
+        output_dir = str(tmp_path / "output")
+        previous = ResampleAudioStage(resampled_audio_dir=output_dir, target_codec=previous_codec)
+        previous.setup_on_node()
+        cached = previous.process(AudioTask(data={"audio_filepath": str(source), "audio_item_id": "clip"}))
+        run = Mock(wraps=resample_audio_module.subprocess.run)
+        monkeypatch.setattr(resample_audio_module.subprocess, "run", run)
+        requested = ResampleAudioStage(resampled_audio_dir=output_dir, target_codec=requested_codec)
+        result = requested.process(AudioTask(data={"audio_filepath": str(source), "audio_item_id": "clip"}))
+        audio_path = result.data["resampled_audio_filepath"]
+        assert audio_path == cached.data["resampled_audio_filepath"]
+        expected_subtype = "FLOAT" if requested_codec == "pcm_f32le" else "PCM_16"
+        assert sf.info(audio_path).subtype == expected_subtype
+        assert run.call_count == int(previous_codec != requested_codec)
+        if requested_codec == "pcm_f32le":
+            actual, _ = sf.read(audio_path, dtype="float32")
             np.testing.assert_array_equal(actual, samples)
 
     def test_rejects_unsupported_codec(self, tmp_path: Path) -> None:

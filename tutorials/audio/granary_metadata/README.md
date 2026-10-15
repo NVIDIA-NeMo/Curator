@@ -27,11 +27,38 @@ From the root of this checkout on Linux x86_64, with Docker and the NVIDIA
 Container Toolkit installed:
 
 ```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-granary-metadata .
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-granary-base .
+docker build -t curator-granary-metadata - <<'DOCKERFILE'
+FROM curator-granary-base
+RUN git init /tmp/nemo-reference \
+    && git -C /tmp/nemo-reference remote add origin https://github.com/ipmedenn/NeMo.git \
+    && git -C /tmp/nemo-reference fetch --depth 1 origin 5d56c27c0e80f4cd8c93b28bacca5f98440a45f9 \
+    && git -C /tmp/nemo-reference checkout --detach FETCH_HEAD \
+    && uv pip uninstall --python /opt/venv/bin/python nemo-toolkit \
+    && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
+        --no-deps --no-build-isolation /tmp/nemo-reference \
+    && rm -rf /tmp/nemo-reference
+DOCKERFILE
 docker run --rm --gpus all curator-granary-metadata python docker/audio/check_trt_llm.py
 docker run --rm --gpus all curator-granary-metadata \
   python -c "import speechbrain, whisper; print('Language-ID imports passed')"
 ```
+
+The reference `8spk-r087-3-50k.nemo` checkpoint uses RoPE attention, which the
+base image's NeMo 3.0.0 cannot restore. The extension installs the required
+[reference NeMo implementation](https://github.com/ipmedenn/NeMo/tree/5d56c27c0e80f4cd8c93b28bacca5f98440a45f9)
+without changing the installed Torch or TensorRT dependencies. Remove the
+installed NeMo package first so the fork records its own version,
+`3.1.0+5d56c27`.
+
+The tested runtime used Python 3.12, Torch `2.9.1+cu128`, TensorRT
+`10.14.1.48.post1`, and TensorRT-LLM `1.2.1`. The exact checkpoint passed a
+strict CPU restore with both speaker-count settings equal to eight. On EOS
+H100 GPUs, all six configured adapters also loaded, inferred on two real
+LibriSpeech clips, and unloaded successfully: Sortformer, Silero TensorRT,
+CNN14 TensorRT, SpeechBrain, Indic Canary, and Whisper medium. These checks
+establish runtime compatibility; they do not establish numerical parity
+with the production pipeline.
 
 The image includes the audio dependencies, SpeechBrain, OpenAI Whisper, and
 FFmpeg. Indic Canary uses its dedicated Python 3.12 / TensorRT-LLM environment;
@@ -277,5 +304,5 @@ identity contract, instead of the production runner's batch of 64 parents.
 The Silero engine still batches recurrent windows internally.
 
 The graph preserves the optimized reference model choices and processing
-settings. Whole-pipeline model execution, numerical parity, throughput, and
-long-recording memory scaling have not been established by this draft.
+settings. Numerical parity with the production pipeline and long-recording
+memory scaling have not been established.
