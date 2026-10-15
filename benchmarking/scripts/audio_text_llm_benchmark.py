@@ -154,10 +154,16 @@ def _validate_workload_inputs(tasks: list[AudioTask], operations: list[AudioText
         if id_key in {stage.output_text_key, stage.notes_key, stage.skip_me_key}:
             msg = "The benchmark identity key must not be overwritten by the configured stages"
             raise ValueError(msg)
+        required = set(stage.inputs()[1])
+        # Benchmark cohorts require references and source labels even when stages allow fallbacks.
+        if stage.mode == "recover_entities":
+            required.update([stage.text_key, stage.ground_truth_key])
+        elif stage.mode == "language_id":
+            required.add(stage.language_key)
         for task in tasks:
             if task.data.get(stage.skip_me_key):
                 continue
-            for key in set(stage.inputs()[1]) - produced:
+            for key in required - produced:
                 if not isinstance(task.data.get(key), str):
                     msg = f"Input {task.data[id_key]!r} requires string field {key!r} for {stage.name}"
                     raise TypeError(msg)

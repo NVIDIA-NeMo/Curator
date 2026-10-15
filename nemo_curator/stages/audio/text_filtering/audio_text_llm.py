@@ -301,14 +301,7 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         return self.num_workers_override
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        if self._operations:
-            return [], list(dict.fromkeys(key for operation in self._operations for key in operation.inputs()[1]))
-        fields = [self.text_key]
-        if "{language}" in self.prompt or "{language_rules}" in self.prompt or self.mode == "language_id":
-            fields.append(self.language_key)
-        if self.mode == "recover_entities":
-            fields.append(self.ground_truth_key)
-        return [], fields
+        return [], self.describe().reads.data_keys
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self._operations:

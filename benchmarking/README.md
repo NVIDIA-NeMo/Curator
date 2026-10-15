@@ -833,8 +833,40 @@ paths, explicitly enable only this pair with the opt-in overlay:
   --entries-exact audio_text_llm_xenna,audio_text_llm_raydata
 ```
 
-The pair shares the same input and model graph; only the executor differs. No
-throughput threshold or 10–15 minute timing gate is asserted before calibration.
+Pin a frozen cohort with `--expected-num-rows` and
+`--expected-manifest-sha256`. Use `--endpoint=http://host:8000/v1` to reuse an
+existing server; `--model-name` selects its served model alias. For managed
+serving, `--model-path` selects pre-staged weights without changing that alias.
+Keep model and cache settings identical across executors; change only the input
+size, paths and executor when comparing with the tutorial.
+
+### Outputs and timing
+
+Each run writes `text_pipeline.jsonl` under `--output-dir` and standard
+`params.json`, `metrics.json` and `tasks.pkl` under `--benchmark-results-path`.
+Use `--no-save-tasks` to omit the pickle. Parameters retain the resolved pipeline
+and serving configuration; metrics record the actual manifest SHA-256. Validation
+checks identities, preserved source fields, all nine operation outcomes, and the
+written JSONL against the returned tasks. An entirely skipped workload fails validation.
+
+The pipeline timer includes reader, all text operations, writer, and executor
+setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
+Ray/server startup and teardown, output validation and result serialization.
+Server startup is reported separately. Earlier processing-only benchmark results
+excluded reader/writer execution and are not directly comparable to this timer.
+There is no warmup pass. To compare cold and warm startup, run twice with the same
+persistent cache path and runtime, using a new cache path for the cold run.
+
+Metrics include row throughput and per-operation applied, fallback and skipped
+counts. Requests count logical model calls, including rejected completions;
+transport retries are not extra logical requests. Physical attempts and token
+throughput require serving telemetry. The shared result writer also aggregates
+batch statistics into `task_*` metrics, even with `--no-save-tasks`. It deduplicates
+by object identity, so separately deserialized copies can inflate batch totals.
+Use the independently calculated row/request throughput and operation counts for
+comparisons. These checks prove execution coverage, not semantic parity or model
+quality. Inspect the output fields and fallback counts before interpreting
+throughput.
 
 ## Writing Benchmark Scripts
 

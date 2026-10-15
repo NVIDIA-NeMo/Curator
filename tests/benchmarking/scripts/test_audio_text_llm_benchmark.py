@@ -416,6 +416,25 @@ def test_cohort_preflight_rejects_mismatch_before_startup(
     assert runtime.requests == []
 
 
+@pytest.mark.parametrize("key", ["text", "abbreviated_text", "source_lang"])
+@pytest.mark.parametrize("invalid", ["missing", "non_string"])
+def test_workload_preflight_requires_complete_cohort_fields(
+    tmp_path: Path, runtime: SimpleNamespace, key: str, invalid: str
+) -> None:
+    row = {"audio_item_id": "row-0", "text": "Hello", "abbreviated_text": "hello", "source_lang": "en"}
+    row.pop(key)
+    if invalid == "non_string":
+        row[key] = 123
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text(json.dumps(row) + "\n")
+
+    with pytest.raises(TypeError, match=f"requires string field '{key}'"):
+        _run(str(manifest))
+
+    assert runtime.requests == []
+    assert "execute" not in runtime.events
+
+
 def test_cli_records_failure_and_closes_owned_resources(
     tmp_path: Path, runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

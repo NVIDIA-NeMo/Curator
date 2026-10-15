@@ -72,6 +72,114 @@ def _stage(**kwargs) -> AudioTextLLMStage:
     )
 
 
+def test_agent_contract_supports_remapped_keys_and_optional_language(endpoint: Callable) -> None:
+    endpoint(lambda _request: _completion("Hello."))
+    stage = _stage(
+        prompt="Rewrite {language}: {text}",
+        text_key="transcript",
+        output_text_key="rewrite",
+        language_key="language",
+        notes_key="audit",
+        skip_me_key="skip_reason",
+    )
+    assert stage.validate_input(AudioTask(data={"transcript": "hello"}))
+    assert not stage.validate_input(AudioTask(data={}))
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(data={"transcript": "hello"}),
+        available_keys={"transcript"},
+        expected_cardinality="1:1",
+    )
+    stage.teardown()
+
+    assert contract.reads.data_keys == ["transcript"]
+    assert set(contract.optional_reads.data_keys) == {"language", "audit", "skip_reason"}
+    assert set(contract.writes.data_keys) == {"rewrite", "audit"}
+    assert contract.key_roles["transcript"] == contract.key_roles["rewrite"] == "text"
+    assert contract.accepts_task_type == contract.produces_task_type == "AudioTask"
+    assert contract.gates.runtime_secrets == ["api_key"]
+    assert contract.gates.lifecycle_side_effects
+    assert contract.gates.per_row_independent is False
+    assert not contract.gates.requires_gpu
+
+
+@pytest.mark.parametrize(
+    "data", [{}, {"normalized": "hello"}, {"reference": "Hello"}, {"normalized": "hello", "reference": "Hello"}]
+)
+def test_agent_recovery_contract_accepts_its_empty_input_fallback(endpoint: Callable, data: dict) -> None:
+    endpoint(lambda _request: _completion("Hello."))
+    stage = _stage(
+        mode="recover_entities",
+        user_prompt="Original: {ground_truth}\nNormalized: {normalized}",
+        text_key="normalized",
+        ground_truth_key="reference",
+    )
+    assert stage.validate_input(AudioTask(data=dict(data)))
+    contract = assert_agent_ready(
+        stage, lambda: AudioTask(data=dict(data)), available_keys=data, expected_cardinality="1:1"
+    )
+    stage.teardown()
+
+    assert not contract.reads.data_keys
+    assert {"normalized", "reference"} <= set(contract.optional_reads.data_keys)
+    assert contract.key_roles["reference"] == "reference_text"
+
+
+@pytest.mark.parametrize("prediction", ["English", "French", "unparseable"])
+@pytest.mark.parametrize("source_language", ["en", None])
+def test_agent_language_contract_declares_skip_as_conditional(
+    endpoint: Callable, prediction: str, source_language: str | None
+) -> None:
+    endpoint(lambda _request: _completion(prediction))
+    stage = _stage(mode="language_id", output_text_key="detected_language", skip_me_key="skip_reason")
+    data = {"text": "hello"}
+    if source_language is not None:
+        data["source_lang"] = source_language
+    assert stage.validate_input(AudioTask(data=dict(data)))
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(data=dict(data)),
+        available_keys=data,
+        expected_cardinality="1:1",
+    )
+    stage.teardown()
+
+    assert "skip_reason" not in contract.writes.data_keys
+    assert [write.writes.data_keys for write in contract.conditional_writes] == [["skip_reason"]]
+    assert contract.key_roles["detected_language"] == "prediction"
+
+
+def test_agent_contract_covers_all_fused_operation_keys(endpoint: Callable) -> None:
+    endpoint(lambda _request: _completion("Done."))
+    stage = _stage(
+        prompt="",
+        operations=[
+            {
+                "name": "first",
+                "prompt": "Rewrite {language}",
+                "text_key": "first_input",
+                "output_text_key": "first_output",
+            },
+            {"name": "second", "prompt": "Rewrite", "text_key": "second_input", "output_text_key": "second_output"},
+        ],
+    )
+    assert stage.validate_input(AudioTask(data={"first_input": "hello", "second_input": "world"}))
+    assert not stage.validate_input(AudioTask(data={"first_input": "hello"}))
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(data={"first_input": "hello", "second_input": "world"}),
+        available_keys={"first_input", "second_input"},
+        expected_cardinality="1:1",
+    )
+    stage.teardown()
+
+    assert set(contract.reads.data_keys) == {"first_input", "second_input"}
+    assert set(contract.writes.data_keys) == {"first_output", "second_output", "additional_notes"}
+    assert all(
+        contract.key_roles[key] == "text" for key in ("first_input", "second_input", "first_output", "second_output")
+    )
+
+
 def test_out_of_order_responses_preserve_audio_payload_and_task_envelope(endpoint: Callable) -> None:
     completed = []
 
@@ -478,8 +586,11 @@ def test_missing_required_prompt_context_raises(
     prompt: str, data: dict, rules: dict | None, endpoint: Callable
 ) -> None:
     clients = endpoint(lambda _request: _completion("unused"))
+    stage = _stage(prompt=prompt, language_rules=rules)
+    task = AudioTask(data=data)
+    assert stage.validate_input(task) is ("source_lang" in data)
     with pytest.raises((ValueError, KeyError)):
-        _stage(prompt=prompt, language_rules=rules).process(AudioTask(data=data))
+        stage.process(task)
     assert clients == []
 
 
