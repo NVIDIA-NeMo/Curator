@@ -172,6 +172,7 @@ class NDDBaseSyntheticStage(DataDesignerStage):
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
+        pre_batch.task_id = batch.task_id
 
         # Generate: NDD handles the LLM call
         result = super().process(pre_batch)

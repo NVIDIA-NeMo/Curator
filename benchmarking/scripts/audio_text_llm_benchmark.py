@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark the configured audio text graph on a fixed, preloaded transcript cohort."""
+"""Benchmark the complete audio text tutorial on a fixed transcript cohort."""
 
 import argparse
 import copy
@@ -164,19 +164,43 @@ def _validate_workload_inputs(tasks: list[AudioTask], operations: list[AudioText
         produced.add(stage.output_text_key)
 
 
-def run_audio_text_llm_benchmark(
+def run_audio_text_llm_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915
     input_manifest: str,
-    overrides: list[str] | None = None,
+    output_dir: str,
+    executor: str | None = None,
+    endpoint: str | None = None,
+    cache_root: str | None = None,
+    model_path: str | None = None,
+    model_name: str | None = None,
     id_key: str = "audio_item_id",
     expected_num_rows: int | None = None,
     expected_manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Time every configured text stage, excluding input reads, server startup and result writes."""
-    with hydra.initialize_config_dir(version_base=None, config_dir=str(_CONFIG_DIR)):
-        cfg = hydra.compose(
-            config_name="text_pipeline",
-            overrides=["endpoint=null", "ray_client.num_gpus=null", *(overrides or [])],
-        )
+    """Time the complete reader/processing/writer graph, excluding preflight and server lifecycle."""
+    if endpoint and model_path is not None:
+        msg = "model_path cannot reconfigure an existing endpoint; omit endpoint to start that model"
+        raise ValueError(msg)
+    cfg = OmegaConf.load(_CONFIG_DIR / "text_pipeline.yaml")
+    cfg.manifest_path = input_manifest
+    output_manifest = Path(output_dir).resolve() / "text_pipeline.jsonl"
+    if output_manifest.exists():
+        msg = f"Audio text benchmark output already exists: {output_manifest}"
+        raise ValueError(msg)
+    cfg.output_path = str(output_manifest)
+    cfg.endpoint = endpoint
+    if executor is not None:
+        cfg.backend = executor
+    if model_name is not None:
+        cfg.model_name = model_name
+    if model_path is not None:
+        cfg.model_name = str(cfg.model_name)
+        cfg.model_identifier = model_path
+    if not endpoint and not cache_root:
+        msg = "cache_root is required when the benchmark starts the inference server"
+        raise ValueError(msg)
+    if cache_root is not None:
+        cfg.cache_root = cache_root
+    cfg.ray_client.num_gpus = 0 if endpoint else None
 
     manifest_identity = _manifest_identity(input_manifest)
     tasks = ManifestReaderStage().process(FileGroupTask(dataset_name="audio_text_benchmark", data=[input_manifest]))
@@ -197,16 +221,6 @@ def run_audio_text_llm_benchmark(
         msg = "Input manifest SHA-256 does not match the frozen cohort"
         raise ValueError(msg)
 
-    # Remove only the tutorial's reader and writer; every processing pass stays in the timed graph.
-    cfg.stages = [
-        stage
-        for stage in cfg.stages
-        if str(stage.get("_target_", "")).rsplit(".", 1)[-1]
-        not in {"ManifestReader", "ManifestReaderStage", "ManifestWriterStage"}
-    ]
-    if not cfg.stages:
-        msg = "Audio text benchmark requires configured AudioTextLLMStages"
-        raise ValueError(msg)
     with ExitStack() as stack:
         stack.enter_context(create_ray_client_from_yaml(cfg))
         server_start = time.perf_counter()
@@ -217,31 +231,45 @@ def run_audio_text_llm_benchmark(
             startup_time = time.perf_counter() - server_start
 
         pipeline = create_pipeline_from_yaml(cfg, log_config=False)
-        if not all(isinstance(stage, AudioTextLLMStage) for stage in pipeline.stages):
-            msg = "Audio text benchmark supports only AudioTextLLMStage"
+        processing_stages = pipeline.stages[1:-1]
+        if not processing_stages or not all(isinstance(stage, AudioTextLLMStage) for stage in processing_stages):
+            msg = "Audio text benchmark requires AudioTextLLMStages between the reader and writer"
             raise TypeError(msg)
-        operations = [operation for stage in pipeline.stages for operation in stage.operation_stages()]
+        operations = [operation for stage in processing_stages for operation in stage.operation_stages()]
         _validate_workload_inputs(tasks, operations, id_key)
         executor = create_executor_from_yaml(cfg)
         logger.info(pipeline.describe())
         start = time.perf_counter()
-        results = pipeline.run(executor=executor, initial_tasks=tasks)
+        results = pipeline.run(executor=executor)
         elapsed = time.perf_counter() - start
+        if _manifest_identity(input_manifest) != manifest_identity:
+            msg = "Input manifest changed during the benchmark"
+            raise RuntimeError(msg)
         metrics = _collect_output_metrics(results or [], operations, len(tasks))
         _validate_preserved_inputs(results, inventory, operations, id_key)
+        written = ManifestReaderStage().process(
+            FileGroupTask(dataset_name="audio_text_benchmark_output", data=[str(output_manifest)])
+        )
+        _collect_output_metrics(written, operations, len(tasks))
+        _validate_preserved_inputs(written, inventory, operations, id_key)
+        if _input_inventory(written, id_key) != _input_inventory(results, id_key):
+            msg = "Written audio text output does not match the returned tasks"
+            raise RuntimeError(msg)
 
     return {
         "params": {
             "input_manifest": input_manifest,
+            "output_dir": str(output_manifest.parent),
+            "output_manifest": str(output_manifest),
+            "timing_scope": "reader_processing_writer",
             "config_path": str(_CONFIG_DIR / "text_pipeline.yaml"),
             "id_key": id_key,
             "expected_num_rows": expected_num_rows,
             "expected_manifest_sha256": expected_manifest_sha256,
-            "overrides": overrides or [],
             "stages": OmegaConf.to_container(cfg.stages, resolve=True),
             "backend": cfg.backend,
             "model_name": cfg.model_name,
-            "inference_server": OmegaConf.to_container(cfg.inference_server, resolve=True),
+            "inference_server": OmegaConf.to_container(cfg.inference_server, resolve=True) if not endpoint else None,
         },
         "metrics": {
             "is_success": True,
@@ -261,15 +289,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True, help="JSONL audio manifest containing transcripts")
+    parser.add_argument("--output-dir", required=True, help="Directory for a new text_pipeline.jsonl output")
+    parser.add_argument("--executor", choices=["xenna", "ray_data"], help="Defaults to the tutorial's backend")
+    parser.add_argument(
+        "--endpoint", help="Existing OpenAI-compatible endpoint; otherwise start the configured server"
+    )
+    parser.add_argument("--cache-root", help="Persistent cache directory; required when starting the server")
+    parser.add_argument("--model-path", help="Local model snapshot for the configured server")
+    parser.add_argument("--model-name", help="Served model name; defaults to the tutorial's model name")
     parser.add_argument("--id-key", default="audio_item_id", help="Unique string identity preserved in each input row")
     parser.add_argument("--expected-num-rows", type=int)
     parser.add_argument("--expected-manifest-sha256")
     parser.add_argument(
-        "--override",
-        dest="overrides",
-        action="append",
-        default=[],
-        help="Repeatable tutorial Hydra override, e.g. backend=xenna",
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
     )
     args = parser.parse_args()
     result: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
@@ -278,7 +310,12 @@ def main() -> int:
         result.update(
             run_audio_text_llm_benchmark(
                 input_manifest=args.input_manifest,
-                overrides=args.overrides,
+                output_dir=args.output_dir,
+                executor=args.executor,
+                endpoint=args.endpoint,
+                cache_root=args.cache_root,
+                model_path=args.model_path,
+                model_name=args.model_name,
                 id_key=args.id_key,
                 expected_num_rows=args.expected_num_rows,
                 expected_manifest_sha256=args.expected_manifest_sha256,
@@ -289,7 +326,7 @@ def main() -> int:
         logger.exception("Audio text benchmark failed")
         result["metrics"]["error_message"] = str(error)
     finally:
-        write_benchmark_results(result, args.benchmark_results_path)
+        write_benchmark_results(result, args.benchmark_results_path, save_tasks=args.save_tasks)
     return success_code
 
 

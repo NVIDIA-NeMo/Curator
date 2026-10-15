@@ -21,14 +21,23 @@ import threading
 import unicodedata
 import weakref
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass, field, replace
+from typing import ClassVar, Literal
 
 from loguru import logger
 from openai.types.chat import ChatCompletion
 
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.text_filtering.language_utils import verify_language
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -36,7 +45,7 @@ from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
+class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Transform an audio transcript using a shared inference server, such as Dynamo.
 
     The server owns the model and GPUs; this stage only sends text requests.
@@ -66,6 +75,19 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     drained before cleanup. Garbage collection also attempts cleanup. A batch
     deadline bounds request retries and semaphore waits. Concurrent calls on
     the same stage instance are not supported.
+
+    Args:
+        text_key: Transcript for this audio row; no audio samples are sent.
+        output_text_key: Model response, or the input transcript after a rewrite
+            fallback. In language-ID mode this contains language labels, not a
+            transcript. Generated text is not an independently verified reference.
+        ground_truth_key: Existing comparison transcript for entity recovery;
+            this stage does not verify its accuracy.
+        language_key: Source-language label used in prompts and verification.
+        notes_key: Shared audit mapping, augmented with this operation's outcome.
+        skip_me_key: Existing skip reason; language verification may set it for
+            an unparseable or mismatched single-language prediction. Rows are
+            retained, so downstream stages must honor this flag to exclude them.
     """
 
     endpoint: str
@@ -101,6 +123,64 @@ class AudioTextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     _client: AsyncOpenAIClient | None = field(default=None, init=False, repr=False, compare=False)
     _cleanup: weakref.finalize | None = field(default=None, init=False, repr=False, compare=False)
     _runtime_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
+        "output_text_key": "text",
+        "ground_truth_key": "reference_text",
+        "language_key": "unknown",
+        "notes_key": "unknown",
+        "skip_me_key": "unknown",
+    }
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"api_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            lifecycle_side_effects=True,
+            runtime_secrets=["api_key"],
+            # Requests are independent, but the remote generator may be stochastic.
+            per_row_independent=False,
+        )
+    )
+
+    def describe(self) -> StageContract:
+        reads, optional_reads, writes = [], [], []
+        conditional_writes = []
+        key_roles: dict[str, Role] = {}
+        for operation in self.operation_stages():
+            optional_reads.extend([operation.notes_key, operation.skip_me_key])
+            if operation.mode == "recover_entities":
+                optional_reads.extend([operation.text_key, operation.ground_truth_key])
+                key_roles[operation.ground_truth_key] = "reference_text"
+            else:
+                reads.append(operation.text_key)
+                if "{language_rules}" in operation.prompt:
+                    reads.append(operation.language_key)
+                elif "{language}" in operation.prompt or operation.mode == "language_id":
+                    optional_reads.append(operation.language_key)
+            if operation.skip_if_output_exists:
+                optional_reads.append(operation.output_text_key)
+            writes.extend([operation.output_text_key, operation.notes_key])
+            key_roles[operation.text_key] = "text"
+            key_roles[operation.output_text_key] = "prediction" if operation.mode == "language_id" else "text"
+            if operation.mode == "language_id":
+                conditional_writes.append(
+                    ConditionalWrite(
+                        writes=IOSpec(data_keys=[operation.skip_me_key]),
+                        condition=(
+                            f"'{operation.skip_me_key}' is unset, '{operation.language_key}' is recognized, "
+                            f"and nonempty '{operation.output_text_key}' is unparseable "
+                            "or identifies one wrong language"
+                        ),
+                    )
+                )
+        return StageContract(
+            reads=IOSpec(data_keys=list(dict.fromkeys(reads))),
+            optional_reads=IOSpec(data_keys=list(dict.fromkeys(optional_reads))),
+            writes=IOSpec(data_keys=list(dict.fromkeys(writes))),
+            conditional_writes=conditional_writes,
+            key_roles=key_roles,
+            cardinality="1:1",
+            gates=replace(self.AGENT_STATIC.gates, requires_gpu=self.resources.requires_gpu),
+        )
 
     def __getstate__(self) -> dict:
         return {

@@ -1,7 +1,0 @@
-# Opt-in eight-GPU pair using the tutorial's text_pipeline.yaml and a fixed cohort.
-# Select only these two entries with --entries-exact; no throughput gate is calibrated yet.
-entries:
-  - name: audio_text_llm_xenna
-    enabled: true
-  - name: audio_text_llm_raydata
-    enabled: true

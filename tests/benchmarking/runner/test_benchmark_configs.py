@@ -100,23 +100,3 @@ def test_4xgb200_64cpu_override_sets_known_video_performance_baselines() -> None
     # Correctness/count requirements remain inherited from benchmarks.yaml.
     assert _requirement(entries["video_embedding_xenna"], "num_clips_generated")["exact_value"] == 7600
     assert _requirement(entries["video_captioning_xenna"], "num_clips_generated")["exact_value"] == 1013
-
-
-def test_audio_text_opt_in_preserves_the_paired_workload() -> None:
-    base = _entries(merge_config_files([_CONFIG_DIR / "benchmarks.yaml"]))
-    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio_text_llm.yaml"])
-    entries = _entries(config)
-    names = ("audio_text_llm_xenna", "audio_text_llm_raydata")
-    for name in names:
-        assert base[name]["enabled"] is False
-        assert entries[name]["enabled"] is True
-        assert entries[name]["script"] == "audio_text_llm_benchmark.py"
-        assert "--input-manifest={dataset:audio_text_gemma4_english,jsonl}" in entries[name]["args"]
-        assert "--config-name" not in entries[name]["args"]
-        assert "--override=cache_root={results_path}/audio_text_cache" in entries[name]["args"]
-        assert "--override=ray_client.num_gpus=8" in entries[name]["args"]
-        assert _requirement(entries[name], "num_operations")["exact_value"] == 9
-        assert _requirement(entries[name], "input_output_coverage_ratio")["exact_value"] == 1.0
-    assert entries[names[0]]["args"].replace("backend=xenna", "backend=ray_data") == entries[names[1]]["args"]
-    assert entries[names[0]]["requirements"] == entries[names[1]]["requirements"]
-    assert config["ray"]["num_gpus"] == 8
