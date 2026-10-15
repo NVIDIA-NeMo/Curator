@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+from dataclasses import fields
 from pathlib import Path, PurePosixPath
 
 import numpy as np
@@ -23,7 +25,10 @@ import pytest
 import soundfile as sf
 
 import nemo_curator.stages.audio.io.nemo_speech_writer as writer_module
+from nemo_curator.stages.audio import agent
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.io._nemo_speech_state import register_nemo_speech_shard
+from nemo_curator.stages.audio.io.nemo_speech_reader import NeMoSpeechReaderStage
 from nemo_curator.stages.audio.io.nemo_speech_writer import (
     NeMoSpeechWriterStage,
     finalize_nemo_speech_output,
@@ -720,3 +725,288 @@ def test_receipt_directory_leaf_symlink_is_rejected(tmp_path: Path) -> None:
         writer.process(_task())
 
     assert not list(outside.rglob("*.json"))
+
+
+@pytest.mark.parametrize("mode", ["opus", "read_error", "vad_empty", "manifest_only"])
+def test_writer_is_agent_ready_for_each_persistence_path(tmp_path: Path, mode: str) -> None:
+    output_dir = tmp_path / "output"
+    writer = NeMoSpeechWriterStage(output_dir=str(output_dir), save_audio=mode != "manifest_only")
+    contract = writer.describe()
+    assert not output_dir.exists()
+    writer.setup()
+    task = _task(**({mode: True, "waveform": None} if mode in {"read_error", "vad_empty"} else {}))
+
+    assert_agent_ready(writer, fixture_factory=lambda: task, expected_cardinality="filter")
+    finalize_nemo_speech_output(str(output_dir))
+
+    assert len(_read_manifest(_manifest_path(output_dir))) == 1
+    assert contract.gates.writes_to_disk
+    assert contract.gates.output_path_params == ["output_dir"]
+    assert contract.gates.requires_stable_task_id
+    assert contract.gates.per_row_independent is False
+    assert contract.gates.sanitizes_output
+    assert not contract.gates.requires_serializable_input
+    assert contract.metadata_reads == ["_shard_key", "_shard_total", "_shard_input_id", "_shard_output_id"]
+    if mode == "manifest_only":
+        assert contract.reads_one_of == []
+        assert contract.conditional_writes == []
+        assert not contract.gates.requires_ffmpeg
+
+
+@pytest.mark.parametrize("mode", ["opus", "read_error", "vad_empty", "manifest_only"])
+def test_remapped_task_keys_preserve_canonical_manifest_schema(tmp_path: Path, mode: str) -> None:
+    key_mapping = {
+        definition.name: f"mapped_{definition.default}"
+        for definition in fields(NeMoSpeechWriterStage)
+        if definition.name.endswith("_key")
+    }
+    aliases = {
+        definition.default: key_mapping[definition.name]
+        for definition in fields(NeMoSpeechWriterStage)
+        if definition.name.endswith("_key")
+    }
+    rows = []
+    for remapped in (False, True):
+        output_dir = tmp_path / str(remapped)
+        writer = NeMoSpeechWriterStage(
+            output_dir=str(output_dir), save_audio=mode != "manifest_only", **(key_mapping if remapped else {})
+        )
+        writer.setup()
+        task = _task(
+            original_audio_filepath="s3://speech-bucket/original.wav",
+            offset=2.0,
+            original_offset=10.0,
+            start_ms=500,
+            end_ms=750,
+            duration=1.5,
+            original_sampling_rate=48_000,
+            original_channels=2,
+            score=np.float32(0.5),
+            **({mode: True, "waveform": None, "audio_too_long": True} if mode in {"read_error", "vad_empty"} else {}),
+        )
+        if remapped:
+            task.data = {aliases.get(key, key): value for key, value in task.data.items()}
+
+        assert_agent_ready(writer, fixture_factory=lambda task=task: task, expected_cardinality="filter")
+        finalize_nemo_speech_output(str(output_dir))
+        rows.append(_read_manifest(_manifest_path(output_dir)))
+
+    assert rows[0] == rows[1]
+    assert not any(key.startswith("mapped_") for key in rows[1][0])
+
+
+def test_nullable_provenance_and_shared_input_aliases_keep_legacy_behavior(tmp_path: Path) -> None:
+    writer = NeMoSpeechWriterStage(
+        output_dir=str(tmp_path), save_audio=False, sample_rate_key="sampling_rate", original_file_key="audio_filepath"
+    )
+    writer.setup()
+    task = _task(source="", original_audio_filepath=None, original_offset=None, waveform=None)
+
+    writer.process(task)
+    finalize_nemo_speech_output(str(tmp_path))
+
+    row = _read_manifest(_manifest_path(tmp_path))[0]
+    assert row["original_audio_filepath"] is None
+    assert row["original_offset"] is None
+
+
+@pytest.mark.parametrize("kwargs", [{"read_error_key": ""}, {"output_audio_filepath_key": "waveform"}])
+def test_invalid_task_key_configuration_fails_before_creating_outputs(tmp_path: Path, kwargs: dict[str, str]) -> None:
+    output_dir = tmp_path / "output"
+    with pytest.raises(ValueError, match="must"):
+        NeMoSpeechWriterStage(output_dir=str(output_dir), **kwargs)
+    assert not output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"version": 0}, "Unsupported.*version"),
+        ({"status": "placeholder"}, "does not match status"),
+        ({"shard_key": "other/shard"}, "does not match shard_key"),
+        ({"output_id": "wrong"}, "does not match output_id"),
+        ({"output_slot": ""}, "without output identity"),
+        ({"expected_inputs": 2}, "conflicting or invalid expected input counts"),
+        ({"save_audio": "invalid"}, "invalid audio persistence modes"),
+    ],
+)
+def test_finalizer_rejects_corrupted_receipt_before_publication(
+    tmp_path: Path, changes: dict[str, object], message: str
+) -> None:
+    writer = NeMoSpeechWriterStage(output_dir=str(tmp_path), save_audio=False)
+    writer.process(_task(waveform=None))
+    receipt_path = _receipt_paths(tmp_path)[0]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt.update(changes)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        finalize_nemo_speech_output(str(tmp_path))
+
+    assert not _manifest_path(tmp_path).exists()
+    assert not _marker_path(tmp_path).exists()
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+@pytest.mark.parametrize("damage", ["invalid_json", "bad_filename", "orphan", "missing_entry"])
+def test_finalizer_rejects_unusable_receipts(tmp_path: Path, damage: str) -> None:
+    writer = NeMoSpeechWriterStage(output_dir=str(tmp_path), save_audio=False)
+    writer.process(_task(waveform=None))
+    receipt_path = _receipt_paths(tmp_path)[0]
+    if damage == "invalid_json":
+        receipt_path.write_text("{", encoding="utf-8")
+    elif damage == "bad_filename":
+        receipt_path.rename(receipt_path.with_name("invalid.json"))
+    elif damage == "orphan":
+        writer_module.shard_registration_path(tmp_path, _SHARD_KEY).unlink()
+    else:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["entry"] = None
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises((TypeError, ValueError), match=r"receipt|registration|manifest object"):
+        finalize_nemo_speech_output(str(tmp_path))
+
+    assert not _marker_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize("damage", ["invalid_json", "version", "shard_key", "expected_inputs"])
+def test_finalizer_rejects_corrupted_registration(tmp_path: Path, damage: str) -> None:
+    writer = NeMoSpeechWriterStage(output_dir=str(tmp_path), save_audio=False)
+    writer.process(_task(waveform=None))
+    path = writer_module.shard_registration_path(tmp_path, _SHARD_KEY)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload[damage] = 0
+    path.write_text("{" if damage == "invalid_json" else json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid NeMo speech shard registration"):
+        finalize_nemo_speech_output(str(tmp_path))
+
+    assert not _marker_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize("damage", ["claim_missing", "manifest_path", "claim_rate", "owner_missing", "owner_changed"])
+def test_finalizer_rejects_unbound_audio_receipts(tmp_path: Path, damage: str) -> None:
+    writer = _writer(tmp_path)
+    writer.process(_task())
+    receipt_path = _receipt_paths(tmp_path)[0]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    owner_path = writer_module._owner_path(tmp_path, PurePosixPath(receipt["audio_claim"]["audio_filepath"]))
+    if damage == "claim_missing":
+        receipt["audio_claim"] = None
+    elif damage == "manifest_path":
+        receipt["entry"]["audio_filepath"] = "unexpected.opus"
+    elif damage == "claim_rate":
+        receipt["audio_claim"]["sample_rate"] = 8_000
+    elif damage == "owner_missing":
+        owner_path.unlink()
+    else:
+        owner_path.write_text("{}", encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises((TypeError, ValueError), match=r"ownership|manifest audio path"):
+        finalize_nemo_speech_output(str(tmp_path))
+
+    assert not _marker_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize("missing", ["_shard_total", "_shard_input_id", "_shard_output_id"])
+def test_writer_rejects_missing_source_identity(tmp_path: Path, missing: str) -> None:
+    writer = _writer(tmp_path)
+    task = _task()
+    task._metadata.pop(missing)
+    task.task_id = ""
+
+    with pytest.raises(ValueError, match=r"_shard_total|_shard_input_id|_shard_output_id"):
+        writer.process(task)
+
+    assert not _receipt_paths(tmp_path)
+
+
+@pytest.mark.parametrize("changes", [{"waveform": None}, {"sample_rate": 8_000}])
+def test_writer_does_not_complete_invalid_audio(tmp_path: Path, changes: dict[str, object]) -> None:
+    writer = _writer(tmp_path)
+    with pytest.raises(ValueError, match=r"waveform|sample rate"):
+        writer.process(_task(**changes))
+    assert not _receipt_paths(tmp_path)
+    with pytest.raises(ValueError, match="incomplete"):
+        finalize_nemo_speech_output(str(tmp_path))
+
+
+def test_failed_atomic_audio_publication_keeps_previous_file_and_cleans_temp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "clip.opus"
+    path.write_bytes(b"previous")
+
+    def fail_replace(_source: object, _target: object) -> None:
+        msg = "injected publication failure"
+        raise OSError(msg)
+
+    monkeypatch.setattr(writer_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="injected publication"):
+        writer_module._write_bytes_atomically(path, b"replacement")
+    assert path.read_bytes() == b"previous"
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_ffmpeg_encoding_fallback_writes_real_decodable_opus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(writer_module.sf, "check_format", lambda *_args: False)
+    writer = _writer(tmp_path)
+    assert writer._encoder == "ffmpeg"
+    assert writer.describe().gates.requires_ffmpeg
+    task = _task()
+
+    writer.process(task)
+    finalize_nemo_speech_output(str(tmp_path))
+
+    decoded, sample_rate = sf.read(tmp_path / task.data["output_audio_filepath"])
+    assert sample_rate == _SAMPLE_RATE
+    # Opus decoders can retain up to one frame of encoder padding.
+    assert len(decoded) / sample_rate == pytest.approx(len(_tone()) / _SAMPLE_RATE, abs=0.02)
+
+
+@pytest.mark.parametrize("keys", [{}, {"waveform_key": "samples", "sample_rate_key": "sr"}])
+def test_reader_and_writer_contracts_compose_with_configured_keys(tmp_path: Path, keys: dict[str, str]) -> None:
+    reader = NeMoSpeechReaderStage(**keys)
+    writer = NeMoSpeechWriterStage(output_dir=str(tmp_path), **keys)
+    report = agent.validate_pipeline(
+        [reader, writer], initial_keys=set(), initial_roles=set(), initial_task_type="FileGroupTask"
+    )
+    assert report.ok
+    # The planner treats non-AudioTask readers as opaque; also check its decoded-row branch explicitly.
+    reader_contract = reader.describe()
+    decoded_keys = set(reader_contract.writes.data_keys) | set(reader_contract.conditional_writes[0].writes.data_keys)
+    decoded_report = agent.validate_pipeline([writer], initial_keys=decoded_keys, initial_task_type="AudioTask")
+    assert decoded_report.ok
+    assert decoded_report.keys_ok
+    assert set(reader_contract.metadata_writes) <= set(writer.describe().metadata_reads)
+
+
+def test_failed_ffmpeg_encoding_does_not_persist_a_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(writer_module.sf, "check_format", lambda *_args: False)
+    writer = _writer(tmp_path)
+    monkeypatch.setattr(
+        writer_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, stdout=b"", stderr=b"injected encoder error"),
+    )
+
+    with pytest.raises(RuntimeError, match="injected encoder error"):
+        writer.process(_task())
+
+    assert not _receipt_paths(tmp_path)
+    assert not list(tmp_path.rglob("*.opus"))
+
+
+def test_missing_opus_backends_fail_setup_without_completing_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(writer_module.sf, "check_format", lambda *_args: False)
+    monkeypatch.setattr(writer_module.shutil, "which", lambda _name: None)
+    writer = NeMoSpeechWriterStage(output_dir=str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="Opus output requires"):
+        writer.setup()
+
+    assert not _receipt_paths(tmp_path)

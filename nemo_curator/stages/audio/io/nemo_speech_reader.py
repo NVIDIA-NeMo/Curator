@@ -26,15 +26,24 @@ import contextlib
 import hashlib
 import json
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import fsspec
 import numpy as np
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, validate_local_output_dir
 from nemo_curator.stages.audio.io._nemo_speech_state import register_nemo_speech_shard
 from nemo_curator.stages.audio.io.shard_key import derive_manifest_shard_key
@@ -183,7 +192,7 @@ def _manifest_stats(path: Path) -> tuple[int, str]:
 
 
 @dataclass
-class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
+class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupTask]):
     """Expand NeMo YAML entries into one stable source task per shard.
 
     ``output_dir`` enables artifact-level restart semantics.  Shards with a
@@ -206,6 +215,9 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
     resume_mode: str = "done_markers"
     name: str = "nemo_speech_discovery"
     batch_size: int = 1
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False)
+    )
 
     def __post_init__(self) -> None:
         if not self.yaml_path and self.input_cfg is None:
@@ -228,6 +240,19 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data", "reader_config"], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            cardinality="1:N fan-out",
+            preserves_upstream_keys=False,
+            wrappable=False,
+            gates=Gates(
+                writes_to_disk=bool(self.output_dir and self.cleanup_partial and self.resume_mode == "done_markers"),
+                output_path_params=["output_dir"],
+                # Shard selection and cleanup use shared completion state.
+                per_row_independent=False,
+            ),
+        )
 
     def num_workers_per_node(self) -> float | None:
         return 1
@@ -334,6 +359,8 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
                         "tar_path": descriptor["tar_path"],
                         "shard_key": shard_key,
                     },
+                    _metadata=dict(_task._metadata),
+                    _stage_perf=list(_task._stage_perf),
                 )
             )
         logger.info(f"Discovered {len(tasks)} NeMo speech shards; skipped {len(descriptors) - len(tasks)} completed")
@@ -355,8 +382,22 @@ def _read_manifest_rows(manifest_path: str) -> list[dict[str, Any]]:
 
 
 @dataclass
-class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
-    """Decode one NeMo manifest/tar shard into mono ``AudioTask`` objects."""
+class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask]):
+    """Decode one NeMo manifest/tar shard into mono ``AudioTask`` objects.
+
+    Successful rows carry the decoded mono float32 waveform, sample rates in Hz,
+    and cut duration in seconds. ``audio_filepath`` preserves the manifest's
+    path; ``original_file`` is the resolved source for non-tarred input, but a
+    tar member name for tarred input, not an independently readable local file.
+    Failed or overlong rows retain manifest metadata and set ``read_error``;
+    they do not guarantee decoded audio fields. ``audio_too_long`` distinguishes
+    the duration-limit case. ``source_lang`` is a corpus label, not a language
+    prediction. Shard metadata identifies each original manifest row and its
+    total shard size, including placeholders, for downstream finalization.
+
+    Key fields rename task outputs only; NeMo manifest columns and internal
+    shard metadata retain their protocol names.
+    """
 
     output_dir: str | None = None
     max_audio_duration_sec: float | None = 12 * 60 * 60
@@ -364,8 +405,34 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     reader_workers: int | None = None
     name: str = "nemo_speech_reader"
     batch_size: int = 1
+    _: KW_ONLY
+    audio_filepath_key: str = "audio_filepath"
+    original_file_key: str = "original_file"
+    sampling_rate_key: str = "sampling_rate"
+    sample_rate_key: str = "sample_rate"
+    duration_key: str = "duration"
+    num_channels_key: str = "num_channels"
+    corpus_key: str = "corpus"
+    waveform_key: str = "waveform"
+    source_lang_key: str = "source_lang"
+    read_error_key: str = "read_error"
+    audio_too_long_key: str = "audio_too_long"
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False)
+    )
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"sampling_rate_key": "sample_rate"}
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"num_channels_key", "corpus_key", "source_lang_key", "read_error_key", "audio_too_long_key"}
+    )
 
     def __post_init__(self) -> None:
+        from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+
+        validate_audio_key_configuration(
+            self.name,
+            input_keys={},
+            output_keys={key: value for key, value in vars(self).items() if key.endswith("_key")},
+        )
         if self.output_dir is not None:
             validate_local_output_dir(self.output_dir)
 
@@ -374,17 +441,54 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         columns = [
-            "audio_filepath",
-            "original_file",
-            "sampling_rate",
-            "sample_rate",
-            "duration",
-            "num_channels",
-            "corpus",
+            self.audio_filepath_key,
+            self.original_file_key,
+            self.sampling_rate_key,
+            self.sample_rate_key,
+            self.duration_key,
+            self.num_channels_key,
+            self.corpus_key,
         ]
         if self.keep_waveform:
-            columns.append("waveform")
+            columns.append(self.waveform_key)
         return ["data"], columns
+
+    def describe(self) -> StageContract:
+        decoded_keys = [self.sampling_rate_key, self.sample_rate_key, self.duration_key, self.num_channels_key]
+        if self.keep_waveform:
+            decoded_keys.append(self.waveform_key)
+        return StageContract(
+            writes=IOSpec(data_keys=[self.audio_filepath_key, self.original_file_key, self.corpus_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=decoded_keys, produces=["tensor"] if self.keep_waveform else []),
+                    condition="the row decodes successfully, or its manifest already carries the field",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.read_error_key]),
+                    condition="the manifest row is missing, undecodable, or exceeds the duration limit",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.audio_too_long_key]),
+                    condition="the manifest or decoded cut duration exceeds the duration limit",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.source_lang_key]),
+                    condition="the manifest carries source_lang or the input_cfg entry has a nonempty language label",
+                ),
+            ],
+            metadata_writes=["_shard_key", "_shard_total", "_shard_input_id"],
+            cardinality="1:N fan-out",
+            preserves_upstream_keys=False,
+            wrappable=False,
+            gates=Gates(
+                # Tarred input writes a temporary indexed manifest even without output_dir.
+                writes_to_disk=True,
+                output_path_params=["output_dir"],
+                # Every emitted row includes the original shard's total row count.
+                per_row_independent=False,
+            ),
+        )
 
     def num_workers(self) -> int | None:
         return self.reader_workers
@@ -424,6 +528,10 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 return source
         return str(cut.id)
 
+    def _task_data(self, row: dict[str, Any]) -> dict[str, Any]:
+        key_map = {key.removesuffix("_key"): value for key, value in vars(self).items() if key.endswith("_key")}
+        return {key_map.get(key, key): value for key, value in row.items()}
+
     def _placeholder(
         self,
         *,
@@ -435,20 +543,20 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     ) -> AudioTask:
         shard_key = task.reader_config["shard_key"]
         audio_path = str(row.get("audio_filepath") or row.get("audio_filename") or f"missing_entry_{row_index}")
-        data = {key: value for key, value in row.items() if key != "audio_filepath"}
+        data = self._task_data(row)
         data.update(
             {
-                "audio_filepath": audio_path,
-                "original_file": audio_path,
-                "corpus": task.reader_config["corpus"],
-                "read_error": True,
+                self.audio_filepath_key: audio_path,
+                self.original_file_key: audio_path,
+                self.corpus_key: task.reader_config["corpus"],
+                self.read_error_key: True,
             }
         )
         if audio_too_long:
-            data["audio_too_long"] = True
+            data[self.audio_too_long_key] = True
         language = task.reader_config.get("language")
         if language:
-            data.setdefault("source_lang", language)
+            data.setdefault(self.source_lang_key, language)
         return AudioTask(
             dataset_name=task.dataset_name,
             data=data,
@@ -491,25 +599,25 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         sample_rate = int(cut.recording.sampling_rate)
         source_path = self._source_path(cut)
         custom = dict(cut.custom or {})
-        data = {**row, **custom}
+        data = self._task_data({**row, **custom})
         public_audio_path = str(row.get("audio_filepath") or source_path)
         original_file = public_audio_path if task.reader_config.get("tar_path") else source_path
         data.update(
             {
-                "audio_filepath": public_audio_path,
-                "original_file": original_file,
-                "sampling_rate": sample_rate,
-                "sample_rate": sample_rate,
-                "duration": float(cut.duration),
-                "num_channels": 1,
-                "corpus": task.reader_config["corpus"],
+                self.audio_filepath_key: public_audio_path,
+                self.original_file_key: original_file,
+                self.sampling_rate_key: sample_rate,
+                self.sample_rate_key: sample_rate,
+                self.duration_key: float(cut.duration),
+                self.num_channels_key: 1,
+                self.corpus_key: task.reader_config["corpus"],
             }
         )
         if self.keep_waveform:
-            data["waveform"] = waveform
+            data[self.waveform_key] = waveform
         language = task.reader_config.get("language")
         if language:
-            data.setdefault("source_lang", language)
+            data.setdefault(self.source_lang_key, language)
         return AudioTask(
             dataset_name=task.dataset_name,
             data=data,
@@ -689,7 +797,7 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
 
 @dataclass
-class NeMoSpeechAudioReader(CompositeStage[EmptyTask, AudioTask]):
+class NeMoSpeechAudioReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     """User-facing reader for NeMo ``nemo`` and ``nemo_tarred`` input_cfg entries.
 
     ``yaml_path`` and inline ``input_cfg`` are mutually substitutable; inline
@@ -702,6 +810,9 @@ class NeMoSpeechAudioReader(CompositeStage[EmptyTask, AudioTask]):
     ``resume_mode="checkpoint"`` instead when the pipeline runs with Curator's
     ``checkpoint_path`` argument. The two scheduling mechanisms must not be
     enabled together.
+
+    Output semantics and configurable task keys match ``NeMoSpeechReaderStage``;
+    malformed rows remain explicit placeholders instead of disappearing.
     """
 
     yaml_path: str = ""
@@ -716,6 +827,21 @@ class NeMoSpeechAudioReader(CompositeStage[EmptyTask, AudioTask]):
     reader_workers: int | None = None
     name: str = "nemo_speech_audio_reader"
     _stages: list[ProcessingStage] = field(default_factory=list, init=False, repr=False)
+    _: KW_ONLY
+    audio_filepath_key: str = "audio_filepath"
+    original_file_key: str = "original_file"
+    sampling_rate_key: str = "sampling_rate"
+    sample_rate_key: str = "sample_rate"
+    duration_key: str = "duration"
+    num_channels_key: str = "num_channels"
+    corpus_key: str = "corpus"
+    waveform_key: str = "waveform"
+    source_lang_key: str = "source_lang"
+    read_error_key: str = "read_error"
+    audio_too_long_key: str = "audio_too_long"
+    AGENT_STATIC: ClassVar[StaticHints] = NeMoSpeechReaderStage.AGENT_STATIC
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = NeMoSpeechReaderStage.KEY_ROLE_OVERRIDES
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = NeMoSpeechReaderStage.INTERNAL_KEY_FIELDS
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -734,8 +860,22 @@ class NeMoSpeechAudioReader(CompositeStage[EmptyTask, AudioTask]):
                 max_audio_duration_sec=self.max_audio_duration_sec,
                 keep_waveform=self.keep_waveform,
                 reader_workers=self.reader_workers,
+                audio_filepath_key=self.audio_filepath_key,
+                original_file_key=self.original_file_key,
+                sampling_rate_key=self.sampling_rate_key,
+                sample_rate_key=self.sample_rate_key,
+                duration_key=self.duration_key,
+                num_channels_key=self.num_channels_key,
+                corpus_key=self.corpus_key,
+                waveform_key=self.waveform_key,
+                source_lang_key=self.source_lang_key,
+                read_error_key=self.read_error_key,
+                audio_too_long_key=self.audio_too_long_key,
             ),
         ]
+
+    def describe(self) -> StageContract:
+        return self._stages[-1].describe()
 
     def decompose(self) -> list[ProcessingStage]:
         return self._stages

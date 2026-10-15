@@ -29,6 +29,7 @@ import soundfile as sf
 import nemo_curator.stages.audio.io.nemo_speech_reader as reader_module
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.io._nemo_speech_state import shard_registration_path
 from nemo_curator.stages.audio.io.nemo_speech_reader import (
     NeMoSpeechAudioReader,
@@ -37,6 +38,7 @@ from nemo_curator.stages.audio.io.nemo_speech_reader import (
     _descriptors_from_entry,
     _load_input_cfg,
     _parse_input_cfg,
+    _read_manifest_rows,
 )
 from nemo_curator.stages.audio.io.nemo_speech_writer import (
     NeMoSpeechWriterStage,
@@ -118,6 +120,41 @@ def test_rejects_missing_or_malformed_top_level_config(config: Any) -> None:  # 
     else:
         with pytest.raises(ValueError, match=r"non-empty NeMo input_cfg list|must be a mapping"):
             _load_input_cfg(None, config)
+
+
+@pytest.mark.parametrize("config", [[{"input_cfg": {}}], [{"input_cfg": ["not-a-mapping"]}]])
+def test_rejects_malformed_nested_input_config(config: list[dict[str, Any]]) -> None:
+    with pytest.raises(TypeError, match=r"input_cfg field must be a list|entry must be a mapping"):
+        _parse_input_cfg(config, None)
+
+
+def test_inline_omegaconf_resolves_interpolation() -> None:
+    from omegaconf import OmegaConf
+
+    config = OmegaConf.create([{"corpus": "dataset", "manifest_filepath": "/data/${.corpus}/manifest.jsonl"}])
+    assert _load_input_cfg(None, config) == [
+        {"corpus": "dataset", "manifest_filepath": "/data/dataset/manifest.jsonl"}
+    ]
+
+
+def test_manifest_reader_rejects_non_object_row_with_line_number(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text('\n{"audio_filepath": "a.wav"}\n[]\n', encoding="utf-8")
+    with pytest.raises(TypeError, match=r"manifest.jsonl:3"):
+        _read_manifest_rows(str(manifest))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({}, "input_cfg or yaml_path"),
+        ({"input_cfg": [{}]}, "output_dir is required"),
+        ({"input_cfg": [{}], "resume_mode": "invalid"}, "resume_mode must be"),
+    ],
+)
+def test_discovery_rejects_invalid_resume_configuration(kwargs: dict[str, Any], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        NeMoSpeechDiscoveryStage(**kwargs)
 
 
 def test_parse_filters_corpus_and_language_before_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -438,6 +475,110 @@ def test_composite_preserves_discovery_and_reader_controls() -> None:
     assert decode.num_workers() == 3
 
 
+def test_discovery_contract_and_task_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reader_module, "_expand_sharded_path", _identity_expand)
+    stage = NeMoSpeechDiscoveryStage(
+        input_cfg=_input_cfg("/inputs/dataset/manifest.jsonl"),
+        output_dir=str(tmp_path),
+    )
+    source = EmptyTask(_metadata={"trace": "source"})
+    contract = assert_agent_ready(stage, lambda: source, expected_cardinality="1:N fan-out")
+    result = stage.process(source)[0]
+    assert result._metadata == source._metadata
+    assert result._metadata is not source._metadata
+    assert result._stage_perf == source._stage_perf
+    assert result._stage_perf is not source._stage_perf
+    assert contract.gates.writes_to_disk
+    assert contract.gates.per_row_independent is False
+    stage.resume_mode = "checkpoint"
+    assert not stage.describe().gates.writes_to_disk
+
+
+@pytest.mark.parametrize("remap", [False, True])
+@pytest.mark.parametrize(
+    ("keep_waveform", "missing", "overlong"),
+    [(False, False, False), (True, False, False), (True, True, False), (True, False, True)],
+)
+def test_reader_contract_tracks_success_and_placeholders(
+    tmp_path: Path, remap: bool, keep_waveform: bool, missing: bool, overlong: bool
+) -> None:
+    audio_path = tmp_path / "audio.wav"
+    if not missing:
+        sf.write(audio_path, np.zeros(80, dtype=np.float32), 8_000)
+    manifest = tmp_path / "manifest.jsonl"
+    _write_jsonl(
+        manifest,
+        [{"audio_filepath": str(audio_path), "duration": 0.01, "source_lang": "fr", "text": "retained"}],
+    )
+    key_names = [
+        "audio_filepath",
+        "original_file",
+        "sampling_rate",
+        "sample_rate",
+        "duration",
+        "num_channels",
+        "corpus",
+        "waveform",
+        "source_lang",
+        "read_error",
+        "audio_too_long",
+    ]
+    keys = {f"{name}_key": f"custom_{name}" if remap else name for name in key_names}
+    composite = NeMoSpeechAudioReader(
+        input_cfg=_input_cfg(str(manifest)),
+        resume_mode="checkpoint",
+        keep_waveform=keep_waveform,
+        max_audio_duration_sec=0.001 if overlong else None,
+        **keys,
+    )
+    stage = composite.decompose()[-1]
+    source = FileGroupTask(
+        dataset_name="dataset",
+        data=[str(manifest)],
+        reader_config={
+            "manifest_path": str(manifest),
+            "shard_key": "dataset/manifest",
+            "corpus": "dataset",
+            "language": "en",
+        },
+        _metadata={"trace": "source"},
+    )
+    contract = assert_agent_ready(stage, lambda: source, expected_cardinality="1:N fan-out")
+    assert_agent_ready(composite, run=False, expected_cardinality="1:N fan-out")
+    assert composite.describe() == stage.describe()
+    assert contract.gates.per_row_independent is False
+    assert contract.gates.writes_to_disk
+    assert set(contract.writes.data_keys) == {
+        keys[f"{name}_key"] for name in ["audio_filepath", "original_file", "corpus"]
+    }
+    result = stage.process(source)[0]
+    assert result.data[keys["audio_filepath_key"]] == str(audio_path)
+    assert result.data[keys["source_lang_key"]] == "fr"
+    assert result.data[keys["duration_key"]] == 0.01
+    assert result.data["text"] == "retained"
+    assert result._metadata["trace"] == "source"
+    assert result._stage_perf is not source._stage_perf
+    if remap:
+        assert not (set(key_names) & result.data.keys())
+    if missing or overlong:
+        assert result.data[keys["read_error_key"]] is True
+        assert keys["waveform_key"] not in result.data
+        assert result.data.get(keys["audio_too_long_key"], False) is overlong
+    else:
+        assert result.data[keys["sample_rate_key"]] == 8_000
+        assert result.data[keys["sampling_rate_key"]] == 8_000
+        assert result.data[keys["duration_key"]] == 0.01
+        assert result.data[keys["num_channels_key"]] == 1
+        assert (keys["waveform_key"] in result.data) is keep_waveform
+        assert keys["read_error_key"] not in result.data
+
+
+@pytest.mark.parametrize("keys", [{"waveform_key": "audio_filepath"}, {"read_error_key": ""}])
+def test_reader_rejects_invalid_output_key_configuration(keys: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match=r"Output keys must be distinct|non-empty string"):
+        NeMoSpeechReaderStage(**keys)
+
+
 def test_reader_preserves_manifest_identity_when_cuts_are_out_of_order_or_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -486,6 +627,41 @@ def test_reader_preserves_manifest_identity_when_cuts_are_out_of_order_or_missin
     assert by_input["2"].data["audio_filepath"] == "c.wav"
     assert by_input["2"].data["label"] == "row-c"
     assert np.all(by_input["2"].data["waveform"] == 3.0)
+
+
+@pytest.mark.parametrize("indices", [[None], [True], [-1], [1], [0, 0]])
+def test_tarred_reader_rejects_lost_or_duplicate_row_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, indices: list[int | None]
+) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    _write_jsonl(manifest, [{"audio_filepath": "a.wav", "duration": 1.0}])
+    cuts = [_FakeCut("a.wav", row_index=index) for index in indices]
+    stage = NeMoSpeechReaderStage()
+    monkeypatch.setattr(stage, "_make_tar_cutset", lambda _manifest, _tar: cuts)
+    source = FileGroupTask(
+        dataset_name="dataset",
+        data=[str(manifest)],
+        reader_config={
+            "manifest_path": str(manifest),
+            "tar_path": "audio.tar",
+            "corpus": "dataset",
+            "shard_key": "dataset/manifest",
+        },
+    )
+    with pytest.raises((TypeError, ValueError), match=r"missing a valid|out-of-range|more than once"):
+        stage.process(source)
+
+
+def test_tarred_reader_rejects_reserved_manifest_index(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    _write_jsonl(manifest, [{"audio_filepath": "a.wav", "_nemo_curator_row_index": 0}])
+    source = FileGroupTask(
+        dataset_name="dataset",
+        data=[str(manifest)],
+        reader_config={"manifest_path": str(manifest), "tar_path": "audio.tar", "shard_key": "dataset/manifest"},
+    )
+    with pytest.raises(ValueError, match="reserved field"):
+        NeMoSpeechReaderStage().process(source)
 
 
 def test_reader_decodes_lightweight_local_nemo_manifest(tmp_path: Path) -> None:

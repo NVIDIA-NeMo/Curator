@@ -40,7 +40,7 @@ def contained_output_path(root: Path, relative: str | PurePosixPath) -> Path:
     """
 
     relative_path = PurePosixPath(str(relative).replace("\\", "/"))
-    if relative_path.is_absolute() or any(part in {"", ".", ".."} for part in relative_path.parts):
+    if not relative_path.parts or relative_path.is_absolute() or ".." in relative_path.parts:
         msg = f"NeMo speech output path must be a safe relative path, got {relative!r}"
         raise ValueError(msg)
 

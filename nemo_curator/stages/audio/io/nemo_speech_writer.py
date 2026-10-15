@@ -33,9 +33,9 @@ import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field, fields
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -43,6 +43,7 @@ import soundfile as sf
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, validate_local_output_dir
 from nemo_curator.stages.audio.io._nemo_speech_state import (
     SHARD_REGISTRATION_VERSION,
@@ -397,7 +398,7 @@ def _write_receipt_candidate(path: Path, receipt: dict[str, Any]) -> None:
 
 
 @dataclass
-class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Persist one Opus/manifest-row receipt for each ``AudioTask``.
 
     This is a terminal sink: it persists each task and returns no waveform to
@@ -405,6 +406,21 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
     POSIX-style filesystem visible at the same path to every worker. Call
     :func:`finalize_nemo_speech_output` after a successful pipeline run to
     create manifests and completion markers.
+
+    Task-data keys are configurable; persisted NeMo row and receipt keys are
+    not. Each persisted row describes one emitted input or fan-out child, not
+    necessarily a whole source recording. Saved Opus paths are relative to the
+    shard manifest's parent, while ``output_audio_filepath_key`` on the consumed
+    task is relative to ``output_dir``. Playback offsets reset to zero for saved
+    clips; original offsets/end times retain source-relative seconds. A
+    ``vad_empty`` placeholder has zero duration, while ``read_error`` retains
+    the reported duration; neither represents a successfully encoded recording.
+
+    Receipt identity uses the deterministic framework task ID, falling back to
+    explicit ``_shard_output_id`` metadata only when needed. Restoring task data
+    from a generic metadata manifest does not restore this identity or shard
+    metadata and cannot safely resume this sink. Retained NumPy/tensor metadata
+    is converted to JSON-safe values; the waveform itself is omitted.
 
     Args:
         output_dir: Root for Opus clips, manifests, receipts, and markers.
@@ -414,6 +430,22 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         writer_concurrency: Number of stateless writer actors.
         save_audio: Encode Opus when true. When false, preserve the original
             audio reference in a manifest-only row.
+        audio_filepath_key: Input audio reference, not loaded by this writer.
+        original_audio_filepath_key: Original recording reference for provenance.
+        original_file_key: Fallback original recording reference.
+        output_audio_filepath_key: Optional preset and recorded relative Opus path.
+        sampling_rate_key: Fallback sample-rate alias when sample_rate_key is absent.
+        duration_key: Reported duration in seconds.
+        duration_sec_key: Preferred duration in seconds for successful rows.
+        start_ms_key: Child start relative to the input offset, in milliseconds.
+        end_ms_key: Child end relative to the input offset, in milliseconds.
+        offset_key: Playback offset in seconds within the input audio reference.
+        original_offset_key: Inherited source recording offset in seconds.
+        original_sampling_rate_key: Original recording sample rate in Hz.
+        original_channels_key: Original recording channel count.
+        vad_empty_key: Flag identifying a no-speech placeholder.
+        read_error_key: Flag identifying an unreadable-audio placeholder.
+        audio_too_long_key: Additional reason flag for an unreadable placeholder.
     """
 
     output_dir: str
@@ -429,6 +461,51 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
     _ffmpeg_path: str = field(default="", init=False, repr=False)
     is_sink_stage = True
 
+    _: KW_ONLY
+    audio_filepath_key: str = "audio_filepath"
+    original_audio_filepath_key: str = "original_audio_filepath"
+    original_file_key: str = "original_file"
+    output_audio_filepath_key: str = "output_audio_filepath"
+    sampling_rate_key: str = "sampling_rate"
+    duration_key: str = "duration"
+    duration_sec_key: str = "duration_sec"
+    start_ms_key: str = "start_ms"
+    end_ms_key: str = "end_ms"
+    offset_key: str = "offset"
+    original_offset_key: str = "original_offset"
+    original_sampling_rate_key: str = "original_sampling_rate"
+    original_channels_key: str = "original_channels"
+    vad_empty_key: str = "vad_empty"
+    read_error_key: str = "read_error"
+    audio_too_long_key: str = "audio_too_long"
+
+    KEY_ROLE_OVERRIDES: ClassVar = {
+        "sampling_rate_key": "sample_rate",
+        "duration_sec_key": "duration",
+        "original_sampling_rate_key": "sample_rate",
+    }
+    INTERNAL_KEY_FIELDS = frozenset(
+        {
+            "offset_key",
+            "original_offset_key",
+            "original_channels_key",
+            "vad_empty_key",
+            "read_error_key",
+            "audio_too_long_key",
+        }
+    )
+    AGENT_STATIC = StaticHints(
+        cardinality_options=["filter"],
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_dir"],
+            lifecycle_side_effects=True,
+            sanitizes_output=True,
+            requires_stable_task_id=True,
+            per_row_independent=False,
+        ),
+    )
+
     def __post_init__(self) -> None:
         if not self.output_dir:
             msg = "output_dir is required for NeMoSpeechWriterStage"
@@ -440,6 +517,19 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         if self.writer_concurrency < 1:
             msg = "writer_concurrency must be at least 1"
             raise ValueError(msg)
+        input_keys = []
+        for definition in fields(self):
+            if not definition.name.endswith("_key"):
+                continue
+            key = getattr(self, definition.name)
+            if not isinstance(key, str) or not key.strip():
+                msg = f"NeMoSpeechWriterStage.{definition.name} must be a non-empty string"
+                raise ValueError(msg)
+            if definition.name != "output_audio_filepath_key":
+                input_keys.append(key)
+        if self.output_audio_filepath_key in input_keys:
+            msg = "NeMoSpeechWriterStage.output_audio_filepath_key must not overwrite an input key"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         # read_error/vad_empty rows intentionally have no waveform.
@@ -447,6 +537,43 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        """Declare the terminal sink without creating output files."""
+        return StageContract(
+            reads_one_of=(
+                [
+                    IOSpec(data_keys=[self.waveform_key], accepts=["waveform"]),
+                    IOSpec(data_keys=[self.vad_empty_key]),
+                    IOSpec(data_keys=[self.read_error_key]),
+                ]
+                if self.save_audio
+                else []
+            ),
+            optional_reads=IOSpec(
+                data_keys=list(
+                    dict.fromkeys(
+                        getattr(self, definition.name)
+                        for definition in fields(self)
+                        if definition.name.endswith("_key")
+                    )
+                )
+            ),
+            writes=IOSpec(produces=["disk"]),
+            metadata_reads=["_shard_key", "_shard_total", "_shard_input_id", "_shard_output_id"],
+            cardinality="filter",
+            preserves_upstream_keys=False,
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_dir"],
+                requires_ffmpeg=self.save_audio and not sf.check_format("OGG", "OPUS"),
+                lifecycle_side_effects=True,
+                sanitizes_output=True,
+                requires_stable_task_id=True,
+                # Completion and publication depend on all rows in the source shard.
+                per_row_independent=False,
+            ),
+        )
 
     def num_workers(self) -> int | None:
         return self.writer_concurrency
@@ -549,20 +676,20 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         raise ValueError(msg)
 
     def _relative_audio_path(self, task: AudioTask, shard_key: str, output_id: str) -> PurePosixPath:
-        preset = task.data.get("output_audio_filepath")
+        preset = task.data.get(self.output_audio_filepath_key)
         if preset:
             return _audio_relative_path(str(preset), shard_key)
 
         source = str(
-            task.data.get("original_audio_filepath")
-            or task.data.get("original_file")
-            or task.data.get("audio_filepath")
+            task.data.get(self.original_audio_filepath_key)
+            or task.data.get(self.original_file_key)
+            or task.data.get(self.audio_filepath_key)
             or "audio"
         )
         stem = _source_output_stem(source)
-        offset = task.data.get("start_ms")
-        if offset is None and task.data.get("offset") is not None:
-            offset = round(float(task.data["offset"]) * 1000)
+        offset = task.data.get(self.start_ms_key)
+        if offset is None and task.data.get(self.offset_key) is not None:
+            offset = round(float(task.data[self.offset_key]) * 1000)
         suffix = f"_{int(offset)}ms" if offset else ""
         filename = f"{stem.name}{suffix}_{output_id[:16]}.opus"
         return PurePosixPath(shard_key, "audio", *stem.parts[:-1], filename)
@@ -575,26 +702,28 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         sample_rate: int,
     ) -> dict[str, Any]:
         original_file = str(
-            task.data.get("original_audio_filepath")
-            or task.data.get("original_file")
-            or task.data.get("audio_filepath")
+            task.data.get(self.original_audio_filepath_key)
+            or task.data.get(self.original_file_key)
+            or task.data.get(self.audio_filepath_key)
             or ""
         )
-        if task.data.get("vad_empty") or task.data.get("read_error"):
+        if task.data.get(self.vad_empty_key) or task.data.get(self.read_error_key):
             entry: dict[str, Any] = {
                 "audio_filepath": "",
-                "duration": 0.0 if task.data.get("vad_empty") else float(task.data.get("duration") or 0.0),
+                "duration": 0.0
+                if task.data.get(self.vad_empty_key)
+                else float(task.data.get(self.duration_key) or 0.0),
                 "sample_rate": sample_rate,
                 "sampling_rate": sample_rate,
             }
-            if task.data.get("vad_empty"):
+            if task.data.get(self.vad_empty_key):
                 entry["vad_empty"] = True
-            if task.data.get("read_error"):
+            if task.data.get(self.read_error_key):
                 entry["read_error"] = True
-            if task.data.get("audio_too_long"):
+            if task.data.get(self.audio_too_long_key):
                 entry["audio_too_long"] = True
         else:
-            duration = task.data.get("duration_sec", task.data.get("duration"))
+            duration = task.data.get(self.duration_sec_key, task.data.get(self.duration_key))
             if duration is None:
                 duration = len(waveform) / sample_rate if waveform is not None else 0.0
             entry = {
@@ -606,12 +735,12 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
         if original_file:
             entry["original_audio_filepath"] = original_file
-        base_offset = float(task.data.get("offset") or 0.0)
-        inherited_offset = task.data.get("original_offset")
+        base_offset = float(task.data.get(self.offset_key) or 0.0)
+        inherited_offset = task.data.get(self.original_offset_key)
         source_base_offset = float(inherited_offset) if inherited_offset is not None else base_offset
-        start_ms = task.data.get("start_ms")
+        start_ms = task.data.get(self.start_ms_key)
         relative_start = float(start_ms) / 1000.0 if start_ms is not None else 0.0
-        playback_offset = base_offset + relative_start if start_ms is not None else task.data.get("offset")
+        playback_offset = base_offset + relative_start if start_ms is not None else task.data.get(self.offset_key)
         source_offset = source_base_offset + relative_start
         if playback_offset is not None:
             entry["offset"] = 0.0 if self.save_audio and audio_filepath else float(playback_offset)
@@ -619,16 +748,30 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
             inherited_offset is not None or (self.save_audio and audio_filepath and source_offset != 0.0)
         ):
             entry["original_offset"] = float(source_offset)
-        if "end_ms" in task.data:
-            entry["original_end"] = source_base_offset + float(task.data["end_ms"]) / 1000.0
-        if task.data.get("original_sampling_rate") is not None:
-            entry["original_sampling_rate"] = int(task.data["original_sampling_rate"])
-        if task.data.get("original_channels") is not None:
-            entry["original_channels"] = int(task.data["original_channels"])
+        if self.end_ms_key in task.data:
+            entry["original_end"] = source_base_offset + float(task.data[self.end_ms_key]) / 1000.0
+        if task.data.get(self.original_sampling_rate_key) is not None:
+            entry["original_sampling_rate"] = int(task.data[self.original_sampling_rate_key])
+        if task.data.get(self.original_channels_key) is not None:
+            entry["original_channels"] = int(task.data[self.original_channels_key])
 
         internal = {
             self.waveform_key,
             self.sample_rate_key,
+            self.audio_filepath_key,
+            self.original_file_key,
+            self.output_audio_filepath_key,
+            self.sampling_rate_key,
+            self.duration_key,
+            self.duration_sec_key,
+            self.start_ms_key,
+            self.end_ms_key,
+            self.offset_key,
+            self.original_sampling_rate_key,
+            self.original_channels_key,
+            self.vad_empty_key,
+            self.read_error_key,
+            self.audio_too_long_key,
             "waveform",
             "sample_rate",
             "sampling_rate",
@@ -648,9 +791,14 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
             "read_error",
             "audio_too_long",
         }
+        provenance_keys = {
+            self.original_audio_filepath_key: "original_audio_filepath",
+            self.original_offset_key: "original_offset",
+        }
         for key, value in task.data.items():
-            if key not in internal and key not in entry:
-                entry[key] = _json_safe(value)
+            persisted_key = provenance_keys.get(key, key)
+            if key not in internal and persisted_key not in entry:
+                entry[persisted_key] = _json_safe(value)
         return entry
 
     def process(self, task: AudioTask) -> None:
@@ -664,10 +812,10 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
         output_slot = self._output_slot(task)
         output_id = hashlib.sha256(f"{_RECEIPT_VERSION}|{shard_key}|{input_id}|{output_slot}".encode()).hexdigest()
 
-        placeholder = bool(task.data.get("vad_empty") or task.data.get("read_error"))
+        placeholder = bool(task.data.get(self.vad_empty_key) or task.data.get(self.read_error_key))
         waveform: np.ndarray | None = None
         sample_rate = int(
-            task.data.get(self.sample_rate_key) or task.data.get("sampling_rate") or self.target_sample_rate
+            task.data.get(self.sample_rate_key) or task.data.get(self.sampling_rate_key) or self.target_sample_rate
         )
         relative_audio_path: PurePosixPath | None = None
         audio_claim: dict[str, Any] | None = None
@@ -718,9 +866,11 @@ class NeMoSpeechWriterStage(ProcessingStage[AudioTask, AudioTask]):
                     msg = f"Encoded Opus output failed validation: {relative_audio_path.as_posix()}"
                     raise RuntimeError(msg)
                 manifest_audio_path = _manifest_audio_path(relative_audio_path, shard_key).as_posix()
-                task.data["output_audio_filepath"] = relative_audio_path.as_posix()
+                task.data[self.output_audio_filepath_key] = relative_audio_path.as_posix()
             else:
-                manifest_audio_path = str(task.data.get("original_file") or task.data.get("audio_filepath") or "")
+                manifest_audio_path = str(
+                    task.data.get(self.original_file_key) or task.data.get(self.audio_filepath_key) or ""
+                )
 
         entry = self._manifest_entry(task, manifest_audio_path, waveform, sample_rate)
         status = "placeholder" if placeholder else "success"
