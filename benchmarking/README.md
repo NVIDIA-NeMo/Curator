@@ -781,6 +781,80 @@ present.
 | Hindi Indic ASR | Production Slurm pipeline only | Retained standalone benchmark: Xenna and Ray Data share the 216,164-clip / 531.75763h cohort after rejecting five exactly identified corrupt FLACs. Both use eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. The prior Xenna calibration target was 600-900s full process wall time on 8xH100; neither executor is registered in the standard nightly matrix. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
+### Granary metadata extraction
+
+`benchmarking/scripts/audio_granary_metadata_benchmark.py` runs the complete
+[Granary metadata tutorial graph](../tutorials/audio/granary_metadata/pipeline.yaml):
+resampling, speaker diarization, speech segmentation, sound-event detection,
+three-model language identification, language selection, Opus writing, and
+JSONL output. It loads the same YAML as the tutorial, so model settings and
+stage order stay aligned across both entrypoints.
+
+Use the dedicated `docker/audio/Dockerfile.trt_llm` image and local model
+layout described in the [tutorial](../tutorials/audio/granary_metadata/README.md).
+The reference eight-speaker Sortformer and Indic Canary bundles must be
+supplied separately. The SED engine and provenance sidecar must match the
+16 kHz frontend. This benchmark is not registered in the standard nightly
+matrix because that environment does not provide the complete native stack
+and model artifacts.
+
+Stage your audio before measurement. Each input row needs an absolute
+`audio_filepath` and its accurate decoded `duration` in seconds. Optional
+`audio_item_id` values must be unique plain filenames. Remove parent-recording
+`text` and `transcript` fields: those transcripts are not aligned to the new VAD
+segments. The tutorial's two-clip preparation command creates a compatible
+`/work/data/fleurs/metadata_input.jsonl`; use a larger real cohort for meaningful
+throughput measurements.
+
+Inside the tutorial container, from `/opt/Curator`, run each executor separately
+on the same manifest and models, choosing fresh result directories and logs:
+
+```bash
+mkdir -p /work/benchmarks
+set -o pipefail
+test ! -e /work/benchmarks/xenna && test ! -e /work/benchmarks/xenna.log && {
+  python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+    --benchmark-results-path /work/benchmarks/xenna \
+    --input-manifest /work/data/fleurs/metadata_input.jsonl \
+    --model-dir /models --executor xenna --execution-mode streaming \
+    2>&1 | tee /work/benchmarks/xenna.log
+}
+```
+
+```bash
+set -o pipefail
+test ! -e /work/benchmarks/ray_data && test ! -e /work/benchmarks/ray_data.log && {
+  python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+    --benchmark-results-path /work/benchmarks/ray_data \
+    --input-manifest /work/data/fleurs/metadata_input.jsonl \
+    --model-dir /models --executor ray_data \
+    2>&1 | tee /work/benchmarks/ray_data.log
+}
+```
+
+The standard result writer saves `params.json` and `metrics.json`; pipeline
+artifacts are under `results/`, including `metadata.jsonl`, `audio/`, and
+`rttm/`. Validation requires every input recording to be represented by speech
+segments or a no-speech audit row. It checks interval bounds, clip and RTTM
+files, duplicate outputs, source identities, language metadata, and failure
+flags. Language rejection counts remain visible rather than being treated
+as accepted labels.
+
+`time_taken_s` includes model startup, resampling, inference, segmentation,
+output writing, and executor shutdown. Input inspection and output validation
+are outside this timer. `total_audio_duration_hours` counts
+source recordings, whereas `total_segment_duration_hours` counts emitted
+speech. The throughput metric uses source audio hours. Divide it by the
+number of allocated GPUs to report audio-hours/GPU-hour. The timer
+excludes dataset downloading and container construction. Tasks are not
+retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
+
+The graph currently loads each recording into memory and uses one parent per
+VAD stage call. The production reader's bounded handling of recordings up
+to 11 hours and its 64-parent VAD scheduling are not reproduced here. No
+end-to-end model result, parity result, calibrated cohort size, or throughput
+measurement is claimed for this draft.
+
 ---
 
 ## Writing Benchmark Scripts

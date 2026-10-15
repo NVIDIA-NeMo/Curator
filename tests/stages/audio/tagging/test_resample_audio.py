@@ -17,7 +17,9 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 import nemo_curator.stages.audio.tagging.resample_audio as resample_audio_module
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
@@ -26,6 +28,25 @@ from nemo_curator.tasks import AudioTask
 
 class TestResampleAudioStage:
     """Tests for ResampleAudioStage."""
+
+    @pytest.mark.parametrize(("codec", "subtype"), [("pcm_s16le", "PCM_16"), ("pcm_f32le", "FLOAT")])
+    def test_wav_codec_preserves_requested_precision(self, tmp_path: Path, codec: str, subtype: str) -> None:
+        source = tmp_path / "source.wav"
+        samples = np.full(1600, 1e-7, dtype=np.float32)
+        sf.write(source, samples, 16000, subtype="FLOAT")
+        stage = ResampleAudioStage(resampled_audio_dir=str(tmp_path / "output"), target_codec=codec)
+        stage.setup_on_node()
+        result = stage.process(AudioTask(data={"audio_filepath": str(source)}))
+        audio_path = result.data["resampled_audio_filepath"]
+        assert sf.info(audio_path).subtype == subtype
+        if codec == "pcm_f32le":
+            actual, rate = sf.read(audio_path, dtype="float32")
+            assert rate == 16000
+            np.testing.assert_array_equal(actual, samples)
+
+    def test_rejects_unsupported_codec(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="target_codec"):
+            ResampleAudioStage(resampled_audio_dir=str(tmp_path), target_codec="invalid")
 
     def test_setup_on_node_reports_rootless_ffmpeg_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

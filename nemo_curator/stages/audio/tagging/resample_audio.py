@@ -27,7 +27,8 @@ import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 from fsspec.core import url_to_fs
 
@@ -46,6 +47,9 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     target sample rate and format, while creating a new manifest with
     updated paths.
 
+    ``target_codec="pcm_f32le"`` preserves floating-point samples in WAV
+    intermediates; the default remains signed 16-bit PCM.
+
     """
 
     # Processing parameters
@@ -63,6 +67,12 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata
     name: str = "ResampleAudio"
+    target_codec: Literal["pcm_s16le", "pcm_f32le"] = field(default="pcm_s16le", kw_only=True)
+
+    def __post_init__(self) -> None:
+        if self.target_codec not in {"pcm_s16le", "pcm_f32le"}:
+            msg = "target_codec must be pcm_s16le or pcm_f32le"
+            raise ValueError(msg)
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -135,7 +145,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
                 "-ac",
                 str(self.target_nchannels),
                 "-acodec",
-                "pcm_s16le",
+                self.target_codec,
                 temporary_audio_path,
             ]
 
