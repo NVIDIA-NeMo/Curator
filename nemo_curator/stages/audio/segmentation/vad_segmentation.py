@@ -106,6 +106,10 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         num_samples_key: Stale parent sample-count field removed from speech items.
         legacy_duration_keys: Older parent duration aliases removed before each
             speech item receives its configured interval duration.
+        skip_me_key: Optional shared skip-reason field for retained empty or
+            failed parents. Writes ``vad_empty`` or ``read_error`` without
+            replacing an existing reason, so downstream inference can bypass
+            placeholders. ``None`` preserves the existing output contract.
     """
 
     # Preserve the current-main positional constructor before adding adapter
@@ -149,6 +153,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
     num_speakers_key: str = "num_speakers"
     num_samples_key: str = "num_samples"
     legacy_duration_keys: tuple[str, ...] = ("duration", "duration_sec")
+    skip_me_key: str | None = None
 
     BATCH_ONLY: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -162,7 +167,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         "diar_end_key": "end",
         "diar_speaker_key": "speaker_id",
     }
-    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"read_error_key", "vad_empty_key"})
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"read_error_key", "vad_empty_key", "skip_me_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -207,6 +212,13 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         if empty:
             msg = f"[{self.name}] configurable task keys must be non-empty strings: {empty}"
             raise ValueError(msg)
+        if self.skip_me_key is not None:
+            if not isinstance(self.skip_me_key, str) or not self.skip_me_key.strip():
+                msg = "skip_me_key must be None or a non-empty string"
+                raise ValueError(msg)
+            if self.skip_me_key in {*configurable_keys.values(), *self.legacy_duration_keys}:
+                msg = "skip_me_key must not overwrite another VAD input or output field"
+                raise ValueError(msg)
         validate_audio_key_configuration(
             self.name,
             input_keys={
@@ -374,7 +386,12 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.nested:
-            return [], [self.segments_key, self.vad_empty_key, self.read_error_key]
+            return [], [
+                self.segments_key,
+                self.vad_empty_key,
+                self.read_error_key,
+                *([self.skip_me_key] if self.skip_me_key is not None else []),
+            ]
         return [], [
             self.output_waveform_key,
             self.output_sample_rate_key,
@@ -386,6 +403,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             self.num_speakers_key,
             self.vad_empty_key,
             self.read_error_key,
+            *([self.skip_me_key] if self.skip_me_key is not None else []),
         ]
 
     def describe(self) -> StageContract:
@@ -403,6 +421,13 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             self.original_file_key,
         ]
         conditional_writes: list[ConditionalWrite] = []
+        if self.skip_me_key is not None and (self.nested or self.emit_audit_placeholders):
+            conditional_writes.append(
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]),
+                    condition="an empty or failed parent is retained and has no existing skip reason",
+                )
+            )
 
         if self.nested:
             writes = IOSpec(
@@ -512,6 +537,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
                             self.original_file_key,
                             self.num_speakers_key,
                             *self.legacy_duration_keys,
+                            *([self.skip_me_key] if self.skip_me_key is not None else []),
                         ]
                     )
                 )
@@ -588,6 +614,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
 
     def _as_read_error(self, task: AudioTask) -> AudioTask:
         task.data[self.read_error_key] = True
+        if self.skip_me_key is not None and not task.data.get(self.skip_me_key):
+            task.data[self.skip_me_key] = "read_error"
         task.data.pop(self.waveform_key, None)
         return task
 
@@ -695,6 +723,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
                 task.data.pop(self.waveform_key, None)
                 return []
             task.data[self.vad_empty_key] = True
+            if self.skip_me_key is not None and not task.data.get(self.skip_me_key):
+                task.data[self.skip_me_key] = "vad_empty"
             task.data.setdefault(self.duration_key, duration)
             task.data.pop(self.waveform_key, None)
             if self.nested:

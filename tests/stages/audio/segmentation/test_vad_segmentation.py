@@ -414,6 +414,35 @@ def test_read_error_passes_through_without_adapter_call() -> None:
     assert "waveform" not in task.data
 
 
+@pytest.mark.parametrize("skip_key", [None, "_skipme", "reason"])
+@pytest.mark.parametrize("prior_reason", ["", "upstream_rejection"])
+def test_empty_parent_can_skip_downstream_inference(skip_key: str | None, prior_reason: str) -> None:
+    stage, _ = _stage(emit_audit_placeholders=True, skip_me_key=skip_key, results=[VADResult([])])
+    task = _task()
+    if skip_key is not None:
+        task.data[skip_key] = prior_reason
+
+    assert stage.process_batch([task]) == [task]
+    assert task.data["vad_empty"] is True
+    if skip_key is None:
+        assert "_skipme" not in task.data
+    else:
+        assert task.data[skip_key] == (prior_reason or "vad_empty")
+
+
+def test_failed_parent_has_distinct_skip_reason() -> None:
+    stage, _ = _stage(emit_audit_placeholders=True, skip_me_key="_skipme")
+    task = AudioTask(data={"read_error": True})
+    assert stage.process_batch([task]) == [task]
+    assert task.data["_skipme"] == "read_error"
+
+
+@pytest.mark.parametrize("key", ["", "waveform", "start_ms", "duration_sec"])
+def test_skip_reason_cannot_overwrite_vad_fields(key: str) -> None:
+    with pytest.raises(ValueError, match="skip_me_key"):
+        VADSegmentationStage(skip_me_key=key)
+
+
 def test_audio_preparation_error_is_auditable_when_requested() -> None:
     stage, adapter = _stage(emit_audit_placeholders=True)
     task = AudioTask(task_id="missing", data={"some_key": "value"})
