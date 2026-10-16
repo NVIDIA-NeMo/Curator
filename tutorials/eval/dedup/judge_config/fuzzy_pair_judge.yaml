@@ -17,7 +17,7 @@
 # model to notice unaided. semantic_diff also flags truncated pairs; the rubric's unresolved/low
 # escape hatches exist so a truncated or incomplete packet doesn't get judged as conclusive.
 #
-# As bundled, this uses 1 GPU (num_replicas: 1 x tensor_parallel_size: 1). Edit num_replicas
+# As bundled, this uses 8 GPUs (num_replicas: 8 x tensor_parallel_size: 1). Edit num_replicas
 # and/or tensor_parallel_size to match your hardware, and set models[0].model below before running.
 models:
   - alias: judge

@@ -46,6 +46,7 @@ from loguru import logger
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import DUPLICATE_IDS_SUBDIR
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
 from nemo_curator.stages.deduplication.fuzzy.workflow import ID_GENERATOR_OUTPUT_FILENAME
@@ -56,9 +57,34 @@ from nemo_curator.stages.deduplication.id_generator import (
 )
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.tasks import DocumentBatch
 
 _VALID_STRATEGIES = ("keeper_removed", "all_pairwise", "cross_group_sample")
 CORPUS_WITH_IDS_SUBDIR = "CorpusWithIds"
+
+
+class RenameFieldStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    def __init__(self, old_field: str, new_field: str) -> None:
+        self.old_field = old_field
+        self.new_field = new_field
+        self.name = "rename_field_stage"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.old_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.new_field]
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+        df[self.new_field] = df[self.old_field]
+        df = df.drop(columns=[self.old_field])
+        return DocumentBatch(
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 
 def _read_parquet_glob(directory: str) -> pd.DataFrame:
@@ -88,6 +114,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--input-path", required=True, help="Original corpus path. MUST match step 2.")
     parser.add_argument("--input-filetype", choices=["parquet", "jsonl"], default="jsonl", help="MUST match step 2.")
     parser.add_argument("--input-blocksize", default="1GiB", help="MUST match step 2.")
+    parser.add_argument("--text-field", default="text", help="The field containing the text of the document.")
+    parser.add_argument("--url-field", default="url", help="The field containing the URL of the document.")
+
     parser.add_argument(
         "--cache-dir", required=True, help="Step 2's --cache-dir. Also where this script writes CorpusWithIds/."
     )
@@ -153,19 +182,28 @@ def main() -> None:  # noqa: PLR0912, PLR0915
             raise RuntimeError(msg)
         logger.info(f"Reusing already-written {corpus_dir} (delete it to force a re-read).")
     else:
+        reassign_pipeline_stages = []
         reader_class = ParquetReader if args.input_filetype == "parquet" else JsonlReader
+        reassign_pipeline_stages.append(
+            reader_class(
+                file_paths=args.input_path,
+                blocksize=args.input_blocksize,
+                _assign_ids=True,
+                fields=[args.text_field, args.url_field],
+            )
+        )
+
+        if args.text_field != "text":
+            reassign_pipeline_stages.append(RenameFieldStage(old_field=args.text_field, new_field="text"))
+        if args.url_field != "url":
+            reassign_pipeline_stages.append(RenameFieldStage(old_field=args.url_field, new_field="url"))
+
+        reassign_pipeline_stages.append(ParquetWriter(path=str(corpus_dir)))
+
         reassign_pipeline = Pipeline(
             name="dedup_eval_id_reassignment",
             description="Re-read the original corpus with the same _curator_dedup_id values fuzzy dedup assigned.",
-            stages=[
-                reader_class(
-                    file_paths=args.input_path,
-                    blocksize=args.input_blocksize,
-                    _assign_ids=True,
-                    fields=["url", "text"],
-                ),
-                ParquetWriter(path=str(corpus_dir)),
-            ],
+            stages=reassign_pipeline_stages,
         )
 
         reassign_client = RayClient(ray_temp_dir=args.ray_temp_dir)

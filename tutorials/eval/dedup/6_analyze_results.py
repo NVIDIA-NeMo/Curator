@@ -18,6 +18,8 @@ Summarize the fuzzy-dedup-eval LLM judge output (step 6): bucket the judge's
 it against what each pair's `pair_type` implied fuzzy dedup decided
 (`expected_duplicate`, written by 3_build_pair_dataset.py).
 
+This script is intended to evaluate identified duplicate candidates, not negative pairs.
+
 Example:
     python tutorials/eval/dedup/6_analyze_results.py \
         --judge-output-path output/dedup_eval/judged_pairs \
@@ -71,6 +73,7 @@ def _correct_identical_text_relation(df: pd.DataFrame) -> pd.DataFrame:
     diff = df["semantic_diff"]
     is_complete = diff.map(lambda d: isinstance(d, dict) and d.get("status") == "COMPLETE")
     span_counts = diff.map(lambda d: d.get("span_counts", {}) if isinstance(d, dict) else {})
+    # Note that case-only and whitespace-only differences are corrected to "exact"
     identical_visible_text = span_counts.map(lambda c: c.get("A_ONLY", 1) == 0 and c.get("B_ONLY", 1) == 0)
     eligible = is_complete & identical_visible_text & ~df["truncated"] & df["relation_type"].notna()
     df["relation_type_corrected"] = eligible & (df["relation_type"] != "exact")

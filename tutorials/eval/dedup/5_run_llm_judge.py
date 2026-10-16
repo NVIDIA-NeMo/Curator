@@ -19,7 +19,7 @@ Step 5 of the fuzzy-dedup-eval example: judge the span-aligned pairs produced by
 This is a thin wrapper around `LLMJudgeWorkflow`.
 Edit `judge_config/fuzzy_pair_judge.yaml` first -- set `models[0].model` to a
 local model path or HF repo id, and size `num_replicas`/`tensor_parallel_size`
-to your GPUs (bundled default: 1 GPU).
+to your GPUs (bundled default: 8 GPUs).
 
 Example:
     python tutorials/eval/dedup/5_run_llm_judge.py \
