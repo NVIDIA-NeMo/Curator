@@ -783,6 +783,87 @@ present.
 
 ---
 
+### Qwen Omni ASR
+
+[audio_qwen_omni_asr_benchmark.py](scripts/audio_qwen_omni_asr_benchmark.py)
+transcribes audio with Qwen3-Omni, checks the generated text, selects a transcript,
+and cleans it. Existing transcripts are used only for fallback after inference;
+Qwen receives audio with the English or multilingual prompt from the YAML,
+preserving disfluencies and spoken numbers without a supplied transcript.
+Both Xenna and Ray Data load the complete
+[tutorial YAML](../tutorials/audio/qwen_omni_asr/pipeline.yaml), including its
+pinned model revision, batching, and all eight stages. Only the input
+size, paths, and executor change. The script is standalone; it is not registered
+in `benchmarks.yaml`.
+
+Use the [tutorial environment](../tutorials/audio/qwen_omni_asr/README.md#1-set-up-the-environment).
+From the repository root, stage a five-hour LibriSpeech sample and the model:
+
+```bash
+python benchmarking/data_prep/prepare_librispeech_data.py \
+  --output-path "$PWD/qwen-omni-asr-benchmark/data" \
+  --cache-dir "$PWD/qwen-omni-asr-benchmark/cache" \
+  --hf-repo-id openslr/librispeech_asr \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
+  --hf-config all --hf-split train.clean.100 --target-audio-hours 5.0
+
+hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --revision 26291f793822fb6be9555850f06dfe95f2d7e695 \
+  --local-dir "$PWD/qwen-omni-asr-benchmark/model"
+```
+
+Reuse the staged data and model for both runs. Run one executor at a time,
+using a new results directory for every run:
+
+```bash
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+  --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/xenna" \
+  --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
+  --model-id "$PWD/qwen-omni-asr-benchmark/model" \
+  --executor xenna --execution-mode streaming
+
+python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+  --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/raydata" \
+  --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
+  --model-id "$PWD/qwen-omni-asr-benchmark/model" \
+  --executor ray_data
+```
+
+The script writes `results/qwen_omni_asr.jsonl`, `metrics.json`, and the
+resolved configuration in `params.json`. It validates exact input/output
+coverage, unchanged input transcripts, nonempty predictions, positive finite
+durations, and reuse of the original text when a generated transcript is
+rejected. `num_input_text_fallbacks` counts these reused transcripts;
+`num_skipped_tasks` counts rows that remain flagged and need inspection.
+The pipeline timer, `time_taken_s`, includes model startup, audio loading,
+resampling, inference, cleanup, writing, and executor shutdown. It excludes
+data/model staging and output validation. These checks establish completion and
+output structure, not transcription accuracy.
+
+#### Observed throughput
+
+One run per executor used 22,710 unique English LibriSpeech clips totaling
+80.61259 audio hours. Each run used one EOS node with 8 × NVIDIA H100 80GB HBM3
+GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | --- | --- | --- | --- |
+| Xenna streaming | 748.54 s | 742.96 s | 390.61 | 48.83 |
+| Ray Data | 1,275.65 s | 1,270.40 s | 228.44 | 28.55 |
+
+Both produced all 22,710 outputs, preserved the input transcripts, used the
+original transcript for five clips, and left zero rows flagged. Xenna met the
+600–900 second full-process target. Ray Data used the same cohort. Full process
+time includes imports and output validation; staging is excluded. Per-GPU
+throughput divides whole-node throughput by all eight allocated GPUs.
+
+All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
+10% utilization after model initialization. Ray Data did not meet the
+eight-GPU activity target.
+
+---
+
 ## Writing Benchmark Scripts
 
 ### Script Location
