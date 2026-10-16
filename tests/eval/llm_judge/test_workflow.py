@@ -52,7 +52,7 @@ def test_load_yaml_rejects_a_non_mapping_document(tmp_path: Path) -> None:
     ("filename", "models", "stages", "judges"),
     [
         ("text_extraction_qwen_judge.yaml", 1, 2, 2),
-        ("text_extraction_qwen_gemma_judges.yaml", 2, 4, 4),
+        ("text_extraction_qwen_gemma_judges_8xh100.yaml", 2, 4, 4),
     ],
 )
 def test_example_configs_and_templates_are_valid(filename: str, models: int, stages: int, judges: int) -> None:

@@ -47,7 +47,7 @@ def test_benchmarks_yaml_is_complete_default_8xh100_config() -> None:
     for entry_name in ("audio_tagging_tts_xenna", "audio_tagging_tts_raydata"):
         assert "--gpu-stage-num-workers" not in entries[entry_name]["args"]
     replica_8_arg = '--autoscaling-config=\'{"min_replicas": 8, "max_replicas": 8}\''
-    assert replica_8_arg in entries["ndd_dynamo"]["args"]
+    assert replica_8_arg in entries["ndd_dynamo_20b"]["args"]
     for entry_name in ("exact_dedup_identification", "fuzzy_dedup_identification"):
         assert "environment" not in entries[entry_name]
 
