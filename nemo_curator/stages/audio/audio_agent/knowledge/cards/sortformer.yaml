@@ -29,6 +29,8 @@ composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, ASRStage]
 params_of_note:
+  session_name_key: "Explicit session identity used for resident fan-out provenance and RTTM labels."
+  audio_item_id_key: "Fallback source identity for resident fan-out when no session identity is supplied."
   adapter_target: Diarization adapter import path; the default is NeMoSortformerAdapter. TensorRTSortformerAdapter requires its configured local engine bundle.
   adapter_kwargs: Provider-specific options; consult the selected adapter's constructor.
   model_id: Canonical model identifier; model_name remains a compatibility alias.
@@ -86,7 +88,7 @@ semantic_facts:
     counterexamples:
     - Child waveform time zero is the parent's start offset, not start seconds into the child.
   original_file:
-    meaning: Parent provenance retained when present; otherwise the selected file path or a deterministic resident-audio identity.
+    meaning: "Existing parent provenance wins. Otherwise file input uses the selected file path; resident input uses the configured session identity, then audio item ID, then a deterministic content identity."
     scope: Identifies the parent source for every child.
     counterexamples:
     - A resident-audio identity is not an accessible filesystem path.
@@ -111,7 +113,7 @@ notes:
   - "Default task_id RTTM naming uses safe task/shard directories and requires stable framework task IDs. Metadata checkpoints do not restore that identity. Opt-in legacy naming can overwrite duplicate session labels and disables per-row independence."
   - "With rttm_naming=source_hash, the digest includes the session label and the full real source path for file input, or selected waveform content/shape/dtype/sample rate for resident input. Temporary paths, task IDs, shard metadata, and processing order do not affect it. Identical content and labels can share a resident export; moving a file changes its path-based name."
   - "Output key is `diar_segments`; MergeAlignmentDiarizationStage defaults to reading `segments` -- set its segments_key=diar_segments (or rename) when chaining."
-  - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains the source path or deterministic waveform identity under `original_file`. File-only downstream stages are intentionally incompatible unless audio is materialized separately."
+  - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains source provenance under `original_file` (explicit session or item identity before a content identity for resident audio). File-only downstream stages are intentionally incompatible unless audio is materialized separately."
   - "ResampleAudioStage leaves audio_filepath unchanged by default. Route the converted input through filepath_key=resampled_audio_filepath, resident waveform input, or update_audio_filepath=True on the resampler."
   - "Speech-turn-only list: silence between turns is simply absent. Window duration for consumers that use first_start→last_end still spans those gaps without needing placeholder rows."
   - "Streaming defaults (chunk_len=340, fifo_len=40, spkcache_len=188, spkcache_update_period=300, chunk_right_context=40) match the model card's recommended streaming config."
@@ -125,4 +127,4 @@ versions:   # verified interchangeable via model_name -- load + run + IDENTICAL 
   "nvidia/diar_sortformer_4spk-v1": "WHEN: batch/offline diarization of short-to-medium clips (non-streaming). Also the checkpoint used by SpeakerSeparationStage. Preset: offline_v1."
   "nvidia/diar_streaming_sortformer_4spk-v2": "WHEN: long or streaming audio / low-latency. Tune chunk_len for latency vs accuracy. Preset: streaming_v2. (The stage's default model_name is the -v2.1 point-release of this same streaming family -- not independently tested here.)"
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: mechanical, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 11, last_validated: "2026-10-16"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 12, last_validated: "2026-10-16"}
