@@ -3042,3 +3042,42 @@ class TestGeneratedOutputIntegrity:
         assert final_artifact.dependencies == inherited.dependencies
         asset.unlink()
         assert reuse.scan(rec, dataset_key=_KEY)["decision"] == "fresh"
+
+
+@pytest.mark.parametrize(
+    "secret_params",
+    [
+        {"storage_options": {"token": {"type": "service_account", "private_key": "opaque-summary-value"}}},
+        {"adapter_kwargs": {"providers": [{"client_secret": "opaque-summary-value"}]}},
+    ],
+)
+def test_pipeline_history_redacts_nested_credentials_before_formatting(store: Path, secret_params: dict) -> None:
+    from types import SimpleNamespace
+
+    from nemo_curator.stages.audio.audio_agent import run_store
+
+    recipe = _frozen(
+        [
+            {"ref": "ManifestReader", "params": {"manifest_path": str(store / "input.jsonl"), **secret_params}},
+            {"ref": "PreserveByValueStage", "params": {"input_value_key": "score", "target_value": 3}},
+        ]
+    )
+    original = recipe.to_dict()
+    run_id = verbs._record_run(
+        recipe,
+        run_id="nested-display-credentials",
+        data=None,
+        data_fp=None,
+        dataset_key=_KEY,
+        fingerprint_tier="stat",
+        failed=False,
+        report=SimpleNamespace(accepted=0, input_count=0, output_paths=[], per_stage_metrics={}),
+    )
+    record = run_store.load(run_id)
+    assert record is not None
+    assert "opaque-summary-value" not in record.pipeline_summary
+    assert "target_value=3" in record.pipeline_summary
+    assert "opaque-summary-value" not in json.dumps(verbs.runs(run_id=run_id))
+    assert "opaque-summary-value" not in json.dumps(verbs.runs())
+    assert "opaque-summary-value" in json.dumps(run_store.load_exact_recipe(run_id))
+    assert recipe.to_dict() == original

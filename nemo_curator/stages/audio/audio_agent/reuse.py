@@ -40,6 +40,8 @@ import contextlib
 import re
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from nemo_curator.stages.audio.audio_agent._safety import redact
+
 if TYPE_CHECKING:
     from nemo_curator.stages.audio.audio_agent.artifacts import Artifact, StepPlan
     from nemo_curator.stages.audio.audio_agent.recipe import Recipe
@@ -745,7 +747,8 @@ def summarize_pipeline(recipe: Recipe | None) -> str:
 
 def _summary_params(params: dict[str, Any]) -> list[tuple[str, Any]]:
     """Behavioural params in recipe order: everything bar locations and no-op settings."""
-    return [(k, v) for k, v in params.items() if not _is_location_param(k, v) and not _is_no_constraint(k, v)]
+    safe_params = redact(params, redact_transcripts=False)
+    return [(k, v) for k, v in safe_params.items() if not _is_location_param(k, v) and not _is_no_constraint(k, v)]
 
 
 def _is_no_constraint(key: str, value: Any) -> bool:  # noqa: ANN401
