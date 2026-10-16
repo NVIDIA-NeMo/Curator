@@ -80,7 +80,8 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
         name: Name for this composite stage instance.
     """
 
-    AGENT_STATIC = StaticHints(gates=Gates(per_row_independent=True))
+    # A configurable VAD adapter may depend on other rows; only an instance can resolve this.
+    AGENT_STATIC = StaticHints(gates=Gates(per_row_independent=False))
 
     def __init__(
         self,
@@ -96,13 +97,19 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
         _validate(self._cfg)
 
     def describe(self) -> StageContract:
+        per_row_independent = True
+        if self._cfg.get("vad", {}).get("enable", True):
+            vad = self._make_vad(
+                self._cfg,
+                suffix="",
+                nested=self._cfg.get("speaker_separation", {}).get("enable", True),
+            )
+            per_row_independent = vad.describe().gates.per_row_independent
         return StageContract(
             wrappable=False,
-            # True for every topology because it is true of each delegate: mono conversion, VAD,
-            # the three quality filters, concatenation, speaker separation and the timestamp
-            # mapper all work from the row they are handed. The factories below leave
-            # ``write_to_disk`` unset throughout, so none of them even opens a shared directory.
-            gates=Gates(per_row_independent=True),
+            # The other delegates are row-local and in-memory. Both VAD passes use the same
+            # adapter configuration, so its declaration also covers the per-speaker pass.
+            gates=Gates(per_row_independent=per_row_independent),
         )
 
     def decompose(self) -> list[ProcessingStage]:

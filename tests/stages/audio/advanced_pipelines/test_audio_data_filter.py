@@ -257,14 +257,36 @@ class TestDecomposeStageCount:
         assert SpeakerSeparationStage not in stage_types
 
 
-def test_static_contract_matches_configured_audio_data_filter_contract() -> None:
+def test_static_contract_defers_adapter_independence_to_configured_contract() -> None:
     static = static_contract(AudioDataFilterStage)
     configured = build_contract(AudioDataFilterStage())
 
     assert static.wrappable is False
-    assert static.gates.per_row_independent is True
+    assert static.gates.per_row_independent is False
     assert configured.wrappable == static.wrappable
-    assert configured.gates.per_row_independent == static.gates.per_row_independent
+    assert configured.gates.per_row_independent is True
+
+
+@pytest.mark.parametrize("vad_enabled", [False, True])
+@pytest.mark.parametrize("speaker_enabled", [False, True])
+@pytest.mark.parametrize(
+    "adapter_target",
+    ["nemo_curator.models.audio.vad.silero.SileroVADAdapter", "package.CustomVADAdapter"],
+)
+def test_configured_contract_respects_enabled_vad_adapter(
+    vad_enabled: bool, speaker_enabled: bool, adapter_target: str
+) -> None:
+    stage = AudioDataFilterStage(
+        config={
+            "vad": {"enable": vad_enabled, "adapter_target": adapter_target},
+            "speaker_separation": {"enable": speaker_enabled},
+        }
+    )
+    leaves = stage.decompose()
+    vad_stages = [leaf for leaf in leaves if isinstance(leaf, VADSegmentationStage)]
+    expected = all(vad.describe().gates.per_row_independent is True for vad in vad_stages)
+
+    assert build_contract(stage).gates.per_row_independent is expected
 
 
 @pytest.mark.parametrize(
