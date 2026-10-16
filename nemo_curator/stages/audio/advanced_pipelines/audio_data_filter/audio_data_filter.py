@@ -55,7 +55,7 @@ from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-from .config import _deep_merge, get_enabled_stages, load_config
+from .config import _deep_merge, _validate, get_enabled_stages, load_config
 
 
 class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
@@ -93,6 +93,7 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
         self._cfg = load_config(config_path)
         if config:
             self._cfg = _deep_merge(self._cfg, config)
+        _validate(self._cfg)
 
     def describe(self) -> StageContract:
         return StageContract(
@@ -204,7 +205,12 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     @staticmethod
     def _make_vad(cfg: dict, *, suffix: str, nested: bool) -> VADSegmentationStage:
         vad = cfg.get("vad", {})
-        return VADSegmentationStage(
+        stage = VADSegmentationStage(
+            adapter_target=vad.get(
+                "adapter_target",
+                "nemo_curator.models.audio.vad.silero.SileroVADAdapter",
+            ),
+            adapter_kwargs=vad.get("adapter_kwargs", {}),
             min_duration_sec=vad.get("min_duration_sec", 2.0),
             max_duration_sec=vad.get("max_duration_sec", 60.0),
             threshold=vad.get("threshold", 0.5),
@@ -212,11 +218,14 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
             speech_pad_ms=vad.get("speech_pad_ms", 300),
             nested=nested,
             name=f"VAD{suffix}",
+            batch_size=vad.get("batch_size", 1),
             resources=Resources(
                 cpus=vad.get("cpus", 1.0),
-                gpus=vad.get("gpus", 0.3),
+                gpus=vad.get("gpus", 0.0),
             ),
         )
+        num_workers = vad.get("num_workers")
+        return stage.with_(num_workers=num_workers) if num_workers is not None else stage
 
     @staticmethod
     def _make_speaker_sep(cfg: dict) -> SpeakerSeparationStage:
