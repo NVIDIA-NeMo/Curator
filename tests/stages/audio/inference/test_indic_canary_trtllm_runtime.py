@@ -164,9 +164,11 @@ def test_missing_optional_runtime_is_reported_at_construction(
         runtime.CanaryTRTLLM(tmp_path)
 
 
+@pytest.mark.parametrize("configured_launcher", [None, "rsh"])
 def test_prepare_native_runtime_loads_present_wheel_libraries(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    configured_launcher: str | None,
 ) -> None:
     prefix = tmp_path / "environment"
     (prefix / "share/openmpi").mkdir(parents=True)
@@ -186,12 +188,17 @@ def test_prepare_native_runtime_loads_present_wheel_libraries(
     monkeypatch.setattr(runtime.torch, "__file__", str(fake_torch_file))
     monkeypatch.setattr(runtime.ctypes, "CDLL", lambda path, mode: loaded.append((path, mode)) or object())
     monkeypatch.delenv("OPAL_PREFIX", raising=False)
+    if configured_launcher is None:
+        monkeypatch.delenv("OMPI_MCA_plm", raising=False)
+    else:
+        monkeypatch.setenv("OMPI_MCA_plm", configured_launcher)
 
     runtime._prepare_tensorrt_llm_native_runtime()
     runtime._prepare_tensorrt_llm_native_runtime()
 
     assert runtime._NATIVE_RUNTIME_PREPARED
     assert runtime.os.environ["OPAL_PREFIX"] == str(prefix)
+    assert runtime.os.environ["OMPI_MCA_plm"] == (configured_launcher or "isolated")
     assert loaded == [(str(cudart), runtime.ctypes.RTLD_GLOBAL)]
     assert len(runtime._NATIVE_LIBRARY_HANDLES) == 1
 
