@@ -146,21 +146,23 @@ def _make_stage(  # noqa: PLR0913
         return stage, seen_lengths
 
     if kind == "sortformer":
-        model = MagicMock()
+        from nemo_curator.models.audio.speaker_diarization.base import DiarizationResult
 
-        def diarize(*, audio: list[str], batch_size: int) -> list[list[str]]:
-            assert batch_size == 1
-            seen_lengths.append(sf.info(audio[0]).frames)
-            return [[f"{segment['start']} {segment['end']} {segment['speaker']}" for segment in _SEGMENTS]]
+        def diarize_batch(items: list[dict[str, Any]]) -> list[DiarizationResult]:
+            for item in items:
+                seen_lengths.append(
+                    len(item["waveform"]) if "waveform" in item else sf.info(item["audio_filepath"]).frames
+                )
+            return [DiarizationResult(segments=[dict(segment) for segment in _SEGMENTS]) for _ in items]
 
-        model.diarize.side_effect = diarize
         stage = InferenceSortformerStage(
-            diar_model=model,
             input_residency=input_residency,
             fanout=fanout,
             rttm_out_dir=rttm_out_dir,
+            target_sample_rate=_SAMPLE_RATE,
             resources=Resources(gpus=0),
         )
+        stage._adapter = SimpleNamespace(diarize_batch=diarize_batch)
         return stage, seen_lengths
 
     raise AssertionError(kind)

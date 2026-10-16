@@ -376,6 +376,17 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
             raise ValueError(msg)
         return math.ceil(requested_gpus)
 
+    @staticmethod
+    def _is_memory_exhaustion(exc: BaseException) -> bool:
+        """Return whether an error must escape task-local recovery."""
+        if isinstance(exc, MemoryError):
+            return True
+        try:
+            import torch
+        except ImportError:
+            return False
+        return isinstance(exc, torch.cuda.OutOfMemoryError)
+
     @abstractmethod
     def _create_adapter(self) -> AdapterT:
         """Construct one unloaded adapter from the subclass configuration."""
@@ -391,6 +402,8 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
             self._create_adapter().download_weights_on_node()
             logger.info("{} weights cached on node ({})", type(self).__name__, self.adapter_target)
         except Exception as exc:
+            if self._is_memory_exhaustion(exc):
+                raise
             msg = f"{type(self).__name__}: download_weights_on_node failed for {self.adapter_target}"
             if self.prefetch_fail_on_error:
                 raise RuntimeError(msg) from exc
@@ -420,6 +433,14 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Declare either the configured in-memory waveform or file input."""
+        residency = getattr(self, "input_residency", None)
+        if residency is not None:
+            return _inference_audio_input_spec(
+                residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            )
         if self.waveform_key:
             return [], [self.waveform_key, self.sample_rate_key]
         return [], [self.audio_filepath_key]

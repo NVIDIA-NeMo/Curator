@@ -20,7 +20,10 @@ from typing import TYPE_CHECKING
 
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.inference.lid.stage import AudioLIDInferenceStage
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from tests.stages.audio.inference import review_helpers as rh
 
 if TYPE_CHECKING:
@@ -33,7 +36,7 @@ def test_asr_and_sed_inherit_one_adapter_stage_base() -> None:
     assert issubclass(SEDInferenceStage, AdapterInferenceStage)
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
 @rh.pytest.mark.parametrize("residency", ["file", "auto", "waveform"])
 def test_planning_checks_the_selected_resident_role(
     kind: str, residency: str, monkeypatch: rh.pytest.MonkeyPatch
@@ -111,13 +114,23 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
     common_methods = {
         "_adapter_class",
         "_adapter_gpu_count",
-        "inputs",
         "setup_on_node",
         "setup",
         "teardown",
     }
-    assert common_methods.isdisjoint(ASRStage.__dict__)
-    assert common_methods.isdisjoint(SEDInferenceStage.__dict__)
+    for stage_type in (
+        ASRStage,
+        SEDInferenceStage,
+        InferenceSortformerStage,
+        VADSegmentationStage,
+        AudioLIDInferenceStage,
+    ):
+        assert common_methods.isdisjoint(stage_type.__dict__)
+
+    # VAD accepts either an in-memory waveform or a file and therefore owns
+    # its disjunctive input declaration; the other adapter stages use the base.
+    for stage_type in (ASRStage, SEDInferenceStage, InferenceSortformerStage, AudioLIDInferenceStage):
+        assert "inputs" not in stage_type.__dict__
 
 
 def test_worker_sizing_uses_the_processing_stage_override() -> None:
@@ -127,12 +140,29 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
         model_id="model",
         max_audio_sec_per_actor=2400.0,
     )
+    sortformer = InferenceSortformerStage()
+    vad = VADSegmentationStage()
+    lid = AudioLIDInferenceStage(
+        adapter_target="package.Adapter",
+        model_id="SpeechBrainLangID",
+        tag="primary",
+        num_workers_override=2,
+    )
 
     assert "num_workers_override" not in SEDInferenceStage.__dataclass_fields__
+    assert "num_workers_override" not in InferenceSortformerStage.__dataclass_fields__
+    assert "num_workers_override" not in VADSegmentationStage.__dataclass_fields__
+    assert "num_workers_override" in AudioLIDInferenceStage.__dataclass_fields__
     assert sed.num_workers() is None
     assert asr.num_workers() is None
+    assert sortformer.num_workers() is None
+    assert vad.num_workers() is None
+    assert lid.num_workers() == 2
     assert sed.with_(num_workers=3).num_workers() == 3
     assert asr.with_(num_workers=3).num_workers() == 3
+    assert sortformer.with_(num_workers=3).num_workers() == 3
+    assert vad.with_(num_workers=3).num_workers() == 3
+    assert lid.with_(num_workers=3).num_workers() == 3
 
 
 @rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
@@ -254,7 +284,7 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
         initial_task_type="AudioTask",
     )
     assert accepted.ok
-    setattr(stage, "filepath_key" if kind == "sortformer" else "audio_filepath_key", "recording_path")
+    stage.audio_filepath_key = "recording_path"
     custom_contract = rh.build_contract(stage)
     assert {"recording_path", "audio_filepath", "resampled_audio_filepath"}.issubset(custom_contract.removes_keys)
 
@@ -391,7 +421,7 @@ def test_waveform_identity_hash_streams_a_memoryview(monkeypatch: rh.pytest.Monk
     assert isinstance(payloads[1], bytes)
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
 def test_unsigned_resident_waveforms_are_rejected_by_fanout_stages(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -424,25 +454,6 @@ def test_legacy_positional_signatures_are_exact() -> None:
             "_pipeline",
             "_vad_model",
             "_rng",
-        ],
-        rh.InferenceSortformerStage: [
-            "model_name",
-            "model_path",
-            "cache_dir",
-            "diar_model",
-            "filepath_key",
-            "diar_segments_key",
-            "rttm_out_dir",
-            "chunk_len",
-            "chunk_left_context",
-            "chunk_right_context",
-            "fifo_len",
-            "spkcache_update_period",
-            "spkcache_len",
-            "inference_batch_size",
-            "name",
-            "batch_size",
-            "resources",
         ],
         rh.WhisperXVADStage: [
             "min_length",
@@ -515,16 +526,11 @@ def test_static_and_configured_inference_hints_are_truthful(tmp_path: Path) -> N
     assert not local_sortformer.gates.requires_internet_first_run
     assert not injected_sortformer.gates.requires_internet_first_run
     assert rh.static_contract(rh.InferenceSortformerStage).gates.requires_internet_first_run
-    assert rh.static_contract(rh.InferenceSortformerStage).gates.output_path_params == ["rttm_out_dir"]
+    assert rh.build_contract(rh.InferenceSortformerStage()).gates.output_path_params == ["rttm_out_dir"]
     assert rh.static_contract(rh.InferenceSortformerStage).gates.per_row_independent is False
-    with rh.patch("nemo_curator.stages.audio.inference.speaker_diarization.sortformer.snapshot_download") as download:
-        rh.InferenceSortformerStage(diar_model=rh.MagicMock()).setup_on_node()
-    download.assert_not_called()
 
 
-def test_waveform_only_identities_are_stable_and_explicit_ids_win(
-    tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
-) -> None:
+def test_waveform_only_identities_are_stable_and_explicit_ids_win(monkeypatch: rh.pytest.MonkeyPatch) -> None:
     waveform = rh.np.arange(12, dtype=rh.np.float32)[None, :]
     changed = waveform + 1
     pyannote, _seen = rh._make_stage("pyannote", monkeypatch, input_residency="waveform", fanout=True)
@@ -549,20 +555,6 @@ def test_waveform_only_identities_are_stable_and_explicit_ids_win(
     assert whisperx_identity(waveform) == first_whisperx
     assert whisperx_identity(changed) != first_whisperx
     assert whisperx_identity(waveform, audio_item_id="explicit-id") == "explicit-id"
-    sortformer, _seen = rh._make_stage(
-        "sortformer", monkeypatch, input_residency="waveform", rttm_out_dir=str(tmp_path)
-    )
-    task_data = {"waveform": waveform, "sample_rate": rh._SAMPLE_RATE}
-    sortformer.process(rh.AudioTask(data=dict(task_data)))
-    first_names = {path.name for path in tmp_path.glob("*.rttm")}
-    sortformer.process(rh.AudioTask(data=dict(task_data)))
-    assert {path.name for path in tmp_path.glob("*.rttm")} == first_names
-    sortformer.process(rh.AudioTask(data={"waveform": changed, "sample_rate": rh._SAMPLE_RATE}))
-    assert len(list(tmp_path.glob("*.rttm"))) == 2
-    sortformer.process(
-        rh.AudioTask(data={"waveform": waveform, "sample_rate": rh._SAMPLE_RATE, "session_name": "explicit-session"})
-    )
-    assert (tmp_path / "explicit-session.rttm").exists()
 
 
 def test_file_identity_precedence_preserves_existing_provenance(
@@ -598,28 +590,6 @@ def test_file_identity_precedence_preserves_existing_provenance(
         )
     )[0]
     assert pyannote_with_speaker.data["speaker"].startswith("legacy-speaker_")
-    sortformer, _seen = rh._make_stage("sortformer", monkeypatch, fanout=True, rttm_out_dir=str(tmp_path / "rttm"))
-    sortformer_child = sortformer.process(
-        rh.AudioTask(
-            data={
-                "audio_filepath": str(audio_path),
-                "audio_item_id": "new-item-id",
-                "original_file": "/stale/provenance.wav",
-            }
-        )
-    )[0]
-    assert (tmp_path / "rttm" / "real-source.rttm").exists()
-    assert sortformer_child.data["original_file"] == "/stale/provenance.wav"
-    sortformer.process(
-        rh.AudioTask(
-            data={
-                "audio_filepath": str(audio_path),
-                "session_name": "explicit-session",
-                "audio_item_id": "ignored-item-id",
-            }
-        )
-    )
-    assert (tmp_path / "rttm" / "explicit-session.rttm").exists()
     whisperx, _seen = rh._make_stage("whisperx", monkeypatch, fanout=True)
     whisperx_child = whisperx.process(
         rh.AudioTask(data={"audio_filepath": str(audio_path), "original_file": "/stale/provenance.wav"})
@@ -647,7 +617,6 @@ def test_configured_file_key_is_strict_unless_fallback_is_enabled(
     ("stage", "segments_key"),
     [
         (rh.PyAnnoteDiarizationStage(resources=rh.Resources(gpus=0), write_rttm=False), "segments"),
-        (rh.InferenceSortformerStage(diar_model=rh.MagicMock(), resources=rh.Resources(gpus=0)), "diar_segments"),
     ],
 )
 def test_num_speakers_is_disabled_by_default_and_preserves_legacy_aliases(stage: object, segments_key: str) -> None:
@@ -658,22 +627,7 @@ def test_num_speakers_is_disabled_by_default_and_preserves_legacy_aliases(stage:
     assert stage_with_alias.num_speakers_key is None
 
 
-@rh.pytest.mark.parametrize("residency", ["file", "waveform"])
-def test_sortformer_non_fanout_contract_only_declares_generated_outputs(residency: str) -> None:
-    stage = rh.InferenceSortformerStage(
-        diar_model=rh.MagicMock(),
-        resources=rh.Resources(gpus=0),
-        input_residency=residency,
-    )
-
-    contract = rh.build_contract(stage)
-
-    assert stage.filepath_key not in contract.writes.data_keys
-    assert stage.filepath_key not in stage.outputs()[1]
-    assert contract.writes.data_keys == [stage.diar_segments_key]
-
-
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
 def test_waveform_materialization_preserves_model_observed_samples(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -710,7 +664,7 @@ def test_fanout_is_non_resumable_until_zero_child_accounting_is_supported(
     assert fanout.is_resumable is False
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
 def test_fanout_metadata_uses_normalized_sample_boundaries(kind: str, monkeypatch: rh.pytest.MonkeyPatch) -> None:
     stage, _seen = rh._make_stage(kind, monkeypatch, fanout=True)
     waveform = rh.np.arange(10, dtype=rh.np.float32)[None, :]
