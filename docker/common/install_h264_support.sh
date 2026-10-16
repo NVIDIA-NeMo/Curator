@@ -13,15 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Opt-in installer that adds software h264/hevc/av1 decoder support to a
-# Curator container by building FFmpeg from source with those decoders added
-# to the strict allowlist.
+# Builds FFmpeg with software h264/hevc/av1 decoding and WAV audio resampling.
+# The repository Dockerfile calls this with --with-libopenh264 by default.
+# It can also add these capabilities to older or custom containers separately.
 #
-# The release Curator image may omit system ffmpeg entirely. When installed
+# Older Curator images may omit system ffmpeg entirely. When installed
 # with install_ffmpeg.sh, Curator's strict FFmpeg build routes h264/hevc/av1
 # decode through NVDEC only. That breaks ffprobe-based metadata extraction in
-# CPU-only Ray actors (VideoReader, ClipWriter), which is why this opt-in
-# exists.
+# CPU-only Ray actors (VideoReader, ClipWriter), which need software decoders.
 #
 # Run inside a running container, e.g.:
 #   docker exec <container> bash /opt/Curator/docker/common/install_h264_support.sh
@@ -29,6 +28,7 @@
 # Behaviour:
 #   - Builds FFmpeg from the upstream release tarball, same version as install_ffmpeg.sh,
 #     with the existing allowlist plus --enable-decoder=h264,hevc,av1.
+#     Includes WAV/PCM audio and resampling for audio workflows.
 #   - Optionally also enables the libopenh264 software h264 ENCODER (Cisco's
 #     free-license OpenH264 binary; opt-in via --with-libopenh264).
 #   - Replaces /usr/local/bin/{ffmpeg,ffprobe} in place.
@@ -124,7 +124,7 @@ cd "/tmp/ffmpeg-${FFMPEG_VERSION}"
 # Configure mirrors install_ffmpeg.sh exactly, with the decoder allowlist
 # extended to include software h264/hevc/av1, and optionally the libopenh264
 # software h264 encoder.
-encoder_list="rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc"
+encoder_list="rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc,pcm_s16le"
 extra_configure_flags=()
 if [ "$WITH_LIBOPENH264" -eq 1 ]; then
     encoder_list="${encoder_list},libopenh264"
@@ -149,13 +149,13 @@ PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure \
     --disable-dxva2 \
     --disable-libdrm \
     --enable-encoder="${encoder_list}" \
-    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1 \
-    --enable-muxer=mp4,rawvideo,image2pipe \
-    --enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,matroska,webm,image2,image2pipe \
+    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1,pcm_s16le \
+    --enable-muxer=mp4,rawvideo,image2pipe,wav \
+    --enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,matroska,webm,image2,image2pipe,wav \
     --enable-parser=h264,hevc,av1,vp8,vp9 \
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb \
     --enable-protocol=file,pipe \
-    --enable-filter=scale,format,null,copy \
+    --enable-filter=scale,format,null,copy,aresample,aformat,anull \
     --enable-libvpx \
     --enable-cuda \
     --enable-cuvid \

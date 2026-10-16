@@ -101,7 +101,7 @@ Source installs with `uv sync --all-extras` read the equivalent override directl
 </Tab>
 <Tab title="Build an Image (Recommended for Audio/Video)">
 
-Build an image from the repository Dockerfile. For a released version, check out its published release tag before building. The base image does not include FFmpeg; audio and video workflows need a modality-specific FFmpeg layer before use. Refer to [Build an Image](/reference/infra/container-environments#build-an-image) and [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video) for the full procedure.
+Build an image from the repository Dockerfile. Current default builds include OpenCV, Lynx, and FFmpeg with software video codecs and WAV resampling; no additional media layer is required. Refer to [Build an Image](/reference/infra/container-environments#build-an-image) and [Verify Audio and Video Dependencies](/reference/infra/container-environments#verify-audio-and-video-dependencies) for the full procedure. For a released version, check out its published release tag before building; older Dockerfiles may require additional dependency setup.
 
 1. Clone the repository.
 
@@ -143,7 +143,9 @@ Use installation extras to add only the components your pipeline needs. The foll
 
 ### Optional OpenCV Support
 
-The base NeMo Curator installation does not install OpenCV. The `cv2` extra
+The base NeMo Curator Python package installation does not install OpenCV. Current
+default repository Docker builds include it by installing the `cv2` extra separately
+from `all`; no additional install is needed in those images. The `cv2` extra
 installs `opencv-python-headless` for features that decode or transform images
 with OpenCV. Install it in the same environment as Curator when you use one of
 these features:
@@ -226,7 +228,7 @@ Install external tools that your selected stages require.
 <a id="install-ffmpeg-for-audio-and-video-source-installs" />
 ### Install FFmpeg for Python Package Installs
 
-Some Curator audio and video stages use the `ffmpeg` executable for resampling, decoding, encoding, or metadata extraction. Python extras do not install it. For audio and video workflows, the [container guide](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video) shows how to package FFmpeg in an image used by every worker. For Python package installs, verify that `ffmpeg` is on `PATH` on every executor node, or install it using one of these options.
+Some Curator audio and video stages use the `ffmpeg` executable for resampling, decoding, encoding, or metadata extraction. Python extras do not install it. Current default repository Docker builds include it; the [container guide](/reference/infra/container-environments#verify-audio-and-video-dependencies) provides verification commands. For Python package installs, verify that `ffmpeg` is on `PATH` on every executor node, or install it using one of these options.
 
 <Tabs>
 <Tab title="User-local (Audio)">
@@ -254,7 +256,7 @@ command -v ffmpeg
 ffmpeg -version
 ```
 
-Install the package on every executor node. For audio and video containers, use the [container FFmpeg instructions](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video).
+Install the package on every executor node. Current default repository Docker builds already include FFmpeg; use the [container verification instructions](/reference/infra/container-environments#verify-audio-and-video-dependencies).
 
 </Tab>
 
@@ -314,9 +316,9 @@ If the encoder or software H.264 decoder is missing, reinstall the video build w
 <a id="software-h264hevcav1-codec-support-advanced" />
 #### Advanced Software Codec Support
 
-Curator's strict FFmpeg build routes H.264/HEVC/AV1 decode through NVDEC and excludes software H.264 encoders by default. You can add software codec support when CPU-only stages run `ffprobe` on H.264/HEVC/AV1 inputs or when you use `--transcode-encoder=libopenh264`.
+Current default repository Docker builds already include software H.264/HEVC/AV1 decoders and the `libopenh264` encoder. The instructions below apply to environments that lack these capabilities, including older images and installations using the restricted `install_ffmpeg.sh` build, which routes H.264/HEVC/AV1 decode through NVDEC.
 
-Inside a container, run:
+Inside a container missing these capabilities, run:
 
 ```bash
 # Add software h264/hevc/av1 decoders only

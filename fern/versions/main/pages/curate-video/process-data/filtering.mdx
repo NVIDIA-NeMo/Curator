@@ -13,8 +13,9 @@ modality: "video-only"
 Apply motion-based filtering to clips and aesthetic filtering to frames to prune low-quality assets during curation.
 
 <Note>
-Motion filtering uses OpenCV for flow-field resizing. Install the optional
-dependency before enabling it:
+Motion filtering uses OpenCV for flow-field resizing. Current default repository
+Docker builds include it and the FFmpeg executable. For source/package environments
+or older images without OpenCV, install the optional dependency before enabling it:
 
 ```bash
 uv pip install "nemo-curator[cv2]"

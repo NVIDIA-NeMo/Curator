@@ -36,7 +36,7 @@ Install Curator, run the maintained FLEURS pipeline, and inspect its output.
    <Tabs>
    <Tab title="Build an Image (Recommended)">
 
-   Follow [Build an Image](/reference/infra/container-environments#build-an-image), then add FFmpeg using [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). This packages the audio system dependency in the image used by each worker.
+   Follow [Build an Image](/reference/infra/container-environments#build-an-image). Current default builds already include FFmpeg with WAV/PCM resampling; use [Verify Audio and Video Dependencies](/reference/infra/container-environments#verify-audio-and-video-dependencies) to check the image used by each worker. Older Dockerfiles may need additional setup.
 
    </Tab>
    <Tab title="Source Installation">

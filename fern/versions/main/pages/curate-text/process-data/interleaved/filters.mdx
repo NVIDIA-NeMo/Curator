@@ -35,7 +35,8 @@ The CLIP filter dominates cost. Putting it last means it only runs against sampl
 
 <Note>
 The blur and QR-code filters, as well as the image-byte decoder used by
-interleaved image processing, require the optional `cv2` extra. Install it
+interleaved image processing, require the optional `cv2` extra. Current default
+repository Docker builds include it. In environments where it is missing, install it
 with `uv pip install "nemo-curator[cv2]"`. If it is missing, Curator raises an
 `ImportError` with the same installation hint. Interleaved readers and writers
 that only move bytes between WebDataset and Parquet do not require OpenCV.

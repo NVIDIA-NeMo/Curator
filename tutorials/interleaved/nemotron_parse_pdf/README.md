@@ -27,9 +27,10 @@ pip install uv
 uv sync --extra interleaved_cuda12 --extra inference_server --extra cv2
 ```
 
-OpenCV is required for PDF page rendering and postprocessing but is not part of
-the `all` extra, so the NeMo Curator container does not include it. Inside the
-container, install it with `uv pip install "nemo-curator[cv2]"`. Verify with
+OpenCV is required for PDF page rendering and postprocessing. It is not part of
+the `all` extra, but current default repository Docker builds install the `cv2`
+extra separately and already include it. In source/package environments or older
+images missing it, install it with `uv pip install "nemo-curator[cv2]"`. Verify with
 `python -c "import cv2"`.
 
 The NeMo Curator container includes the `etcd` and `nats-server` binaries that

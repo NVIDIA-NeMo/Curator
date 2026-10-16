@@ -20,7 +20,8 @@ uv pip install --force-reinstall pynvml
 ### System Dependencies
 - A100 or above GPU(s) with CUDA for the Hugging Face model and vLLM
 - Python environment with `nemo-curator[math_cuda12]` installed (uv sync above)
-- Lynx system dependency for HTML rendering to text:
+- Lynx system dependency for HTML rendering to text. Current default repository
+  Docker builds include it. For other environments:
   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`
   - RHEL/Fedora: `sudo dnf install -y lynx` (or `sudo yum install -y lynx`)
   - Conda: `conda install -c conda-forge lynx`
