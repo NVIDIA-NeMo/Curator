@@ -12,342 +12,801 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import json
 import pickle
-from unittest.mock import MagicMock, patch
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pytest
-import soundfile as sf
 import torch
 
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.models.audio.vad.base import VADResult, VADSegment
+from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
-from nemo_curator.stages.audio._agent._planning import validate_pipeline
-from nemo_curator.stages.audio.common import ManifestWriterStage
-from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
+from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-
-@pytest.mark.gpu
-class TestVADSegmentationStage:
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_process_returns_segments(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_load_vad.return_value = mock_model
-
-        sr = 48000
-        mock_get_ts.return_value = [
-            {"start": 0, "end": sr * 3},
-            {"start": sr * 5, "end": sr * 8},
-        ]
-
-        waveform = torch.randn(1, sr * 10)
-        task = AudioTask(
-            data={"waveform": waveform, "sample_rate": sr},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage(min_duration_sec=1.0, max_duration_sec=30.0)
-        stage.setup()
-        result = stage.process(task)
-
-        assert isinstance(result, list)
-        assert len(result) == 2
-        for seg in result:
-            assert isinstance(seg, AudioTask)
-            assert "waveform" in seg.data
-            assert "start_ms" in seg.data
-            assert "end_ms" in seg.data
-            assert "segment_num" in seg.data
-            assert "duration" in seg.data
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_process_output_keys(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        mock_load_vad.return_value = MagicMock()
-
-        sr = 48000
-        mock_get_ts.return_value = [{"start": 0, "end": sr * 5}]
-
-        waveform = torch.randn(1, sr * 10)
-        task = AudioTask(
-            data={"waveform": waveform, "sample_rate": sr},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage(min_duration_sec=1.0)
-        stage.setup()
-        result = stage.process(task)
-
-        assert result[0].data["start_ms"] == 0
-        assert result[0].data["segment_num"] == 0
-        assert result[0].data["duration"] > 0
-        assert result[0].data["sample_rate"] == sr
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_empty_speech_returns_empty(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        mock_load_vad.return_value = MagicMock()
-        mock_get_ts.return_value = []
-
-        waveform = torch.randn(1, 48000 * 5)
-        task = AudioTask(
-            data={"waveform": waveform, "sample_rate": 48000},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage()
-        stage.setup()
-        result = stage.process(task)
-
-        assert isinstance(result, list)
-        assert len(result) == 0
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_segment_numbering(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        mock_load_vad.return_value = MagicMock()
-
-        sr = 48000
-        mock_get_ts.return_value = [
-            {"start": 0, "end": sr * 2},
-            {"start": sr * 3, "end": sr * 5},
-            {"start": sr * 6, "end": sr * 8},
-        ]
-
-        waveform = torch.randn(1, sr * 10)
-        task = AudioTask(
-            data={"waveform": waveform, "sample_rate": sr},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage(min_duration_sec=0.5)
-        stage.setup()
-        result = stage.process(task)
-
-        assert len(result) == 3
-        for i, seg in enumerate(result):
-            assert seg.data["segment_num"] == i
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_missing_waveform_and_filepath_skipped(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        mock_load_vad.return_value = MagicMock()
-
-        task = AudioTask(
-            data={"some_key": "value"},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage()
-        stage.setup()
-        result = stage.process(task)
-
-        assert isinstance(result, list)
-        assert len(result) == 0
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_nested_mode_returns_single_task(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        mock_load_vad.return_value = MagicMock()
-
-        sr = 48000
-        mock_get_ts.return_value = [
-            {"start": 0, "end": sr * 3},
-            {"start": sr * 5, "end": sr * 8},
-        ]
-
-        waveform = torch.randn(1, sr * 10)
-        task = AudioTask(
-            data={"waveform": waveform, "sample_rate": sr},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage(min_duration_sec=1.0, nested=True)
-        stage.setup()
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert "segments" in result.data
-        assert len(result.data["segments"]) == 2
-        for seg in result.data["segments"]:
-            assert "waveform" in seg
-            assert "start_ms" in seg
-            assert "end_ms" in seg
-            assert "segment_num" in seg
-            assert "duration" in seg
-            assert "original_file" in seg
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_nested_mode_no_speech_returns_task_with_empty_segments(
-        self, mock_load_vad: MagicMock, mock_get_ts: MagicMock
-    ) -> None:
-        mock_load_vad.return_value = MagicMock()
-        mock_get_ts.return_value = []
-
-        waveform = torch.randn(1, 48000 * 5)
-        task = AudioTask(
-            data={"waveform": waveform, "sample_rate": 48000},
-            dataset_name="test",
-        )
-
-        stage = VADSegmentationStage(nested=True)
-        stage.setup()
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert result.data["segments"] == []
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_nested_mode_ray_stage_spec_no_fanout(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        stage = VADSegmentationStage(nested=True)
-        spec = stage.ray_stage_spec()
-        assert spec == {}
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_non_nested_mode_ray_stage_spec_has_fanout(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        stage = VADSegmentationStage(nested=False)
-        spec = stage.ray_stage_spec()
-        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
-
-    def test_pickling(self) -> None:
-        stage = VADSegmentationStage(min_duration_sec=2.0, threshold=0.6)
-        pickled = pickle.dumps(stage)
-        restored = pickle.loads(pickled)  # noqa: S301
-        assert restored.min_duration_sec == 2.0
-        assert restored.threshold == 0.6
-        assert restored._vad_model is None
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-class TestNestedAndFanoutAgree:
-    """The two packagings of a VAD result must describe the same speech.
+@dataclass
+class _RecordingAdapter:
+    results: list[VADResult] | None = None
+    items: list[dict[str, Any]] = field(default_factory=list)
 
-    Deliberately outside ``TestVADSegmentationStage``, which is marked ``gpu``: this drives no
-    model -- both timestamps and the loader are patched -- so gating it behind a GPU would mean
-    the CPU suite never checks that the two modes agree. Lifted from
-    tests/stages/audio/test_agent_simulation_pipelines.py, its only previous home.
-    """
-
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
-    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_nested_and_fanout_produce_the_same_boundaries(
-        self, mock_load_vad: MagicMock, mock_get_ts: MagicMock
-    ) -> None:
-        sr = 16000
-        mock_load_vad.return_value = MagicMock()
-        mock_get_ts.return_value = [{"start": 0, "end": int(sr * 0.4)}, {"start": int(sr * 0.4), "end": int(sr * 0.9)}]
-        waveform = torch.randn(1, sr)
-
-        def _task() -> AudioTask:
-            return AudioTask(dataset_name="t", data={"waveform": waveform.clone(), "sample_rate": sr})
-
-        nested = VADSegmentationStage(nested=True, input_residency="waveform")
-        nested.setup()
-        nested_segments = nested.process(_task()).data["segments"]
-
-        fanout = VADSegmentationStage(nested=False, input_residency="waveform")
-        fanout.setup()
-        children = fanout.process(_task())
-
-        assert len(nested_segments) == len(children) == 2, "both modes must find the same speech"
-        nested_bounds = [(seg["start_ms"], seg["end_ms"]) for seg in nested_segments]
-        fanout_bounds = [(child.data["start_ms"], child.data["end_ms"]) for child in children]
-        assert nested_bounds == fanout_bounds == [(0, 400), (400, 900)], "only the packaging may differ"
+    def detect_batch(self, items: list[dict[str, Any]]) -> list[VADResult]:
+        self.items = items
+        if self.results is not None:
+            return self.results
+        return [VADResult([VADSegment(0.25, 0.75)]) for _ in items]
 
 
-def _stubbed_vad_stage(
+def _task(
+    task_id: str = "recording",
     *,
-    segments: list[dict[str, float]] | None = None,
-    **kwargs,
-) -> VADSegmentationStage:
-    stage = VADSegmentationStage(resources=Resources(cpus=1.0, gpus=0.0), **kwargs)
-    stage._vad_model = object()
-    stage._get_vad_segments = MagicMock(return_value=[{"start": 0.1, "end": 0.3}] if segments is None else segments)
-    return stage
+    samples: int = 16000,
+    sample_rate: int = 16000,
+    channels: int = 1,
+) -> AudioTask:
+    waveform = torch.arange(channels * samples, dtype=torch.float32).reshape(channels, samples)
+    return AudioTask(
+        task_id=task_id,
+        dataset_name="dataset",
+        data={"waveform": waveform, "sample_rate": sample_rate, "audio_filepath": f"/{task_id}.wav"},
+        _metadata={"_shard_key": "catalog/shard"},
+    )
 
 
-def test_legacy_positional_constructor_order_is_preserved() -> None:
-    resources = Resources(cpus=2.0, gpus=0.0)
+def _stage(
+    *, results: list[VADResult] | None = None, **kwargs: object
+) -> tuple[VADSegmentationStage, _RecordingAdapter]:
+    stage = VADSegmentationStage(**kwargs)
+    adapter = _RecordingAdapter(results=results)
+    stage._adapter = adapter
+    return stage, adapter
+
+
+def test_stage_uses_shared_adapter_lifecycle_and_preserves_defaults() -> None:
+    stage = VADSegmentationStage()
+
+    assert isinstance(stage, AdapterInferenceStage)
+    assert stage.adapter_target == "nemo_curator.models.audio.vad.silero.SileroVADAdapter"
+    assert stage.min_duration_sec == 2.0
+    assert stage.max_duration_sec == 60.0
+    assert stage.min_interval_ms == 500
+    assert stage.threshold == 0.5
+    assert stage.speech_pad_ms == 300
+    assert stage.duration_key == "duration"
+    assert stage.batch_size == 1
+    assert stage.resources.gpus == 0.0
+    assert stage.BATCH_ONLY is True
+
+
+def test_current_main_positional_constructor_order_is_preserved() -> None:
+    resources = Resources(cpus=2.0)
     stage = VADSegmentationStage(
-        100,
-        1.5,
-        20.0,
-        0.7,
-        50,
+        250,
+        1.0,
+        30.0,
+        0.65,
+        120,
         "samples",
-        "hz",
+        "rate",
         True,
-        "legacy-name",
-        3,
+        "LegacyVAD",
+        2,
         resources,
     )
 
-    assert stage.min_interval_ms == 100
-    assert stage.min_duration_sec == 1.5
-    assert stage.max_duration_sec == 20.0
-    assert stage.threshold == 0.7
-    assert stage.speech_pad_ms == 50
+    assert stage.min_interval_ms == 250
+    assert stage.min_duration_sec == 1.0
+    assert stage.max_duration_sec == 30.0
+    assert stage.threshold == 0.65
+    assert stage.speech_pad_ms == 120
     assert stage.waveform_key == "samples"
-    assert stage.sample_rate_key == "hz"
+    assert stage.sample_rate_key == "rate"
     assert stage.nested is True
-    assert stage.name == "legacy-name"
-    assert stage.batch_size == 3
+    assert stage.name == "LegacyVAD"
+    assert stage.batch_size == 2
     assert stage.resources is resources
-    assert stage.audio_filepath_key == "audio_filepath"
 
 
-def test_custom_input_keys_preserve_legacy_canonical_output_schema() -> None:
-    waveform = torch.arange(16000).reshape(1, -1)
-    stage = _stubbed_vad_stage(
-        input_residency="waveform",
-        waveform_key="samples",
-        sample_rate_key="hz",
+def test_create_adapter_forwards_stage_options_and_adapter_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Factory:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    stage = VADSegmentationStage(adapter_kwargs={"backend": "onnx"}, threshold=0.65)
+    monkeypatch.setattr(stage, "_adapter_class", lambda: _Factory)
+
+    assert isinstance(stage._create_adapter(), _Factory)
+    assert captured == {
+        "backend": "onnx",
+        "threshold": 0.65,
+        "min_duration_sec": 2.0,
+        "max_duration_sec": 60.0,
+        "min_interval_ms": 500,
+        "speech_pad_ms": 300,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"threshold": 1.1}, "threshold"),
+        ({"min_duration_sec": -1}, "min_duration_sec"),
+        ({"min_duration_sec": 2, "max_duration_sec": 2}, "max_duration_sec"),
+        ({"max_duration_sec": float("nan")}, "max_duration_sec"),
+        ({"max_duration_sec": float("-inf")}, "max_duration_sec"),
+        ({"min_interval_ms": -1}, "min_interval_ms"),
+        ({"speech_pad_ms": -1}, "speech_pad_ms"),
+        ({"batch_size": 0}, "batch_size"),
+        ({"adapter_kwargs": {"threshold": 0.4}}, "must not also appear"),
+    ],
+)
+def test_invalid_options_are_rejected(kwargs: dict[str, Any], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        VADSegmentationStage(**kwargs)
+
+
+def test_unlimited_max_duration_is_supported() -> None:
+    stage = VADSegmentationStage(max_duration_sec=float("inf"))
+
+    assert stage.max_duration_sec == float("inf")
+
+
+def test_fanout_contract_and_ray_spec() -> None:
+    stage = VADSegmentationStage()
+
+    assert stage.inputs() == ([], [])
+    assert stage.outputs()[1][:7] == [
+        "waveform",
+        "sample_rate",
+        "start_ms",
+        "end_ms",
+        "segment_num",
+        "duration",
+        "original_file",
+    ]
+    assert stage.ray_stage_spec()[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+
+
+def test_nested_contract_is_not_fanout() -> None:
+    stage = VADSegmentationStage(nested=True)
+
+    assert stage.outputs() == ([], ["segments", "vad_empty", "read_error"])
+    assert stage.ray_stage_spec() == {}
+
+
+def test_fanout_rejects_multi_recording_batch_configuration() -> None:
+    with pytest.raises(ValueError, match="fan-out mode requires batch_size=1"):
+        VADSegmentationStage(batch_size=2)
+
+    with pytest.raises(ValueError, match="fan-out mode requires batch_size=1"):
+        VADSegmentationStage().with_(batch_size=2)
+
+
+def test_fanout_rejects_ambiguous_manual_multi_recording_batch() -> None:
+    stage, _ = _stage(results=[])
+
+    with pytest.raises(ValueError, match="one input per process_batch"):
+        stage.process_batch([_task("first"), _task("second")])
+
+
+def test_nested_batch_delegates_mono_contiguous_source_rate_audio_and_preserves_task_order() -> None:
+    stage, adapter = _stage(
+        nested=True,
+        results=[
+            VADResult([VADSegment(0.0, 0.5)]),
+            VADResult([VADSegment(0.25, 0.75)]),
+        ],
+    )
+    first = _task("first", channels=2)
+    second = _task("second", sample_rate=48000, samples=48000)
+    expected_first_mono = first.data["waveform"].mean(0).numpy()
+
+    result = stage.process_batch([first, second])
+
+    assert [item["sample_rate"] for item in adapter.items] == [16000, 48000]
+    assert [item["waveform"].ndim for item in adapter.items] == [1, 1]
+    assert all(item["waveform"].dtype == np.float32 for item in adapter.items)
+    assert all(item["waveform"].flags.c_contiguous for item in adapter.items)
+    np.testing.assert_allclose(adapter.items[0]["waveform"], expected_first_mono)
+    assert [task.data["segments"][0]["original_file"] for task in result] == ["/first.wav", "/second.wav"]
+    assert [task.data["segments"][0]["start_ms"] for task in result] == [0, 250]
+
+
+def test_ray_data_adapter_accepts_two_item_numpy_object_batch() -> None:
+    stage, adapter = _stage(
+        nested=True,
+        batch_size=2,
+        results=[
+            VADResult([VADSegment(0.0, 0.5)]),
+            VADResult([VADSegment(0.25, 0.75)]),
+        ],
+    )
+    tasks = [_task("first"), _task("second")]
+    ray_batch = np.empty(2, dtype=object)
+    ray_batch[:] = tasks
+
+    result = RayDataStageAdapter(stage)._process_batch_internal({"item": ray_batch})
+
+    assert result["item"] == tasks
+    assert len(adapter.items) == 2
+    assert [task.data["segments"][0]["start_ms"] for task in result["item"]] == [0, 250]
+
+
+def test_batch_validates_public_subclass_inputs_before_inference() -> None:
+    class TenantVADSegmentationStage(VADSegmentationStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            return [], ["tenant_id"]
+
+    stage = TenantVADSegmentationStage()
+    adapter = _RecordingAdapter()
+    stage._adapter = adapter
+    task = _task()
+
+    assert not stage.validate_input(task)
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([task])
+    assert adapter.items == []
+
+
+def test_process_is_unsupported() -> None:
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        VADSegmentationStage().process(_task())
+
+
+def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
+    stage, _ = _stage(results=[VADResult([VADSegment(0.25, 0.75)])])
+    task = _task(channels=2)
+    task.data["language"] = "en"
+    task.data["diar_segments"] = [
+        {"start": 0.0, "end": 0.5, "speaker": "speaker_0"},
+        {"start": 0.5, "end": 1.0, "speaker": "speaker_1"},
+    ]
+
+    result = stage.process_batch([task])
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    child = result[0]
+    assert child.task_id == ""
+    assert child.dataset_name == "dataset"
+    assert child._metadata == task._metadata
+    assert child._metadata is not task._metadata
+    assert child.data["waveform"].shape == (2, 8000)
+    assert child.data["start_ms"] == 250
+    assert child.data["end_ms"] == 750
+    assert child.data["duration"] == 0.5
+    assert child.data["segment_num"] == 0
+    assert child.data["num_speakers"] == 2
+    assert child.data["language"] == "en"
+
+
+def test_fanout_preserves_speaker_separation_count_for_interval_segments() -> None:
+    stage, _ = _stage(results=[VADResult([VADSegment(0.25, 0.75)])])
+    task = _task()
+    task.data.update({"diar_segments": [(0.0, 0.5), (0.5, 1.0)], "num_speakers": 2})
+
+    child = stage.process_batch([task])[0]
+
+    assert child.data["num_speakers"] == 2
+
+
+def test_custom_duration_key_is_used_without_leaking_parent_duration() -> None:
+    stage, _ = _stage(
+        results=[VADResult([VADSegment(0.0, 0.5)])],
+        duration_key="duration_sec",
+    )
+    task = _task()
+    task.data["duration"] = 99.0
+
+    child = stage.process_batch([task])[0]
+
+    assert child.data["duration_sec"] == 0.5
+    assert "duration" not in child.data
+
+
+def test_file_input_is_loaded_without_storing_parent_waveform(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, adapter = _stage(results=[VADResult([VADSegment(0.0, 0.5)])])
+    monkeypatch.setattr(
+        stage,
+        "_load_audio",
+        lambda _path: (np.stack([np.ones(16000), np.zeros(16000)]), 16000),
+    )
+    task = AudioTask(task_id="file", data={"audio_filepath": "/audio/file.wav"})
+
+    child = stage.process_batch([task])[0]
+
+    np.testing.assert_allclose(adapter.items[0]["waveform"], 0.5)
+    assert child.data["waveform"].shape == (2, 8000)
+    assert "waveform" not in task.data
+
+
+@pytest.mark.parametrize(
+    ("segments", "expect_empty"),
+    [
+        ([VADSegment(0.0, 0.5)], False),
+        ([], True),
+    ],
+)
+def test_nested_file_input_preserves_discovered_parent_sample_rate(
+    monkeypatch: pytest.MonkeyPatch,
+    segments: list[VADSegment],
+    expect_empty: bool,
+) -> None:
+    stage, _ = _stage(nested=True, results=[VADResult(segments)])
+    monkeypatch.setattr(stage, "_load_audio", lambda _path: (np.ones(22050, dtype=np.float32), 22050))
+    task = AudioTask(task_id="file", data={"audio_filepath": "/audio/file.wav"})
+
+    result = stage.process_batch([task])[0]
+
+    assert result is task
+    assert result.data["sample_rate"] == 22050
+    assert "waveform" not in result.data
+    assert (result.data.get("vad_empty") is True) is expect_empty
+    if expect_empty:
+        assert result.data["segments"] == []
+    else:
+        assert result.data["segments"][0]["sample_rate"] == 22050
+
+
+def test_nested_mode_keeps_one_parent_and_stores_segment_dicts() -> None:
+    stage, _ = _stage(
+        nested=True,
+        results=[VADResult([VADSegment(0.0, 0.25), VADSegment(0.5, 0.75)])],
+    )
+    task = _task()
+
+    result = stage.process_batch([task])[0]
+
+    assert result is task
+    assert [segment["segment_num"] for segment in result.data["segments"]] == [0, 1]
+    assert [segment["duration"] for segment in result.data["segments"]] == [0.25, 0.25]
+    assert "waveform" not in result.data
+
+
+def test_nested_no_speech_is_an_auditable_placeholder() -> None:
+    stage, _ = _stage(nested=True, results=[VADResult([])])
+    task = _task()
+
+    result = stage.process_batch([task])[0]
+
+    assert result is task
+    assert result.data["vad_empty"] is True
+    assert result.data["duration"] == 1.0
+    assert "waveform" not in result.data
+    assert result.data["segments"] == []
+
+
+def test_fanout_no_speech_preserves_legacy_drop_behavior() -> None:
+    stage, _ = _stage(results=[VADResult([])])
+
+    assert stage.process_batch([_task()]) == []
+
+
+def test_fanout_no_speech_can_emit_an_auditable_placeholder() -> None:
+    stage, _ = _stage(emit_audit_placeholders=True, results=[VADResult([])])
+    task = _task()
+
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert task.data["vad_empty"] is True
+    assert task.data["duration"] == 1.0
+    assert "waveform" not in task.data
+
+
+def test_read_error_passes_through_without_adapter_call() -> None:
+    stage, adapter = _stage(emit_audit_placeholders=True)
+    task = AudioTask(task_id="failed", data={"read_error": True, "waveform": torch.zeros(10)})
+
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert adapter.items == []
+    assert "waveform" not in task.data
+
+
+def test_audio_preparation_error_is_auditable_when_requested() -> None:
+    stage, adapter = _stage(emit_audit_placeholders=True)
+    task = AudioTask(task_id="missing", data={"some_key": "value"})
+
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert task.data["read_error"] is True
+    assert adapter.items == []
+
+
+def test_audio_preparation_error_can_fail_fast() -> None:
+    stage, _ = _stage(fail_on_audio_error=True)
+
+    with pytest.raises(RuntimeError, match="Failed to prepare VAD audio"):
+        stage.process_batch([AudioTask(task_id="missing", data={})])
+
+
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_audio_preparation_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, _ = _stage(emit_audit_placeholders=True)
+
+    def fail(_task: AudioTask) -> tuple[torch.Tensor, int]:
+        raise error
+
+    monkeypatch.setattr(stage, "_resolve_audio", fail)
+
+    with pytest.raises(type(error), match="out of memory"):
+        stage.process_batch([_task()])
+
+
+def test_adapter_failures_propagate() -> None:
+    class _BrokenAdapter:
+        def detect_batch(self, _items: list[dict[str, Any]]) -> list[VADResult]:
+            message = "provider failed"
+            raise RuntimeError(message)
+
+    stage = VADSegmentationStage()
+    stage._adapter = _BrokenAdapter()
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        stage.process_batch([_task()])
+
+
+def test_nested_batch_isolates_per_recording_adapter_errors() -> None:
+    stage, _ = _stage(
+        nested=True,
+        results=[
+            VADResult([VADSegment(0.0, 0.25)]),
+            VADResult([], error="RuntimeError: provider rejected this recording"),
+            VADResult([VADSegment(0.5, 0.75)]),
+        ],
+    )
+    tasks = [_task("good-first"), _task("bad"), _task("good-last")]
+
+    results = stage.process_batch(tasks)
+
+    assert results == tasks
+    assert results[0].data["segments"][0]["start_ms"] == 0
+    assert results[2].data["segments"][0]["start_ms"] == 500
+    assert results[1].data["read_error"] is True
+    assert results[1].data["segments"] == []
+    assert "waveform" not in results[1].data
+    assert "read_error" not in results[0].data
+    assert "read_error" not in results[2].data
+
+
+def test_adapter_cardinality_must_match() -> None:
+    stage, _ = _stage(results=[])
+
+    with pytest.raises(RuntimeError, match="must match 1:1"):
+        stage.process_batch([_task()])
+
+
+def test_invalid_adapter_segments_become_an_auditable_placeholder() -> None:
+    stage, _ = _stage(
+        emit_audit_placeholders=True,
+        results=[VADResult([VADSegment(0.5, 0.75), VADSegment(float("nan"), 0.9)])],
     )
 
-    child = stage.process(AudioTask(dataset_name="t", data={"samples": waveform, "hz": 16000}))[0].data
+    result = stage.process_batch([_task()])
 
-    assert stage.outputs()[1] == ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration"]
-    assert "samples" not in child
-    assert "hz" not in child
-    torch.testing.assert_close(child["waveform"], waveform[:, 1600:4800])
-    assert child["sample_rate"] == 16000
+    assert result[0].data["read_error"] is True
+    assert "waveform" not in result[0].data
+
+
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_result_emission_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, _ = _stage(results=[VADResult([VADSegment(0.0, 0.5)])])
+
+    def fail(*_args: object) -> AudioTask | list[AudioTask]:
+        raise error
+
+    monkeypatch.setattr(stage, "_emit_segments", fail)
+
+    with pytest.raises(type(error), match="out of memory"):
+        stage.process_batch([_task()])
+
+
+def test_degenerate_segments_are_skipped() -> None:
+    stage, _ = _stage(
+        emit_audit_placeholders=True,
+        results=[VADResult([VADSegment(0.5, 0.5), VADSegment(0.75, 0.5)])],
+    )
+
+    result = stage.process_batch([_task()])
+
+    assert result[0].data["vad_empty"] is True
+
+
+def test_empty_batch_and_setup_requirement() -> None:
+    stage = VADSegmentationStage()
+    assert stage.process_batch([]) == []
+    with pytest.raises(RuntimeError, match="not initialized"):
+        stage.process_batch([_task()])
+
+
+def test_stage_is_picklable_without_loaded_adapter() -> None:
+    stage = VADSegmentationStage(min_duration_sec=1.0, adapter_kwargs={"backend": "onnx"})
+
+    restored = pickle.loads(pickle.dumps(stage))  # noqa: S301
+
+    assert restored.min_duration_sec == 1.0
+    assert restored.adapter_kwargs == {"backend": "onnx"}
+    assert restored._adapter is None
+
+
+@pytest.mark.parametrize(
+    ("nested", "cardinality"),
+    [(False, "1:N fan-out"), (True, "1:1 nested-list")],
+)
+def test_stage_is_agent_ready_for_each_output_shape(nested: bool, cardinality: str) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        results=[VADResult([VADSegment(0.25, 0.75)])],
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        _task,
+        expected_cardinality=cardinality,
+        available_keys={"waveform", "sample_rate", "audio_filepath"},
+        segments_key="segments",
+    )
+
+    assert contract.key_roles["waveform"] == "waveform"
+    assert contract.key_roles["sample_rate"] == "sample_rate"
+    assert contract.gates.lifecycle_side_effects is True
+    assert contract.gates.per_row_independent is True
+    if not nested:
+        assert {"num_samples", "segments", "vad_empty", "duration_sec"} <= set(contract.removes_keys)
+        assert "duration" not in contract.removes_keys
+
+
+def test_agent_contract_models_audit_placeholders_as_conditional() -> None:
+    stage, _ = _stage(
+        emit_audit_placeholders=True,
+        results=[VADResult([])],
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        _task,
+        expected_cardinality="1:N fan-out",
+        available_keys={"waveform", "sample_rate", "audio_filepath"},
+    )
+
+    assert contract.writes.data_keys == []
+    conditional_keys = {key for write in contract.conditional_writes for key in write.writes.data_keys}
+    assert {"waveform", "vad_empty", "read_error", "duration"} <= conditional_keys
+    assert contract.iteration_key is None
+    assert len(contract.conditional_reads) == 3
+
+
+def test_agent_contract_accepts_a_read_error_only_audit_row() -> None:
+    stage, adapter = _stage(emit_audit_placeholders=True, read_error_key="failed")
+
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(task_id="failed", data={"failed": True}),
+        expected_cardinality="1:N fan-out",
+        available_keys={"failed"},
+    )
+
+    assert contract.writes.data_keys == []
+    assert adapter.items == []
+
+
+def test_static_catalog_is_conservative_for_selectable_vad_adapters() -> None:
+    contract = VADSegmentationStage.describe_static()
+
+    assert contract.cardinality == "1:N fan-out"
+    assert contract.cardinality_options == ["1:N fan-out", "1:1 nested-list"]
+    assert contract.gates.lifecycle_side_effects is True
+    assert contract.gates.per_row_independent is False
+    assert contract.batch_only is True
+
+
+def test_nested_segment_task_keys_are_configurable() -> None:
+    stage, _ = _stage(
+        nested=True,
+        waveform_key="samples",
+        sample_rate_key="rate",
+        audio_filepath_key="path",
+        segments_key="speech",
+        output_waveform_key="pcm",
+        output_sample_rate_key="hz",
+        start_ms_key="begin_ms",
+        end_ms_key="finish_ms",
+        segment_num_key="index",
+        duration_key="seconds",
+        original_file_key="source",
+        diar_segments_key="turns",
+        diar_start_key="turn_begin",
+        diar_end_key="turn_end",
+        diar_speaker_key="who",
+        num_speakers_key="speaker_count",
+        num_samples_key="sample_count",
+        legacy_duration_keys=("old_duration",),
+        results=[VADResult([VADSegment(0.25, 0.75)])],
+    )
+    task = AudioTask(
+        task_id="custom",
+        data={
+            "samples": torch.zeros(1, 16000),
+            "rate": 16000,
+            "path": "/custom.wav",
+            "turns": [{"turn_begin": 0.0, "turn_end": 1.0, "who": "speaker_0"}],
+            "old_duration": 99.0,
+        },
+    )
+
+    result = stage.process_batch([task])[0]
+
+    assert result is task
+    assert "samples" not in result.data
+    assert set(result.data["speech"][0]) >= {
+        "pcm",
+        "hz",
+        "begin_ms",
+        "finish_ms",
+        "index",
+        "seconds",
+        "source",
+        "speaker_count",
+    }
+    assert not ({"waveform", "sample_rate", "start_ms", "end_ms", "segment_num"} & set(result.data["speech"][0]))
+    assert "old_duration" not in result.data["speech"][0]
 
 
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"input_residency": "typo"},
-        {"segments_key": ""},
-        {"segments_key": "start_ms"},
-        {"start_ms_key": "waveform"},
+        {"duration_key": "audio_filepath"},
+        {"nested": True, "segments_key": "waveform"},
         {"output_waveform_key": "duration"},
-        {"output_waveform_key": "sample_rate"},
-        {"output_waveform_key": "audio_filepath"},
-        {"output_sample_rate_key": "waveform"},
-        {"output_sample_rate_key": "audio_filepath"},
     ],
 )
-def test_invalid_residency_and_destructive_key_collisions_are_rejected(kwargs: dict[str, str]) -> None:
-    with pytest.raises(ValueError, match="must"):
+def test_cross_role_task_key_collisions_are_rejected(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match=r"only same-role|must be distinct"):
         VADSegmentationStage(**kwargs)
 
 
-def test_resident_waveform_without_sample_rate_does_not_fall_back_to_file(tmp_path) -> None:  # noqa: ANN001
-    path = tmp_path / "different.wav"
-    sf.write(path, torch.ones(1600).numpy(), 16000)
-    stage = _stubbed_vad_stage(input_residency="auto")
-    resident = torch.zeros(1, 3200)
+@pytest.mark.parametrize("residency", ["auto", "file", "waveform"])
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("keep_waveform", [False, True])
+def test_residency_and_segment_audio_match_agent_contract(
+    residency: str, nested: bool, keep_waveform: bool, tmp_path: Path
+) -> None:
+    import soundfile as sf
 
-    result = stage.process(AudioTask(dataset_name="t", data={"waveform": resident, "audio_filepath": str(path)}))
+    path = tmp_path / "source.wav"
+    sf.write(path, np.full((44100, 2), 0.25, dtype=np.float32), 44100, subtype="FLOAT")
+    stage, adapter = _stage(
+        input_residency=residency,
+        nested=nested,
+        keep_segment_waveform_in_task=keep_waveform,
+    )
 
-    assert result == []
-    stage._get_vad_segments.assert_not_called()
+    def fixture() -> AudioTask:
+        return AudioTask(
+            dataset_name="dataset",
+            data={
+                "waveform": torch.full((2, 8000), 0.75),
+                "sample_rate": 8000,
+                "audio_filepath": str(path),
+                "original_file": "archive/source.flac",
+                "label": "kept",
+            },
+        )
+
+    contract = assert_agent_ready(
+        stage,
+        fixture,
+        expected_cardinality="1:1 nested-list" if nested else "1:N fan-out",
+        available_keys=set(fixture().data),
+    )
+    result = stage.process_batch([fixture()])[0]
+    child = result.data["segments"][0] if nested else result.data
+    expected_rate, expected_value = (44100, 0.25) if residency == "file" else (8000, 0.75)
+    assert adapter.items[0]["sample_rate"] == expected_rate
+    np.testing.assert_allclose(adapter.items[0]["waveform"], expected_value)
+    assert child["sample_rate"] == expected_rate
+    assert child["original_file"] == "archive/source.flac"
+    assert child["audio_filepath"] == str(path)
+    assert child["label"] == "kept"
+    assert (child["start_ms"], child["end_ms"], child["duration"]) == (250, 750, 0.5)
+    if keep_waveform:
+        torch.testing.assert_close(child["waveform"], torch.full((2, expected_rate // 2), expected_value))
+    else:
+        assert "waveform" not in child
+        assert contract.writes.produces == []
+        json.dumps(result.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("sample_rate", [0, -1, True, 16000.5, "invalid", None])
+@pytest.mark.parametrize("residency", ["auto", "waveform"])
+def test_invalid_resident_rate_does_not_fall_back_to_file(
+    sample_rate: object, residency: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage, adapter = _stage(input_residency=residency)
+
+    def unexpected_read(_path: str) -> None:
+        pytest.fail("Invalid resident audio must not be replaced by file audio")
+
+    monkeypatch.setattr(stage, "_load_audio", unexpected_read)
+    task = _task()
+    task.data["sample_rate"] = sample_rate
+
+    assert stage.process_batch([task]) == []
+    assert adapter.items == []
+
+
+def test_waveform_mode_does_not_read_file_only_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, adapter = _stage(input_residency="waveform")
+
+    def unexpected_read(_path: str) -> None:
+        pytest.fail("Waveform mode must not load files")
+
+    monkeypatch.setattr(stage, "_load_audio", unexpected_read)
+
+    assert stage.process_batch([AudioTask(data={"audio_filepath": "/source.wav"})]) == []
+    assert adapter.items == []
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_metadata_only_output_removes_stale_audio_aliases(nested: bool) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        waveform_key="samples",
+        sample_rate_key="rate",
+        output_waveform_key="pcm",
+        keep_segment_waveform_in_task=False,
+    )
+    task = AudioTask(
+        data={
+            "samples": torch.ones(1, 16000),
+            "rate": 16000,
+            "waveform": torch.zeros(1, 16000),
+            "sample_rate": 48000,
+        }
+    )
+
+    result = stage.process_batch([task])[0]
+    child = result.data["segments"][0] if nested else result.data
+
+    assert not ({"samples", "waveform", "pcm"} & child.keys())
+    assert child["sample_rate"] == 16000
+    json.dumps(result.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("keep_waveform", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_nested_empty_or_failed_result_cleans_parent_audio(keep_waveform: bool, failed: bool) -> None:
+    stage, _ = _stage(
+        nested=True,
+        waveform_key="samples",
+        keep_segment_waveform_in_task=keep_waveform,
+        results=[VADResult([], error="failed" if failed else None)],
+    )
+    task = AudioTask(data={"samples": torch.ones(1, 16000), "waveform": torch.zeros(1, 10), "sample_rate": 16000})
+
+    result = stage.process_batch([task])[0]
+
+    assert result is task
+    assert result.data["segments"] == []
+    assert not ({"samples", "waveform"} & result.data.keys())
+    assert result.data["read_error" if failed else "vad_empty"] is True
 
 
 def test_nested_container_cannot_alias_canonical_waveform_cleanup() -> None:
@@ -355,241 +814,31 @@ def test_nested_container_cannot_alias_canonical_waveform_cleanup() -> None:
         VADSegmentationStage(nested=True, segments_key="waveform", waveform_key="samples", output_waveform_key="clip")
 
 
-@pytest.mark.parametrize("sample_rate", [0, -1, True, 16000.5, "invalid"])
-def test_invalid_resident_rate_skips_row_before_vad(sample_rate: object) -> None:
-    stage = _stubbed_vad_stage(input_residency="waveform")
+@pytest.mark.parametrize("source", [None, ""])
+def test_fanout_preserves_falsey_provenance(source: object) -> None:
+    stage, _ = _stage(original_file_key="source", audio_filepath_key="path")
+    task = _task()
+    task.data["source"] = source
 
-    assert stage.process(AudioTask(data={"waveform": torch.ones(1, 3200), "sample_rate": sample_rate})) == []
-    stage._get_vad_segments.assert_not_called()
+    child = stage.process_batch([task])[0]
 
-
-def test_empty_nested_result_preserves_default_parent_waveform() -> None:
-    waveform = torch.zeros(1, 1600)
-    stage = _stubbed_vad_stage(segments=[], nested=True, input_residency="waveform")
-
-    result = stage.process(AudioTask(dataset_name="t", data={"waveform": waveform, "sample_rate": 16000}))
-
-    assert result.data["waveform"] is waveform
-    assert result.data["segments"] == []
-
-
-def test_file_only_nested_result_retains_discovered_sample_rate(tmp_path) -> None:  # noqa: ANN001
-    path = tmp_path / "source.wav"
-    sf.write(path, torch.zeros(1600).numpy(), 8000)
-    stage = _stubbed_vad_stage(nested=True, input_residency="auto")
-
-    result = stage.process(AudioTask(dataset_name="t", data={"audio_filepath": str(path)}))
-
-    assert result.data["sample_rate"] == 8000
-
-
-def test_falsey_original_file_is_preserved() -> None:
-    stage = _stubbed_vad_stage(input_residency="waveform")
-    task = AudioTask(
-        dataset_name="t",
-        data={
-            "waveform": torch.zeros(1, 1600),
-            "sample_rate": 16000,
-            "audio_filepath": "/parent.wav",
-            "original_file": "",
-        },
-    )
-
-    child = stage.process(task)[0].data
-
-    assert child["original_file"] == ""
-    assert child["audio_filepath"] == "/parent.wav"
-
-
-@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
-def test_agent_ready_residency_modes_are_model_free(residency: str, tmp_path) -> None:  # noqa: ANN001
-    path = tmp_path / f"{residency}.wav"
-    sf.write(path, torch.zeros(1600).numpy(), 16000)
-    stage = _stubbed_vad_stage(input_residency=residency)
-
-    def fixture() -> AudioTask:
-        if residency == "file":
-            data = {"audio_filepath": str(path), "label": "kept"}
-        else:
-            data = {"waveform": torch.zeros(1, 1600), "sample_rate": 16000, "label": "kept"}
-            if residency == "auto":
-                data["audio_filepath"] = str(path)
-        return AudioTask(dataset_name="t", data=data)
-
-    assert_agent_ready(
-        stage,
-        fixture,
-        expected_cardinality="1:N fan-out",
-        available_keys=set(fixture().data),
-    )
-
-
-@pytest.mark.parametrize("segments", [[], [{"start": 0.1, "end": 0.3}]])
-@pytest.mark.parametrize("keep_segment_waveform", [False, True])
-def test_nested_agent_ready_empty_and_populated_cleanup(
-    segments: list[dict[str, float]],
-    keep_segment_waveform: bool,
-) -> None:
-    stage = _stubbed_vad_stage(
-        segments=segments,
-        nested=True,
-        input_residency="waveform",
-        keep_segment_waveform_in_task=keep_segment_waveform,
-    )
-
-    def fixture() -> AudioTask:
-        return AudioTask(
-            dataset_name="t",
-            data={"waveform": torch.arange(1600).reshape(1, -1), "sample_rate": 16000},
-        )
-
-    assert_agent_ready(
-        stage,
-        fixture,
-        expected_cardinality="1:1 nested-list",
-        available_keys={"waveform", "sample_rate"},
-        segments_key="segments",
-    )
-    result = stage.process(fixture())
-    assert isinstance(result, AudioTask)
-    if segments or not keep_segment_waveform:
-        assert "waveform" not in result.data
-    else:
-        assert "waveform" in result.data
-    assert len(result.data["segments"]) == len(segments)
-    if not keep_segment_waveform:
-        json.dumps(result.data)
-
-
-def test_fanout_children_retain_parent_paths_as_provenance() -> None:
-    waveform = torch.arange(16000).reshape(1, -1)
-    task = AudioTask(
-        dataset_name="t",
-        data={
-            "samples": waveform,
-            "hz": 16000,
-            "recording_path": "/inputs/parent.wav",
-            "source_path": "/archive/original.flac",
-            "num_samples": 16000,
-            "label": "kept",
-        },
-    )
-    stage = _stubbed_vad_stage(
-        input_residency="waveform",
-        waveform_key="samples",
-        sample_rate_key="hz",
-        audio_filepath_key="recording_path",
-        original_file_key="source_path",
-    )
-
-    contract = assert_agent_ready(
-        stage,
-        lambda: AudioTask(dataset_name="t", data=dict(task.data)),
-        expected_cardinality="1:N fan-out",
-        available_keys=set(task.data),
-    )
-    child = stage.process(task)[0].data
-
-    assert contract.iteration_key == stage.segment_num_key
-    assert contract.preserves_upstream_keys is True
-    assert {"recording_path", "audio_filepath"}.issubset(contract.invalidates_keys)
-    assert "num_samples" in contract.removes_keys
-    assert child["source_path"] == "/archive/original.flac"
-    assert child["label"] == "kept"
-    assert child["recording_path"] == "/inputs/parent.wav"
-    assert "num_samples" not in child
-    assert "samples" not in child
-    assert "hz" not in child
-    torch.testing.assert_close(child["waveform"], waveform[:, 1600:4800])
-    assert child["sample_rate"] == 16000
-    assert (child["start_ms"], child["end_ms"]) == (100, 300)
-
-
-def test_nested_segments_retain_parent_paths_as_provenance() -> None:
-    task = AudioTask(
-        dataset_name="t",
-        data={
-            "waveform": torch.zeros(1, 16000),
-            "sample_rate": 16000,
-            "audio_filepath": "/inputs/parent.wav",
-            "num_samples": 16000,
-        },
-    )
-    stage = _stubbed_vad_stage(nested=True, input_residency="waveform")
-
-    result = stage.process(task)
-    segment = result.data["segments"][0]
-
-    assert result.data["audio_filepath"] == "/inputs/parent.wav"
-    assert result.data["num_samples"] == 16000
-    assert segment["original_file"] == "/inputs/parent.wav"
-    assert segment["audio_filepath"] == "/inputs/parent.wav"
-    assert "num_samples" not in segment
-
-
-def test_nested_contract_declares_container_and_segment_fields() -> None:
-    stage = VADSegmentationStage(nested=True, segments_key="speech_chunks")
-    contract = stage.describe()
-
-    assert contract.writes.data_keys == ["speech_chunks"]
-    assert contract.writes.segment_data_keys == [
-        "sample_rate",
-        "start_ms",
-        "end_ms",
-        "segment_num",
-        "duration",
-        "original_file",
-        "waveform",
-    ]
-    assert contract.iteration_key == "speech_chunks"
-
-
-def test_outputs_omit_waveform_when_segment_waveforms_are_disabled() -> None:
-    stage = VADSegmentationStage(keep_segment_waveform_in_task=False)
-
-    assert stage.output_waveform_key not in stage.outputs()[1]
-    assert stage.output_waveform_key not in stage.describe().writes.data_keys
-
-
-def test_contract_declares_mode_specific_parent_carrier_removals() -> None:
-    nested = VADSegmentationStage(nested=True).describe()
-    fanout_memory = VADSegmentationStage(nested=False).describe()
-    fanout_metadata = VADSegmentationStage(
-        nested=False,
-        keep_segment_waveform_in_task=False,
-    ).describe()
-
-    assert nested.removes_keys == []
-    assert {"audio_filepath"}.issubset(fanout_memory.invalidates_keys)
-    assert "num_samples" in fanout_memory.removes_keys
-    assert "waveform" not in fanout_memory.removes_keys
-    assert "audio_filepath" in fanout_metadata.invalidates_keys
-    assert {"num_samples", "waveform"}.issubset(fanout_metadata.removes_keys)
+    assert child.data["source"] is source
+    assert {"path", "audio_filepath"} <= set(stage.describe().invalidates_keys)
 
 
 @pytest.mark.parametrize(
-    ("keep_segment_waveform", "consumer_residency", "expected_ok"),
-    [
-        (True, "waveform", True),
-        (True, "file", False),
-        (False, "waveform", False),
-        (False, "file", False),
-    ],
+    ("keep_waveform", "consumer_residency", "expected_ok"),
+    [(True, "waveform", True), (True, "file", False), (False, "waveform", False), (False, "file", False)],
 )
 def test_fanout_planner_matches_runtime_audio_carriers(
-    keep_segment_waveform: bool,
-    consumer_residency: str,
-    expected_ok: bool,
+    keep_waveform: bool, consumer_residency: str, expected_ok: bool
 ) -> None:
     stages = [
-        VADSegmentationStage(
-            input_residency="waveform",
-            keep_segment_waveform_in_task=keep_segment_waveform,
-        ),
+        VADSegmentationStage(input_residency="waveform", keep_segment_waveform_in_task=keep_waveform),
         VADSegmentationStage(input_residency=consumer_residency),
     ]
 
-    report = validate_pipeline(
+    report = agent.validate_pipeline(
         stages,
         initial_keys={"waveform", "sample_rate"},
         initial_roles={"waveform", "sample_rate"},
@@ -598,111 +847,22 @@ def test_fanout_planner_matches_runtime_audio_carriers(
     assert report.ok is expected_ok, report.issues
 
 
-def test_nested_vad_to_disk_concat_to_manifest_is_serialization_safe(tmp_path) -> None:  # noqa: ANN001
-    stages = [
-        VADSegmentationStage(nested=True, input_residency="waveform"),
-        SegmentConcatenationStage(
-            keep_waveform_in_task=False,
-            write_to_disk=True,
-            output_dir=str(tmp_path / "concat"),
-        ),
-        ManifestWriterStage(output_path=str(tmp_path / "manifest.jsonl")),
-    ]
-
-    report = validate_pipeline(
-        stages,
-        initial_keys={"waveform", "sample_rate"},
-        initial_roles={"waveform", "sample_rate"},
-    )
-
-    assert report.ok, report.issues
-    assert stages[1].describe().gates.sanitizes_output is True
-
-
-def test_nested_vad_to_memory_concat_is_rejected_before_manifest(tmp_path) -> None:  # noqa: ANN001
-    stages = [
-        VADSegmentationStage(nested=True, input_residency="waveform"),
-        SegmentConcatenationStage(),
-        ManifestWriterStage(output_path=str(tmp_path / "manifest.jsonl")),
-    ]
-
-    report = validate_pipeline(
-        stages,
-        initial_keys={"waveform", "sample_rate"},
-        initial_roles={"waveform", "sample_rate"},
-    )
-
-    assert not report.ok
-    assert any(issue.code == "tensor_into_sink" for issue in report.issues)
-    assert stages[1].describe().gates.sanitizes_output is False
-
-
-@pytest.mark.parametrize("segments", [[], [{"start": 0.01, "end": 0.05}]])
-def test_nested_vad_does_not_guarantee_parent_waveform_to_consumers(segments: list[dict[str, float]]) -> None:
-    stage = _stubbed_vad_stage(nested=True, input_residency="waveform", segments=segments)
-    task = AudioTask(dataset_name="t", data={"waveform": torch.zeros(1, 1600), "sample_rate": 16000})
-
-    report = validate_pipeline(
-        [stage, VADSegmentationStage(input_residency="waveform")],
-        initial_keys=set(task.data),
-        initial_roles={"waveform", "sample_rate"},
-    )
-
-    assert not report.ok, report.issues
-    result = stage.process(task)
-    assert ("waveform" in result.data) is (not segments)
-
-
-def test_nested_vad_replaces_previous_segment_container_without_embedding_it() -> None:
-    previous_segments = [{"waveform": torch.ones(1, 100), "sample_rate": 16000}]
-    stage = _stubbed_vad_stage(nested=True, segments_key="speech", keep_segment_waveform_in_task=False)
-    task = AudioTask(
-        dataset_name="t",
-        data={"waveform": torch.zeros(1, 16000), "sample_rate": 16000, "speech": previous_segments},
-    )
-
-    result = stage.process(task)
-
-    assert "speech" not in result.data["speech"][0]
-    json.dumps(result.data)
-    assert previous_segments[0]["waveform"].shape == (1, 100)
-
-
 @pytest.mark.parametrize("sample_rate", [8000, 16000, 44100, 48000])
 @pytest.mark.parametrize("nested", [False, True])
 def test_bundled_silero_silence_smoke(sample_rate: int, nested: bool) -> None:
     stage = VADSegmentationStage(nested=nested, keep_segment_waveform_in_task=False)
-    task = AudioTask(dataset_name="t", data={"waveform": torch.zeros(1, sample_rate), "sample_rate": sample_rate})
+    task = AudioTask(data={"waveform": torch.zeros(1, sample_rate), "sample_rate": sample_rate})
+
     stage.setup()
     try:
-        result = stage.process(task)
-        if nested:
-            assert result is task
-            assert result.data[stage.segments_key] == []
-            assert stage.waveform_key not in result.data
-            json.dumps(result.data)
-        else:
-            assert result == []
+        result = stage.process_batch([task])
     finally:
         stage.teardown()
 
-
-@pytest.mark.parametrize("provenance", [None, False, 0, ""])
-def test_process_preserves_falsey_provenance_with_detected_speech(
-    provenance: object, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    stage = VADSegmentationStage(min_duration_sec=0.1)
-    stage._vad_model = object()
-    monkeypatch.setattr(stage, "_get_vad_segments", lambda *_: [{"start": 0.0, "end": 0.5}])
-    task = AudioTask(
-        data={
-            "waveform": torch.zeros(1, 16000),
-            "sample_rate": 16000,
-            "audio_filepath": "source.wav",
-            "original_file": provenance,
-        },
-        dataset_name="test",
-    )
-    result = stage.process(task)
-    assert len(result) == 1
-    assert result[0].data["original_file"] == provenance
+    if nested:
+        assert result == [task]
+        assert result[0].data["segments"] == []
+        assert result[0].data["vad_empty"] is True
+        assert "waveform" not in result[0].data
+    else:
+        assert result == []
