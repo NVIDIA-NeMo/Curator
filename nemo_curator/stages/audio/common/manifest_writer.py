@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from fsspec.core import url_to_fs
-from fsspec.utils import get_protocol
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -37,29 +36,10 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Audio-agent preparation truncates once before workers are serialized. Worker and
     node setup only verify the shared run reservation. Standalone setup() retains
     its historical truncate behavior when no driver reservation was prepared.
-
-    ``input_manifest_path`` optionally protects the source manifest from overwrite.
     """
 
     output_path: str
     name: str = "manifest_writer"
-    input_manifest_path: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.output_path:
-            msg = "output_path is required for ManifestWriterStage"
-            raise ValueError(msg)
-        if self.input_manifest_path is not None:
-            same_path = self.input_manifest_path == self.output_path
-            if all(get_protocol(path) in {"file", "local"} for path in (self.input_manifest_path, self.output_path)):
-                source = Path(url_to_fs(self.input_manifest_path)[1]).resolve()
-                destination = Path(url_to_fs(self.output_path)[1]).resolve()
-                same_path = source == destination or (
-                    source.exists() and destination.exists() and source.samefile(destination)
-                )
-            if same_path:
-                msg = "output_path must differ from input_manifest_path: the writer replaces existing output."
-                raise ValueError(msg)
 
     # ``output_path`` is required, so static discovery cannot instantiate this
     # stage. Publish invariant sink behavior so an agent never mistakes it for

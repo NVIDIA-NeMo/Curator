@@ -20,7 +20,6 @@ from pathlib import Path
 
 import hydra
 import pytest
-from hydra.errors import InstantiationException
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import InterpolationToMissingValueError
 
@@ -212,13 +211,6 @@ def test_shared_runner_requires_endpoint_before_building_audio_pipeline():
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
     assert len(pipeline.stages) == 9
     assert pipeline.stages[1].endpoint == cfg.endpoint
-
-
-def test_tutorial_rejects_output_replacing_its_input(pipeline_config: DictConfig):
-    pipeline_config.output_path = pipeline_config.manifest_path
-    with pytest.raises(InstantiationException) as error:
-        hydra.utils.instantiate(pipeline_config.stages[-1])
-    assert isinstance(error.value.__cause__, ValueError)
 
 
 def test_tutorial_composes_with_shared_runner_cli():
