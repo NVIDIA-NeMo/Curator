@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import tempfile
 from pathlib import Path
 from unittest import mock
 
+import fsspec
 import pytest
+from fsspec.implementations.memory import MemoryFileSystem
 
+import nemo_curator.stages.text.download.base.download as download_module
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.download import DocumentDownloader, DocumentDownloadStage
 from nemo_curator.tasks import FileGroupTask
@@ -25,8 +29,8 @@ from nemo_curator.tasks import FileGroupTask
 class MockDocumentDownloader(DocumentDownloader):
     """Mock implementation of DocumentDownloader for testing."""
 
-    def __init__(self, download_dir: str, verbose: bool = False):
-        super().__init__(download_dir, verbose)
+    def __init__(self, download_dir: str, verbose: bool = False, storage_options: dict | None = None):
+        super().__init__(download_dir, verbose, storage_options)
 
     def _get_output_filename(self, url: str) -> str:
         """Simple filename generation for testing."""
@@ -37,6 +41,28 @@ class MockDocumentDownloader(DocumentDownloader):
         # Default successful mock
         Path(path).write_text(f"mock content for {url}")
         return True, None
+
+
+class RemoteMockDownloader(MockDocumentDownloader):
+    supports_remote_download_dir = True
+
+
+MOCK_CONTENT = b"mock content for http://dummy/test-file.txt"
+
+
+def _remote_downloader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, object_store: bool
+) -> tuple[RemoteMockDownloader, str]:
+    if object_store:
+        # memory:// stands in for an object store, which uploads straight to the final key.
+        monkeypatch.setattr(download_module, "_OBJECT_STORE_PROTOCOLS", frozenset({"memory"}))
+        root = f"memory://downloads-{tmp_path.name}"
+        return RemoteMockDownloader(root), f"{root}/test-file.txt"
+    downloader = RemoteMockDownloader("dir://out", storage_options={"path": str(tmp_path), "target_protocol": "file"})
+    return downloader, "dir://out/test-file.txt"
+
+
+REMOTE_BACKENDS = pytest.mark.parametrize("object_store", [True, False], ids=["object-store", "dir-over-file"])
 
 
 class TestBaseDocumentDownloader:
@@ -181,6 +207,209 @@ class TestBaseDocumentDownloader:
         assert result == str(final_file)
         assert final_file.read_text() == "mock content for http://dummy/test-file.txt"
         assert not temp_file.exists()  # Temp file should be moved to final location
+
+    @pytest.mark.parametrize(
+        ("existing", "outcome", "expected", "calls", "log"),
+        [
+            pytest.param(None, "ok", MOCK_CONTENT, 1, "Successfully downloaded to", id="new"),
+            pytest.param(b"existing", "ok", b"existing", 0, "exists. Not downloading", id="existing-skipped"),
+            pytest.param(b"", "ok", MOCK_CONTENT, 1, "Successfully downloaded to", id="empty-redownloaded"),
+            pytest.param(None, "failed", None, 1, "Failed to download to", id="failed"),
+        ],
+    )
+    def test_download_to_fsspec_download_dir(  # noqa: PLR0913
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        existing: bytes | None,
+        outcome: str,
+        expected: bytes | None,
+        calls: int,
+        log: str | None,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(staging))
+        fs = fsspec.filesystem("memory")
+        root = f"memory://downloads-{tmp_path.name}"
+        target = f"{root}/test-file.txt"
+        downloader = RemoteMockDownloader(root, verbose=True)
+        assert not fs.exists(root)
+        if existing is not None:
+            fs.pipe(target, existing)
+
+        real_download = downloader._download_to_path
+        attempts = []
+
+        def download_to_path(url: str, path: str) -> tuple[bool, str | None]:
+            attempts.append(url)
+            return (False, "boom") if outcome == "failed" else real_download(url, path)
+
+        monkeypatch.setattr(downloader, "_download_to_path", download_to_path)
+
+        result = downloader.download("http://dummy/test-file.txt")
+        assert result == (target if expected is not None else None)
+
+        if expected is None:
+            assert not fs.exists(target)
+        else:
+            assert fs.cat(target) == expected
+        assert not [p for p in fs.find(root) if p.endswith(".tmp")]
+        assert len(attempts) == calls
+        assert list(staging.iterdir()) == []
+        assert not (tmp_path / "memory:").exists()
+        if log:
+            assert log in caplog.text
+
+    @pytest.mark.parametrize(
+        "err", [OSError("upload failed"), RuntimeError("upload failed")], ids=lambda e: type(e).__name__
+    )
+    def test_upload_failure_fails_the_task(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, err: Exception
+    ) -> None:
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(staging))
+        root = f"memory://downloads-{tmp_path.name}"
+        downloader = RemoteMockDownloader(root)
+        monkeypatch.setattr(MemoryFileSystem, "put_file", mock.Mock(side_effect=err))
+
+        with pytest.raises(type(err)):
+            downloader.download("http://dummy/test-file.txt")
+
+        assert not fsspec.filesystem("memory").exists(f"{root}/test-file.txt")
+        assert list(staging.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        ("download_dir", "written_dir"),
+        [
+            pytest.param(lambda t: f"file://{t}/out", "out", id="file-uri"),
+            pytest.param(lambda t: f"local://{t}/out", "out", id="local-uri"),
+            pytest.param(lambda t: t / "out", "out", id="pathlib"),
+            pytest.param(lambda _: "~/out", "~/out", id="tilde-kept-literal"),
+            pytest.param(lambda _: "data:2024/out", "data:2024/out", id="relative-with-colon"),
+        ],
+    )
+    def test_local_download_dir_writes_and_skips_on_rerun(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, download_dir: object, written_dir: str
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        downloader = MockDocumentDownloader(download_dir(tmp_path), verbose=True)
+        calls = []
+        real_download = downloader._download_to_path
+        monkeypatch.setattr(downloader, "_download_to_path", lambda u, p: calls.append(u) or real_download(u, p))
+
+        first = downloader.download("http://dummy/test-file.txt")
+        second = downloader.download("http://dummy/test-file.txt")
+
+        assert Path(first) == Path(second)
+        assert Path(first).resolve() == (tmp_path / written_dir / "test-file.txt").resolve()
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize("subdir", ["out", "sub/deeper"])
+    def test_remote_download_dir_with_real_directories_is_created(self, tmp_path: Path, subdir: str) -> None:
+        # dir:// over a local target has real directories: put_file needs the parent directory to exist.
+        downloader = RemoteMockDownloader(
+            f"dir://{subdir}", storage_options={"path": str(tmp_path), "target_protocol": "file"}
+        )
+
+        result = downloader.download("http://dummy/test-file.txt")
+
+        assert result == f"dir://{subdir}/test-file.txt"
+        assert (tmp_path / subdir / "test-file.txt").read_bytes() == MOCK_CONTENT
+
+    @REMOTE_BACKENDS
+    def test_interrupted_upload_is_redownloaded_on_rerun(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, object_store: bool
+    ) -> None:
+        downloader, target = _remote_downloader(tmp_path, monkeypatch, object_store)
+        fs = downloader._fs
+        mv = mock.Mock(wraps=fs.mv)
+        monkeypatch.setattr(fs, "mv", mv)
+        calls = []
+        real_download = downloader._download_to_path
+        monkeypatch.setattr(downloader, "_download_to_path", lambda u, p: calls.append(u) or real_download(u, p))
+        real_put_file = type(fs).put_file
+
+        def interrupted_put_file(self: fsspec.AbstractFileSystem, lpath: str, rpath: str, **_: object) -> None:
+            data = Path(lpath).read_bytes()
+            # Object stores never publish an incomplete upload; other backends keep the bytes written so far.
+            if not object_store:
+                self.pipe_file(rpath, data[: len(data) // 2])
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(type(fs), "put_file", interrupted_put_file)
+        with pytest.raises(KeyboardInterrupt):
+            downloader.download("http://dummy/test-file.txt")
+        assert not fs.exists(target)
+
+        monkeypatch.setattr(type(fs), "put_file", real_put_file)
+        assert downloader.download("http://dummy/test-file.txt") == target
+        assert fs.cat(target) == MOCK_CONTENT
+        assert len(calls) == 2
+        if object_store:
+            mv.assert_not_called()
+
+    @pytest.mark.parametrize("attempts", [2, 3])
+    def test_concurrent_uploads_of_one_url_use_distinct_temp_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attempts: int
+    ) -> None:
+        downloader, target = _remote_downloader(tmp_path, monkeypatch, object_store=False)
+        fs = downloader._fs
+        written = []
+        real_put_file = type(fs).put_file
+
+        def spy_put_file(self: fsspec.AbstractFileSystem, lpath: str, rpath: str, **kw: object) -> None:
+            written.append(rpath)
+            real_put_file(self, lpath, rpath, **kw)
+
+        monkeypatch.setattr(type(fs), "put_file", spy_put_file)
+        for _ in range(attempts):
+            fs.rm(target) if fs.exists(target) else None
+            assert downloader.download("http://dummy/test-file.txt") == target
+
+        assert len(set(written)) == attempts
+        assert fs.cat(target) == MOCK_CONTENT
+        assert not [p for p in fs.find("dir://out") if p.endswith(".tmp")]
+
+    @REMOTE_BACKENDS
+    def test_upload_leaves_only_the_full_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, object_store: bool
+    ) -> None:
+        downloader, target = _remote_downloader(tmp_path, monkeypatch, object_store)
+        fs = downloader._fs
+        mv = mock.Mock(wraps=fs.mv)
+        monkeypatch.setattr(fs, "mv", mv)
+
+        assert downloader.download("http://dummy/test-file.txt") == target
+
+        assert fs.cat(target) == MOCK_CONTENT
+        assert not fs.exists(f"{target}.tmp")
+        if object_store:
+            mv.assert_not_called()
+
+    def test_subclass_without_super_init_still_downloads_locally(self, tmp_path: Path) -> None:
+        class LegacyDownloader(MockDocumentDownloader):
+            def __init__(self, download_dir: str) -> None:
+                self._download_dir = download_dir
+                self._verbose = False
+
+        result = LegacyDownloader(str(tmp_path)).download("http://dummy/test-file.txt")
+
+        assert result == str(tmp_path / "test-file.txt")
+        assert (tmp_path / "test-file.txt").read_bytes() == MOCK_CONTENT
+
+    def test_remote_download_dir_rejected_without_opt_in(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ValueError, match="MockDocumentDownloader needs a local download_dir"):
+            MockDocumentDownloader("memory://x")
+        assert not (tmp_path / "memory:").exists()
 
 
 class TestDocumentDownloadStage:

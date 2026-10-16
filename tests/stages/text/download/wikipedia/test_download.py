@@ -16,6 +16,8 @@ import subprocess
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from nemo_curator.stages.text.download.wikipedia.constants import WIKIMEDIA_USER_AGENT
 from nemo_curator.stages.text.download.wikipedia.download import WikipediaDownloader
 
@@ -206,6 +208,13 @@ class TestWikipediaDownloader:
         # Should have the parent's methods
         assert hasattr(downloader, "_get_output_filename")
         assert hasattr(downloader, "_download_to_path")
+
+    def test_remote_download_dir_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ValueError, match="WikipediaDownloader needs a local download_dir"):
+            WikipediaDownloader("memory://y")
+        assert not (tmp_path / "memory:").exists()
 
 
 class TestWikipediaDownloaderIntegration:
