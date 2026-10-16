@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from fsspec.core import url_to_fs
+from fsspec.utils import get_protocol
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -50,9 +51,9 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
         if self.input_manifest_path is not None:
             same_path = self.input_manifest_path == self.output_path
-            if "://" not in self.input_manifest_path and "://" not in self.output_path:
-                source = Path(self.input_manifest_path).resolve()
-                destination = Path(self.output_path).resolve()
+            if all(get_protocol(path) in {"file", "local"} for path in (self.input_manifest_path, self.output_path)):
+                source = Path(url_to_fs(self.input_manifest_path)[1]).resolve()
+                destination = Path(url_to_fs(self.output_path)[1]).resolve()
                 same_path = source == destination or (
                     source.exists() and destination.exists() and source.samefile(destination)
                 )
