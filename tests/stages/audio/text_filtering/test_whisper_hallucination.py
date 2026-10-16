@@ -65,6 +65,22 @@ def test_clean_text_passes(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "expected_flag"),
+    [
+        ("the cat sat on the mat today", ""),
+        ("yes yes yes yes yes yes", "Hallucination:WhisperHallucination"),
+    ],
+)
+def test_batch_accepts_missing_skip_flag(tmp_path: Path, text: str, expected_flag: str) -> None:
+    stage = _make_stage(tmp_path, [])
+    task = AudioTask(data={_TEXT_KEY: text, "duration": 5.0})
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data[_SKIP_KEY] == expected_flag
+
+
+@pytest.mark.parametrize(
     "text",
     ["Thank you", "Thank you.", "Merci,", "Thank-you", "Thank you for your time today.", "Thank-you for watching"],
 )
@@ -264,7 +280,7 @@ def test_missing_required_text_key_raises(tmp_path: Path) -> None:
 
 def test_stage_declares_its_io_contract(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    assert stage.inputs() == ([], [_TEXT_KEY, _SKIP_KEY, "duration"])
+    assert stage.inputs() == ([], [_TEXT_KEY, "duration"])
     assert stage.outputs() == ([], [_SKIP_KEY, "additional_notes"])
 
 
