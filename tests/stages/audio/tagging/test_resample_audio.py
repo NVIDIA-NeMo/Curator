@@ -803,3 +803,32 @@ def test_resident_output_identity_ignores_container_timestamp(tmp_path: Path) ->
         time.sleep(1.1)
     assert identifiers[0] == identifiers[1]
     assert len(list(tmp_path.iterdir())) == 1
+
+
+@pytest.mark.parametrize("protocol", ["", "file://", "local://"], ids=["path", "file", "local"])
+@pytest.mark.parametrize("write_to_disk", [True, False], ids=["disk", "memory"])
+def test_local_protocol_conversion_preserves_source_url(tmp_path: Path, protocol: str, write_to_disk: bool) -> None:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg is required for real file conversion")
+    source = tmp_path / "source.wav"
+    sf.write(source, np.linspace(-0.25, 0.25, 800, dtype=np.float32), 16000)
+    source_url = protocol + str(source)
+    destination = tmp_path / "converted"
+    stage = ResampleAudioStage(str(destination), write_to_disk=write_to_disk, keep_waveform_in_task=not write_to_disk)
+    stage.setup_on_node()
+    task = AudioTask(data={"audio_filepath": source_url, "retained": "metadata"})
+
+    assert stage.process_batch([task]) == [task]
+    assert task.data[stage.audio_filepath_key] == source_url
+    assert task.data["retained"] == "metadata"
+    assert task.data[stage.duration_key] == pytest.approx(0.05)
+    if write_to_disk:
+        output = Path(task.data[stage.resampled_audio_filepath_key])
+        assert output.is_file()
+        assert sf.info(output).frames == 800
+        assert list(destination.iterdir()) == [output]
+    else:
+        assert task.data[stage.waveform_key].shape[-1] == 800
+        assert task.data[stage.sample_rate_key] == 16000
+        assert stage.resampled_audio_filepath_key not in task.data
+        assert not destination.exists()

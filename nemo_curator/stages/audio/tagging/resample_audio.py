@@ -450,7 +450,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.write_to_disk:
             return self._convert_and_update(
                 task,
-                input_audio_path=input_audio_path,
+                input_audio_path=local_audio_path,
                 output_audio_path=output_audio_path,
                 original_audio_filepath=original_audio_filepath,
                 started_at=started_at,
@@ -459,7 +459,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         try:
             return self._convert_and_update(
                 task,
-                input_audio_path=input_audio_path,
+                input_audio_path=local_audio_path,
                 output_audio_path=output_audio_path,
                 original_audio_filepath=original_audio_filepath,
                 started_at=started_at,
