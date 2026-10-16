@@ -2,7 +2,7 @@
 name: pr-review
 description: Repository review rubric for the formal /review command.
 disable-model-invocation: true
-user_invocable: false
+user-invocable: false
 ---
 
 # PR review
