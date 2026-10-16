@@ -287,6 +287,8 @@ class Pipeline:
 
             executor = XennaExecutor()
 
+        executor.validate_supported_backends(self.stages)
+
         from nemo_curator.core.serve import is_inference_server_active
 
         if is_inference_server_active():

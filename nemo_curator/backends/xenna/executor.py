@@ -19,7 +19,7 @@ from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
-from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.base import Backend, BaseExecutor
 from nemo_curator.backends.utils import (
     get_stage_num_workers_per_node,
     register_loguru_serializer,
@@ -35,6 +35,8 @@ class XennaExecutor(BaseExecutor):
     This executor provides integration between the nemo-curator pipeline framework
     and the Cosmos-Xenna execution engine for distributed processing.
     """
+
+    backend = Backend.XENNA
 
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         """Initialize the executor.
