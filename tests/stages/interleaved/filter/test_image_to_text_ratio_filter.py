@@ -28,6 +28,12 @@ def test_text_word_count_nan_float_is_zero() -> None:
     assert _text_word_count(float("nan")) == 0
 
 
+def test_text_word_count_pandas_na_is_zero() -> None:
+    import pandas as pd
+
+    assert _text_word_count(pd.NA) == 0
+
+
 def test_text_word_count_splits_on_whitespace() -> None:
     assert _text_word_count("  one   two three  ") == 3
 
@@ -97,6 +103,47 @@ def test_image_to_text_ratio_boundary_inclusive_min_and_max() -> None:
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 2
+    assert out.num_items == 1
+
+
+def test_image_to_text_ratio_missing_text_keeps_half_boundary() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "one two",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 2,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.5, max_ratio=0.5)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 3
     assert out.num_items == 1
 
 

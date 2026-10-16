@@ -233,10 +233,8 @@ class TensorRTParakeetRNNTAdapter(NeMoASRAdapter):
             if greedy_cfg is None:
                 model.cfg.decoding.greedy = OmegaConf.create({})
             model.cfg.decoding.greedy.max_symbols_per_step = int(metadata["max_symbols_per_step"])
-            # Match the NeMo Parakeet backend: the label-loop CUDA graph is not
-            # supported by every otherwise-compatible GPU/driver combination.
-            model.cfg.decoding.greedy.use_cuda_graph_decoder = False
-            model.cfg.decoding.greedy.allow_cuda_graphs = False
+            model.cfg.decoding.greedy.use_cuda_graph_decoder = True
+            model.cfg.decoding.greedy.allow_cuda_graphs = True
         model.change_decoding_strategy(model.cfg.decoding)
 
     def _transcribe_waveforms(self, waveforms: list[np.ndarray]) -> list[str]:
