@@ -226,6 +226,8 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             removes.add("sample_rate")
         if self.duration_key != "duration":
             removes.add("duration")
+        if not self.write_to_disk:
+            removes.discard(self.audio_filepath_key)
         return sorted(removes - set(self.outputs()[1]))
 
     def describe(self) -> StageContract:
@@ -413,6 +415,8 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             }
             if self.write_to_disk:
                 drop_keys.update({self.audio_filepath_key, "audio_filepath"})
+            else:
+                drop_keys.discard(self.audio_filepath_key)
             original_file = self._original_file(item)
             speaker_data = {
                 **{k: v for k, v in item.items() if k not in drop_keys},
@@ -431,10 +435,11 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return pending
 
     def _original_file(self, item: dict[str, Any]) -> Any:  # noqa: ANN401
-        for key in dict.fromkeys([self.original_file_key, self.audio_filepath_key, "audio_filepath"]):
+        for key in dict.fromkeys([self.original_file_key, self.audio_filepath_key]):
             if key in item:
                 return item[key]
-        return "unknown"
+        legacy_path = item.get("audio_filepath")
+        return legacy_path if isinstance(legacy_path, (str, os.PathLike)) else "unknown"
 
     @staticmethod
     def _build_speaker_tasks(

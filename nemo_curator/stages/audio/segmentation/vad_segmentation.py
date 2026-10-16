@@ -22,6 +22,7 @@ model lifecycle, provider-specific sample-rate handling, and VAD inference.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import KW_ONLY, dataclass, field
 from numbers import Integral
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -270,9 +271,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             )
         self._validate_cross_role_keys()
 
-    def _validate_cross_role_keys(self) -> None:
-        """Reject same-scope aliases that would overwrite a different value."""
-        inputs = {
+    def _parent_read_keys(self) -> dict[str, str]:
+        return {
             "waveform_key": self.waveform_key,
             "sample_rate_key": self.sample_rate_key,
             "audio_filepath_key": self.audio_filepath_key,
@@ -286,6 +286,10 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             "num_samples_key": self.num_samples_key,
             **{f"legacy_duration_keys[{index}]": key for index, key in enumerate(self.legacy_duration_keys)},
         }
+
+    def _validate_cross_role_keys(self) -> None:
+        """Reject same-scope aliases that would overwrite a different value."""
+        inputs = self._parent_read_keys()
         if self.nested:
             outputs = {
                 "segments_key": self.segments_key,
@@ -444,7 +448,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
                         requires_keys=[self.audio_filepath_key],
                     )
                 )
-            removes_keys = list(dict.fromkeys([self.waveform_key, "waveform"]))
+            removes_keys = self._audio_cleanup_keys()
         elif self.emit_audit_placeholders:
             writes = IOSpec()
             speaker_scope = IOSpec(data_keys=[self.num_speakers_key])
@@ -472,11 +476,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             removes_keys = [
                 key
                 for key in (
-                    self.waveform_key,
-                    "waveform",
+                    *self._audio_cleanup_keys(include_sample_rate=True),
                     self.output_waveform_key,
-                    self.sample_rate_key,
-                    "sample_rate",
                     self.num_samples_key,
                     self.segments_key,
                     self.vad_empty_key,
@@ -620,9 +621,22 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
 
     def _as_read_error(self, task: AudioTask) -> AudioTask:
         task.data[self.read_error_key] = True
-        task.data.pop(self.waveform_key, None)
-        task.data.pop("waveform", None)
+        for key in self._audio_cleanup_keys():
+            task.data.pop(key, None)
         return task
+
+    def _audio_cleanup_keys(self, *, include_sample_rate: bool = False) -> list[str]:
+        """Remove legacy audio aliases only when they have no other configured input role."""
+        inputs = self._parent_read_keys()
+        fields = {"waveform_key": "waveform"}
+        if include_sample_rate:
+            fields["sample_rate_key"] = "sample_rate"
+        keys = []
+        for field_name, canonical in fields.items():
+            keys.append(inputs[field_name])
+            if canonical not in {key for name, key in inputs.items() if name != field_name}:
+                keys.append(canonical)
+        return list(dict.fromkeys(keys))
 
     def _audit_placeholder(self, task: AudioTask) -> list[AudioTask]:
         """Retain failures only for one-to-one or explicitly audited flows."""
@@ -674,11 +688,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         start_sample = min(max(int(segment.start * sample_rate), 0), waveform.shape[-1])
         end_sample = min(max(int(segment.end * sample_rate), start_sample), waveform.shape[-1])
         inherited_drop_keys = {
-            self.waveform_key,
-            "waveform",
+            *self._audio_cleanup_keys(include_sample_rate=True),
             self.output_waveform_key,
-            self.sample_rate_key,
-            "sample_rate",
             self.start_ms_key,
             self.end_ms_key,
             self.segment_num_key,
@@ -704,21 +715,31 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
 
         diar_segments = item.get(self.diar_segments_key)
         if isinstance(diar_segments, list) and all(isinstance(entry, dict) for entry in diar_segments):
-            speakers = {
-                str(diar_segment[self.diar_speaker_key])
-                for diar_segment in diar_segments
-                if {self.diar_start_key, self.diar_end_key, self.diar_speaker_key} <= diar_segment.keys()
-                and float(diar_segment[self.diar_end_key]) > segment.start
-                and float(diar_segment[self.diar_start_key]) < segment.end
-            }
-            segment_data[self.num_speakers_key] = len(speakers)
+            segment_data[self.num_speakers_key] = self._overlapping_speaker_count(diar_segments, segment)
         return segment_data
 
+    def _overlapping_speaker_count(self, intervals: list[dict[str, Any]], segment: VADSegment) -> int:
+        """Count labels on valid intervals without allowing optional metadata to discard speech."""
+        speakers = set()
+        for interval in intervals:
+            try:
+                start = float(interval[self.diar_start_key])
+                end = float(interval[self.diar_end_key])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+            speaker = interval.get(self.diar_speaker_key)
+            if speaker is None or not math.isfinite(start) or not math.isfinite(end) or end <= start:
+                continue
+            if end > segment.start and start < segment.end:
+                speakers.add(str(speaker))
+        return len(speakers)
+
     def _original_file(self, item: dict[str, Any]) -> Any:  # noqa: ANN401
-        for key in dict.fromkeys([self.original_file_key, self.audio_filepath_key, "audio_filepath"]):
+        for key in dict.fromkeys([self.original_file_key, self.audio_filepath_key]):
             if key in item:
                 return item[key]
-        return "unknown"
+        legacy_path = item.get("audio_filepath")
+        return legacy_path if isinstance(legacy_path, (str, os.PathLike)) else "unknown"
 
     def _emit_segments(
         self,
@@ -736,8 +757,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
                 return []
             task.data[self.vad_empty_key] = True
             task.data.setdefault(self.duration_key, duration)
-            task.data.pop(self.waveform_key, None)
-            task.data.pop("waveform", None)
+            for key in self._audio_cleanup_keys():
+                task.data.pop(key, None)
             if self.nested:
                 task.data[self.segments_key] = []
                 return task
@@ -748,8 +769,8 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
                 self._build_segment_item(task.data, waveform, sample_rate, segment, index)
                 for index, segment in enumerate(segments)
             ]
-            task.data.pop(self.waveform_key, None)
-            task.data.pop("waveform", None)
+            for key in self._audio_cleanup_keys():
+                task.data.pop(key, None)
             return task
 
         output_tasks: list[AudioTask] = []

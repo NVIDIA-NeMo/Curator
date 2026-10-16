@@ -28,6 +28,7 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.models.audio.vad.base import VADResult, VADSegment
 from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.resources import Resources
@@ -302,6 +303,37 @@ def test_fanout_preserves_speaker_separation_count_for_interval_segments() -> No
     child = stage.process_batch([task])[0]
 
     assert child.data["num_speakers"] == 2
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize(
+    "invalid_interval",
+    [
+        {"start": 0.6, "end": 0.4, "speaker": "invalid"},
+        {"start": 0.5, "end": 0.5, "speaker": "invalid"},
+        {"start": 0.0, "end": 1.0, "speaker": None},
+        {"start": 0.0, "end": "bad", "speaker": "invalid"},
+        {"start": float("nan"), "end": 1.0, "speaker": "invalid"},
+        {"start": 0.0, "end": float("inf"), "speaker": "invalid"},
+        {"start": 0.0, "end": 10**1000, "speaker": "invalid"},
+        {"start": 0.0, "speaker": "invalid"},
+    ],
+)
+def test_invalid_diarization_metadata_does_not_drop_speech_or_inflate_count(
+    nested: bool, invalid_interval: dict[str, Any]
+) -> None:
+    stage, _ = _stage(nested=nested)
+    task = _task()
+    task.data["diar_segments"] = [
+        {"start": 0.0, "end": 1.0, "speaker": "valid"},
+        invalid_interval,
+    ]
+
+    result = stage.process_batch([task])[0]
+
+    child = result.data["segments"][0] if nested else result.data
+    assert child["num_speakers"] == 1
+    assert child["waveform"].shape == (1, 8000)
 
 
 def test_custom_duration_key_is_used_without_leaking_parent_duration() -> None:
@@ -824,6 +856,96 @@ def test_fanout_preserves_falsey_provenance(source: object) -> None:
 
     assert child.data["source"] is source
     assert {"path", "audio_filepath"} <= set(stage.describe().invalidates_keys)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_metadata_only_remapped_waveform_does_not_leak_into_provenance(nested: bool, tmp_path: Path) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        input_residency="waveform",
+        waveform_key="audio_filepath",
+        audio_filepath_key="source_path",
+        keep_segment_waveform_in_task=False,
+    )
+    parent = AudioTask(data={"audio_filepath": torch.zeros(1, 16000), "sample_rate": 16000})
+    writer = ManifestWriterStage(output_path=str(tmp_path / "manifest.jsonl"))
+    report = agent.validate_pipeline(
+        [stage, writer],
+        initial_keys=set(parent.data),
+        initial_roles={"waveform", "sample_rate"},
+        initial_tensor_keys={"audio_filepath"},
+    )
+
+    result = stage.process_batch([parent])[0]
+    writer.setup()
+    writer.process(result)
+
+    assert report.ok, report.issues
+    row = json.loads((tmp_path / "manifest.jsonl").read_text())
+    child = row["segments"][0] if nested else row
+    assert child["original_file"] == "unknown"
+    assert "audio_filepath" not in row
+
+
+@pytest.mark.parametrize("metadata_field", ["read_error_key", "vad_empty_key", "duration_key"])
+def test_nested_cleanup_preserves_remapped_audit_metadata(metadata_field: str) -> None:
+    stage, _ = _stage(
+        nested=True,
+        waveform_key="samples",
+        output_waveform_key="pcm",
+        keep_segment_waveform_in_task=False,
+        results=[VADResult([])],
+        **{metadata_field: "waveform"},
+    )
+    parent = AudioTask(data={"samples": torch.zeros(1, 16000), "sample_rate": 16000})
+    if metadata_field == "read_error_key":
+        parent.data["waveform"] = True
+
+    result = stage.process_batch([parent])[0]
+
+    assert result.data["waveform"] == (1.0 if metadata_field == "duration_key" else True)
+    assert result.data["segments"] == []
+    assert "samples" not in result.data
+    assert "waveform" not in stage.describe().removes_keys
+    json.dumps(result.data)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("metadata_key", ["waveform", "sample_rate"])
+@pytest.mark.parametrize("metadata_field", ["num_speakers_key", "audio_filepath_key"])
+def test_child_cleanup_preserves_remapped_parent_metadata(
+    nested: bool, metadata_key: str, metadata_field: str
+) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        input_residency="waveform",
+        waveform_key="samples",
+        sample_rate_key="rate",
+        output_waveform_key="pcm",
+        output_sample_rate_key="hz",
+        keep_segment_waveform_in_task=False,
+        **{metadata_field: metadata_key},
+    )
+    value = 3 if metadata_field == "num_speakers_key" else "/parent.wav"
+    parent = AudioTask(data={"samples": torch.zeros(1, 16000), "rate": 16000, metadata_key: value})
+
+    result = stage.process_batch([parent])[0]
+
+    child = result.data["segments"][0] if nested else result.data
+    assert child[metadata_key] == value
+    assert metadata_key not in stage.describe().removes_keys
+    json.dumps(result.data)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_legacy_path_fallback_remains_available(nested: bool) -> None:
+    stage, _ = _stage(nested=nested, input_residency="waveform", audio_filepath_key="source_path")
+    parent = _task()
+
+    result = stage.process_batch([parent])[0]
+
+    child = result.data["segments"][0] if nested else result.data
+    assert child["original_file"] == "/recording.wav"
 
 
 @pytest.mark.parametrize(

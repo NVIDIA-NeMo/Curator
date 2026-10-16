@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import pickle
 import threading
@@ -632,6 +633,53 @@ def test_single_speaker_persistence_failure_propagates(tmp_path) -> None:  # noq
 
     with pytest.raises(OSError, match="simulated disk full"):
         stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
+
+
+def test_disk_only_remapped_waveform_does_not_leak_into_provenance(tmp_path: Path) -> None:
+    stage = _stubbed_speaker_stage(
+        input_residency="waveform",
+        waveform_key="audio_filepath",
+        audio_filepath_key="source_path",
+        keep_waveform_in_task=False,
+        write_to_disk=True,
+        separated_audio_dir=str(tmp_path / "speakers"),
+    )
+    parent = AudioTask(data={"audio_filepath": torch.zeros(1, 1600), "sample_rate": 16000})
+    writer = ManifestWriterStage(output_path=str(tmp_path / "manifest.jsonl"))
+    report = validate_pipeline(
+        [stage, writer],
+        initial_keys=set(parent.data),
+        initial_roles={"waveform", "sample_rate"},
+        initial_tensor_keys={"audio_filepath"},
+    )
+
+    child = stage.process(parent)[0]
+    writer.setup()
+    writer.process(child)
+
+    assert report.ok, report.issues
+    row = json.loads((tmp_path / "manifest.jsonl").read_text())
+    assert row["original_file"] == "unknown"
+    assert Path(row["source_path"]).is_file()
+    assert "audio_filepath" not in row
+
+
+@pytest.mark.parametrize("path_key", ["audio", "waveform", "sample_rate", "duration", "num_samples"])
+def test_memory_children_preserve_source_path_when_it_reuses_a_legacy_key(path_key: str) -> None:
+    stage = _stubbed_speaker_stage(
+        input_residency="waveform",
+        waveform_key="samples",
+        sample_rate_key="rate",
+        duration_key="seconds",
+        audio_filepath_key=path_key,
+    )
+    parent = AudioTask(data={"samples": torch.zeros(1, 1600), "rate": 16000, path_key: "/parent.wav"})
+
+    child = stage.process(parent)[0]
+
+    assert child.data[path_key] == "/parent.wav"
+    assert path_key not in stage.describe().removes_keys
+    assert path_key in stage.describe().invalidates_keys
 
 
 def test_long_source_stem_fits_filesystem_component_limit(tmp_path: Path) -> None:
