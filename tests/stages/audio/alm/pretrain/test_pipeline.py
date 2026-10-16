@@ -45,6 +45,8 @@ import pytest
 import soundfile as sf
 from tokenizers import Tokenizer, models, pre_tokenizers
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
@@ -110,6 +112,94 @@ _EXPECTED_STAGE_TYPES = (
     SnippetManifestWriterStage,
     PretrainMetricsAggregatorStage,
 )
+
+
+def test_standard_pretrain_chain_validates_with_sink_reads(tmp_path: Path) -> None:
+    pipeline = build_audio_pretrain_pipeline(
+        input_manifest=str(tmp_path / "input.jsonl"),
+        audio_dir=str(tmp_path / "audio"),
+        output_dir=str(tmp_path / "snippets"),
+        output_manifest_path=str(tmp_path / "snippets.jsonl"),
+        output_audio_tar_path=str(tmp_path / "snippets.tar"),
+        metrics_path=str(tmp_path / "metrics.json"),
+        max_duration_sec=30.0,
+        tokenizer_path=str(tmp_path),
+    )
+    report = validate_pipeline(
+        pipeline.stages,
+        initial_roles=set(),
+        initial_keys=set(),
+        initial_task_type="EmptyTask",
+    )
+    assert report.ok, report.summary()
+    assert report.keys_ok, report.summary()
+
+
+def test_factory_wires_custom_keys_through_entire_chain(tmp_path: Path) -> None:
+    pipeline = build_audio_pretrain_pipeline(
+        input_manifest=str(tmp_path / "input.jsonl"),
+        audio_dir=str(tmp_path / "audio"),
+        output_dir=str(tmp_path / "snippets"),
+        output_manifest_path=str(tmp_path / "snippets.jsonl"),
+        output_audio_tar_path=str(tmp_path / "snippets.tar"),
+        metrics_path=str(tmp_path / "metrics.json"),
+        max_duration_sec=30.0,
+        tokenizer_path=str(tmp_path),
+        audio_filepath_key="source_path",
+        id_key="source_id",
+        segments_key="turns",
+        snippet_plan_key="plans",
+        snippet_id_key="clip_id",
+        duration_key="clip_duration",
+    )
+    reader, overlap, planner, repetition, extraction, writer, metrics = pipeline.stages
+
+    assert reader.strict_schema is False
+    assert (reader.id_key, reader.segments_key, reader.audio_filepath_key) == (
+        "source_id",
+        "turns",
+        "source_path",
+    )
+    assert overlap.segments_key == planner.segments_key == extraction.segments_key == metrics.segments_key == "turns"
+    assert planner.snippet_plan_key == repetition.snippet_plan_key == extraction.snippet_plan_key == "plans"
+    assert extraction.id_key == metrics.id_key == "source_id"
+    assert extraction.snippet_id_key == writer.snippet_id_key == metrics.snippet_id_key == "clip_id"
+    assert extraction.duration_key == metrics.duration_key == "clip_duration"
+
+    report = validate_pipeline(
+        pipeline.stages,
+        initial_roles=set(),
+        initial_keys=set(),
+        initial_task_type="EmptyTask",
+    )
+    assert report.ok, report.summary()
+    assert report.keys_ok, report.summary()
+
+
+def test_delta_contract_region_does_not_trust_shared_corpus_outputs(tmp_path: Path) -> None:
+    extraction = SnippetExtractionStage(
+        output_dir=str(tmp_path / "snippets"),
+        output_audio_tar_path=str(tmp_path / "snippets.tar"),
+    )
+    dry_extraction = SnippetExtractionStage(
+        output_dir=str(tmp_path / "dry"),
+        output_audio_tar_path=str(tmp_path / "dry.tar"),
+        dry_run=True,
+    )
+    writer = SnippetManifestWriterStage(output_path=str(tmp_path / "snippets.jsonl"))
+    aggregator = PretrainMetricsAggregatorStage(output_path=str(tmp_path / "metrics.json"))
+
+    # This ALM source has no include_files narrowing surface, so the
+    # focused region signal is the configured/static independence gate
+    # consumed by delta planning. Shared tar/manifest/summary outputs
+    # must not be accepted as row-independent suffixes.
+    assert build_contract(extraction).gates.per_row_independent is False
+    assert build_contract(writer).gates.per_row_independent is False
+    assert build_contract(aggregator).gates.per_row_independent is False
+    assert static_contract(SnippetExtractionStage).gates.per_row_independent is False
+    assert static_contract(SnippetManifestWriterStage).gates.per_row_independent is False
+    assert static_contract(PretrainMetricsAggregatorStage).gates.per_row_independent is False
+    assert build_contract(dry_extraction).gates.per_row_independent is True
 
 
 def _run_pipeline_inline(  # noqa: PLR0913
