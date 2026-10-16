@@ -324,30 +324,20 @@ These build arguments support the tutorial's 40-second window, four beams,
 and 347-new-token limit. Their command-line arguments have been checked,
 but fresh checkpoint conversion has not been validated here.
 
-## Measured pipeline throughput: Xenna streaming
-
-EOS job `487195911` in pipeline `73816659`, run on October 14, 2026 at
-Curator commit `de9680b0`, measured the same eleven-stage chain on a full
-Hindi cohort. This is separate from the two-clip tutorial above: the larger
-run used eight workers per model and batches of 64, rather than one worker
-per model and batches of two.
+## Observed throughput
 
 | Measurement | Result |
 | --- | --- |
-| Executor mode | Xenna streaming |
-| Hardware | 8 × NVIDIA H100 80GB HBM3 on one EOS node |
+| Executor | Xenna streaming |
+| Hardware | One node with 8 × NVIDIA H100 80GB HBM3 GPUs |
+| Batch size | 64 |
+| Workers per model | 8 |
 | Input and output | 216,164 unique clips; 531.75763 audio hours |
-| Pipeline wall time (`pipeline_time_s`) | 554.05 seconds |
-| Whole-node pipeline throughput | 3,455.13 audio-hours/hour |
-| Pipeline throughput per GPU | **431.89 audio-hours/GPU-hour** |
-
-Per-GPU throughput is `531.75763 × 3600 / 554.0537785505876 / 8`.
-The timer includes executor and model initialization, all eleven stages
-(including audio loading and output writing), and executor cleanup. It
-excludes queue time, container startup, dataset download, pre-run runtime
-checks and input-manifest verification/sharding, and post-run output
-validation. This is pipeline throughput, not model-only inference or
-full-process throughput.
+| Pipeline time | 554.05 seconds |
+| Whole-node pipeline throughput | **3,455.13 audio-hours/hour** |
+| Pipeline throughput per allocated GPU | **431.89 audio-hours/GPU-hour** |
+| Timing scope | Model startup, all eleven stages, and executor shutdown |
+| Measured runs | 1 |
 
 ## What each stage does
 
