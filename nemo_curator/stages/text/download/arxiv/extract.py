@@ -95,7 +95,7 @@ class ArxivExtractor(DocumentExtractor):
         pattern += r"\\\bsection\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
         pattern += r"\\\bsubsection\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
         pattern += r"\\\bsubsubsection\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
-        pattern += r"\\\bparagraph\b\*?(?:\[(.*?)\])?\{(.*?)\}"
+        pattern += r"\\\bparagraph\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
         pattern += r"\\\bsubparagraph\b\*?(?:\[(.*?)\])?\{(.*?)\}"
         pattern += r")"
 
