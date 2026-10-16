@@ -157,7 +157,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:  # noqa: PLR0912, PLR0915
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     args = _parse_args()
     cache_dir = Path(args.cache_dir)
 
