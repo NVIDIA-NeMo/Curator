@@ -413,10 +413,9 @@ def _derived_gates(gates: Gates, stage_or_cls: Any) -> Gates:  # noqa: ANN401
 
     One-sided on purpose: only ``False -> True``. ``Gates`` cannot distinguish "the author
     wrote False" from "the author left the default", so overriding downward would trample a
-    stage that honestly declares the gate while reserving nothing -- InferenceSortformerStage
-    passes ``map_location="cuda"`` unconditionally. Upgrading is always safe: a stage that
-    reserves a GPU needs one, whatever it forgot to say, and the damaging direction is the
-    false negative that puts a GPU stage on a CPU worker.
+    stage that honestly declares a runtime GPU requirement while reserving nothing. Upgrading
+    is always safe: a stage that reserves a GPU needs one, whatever it forgot to say, and the
+    damaging direction is the false negative that puts a GPU stage on a CPU worker.
 
     Uses ``Resources.requires_gpu`` (``gpus > 0 or gpu_memory_gb > 0``) rather than
     ``gpus > 0``: ``__post_init__`` converts ``gpu_memory_gb`` by dividing by detected device
