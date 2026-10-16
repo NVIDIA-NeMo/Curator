@@ -158,5 +158,5 @@ results = pipeline.run(executor)
 ## Limitations
 
 - **First-task latency**: The first task dispatched to a stage with a new `runtime_env` incurs virtualenv creation time. Subsequent tasks reuse the cached environment.
-- **Disk usage**: Each unique `runtime_env` creates a separate virtualenv on each worker node. Monitor disk space under `/tmp/ray/` for large clusters with many distinct environments.
+- **Disk usage**: Each unique `runtime_env` creates a separate virtualenv on each worker node. Monitor disk space under `/tmp/ray/` for large clusters with many distinct environments. Ray keeps each session directory after the cluster stops. Pass `cleanup_ray_session_dir=True` to `RayClient` to delete the session directory of the cluster it started when it stops. Worker nodes of a multi-node cluster are not cleaned.
 - **Session scope**: Cached virtualenvs are tied to the Ray session. Restarting Ray clears the cache.
