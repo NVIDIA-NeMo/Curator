@@ -18,6 +18,7 @@ import pytest
 from nemo_curator.stages.text.modifiers import DocumentModifier, Modify
 from nemo_curator.stages.text.modifiers.modifier import _normalize_input_fields, _normalize_output_fields
 from nemo_curator.stages.text.modifiers.string import (
+    BoilerPlateStringModifier,
     LineRemover,
     MarkdownRemover,
     NewlineNormalizer,
@@ -264,6 +265,34 @@ class TestQuotationRemover:
         ]
         doc_batch = list_to_doc_batch(docs)
         output = run_modify(QuotationRemover(), doc_batch)
+        expected_df = pd.DataFrame({"text": expected_results})
+        pd.testing.assert_frame_equal(output.data.reset_index(drop=True), expected_df.reset_index(drop=True))
+
+
+class TestBoilerPlateStringModifier:
+    def test_removes_boilerplate_at_top_and_bottom(self) -> None:
+        text = "We use cookies. See our privacy policy.\n\nFirst paragraph.\n\nSecond paragraph.\n\nTerms of use."
+        result = BoilerPlateStringModifier().modify_document(text)
+        assert result == "First paragraph.\n\nSecond paragraph."
+
+    def test_removes_boilerplate_at_bottom_only(self) -> None:
+        text = "First paragraph.\n\nSecond paragraph.\n\nTerms of use."
+        result = BoilerPlateStringModifier().modify_document(text)
+        assert result == "First paragraph.\n\nSecond paragraph."
+
+    def test_keeps_document_with_boilerplate_in_middle(self) -> None:
+        text = "Terms of use.\n\nFirst paragraph.\n\nPrivacy policy.\n\nSecond paragraph.\n\nTerms of use."
+        result = BoilerPlateStringModifier().modify_document(text)
+        assert result == text
+
+    def test_dataset_modification(self) -> None:
+        docs = [
+            "Cookie policy.\n\nKeep me.\n\nTerms of use.",
+            "Keep me.\n\nAnd me.",
+        ]
+        expected_results = ["Keep me.", "Keep me.\n\nAnd me."]
+        doc_batch = list_to_doc_batch(docs)
+        output = run_modify(BoilerPlateStringModifier(), doc_batch)
         expected_df = pd.DataFrame({"text": expected_results})
         pd.testing.assert_frame_equal(output.data.reset_index(drop=True), expected_df.reset_index(drop=True))
 

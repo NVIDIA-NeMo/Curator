@@ -12,9 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio segmentation stages."""
+"""Lazy public API for audio segmentation stages.
 
-from .speaker_separation import SpeakerSeparationStage
-from .vad_segmentation import VADSegmentationStage
+Importing the Silero task stage must not import NeMo's diarization stack (and
+vice versa). Concrete stages are therefore resolved only when requested.
+"""
+
+from __future__ import annotations
+
+from importlib import import_module
+
+_LAZY = {
+    "SpeakerSeparationStage": "nemo_curator.stages.audio.segmentation.speaker_separation",
+    "VADSegmentationStage": "nemo_curator.stages.audio.segmentation.vad_segmentation",
+}
 
 __all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY.get(name)
+    if target is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    return getattr(import_module(target), name)
+
+
+def __dir__() -> list[str]:
+    return __all__
