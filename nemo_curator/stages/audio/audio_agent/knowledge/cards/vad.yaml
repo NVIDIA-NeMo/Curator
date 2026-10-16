@@ -32,6 +32,8 @@ params_of_note:
   input_residency: "auto (default) prefers resident waveform and rate; file forces decoding; waveform forbids file fallback"
   adapter_target: "VAD adapter class; defaults to nemo_curator.models.audio.vad.silero.SileroVADAdapter"
   adapter_kwargs: "Adapter settings: backend torch (default) or onnx for Silero; TensorRTSileroVADAdapter requires engine_path"
+  diar_segments_key: "Optional upstream diarization intervals used to count distinct speaker labels overlapping each speech chunk; VAD does not infer speaker identities"
+  num_speakers_key: "Output count recalculated from structured diarization intervals when supplied; otherwise an existing parent value is retained"
   emit_audit_placeholders: "Keep empty/error parent rows in fan-out mode when True (default False); nested mode always retains a parent"
   nested: "True = one task with all segments under segments_key; False (default) = fan-out one task per segment"
   keep_segment_waveform_in_task: "keep each segment's waveform in-task (default True); REQUIRED for SegmentConcatenationStage"
@@ -46,6 +48,15 @@ semantic_facts:
     propagation: "Written on each per-segment child; a child carries no original-file duration."
     counterexamples:
       - "After VAD fan-out, a length filter (duration > 5s) keeps SEGMENTS longer than 5s, NOT files longer than 5s."
+  num_speakers:
+    meaning: "Distinct speaker labels overlapping a speech chunk when structured diarization intervals are supplied; otherwise an existing parent count is retained."
+    unit: "Non-negative integer for a derived count; an inherited value is copied unchanged."
+    provenance: "Computed from upstream diarization intervals and labels, not from speaker inference performed by VAD."
+    scope: "Per speech item when recalculated, in either fan-out or nested mode; an inherited count keeps its upstream scope."
+    propagation: "Replaces the parent count for structured diarization lists, including zero for an empty list or no overlapping labels. Without that structure, copies the parent count if present and creates no count if absent."
+    counterexamples:
+      - "An inherited count of three may describe the whole recording; it does not prove that three speakers occur in this chunk."
+      - "A count of two means two distinct labels overlap the chunk, not that they speak simultaneously."
   original_file:
     meaning: "Identity/path of the ORIGINAL recording each speech segment was cut from."
     unit: "string (source identifier)"
@@ -80,4 +91,4 @@ notes:
   - "For SegmentConcatenationStage, run with nested=True AND keep_segment_waveform_in_task=True (it needs per-segment waveforms)."
   - "(external) Silero VAD: enterprise-grade, ~2 MB, bundled with the pip package (no download), 8/16 kHz native (fixed 256/512-sample windows in v5). Source: https://github.com/snakers4/silero-vad"
 verified: {adapter_capabilities: mechanical, params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
-provenance: {model_card_url: "https://github.com/snakers4/silero-vad", card_version: 6, last_validated: "2026-10-16"}
+provenance: {model_card_url: "https://github.com/snakers4/silero-vad", card_version: 7, last_validated: "2026-10-16"}
