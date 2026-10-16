@@ -169,7 +169,7 @@ def resident_pcm_to_mono_float32(waveform: Any, *, stage_name: str) -> np.ndarra
 
     if audio.ndim == _CHANNEL_FIRST_NDIM:
         audio = audio.mean(axis=0, dtype=np.float32)
-    return np.asarray(audio, dtype=np.float32)
+    return np.ascontiguousarray(audio, dtype=np.float32)
 
 
 def metrics_mapping(item: dict[str, Any], *, metrics_key: str, stage_name: str) -> MutableMapping[str, Any]:
