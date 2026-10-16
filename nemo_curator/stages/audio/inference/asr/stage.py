@@ -439,7 +439,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run one ASR batch."""
-        if not tasks:
+        if len(tasks) == 0:
             return []
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 

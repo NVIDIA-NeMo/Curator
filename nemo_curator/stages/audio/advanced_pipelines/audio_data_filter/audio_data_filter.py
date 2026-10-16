@@ -53,7 +53,7 @@ from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSe
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
 
-from .config import _deep_merge, get_enabled_stages, load_config
+from .config import _deep_merge, _validate, get_enabled_stages, load_config
 
 
 class AudioDataFilterStage(CompositeStage):
@@ -89,6 +89,7 @@ class AudioDataFilterStage(CompositeStage):
         self._cfg = load_config(config_path)
         if config:
             self._cfg = _deep_merge(self._cfg, config)
+        _validate(self._cfg)
 
     def decompose(self) -> list[ProcessingStage]:
         """Build a self-consistent pipeline topology based on enabled features."""
@@ -190,7 +191,12 @@ class AudioDataFilterStage(CompositeStage):
     @staticmethod
     def _make_vad(cfg: dict, *, suffix: str, nested: bool) -> VADSegmentationStage:
         vad = cfg.get("vad", {})
-        return VADSegmentationStage(
+        stage = VADSegmentationStage(
+            adapter_target=vad.get(
+                "adapter_target",
+                "nemo_curator.models.audio.vad.silero.SileroVADAdapter",
+            ),
+            adapter_kwargs=vad.get("adapter_kwargs", {}),
             min_duration_sec=vad.get("min_duration_sec", 2.0),
             max_duration_sec=vad.get("max_duration_sec", 60.0),
             threshold=vad.get("threshold", 0.5),
@@ -198,11 +204,14 @@ class AudioDataFilterStage(CompositeStage):
             speech_pad_ms=vad.get("speech_pad_ms", 300),
             nested=nested,
             name=f"VAD{suffix}",
+            batch_size=vad.get("batch_size", 1),
             resources=Resources(
                 cpus=vad.get("cpus", 1.0),
-                gpus=vad.get("gpus", 0.3),
+                gpus=vad.get("gpus", 0.0),
             ),
         )
+        num_workers = vad.get("num_workers")
+        return stage.with_(num_workers=num_workers) if num_workers is not None else stage
 
     @staticmethod
     def _make_speaker_sep(cfg: dict) -> SpeakerSeparationStage:
