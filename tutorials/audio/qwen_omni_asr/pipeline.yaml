@@ -94,7 +94,6 @@ stages:
         - Do NOT invent words or content not spoken in the audio.
         - Do NOT remove substantive content that is spoken in the audio.
         - Do NOT paraphrase, polish grammar or rewrite sentences.
-        - Normalize numbers to their written form.
 
         ENTITIES (names, places, brands, titles, etc.):
         - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
@@ -153,11 +152,11 @@ stages:
     rules:
     - {"pattern": "’", "repl": "'"}
     - {"pattern": "‘", "repl": "'"}
+    - {"pattern": "——", "repl": "-"}
     - {"pattern": "—", "repl": "-"}
     - {"pattern": "–", "repl": "-"}
     - {"pattern": "-", "repl": "-"}
     - {"pattern": "_", "repl": " "}
-    - {"pattern": "——", "repl": "-"}
     - {"pattern": "Ё", "repl": "Е"}
     - {"pattern": "ё", "repl": "е"}
     - {"pattern": "“", "repl": ""}     # left double smart quote “

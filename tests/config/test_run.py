@@ -546,9 +546,10 @@ def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
     adapter._processor.apply_chat_template.side_effect = lambda messages, **_: messages[-1]["content"][0]["text"]
     adapter._sampling_params = object()
     adapter._llm = MagicMock()
+    prediction = "I was go- going\u2014\u2014 twenty-five."
+    cleaned_prediction = "I was go- going- twenty-five."
     adapter._llm.generate.return_value = [
-        SimpleNamespace(outputs=[SimpleNamespace(text=text)])
-        for text in ["The revised label.", "hello hello hello hello"]
+        SimpleNamespace(outputs=[SimpleNamespace(text=text)]) for text in [prediction, "hello hello hello hello"]
     ]
     asr._adapter = adapter
     with patch("nemo_curator.models.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
@@ -566,9 +567,9 @@ def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
         stage.teardown()
     output = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [row[transcript_key] for row in output] == labels
-    assert [row["best_prediction"] for row in output] == ["The revised label.", labels[1]]
+    assert [row["best_prediction"] for row in output] == [prediction, labels[1]]
     assert [row["best_prediction_source"] for row in output] == ["primary", "reference"]
-    assert [row["abbreviated_text"] for row in output] == ["The revised label.", labels[1]]
+    assert [row["abbreviated_text"] for row in output] == [cleaned_prediction, labels[1]]
     assert all(row["_skipme"] == "" for row in output)
     assert all("waveform" not in row for row in output)
     assert [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()] == rows
