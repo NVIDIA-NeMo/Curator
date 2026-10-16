@@ -452,6 +452,21 @@ def test_setup_on_node_can_warn_and_retry_during_worker_setup() -> None:
         stage.setup_on_node()
 
 
+@pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
+def test_setup_on_node_never_swallows_memory_failures(error: Exception) -> None:
+    stage = SEDInferenceStage(
+        adapter_target="package.Adapter",
+        adapter_kwargs={"marker": "auto"},
+        prefetch_fail_on_error=False,
+    )
+    with (
+        patch("hydra.utils.get_class", return_value=_LifecycleAdapter),
+        patch.object(_LifecycleAdapter, "download_weights_on_node", side_effect=error),
+        pytest.raises(type(error), match="out of memory"),
+    ):
+        stage.setup_on_node()
+
+
 def test_teardown_delegates_to_the_adapter() -> None:
     stage, adapter = _stage()
     stage.teardown()

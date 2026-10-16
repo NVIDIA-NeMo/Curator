@@ -79,6 +79,7 @@ class Entry:
     object_store_size: int | float | str | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
+    save_tasks: bool | None = None
     # If set, overrides the session-level gpu_mem_use_warning_threshold for this entry
     gpu_mem_use_warning_threshold: float | None = None
     # Environment variables to add to this benchmark subprocess. Session-level
@@ -88,6 +89,9 @@ class Entry:
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
         self.environment = normalize_environment(self.environment, f"entry '{self.name}'")
+        if self.save_tasks is not None and not isinstance(self.save_tasks, bool):
+            msg = f"Invalid save_tasks for entry '{self.name}': expected a boolean"
+            raise TypeError(msg)
 
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
@@ -196,6 +200,8 @@ class Entry:
 
             cmd = self.substitute_reserved_placeholders(cmd, session_entry_path, dataset_resolver)
             cmd = self.substitute_container_or_host_paths(cmd, path_resolver)
+            if self.save_tasks is not None:
+                cmd += " --save-tasks" if self.save_tasks else " --no-save-tasks"
         else:
             msg = f"Entry {self.name} must specify a script to run"
             raise ValueError(msg)

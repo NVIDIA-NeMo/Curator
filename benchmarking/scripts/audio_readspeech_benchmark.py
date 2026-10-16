@@ -124,50 +124,59 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
         )
     )
 
-    pipeline.add_stage(AudioDataFilterStage(config={
-        "mono_conversion": {
-            "output_sample_rate": sample_rate,
-        },
-        "vad": {
-            "enable": enable_vad,
-            "min_duration_sec": vad_min_duration,
-            "max_duration_sec": vad_max_duration,
-            "threshold": vad_threshold,
-            "min_interval_ms": vad_min_interval_ms,
-            "speech_pad_ms": vad_speech_pad_ms,
-        },
-        "band_filter": {
-            "enable": enable_band_filter,
-            "band_value": band_value,
-        },
-        "utmos": {
-            "enable": enable_utmos,
-            "mos_threshold": utmos_mos_threshold,
-        },
-        "sigmos": {
-            "enable": enable_sigmos,
-            "noise_threshold": sigmos_noise_threshold,
-            "ovrl_threshold": sigmos_ovrl_threshold,
-        },
-        "speaker_separation": {
-            "enable": enable_speaker_separation,
-            "exclude_overlaps": speaker_exclude_overlaps,
-            "min_duration": speaker_min_duration,
-        },
-        "timestamp_mapper": {
-            "passthrough_keys": [
-                "band_prediction", "utmos_mos",
-                "sigmos_noise", "sigmos_ovrl",
-                "speaker_id", "num_speakers",
-            ],
-        },
-    }))
+    pipeline.add_stage(
+        AudioDataFilterStage(
+            config={
+                "mono_conversion": {
+                    "output_sample_rate": sample_rate,
+                },
+                "vad": {
+                    "enable": enable_vad,
+                    "min_duration_sec": vad_min_duration,
+                    "max_duration_sec": vad_max_duration,
+                    "threshold": vad_threshold,
+                    "min_interval_ms": vad_min_interval_ms,
+                    "speech_pad_ms": vad_speech_pad_ms,
+                },
+                "band_filter": {
+                    "enable": enable_band_filter,
+                    "band_value": band_value,
+                },
+                "utmos": {
+                    "enable": enable_utmos,
+                    "mos_threshold": utmos_mos_threshold,
+                },
+                "sigmos": {
+                    "enable": enable_sigmos,
+                    "noise_threshold": sigmos_noise_threshold,
+                    "ovrl_threshold": sigmos_ovrl_threshold,
+                },
+                "speaker_separation": {
+                    "enable": enable_speaker_separation,
+                    "exclude_overlaps": speaker_exclude_overlaps,
+                    "min_duration": speaker_min_duration,
+                },
+                "timestamp_mapper": {
+                    "passthrough_keys": [
+                        "band_prediction",
+                        "utmos_mos",
+                        "sigmos_noise",
+                        "sigmos_ovrl",
+                        "speaker_id",
+                        "num_speakers",
+                    ],
+                },
+            }
+        )
+    )
 
     pipeline.add_stage(AudioToDocumentStage())
-    pipeline.add_stage(JsonlWriter(
-        path=results_dir,
-        write_kwargs={"force_ascii": False},
-    ))
+    pipeline.add_stage(
+        JsonlWriter(
+            path=results_dir,
+            write_kwargs={"force_ascii": False},
+        )
+    )
 
     logger.info(f"Pipeline description:\n{pipeline.describe()}")
 
@@ -224,64 +233,85 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="DNS Challenge Read Speech audio curation benchmark",
     )
-    parser.add_argument("--benchmark-results-path", required=True,
-                        help="Path to benchmark results directory")
-    parser.add_argument("--scratch-output-path", required=True,
-                        help="Path to scratch output directory (dataset download + temp files)")
-    parser.add_argument("--raw-data-dir", default=None,
-                        help="Path to pre-downloaded ReadSpeech WAV files (skips download to scratch)")
-    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"],
-                        help="Executor to use (default: xenna)")
-    parser.add_argument("--max-samples", type=int, default=5000,
-                        help="Maximum samples to process (-1 for all, default: 5000)")
-    parser.add_argument("--batch-size", type=int, default=1,
-                        help="Batch size for manifest creation (default: 1)")
-    parser.add_argument("--sample-rate", type=int, default=48000,
-                        help="Target sample rate (default: 48000)")
-    parser.add_argument("--no-auto-download", dest="auto_download", action="store_false",
-                        help="Disable automatic dataset download (default: enabled)")
+    parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results directory")
+    parser.add_argument(
+        "--scratch-output-path", required=True, help="Path to scratch output directory (dataset download + temp files)"
+    )
+    parser.add_argument(
+        "--raw-data-dir", default=None, help="Path to pre-downloaded ReadSpeech WAV files (skips download to scratch)"
+    )
+    parser.add_argument(
+        "--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use (default: xenna)"
+    )
+    parser.add_argument(
+        "--max-samples", type=int, default=5000, help="Maximum samples to process (-1 for all, default: 5000)"
+    )
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for manifest creation (default: 1)")
+    parser.add_argument("--sample-rate", type=int, default=48000, help="Target sample rate (default: 48000)")
+    parser.add_argument(
+        "--no-auto-download",
+        dest="auto_download",
+        action="store_false",
+        help="Disable automatic dataset download (default: enabled)",
+    )
     parser.set_defaults(auto_download=True)
 
-    parser.add_argument("--enable-vad", action="store_true",
-                        help="Enable VAD segmentation")
-    parser.add_argument("--vad-min-duration", type=float, default=2.0,
-                        help="Min VAD segment duration in seconds (default: 2.0)")
-    parser.add_argument("--vad-max-duration", type=float, default=60.0,
-                        help="Max VAD segment duration in seconds (default: 60.0)")
-    parser.add_argument("--vad-threshold", type=float, default=0.5,
-                        help="VAD detection threshold 0-1 (default: 0.5)")
-    parser.add_argument("--vad-min-interval-ms", type=int, default=500,
-                        help="Min silence interval to split in ms (default: 500)")
-    parser.add_argument("--vad-speech-pad-ms", type=int, default=300,
-                        help="Padding before/after speech in ms (default: 300)")
+    parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
+    parser.add_argument(
+        "--vad-min-duration", type=float, default=2.0, help="Min VAD segment duration in seconds (default: 2.0)"
+    )
+    parser.add_argument(
+        "--vad-max-duration", type=float, default=60.0, help="Max VAD segment duration in seconds (default: 60.0)"
+    )
+    parser.add_argument("--vad-threshold", type=float, default=0.5, help="VAD detection threshold 0-1 (default: 0.5)")
+    parser.add_argument(
+        "--vad-min-interval-ms", type=int, default=500, help="Min silence interval to split in ms (default: 500)"
+    )
+    parser.add_argument(
+        "--vad-speech-pad-ms", type=int, default=300, help="Padding before/after speech in ms (default: 300)"
+    )
 
-    parser.add_argument("--enable-band-filter", action="store_true",
-                        help="Enable band filter")
-    parser.add_argument("--band-value", choices=["full_band", "narrow_band"],
-                        default="full_band", help="Band filter target (default: full_band)")
+    parser.add_argument("--enable-band-filter", action="store_true", help="Enable band filter")
+    parser.add_argument(
+        "--band-value",
+        choices=["full_band", "narrow_band"],
+        default="full_band",
+        help="Band filter target (default: full_band)",
+    )
 
-    parser.add_argument("--enable-utmos", action="store_true",
-                        help="Enable UTMOS quality filter")
-    parser.add_argument("--utmos-mos-threshold", type=float, default=3.4,
-                        help="Min UTMOS MOS score 1-5 (default: 3.4)")
+    parser.add_argument("--enable-utmos", action="store_true", help="Enable UTMOS quality filter")
+    parser.add_argument(
+        "--utmos-mos-threshold", type=float, default=3.4, help="Min UTMOS MOS score 1-5 (default: 3.4)"
+    )
 
-    parser.add_argument("--enable-sigmos", action="store_true",
-                        help="Enable SIGMOS quality filter")
-    parser.add_argument("--sigmos-noise-threshold", type=float, default=4.0,
-                        help="Min SIGMOS noise score (default: 4.0)")
-    parser.add_argument("--sigmos-ovrl-threshold", type=float, default=3.5,
-                        help="Min SIGMOS overall score (default: 3.5)")
+    parser.add_argument("--enable-sigmos", action="store_true", help="Enable SIGMOS quality filter")
+    parser.add_argument(
+        "--sigmos-noise-threshold", type=float, default=4.0, help="Min SIGMOS noise score (default: 4.0)"
+    )
+    parser.add_argument(
+        "--sigmos-ovrl-threshold", type=float, default=3.5, help="Min SIGMOS overall score (default: 3.5)"
+    )
 
-    parser.add_argument("--enable-speaker-separation", action="store_true",
-                        help="Enable speaker separation")
-    parser.add_argument("--no-speaker-exclude-overlaps", dest="speaker_exclude_overlaps",
-                        action="store_false",
-                        help="Allow overlapping speaker segments (default: excluded)")
+    parser.add_argument("--enable-speaker-separation", action="store_true", help="Enable speaker separation")
+    parser.add_argument(
+        "--no-speaker-exclude-overlaps",
+        dest="speaker_exclude_overlaps",
+        action="store_false",
+        help="Allow overlapping speaker segments (default: excluded)",
+    )
     parser.set_defaults(speaker_exclude_overlaps=True)
-    parser.add_argument("--speaker-min-duration", type=float, default=0.8,
-                        help="Min speaker segment duration in seconds (default: 0.8)")
+    parser.add_argument(
+        "--speaker-min-duration",
+        type=float,
+        default=0.8,
+        help="Min speaker segment duration in seconds (default: 0.8)",
+    )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     logger.info("=== ReadSpeech Audio Curation Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
@@ -311,7 +341,7 @@ def main() -> int:
         logger.error(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

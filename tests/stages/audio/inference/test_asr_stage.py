@@ -22,6 +22,7 @@ import pytest
 import soundfile as sf
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
@@ -156,6 +157,25 @@ def test_multi_task_batch_preserves_order() -> None:
 
     assert results[0].data["pred_text"] == "text1"
     assert results[1].data["pred_text"] == "text2"
+
+
+@pytest.mark.parametrize("num_tasks", [0, 1, 2])
+def test_ray_data_numpy_batch_preserves_tasks_and_predictions(num_tasks: int) -> None:
+    stage = _make_stage()
+    tasks = np.array([_make_task() for _ in range(num_tasks)], dtype=object)
+    predictions = [f"text{index}" for index in range(num_tasks)]
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text=text) for text in predictions]
+    for index, task in enumerate(tasks):
+        task.task_id = f"source-{index}"
+
+    results = RayDataStageAdapter(stage)._process_batch_internal({"item": tasks})["item"]
+
+    assert [task.data["pred_text"] for task in results] == predictions
+    assert all(result is task for result, task in zip(results, tasks, strict=True))
+    assert [task.task_id for task in results] == [f"source-{index}_0" for index in range(num_tasks)]
+    if num_tasks == 0:
+        stage._adapter.transcribe_batch.assert_not_called()
+        stage._load_audio.assert_not_called()
 
 
 def test_local_bucketing_groups_all_rows_and_restores_task_order() -> None:

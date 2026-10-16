@@ -1,0 +1,101 @@
+# syntax=docker/dockerfile:1
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# This image runs the entire Indic pipeline; it does not extend the Torch 2.11 image.
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+ENV DEBIAN_FRONTEND=noninteractive \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:/usr/local/bin:$PATH \
+    CURATOR_ENVIRONMENT=ci \
+    NVIDIA_PRODUCT_NAME="NeMo Curator Indic ASR"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3.12-venv build-essential pkg-config \
+        ca-certificates curl git libmagic1t64 libnuma1 libsndfile1 openssh-client nasm \
+    && apt-get upgrade -y \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /usr/local/bin/uv
+RUN python3.12 -m venv /opt/venv
+
+# Match Curator's FFmpeg release, with only the local audio codecs this pipeline uses.
+RUN curl -fsSL https://www.ffmpeg.org/releases/ffmpeg-8.0.1.tar.bz2 -o /tmp/ffmpeg.tar.bz2 \
+    && tar -xjf /tmp/ffmpeg.tar.bz2 -C /tmp \
+    && cd /tmp/ffmpeg-8.0.1 \
+    && ./configure --enable-shared --disable-static --disable-everything \
+        --disable-autodetect --disable-network --disable-doc --disable-ffplay \
+        --enable-protocol=file,pipe --enable-demuxer=wav,flac \
+        --enable-decoder=flac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
+        --enable-parser=flac --enable-filter=aresample \
+    && make -j8 && make install && ldconfig \
+    && rm -rf /tmp/ffmpeg-8.0.1 /tmp/ffmpeg.tar.bz2
+
+WORKDIR /opt/Curator
+COPY pyproject.toml README.md ./
+COPY nemo_curator/__init__.py nemo_curator/package_info.py ./nemo_curator/
+
+# Reuse root security floors and non-Torch overrides without using its lock or sources.
+RUN python - <<'PY'
+import re
+import tomllib
+from pathlib import Path
+
+uv = tomllib.loads(Path("pyproject.toml").read_text())["tool"]["uv"]
+Path("/tmp/security.txt").write_text("\n".join(uv["constraint-dependencies"]) + "\n")
+torch_family = {"torch", "torchaudio", "torchvision", "torchcodec"}
+overrides = [line for line in uv["override-dependencies"]
+             if re.split(r"[<>=!~;\s\[]", line, maxsplit=1)[0] not in torch_family]
+Path("/tmp/shared-overrides.txt").write_text("\n".join(overrides) + "\n")
+PY
+
+# Native pins preserve the existing engines' ABI. Pure-Python pins override TRT-LLM's
+# older metadata while retaining the security floors inherited above.
+COPY <<EOF /tmp/trt-llm.txt
+torch @ https://download-r2.pytorch.org/whl/cu128/torch-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl
+torchaudio @ https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl
+torchvision @ https://download-r2.pytorch.org/whl/cu128/torchvision-0.24.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl
+torchcodec==0.9.1
+triton==3.5.1
+tensorrt==10.14.1.48.post1
+tensorrt-cu13-libs @ https://pypi.nvidia.com/tensorrt-cu13-libs/tensorrt_cu13_libs-10.14.1.48.post1-py2.py3-none-manylinux_2_28_x86_64.whl#sha256=f55d59e9f93ebe0967c4bc108fb4068e74cdbc50bef3e6c9936e92f21cf11352
+tensorrt-llm @ https://pypi.nvidia.com/tensorrt-llm/tensorrt_llm-1.2.1-cp312-cp312-linux_x86_64.whl#sha256=21e38958649b8d1cfd63c7f8b0fb55f695066f206c521c32dcad563cce54797b
+cuda-python==13.3.1
+cuda-bindings==13.3.1
+cuda-core==1.0.1
+cuda-pathfinder==1.5.6
+cuda-toolkit==13.3.1
+nvidia-cuda-runtime==13.3.29
+nvidia-cuda-nvrtc==13.3.33
+nvidia-cublas==13.3.0.5
+mpi4py==4.1.2
+openmpi==4.1.8
+nemo-toolkit[asr]==3.0.0
+numpy==2.3.5
+datasets==5.0.1
+transformers==4.57.6
+setuptools>=80.10.1
+EOF
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-config --no-sources --python /opt/venv/bin/python \
+        --default-index https://pypi.org/simple \
+        --constraints /tmp/security.txt --overrides /tmp/shared-overrides.txt \
+        --overrides /tmp/trt-llm.txt --requirements /tmp/trt-llm.txt \
+        --editable '.[audio_cuda12]' --group dev --group test --group linting \
+    && uv pip uninstall --python /opt/venv/bin/python opencv-python-headless \
+    && rm /tmp/security.txt /tmp/shared-overrides.txt /tmp/trt-llm.txt \
+    && find /opt/venv -type d -path '*/site-packages/ray/jars' -prune -exec rm -rf {} + \
+    && find /opt/venv -type d -path '*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*' -exec rm -rf {} +
+
+# Keep repository-local tutorial and benchmark entry points importable.
+ENV PYTHONPATH=/opt/Curator
+COPY . /opt/Curator
+COPY <<'EOF' /opt/venv/env.sh
+export VIRTUAL_ENV=/opt/venv
+export PATH="/opt/venv/bin:$PATH"
+EOF
+RUN chmod +x /opt/venv/env.sh \
+    && git -C /tmp config --global --add safe.directory /opt/Curator \
+    && python docker/audio/check_trt_llm.py --build-only
+
+# Native TensorRT-LLM import requires a host GPU driver: run check_trt_llm.py with --gpus all.
+CMD ["bash"]
