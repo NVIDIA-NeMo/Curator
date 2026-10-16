@@ -10,6 +10,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
+- [Audio Text Pipeline Benchmark](#audio-text-pipeline-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -782,6 +783,87 @@ present.
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---
+
+## Audio Text Pipeline Benchmark
+
+`scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
+from [text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml):
+manifest reader → entity recovery → punctuation/capitalization → language
+prediction and verification → text normalization → fused captioning, code
+switching and speech QA → inverse text normalization → disfluency removal →
+manifest writer. Every row remains an `AudioTask`; no audio files are opened.
+
+The tutorial and benchmark use the same prompts, stage order, generation options
+and serving settings. Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four
+Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
+128 and 256 concurrent requests per worker. The benchmark uses Curator's existing
+`InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
+benchmark, it has no entries or enablement overlay in the standard nightly matrix.
+
+### Input and paired runs
+
+Use one fixed, pre-staged English cohort that fits in driver memory. Every row
+needs a unique string `audio_item_id`, `source_lang: en`, a reference transcript
+in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
+`--id-key` for another identity field. Preserve the source dataset's license,
+revision and selection rule alongside the manifest. Human-gold inputs are also
+supported, but identify them as such; do not label copied human text as ASR output.
+
+Run from the repository root in the same compatible serving environment as the
+tutorial. Replace the input and cache paths with shared absolute paths available
+to the Ray workers. The default server needs eight GPUs; its runtime must support
+the pinned model revision and Gemma 4. Use a fresh output directory for each run:
+
+```bash
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --output-dir=/results/audio_text/xenna/output \
+  --cache-root=/data/audio_text_cache \
+  --executor=xenna \
+  --benchmark-results-path=/results/audio_text/xenna
+
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --output-dir=/results/audio_text/ray_data/output \
+  --cache-root=/data/audio_text_cache \
+  --executor=ray_data \
+  --benchmark-results-path=/results/audio_text/ray_data
+```
+
+Pin a frozen cohort with `--expected-num-rows` and
+`--expected-manifest-sha256`. Use `--endpoint=http://host:8000/v1` to reuse an
+existing server; `--model-name` selects its served model alias. For managed
+serving, `--model-path` selects pre-staged weights without changing that alias.
+Keep model and cache settings identical across executors; change only the input
+size, paths and executor when comparing with the tutorial.
+
+### Outputs and timing
+
+Each run writes `text_pipeline.jsonl` under `--output-dir` and standard
+`params.json`, `metrics.json` and `tasks.pkl` under `--benchmark-results-path`.
+Use `--no-save-tasks` to omit the pickle. Parameters retain the resolved pipeline
+and serving configuration; metrics record the actual manifest SHA-256. Validation
+checks identities, preserved source fields, all nine operation outcomes, and the
+written JSONL against the returned tasks. An entirely skipped workload fails validation.
+
+The pipeline timer includes reader, all text operations, writer, and executor
+setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
+Ray/server startup and teardown, output validation and result serialization.
+Server startup is reported separately. Earlier processing-only benchmark results
+excluded reader/writer execution and are not directly comparable to this timer.
+There is no warmup pass. To compare cold and warm startup, run twice with the same
+persistent cache path and runtime, using a new cache path for the cold run.
+
+Metrics include row throughput and per-operation applied, fallback and skipped
+counts. Requests count logical model calls, including rejected completions;
+transport retries are not extra logical requests. Physical attempts and token
+throughput require serving telemetry. The shared result writer also aggregates
+batch statistics into `task_*` metrics, even with `--no-save-tasks`. It deduplicates
+by object identity, so separately deserialized copies can inflate batch totals.
+Use the independently calculated row/request throughput and operation counts for
+comparisons. These checks prove execution coverage, not semantic parity or model
+quality. Inspect the output fields and fallback counts before interpreting
+throughput.
 
 ## Writing Benchmark Scripts
 
