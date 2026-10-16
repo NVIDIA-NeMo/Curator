@@ -16,7 +16,7 @@ output_path: ./qwen_omni_asr_output.jsonl
 workspace_dir: /tmp/qwen_omni_asr_workspace
 transcript_key: text
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
-model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695
+model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
 backend: xenna
 execution_mode: streaming
 
