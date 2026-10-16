@@ -594,4 +594,3 @@ stages:
   # 9. Write the enriched audio manifest.
   - _target_: nemo_curator.stages.audio.ManifestWriterStage
     output_path: ${output_path}
-    input_manifest_path: ${manifest_path}
