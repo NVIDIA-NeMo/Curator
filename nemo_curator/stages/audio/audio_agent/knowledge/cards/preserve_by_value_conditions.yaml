@@ -1,0 +1,47 @@
+stage_id: PreserveByValueConditionsStage
+category: filter
+summary: "Keep top-level rows or direct children using arbitrary-length flat scalar conditions with AND (default) or OR; dot paths are not supported."
+tags: [is_filter, batch_only]
+model_id: null
+domain: {language: any, style: any}
+constraints:
+  batch_size: {fixed: null, reason: "batch-only stage; process() raises, use process_batch"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU, trivial"
+use_cases:
+  good_for:
+    - "applying an AND or OR gate across any non-empty number of flat scalar annotations"
+    - "filtering top-level rows or a configured one-level list of mapping-like child items"
+    - "post-filtering all enabled SIGMOS dimensions after annotation with the default AND logic"
+  avoid_for:
+    - "dot-path or recursive traversal: keys such as metrics.score are treated as literal top-level/direct-child keys, not paths"
+    - "directly filtering nested metrics from BandwidthEstimationStage, TorchSquimQualityMetricsStage, or ComputeWERStage without first flattening the desired scalar field"
+composition:
+  typical_upstream: [SIGMOSFilterStage, UTMOSFilterStage, BandFilterStage, ChannelCountStage, SampleRateFilterStage, InferenceSortformerStage, PyAnnoteDiarizationStage, ManifestCheckpointStage]
+  typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
+params_of_note:
+  conditions: "Arbitrary-length non-empty list of {input_value_key, target_value, operator} mappings, or a mapping keyed by an exact flat input field. Keys are not dot paths."
+  missing_value_policy: "'error' (default) raises on a missing condition key; 'drop' removes the top-level row or selected nested child."
+  items_key: "Optional task.data key containing the list of mapping-like children to filter. None (default) preserves top-level row filtering. Nested mode traverses exactly one list level."
+  drop_parent_if_empty: "Nested mode only: true (default) drops the AudioTask when no child survives; false retains it with an empty configured list."
+  condition_logic: "'and' (default) requires every configured condition to pass; 'or' keeps an item when at least one passes. Missing keys still follow missing_value_policy before logic is applied."
+semantic_facts:
+  conditions:
+    meaning: "A row-level AND (default) or OR decision over the exact configured flat scalar fields."
+    unit: "Each target inherits the unit of its own upstream field."
+    provenance: "Values are read unchanged from the current AudioTask; this stage does not recompute them."
+    scope: "the current top-level AudioTask row when items_key is None; otherwise each direct mapping-like child in task.data[items_key], without recursive descent"
+    propagation: "Top-level mode returns passing rows unchanged. Nested mode replaces only task.data[items_key] list membership, preserving the parent and surviving child objects and fields."
+    counterexamples:
+      - "This stage does not interpret dots in a condition key or recurse into lists/maps inside a selected child."
+notes:
+  - "Use missing_value_policy='drop' when exact equivalence requires unannotated rows to be removed."
+  - "A missing items_key, non-list container, or non-mapping child is a structural error; missing_value_policy applies only to condition keys inside valid rows/children."
+  - "GetAudioDurationStage and GetPairwiseWerStage produce single flat scalars and therefore belong primarily with PreserveByValueStage; use this stage only when combining them with other conditions."
+  - "Generic OR filtering is supported, but SIGMOS/UTMOS card-declared exact native-filter reuse requires condition_logic='and'."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-19"}

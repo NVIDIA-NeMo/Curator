@@ -1,0 +1,31 @@
+stage_id: MergeAlignmentDiarizationStage
+category: transcribe
+summary: "Merge word alignments into diarization segments (produce who-said-what text per speaker)."
+tags: []
+model_id: null
+domain: {language: any, style: conversational}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; pure metadata merge"
+use_cases:
+  good_for: ["attaching aligned transcript text/words to diarization segments"]
+  avoid_for:
+    - "when either alignment or diarization is missing (both are required inputs)"
+    - "directly after a raw NeMoASRAlignerStage -- it does NOT emit a top-level 'alignment' key; use SplitASRAlignJoinStage (or Split -> Align -> Join) to produce one"
+composition:
+  typical_upstream: [SplitASRAlignJoinStage, JoinSplitAudioMetadataStage, InferenceSortformerStage, PyAnnoteDiarizationStage]
+  typical_downstream: [TimestampMapperStage, AudioToDocumentStage]
+params_of_note:
+  text_key: "key to write merged segment text"
+  words_key: "key to write per-segment word alignments"
+  alignment_key: "key holding the input alignment"
+  segments_key: "key holding the diarization segments to merge into"
+param_dependencies:
+  alignment_key: "requires a TOP-LEVEL word alignment from the split/align/join flow (SplitASRAlignJoinStage, or SplitLongAudioStage -> NeMoASRAlignerStage -> JoinSplitAudioMetadataStage). A raw NeMoASRAlignerStage alone does NOT emit a top-level 'alignment', so feeding it directly here fails input validation."
+  segments_key: "requires upstream diarization segments; set to the diarizer's key (e.g. diar_segments from InferenceSortformerStage)"
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-23"}

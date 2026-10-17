@@ -1,0 +1,31 @@
+stage_id: CreateInitialManifestFleursStage
+category: ingest
+summary: "Download the FLEURS dataset and emit one AudioTask per transcript line."
+tags: [needs_internet_first_run, writes_disk]
+model_id: null
+domain: {language: "multilingual (FLEURS; pick via lang, e.g. hy_am)", style: read}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "download + extract (network- and disk-bound on first run)"
+use_cases:
+  good_for: ["bootstrapping a manifest from the FLEURS HF dataset (with reference transcripts)"]
+  avoid_for: ["data not in FLEURS (use ManifestReader on your own manifest)"]
+composition:
+  typical_upstream: []
+  typical_downstream: [ResampleAudioStage, MonoConversionStage, ASRStage]
+params_of_note:
+  lang: "FLEURS language code (e.g. 'hy_am' for Armenian)"
+  split: "'test', 'train', or 'dev'"
+  raw_data_dir: "parent folder for the downloaded/extracted files"
+  auto_download: "download+extract automatically (default True)"
+  cache_dir: "cache location for the download"
+caveats:
+  - "Downloads and extracts the dataset on first run (needs network + disk)."
+notes:
+  - "Source: https://huggingface.co/datasets/google/fleurs. Emits EmptyTask -> AudioTask (a source stage)."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, domain: best_guess, use_cases: best_guess}
+provenance: {model_card_url: "https://huggingface.co/datasets/google/fleurs", card_version: 1, last_validated: "2026-07-20"}

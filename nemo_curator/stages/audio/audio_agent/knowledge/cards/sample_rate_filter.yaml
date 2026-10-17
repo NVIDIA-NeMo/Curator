@@ -1,0 +1,58 @@
+stage_id: SampleRateFilterStage
+category: preprocess
+summary: "Record every row's sample rate and keep only acceptable ones (explicit list and/or min/max range). Reads the file header, never decodes, and never resamples."
+tags: [is_filter]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU, header-only (soundfile.info) -- roughly 186x cheaper per file than decoding"
+use_cases:
+  good_for:
+    - "excluding a corpus's off-rate rows before any decoding stage runs"
+    - "annotating every row with its sample rate for reporting, with no constraint set"
+    - "pairing with ChannelCountStage when rate policy and channel policy should be set separately"
+  avoid_for:
+    - "changing the sample rate -- this stage only SELECTS; use ResampleAudioStage to convert"
+    - "a corpus that must be made uniform (resample instead of discarding the minority rate)"
+composition:
+  typical_upstream: [ManifestReader, CreateInitialManifestReadSpeechStage, CreateInitialManifestAudioFolderStage]
+  typical_downstream: [ChannelCountStage, ResampleAudioStage, VADSegmentationStage, GetAudioDurationStage]
+params_of_note:
+  allowed_sample_rates: "explicit rates to keep, e.g. [16000, 22050]. None (default) = no constraint from this parameter."
+  min_sample_rate: "lowest acceptable rate, inclusive. None (default) = unbounded below."
+  max_sample_rate: "highest acceptable rate, inclusive. None (default) = unbounded above."
+  sample_rate_key: "where the observed rate is written on EVERY row (including kept ones). An existing value is reused WITHOUT a disk read only when a resident waveform backs it; standing alone it is manifest metadata and the file header is re-read instead."
+  waveform_key: "key a resident waveform would occupy. Its presence is what makes an existing sample_rate trustworthy enough to skip the header read."
+semantic_facts:
+  allowed_sample_rates:
+    meaning: "The set of rates permitted through. Deliberately separate from min/max because a bare list like [16000, 48000] is ambiguous between 'these two rates' and 'this range', and the two readings filter very different corpora."
+    unit: "Hz (list of integers)"
+    propagation: "A row whose rate is not permitted is DROPPED (process returns []). Set both this and min/max to require both."
+    counterexamples:
+      - "With nothing set the stage keeps every row and acts purely as an observer that records the rate."
+      - "This stage never resamples: discarding the minority rate is not the same as making a corpus uniform. Use ResampleAudioStage for that."
+      - "Place it BEFORE decoding stages -- it reads only the header, so rejected rows never get decoded."
+  min_sample_rate:
+    meaning: "Inclusive lower bound on the accepted rate."
+    unit: "Hz (integer)"
+    propagation: "Combined with max_sample_rate and allowed_sample_rates by AND: a rate must satisfy every constraint that is set."
+  sample_rate:
+    meaning: "The rate this stage OBSERVED for the row -- a measurement of the source audio, not a target it set."
+    unit: "Hz (integer)"
+    provenance: "Read from the file header, except when a resident waveform is present, in which case an existing value is reused because it then describes audio the pipeline is carrying."
+    scope: "One row / one audio file."
+    propagation: "Overwrites any existing value with what was measured, so a stale manifest column is corrected rather than believed."
+    counterexamples:
+      - "Not a target rate. ResampleAudioStage writes this same key meaning the rate it CONVERTED TO; here it means the rate that was found. Reading a pipeline's final sample_rate without knowing which stage last wrote it inverts the meaning."
+      - "Not a promise the corpus is uniform. Every surviving row satisfies the constraint, but with a range or a multi-value list the survivors can still hold several different rates."
+comparison:
+  ResampleAudioStage: "CONVERTS rates via ffmpeg, preserving every row. Use it when the corpus must become uniform. This stage instead DISCARDS the rows that do not already comply -- picking wrongly between them either destroys the minority of the corpus or silently leaves it unconverted."
+  ChannelCountStage: "the channel-side counterpart, with the same choice named explicitly by its `action`: record the count, select on it, or convert to it -- none of which touches the rate. Pairs with this stage when both policies matter; action='filter' is the exact analog of what this stage does for rates."
+  MonoConversionStage: "an alternative that gates on a single exact rate and converts channels together, decoding each file to do so. Use this stage instead for a set or range of rates, or to avoid decoding."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-08-14"}

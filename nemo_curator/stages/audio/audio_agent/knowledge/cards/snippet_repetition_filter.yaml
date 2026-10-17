@@ -1,0 +1,31 @@
+stage_id: SnippetRepetitionFilterStage
+category: alm
+summary: "Drop planned snippets whose transcript shows suspicious n-gram repetition (ASR degeneration)."
+tags: [is_filter, needs_internet_first_run]
+model_id: null   # loads an HF tokenizer (not a producing model); see tokenizer_path
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; tokenization + n-gram counting"
+use_cases:
+  good_for: ["removing degenerate ASR snippets (same phrase repeated) before pretraining"]
+  avoid_for: ["non-ALM pipelines / when transcripts are trusted"]
+composition:
+  typical_upstream: [SnippetCutPlannerStage]
+  typical_downstream: [SnippetExtractionStage]
+params_of_note:
+  tokenizer_path: "HF tokenizer used to tokenize snippet text"
+  ngram_n: "n-gram size to check for repetition (default 10)"
+  ngram_max_count: "max allowed repeats of an n-gram before dropping (default 3)"
+  hf_token: "optional HF token if the tokenizer is gated"
+  cache_dir: "tokenizer cache directory"
+param_dependencies:
+  tokenizer_path: "requires a tokenizer; downloads it on first run if not cached"
+notes:
+  - "Operates on the planned snippets in task.data['_snippet_plan']."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

@@ -1,0 +1,50 @@
+blueprint_id: readspeech-quality-filter
+# Scoped to the corpus it was derived from, deliberately. Retrieval is bare token overlap over
+# blueprint_id/intent/data_assumptions, so the old wording ("clean speech from a raw WAV folder",
+# "folder of WAV") matched essentially every goal that mentioned a folder or wav -- diarization
+# and duration goals included -- and then handed the planner an `enforced`
+# CreateInitialManifestReadSpeechStage as the source for an arbitrary corpus. Naming the dataset
+# instead keeps the ordering/topology advice retrievable for the goals it fits, without the
+# generic-folder words doing the matching. Note the words left out on purpose: articles and
+# container formats are tokens too, and "wav"/"folder" are what an ordinary corpus is described
+# with. This narrows the pull; it cannot remove it, because `blueprint_id` alone still supplies
+# `quality`/`filter` -- which is why the source slot below says outright that it is substitutable.
+intent: "curate DNS Challenge 5 read-speech recordings by quality; no transcription"
+data_assumptions: {input: "DNS Challenge 5 Read Speech dataset (Track 1 Headset), 48kHz, mono or stereo", transcripts: absent, sr: 48000}
+produces: "JSONL manifest with per-item quality scores + timestamps"
+recipe_ref: recipes/readspeech_quality.yaml
+
+# Intent -> flags -> resulting shape. The AudioDataFilterStage composite auto-wires the topology.
+topology_selection:
+  rule: "output granularity decides which flags to enable"
+  options:
+    - {intent: "whole-file scores", flags: [], shape: "Mono -> Filters -> TimestampMapper"}
+    - {intent: "per-speech-segment scores", flags: [vad], shape: "Mono -> VAD(fanout) -> Filters -> TimestampMapper"}
+    - {intent: "per-speaker scores", flags: [speaker_separation], shape: "Mono -> Filters -> SpeakerSep(fanout) -> Filters -> TimestampMapper"}
+    - {intent: "per-speaker-segment", flags: [vad, speaker_separation], shape: "Mono -> VAD(nested) -> Filters -> SegConcat -> SpeakerSep -> VAD -> Filters -> TimestampMapper"}
+
+stages:
+  # `enforced` is the SOURCE SLOT, not this class: a pipeline needs a source, and this is the
+  # one for the corpus this blueprint was derived from. Re-pick it from the ingest cards for
+  # the corpus in hand -- CreateInitialManifestAudioFolderStage for a plain folder of audio,
+  # ManifestReader when a JSONL manifest already exists -- and leave the rest of the topology
+  # alone. Substituting the source is an adaptation of this blueprint, not a departure from it.
+  - {ref: CreateInitialManifestReadSpeechStage, tag: enforced, why_here: "source: downloads/extracts DNS Challenge 5 Read Speech and produces audio_filepath. Corpus-specific -- swap it for the source that matches your corpus"}
+  - {ref: MonoConversionStage, tag: advisory, why_here: "normalize to mono + one SR once, upfront (downstream models assume mono)"}
+  - {ref: VADSegmentationStage, tag: advisory, why_here: "segment speech so scores are per-segment; this is a granularity choice, not a data dependency"}
+  - {ref: BandFilterStage, tag: advisory, why_here: "cheapest filter (CPU) first; cull low-fidelity before GPU work"}
+  - {ref: UTMOSFilterStage, tag: advisory, why_here: "MOS gate"}
+  - {ref: SIGMOSFilterStage, tag: advisory, why_here: "7-dim gate; MOST aggressive -- last = cheap->expensive, first = max early cull (validator does not constrain this order)"}
+  - {ref: ManifestWriterStage, tag: enforced, why_here: "sink; TimestampMapper upstream already stripped non-serializable keys"}
+
+pitfalls:
+  - "carrying this blueprint's SOURCE over to a corpus that is not DNS Read Speech is silent, not loud: CreateInitialManifestReadSpeechStage walks `.wav` case-sensitively (dropping .WAV/.flac/.mp3/...), caps at max_samples=5000, stamps every row sample_rate=48000 with an empty text, and labels the corpus DNS-ReadSpeech -- a partial manifest that reads as success. With auto_download left True and no .wav present it instead fetches the ~4.88 GB archive into the user's directory. Substitute the source; keep the ordering."
+  - "no transcripts here -> cannot add ASR/WER; use the fleurs blueprint for that"
+  - "all filters at default ~= 23% pass rate; SIGMOS dominates the drop"
+  - "don't skip resample/mono on 48k stereo data"
+  - "the `stages` list above is the DECOMPOSED/logical view; the runnable recipe (recipes/readspeech_quality.yaml) wires them via the AudioDataFilterStage composite, which also runs TimestampMapperStage to strip non-serializable keys before the sink -- so expect 3 top-level recipe stages (CreateInitialManifestReadSpeech -> AudioDataFilterStage -> ManifestWriter), not one-per-filter"
+presets:
+  tts_reference: {mos_threshold: 4.0}
+  asr_finetune: {mos_threshold: 3.4}
+  max_retention: {mos_threshold: 2.5}
+provenance: {derived_from: "tutorials/audio/readspeech", version: 2, validated: true}
