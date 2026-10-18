@@ -170,6 +170,23 @@ def _validate_workload_inputs(tasks: list[AudioTask], operations: list[AudioText
         produced.add(stage.output_text_key)
 
 
+def _check_fresh_outputs(output_dir: Path, benchmark_results_path: Path) -> None:
+    paths = [output_dir / "text_pipeline.jsonl"]
+    paths.extend(benchmark_results_path / name for name in ("results", "scratch", "metrics.json", "tasks.pkl"))
+    # The runner precreates params.json and an empty scratch directory.
+    for path in paths:
+        if (
+            path == benchmark_results_path / "scratch"
+            and path.is_dir()
+            and not path.is_symlink()
+            and not any(path.iterdir())
+        ):
+            continue
+        if path.exists() or path.is_symlink():
+            msg = f"Benchmark output already exists: {path}; choose fresh output and results directories"
+            raise FileExistsError(msg)
+
+
 def run_audio_text_llm_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915
     input_manifest: str,
     output_dir: str,
@@ -310,6 +327,12 @@ def main() -> int:
         "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
     )
     args = parser.parse_args()
+    try:
+        _check_fresh_outputs(Path(args.output_dir), Path(args.benchmark_results_path))
+    except FileExistsError as error:
+        logger.error(str(error))
+        return 1
+
     result: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
     success_code = 1
     try:
