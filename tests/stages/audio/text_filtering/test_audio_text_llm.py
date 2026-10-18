@@ -31,6 +31,7 @@ from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.ray_data.utils import is_actor_stage
 from nemo_curator.models.client import openai_client
 from nemo_curator.models.client.llm_client import GenerationConfig
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering.audio_text_llm import AudioTextLLMStage
 from nemo_curator.tasks import AudioTask
 

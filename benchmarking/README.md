@@ -10,7 +10,6 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
-- [Audio Text Pipeline Benchmark](#audio-text-pipeline-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -88,6 +87,33 @@ This is especially useful during active development and debugging since it avoid
 **4. View results:**
 
 Results are written to the `results_path` specified in your configuration, organized by session timestamp.
+
+Task performance statistics are always aggregated into `metrics.json`. The
+benchmark scripts default to saving full task objects in `tasks.pkl`. When
+`save_tasks` is omitted globally and for an entry, the runner adds no retention
+flag, preserving compatibility with custom scripts. The full-suite `benchmarks.yaml` explicitly
+sets `save_tasks: false` to reduce retained artifacts. Set `save_tasks: true`
+globally or within an individual entry to retain tasks for inspection. Entry
+settings override the global setting in either direction. Scripts run directly
+also save tasks by default; pass `--no-save-tasks` to opt out or `--save-tasks`
+to enable retention explicitly. The runner passes the effective YAML setting
+using these same CLI flags.
+
+```yaml
+save_tasks: false
+entries:
+  - name: alm_pipeline_xenna
+    save_tasks: true
+```
+
+This override can be layered on top of the full-suite config. Task pickles can
+be very large because they include data payloads, not just performance statistics.
+
+Archived Ray and inference-server `.log` files larger than 10 MiB are stored as
+`.log.gz` files, preserving their full contents. Read them with
+`gzip -cd path/to/file.log.gz`. The default benchmark config uses INFO-level
+Ray Data logging; an environment override can set `RAY_DATA_LOG_LEVEL: DEBUG`
+for detailed debugging.
 
 ---
 
@@ -643,6 +669,10 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
   --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 
+python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
+  --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11 \
+  --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
+
 python benchmarking/data_prep/prepare_readspeech_data.py \
   --output-path {datasets_path}/read_speech \
   --num-parts 3 \
@@ -654,6 +684,90 @@ python benchmarking/data_prep/prepare_readspeech_data.py \
 The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
+The Hindi Indic ASR setup pins the public `ketav/parakeet-hindi-asr` revision
+`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0). The pinned
+source manifest has 216,169 rows / 1,914,385,701 ms and SHA-256
+`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`;
+the 40,543,034,328-byte source archive has SHA-256
+`9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20`.
+The archive is a superset, so only files referenced by that manifest define
+the cohort.
+
+Full-sample decoding deterministically rejects five referenced corrupt FLACs:
+`audio/hindi_017643.flac`, `audio/hindi_017666.flac`, and
+`audio/hindi_018619.flac` are empty; `audio/hindi_017655.flac` and
+`audio/hindi_017656.flac` are truncated 262,144-byte files whose decoders lose
+sync. They account for 58,233 ms. The shared runnable cohort therefore has
+216,164 unique mono 16 kHz clips / 1,914,327,468 ms (531.75763 hours). Its
+116,382,162-byte canonical manifest has SHA-256
+`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
+Both executor modes consume this byte-identical retained cohort and also require
+the production-compatible model artifacts to be staged at:
+
+```text
+{model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+{model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+```
+
+The Parakeet TensorRT directory is a self-contained bundle whose `model.nemo`
+is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
+`nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
+under its mounted dataset and model roots before launching this entry.
+
+The benchmark requires the dedicated Indic ASR image on Linux x86_64. Build
+and check it from the repository root:
+
+```bash
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
+docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
+```
+
+The image keeps Python 3.12 / TensorRT-LLM 1.2.1 / Torch 2.9.1 together in
+`/opt/venv`, including the audio and benchmark dependencies. Curator, Indic
+Canary, Parakeet TensorRT, and WER run in that same environment; there is no
+child runtime or dependency installation during inference. The root
+`pyproject.toml` and `uv.lock` do not select this stack. Normal Curator profiles
+retain their existing dependencies and can still be selected together.
+
+The Indic run entries are intentionally absent from `benchmarks.yaml`; the
+dataset mapping and `nightly-data-setup.yaml` entry remain available. The
+benchmark script keeps the standard audio benchmark interface, executor helper,
+and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
+it derives correctness metrics from the final JSONL rather than retained tasks;
+`--save-tasks` therefore writes an empty task list, not stage snapshots.
+
+For a standalone run, mount the staged corpus at `/datasets`, the model bundles
+at `/model_weights`, and a writable result directory at `/results`. Inside the
+dedicated image, from `/opt/Curator`, run:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python benchmarking/scripts/audio_indic_asr_benchmark.py \
+  --benchmark-results-path=/results/indic_asr_xenna \
+  --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
+  --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+  --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
+  --regex-yaml=tutorials/audio/indic_asr/regex.yaml \
+  --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
+  --executor=xenna --no-save-tasks
+```
+
+The defaults retain the eight-GPU workload and frozen cohort checks. Use
+`--executor=ray_data` and a different, unused results path for the same-data
+comparison. Dataset setup remains separate and is not rerun by this script.
+Do not build the stock `benchmarking/Dockerfile` on top of this image or run
+root `uv sync` in it: that would replace the dedicated native stack with the
+normal `all` dependencies. A site-specific harness configuration must explicitly
+select this image; the standard nightly environment does not supply it.
+
+The host or container runtime must independently provide a CUDA-13-capable
+NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported
+data-center GPU. The benchmark imports the actual TensorRT-LLM native bindings,
+NeMo ASR, the Parakeet adapter, and text normalization, then validates complete
+engine inventories before its processor-chain timer starts. Harness
+`exec_time_s` still includes the entire benchmark subprocess, including those
+preflight checks; environment creation and data staging belong before it.
+
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,
 validates, and publishes a replacement when an older or incomplete cohort is
@@ -664,6 +778,7 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
+| Hindi Indic ASR | Production Slurm pipeline only | Retained standalone benchmark: Xenna and Ray Data share the 216,164-clip / 531.75763h cohort after rejecting five exactly identified corrupt FLACs. Both use eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. The prior Xenna calibration target was 600-900s full process wall time on 8xH100; neither executor is registered in the standard nightly matrix. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---
@@ -751,86 +866,48 @@ eight-GPU activity target.
 
 ## Audio Text Pipeline Benchmark
 
-`scripts/audio_text_llm_benchmark.py` uses the same
-[text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml) as the tutorial:
-RecoverEntities → PnC → language identification and verification → TN → parallel
-captioning, code switching and speech QA → ITN → disfluency removal. The reader
-preloads JSONL into `AudioTask` records; the benchmark omits the tutorial reader
-and writer from the timed pipeline and never opens audio files.
+`scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
+from [text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml):
+manifest reader → entity recovery → punctuation/capitalization → language
+prediction and verification → text normalization → fused captioning, code
+switching and speech QA → inverse text normalization → disfluency removal →
+manifest writer. Every row remains an `AudioTask`; no audio files are opened.
 
-The stage graph, prompts, generation options and tuning all come from that file.
-Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four Dynamo replicas with tensor
-parallelism two (eight GPUs), 12 workers, batches of 128, and 256 concurrent
-requests per worker. Compilation caches persist under `cache_root`.
+The tutorial and benchmark use the same prompts, stage order, generation options
+and serving settings. Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four
+Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
+128 and 256 concurrent requests per worker. The benchmark uses Curator's existing
+`InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
+benchmark, it has no entries or enablement overlay in the standard nightly matrix.
 
-The benchmark starts the configured `InferenceServer` through its existing API.
-Ray auto-detects GPUs unless overridden; the registered pair explicitly requests
-eight. To use an existing OpenAI-compatible server, pass
-`--override=endpoint=http://host:8000/v1 --override=ray_client.num_gpus=0`.
-The server and model must be supported by the installed serving dependencies.
+### Input and paired runs
 
-Use one fixed, pre-staged human-label improvement cohort that fits in driver
-memory. Every row needs a unique string `audio_item_id`, `source_lang: en`, the human
-label in `text`, and the normalized transcript in
-`abbreviated_text`. Use `--id-key` if the frozen source uses another identity key.
-The benchmark records manifest bytes and SHA-256, preserves input metadata, and
-rejects duplicate or missing identities, changed source fields, missing outputs
-or notes, and an entirely skipped workload. No ASR predictions are generated by
-this benchmark. Equal human and normalized text is legitimate for an upstream
-human-gold cohort; it still makes a recovery request when both strings are
-nonempty. Do not manufacture ASR predictions by relabeling human text.
+Use one fixed, pre-staged English cohort that fits in driver memory. Every row
+needs a unique string `audio_item_id`, `source_lang: en`, a reference transcript
+in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
+`--id-key` for another identity field. Preserve the source dataset's license,
+revision and selection rule alongside the manifest. Human-gold inputs are also
+supported, but identify them as such; do not label copied human text as ASR output.
 
-Stage the same manifest for both executors at
-`<datasets_path>/audio_text_gemma4_english/manifest.jsonl`. Retain its upstream
-provenance, selection rule and language distribution alongside it. Pin its row
-count and SHA-256 with the corresponding options when running a frozen cohort:
+Run from the repository root in the same compatible serving environment as the
+tutorial. Replace the input and cache paths with shared absolute paths available
+to the Ray workers. The default server needs eight GPUs; its runtime must support
+the pinned model revision and Gemma 4. Use a fresh output directory for each run:
 
 ```bash
 python benchmarking/scripts/audio_text_llm_benchmark.py \
-  --input-manifest=/data/audio_text_gemma4_english/manifest.jsonl \
-  --override=cache_root=/data/audio_text_cache \
-  --override=ray_client.num_gpus=8 \
-  --benchmark-results-path=/results/audio_text/xenna \
-  --expected-num-rows=COHORT_ROWS \
-  --expected-manifest-sha256=COHORT_SHA256 \
-  --override=backend=xenna
-```
+  --input-manifest=/data/english/manifest.jsonl \
+  --output-dir=/results/audio_text/xenna/output \
+  --cache-root=/data/audio_text_cache \
+  --executor=xenna \
+  --benchmark-results-path=/results/audio_text/xenna
 
-Run the same command with a fresh result directory and `backend=ray_data` for
-the paired executor result. Keep stage and serving overrides identical to the
-tutorial or comparison run; change only the cohort, paths and executor.
-
-The timer includes executor setup inside `Pipeline.run` and every configured
-text operation; it excludes manifest loading/validation, Ray/server startup,
-server teardown, output validation and result writes. There is no warmup pass.
-Server startup is reported separately. For cold/warm comparisons, run twice with
-the same persistent cache path and runtime; use a fresh path for the cold run
-rather than deleting another experiment's cache. Compare the same server settings
-and cohort. The harness also reports complete process
-`exec_time_s`. Compare the same timing metric across both executors.
-
-The standard `params.json`, `metrics.json`, and `tasks.pkl` retain the resolved
-stage configuration, manifest identity, returned rows, row/request throughput,
-and per-operation plus aggregate applied/fallback/skipped counts. Requests count
-logical model calls, including rejected completions; transport retries are not
-additional logical requests. Physical attempts, retries and token throughput
-require separate serving telemetry. Batch performance statistics remain in
-`tasks.pkl`, but the benchmark does not aggregate them: independently serialized
-rows can carry duplicate copies of a batch's statistics. A downstream pass may
-have zero requests after language verification rejects rows. These structural checks establish execution
-coverage, not model quality or semantic parity; inspect fallback counts and
-operation outputs separately.
-
-The canonical `audio_text_llm_xenna` and `audio_text_llm_raydata` entries are
-disabled in `benchmarks.yaml` until the cohort and performance baseline have
-been frozen. After staging that cohort and configuring the normal dataset/result
-paths, explicitly enable only this pair with the opt-in overlay:
-
-```bash
-./benchmarking/tools/run.sh \
-  --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/audio_text_llm.yaml \
-  --entries-exact audio_text_llm_xenna,audio_text_llm_raydata
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --output-dir=/results/audio_text/ray_data/output \
+  --cache-root=/data/audio_text_cache \
+  --executor=ray_data \
+  --benchmark-results-path=/results/audio_text/ray_data
 ```
 
 Pin a frozen cohort with `--expected-num-rows` and
@@ -890,7 +967,7 @@ Your script **must** write three JSON/pickle files to the `--benchmark-results-p
 
 **`metrics.json`** - A JSON file containing all measured metrics from the benchmark (execution time, throughput, memory usage, etc.). Metric names used here can be referenced in entry requirements and sink configurations.
 
-**`tasks.pkl`** - A pickle file containing NeMo Curator `Task` objects that capture detailed performance data. Use `nemo_curator.tasks.Task` with `TaskPerfUtils()` to wrap operations in your script, then save all tasks using `Task.get_all_tasks()`.
+**`tasks.pkl`** - An optional pickle file containing complete NeMo Curator `Task` objects, including payloads and individual performance statistics. Written only when `save_tasks: true` is enabled for the entry. Scripts return completed tasks to `write_benchmark_results()`, which saves aggregate statistics in `metrics.json` regardless of task retention.
 
 ### Reference Implementations
 

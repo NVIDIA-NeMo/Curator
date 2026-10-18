@@ -9,6 +9,14 @@ hydra:
     dir: .
   output_subdir: null
 
+documentation: |
+  Refine existing English audio transcripts without loading audio files. Every
+  stage reads and preserves AudioTask records: recover entities, restore
+  punctuation/capitalization, verify language, normalize text, generate three
+  independent text features together, restore written forms, and remove
+  disfluencies. The final manifest retains all input fields and records each
+  operation's outcome in additional_notes.
+
 manifest_path: ???
 output_path: ???
 endpoint: ???
@@ -34,7 +42,7 @@ ray_client:
   _target_: nemo_curator.core.client.RayClient
   num_gpus: 0
 
-# Optional server configuration for the audio benchmark or an existing InferenceServer owner.
+# Start this server separately with the existing InferenceServer API; see README.md.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all
