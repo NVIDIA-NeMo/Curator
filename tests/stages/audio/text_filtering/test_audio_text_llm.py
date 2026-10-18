@@ -93,7 +93,7 @@ def test_agent_contract_supports_remapped_keys_and_optional_language(endpoint: C
     stage.teardown()
 
     assert contract.reads.data_keys == ["transcript"]
-    assert set(contract.optional_reads.data_keys) == {"language", "audit", "skip_reason"}
+    assert set(contract.optional_reads.data_keys) == {"language", "audit", "skip_reason", "rewrite"}
     assert set(contract.writes.data_keys) == {"rewrite", "audit"}
     assert contract.key_roles["transcript"] == contract.key_roles["rewrite"] == "text"
     assert contract.accepts_task_type == contract.produces_task_type == "AudioTask"
@@ -520,6 +520,34 @@ def test_skip_existing_and_empty_rows_make_no_requests(mode: str, endpoint: Call
     assert [task.data["processed_text"] for task in result] == ["keep", "", "stale", "cached"]
     empty_task = AudioTask(data={"text": ""})
     assert stage.process(empty_task).data["processed_text"] == ""
+    assert clients == []
+
+
+@pytest.mark.parametrize(
+    ("output_text_key", "existing_output", "expected"),
+    [
+        ("text", {}, "Keep this original transcript"),
+        ("processed_text", {"processed_text": "saved output"}, "saved output"),
+        ("processed_text", {}, ""),
+    ],
+)
+def test_flagged_rows_preserve_existing_output(
+    output_text_key: str, existing_output: dict, expected: str, endpoint: Callable
+) -> None:
+    def unexpected_request(_request: httpx.Request) -> httpx.Response:
+        pytest.fail("Flagged rows must not reach the endpoint")
+
+    clients = endpoint(unexpected_request)
+    original = {"text": "Keep this original transcript", "_skipme": "prior filter", **existing_output}
+    task = AudioTask(data={**original, "additional_notes": {"earlier_stage": "keep"}})
+    stage = _stage(output_text_key=output_text_key)
+
+    assert stage.process(task) is task
+    assert task.data == {
+        **original,
+        output_text_key: expected,
+        "additional_notes": {"earlier_stage": "keep", stage.name: "skipped (flagged)"},
+    }
     assert clients == []
 
 
