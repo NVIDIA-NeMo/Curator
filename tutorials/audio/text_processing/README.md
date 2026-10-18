@@ -22,28 +22,54 @@ share one stage and run concurrently against the same normalized transcript.
 
 ## 1. Prepare the environment
 
-Use Linux x86_64, Docker with the NVIDIA Container Toolkit, and eight compatible
-GPUs. This configuration serves four Gemma FP8 replicas with two GPUs per replica;
-the earlier example below used H100 80 GB GPUs. A two-row input reduces processing
-work but keeps this serving configuration.
+Use one Linux x86_64 node with Docker, the NVIDIA Container Toolkit, and a driver
+compatible with CUDA 12.9. The serving configuration uses eight H100 80 GB GPUs:
+four Gemma FP8 replicas with two GPUs each. Earlier EOS runs exposed 224 logical CPUs;
+the seven processing stages can reserve 84 CPUs in total, with additional CPUs
+needed for Ray, serving, reading and writing. A two-row input reduces processing
+work but keeps these settings.
 
-From the repository root, build the existing project image and open a container:
+Clone [NeMo Curator](https://github.com/NVIDIA-NeMo/Curator), check out the branch
+or commit containing this tutorial, and start in that checkout's root. Build the
+checked-in Dockerfile with its locked dependencies; use this same checkout and
+image for the tutorial and benchmarks. Internet access is needed during the build
+and the first server startup to download packages and model weights.
+
+Create fresh output and cache directories and an input directory. The input
+directory can stay empty for the bundled examples. For benchmarking, place your
+English cohort at `text_processing_data/english/manifest.jsonl` before proceeding.
 
 ```bash
+git rev-parse HEAD
 docker build -f docker/Dockerfile -t curator-audio-text .
-mkdir -p text_processing_output .cache/audio-text
+mkdir -p text_processing_output text_processing_data/english .cache/audio-text
 docker run --rm -it --name curator-audio-text --gpus all --ipc=host \
+  --mount type=bind,src="$PWD/text_processing_data",dst=/data,readonly \
   --mount type=bind,src="$PWD/text_processing_output",dst=/output \
   --mount type=bind,src="$PWD/.cache/audio-text",dst=/cache \
   --env HF_HOME=/cache/huggingface \
   curator-audio-text bash
 ```
 
-The project image includes the audio and `inference_server` dependencies, `etcd`,
-and `nats-server`. The YAML uses Curator's existing model runtime environment to
-select Dynamo's compatible vLLM and Transformers 5.8.0. Model weights download on
-first startup; keep `/cache` to reuse weights and compilation artifacts with the
-same runtime and GPU architecture.
+The project image includes Python 3.13, the audio and `inference_server`
+dependencies, `etcd`, and `nats-server`. There are two Python environments:
+
+| Package | Driver, from `uv.lock` | Dynamo model worker |
+| --- | --- | --- |
+| ai-dynamo | 1.3.1 | 1.3.1 |
+| vLLM | 0.22.0+cu129 | 0.23.0+cu129 |
+| Transformers | 4.57.6 | 5.8.0 |
+| Torch | 2.11.0+cu129 | 2.11.0+cu129 |
+| Ray | 2.57.0 | 2.57.0 |
+
+Curator creates isolated model-worker environments from the driver environment,
+installs the matching Dynamo vLLM extra using CUDA 12.9 wheels, and applies the
+YAML's Transformers override there. Keep the driver's Transformers version;
+audio dependencies require it. Other worker dependencies are resolved at startup.
+The commands below keep one server running for the tutorial and both benchmarks,
+so all three runs use the same resolved environment and model weights. Keep
+`/cache` to reuse weights and compilation artifacts with the same runtime and GPU
+architecture.
 
 ## 2. Start the model server
 
@@ -52,10 +78,10 @@ The Python snippet instantiates the **same `inference_server` block** from the
 pipeline YAML; it does not construct another serving recipe.
 
 ```bash
+set -euo pipefail
 cd /opt/Curator
 ray start --head --node-ip-address=127.0.0.1 --port=6379 --num-gpus=8
 export RAY_ADDRESS=127.0.0.1:6379
-set -euo pipefail
 python -u - <<'PY_SERVER' 2>&1 | tee /output/server.log
 from pathlib import Path
 from threading import Event
@@ -111,8 +137,8 @@ Ray cluster and model endpoint; it does not start or stop the model server.
 
 Output and logs appear in `text_processing_output/` on the host. The command
 refuses to overwrite an existing result; choose a fresh output path and update
-the guard when running again. After inspecting the result below, press Ctrl-C in
-the server terminal, then run `ray stop` and `exit` in that container.
+the guard when running again. Keep the server running while inspecting results
+and running the optional benchmarks below.
 
 For your own English JSONL manifest, replace `manifest_path` with an absolute
 path visible inside the container and choose a different output path. The default
@@ -141,17 +167,37 @@ input_path = Path("tutorials/audio/text_processing/sample_input.jsonl")
 source = [json.loads(line) for line in input_path.read_text().splitlines()]
 output = [json.loads(line) for line in Path("/output/english_output.jsonl").read_text().splitlines()]
 by_id = {row["audio_item_id"]: row for row in output}
+operations = {
+    "RecoverEntities": "entity_recovered_text",
+    "PnCRestoration": "pnc_text",
+    "LanguageID": "llm_language_prediction",
+    "TextNormalization": "tn_raw",
+    "Captioning": "captioning_text",
+    "CodeSwitching": "code_switched_text",
+    "SpeechQA": "speech_qa_text",
+    "ITNRestoration": "itn_raw",
+    "DisfluencyRemoval": "itn_clean",
+}
 assert len(output) == len(by_id) == len(source) == 2
 for original in source:
     row = by_id[original["audio_item_id"]]
     assert all(row[key] == value for key, value in original.items())
+    assert not row.get("_skipme"), row
+    notes = row["additional_notes"]
+    for name, field in operations.items():
+        assert isinstance(row[field], str) and row[field].strip(), (name, row)
+        note = notes[name]
+        assert note in {"recovered", "unchanged"} or note.startswith(("applied (", "fallback (")), (name, note)
+    assert notes["LLMLanguageVerification"].startswith("passed ("), notes
     print(json.dumps(row, ensure_ascii=False, indent=2))
 PY_CHECK
 ```
 
-This checks row identity and preservation of input fields. Inspect the generated
-text and `additional_notes` as well; a successful request is not a text-quality
-score.
+This checks row identity, preservation of input fields, all nine nonempty output
+fields, and that every operation ran on both English examples. A guarded fallback
+counts as a completed request; a skipped operation fails this example check.
+Inspect the generated text and `additional_notes` as well; successful execution
+is not a text-quality score.
 
 | Operation | Reads | Writes / purpose |
 | --- | --- | --- |
@@ -176,6 +222,27 @@ mismatch or unparseable prediction sets `_skipme`; later requests are skipped
 while the row is retained. Parsed multilingual predictions are retained. Rewrite
 guards can preserve the input instead of accepting a changed response. Text
 normalization permits number expansion; exhausted request retries fail the batch.
+
+## 5. Benchmark the same pipeline (optional)
+
+Keep this container, Ray cluster and server running. Follow the
+[paired benchmark commands](../../../benchmarking/README.md#audio-text-pipeline-benchmark)
+in the second terminal. They reuse `/output/endpoint.txt`, `/cache/compilation`,
+the model, and the complete YAML. Only the cohort size, executor and result paths
+change. Run Xenna and Ray Data sequentially on the same input manifest.
+
+## 6. Stop the server
+
+After inspecting the tutorial and any benchmark results, press Ctrl-C in the
+server terminal. Then run there:
+
+```bash
+ray stop
+exit
+```
+
+The container is removed when it exits. Inputs, outputs and caches remain in the
+three mounted host directories.
 
 ## Sample provenance and a recorded result
 
