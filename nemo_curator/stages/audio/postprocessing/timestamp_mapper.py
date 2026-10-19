@@ -40,6 +40,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
+from fractions import Fraction
 from typing import Any, ClassVar
 
 import numpy as np
@@ -100,19 +101,38 @@ def _segment_bounds(seg: Any) -> tuple[Any, Any] | None:  # noqa: ANN401 - shape
     return start, end
 
 
-def _ordered_segments(diar_segments: Any) -> list[tuple[Any, Any, Any]]:  # noqa: ANN401 - shape is the point
+def _numeric_key(value: Any) -> Fraction:  # noqa: ANN401 - accepted numeric bounds vary
+    """Compare Decimal and NumPy bounds without rounding through Python float."""
+    return Fraction(*value.as_integer_ratio()) if hasattr(value, "as_integer_ratio") else Fraction(value)
+
+
+def _ordered_segments(
+    diar_segments: Any,  # noqa: ANN401 - shape is the point
+    *,
+    start_key: str = "start",
+    end_key: str = "end",
+    speaker_key: str = "speaker",
+) -> list[tuple[Any, Any, Any]]:
     """``(original_segment, start, end)`` for each readable segment, earliest first.
 
-    The original is carried alongside its bounds so the output can echo the shape it was
-    given -- rewriting a diarizer's ``{start, end, speaker}`` as a bare pair would throw away
-    the speaker label, which is the one thing a diarization pipeline is run for.
+    Segments retain their pair or dictionary shape, with dictionary field names normalized
+    for downstream extraction. Rewriting a diarizer's dictionary as a bare pair would lose
+    the speaker label.
     """
     out = []
-    for seg in diar_segments or []:
+    keys = {start_key: "start", end_key: "end", speaker_key: "speaker"}
+    boundary_keys = set(keys) | set(keys.values())
+    for segment in diar_segments or []:
+        seg = segment
+        if isinstance(seg, Mapping):
+            seg = {
+                **{key: value for key, value in seg.items() if key not in boundary_keys},
+                **{canonical: seg[key] for key, canonical in keys.items() if key in seg},
+            }
         bounds = _segment_bounds(seg)
         if bounds is not None:
             out.append((seg, bounds[0], bounds[1]))
-    return sorted(out, key=lambda t: t[1])
+    return sorted(out, key=lambda t: _numeric_key(t[1]))
 
 
 _DEFAULT_PASSTHROUGH_KEYS: list[str] = [
@@ -167,8 +187,12 @@ _DROP_VALUE = object()
 
 def _jsonable_value(value: Any, active_containers: set[int]) -> Any:  # noqa: ANN401, C901, PLR0911, PLR0912
     """Return a JSON-compatible value, dropping unsupported leaves and cycles."""
+    if isinstance(value, np.floating):
+        value = float(value)
     if isinstance(value, np.generic):
-        return _jsonable_value(value.item(), active_containers)
+        scalar = value.item()
+        # Extended-precision complex scalars have no equivalent Python scalar.
+        return _DROP_VALUE if isinstance(scalar, np.generic) else _jsonable_value(scalar, active_containers)
     if isinstance(value, np.ndarray):
         container_id = id(value)
         if container_id in active_containers:
@@ -227,8 +251,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Core fields (always present, not controlled by passthrough_keys):
         ``original_file``, ``original_start_ms``, ``original_end_ms``,
         ``duration_ms``, ``duration``.
-        When diarization segments are available: ``diar_segments``,
-        ``speaking_duration`` are also set as core fields.
+        When the diarization branch is used: ``diar_segments`` and
+        ``speaking_duration`` are also set as core fields. Input turns are
+        never passed through over a precise scalar range or an invalid turn list.
 
     Args:
         passthrough_keys: Keys to copy from input to output.
@@ -238,6 +263,11 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         sanitize_output: Convert the complete output to JSON-compatible
             values and drop unsupported nested values. Disabled by default
             to preserve legacy passthrough values and types.
+        start_key: Input start-time field inside dictionary diarization turns.
+        end_key: Input end-time field inside dictionary diarization turns.
+        speaker_key: Input speaker-label field inside dictionary diarization turns.
+            Output turns use canonical ``start``, ``end``, and ``speaker`` fields
+            so downstream extraction can consume them.
     """
 
     passthrough_keys: list[str] | None = field(default=None)
@@ -255,6 +285,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     diar_segments_key: str = field(default="diar_segments", kw_only=True)
     speaking_duration_key: str = field(default="speaking_duration", kw_only=True)
     mappings_key: str = field(default="segment_mappings", kw_only=True)
+    start_key: str = field(default="start", kw_only=True)
+    end_key: str = field(default="end", kw_only=True)
+    speaker_key: str = field(default="speaker", kw_only=True)
     sanitize_output: bool = field(default=False, kw_only=True)
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         cardinality_options=["filter"],
@@ -275,6 +308,12 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             )
 
     def _validate_key_configuration(self) -> None:
+        segment_keys = [self.start_key, self.end_key, self.speaker_key]
+        if any(not isinstance(key, str) or not key for key in segment_keys) or len(set(segment_keys)) != len(
+            segment_keys
+        ):
+            msg = "TimestampMapperStage nested turn key names must be distinct non-empty strings"
+            raise ValueError(msg)
         key_fields = {
             "audio_filepath_key": self.audio_filepath_key,
             "original_file_key": self.original_file_key,
@@ -324,18 +363,17 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         ]
 
     def describe(self) -> StageContract:
-        always_constructed = {
+        core_fields = {
             self.original_file_key,
             self.original_start_ms_key,
             self.original_end_ms_key,
             self.duration_ms_key,
             self.duration_key,
+            self.diar_segments_key,
         }
         passthrough_keys = list(
             dict.fromkeys(
-                key
-                for key in (self.passthrough_keys or [])
-                if key not in _NEVER_PASS_KEYS and key not in always_constructed
+                key for key in (self.passthrough_keys or []) if key not in _NEVER_PASS_KEYS and key not in core_fields
             )
         )
         conditional_writes = [
@@ -476,7 +514,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _copy_passthrough(self, item: dict[str, Any], result: dict[str, Any]) -> None:
         for key in self.passthrough_keys:
-            if key in _NEVER_PASS_KEYS:
+            # Diarization is rebuilt in source coordinates only on its own branch.
+            # Copying old turns would override precise scalar ranges during extraction.
+            if key in _NEVER_PASS_KEYS or key == self.diar_segments_key:
                 continue
             if key in item and item[key] is not None and key not in result:
                 result[key] = item[key]
@@ -500,7 +540,9 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     ) -> dict[str, Any] | None:
         """Translate every diarization interval without filling silent gaps."""
         translated: list[tuple[Any, dict[str, Any]]] = []
-        for segment, start_sec, end_sec in _ordered_segments(diar_segments):
+        for segment, start_sec, end_sec in _ordered_segments(
+            diar_segments, start_key=self.start_key, end_key=self.end_key, speaker_key=self.speaker_key
+        ):
             translated.extend(
                 (segment, translated_range)
                 for translated_range in _translate_to_original(
@@ -561,19 +603,29 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         ordered = [
             (seg, max(0, start), end)
-            for seg, start, end in _ordered_segments(item.get(self.diar_segments_key))
+            for seg, start, end in _ordered_segments(
+                item.get(self.diar_segments_key),
+                start_key=self.start_key,
+                end_key=self.end_key,
+                speaker_key=self.speaker_key,
+            )
             if end > max(0, start)
         ]
         if ordered:
             first_start = ordered[0][1]
             # max, not the last segment's end: diarized speech overlaps, so the segment that
             # starts last does not necessarily finish last.
-            last_end = max(end for _s, _st, end in ordered)
+            last_end = max((end for _s, _st, end in ordered), key=_numeric_key)
             result[self.original_start_ms_key] = math.floor(first_start * 1000)
             result[self.original_end_ms_key] = math.ceil(last_end * 1000)
             result[self.duration_ms_key] = result[self.original_end_ms_key] - result[self.original_start_ms_key]
             result[self.duration_key] = result[self.duration_ms_key] / 1000.0
-            speaking_duration = sum(end - start for _s, start, end in ordered)
+            durations = [end - start for _s, start, end in ordered]
+            if any(isinstance(duration, Decimal) for duration in durations):
+                durations = [
+                    duration if isinstance(duration, Decimal) else Decimal(str(duration)) for duration in durations
+                ]
+            speaking_duration = sum(durations)
             result[self.speaking_duration_key] = round(speaking_duration, 3) or speaking_duration
             # Echo the shape we were handed, so a diarizer's speaker labels survive.
             result[self.diar_segments_key] = [

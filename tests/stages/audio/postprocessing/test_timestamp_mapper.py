@@ -970,3 +970,209 @@ def test_negative_decimal_start_is_clamped_without_changing_numeric_compatibilit
     assert output.data["original_start_ms"] == 0
     assert output.data["original_end_ms"] == 500
     assert output.data["speaking_duration"] == Decimal("0.5")
+
+
+@pytest.mark.parametrize("container", ["scalar", "array", "nested"])
+def test_strict_sanitization_writes_extended_precision_scores(container: str, tmp_path: Path) -> None:
+    import numpy as np
+
+    score = np.longdouble("1.25")
+    scores = {
+        "scalar": score,
+        "array": np.array([score], dtype=np.longdouble),
+        "nested": {"values": [score]},
+    }
+    expected = {"scalar": 1.25, "array": [1.25], "nested": {"values": [1.25]}}
+    stage = TimestampMapperStage(passthrough_keys=["score"], sanitize_output=True)
+    task = _make_task({"audio_filepath": "clip.wav", "duration": 1.0, "score": scores[container]})
+
+    output = stage.process(task)
+
+    assert isinstance(output, AudioTask)
+    assert output.data["score"] == expected[container]
+    output_path = tmp_path / "manifest.jsonl"
+    writer = ManifestWriterStage(output_path=str(output_path))
+    writer.setup()
+    writer.process(output)
+    assert json.loads(output_path.read_text())["score"] == expected[container]
+    json.dumps(output.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("dictionary", [False, True], ids=["pair", "dictionary"])
+def test_strict_sanitization_writes_extended_precision_diarization(dictionary: bool, tmp_path: Path) -> None:
+    import numpy as np
+
+    start, end = np.longdouble("0.125"), np.longdouble("0.375")
+    segment = {"start": start, "end": end, "speaker": "speaker_0"} if dictionary else [start, end]
+    output = TimestampMapperStage(sanitize_output=True).process(
+        _make_task({"audio_filepath": "clip.wav", "diar_segments": [segment]})
+    )
+
+    assert isinstance(output, AudioTask)
+    expected = {"start": 0.125, "end": 0.375, "speaker": "speaker_0"} if dictionary else [0.125, 0.375]
+    assert output.data["diar_segments"] == [expected]
+    assert output.data["speaking_duration"] == 0.25
+    output_path = tmp_path / "manifest.jsonl"
+    writer = ManifestWriterStage(output_path=str(output_path))
+    writer.setup()
+    writer.process(output)
+    assert json.loads(output_path.read_text())["diar_segments"] == [expected]
+    json.dumps(output.data, allow_nan=False)
+
+
+def test_strict_sanitization_drops_unsupported_extended_precision_scores() -> None:
+    import numpy as np
+
+    scores = {
+        "valid": np.longdouble("1.25"),
+        "nan": np.longdouble("nan"),
+        "infinite": np.longdouble("inf"),
+        "complex": np.clongdouble(1 + 2j),
+    }
+    if np.finfo(np.longdouble).max > np.finfo(float).max:
+        scores["overflow"] = np.finfo(np.longdouble).max
+    output = TimestampMapperStage(passthrough_keys=["scores"], sanitize_output=True).process(
+        _make_task({"audio_filepath": "clip.wav", "duration": 1.0, "scores": scores})
+    )
+
+    assert isinstance(output, AudioTask)
+    assert output.data["scores"] == {"valid": 1.25}
+    json.dumps(output.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_renamed_nested_turn_keys_are_normalized_for_consumers(mapped: bool) -> None:
+    mapper = TimestampMapperStage(start_key="begin", end_key="finish", speaker_key="person")
+    data = {
+        "audio_filepath": "source.wav",
+        "diar_segments": [{"begin": 0.125, "finish": 0.375, "person": "speaker_0", "confidence": 0.9}],
+    }
+    metadata = (
+        {
+            "segment_mappings": [
+                {
+                    "concat_start_ms": 0,
+                    "concat_end_ms": 1000,
+                    "original_start_ms": 5000,
+                    "original_file": "source.wav",
+                }
+            ]
+        }
+        if mapped
+        else None
+    )
+    output = mapper.process(_make_task(data, metadata))
+
+    assert isinstance(output, AudioTask)
+    offset = 5 if mapped else 0
+    assert output.data["diar_segments"] == [
+        {
+            "start": offset + 0.125,
+            "end": offset + 0.375,
+            "speaker": "speaker_0",
+            "confidence": 0.9,
+        }
+    ]
+    assert output.data["original_start_ms"] == offset * 1000 + 125
+    assert output.data["speaking_duration"] == 0.25
+
+
+@pytest.mark.parametrize("kwargs", [{"start_key": ""}, {"end_key": "start"}, {"speaker_key": "end"}])
+def test_invalid_nested_turn_keys_are_rejected(kwargs: dict) -> None:
+    with pytest.raises(ValueError, match="nested turn key names"):
+        TimestampMapperStage(**kwargs)
+
+
+@pytest.mark.parametrize("dictionary", [False, True])
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("extended", [False, True])
+def test_mixed_decimal_and_float_turns_preserve_speaking_duration(
+    dictionary: bool, sanitize: bool, extended: bool
+) -> None:
+    import numpy as np
+
+    numeric = np.longdouble if extended else float
+    bounds = [(Decimal(0), Decimal("0.25")), (numeric("1"), numeric("1.5"))]
+    segments = (
+        [{"start": start, "end": end, "speaker": str(i)} for i, (start, end) in enumerate(bounds)]
+        if dictionary
+        else [list(pair) for pair in bounds]
+    )
+    output = TimestampMapperStage(sanitize_output=sanitize).process(
+        _make_task({"audio_filepath": "source.wav", "diar_segments": segments})
+    )
+
+    assert isinstance(output, AudioTask)
+    assert output.data["speaking_duration"] == (0.75 if sanitize else Decimal("0.75"))
+    assert len(output.data["diar_segments"]) == 2
+    if sanitize:
+        json.dumps(output.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_copied_score_is_available_to_downstream_filter(present: bool) -> None:
+    mapper = TimestampMapperStage(passthrough_keys=["score"])
+    data = {"audio_filepath": "source.wav", "duration": 1.0}
+    if present:
+        data["score"] = 1
+    consumer = PreserveByValueStage(input_value_key="score", target_value=1)
+    output = mapper.process(_make_task(data))
+    assert isinstance(output, AudioTask)
+    if present:
+        assert consumer.process_batch([output]) == [output]
+    else:
+        assert "score" not in output.data
+
+
+def test_configured_turn_boundaries_do_not_read_stale_canonical_fields() -> None:
+    mapper = TimestampMapperStage(start_key="begin", end_key="finish")
+    output = mapper.process(
+        _make_task(
+            {
+                "audio_filepath": "source.wav",
+                "diar_segments": [{"start": 99.0, "end": 100.0, "speaker": "speaker_0"}],
+            }
+        )
+    )
+    assert isinstance(output, AudioTask)
+    assert "diar_segments" not in output.data
+    assert output.data["duration_ms"] == 0
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_precise_scalar_range_does_not_passthrough_stale_turns(mapped: bool) -> None:
+    data = {
+        "audio_filepath": "source.wav",
+        "start_ms": 500,
+        "end_ms": 750,
+        "diar_segments": [{"start": 0.1, "end": 0.8, "speaker": "speaker_0"}],
+    }
+    metadata = (
+        {
+            "segment_mappings": [
+                {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": "source.wav", "original_start_ms": 1000}
+            ]
+        }
+        if mapped
+        else None
+    )
+    output = TimestampMapperStage(passthrough_keys=["diar_segments"]).process(_make_task(data, metadata))
+    assert isinstance(output, AudioTask)
+    assert "diar_segments" not in output.data
+    offset = 1000 if mapped else 0
+    assert (output.data["original_start_ms"], output.data["original_end_ms"]) == (offset + 500, offset + 750)
+
+
+def test_passthrough_cannot_resurrect_malformed_turns() -> None:
+    output = TimestampMapperStage(passthrough_keys=["diar_segments"]).process(
+        _make_task(
+            {
+                "audio_filepath": "source.wav",
+                "duration": 2.0,
+                "diar_segments": [{"start": 1.0, "end": 0.0, "speaker": "speaker_0"}],
+            }
+        )
+    )
+    assert isinstance(output, AudioTask)
+    assert "diar_segments" not in output.data
+    assert output.data["duration"] == 2.0

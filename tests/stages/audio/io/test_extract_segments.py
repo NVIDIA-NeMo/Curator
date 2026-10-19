@@ -36,6 +36,7 @@ from nemo_curator.stages.audio.io.extract_segments import (
     load_manifest,
     load_manifests,
 )
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
 from nemo_curator.tasks import AudioTask
 
 SAMPLE_RATE = 16000
@@ -510,3 +511,148 @@ class TestExtractFromManifest:
         assert os.path.exists(os.path.join(out_dir, "manifest.jsonl"))
         with open(os.path.join(out_dir, "extraction_summary.json")) as f:
             assert json.load(f)["total_segments"] == 2
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("outer_speaker", [None, "stale_parent"])
+def test_mapper_dictionary_turns_extract_per_speaker_in_mixed_batches(
+    wav_dir: Path, tmp_path: Path, reverse: bool, outer_speaker: str | None
+) -> None:
+    source = _wav_path(wav_dir)
+    data = {
+        "audio_filepath": source,
+        "diar_segments": [
+            {"start": 0.125, "end": 0.375, "speaker": "speaker_0"},
+            {"start": 1.125, "end": 1.375, "speaker": "speaker_1"},
+        ],
+    }
+    if outer_speaker is not None:
+        data["speaker_id"] = outer_speaker
+    mapper = TimestampMapperStage()
+    diar = mapper.process(AudioTask(data=data))
+    scalar = mapper.process(AudioTask(data={"audio_filepath": source, "start_ms": 2000, "end_ms": 2250}))
+    assert isinstance(diar, AudioTask)
+    assert isinstance(scalar, AudioTask)
+    tasks = [scalar, diar] if reverse else [diar, scalar]
+    output_dir = tmp_path / "extracted"
+    stage = SegmentExtractionStage(output_dir=str(output_dir))
+    stage.process_batch(tasks)
+
+    outputs = sorted(output_dir.glob("*.wav"))
+    assert len(outputs) == 3
+    original, sr = sf.read(source)
+    expected = {
+        "file_a_speaker_0_segment_000.wav": original[2000:6000],
+        "file_a_speaker_1_segment_000.wav": original[18000:22000],
+        "file_a_segment_000.wav": original[32000:36000],
+    }
+    for path in outputs:
+        audio, actual_sr = sf.read(path)
+        assert actual_sr == sr
+        np.testing.assert_array_equal(audio, expected[path.name])
+    with (output_dir / "metadata.csv").open() as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 3
+    assert {row.get("speaker_id", "") for row in rows} == {"", "speaker_0", "speaker_1"}
+
+
+def test_renamed_mapper_turns_reach_real_extraction(wav_dir: Path, tmp_path: Path) -> None:
+    source = _wav_path(wav_dir)
+    mapper = TimestampMapperStage(start_key="begin", end_key="finish", speaker_key="person")
+    output = mapper.process(
+        AudioTask(
+            data={
+                "audio_filepath": source,
+                "diar_segments": [{"begin": 0.125, "finish": 0.375, "person": "speaker_0"}],
+            }
+        )
+    )
+    assert isinstance(output, AudioTask)
+    output_dir = tmp_path / "extracted"
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([output])
+    audio, sr = sf.read(output_dir / "file_a_speaker_0_segment_000.wav")
+    assert sr == SAMPLE_RATE
+    assert len(audio) == 4000
+
+
+@pytest.mark.parametrize("dictionary", [False, True])
+def test_mapper_positive_submillisecond_turn_is_exported(wav_dir: Path, tmp_path: Path, dictionary: bool) -> None:
+    source = _wav_path(wav_dir)
+    segment = {"start": 0.1001, "end": 0.1002, "speaker": "speaker_0"} if dictionary else [0.1001, 0.1002]
+    output = TimestampMapperStage().process(
+        AudioTask(data={"audio_filepath": source, "speaker_id": "speaker_0", "diar_segments": [segment]})
+    )
+    assert isinstance(output, AudioTask)
+    output_dir = tmp_path / "extracted"
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([output])
+    audio, sr = sf.read(output_dir / "file_a_speaker_0_segment_000.wav")
+    assert sr == SAMPLE_RATE
+    assert len(audio) == 16
+
+
+def test_precise_positive_dictionary_turn_is_not_rejected_by_float_validation() -> None:
+    from decimal import Decimal
+
+    start, end = Decimal("1.00000000000000000001"), Decimal("1.00000000000000000002")
+    assert _intervals_from_diar_segments({"diar_segments": [{"start": start, "end": end}]}) == [(1000, 1001, 0.001)]
+
+
+def test_precise_mapper_range_is_extracted_despite_whitelisted_source_turns(wav_dir: Path, tmp_path: Path) -> None:
+    source = _wav_path(wav_dir)
+    output = TimestampMapperStage(passthrough_keys=["diar_segments"]).process(
+        AudioTask(
+            data={
+                "audio_filepath": "concat.wav",
+                "start_ms": 200,
+                "end_ms": 400,
+                "diar_segments": [{"start": 0.1, "end": 0.8, "speaker": "speaker_0"}],
+            },
+            _metadata={
+                "segment_mappings": [
+                    {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": source, "original_start_ms": 1000}
+                ]
+            },
+        )
+    )
+    assert isinstance(output, AudioTask)
+    output_dir = tmp_path / "extracted"
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([output])
+    paths = list(output_dir.glob("*.wav"))
+    assert [path.name for path in paths] == ["file_a_segment_000.wav"]
+    audio, sr = sf.read(paths[0])
+    original, _ = sf.read(source)
+    assert sr == SAMPLE_RATE
+    np.testing.assert_array_equal(audio, original[19200:22400])
+
+
+def test_mixed_extended_precision_turns_keep_chronological_order() -> None:
+    from decimal import Decimal
+
+    turns = [
+        {"start": np.longdouble("1.25"), "end": np.longdouble("1.5")},
+        {"start": Decimal("0.25"), "end": Decimal("0.5")},
+    ]
+    assert _intervals_from_diar_segments({"diar_segments": turns}) == [(250, 500, 0.25), (1250, 1500, 0.25)]
+
+
+@pytest.mark.parametrize("diar_segments", [None, [], [[0.125, 0.375]]])
+def test_optional_unlabelled_turns_preserve_main_timestamp_extraction(
+    wav_dir: Path, tmp_path: Path, diar_segments: list | None
+) -> None:
+    source = _wav_path(wav_dir)
+    entry = {
+        "original_file": source,
+        "original_start_ms": 1000,
+        "original_end_ms": 1500,
+        "duration": 0.5,
+        "diar_segments": diar_segments,
+    }
+    assert detect_combo([entry]) == 2
+    output_dir = tmp_path / "extracted"
+    SegmentExtractionStage(output_dir=str(output_dir)).process_batch([AudioTask(data=entry)])
+    paths = list(output_dir.glob("*.wav"))
+    assert [path.name for path in paths] == ["file_a_segment_000.wav"]
+    audio, sr = sf.read(paths[0])
+    original, _ = sf.read(source)
+    assert sr == SAMPLE_RATE
+    np.testing.assert_array_equal(audio, original[16000:24000])
