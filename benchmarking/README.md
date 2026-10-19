@@ -864,6 +864,110 @@ eight-GPU activity target.
 
 ---
 
+## Audio Text Pipeline Benchmark
+
+`scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
+from [text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml):
+manifest reader → entity recovery → punctuation/capitalization → language
+prediction and verification → text normalization → fused captioning, code
+switching and speech QA → inverse text normalization → disfluency removal →
+manifest writer. Every row remains an `AudioTask`; no audio files are opened.
+
+The tutorial and benchmark use the same prompts, stage order, generation options
+and serving settings. Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four
+Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
+128 and 256 concurrent requests per worker. The benchmark uses Curator's existing
+`InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
+benchmark, it has no entries or enablement overlay in the standard nightly matrix.
+
+### Input and paired runs
+
+Use one fixed, pre-staged English cohort that fits in driver memory. Every row
+needs a unique string `audio_item_id`, `source_lang: en`, a reference transcript
+in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
+`--id-key` for another identity field. Preserve the source dataset's license,
+revision and selection rule alongside the manifest. Human-gold inputs are also
+supported, but identify them as such; do not label copied human text as ASR output.
+
+Follow the [tutorial environment and server instructions](../tutorials/audio/text_processing/README.md#1-prepare-the-environment)
+exactly: build its project image from the same checkout, use the same eight-GPU
+node and mounted directories, start its server, and run and check the two bundled
+examples. Place the benchmark cohort at
+`text_processing_data/english/manifest.jsonl` on the host; the container sees it
+read-only at `/data/english/manifest.jsonl`.
+
+Keep that container, Ray cluster and server running. In the tutorial's second
+terminal, run these commands sequentially. Both executors use the same endpoint,
+resolved package environment, model weights, `/cache/compilation` and complete
+YAML. Only the cohort size, executor and result paths change from the tutorial.
+Use a fresh benchmark results directory:
+
+```bash
+cd /opt/Curator
+export RAY_ADDRESS=127.0.0.1:6379
+set -euo pipefail
+test ! -e /output/benchmarks
+input_sha256=$(sha256sum /data/english/manifest.jsonl | cut -d ' ' -f 1)
+input_rows=$(python -c 'from pathlib import Path; print(sum(bool(line.strip()) for line in Path("/data/english/manifest.jsonl").open()))')
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --expected-num-rows="$input_rows" \
+  --expected-manifest-sha256="$input_sha256" \
+  --output-dir=/output/benchmarks/xenna/output \
+  --cache-root=/cache/compilation \
+  --endpoint="$(cat /output/endpoint.txt)" \
+  --executor=xenna \
+  --benchmark-results-path=/output/benchmarks/xenna
+
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --expected-num-rows="$input_rows" \
+  --expected-manifest-sha256="$input_sha256" \
+  --output-dir=/output/benchmarks/ray_data/output \
+  --cache-root=/cache/compilation \
+  --endpoint="$(cat /output/endpoint.txt)" \
+  --executor=ray_data \
+  --benchmark-results-path=/output/benchmarks/ray_data
+```
+
+The shared row count and SHA-256 checks pin both runs to identical input bytes.
+Results appear under `text_processing_output/benchmarks/` on the host. After
+inspecting both runs, follow the tutorial's server shutdown instructions.
+
+The script can also start the same configured server itself when `--endpoint` is
+omitted; `--cache-root` is then required. `--model-path` selects pre-staged weights
+without changing the served model alias. The walkthrough above reuses the tutorial
+server so it cannot resolve a different worker environment between runs.
+
+### Outputs and timing
+
+Each run writes `text_pipeline.jsonl` under `--output-dir` and standard
+`params.json`, `metrics.json` and `tasks.pkl` under `--benchmark-results-path`.
+Use `--no-save-tasks` to omit the pickle. Parameters retain the resolved pipeline
+and serving configuration; metrics record the actual manifest SHA-256. Validation
+checks identities, preserved source fields, all nine operation outcomes, and the
+written JSONL against the returned tasks. An entirely skipped workload fails validation.
+
+The pipeline timer includes reader, all text operations, writer, and executor
+setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
+Ray/server startup and teardown, output validation and result serialization.
+Server startup is reported separately only when the benchmark starts its own
+server. It is zero in the commands above, which reuse the already-running
+tutorial server. Those commands measure a warm server, after the tutorial; there
+is no additional warmup pass. Earlier processing-only benchmark results excluded
+reader/writer execution and are not directly comparable to this timer.
+
+Metrics include row throughput and per-operation applied, fallback and skipped
+counts. Requests count logical model calls, including rejected completions;
+transport retries are not extra logical requests. Physical attempts and token
+throughput require serving telemetry. The shared result writer also aggregates
+batch statistics into `task_*` metrics, even with `--no-save-tasks`. It deduplicates
+by object identity, so separately deserialized copies can inflate batch totals.
+Use the independently calculated row/request throughput and operation counts for
+comparisons. These checks prove execution coverage, not semantic parity or model
+quality. Inspect the output fields and fallback counts before interpreting
+throughput.
+
 ## Writing Benchmark Scripts
 
 ### Script Location
