@@ -35,13 +35,21 @@ checked-in Dockerfile with its locked dependencies; use this same checkout and
 image for the tutorial and benchmarks. Internet access is needed during the build
 and the first server startup to download packages and model weights.
 
+Create the dedicated builder once. Its 12 GiB memory limit, disabled swap and
+single-CPU affinity contain the project's native extension compilation; allow
+additional memory for your host applications. Reuse this builder for later builds.
+
 Create fresh output and cache directories and an input directory. The input
 directory can stay empty for the bundled examples. For benchmarking, place your
 English cohort at `text_processing_data/english/manifest.jsonl` before proceeding.
 
 ```bash
 git rev-parse HEAD
-docker build -f docker/Dockerfile -t curator-audio-text .
+docker buildx create --name curator-audio-text-bounded --driver docker-container \
+  --driver-opt image=moby/buildkit:v0.15.0 \
+  --driver-opt memory=12g,memory-swap=12g,cpuset-cpus=0,cpu-quota=100000,cpu-period=100000
+docker buildx build --builder curator-audio-text-bounded --load \
+  -f docker/Dockerfile -t curator-audio-text .
 mkdir -p text_processing_output text_processing_data/english .cache/audio-text
 docker run --rm -it --name curator-audio-text --gpus all --ipc=host \
   --mount type=bind,src="$PWD/text_processing_data",dst=/data,readonly \
@@ -86,11 +94,17 @@ python -u - <<'PY_SERVER' 2>&1 | tee /output/server.log
 from pathlib import Path
 from threading import Event
 
+from huggingface_hub import snapshot_download
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 cfg = OmegaConf.load("tutorials/audio/text_processing/text_pipeline.yaml")
 cfg.cache_root = "/cache/compilation"
+cfg.model_name = str(cfg.model_name)
+cfg.model_identifier = snapshot_download(
+    repo_id=cfg.model_identifier,
+    revision=cfg.inference_server.models[0].engine_kwargs.revision,
+)
 with instantiate(cfg.inference_server) as server:
     Path("/output/endpoint.txt").write_text(server.endpoint + "\n")
     print(f"Ready: {server.endpoint}. Keep this terminal open; Ctrl-C stops serving.", flush=True)
@@ -101,8 +115,13 @@ with instantiate(cfg.inference_server) as server:
 PY_SERVER
 ```
 
-Wait for `Ready:` before continuing. Initial model loading and compilation can
-take several minutes. The server defaults are four TP=2 replicas, context and
+The snapshot download fixes the model to the YAML's revision before Dynamo starts;
+its prefetch otherwise resolves the model repository independently of vLLM's
+revision setting. The endpoint keeps the public model name. Cached snapshots are
+reused on subsequent starts.
+
+Wait for `Ready:` before continuing. Initial model download, loading and compilation
+can take several minutes. The server defaults are four TP=2 replicas, context and
 batched-token limits of 8,192, 256 sequences, prefix caching, chunked prefill, and
 95% GPU memory utilization.
 
