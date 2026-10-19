@@ -88,6 +88,9 @@ pipeline YAML; it does not construct another serving recipe.
 ```bash
 set -euo pipefail
 cd /opt/Curator
+# Match Curator's state API limits before starting the external Ray cluster.
+export RAY_MAX_LIMIT_FROM_API_SERVER=40000
+export RAY_MAX_LIMIT_FROM_DATA_SOURCE=40000
 ray start --head --node-ip-address=127.0.0.1 --port=6379 --num-gpus=8
 export RAY_ADDRESS=127.0.0.1:6379
 python -u - <<'PY_SERVER' 2>&1 | tee /output/server.log
