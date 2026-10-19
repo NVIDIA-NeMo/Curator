@@ -16,7 +16,7 @@ ENV MAX_JOBS=1 CMAKE_BUILD_PARALLEL_LEVEL=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-dev python3.12-venv build-essential pkg-config \
-        ca-certificates curl git libmagic1t64 libnuma1 libsndfile1 openssh-client nasm \
+        ca-certificates curl git libmagic1t64 libnuma1 libopus-dev libsndfile1 openssh-client nasm \
     && apt-get upgrade -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /usr/local/bin/uv
@@ -29,10 +29,10 @@ RUN curl -fsSL https://www.ffmpeg.org/releases/ffmpeg-8.0.1.tar.bz2 -o /tmp/ffmp
     && cd /tmp/ffmpeg-8.0.1 \
     && ./configure --enable-shared --disable-static --disable-everything \
         --disable-autodetect --disable-network --disable-doc --disable-ffplay \
-        --enable-protocol=file,pipe --enable-demuxer=wav,flac \
-        --enable-decoder=flac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
-        --enable-encoder=pcm_s16le,pcm_f32le --enable-muxer=wav \
-        --enable-parser=flac --enable-filter=aresample,aformat,anull \
+        --enable-libopus --enable-protocol=file,pipe --enable-demuxer=wav,flac,ogg,pcm_f32le \
+        --enable-decoder=flac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,opus \
+        --enable-encoder=pcm_s16le,pcm_f32le,libopus --enable-muxer=wav,ogg,pcm_s16le \
+        --enable-parser=flac,opus --enable-filter=aresample,aformat,anull \
     && make -j1 && make install && ldconfig \
     && rm -rf /tmp/ffmpeg-8.0.1 /tmp/ffmpeg.tar.bz2
 
