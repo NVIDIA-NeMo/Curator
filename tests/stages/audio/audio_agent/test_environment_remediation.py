@@ -146,17 +146,46 @@ def test_tdt_gpu_recipe_blocks_on_cuda_mismatch() -> None:
     assert all(choice["id"] != "use_ctc_alignment_variant" for choice in decision["choices"])
 
 
+def test_mixed_pipeline_with_nemo_sortformer_offers_conditional_cpu_variant() -> None:
+    stages = _build(
+        ("UTMOSFilterStage", {"resources": {"cpus": 1, "gpus": 1}}),
+        (
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter",
+                "adapter_kwargs": {"precision": "fp32"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
+        ),
+    )
+
+    decision = environment_preflight(stages, _cuda_mismatch())
+
+    cpu = _choice(decision, "use_cpu_recipe_variant")
+    assert cpu["availability"] == "conditional"
+    assert cpu["preserves_recipe"] is False
+    assert all(stage.resources.gpus == 1 for stage in stages)
+
+
 def test_mixed_pipeline_never_claims_cpu_when_one_leaf_is_gpu_only() -> None:
     stages = _build(
         ("UTMOSFilterStage", {"resources": {"cpus": 1, "gpus": 1}}),
-        ("InferenceSortformerStage", {"resources": {"cpus": 1, "gpus": 1}}),
+        (
+            "ASRStage",
+            {
+                "adapter_target": "nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+                "model_id": "Qwen/Qwen3-ASR-0.6B",
+                "max_audio_sec_per_actor": 2400.0,
+                "resources": {"cpus": 1, "gpus": 1},
+            },
+        ),
     )
 
     decision = environment_preflight(stages, _cuda_mismatch())
 
     cpu = _choice(decision, "use_cpu_recipe_variant")
     assert cpu["availability"] == "unavailable"
-    assert "InferenceSortformerStage" in cpu["reason"]
+    assert "ASRStage" in cpu["reason"]
 
 
 def test_external_ray_does_not_treat_local_cuda_mismatch_as_worker_fact() -> None:
