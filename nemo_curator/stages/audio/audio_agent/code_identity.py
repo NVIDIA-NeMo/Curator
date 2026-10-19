@@ -78,9 +78,12 @@ def _compute(stage_ref: str, *, adapter_target: str | None = None) -> str:
     try:
         from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class
 
-        files = _closure(resolve_stage_class(stage_ref).__module__)
+        cls = resolve_stage_class(stage_ref)
+        files = _closure(cls.__module__)
         if not files:
             return _fallback()
+        if adapter_target is None:
+            adapter_target = getattr(cls, "adapter_target", None)
         if adapter_target is not None:
             adapter_module, separator, adapter_class = adapter_target.rpartition(".")
             if not separator or not adapter_class:

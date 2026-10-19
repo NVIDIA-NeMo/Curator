@@ -196,6 +196,58 @@ class TestWhatItMeansForReuse:
 
 
 @pytest.mark.parametrize("edited_module", ["dynamic_adapter", "adapter_helper"])
+def test_default_adapter_edit_invalidates_only_its_step_and_suffix(
+    package: Callable[[str, str], None], monkeypatch: pytest.MonkeyPatch, edited_module: str
+) -> None:
+    target = "nemo_curator.models.asr.dynamic_adapter.DynamicAdapter"
+    monkeypatch.setattr(
+        "nemo_curator.stages.audio.audio_agent._resolve.resolve_stage_class",
+        lambda ref: type(
+            ref,
+            (),
+            {"__module__": _STAGE, **({"adapter_target": target} if ref == "DefaultAdapterStage" else {})},
+        ),
+    )
+    recipe = Recipe.from_dict(
+        {"stages": [{"ref": "FakeStage"}, {"ref": "DefaultAdapterStage"}, {"ref": "FakeStage"}]}
+    ).freeze()
+    before = artifacts.step_keys(recipe, "stat:fixture")
+    package(f"models/asr/{edited_module}.py", _TREE[f"models/asr/{edited_module}.py"] + "CHANGED = 2\n")
+    after = artifacts.step_keys(recipe, "stat:fixture")
+    assert before[0] == after[0]
+    assert before[1] != after[1]
+    assert before[2] != after[2]
+
+
+def test_default_vad_binds_the_same_adapter_implementation_as_an_explicit_selection() -> None:
+    from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+
+    implicit = code_identity.impl_version("VADSegmentationStage")
+    explicit = code_identity.impl_version("VADSegmentationStage", adapter_target=VADSegmentationStage.adapter_target)
+    assert not code_identity.is_fallback(implicit)
+    assert implicit == explicit
+
+
+@pytest.mark.parametrize("edited_module", ["dynamic_adapter", "adapter_helper"])
+def test_filter_configured_adapter_code_is_part_of_its_effective_identity(
+    package: Callable[[str, str], None], edited_module: str
+) -> None:
+    params = {"config": {"vad": {"adapter_target": "nemo_curator.models.asr.dynamic_adapter.DynamicAdapter"}}}
+    before = artifacts.model_version(params, stage_ref="AudioDataFilterStage")
+    assert before == artifacts.model_version(params, stage_ref="AudioDataFilterStage")
+    package(f"models/asr/{edited_module}.py", _TREE[f"models/asr/{edited_module}.py"] + "CHANGED = 2\n")
+    assert artifacts.model_version(params, stage_ref="AudioDataFilterStage") != before
+
+
+@pytest.mark.usefixtures("package")
+def test_filter_with_unavailable_adapter_code_cannot_prove_reusable_identity() -> None:
+    params = {"config": {"vad": {"adapter_target": "nemo_curator.models.asr.missing.MissingAdapter"}}}
+    assert artifacts.model_version(params, stage_ref="AudioDataFilterStage") != artifacts.model_version(
+        params, stage_ref="AudioDataFilterStage"
+    )
+
+
+@pytest.mark.parametrize("edited_module", ["dynamic_adapter", "adapter_helper"])
 def test_configured_adapter_edit_invalidates_only_its_step_and_suffix(
     package: Callable[[str, str], None], edited_module: str
 ) -> None:

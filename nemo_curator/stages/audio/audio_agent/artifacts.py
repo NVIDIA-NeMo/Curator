@@ -54,7 +54,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from nemo_curator.stages.audio.audio_agent.code_identity import impl_version
+from nemo_curator.stages.audio.audio_agent.code_identity import impl_version, is_fallback
 
 if TYPE_CHECKING:
     from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
@@ -254,6 +254,10 @@ def _data_filter_inputs(params: dict[str, Any]) -> dict[str, str]:
             "audio_data_filter.config": _h(json.dumps(configured._cfg, sort_keys=True)),
             "audio_data_filter.models": model_version(configured._cfg),
         }
+        vad = configured._cfg.get("vad", {})
+        if vad.get("enable", True):
+            version = impl_version("VADSegmentationStage", adapter_target=vad.get("adapter_target"))
+            inputs["audio_data_filter.vad_impl"] = _model_input_digest(None) if is_fallback(version) else version
     except Exception:  # noqa: BLE001 - unresolved runtime settings cannot certify a reusable prefix
         return {"audio_data_filter.config": _model_input_digest(None)}
     return inputs
