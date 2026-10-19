@@ -790,47 +790,67 @@ three-model language identification, language selection, Opus writing, and
 JSONL output. It loads the same YAML as the tutorial, so model settings and
 stage order stay aligned across both entrypoints.
 
-Use the dedicated `docker/audio/Dockerfile.trt_llm` image with the pinned NeMo
-extension and local model layout described in the
-[tutorial](../tutorials/audio/granary_metadata/README.md).
-The reference eight-speaker Sortformer and Indic Canary bundles must be
-supplied separately. The SED engine and provenance sidecar must match the
-16 kHz frontend. This benchmark is not registered in the standard nightly
-matrix because that environment does not provide the complete native stack
-and model artifacts.
+Complete the [shared environment and model preparation](../tutorials/audio/granary_metadata/README.md#1-build-and-prepare-the-shared-environment)
+from the tutorial first. Use its `granary` image, exact model assets, generated
+TensorRT engines, runtime initialization, and unchanged YAML for benchmarking.
+Both paths require 128 logical CPUs, eight H100 80 GB GPUs, and a 500 GiB Ray
+object store (`536870912000` bytes); 1 TiB host RAM is recommended. A standard
+benchmark runner must request those same resources. Do not install packages,
+replace models, or override stage settings between tutorial and benchmark.
+This benchmark is not registered in the standard nightly matrix because that
+environment does not provide the complete native stack and model artifacts.
 
-Stage your audio before measurement. Each input row needs an absolute
+Stage audio before measurement. Each input row needs an absolute
 `audio_filepath` and its accurate decoded `duration` in seconds. Optional
 `audio_item_id` values must be unique plain filenames. Remove parent-recording
 `text` and `transcript` fields: those transcripts are not aligned to the new VAD
-segments. The tutorial's two-clip preparation command creates a compatible
-`/work/data/fleurs/metadata_input.jsonl`; use a larger real cohort for meaningful
-throughput measurements.
+segments. The tutorial creates `/work/data/fleurs/metadata_input.jsonl` for a
+small check. For a larger cohort, set `GRANARY_INPUT_MANIFEST` to its prepared
+manifest, retaining its dataset revision, license, counts, duration, and hash.
+Make every referenced audio path visible in the container. Use the same frozen
+manifest and audio files for both executors; an already verified Lustre cohort
+can be mounted read-only without downloading or preparing it again.
 
-Inside the tutorial container, from `/opt/Curator`, run each executor separately
-on the same manifest and models, choosing fresh result directories and logs:
+Run these commands inside the tutorial image from `/opt/Curator`, after its
+runtime initialization. Only the input size/path, output path, and selected
+executor change. `GRANARY_BENCHMARK_OUTPUT` optionally selects the result
+directory reserved by a benchmark runner; otherwise each command uses the
+default below. Such a directory may contain runner parameters and an empty
+scratch directory, but no previous results. The script also checks scratch
+contents. Run one executor at a time and choose fresh output and log paths.
 
+<!-- granary-eos: benchmark-xenna -->
 ```bash
-mkdir -p /work/benchmarks
-set -o pipefail
-test ! -e /work/benchmarks/xenna && test ! -e /work/benchmarks/xenna.log && {
-  python benchmarking/scripts/audio_granary_metadata_benchmark.py \
-    --benchmark-results-path /work/benchmarks/xenna \
-    --input-manifest /work/data/fleurs/metadata_input.jsonl \
-    --model-dir /models --executor xenna --execution-mode streaming \
-    2>&1 | tee /work/benchmarks/xenna.log
-}
+set -euo pipefail
+benchmark_input="${GRANARY_INPUT_MANIFEST:-/work/data/fleurs/metadata_input.jsonl}"
+benchmark_output="${GRANARY_BENCHMARK_OUTPUT:-/work/benchmarks/xenna}"
+mkdir -p "$(dirname "$benchmark_output")"
+test ! -e "$benchmark_output/results"
+test ! -e "$benchmark_output/metrics.json"
+test ! -e "$benchmark_output/tasks.pkl"
+test ! -e "$benchmark_output.log"
+python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+  --benchmark-results-path "$benchmark_output" \
+  --input-manifest "$benchmark_input" \
+  --model-dir /models --executor xenna --execution-mode streaming \
+  2>&1 | tee "$benchmark_output.log"
 ```
 
+<!-- granary-eos: benchmark-ray-data -->
 ```bash
-set -o pipefail
-test ! -e /work/benchmarks/ray_data && test ! -e /work/benchmarks/ray_data.log && {
-  python benchmarking/scripts/audio_granary_metadata_benchmark.py \
-    --benchmark-results-path /work/benchmarks/ray_data \
-    --input-manifest /work/data/fleurs/metadata_input.jsonl \
-    --model-dir /models --executor ray_data \
-    2>&1 | tee /work/benchmarks/ray_data.log
-}
+set -euo pipefail
+benchmark_input="${GRANARY_INPUT_MANIFEST:-/work/data/fleurs/metadata_input.jsonl}"
+benchmark_output="${GRANARY_BENCHMARK_OUTPUT:-/work/benchmarks/ray_data}"
+mkdir -p "$(dirname "$benchmark_output")"
+test ! -e "$benchmark_output/results"
+test ! -e "$benchmark_output/metrics.json"
+test ! -e "$benchmark_output/tasks.pkl"
+test ! -e "$benchmark_output.log"
+python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+  --benchmark-results-path "$benchmark_output" \
+  --input-manifest "$benchmark_input" \
+  --model-dir /models --executor ray_data \
+  2>&1 | tee "$benchmark_output.log"
 ```
 
 The standard result writer saves `params.json` and `metrics.json`; pipeline
@@ -843,18 +863,20 @@ as accepted labels.
 
 `time_taken_s` includes model startup, resampling, inference, segmentation,
 output writing, and executor shutdown. Input inspection and output validation
-are outside this timer. `total_audio_duration_hours` counts
+and owned Ray cluster startup/shutdown are outside this timer.
+`total_audio_duration_hours` counts
 source recordings, whereas `total_segment_duration_hours` counts emitted
 speech. The throughput metric uses source audio hours. Divide it by the
 number of allocated GPUs to report audio-hours/GPU-hour. The timer
 excludes dataset downloading and container construction. Tasks are not
 retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
 
-In the [EOS benchmark run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/74129562),
+In the [2026-10-15 EOS benchmark run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/74129562),
 each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
 30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
-`1b277ece135811e22d0051769c7c3c3199dc396b` and the tutorial's pinned NeMo
-runtime. The input manifest SHA-256 is
+`1b277ece135811e22d0051769c7c3c3199dc396b` and the pinned NeMo
+runtime. These are historical results, not validation of a later checkout
+or a fresh image build. The input manifest SHA-256 is
 `9c6f7d8f61af7c74d5d574d21ec19c70c07f399564592d8fd9d39eb06998e99e`.
 
 | Executor | Harness wall time (`exec_time_s`) | Pipeline time (`time_taken_s`) | Output validation |

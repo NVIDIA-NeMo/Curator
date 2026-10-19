@@ -27,6 +27,9 @@ execution_mode: streaming
 ray_client:
   _target_: nemo_curator.core.client.RayClient
   include_dashboard: false
+  num_cpus: 128
+  num_gpus: 8
+  object_store_memory: 536870912000
 
 stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader

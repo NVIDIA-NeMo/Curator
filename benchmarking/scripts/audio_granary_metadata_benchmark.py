@@ -28,7 +28,7 @@ from loguru import logger
 from omegaconf import OmegaConf
 from utils import write_benchmark_results
 
-from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, create_ray_client_from_yaml
 
 _PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_metadata/pipeline.yaml"
 _LID_REJECTIONS = {
@@ -272,9 +272,10 @@ def run_audio_granary_metadata_benchmark(
         cfg.execution_mode = execution_mode
     pipeline = create_pipeline_from_yaml(cfg)
     executor_obj = create_executor_from_yaml(cfg)
-    start = time.perf_counter()
-    pipeline.run(executor=executor_obj)
-    run_time_s = time.perf_counter() - start
+    with create_ray_client_from_yaml(cfg):
+        start = time.perf_counter()
+        pipeline.run(executor=executor_obj)
+        run_time_s = time.perf_counter() - start
     metrics = _collect_output_metrics(Path(cfg.output_dir) / "metadata.jsonl", input_durations)
     return {
         "params": {

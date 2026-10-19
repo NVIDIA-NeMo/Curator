@@ -21,71 +21,285 @@ flowchart TD
     audio --> metadata["Write JSONL metadata"]
 ```
 
-## 1. Build and check the environment
+## 1. Build and prepare the shared environment
 
-From the root of this checkout on Linux x86_64, with Docker and the NVIDIA
-Container Toolkit installed:
+Use Linux x86_64 with Docker Buildx and the NVIDIA Container Toolkit. The
+same image, model directory, runtime settings, and [pipeline.yaml](pipeline.yaml)
+serve the tutorial and benchmark. Model preparation happens before either run.
+The shared configuration requires 128 logical CPUs, eight H100 80 GB GPUs,
+and a 500 GiB Ray object store (`536870912000` bytes). Provide at least that much
+shared memory plus RAM for models and workers; 1 TiB host RAM is recommended.
+Docker uses `--ipc=host` to expose the host shared-memory capacity. A smaller
+allocation has not been validated.
 
+### Build the image
+
+From the root of this checkout, create a dedicated builder with bounded memory,
+CPU, and process use. These limits apply to the build worker, not only the Docker
+client. Do not build concurrently with another memory-intensive workload. The
+example reserves host CPUs 1–2; those CPUs must exist on the build host.
+
+<!-- granary-eos: builder -->
 ```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-granary-base .
-docker build -t curator-granary-metadata - <<'DOCKERFILE'
-FROM curator-granary-base
-RUN git init /tmp/nemo-reference \
-    && git -C /tmp/nemo-reference remote add origin https://github.com/ipmedenn/NeMo.git \
-    && git -C /tmp/nemo-reference fetch --depth 1 origin 5d56c27c0e80f4cd8c93b28bacca5f98440a45f9 \
-    && git -C /tmp/nemo-reference checkout --detach FETCH_HEAD \
-    && uv pip uninstall --python /opt/venv/bin/python nemo-toolkit \
-    && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
-        --no-deps --no-build-isolation /tmp/nemo-reference \
-    && rm -rf /tmp/nemo-reference
-DOCKERFILE
-docker run --rm --gpus all curator-granary-metadata python docker/audio/check_trt_llm.py
-docker run --rm --gpus all curator-granary-metadata \
-  python -c "import speechbrain, whisper; print('Language-ID imports passed')"
+docker buildx create --name curator-granary-bounded --driver docker-container \
+  --driver-opt image=moby/buildkit:v0.33.1 \
+  --driver-opt memory=12g --driver-opt memory-swap=12g \
+  --driver-opt cpuset-cpus=1-2 --driver-opt cpu-quota=200000 \
+  --driver-opt cpu-period=100000
+docker buildx inspect curator-granary-bounded --bootstrap
+docker update --pids-limit 2048 buildx_buildkit_curator-granary-bounded0
+docker inspect --format '{{json .HostConfig}}' buildx_buildkit_curator-granary-bounded0
 ```
 
-The reference `8spk-r087-3-50k.nemo` checkpoint uses RoPE attention, which the
-base image's NeMo 3.0.0 cannot restore. The extension installs the required
-[reference NeMo implementation](https://github.com/ipmedenn/NeMo/tree/5d56c27c0e80f4cd8c93b28bacca5f98440a45f9)
-without changing the installed Torch or TensorRT dependencies. Remove the
-installed NeMo package first so the fork records its own version,
-`3.1.0+5d56c27`.
+Before continuing, check that `Memory` and `MemorySwap` are both `12884901888`,
+`CpusetCpus` is `1-2`, `CpuQuota` is `200000`, `CpuPeriod` is `100000`, and
+`PidsLimit` is `2048`. Reuse this builder only while those limits still match.
 
-The tested runtime used Python 3.12, Torch `2.9.1+cu128`, TensorRT
-`10.14.1.48.post1`, and TensorRT-LLM `1.2.1`. The exact checkpoint passed a
-strict CPU restore with both speaker-count settings equal to eight. On EOS
-H100 GPUs, all six configured adapters also loaded, inferred on two real
-LibriSpeech clips, and unloaded successfully: Sortformer, Silero TensorRT,
-CNN14 TensorRT, SpeechBrain, Indic Canary, and Whisper medium. These checks
-establish runtime compatibility; they do not establish numerical parity
-with the production pipeline.
+<!-- granary-eos: build -->
+```bash
+docker buildx build --builder curator-granary-bounded --no-cache --load --target granary \
+  -f docker/audio/Dockerfile.trt_llm -t curator-granary-metadata .
+```
 
-The image includes the audio dependencies, SpeechBrain, OpenAI Whisper, and
-FFmpeg. Indic Canary uses its dedicated Python 3.12 / TensorRT-LLM environment;
-do not run root `uv sync` inside this image.
+The `granary` target extends the dedicated Python 3.12 / Torch `2.9.1+cu128` /
+TensorRT `10.14.1.48.post1` / TensorRT-LLM `1.2.1` environment. It installs the
+[reference NeMo commit](https://github.com/ipmedenn/NeMo/tree/5d56c27c0e80f4cd8c93b28bacca5f98440a45f9)
+without resolving or replacing Torch dependencies. The exact eight-speaker
+`8spk-r087-3-50k.nemo` checkpoint requires that fork's RoPE encoder;
+released NeMo 3.0.0 cannot restore it.
 
-**GPU:** use a CUDA-capable GPU compatible with your TensorRT engines and
-enough memory for all models. The production reference uses an 80 GB GPU;
-this draft has not measured the complete graph's GPU-memory requirement.
-The runtime also needs a CUDA 13-compatible NVIDIA driver or supported
-data-center forward-compatibility setup.
+The image also installs CUDA forward-compatibility package
+`cuda-compat-13-3=610.57.04-1ubuntu1` and prepends `/usr/local/cuda-13.3/compat` to
+`LD_LIBRARY_PATH`. This is needed on EOS's older host driver for TensorRT's
+CUDA 13 runtime; Torch uses CUDA 12.8. Keep this loader path for every Python
+process and worker. The image sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,
+`MKL_NUM_THREADS`, and `NUMBA_NUM_THREADS` to `1`, and
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Builds also use one compiler
+and package-install worker. Do not run `uv sync` or install additional packages
+inside the resulting image. Record its image digest and resolved Python/package
+versions when comparing runs; use that same immutable image for both executors.
 
-Supply the following local model files before running the pipeline. Replace
-`/absolute/path/to/models` in the container command below with their parent
-directory:
+### Supply the private model inputs and open the container
+
+Obtain the reference eight-speaker Sortformer checkpoint and the compatible
+Indic Canary engine bundle from their owners. They have no public download
+in this tutorial. A public four-speaker checkpoint changes the workload, and a
+Canary `.nemo` alone does not replace its engine bundle. The hashes below identify
+the previously validated H100 bundle; a different bundle needs its own validation.
+Fresh Canary conversion is not established by this recipe. The separate
+[Indic ASR conversion notes](../indic_asr/README.md#canary) describe its external
+converter and required source checkpoint.
+
+Arrange the supplied inputs as `sortformer.nemo` and `indic_canary/` inside one
+directory. On EOS this may be an existing verified model directory, mounted
+read-only. Set `GRANARY_MODEL_INPUTS` to its absolute host path. Use a fresh work
+directory; it holds all generated models, samples, outputs, and logs. Optional
+cached public checkpoints can also live under `GRANARY_MODEL_INPUTS`, using the
+same relative paths as their download destinations below.
+
+<!-- granary-eos: container -->
+```bash
+export GRANARY_MODEL_INPUTS=/absolute/path/to/reference-model-inputs
+mkdir -p granary-metadata-work/models granary-metadata-work/data \
+  granary-metadata-work/outputs granary-metadata-work/ray-logs
+docker run --rm -it --gpus all --ipc=host \
+  -v "$GRANARY_MODEL_INPUTS:/model-inputs:ro" \
+  -v "$PWD/granary-metadata-work/models:/models" \
+  -v "$PWD/granary-metadata-work:/work" \
+  -v "$PWD/granary-metadata-work/ray-logs:/tmp/ray" \
+  curator-granary-metadata bash
+```
+
+Run every remaining command **inside this container**, from `/opt/Curator`.
+For EOS/Pyxis, use the same image and mount destinations. Initialize the runtime
+once in the parent shell before any Python command. Clear inherited distributed
+ranks so NeMo does not initialize a Slurm/MPI training group. Ray's CLI and
+explicit-address clients share one private authentication file; never print or
+archive its contents.
+
+<!-- granary-eos: environment -->
+```bash
+set -euo pipefail
+set +x
+cd /opt/Curator
+while IFS= read -r name; do
+  case "$name" in
+    SLURM_*|OMPI_*|PMI_*|PMIX_*|HYDRA_*|I_MPI_*|MPI_*|MPICH_*|MV2_*|WORLD_SIZE|RANK|LOCAL_RANK|LOCAL_WORLD_SIZE|GROUP_RANK|ROLE_RANK|MASTER_ADDR|MASTER_PORT)
+      unset "$name" ;;
+  esac
+done < <(compgen -e)
+unset RAY_ADDRESS RAY_AUTH_TOKEN UV_PYTHON UV_VENV_NAME UV_VENV_PATH
+export VIRTUAL_ENV=/opt/venv
+export PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export RAY_DATA_LOG_LEVEL=INFO
+export RAY_AUTH_MODE=token
+export RAY_AUTH_TOKEN_PATH="$(mktemp /tmp/granary-ray-auth.XXXXXXXX)"
+trap 'rm -f -- "$RAY_AUTH_TOKEN_PATH"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+python - <<'PYCODE'
+import os
+import secrets
+from pathlib import Path
+
+Path(os.environ['RAY_AUTH_TOKEN_PATH']).write_text(secrets.token_hex(32))
+PYCODE
+python docker/audio/check_trt_llm.py
+python -c "import speechbrain, whisper; print('Language-ID imports passed')"
+```
+
+### Verify and copy the private inputs
+
+This copies only the expected files after verifying their SHA-256 hashes. It
+reuses an identical destination and refuses a conflicting one. The source mount
+is never modified.
+
+<!-- granary-eos: private-assets -->
+```bash
+python - <<'PYCODE'
+import hashlib
+import shutil
+from pathlib import Path
+
+files = {
+    'sortformer.nemo': '909cca86055c03bc19b28322e47544d749ebe2481e701ca5b066d223b7026d47',
+    'indic_canary/decoder/config.json': 'abf6061369df404bd4462aec2b1fe5ef6b1dffbb0864ba2dfd0ed735eda054bf',
+    'indic_canary/decoder/rank0.engine': 'acb96e0eb0fe97aa4e5cf1bd78647c63a24c2d80b37a8fb415cc3396bfe4d690',
+    'indic_canary/decoder/vocab.json': '2ba7e804f6b6e9c88a767065267e90705a19a4f6da808604d54927999e036bee',
+    'indic_canary/encoder/config.json': 'f6d1a8e1c207926ff58c8513603a8321e185e10f941c7b278dba73d576601df0',
+    'indic_canary/encoder/encoder.plan': '1259c33761a2fd7e59bdb496100b19c84371eab4981df89aac4bee4f095f4eb3',
+    'indic_canary/preprocessor/config.json': '6254bbdaf52a70c1c2d64ffb7ec6c3a98538f5624e7ac805bc4b6507c203bc29',
+    'indic_canary/preprocessor/mel_basis.pt': '44595c30a2fe50ed073567ff0b009310696487dc67a2842d9bfa695af49d8868',
+}
+
+def check(path, expected):
+    with path.open('rb') as stream:
+        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if actual != expected:
+        raise ValueError(f'Unexpected model content: {path}')
+
+for relative, expected in files.items():
+    source, target = Path('/model-inputs') / relative, Path('/models') / relative
+    check(source, expected)
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    check(target, expected)
+    print(relative, expected)
+PYCODE
+```
+
+### Download the public checkpoints
+
+The public assets are PANNs
+[`Cnn14_DecisionLevelMax_mAP=0.385`](https://zenodo.org/records/3987831)
+(CC BY 4.0), SpeechBrain
+[`lang-id-voxlingua107-ecapa`](https://huggingface.co/speechbrain/lang-id-voxlingua107-ecapa/tree/0253049ae131d6a4be1c4f0d8b0ff483a0f8c8e9)
+(Apache 2.0), and OpenAI [Whisper medium](https://github.com/openai/whisper)
+(MIT). The command pins every asset by content hash and the SpeechBrain snapshot
+by revision. It copies a matching cached download from `/model-inputs` when
+available, otherwise downloads the pinned URL. Existing different files fail;
+partial downloads never become model files.
+
+<!-- granary-eos: public-assets -->
+```bash
+python - <<'PYCODE'
+import hashlib
+import os
+import shutil
+import tempfile
+import urllib.request
+from pathlib import Path
+
+revision = '0253049ae131d6a4be1c4f0d8b0ff483a0f8c8e9'
+speechbrain = {
+    'README.md': 'e2a24d3c912f3c02bc104abb86904271bacc245e55b9f856220e71c7d96eaf4c',
+    'classifier.ckpt': 'a50d9024ff58d317031c9787d4c6c614d454a87a8ef32f9d36338cd3ff57adbc',
+    'config.json': 'a861f8fbc2e23c0fc0823b3c0fd2b3d1e839563c2d4e3f9663a1237cce62bc89',
+    'embedding_model.ckpt': 'ab750d5c06d713477045fa798fab5d33e959dbc0dfe4de510a9a47844c79a19a',
+    'hyperparams.yaml': '88fec9791a8416a152fb10834327e18d38e5bf7a351e9b714e08cdc4af05de6f',
+    'label_encoder.txt': '9f566d83c4f19168be4a0bf86c0c7dac7d3264a95105bcbf33a7c32b83ccc17f',
+    'normalizer.ckpt': 'c369e01dfa2e0d84c6b116f33c7b94f1fe28c061642086538e93cde3d97c26ef',
+}
+whisper_sha = '345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1'
+files = [
+    ('sed.pth', 'https://zenodo.org/api/records/3987831/files/Cnn14_DecisionLevelMax_mAP=0.385.pth/content',
+     'dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142'),
+    ('whisper.pt', f'https://openaipublic.azureedge.net/main/whisper/models/{whisper_sha}/medium.pt', whisper_sha),
+]
+files += [(f'speechbrain/{name}',
+           f'https://huggingface.co/speechbrain/lang-id-voxlingua107-ecapa/resolve/{revision}/{name}', digest)
+          for name, digest in speechbrain.items()]
+
+def check(path, expected):
+    with path.open('rb') as stream:
+        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if actual != expected:
+        raise ValueError(f'Unexpected model content: {path}')
+
+for relative, url, expected in files:
+    target, cached = Path('/models') / relative, Path('/model-inputs') / relative
+    if target.exists():
+        check(target, expected)
+        continue
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+    try:
+        if cached.exists():
+            check(cached, expected)
+            shutil.copyfile(cached, temporary)
+        else:
+            request = urllib.request.Request(url, headers={'User-Agent': 'NeMo-Curator-Granary'})
+            with urllib.request.urlopen(request, timeout=60) as response, temporary.open('wb') as output:
+                shutil.copyfileobj(response, output)
+        check(temporary, expected)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    print(relative, expected)
+PYCODE
+```
+
+### Build the two TensorRT engines
+
+Build these inside the same image on the H100 that will run inference. Use a
+new `/models` directory if engine outputs already exist; the builders refuse
+to overwrite them. Silero exports its installed official 16 kHz weights and
+validates the recurrent engine. Its default FP32 profiles cover batches 1–64.
+
+<!-- granary-eos: engine-silero -->
+```bash
+python -m nemo_curator.models.audio.vad.build_silero_tensorrt_engine \
+  --output /models/silero.plan --min-batch 1 --opt-batch 16 --max-batch 64
+```
+
+SED uses the downloaded CNN14 checkpoint and the Granary 16 kHz frontend:
+1,024-sample window, 320-sample hop, 64 mel bins, and 527 classes. The profile
+covers the graph's maximum 40-second speech segment. The builder's default
+sample rate is 32 kHz, so retain the explicit `--sample-rate 16000`.
+
+<!-- granary-eos: engine-sed -->
+```bash
+python -m nemo_curator.models.audio.sed.build_sed_tensorrt_engine \
+  --checkpoint /models/sed.pth --output /models/sed.plan \
+  --sample-rate 16000 --fp16
+```
+
+Keep the generated `silero.plan.json` and `sed.plan.json` provenance sidecars
+with their engines. SED checks its checkpoint, frontend, GPU, engine hash, and
+TensorRT version; copying an unrelated sidecar cannot make an old engine valid.
+The completed layout is:
 
 ```text
 /models/
 ├── sortformer.nemo
 ├── silero.plan
+├── silero.plan.json
 ├── sed.pth
 ├── sed.plan
 ├── sed.plan.json
-├── speechbrain/
-│   ├── hyperparams.yaml
-│   ├── embedding_model.ckpt
-│   ├── classifier.ckpt
-│   └── label_encoder.txt
+├── speechbrain/          # Pinned complete snapshot
 ├── whisper.pt
 └── indic_canary/
     ├── encoder/encoder.plan
@@ -97,55 +311,16 @@ directory:
     └── preprocessor/mel_basis.pt
 ```
 
-| Artifact | Required model or configuration |
-| --- | --- |
-| `sortformer.nemo` | The reference eight-speaker `8spk-r087-3-50k.nemo` checkpoint. A public four-speaker checkpoint changes the workload. |
-| `silero.plan` | Silero VAD TensorRT engine for the target GPU/runtime, with batch profiles covering 1–64 recurrent windows. |
-| `sed.pth`, `sed.plan`, `sed.plan.json` | Matching CNN14 DecisionLevelMax checkpoint, TensorRT engine, and build-provenance sidecar. The reference frontend uses 16 kHz, a 1,024-sample window, a 320-sample hop, 64 mel bins, and 527 classes. The engine must cover 40-second clips. |
-| `speechbrain/` | Complete local `speechbrain/lang-id-voxlingua107-ecapa` model snapshot. |
-| `whisper.pt` | OpenAI Whisper **medium** checkpoint. |
-| `indic_canary/` | Compatible Indic Canary TensorRT encoder and TensorRT-LLM decoder bundle supporting language-token prediction. |
-
-The tutorial downloads audio only. Public download locations for the reference
-eight-speaker Sortformer and Indic Canary bundles are not provided. Bring those
-artifacts yourself; a `.nemo` file alone does not replace a Canary engine bundle.
-SED's sidecar is checked against the checkpoint, frontend, GPU, engine hash, and
-TensorRT version; do not copy an unrelated sidecar onto an old engine.
-
-If you have the matching CNN14 checkpoint, build its engine and sidecar on the
-GPU that will run inference. From the host, replace the model-directory path
-and run:
-
-```bash
-docker run --rm --gpus all \
-  -v /absolute/path/to/models:/models \
-  curator-granary-metadata \
-  python -m nemo_curator.models.audio.sed.build_sed_tensorrt_engine \
-    --checkpoint /models/sed.pth --output /models/sed.plan \
-    --sample-rate 16000 --fp16
-```
-
-The explicit 16 kHz setting preserves the Granary frontend; the builder's
-default is 32 kHz. The run container below mounts completed models read-only.
-
-Create persistent work directories and open the container:
-
-```bash
-mkdir -p granary-metadata-work/data granary-metadata-work/outputs granary-metadata-work/ray-logs
-docker run --rm -it --gpus all --ipc=host \
-  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-  -v "$PWD/granary-metadata-work:/work" \
-  -v "$PWD/granary-metadata-work/ray-logs:/tmp/ray" \
-  -v /absolute/path/to/models:/models:ro \
-  curator-granary-metadata bash
-```
-
-Run the remaining commands inside this container, from `/opt/Curator`.
+Keep `/models` unchanged between tutorial and benchmark runs. Subsequent run
+containers can mount that directory read-only; all worker caches go under
+`output_dir`. Do not enable Hugging Face offline mode until the public-model
+and sample-download steps have completed.
 
 ## 2. Download two sample recordings
 
 Reuse the public Hindi sample downloader from the Indic ASR tutorial:
 
+<!-- granary-eos: samples -->
 ```bash
 python tutorials/audio/indic_asr/download_samples.py --output-dir /work/data/fleurs
 ```
@@ -158,6 +333,7 @@ Create a recording manifest with absolute audio paths. Keep the dataset
 provenance; the parent recording's transcript is not a transcript of each
 future speech segment:
 
+<!-- granary-eos: manifest -->
 ```bash
 python - <<'PY'
 import json
@@ -181,6 +357,7 @@ All stages and model settings are listed in [pipeline.yaml](pipeline.yaml).
 Run one pipeline at a time and use a new output directory and log filename
 for every run:
 
+<!-- granary-eos: tutorial-xenna -->
 ```bash
 set -o pipefail
 test ! -e /work/outputs/xenna && test ! -e /work/outputs/xenna.log && {
@@ -195,6 +372,7 @@ test ! -e /work/outputs/xenna && test ! -e /work/outputs/xenna.log && {
 
 To run the same graph with Ray Data:
 
+<!-- granary-eos: tutorial-ray-data -->
 ```bash
 set -o pipefail
 test ! -e /work/outputs/ray_data && test ! -e /work/outputs/ray_data.log && {
@@ -224,25 +402,27 @@ xenna/
 └── speechbrain_cache/  # Worker-local model loading files
 ```
 
-Print every output row and check that emitted clips exist:
+Print every output row from both executors and check that emitted clips exist:
 
+<!-- granary-eos: inspect -->
 ```bash
 python - <<'PY'
 import json
 from pathlib import Path
 
-path = Path('/work/outputs/xenna/metadata.jsonl')
-rows = [json.loads(line) for line in path.read_text().splitlines()]
-assert rows, 'No speech segments or no-speech audit rows were written'
-for row in rows:
-    if not row.get('vad_empty'):
-        clip = Path(row['audio_filepath'])
-        assert clip.is_file() and clip.stat().st_size > 0, clip
-        assert row['start_ms'] < row['end_ms']
-        assert row['duration'] > 0
-    assert 'waveform' not in row and '_sed_framewise' not in row
-    print(json.dumps(row, ensure_ascii=False, indent=2))
-print(f'{len(rows)} output rows')
+for executor in ('xenna', 'ray_data'):
+    path = Path('/work/outputs') / executor / 'metadata.jsonl'
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert rows, f'{executor}: no speech segments or no-speech audit rows were written'
+    for row in rows:
+        if not row.get('vad_empty'):
+            clip = Path(row['audio_filepath'])
+            assert clip.is_file() and clip.stat().st_size > 0, clip
+            assert row['start_ms'] < row['end_ms']
+            assert row['duration'] > 0
+        assert 'waveform' not in row and '_sed_framewise' not in row
+        print(json.dumps(row, ensure_ascii=False, indent=2))
+    print(f'{executor}: {len(rows)} output rows')
 PY
 ```
 
