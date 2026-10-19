@@ -13,7 +13,7 @@ resource:
   throughput_hint: "CPU; metadata merge + timestamp adjustment"
 use_cases:
   good_for: ["recombining chunk-level transcripts/alignments after SplitLongAudioStage + an aligner"]
-  avoid_for: ["audio that was never split"]
+  avoid_for: ["rows without the expected split metadata"]
 composition:
   typical_upstream: [NeMoASRAlignerStage]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage]
@@ -26,6 +26,7 @@ param_dependencies:
   split_filepaths_key: "requires SplitLongAudioStage upstream"
   alignment_key: "requires an aligner (e.g. NeMoASRAlignerStage) upstream"
 notes:
+  - "Keep the join for short recordings too: SplitLongAudioStage wraps an unsplit file in a one-element split structure, and its text/alignment still need promotion to top-level output."
   - "Adjusts timestamps and concatenates transcripts to recreate the original audio's metadata. Used inside SplitASRAlignJoinStage."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}

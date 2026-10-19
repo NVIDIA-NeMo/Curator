@@ -27,7 +27,7 @@ comparison:
   ManifestReader: "reads an existing JSONL manifest instead of discovering files, so it is the source when the corpus already has one -- no scan, no download, and it carries whatever keys the manifest already holds."
 params_of_note:
   raw_data_dir: "directory the archive is downloaded into and extracted under; also the directory scanned for already-extracted WAVs"
-  max_samples: "cap the number of emitted samples (default 5000, NOT all): truncates the sorted recursive listing"
+  max_samples: "cap the number of emitted samples (default 5000, NOT all): truncates the sorted recursive listing under the selected audio root"
   auto_download: "download+extract automatically (default True). It is skipped when a recursive walk of raw_data_dir finds any *.wav, so a directory of unrelated WAVs is accepted as an already-extracted copy of the dataset."
 param_dependencies:
   auto_download: "with the default True and no *.wav anywhere under raw_data_dir, this stage FETCHES the ~4.88 GB DNS archive into raw_data_dir. Pointing it at a folder of non-WAV audio (mp3/flac/...) therefore starts a large download into the user's own directory rather than reading what is there."
@@ -53,8 +53,9 @@ caveats:
   - "Downloads a single ~4.88 GB archive on first run (14,279 WAV files @ 48 kHz, ~19.3 h)."
   - "SILENT ON A MISMATCHED CORPUS. Pointed at a folder that is not this dataset it neither raises nor warns: it walks for `.wav` case-sensitively (so .WAV/.flac/.mp3/.ogg/.opus/.m4a are dropped with no message), emits the survivors labelled dataset_name='DNS-ReadSpeech' with a constant sample_rate/empty text, leaves book_id/reader_id blank because the filenames carry no book/chp/reader tokens, and truncates at max_samples. The result is a partial manifest that reads as success. When no .wav is found at all it logs an error and returns an EMPTY task list rather than raising, which surfaces later as an unexplained empty result."
 notes:
+  - "For prestaged input, root discovery selects raw_data_dir if it contains WAVs directly, then checks known DNS subdirectories, then the first descendant containing WAVs. Collection recurses under that selected root, so sibling directories outside it are not included."
   - "Source: Microsoft DNS-Challenge (https://github.com/microsoft/DNS-Challenge). Emits EmptyTask -> AudioTask."
   - "Choosing a source is not a free choice: it seeds the content-addressed reuse chain, so the same corpus ingested through a different source stage produces a different step-key chain and reuses nothing from the earlier run. Decide the source from the corpus's provenance, and decide it the same way every session."
   - "Filename parsing looks for `book`/`chp`/`reader` tokens in an underscore-split basename of at least 6 parts; anything else yields empty book_id/reader_id. It emits no audio_item_id."
 verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, resource: best_guess, domain: best_guess, use_cases: best_guess}
-provenance: {model_card_url: "https://github.com/microsoft/DNS-Challenge", card_version: 2, last_validated: "2026-08-17"}
+provenance: {model_card_url: "https://github.com/microsoft/DNS-Challenge", card_version: 3, last_validated: "2026-10-19"}

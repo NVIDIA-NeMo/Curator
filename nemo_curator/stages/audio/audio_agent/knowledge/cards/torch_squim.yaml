@@ -24,20 +24,18 @@ params_of_note:
   waveform_key: "in-memory waveform tensor key (default 'waveform'); consumed when input_residency is 'waveform'/'auto'."
   sample_rate_key: "sample-rate key for the in-memory waveform (default 'sample_rate')."
   target_sr: "sample rate fed to SQUIM (default 16000). Input of ANY rate is loaded at native rate and resampled to target_sr internally -- no upstream ResampleAudioStage needed. Keep 16000 (SQUIM_OBJECTIVE only supports 16 kHz)."
-  compute_batch_size: "waveforms per GPU inference call (default 32)"
+  compute_batch_size: "waveforms per inference call (default 32); padding depends on the longest member, so changing batch composition can change scores"
   segments_key: "per-segment scoring key (default segments); segments with speaker=='no-speaker' or empty text are skipped"
 param_dependencies:
-  input_residency: "'waveform'/'auto' require waveform_key+sample_rate_key on the task (e.g. from SpeakerSeparationStage or SegmentConcatenationStage with keep_waveform_in_task=True); 'file' requires audio_filepath_key."
+  input_residency: "'waveform' requires a complete waveform/rate pair; 'file' requires audio_filepath_key; 'auto' accepts a complete resident pair or file fallback, rejecting a partial resident pair."
 metrics:
   pesq_squim:                                   # written nested under metrics_key (default 'metrics')
-    scale: {min: 1.0, max: 4.5, direction: higher_better}
-    valid_range: [1.0, 4.64]                    # WB-PESQ estimate (external)
+    scale: {min: 1.0, max: 4.64, direction: higher_better}   # approximate wide-band PESQ model scale
   stoi_squim:
     scale: {min: 0.0, max: 1.0, direction: higher_better}
     valid_range: [0.0, 1.0]                     # intelligibility (external ~0.25-1.0)
   sisdr_squim:
-    scale: {min: -20.0, max: 40.0, direction: higher_better}
-    valid_range: [-18.0, 35.0]                  # dB (external)
+    scale: {direction: higher_better}          # dB; no fixed output bound is enforced
 comparison:
   language_support: "language-agnostic (objective signal quality; speech only)"
   accuracy_hint: "objective PESQ/STOI/SI-SDR ESTIMATES (a different family than the MOS predictors UTMOS/SIGMOS)"
@@ -46,9 +44,10 @@ comparison:
   choose_when: "you want objective signal-quality proxies (PESQ/STOI/SI-SDR) without a reference. For a perceptual MOS use UTMOS; for 7-dimension P.804 quality use SIGMOS."
   known_limitations: "speech-only; ESTIMATES, not true reference-based measurements; batch-only; annotate-only; scores are nested under metrics_key"
 notes:
-  - "BATCH_ONLY: process() raises; only process_batch runs -- cannot be used in single-task pipelines."
+  - "BATCH_ONLY: use process_batch, including for a one-item batch; process() raises."
+  - "The model receives zero-padded waveforms without a length mask. Scores can depend on batch peers, so the contract disables per-row incremental reuse."
   - "Annotate-only: writes metrics.pesq_squim, metrics.stoi_squim, and metrics.sisdr_squim (all higher = better); it does not drop rows. PreserveByValueStage treats dots literally and cannot traverse this nested mapping, so extract or flatten the selected score before generic scalar filtering."
   - "Downloads squim_objective_dns2020.pth from pytorch.org on first run."
-  - "(external) torchaudio SQUIM_OBJECTIVE (trained on the DNS2020 dataset; arXiv 2304.01448): reference-free WB-PESQ (~1.0-4.64), STOI (~0.25-1.0), SI-SDR (~-18..35 dB); 16 kHz only. Source: https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html"
+  - "PESQ/STOI ranges describe model output scales, not acceptance guarantees. SI-SDR is in dB with no fixed valid range. The stage resamples internally to the model's 16 kHz input rate."
 verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess}
-provenance: {model_card_url: "https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html", card_version: 4, last_validated: "2026-09-22"}
+provenance: {model_card_url: "https://docs.pytorch.org/audio/stable/tutorials/squim_tutorial.html", card_version: 5, last_validated: "2026-10-19"}

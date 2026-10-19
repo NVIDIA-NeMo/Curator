@@ -20,9 +20,10 @@ composition:
 params_of_note:
   input_manifest: "path to the JSONL manifest of long-form audios"
   audio_dir: "directory the audio paths are re-anchored to"
-  audio_path_resolution: "how to resolve paths (e.g. 'basename')"
+  audio_path_resolution: "'basename' (default): audio_dir / basename(path); 'relative': audio_dir / path; 'as_is': retain the manifest path"
   dataset_name: "dataset label attached to each row"
 notes:
-  - "Each row must carry a non-empty 'id' unique within the manifest (downstream snippet ids embed it)."
+  - "Each row needs an audio path and a non-empty unique id (default fields audio_filepath and id). Missing, empty, or duplicate ids are skipped with a warning. Basename mode raises on duplicate audio basenames to prevent routing distinct recordings to one file."
+  - "strict_schema=True requires a segments list and skips rows without it. In the default False mode, segments may be absent; downstream planning still requires a conforming list with timed transcript-bearing segments."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}

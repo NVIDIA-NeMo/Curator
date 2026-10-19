@@ -29,11 +29,11 @@ semantic_facts:
   num_segments:
     meaning: "How many nested speech segments were concatenated into this one combined waveform."
     unit: "segments (integer)"
-    provenance: "Length of the sorted task.data['segments'] list joined in this run (concatenation.py process)."
+    provenance: "Count of accepted segments actually joined; entries missing audio/rate or incompatible with the selected rate/channel shape are skipped."
     scope: "the single combined output for one original file; an aggregate over the segments that were merged, NOT a per-segment value"
     propagation: "Written once on the emitted parent AudioTask; there is no per-segment copy after this stage."
     counterexamples:
-      - "num_segments counts the inputs that were merged (a VAD/data property of the source), not anything downstream; filtering num_segments==1 keeps files whose VAD produced exactly one speech segment -- it is not 'single speaker' or 'one utterance kept'."
+      - "num_segments==1 means one usable segment was joined, not necessarily that VAD detected only one. It does not mean single speaker."
   total_duration_sec:
     meaning: "Duration of the recombined speech-only waveform (segments joined with silence gaps)."
     unit: "seconds (float)"
@@ -41,13 +41,14 @@ semantic_facts:
     scope: "the combined output waveform, NOT the original recording (inter/intra-speech silence was removed)."
     propagation: "Written once on the single combined AudioTask."
     counterexamples:
-      - "This is shorter than the original file's length because silence was dropped; do not treat it as the source recording's duration."
+      - "Inserted gaps can make the result longer than the source. This is output waveform duration, not source duration."
 param_dependencies:
   segments_key: "requires nested segments from VADSegmentationStage(nested=True)"
   write_to_disk: "requires output_dir; sets audio_filepath to the combined WAV."
   keep_waveform_in_task: "at least one of keep_waveform_in_task or write_to_disk must be True."
 notes:
+  - "Rebuilds task.data with num_segments, total_duration_sec, sample_rate, and selected output audio carriers. Other parent data fields, including transcripts, scores, ids, and the nested segments list, are not copied. Dataset/task metadata is preserved, with source-coordinate segment_mappings for later timestamp mapping."
   - "Expects one task per file carrying a task.data['segments'] list; sorts by segment_num and emits one combined AudioTask per surviving parent, dropping parents with no usable segments."
   - "By default emits the combined `waveform` (in-memory). With write_to_disk=True it also writes the WAV to output_dir and sets `audio_filepath`; keep_waveform_in_task=False makes it disk-only."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-07-30"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-10-19"}

@@ -1,12 +1,12 @@
-# Runnable recipe template (Recipe IR). Fill inputs.* before running.
+# FLEURS example (Recipe IR). Replace REQUIRED_* paths in stages[].params.
+# Optional inputs / --data only assert those paths; they never populate stage parameters.
+# For an existing reference-labeled JSONL corpus, substitute ManifestReader as the source.
 # Referenced by knowledge/blueprints/fleurs.yaml.
 recipe_id: fleurs-asr-wer-filter
 name: fleurs_asr_filter
 intent: "download FLEURS, transcribe, drop rows whose WER exceeds a threshold"
+rationale: "Replace REQUIRED_* paths in stages[].params; inputs and --data are optional consistency assertions, not substitutions. This example uses FLEURS en_us/dev and an English checkpoint. For other reference-labeled corpora use the appropriate source, language model and WER policy; reuse existing hypotheses when available."
 preset: english_parakeet
-inputs:
-  raw_data_dir: "REQUIRED: staging dir for the FLEURS download"
-  output_manifest: "REQUIRED: output .jsonl path"
 stages:
   - ref: CreateInitialManifestFleursStage
     params: {lang: "en_us", split: "dev", raw_data_dir: "REQUIRED_raw_data_dir", batch_size: 4}
@@ -22,15 +22,14 @@ stages:
   - ref: GetAudioDurationStage
     params: {}
   - ref: PreserveByValueStage
-    params: {input_value_key: "wer_pct", target_value: 25.0, operator: "le"}
+    params: {input_value_key: "wer_pct", target_value: 25.0, operator: "le", missing_value_policy: "drop"}
   - ref: ManifestWriterStage
     params: {output_path: "REQUIRED_output_manifest"}
 # What "done" means, checked against the written rows. Retune for the job; keep the block.
 acceptance_criteria:
   - id: transcripts_present
     type: output_completeness
-    description: "every kept row carries a transcript -- a WER filter over blank predictions
-      passes trivially, because a blank prediction scores no worse than a wrong one here"
+    description: "every kept row carries a non-empty hypothesis transcript"
     check: {field: pred_text}
     severity: must
   - id: wer_threshold_holds

@@ -13,7 +13,7 @@ resource:
   throughput_hint: "CPU/IO; appends one line per row, single worker"
 use_cases:
   good_for:
-    - "per-speaker transcripts after diarization + ASR (group_by: speaker_id, format: txt)"
+    - "per-speaker transcripts from diarization fan-out followed by ASR (group_by: speaker, text_key: pred_text, format: txt)"
     - "splitting a curated manifest into per-group shards (per language, per source, per label)"
     - "a readable who-spoke-when transcript of a meeting (write_timeline: true)"
   avoid_for:
@@ -32,16 +32,16 @@ params_of_note:
   include_timestamps: "prefix txt lines with [start - end] when both are present (default true)"
   write_timeline: "also write a single time-ordered timeline.txt across all groups (default false)"
 param_dependencies:
-  group_by: "must be a column some upstream stage actually writes -- e.g. speaker_id from a diarizer, or lang from a language-ID stage. If no row has it, everything lands in one 'unknown' file."
+  group_by: "must be a top-level field actually written upstream. Sortformer/PyAnnote fan-out writes speaker; ASRStage defaults to pred_text for text. Nested segment lists are not expanded; if the grouping field is absent, rows go to unknown."
   text_key: "required for format: txt and for write_timeline: true; pair it with an ASR/alignment stage upstream."
   write_timeline: "ordering uses start/end; without those columns rows fall back to arrival order."
 notes:
+  - "For the diarization fan-out -> ASR example, configure ASRStage with waveform_key='waveform' and sample_rate_key='sample_rate'. Passthrough diarization lists need explicit row shaping before this exporter."
   - "Pass-through: rows are returned unchanged, so this is a tee and can be followed by ManifestWriterStage."
   - "Non-serializable values (e.g. a resident waveform tensor) are dropped from the written columns instead of crashing -- unlike ManifestWriterStage, which needs sanitized input."
   - "Group files are truncated on first write in a run, so a re-run replaces its own output rather than appending to the previous one."
   - "Group-derived filenames and timeline labels are sanitized, length-bounded, and disambiguated with a typed stable identity so distinct values do not collapse onto one output name."
   - "Non-serializable selected values are omitted as documented; unexpected naming, formatting, or write failures are fail-fast rather than silently annotated."
-  - "The timeline is persisted at every successful process_batch boundary, including a final partial batch; direct process calls also flush at the configured threshold and teardown."
-  - "Exists so output shaping never needs ad-hoc Python; if you find yourself scripting a regroup, that is a capability gap to report."
+  - "Prepared agent runs journal timeline entries and publish timeline.txt in finalize(). Unprepared execution flushes the timeline after successful batches and at teardown. Do not expect the prepared timeline to be current mid-run."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-10-19"}

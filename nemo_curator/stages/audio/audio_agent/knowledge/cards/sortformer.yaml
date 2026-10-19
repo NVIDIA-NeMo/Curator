@@ -57,7 +57,7 @@ semantic_facts:
     unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds)"
     provenance: "Sortformer neural-diarization output over the whole clip; labels are the model's clustered turn assignments. Unlike PyAnnoteDiarizationStage, this stage does NOT call add_non_speaker_segments / does NOT insert speaker='no-speaker' gap rows."
     scope: "the whole recording in passthrough mode; with fanout=True each turn becomes one task whose waveform is sliced to that turn's start/end bounds"
-    propagation: "Passthrough writes diar_segments (NOT 'segments'). Fan-out removes the parent diar_segments container and full-recording paths, then emits waveform + sample_rate + timing/provenance fields. Configure ASRStage.waveform_key='waveform' for direct transcription."
+    propagation: "Passthrough writes diar_segments (NOT 'segments'). Fan-out removes the parent list and full-recording paths, then emits waveform + sample_rate + timing/provenance fields. For ASRStage set waveform_key='waveform' and sample_rate_key='sample_rate' (adjust both for custom output keys)."
     counterexamples:
       - "Passthrough mode only annotates. Fan-out cuts individual turn waveform slices, but it does NOT build one consolidated track per speaker; use SpeakerSeparationStage for that."
       - "Do NOT expect timeline gap coverage or overlap_segments here -- for those use PyAnnoteDiarizationStage (which also injects no-speaker silence rows into segments)."
@@ -127,4 +127,4 @@ versions:   # verified interchangeable via model_name -- load + run + IDENTICAL 
   "nvidia/diar_sortformer_4spk-v1": "WHEN: batch/offline diarization of short-to-medium clips (non-streaming). Also the checkpoint used by SpeakerSeparationStage. Preset: offline_v1."
   "nvidia/diar_streaming_sortformer_4spk-v2": "WHEN: long or streaming audio / low-latency. Tune chunk_len for latency vs accuracy. Preset: streaming_v2. (The stage's default model_name is the -v2.1 point-release of this same streaming family -- not independently tested here.)"
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: mechanical, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 12, last_validated: "2026-10-16"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 13, last_validated: "2026-10-19"}

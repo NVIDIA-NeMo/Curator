@@ -23,15 +23,16 @@ params_of_note:
   max_duration: "maximum segment duration (s)"
   max_pause: "pause length that forces a split (s)"
   punctuation_split_only: "split only on terminal punctuation"
-  alignment_key: "metadata key holding the word alignment consulted when segments lack overlap_segments (default 'alignment')"
-  overlap_segments_key: "metadata key whose presence marks segments as already word-aligned, skipping re-alignment (default 'overlap_segments')"
+  alignment_key: "task.data key holding word alignment consulted when overlap_segments_key is absent (default alignment)"
+  overlap_segments_key: "task.data key whose presence skips re-alignment, even if its value is empty (default overlap_segments)"
   segments_key: "required list of speaker/text segments to reshape (default segments)"
   duration_key: "required top-level recording duration used when completing the segment timeline (default duration)"
 param_dependencies:
   segments_key: "segments must contain usable text plus words, or be alignable from alignment_key; a diarization list alone is insufficient"
   duration_key: "must describe the same recording represented by segments_key"
 notes:
+  - "Replaces the configured segments list with {speaker, start, end, text, words, metrics} records, using seconds. metrics.bandwidth, pesq_squim, stoi_squim, and sisdr_squim are per-word lists, potentially containing None, not scalar segment scores. They cannot feed scalar threshold comparisons directly."
   - "InferenceSortformerStage alone is not sufficient by default: it writes diar_segments and no word/text alignment, while this stage defaults to segments and requires content from which word-bearing output can be built."
   - "SegmentExtractionStage is not a direct consumer of this output; extraction requires mapped original_start_ms/original_end_ms rows or its diar_segments schema. Add an explicit mapping step when materializing files."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-09-22"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-10-19"}

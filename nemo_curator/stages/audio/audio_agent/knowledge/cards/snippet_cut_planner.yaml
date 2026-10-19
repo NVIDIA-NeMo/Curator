@@ -23,5 +23,7 @@ params_of_note:
   max_segment_gap_in_snippet: "largest gap (s) allowed inside one snippet"
 notes:
   - "Writes the plan under task.data['_snippet_plan'] and drop counts (too_long/too_short/no_text) to task metrics."
+  - "Input segments must be ordered by start, non-overlapping, and carry start/end in seconds plus text or word text. OverlapFilterStage supplies non-overlapping input; the planner does not resolve overlaps itself."
+  - "The plan is a list of {start, end, segments} records in source-recording seconds. It adds the plan to the same parent row, including an empty list when nothing qualifies; it does not emit snippet tasks or read audio."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}

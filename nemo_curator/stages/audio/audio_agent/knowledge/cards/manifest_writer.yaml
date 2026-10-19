@@ -20,7 +20,9 @@ composition:
 params_of_note:
   output_path: "path to the output JSONL manifest"
 notes:
-  - "Truncates the output once in setup() (driver) so reruns start clean; setup_on_node() only makes the parent dir. In multi-node runs all nodes append to the same path."
+  - "Uses one writer worker; do not override num_workers for concurrent appends."
+  - "The agent calls prepare_on_driver before execution and finalizes afterward. Preparation reserves and replaces the output, except for an authenticated successful checkpoint resume. Prepared worker setup verifies ownership without truncating."
+  - "Without driver preparation, each setup() truncates the output, including replacement-worker setup. Ordinary setup does not provide the prepared run's retry protection."
   - "Accepts AudioTask only. If AudioToDocumentStage is used to sanitize resident tensors, finish with DocumentBatchJsonlWriterStage instead."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-07-28"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-10-19"}

@@ -9,14 +9,16 @@ A capability **card** is the agent's factual, code-independent view of one stage
 the host LLM select, configure, and compose a stage **without reading source**. Cards live
 in `knowledge/cards/<name>.yaml`, one per stage, keyed by `stage_id`.
 
-The mechanical facts in a card are enforced against the real stage by the **conformance
-gate** (`card_conformance.py`), so a card can never drift from the code.
+The **conformance gate** (`card_conformance.py`) checks declared mechanical facts such as
+stage references and parameter names. Prose, parameter values and model claims still need
+review against code/contracts and model evidence; a passing gate does not prevent all drift.
 
 ## Golden rule: never fabricate
 
 Fill only what you can verify from the stage's code/contract or an authoritative model card.
-If you don't know a value, **leave it empty (null / omit) with a `# TODO(fill): <why>` comment**
-so a human fills it later. A wrong fact is worse than a missing one — the agent trusts cards.
+If you don't know a value, **leave it empty (null / omit)** and state any decision-relevant
+uncertainty in `notes` or `caveats`. YAML comments are not returned to the agent. A wrong
+fact is worse than a missing one.
 
 ## Honesty tiers (`verified`, required)
 
@@ -41,7 +43,7 @@ verified: {params: mechanical, resource: best_guess, model_version: measured, us
 | `summary` | yes | one line: what it does. |
 | `tags` | rec. | capability flags: `needs_gpu`, `needs_ffmpeg`, `needs_internet_first_run`, `needs_hf_token`, `writes_disk`, `sink`, `sanitizes_output`, `produces_score`, `is_filter`, `fanout`, `batch_only`. |
 | `model_id` | if model | model identifier, else `null`. |
-| `model_version` | if `model_id` | pinned revision/entrypoint so a silent model change is detectable. `TODO(fill)` allowed if unpinned in code. |
+| `model_version` | opt. | informational revision/entrypoint, when known. An entrypoint or release label is not an immutable pin. The gate does not require this field or verify that the runtime loads a pinned revision. |
 | `deterministic` | opt. | `false` when the same inputs can legitimately give different output (unseeded randomness, order-dependent decode). Omitted means reproducible. Execution reuse offers a stored result from such a stage with the caveat shown and *fresh* pre-selected, rather than serving it silently — so declaring it costs a prompt, not the feature. |
 | `domain` | rec. | `{language, style}` — usually `best_guess`. |
 | `constraints` | rec. | only **real** facts: `supported_sample_rates`, `max_speakers`, `batch_size:{fixed,reason}`, `input_duration_sweetspot_sec:{min,max}`. |
@@ -50,7 +52,7 @@ verified: {params: mechanical, resource: best_guess, model_version: measured, us
 | `composition` | rec. | `{typical_upstream: [...], typical_downstream: [...]}` — idiomatic ordering. Every stage id must resolve (gate-checked). Optional `incompatible_upstream: {stage_id: why}` records a pairing that is known to *break*, not merely be unidiomatic — a stage id may not appear in both, and the reason is required, because "don't use X" without "because X writes a list where this reads an int" is a rule the next reader will discount. |
 | `params_of_note` | rec. | `{param: description}` — **keys must be real constructor params** (gate-checked). |
 | `presets` | opt. | `{name: {param: value}}` — **keys must be real params** (gate-checked). |
-| `metrics` | opt. | `{metric: {scale:{min,max,direction}, threshold_param, valid_range:[lo,hi], presets}}` — the deterministic source of score directions/targets (1A.2) that keeps a filter from being inverted. `scale.direction` must be `higher_better`/`lower_better`; `threshold_param` (if set) must be a real param; `valid_range` must be `[lo, hi]` (all gate-checked). Omit `threshold_param` for annotate-only stages that are filtered downstream (e.g. `ComputeWERStage` → `PreserveByValueStage`). |
+| `metrics` | opt. | `{metric: {scale:{min,max,direction}, threshold_param, valid_range:[lo,hi], presets}}` — score directions/targets for configuration. `scale.direction` must be `higher_better`/`lower_better`; `threshold_param` (if set) must be a real param; `valid_range` must be `[lo, hi]` (all gate-checked). Omit `threshold_param` for annotate-only stages filtered downstream. A generic selector needs a compatible scalar key; nested metric outputs may need extraction first. |
 | `decision` | opt. | A mechanically checked declaration that annotation is already separate from a downstream selector. The primary declaration remains task-scoped for compatibility; optional full `variants` may declare an exact one-level `segments` scope. See below. |
 | `semantic_facts` | opt. | Advisory mapping from an externally consumed output/concept to prose facts such as `{meaning, unit, provenance, scope, propagation, counterexamples}`. It helps the host reason across filters, fan-out and aggregation; it is deliberately not a deterministic ontology or runtime gate. |
 | `versions` | opt. | model-backed stages only: `{model_id: "when-to-use"}` for checkpoints verified interchangeable via `model_name`/`model_path` (same output structure, no module code change). Any version-selecting `preset` (one that sets `model_name`/`model_path`) **must list its model id here** (gate-checked). Mark `verified.versions` `measured` when empirically tested. |
@@ -231,16 +233,17 @@ when that is how the claim was established.
 
 ## `resource.gpu_mem_gb` is a reference, not a per-GPU constant
 
-A stage's VRAM tracks the *workload* (model weights + activations for a given precision,
-batch size, and input length), **not** the GPU model — a 5 GB stage needs ~5 GB on any
-card; the GPU's total VRAM only decides whether it *fits*. So `gpu_mem_gb` is a **reference
-estimate**, and each measured value records its conditions in the comment
-(e.g. `# measured on RTX 4090, fp32, batch 4, 6 s clip`). It shifts with **precision**
-(fp16/bf16 ≈ half), **batch size / audio length**, and (minor) framework/arch. The planner
-probes the *actual* machine's VRAM per run and checks each need against it; the **1C.2
-calibration** path (`smoke` → `calibrate` → `run --calibration`) re-measures on the real
-box and **overrides** the card per machine (measured > card), so the card value is a sane
-default, not a hard truth.
+`gpu_mem_gb` is a reference estimate for a workload, not a guarantee on every GPU.
+Memory use depends on model, precision, batch size, input length, framework and hardware;
+changing precision does not promise a fixed reduction. Put measurement conditions in
+agent-visible `notes` or `resource.throughput_hint` (for example: hardware, precision,
+batch size, clip length, and allocated/reserved-memory measurement). Comments alone lose
+that context when YAML is loaded.
+
+The planner compares resource estimates with the execution-target facts it can establish.
+Current calibration may **raise** a card/default estimate when the measured value is
+higher; it does not lower that baseline. A bounded smoke measurement does not prove that
+the full configured workload fits.
 
 ## Gate (what is enforced)
 
@@ -248,7 +251,6 @@ default, not a hard truth.
 - has a `stage_id` that doesn't resolve, or a missing required field;
 - lists a `params_of_note` / `presets` key that isn't a real constructor param;
 - uses an unknown `resource` key / non-numeric numeric / bad `bound`;
-- sets `model_id` without a `model_version`;
 - declares a `versions` block that isn't a `{model_id: string}` map, sets it without a `model_id`, or has a model-selecting `preset` (sets `model_name`/`model_path`) whose model id isn't documented in `versions`;
 - declares a `metrics` block with a bad `scale.direction`, a `threshold_param` that isn't a real param, or a `valid_range` that isn't `[lo, hi]`;
 - declares a `decision` outside the supported producers, uses unknown/missing

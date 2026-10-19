@@ -18,8 +18,10 @@ composition:
   typical_upstream: [SnippetExtractionStage, SnippetManifestWriterStage]
   typical_downstream: []
 params_of_note:
-  output_path: "path for the per-replica metrics shard"
+  output_path: "final summary JSON destination and prefix for generated per-replica JSONL shards"
 notes:
+  - "Rows need a non-empty source id; rows without one are skipped. Input/drop counters come from task._metadata['pretrain_long_form'], populated by upstream pretrain stages; absent counters become zero, not a newly measured result."
+  - "Agent recipes require SnippetExtractionStage and SnippetManifestWriterStage alongside this aggregator so the complete output bundle can be finalized."
   - "Per-task append (not teardown flush) is required under Xenna, which kills stage actors. finalize_audio_pretrain_outputs reads all shards after pipeline.run() and aggregates the summary JSON."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}

@@ -1,50 +1,43 @@
 blueprint_id: readspeech-quality-filter
-# Scoped to the corpus it was derived from, deliberately. Retrieval is bare token overlap over
-# blueprint_id/intent/data_assumptions, so the old wording ("clean speech from a raw WAV folder",
-# "folder of WAV") matched essentially every goal that mentioned a folder or wav -- diarization
-# and duration goals included -- and then handed the planner an `enforced`
-# CreateInitialManifestReadSpeechStage as the source for an arbitrary corpus. Naming the dataset
-# instead keeps the ordering/topology advice retrievable for the goals it fits, without the
-# generic-folder words doing the matching. Note the words left out on purpose: articles and
-# container formats are tokens too, and "wav"/"folder" are what an ordinary corpus is described
-# with. This narrows the pull; it cannot remove it, because `blueprint_id` alone still supplies
-# `quality`/`filter` -- which is why the source slot below says outright that it is substitutable.
-intent: "curate DNS Challenge 5 read-speech recordings by quality; no transcription"
-data_assumptions: {input: "DNS Challenge 5 Read Speech dataset (Track 1 Headset), 48kHz, mono or stereo", transcripts: absent, sr: 48000}
-produces: "JSONL manifest with per-item quality scores + timestamps"
+intent: "quality-filter speech; choose whole-file or segment scope from the requested output"
+data_assumptions: {input: "audio files or an existing JSONL manifest", transcripts: optional, sr: any}
+produces: "JSONL metadata for retained audio items; scores describe the chosen file/segment scope"
 recipe_ref: recipes/readspeech_quality.yaml
 
-# Intent -> flags -> resulting shape. The AudioDataFilterStage composite auto-wires the topology.
-topology_selection:
-  rule: "output granularity decides which flags to enable"
-  options:
-    - {intent: "whole-file scores", flags: [], shape: "Mono -> Filters -> TimestampMapper"}
-    - {intent: "per-speech-segment scores", flags: [vad], shape: "Mono -> VAD(fanout) -> Filters -> TimestampMapper"}
-    - {intent: "per-speaker scores", flags: [speaker_separation], shape: "Mono -> Filters -> SpeakerSep(fanout) -> Filters -> TimestampMapper"}
-    - {intent: "per-speaker-segment", flags: [vad, speaker_separation], shape: "Mono -> VAD(nested) -> Filters -> SegConcat -> SpeakerSep -> VAD -> Filters -> TimestampMapper"}
+source_selection:
+  - "folder without a manifest: CreateInitialManifestAudioFolderStage"
+  - "existing JSONL manifest: ManifestReader; preserve its annotations"
+  - "known dataset: use its dataset-specific source only when provenance matches, e.g. CreateInitialManifestReadSpeechStage for DNS Read Speech"
 
+# AudioDataFilterStage merges these settings with defaults; both booleans must be explicit.
+topology_selection:
+  rule: "choose granularity from intent; every flag below is under AudioDataFilterStage.config"
+  options:
+    - {intent: "whole-file scores", flags: {vad: {enable: false}, speaker_separation: {enable: false}}, shape: "Mono -> Filters -> TimestampMapper"}
+    - {intent: "per-speech-segment scores", flags: {vad: {enable: true}, speaker_separation: {enable: false}}, shape: "Mono -> VAD(fanout) -> Filters -> TimestampMapper"}
+    - {intent: "per-speaker scores", flags: {vad: {enable: false}, speaker_separation: {enable: true}}, shape: "Mono -> Filters -> SpeakerSep(fanout) -> Filters -> TimestampMapper"}
+    - {intent: "per-speaker-segment scores", flags: {vad: {enable: true}, speaker_separation: {enable: true}}, shape: "Mono -> VAD(nested) -> Filters -> SegConcat -> SpeakerSep -> VAD -> Filters -> TimestampMapper"}
+
+# Logical components; the recipe uses AudioDataFilterStage for mono, filters and mapping.
 stages:
-  # `enforced` is the SOURCE SLOT, not this class: a pipeline needs a source, and this is the
-  # one for the corpus this blueprint was derived from. Re-pick it from the ingest cards for
-  # the corpus in hand -- CreateInitialManifestAudioFolderStage for a plain folder of audio,
-  # ManifestReader when a JSONL manifest already exists -- and leave the rest of the topology
-  # alone. Substituting the source is an adaptation of this blueprint, not a departure from it.
-  - {ref: CreateInitialManifestReadSpeechStage, tag: enforced, why_here: "source: downloads/extracts DNS Challenge 5 Read Speech and produces audio_filepath. Corpus-specific -- swap it for the source that matches your corpus"}
-  - {ref: MonoConversionStage, tag: advisory, why_here: "normalize to mono + one SR once, upfront (downstream models assume mono)"}
-  - {ref: VADSegmentationStage, tag: advisory, why_here: "segment speech so scores are per-segment; this is a granularity choice, not a data dependency"}
-  - {ref: BandFilterStage, tag: advisory, why_here: "cheapest filter (CPU) first; cull low-fidelity before GPU work"}
-  - {ref: UTMOSFilterStage, tag: advisory, why_here: "MOS gate"}
-  - {ref: SIGMOSFilterStage, tag: advisory, why_here: "7-dim gate; MOST aggressive -- last = cheap->expensive, first = max early cull (validator does not constrain this order)"}
-  - {ref: ManifestWriterStage, tag: enforced, why_here: "sink; TimestampMapper upstream already stripped non-serializable keys"}
+  - {ref: CreateInitialManifestAudioFolderStage, tag: advisory, why_here: "folder-source example; substitute ManifestReader for existing manifests"}
+  - {ref: MonoConversionStage, tag: advisory, why_here: "downmix for the quality chain; strict_sample_rate=False disables rate-based rejection"}
+  - {ref: VADSegmentationStage, tag: advisory, why_here: "optional segmentation when scores should describe speech segments"}
+  - {ref: BandFilterStage, tag: advisory, why_here: "optional bandwidth gate only when required by the quality policy"}
+  - {ref: UTMOSFilterStage, tag: advisory, why_here: "overall perceptual speech-quality proxy"}
+  - {ref: SIGMOSFilterStage, tag: advisory, why_here: "dimension-specific speech-quality proxies; enable only the gates the request needs"}
+  - {ref: AudioToDocumentStage, tag: enforced, why_here: "strict_json=True establishes a serializable DocumentBatch boundary"}
+  - {ref: DocumentBatchJsonlWriterStage, tag: enforced, why_here: "write the DocumentBatch as JSONL"}
 
 pitfalls:
-  - "carrying this blueprint's SOURCE over to a corpus that is not DNS Read Speech is silent, not loud: CreateInitialManifestReadSpeechStage walks `.wav` case-sensitively (dropping .WAV/.flac/.mp3/...), caps at max_samples=5000, stamps every row sample_rate=48000 with an empty text, and labels the corpus DNS-ReadSpeech -- a partial manifest that reads as success. With auto_download left True and no .wav present it instead fetches the ~4.88 GB archive into the user's directory. Substitute the source; keep the ordering."
-  - "no transcripts here -> cannot add ASR/WER; use the fleurs blueprint for that"
-  - "all filters at default ~= 23% pass rate; SIGMOS dominates the drop"
-  - "don't skip resample/mono on 48k stereo data"
-  - "the `stages` list above is the DECOMPOSED/logical view; the runnable recipe (recipes/readspeech_quality.yaml) wires them via the AudioDataFilterStage composite, which also runs TimestampMapperStage to strip non-serializable keys before the sink -- so expect 3 top-level recipe stages (CreateInitialManifestReadSpeech -> AudioDataFilterStage -> ManifestWriter), not one-per-filter"
+  - "The template scores whole files and retains original-file references; it does not export new audio clips. Segmentation and separation change scope; separation also transforms audio."
+  - "MonoConversionStage does not resample. The template disables its strict rate gate and BandFilter; UTMOS and SIGMOS resample internally. Add explicit conversion only for consumers that need it, and wire them to the converted carrier."
+  - "ASR needs audio, not reference transcripts. WER needs both reference and hypothesis text; existing conforming text can be reused."
+  - "Thresholds and retention are workload-dependent policy choices, not quality guarantees. Use representative score/output evidence; do not predict yield from another dataset."
+  - "These quality predictors target speech, not arbitrary music or non-speech audio. Check each model's limits before applying the template."
+  - "AudioDataFilterStage's TimestampMapper removes known audio carriers but does not declare general JSON safety. The template adds AudioToDocumentStage(strict_json=True) before the DocumentBatch writer."
 presets:
   tts_reference: {mos_threshold: 4.0}
   asr_finetune: {mos_threshold: 3.4}
-  max_retention: {mos_threshold: 2.5}
-provenance: {derived_from: "tutorials/audio/readspeech", version: 2, validated: true}
+  max_retention: {mos_threshold: 3.0}
+provenance: {derived_from: "tutorials/audio/readspeech; generalized against current stage contracts", version: 3}

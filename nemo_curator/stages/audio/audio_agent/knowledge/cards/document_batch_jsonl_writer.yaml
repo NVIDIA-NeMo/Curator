@@ -21,6 +21,7 @@ params_of_note:
   output_path: "path to the output JSONL manifest"
 notes:
   - "Accepts DocumentBatch only and emits one JSONL line per DataFrame row."
-  - "Truncates once in setup() and appends subsequent batches within the run; local and fsspec cloud paths are supported."
+  - "Ordinary Pipeline.run() appends to existing output, including across reruns. Explicit prepare_on_driver reserves and replaces output before workers start; callers must finalize or abort that reservation. The agent coordinates this lifecycle."
+  - "Requires one writer worker because appends are not locked. Executor checkpoint resume is unsupported (is_resumable=False). Local and fsspec cloud paths are supported."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-28"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}

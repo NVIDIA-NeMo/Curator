@@ -18,7 +18,10 @@ composition:
   typical_upstream: [ALMDataBuilderStage]
   typical_downstream: [ManifestWriterStage]
 params_of_note:
-  overlap_percentage: "overlap (%) above which a window is dropped (default 0)"
+  overlap_percentage: "for intersecting windows, drop one when overlap / smaller-window duration >= this percentage (default 0)"
   target_duration: "target window duration used to pick the best of an overlapping set (default 120)"
+notes:
+  - "Retains the parent row and its original windows. Kept windows are written separately under filtered_windows_key (default filtered_windows); consume that field for filtered output."
+  - "Each window contains a segments list with start/end in seconds. The filtered field holds selected (end, start) spans; filtered_windows holds the corresponding full windows."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 2, last_validated: "2026-09-22"}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-10-19"}

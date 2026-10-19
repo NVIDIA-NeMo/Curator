@@ -1,20 +1,23 @@
 blueprint_id: alm-windowing
 intent: "build audio-language-model training windows from a diarized manifest and filter overlaps"
-data_assumptions: {input: "JSONL manifest with segments (speaker/start/end/text)", transcripts: present, sr: ">=16000"}
-produces: "JSONL manifest of bounded, overlap-filtered training windows"
+data_assumptions: {input: "JSONL rows with audio_filepath, audio_sample_rate (Hz), and time-ordered segments containing speaker/start/end; transcript text is copied when present", transcripts: optional, sr: ">= min_sample_rate for usable windows"}
+produces: "one JSONL row per input row; windows holds builder output and filtered_windows holds the overlap-selected subset, possibly empty"
 recipe_ref: recipes/alm_windowing.yaml
 
 stages:
   - {ref: ManifestReader, tag: enforced, why_here: "source: streams the JSONL manifest into AudioTasks"}
-  - {ref: ALMDataBuilderStage, tag: advisory, why_here: "filters segments by bandwidth/SR/speaker-count and builds sliding windows; drops words/segments to shrink rows"}
-  - {ref: ALMDataOverlapStage, tag: advisory, why_here: "removes windows overlapping beyond a threshold; run after windows exist"}
+  - {ref: ALMDataBuilderStage, tag: advisory, why_here: "builds sliding windows under rate/bandwidth/speaker/duration gates; configured drop fields remove input words/segments"}
+  - {ref: ALMDataOverlapStage, tag: advisory, why_here: "selects windows by overlap into filtered_windows; preserves the original windows list"}
   - {ref: ManifestWriterStage, tag: enforced, why_here: "sink"}
 
 pitfalls:
-  - "input must already carry per-segment metadata (speaker/start/end); this blueprint does not diarize"
+  - "input must already carry per-segment metadata (speaker/start/end) and the top-level audio_sample_rate field; configure audio_sample_rate_key if a different existing key carries the correct rate"
   - "if that metadata is already present and conforms, preserve it -- diarization/transcription are conditional
     preparation steps for raw or incomplete inputs, not mandatory parts of ALM windowing"
   - "normalize producer-specific sentinels before windowing (for example, remove speaker='no-speaker' gap rows);
     compatibility is determined by the final segment schema, not by the diarizer's identity"
-  - "CPU-only and fixture-fast -- a good local smoke test"
-provenance: {derived_from: "tutorials/audio/alm", version: 2, validated: true}
+  - "each window needs at least two segments plus the configured duration and speaker-count conditions; lowering min_speakers alone cannot admit single-turn clips"
+  - "the template's min_bandwidth=0 disables the bandwidth floor for unmeasured segments; enable a floor only with compatible numeric per-segment bandwidth measurements"
+  - "these stages do not generate transcripts; require text in the input when the deliverable needs it"
+  - "window construction and overlap selection are CPU operations over metadata; cost and yield depend on the segment lists"
+provenance: {derived_from: "tutorials/audio/alm", version: 3}

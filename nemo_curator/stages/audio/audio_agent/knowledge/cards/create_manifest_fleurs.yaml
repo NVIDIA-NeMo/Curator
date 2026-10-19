@@ -1,6 +1,6 @@
 stage_id: CreateInitialManifestFleursStage
 category: ingest
-summary: "Download the FLEURS dataset and emit one AudioTask per transcript line."
+summary: "Read or download FLEURS and emit one AudioTask per valid transcript TSV row."
 tags: [needs_internet_first_run, writes_disk]
 model_id: null
 domain: {language: "multilingual (FLEURS; pick via lang, e.g. hy_am)", style: read}
@@ -21,11 +21,13 @@ params_of_note:
   lang: "FLEURS language code (e.g. 'hy_am' for Armenian)"
   split: "'test', 'train', or 'dev'"
   raw_data_dir: "parent folder for the downloaded/extracted files"
-  auto_download: "download+extract automatically (default True)"
+  auto_download: "download+extract when the expected staged layout is absent (default True); False requires prestaged files"
   cache_dir: "cache location for the download"
 caveats:
   - "Downloads and extracts the dataset on first run (needs network + disk)."
 notes:
   - "Source: https://huggingface.co/datasets/google/fleurs. Emits EmptyTask -> AudioTask (a source stage)."
+  - "Offline layout: <raw_data_dir>/<lang>/<split>.tsv plus <raw_data_dir>/<lang>/<split>/ containing the audio. Missing transcript or audio directory raises FileNotFoundError when auto_download=False."
+  - "TSV rows need at least three columns: column 2 names the audio file and column 3 supplies text. Malformed shorter rows are skipped. Default output fields are audio_filepath and text; no duration or sample rate is measured."
 verified: {params: mechanical, tags: best_guess, resource: best_guess, domain: best_guess, use_cases: best_guess}
-provenance: {model_card_url: "https://huggingface.co/datasets/google/fleurs", card_version: 1, last_validated: "2026-07-20"}
+provenance: {model_card_url: "https://huggingface.co/datasets/google/fleurs", card_version: 2, last_validated: "2026-10-19"}

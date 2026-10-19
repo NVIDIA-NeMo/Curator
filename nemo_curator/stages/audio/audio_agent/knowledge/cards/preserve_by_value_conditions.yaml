@@ -4,8 +4,7 @@ summary: "Keep top-level rows or direct children using arbitrary-length flat sca
 tags: [is_filter, batch_only]
 model_id: null
 domain: {language: any, style: any}
-constraints:
-  batch_size: {fixed: null, reason: "batch-only stage; process() raises, use process_batch"}
+constraints: {}
 resource:
   cpus: 1.0
   gpu_mem_gb: 0.0
@@ -44,4 +43,4 @@ notes:
   - "GetAudioDurationStage and GetPairwiseWerStage produce single flat scalars and therefore belong primarily with PreserveByValueStage; use this stage only when combining them with other conditions."
   - "Generic OR filtering is supported, but SIGMOS/UTMOS card-declared exact native-filter reuse requires condition_logic='and'."
 verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-19"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-10-19"}

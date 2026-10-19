@@ -23,8 +23,7 @@ use_cases:
     - "non-ALM curation"
     - "short single-speaker clips -- a window needs >=2 segments AND a span inside the duration gate, so a clip
        shorter than the window (or one the diarizer returns as a single turn) yields nothing however low you set
-       min_speakers. Shrinking target_window_duration to fit such clips fragments the long recordings instead and
-       pads windows with empty segments; transcribe those files to a plain manifest rather than windowing them."
+       min_speakers. Lowering the target does not remove the separate >=2-segments requirement."
     - "segment lists that still interleave silence placeholders with speaker='no-speaker': window growth aborts
        when the next segment would introduce no-speaker, so gap-heavy audio can yield windows=[] / lost_no_spkr.
        Normalize the segment list first; the original diarizer does not matter once the manifest conforms."
@@ -49,9 +48,9 @@ params_of_note:
   drop_fields_top_level: "comma-separated top-level keys removed from the output entry (default 'words,segments').
     Add 'waveform' when an upstream stage kept one in the task, or it reaches the sink and fails to serialize"
 param_dependencies:
-  audio_sample_rate_key: "nothing in a raw-audio pipeline writes `audio_sample_rate`. ResampleAudioStage /
-    MonoConversionStage only emit `sample_rate`, and only with keep_waveform_in_task=true -- so point this at
-    `sample_rate` and add `waveform` to drop_fields_top_level, or the stage refuses to start on a missing key."
+  audio_sample_rate_key: "must name an existing rate field (default audio_sample_rate). SampleRateFilterStage can
+    measure a file header with sample_rate_key='audio_sample_rate', without retaining a waveform. If consuming
+    retained converted audio, point this at its sample_rate field and drop waveform before a JSON sink."
 semantic_facts:
   segments:
     meaning: "INPUT vocabulary: a time-ordered list of turns this stage windows. Each entry needs start/end and a
@@ -74,8 +73,7 @@ semantic_facts:
     scope: "per source recording / manifest row"
     propagation: "Written under windows_key; ALMDataOverlapStage typically reads these next."
     counterexamples:
-      - "A non-empty windows list can still be low value if segments are empty-text padding; inspect segment text
-         before treating window count as yield."
+      - "A non-empty windows list does not guarantee transcripts: text is copied from input segments, not generated."
   stats:
     meaning: "Per-entry loss accounting for the builder (lost_bw, lost_sr, lost_spk, lost_win, lost_no_spkr, ...)."
     unit: "dict of counts/durations; lost_no_spkr counts window attempts aborted when the blocking next segment
@@ -93,11 +91,9 @@ notes:
      training usually expects transcript-bearing segments. Treat transcript presence as a deliverable criterion,
      not as a reason to rerun diarization."
   - "Mutates each entry in-place, adding 'windows', 'stats', and 'truncation_events'."
-  - "A window that clears every gate can still be low value: with min_speakers=1 and a short target the builder
-     emits single-speaker windows whose second segment is empty and zero-length, which satisfies the >=2 rule
-     without adding content. Check the output for empty-text segments before treating a window count as yield."
+  - "Window segments are selected or truncated from the input; the builder does not synthesize empty padding segments. Only speaker_durations is padded to five entries."
   - "Window duration is last_end - first_start over KEPT segments; silence between speech turns does not need
      placeholder rows. If an upstream format uses speaker='no-speaker' gap rows, normalize those rows before
      windowing. This is a data-shape requirement, not a blanket incompatibility with that upstream producer."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, constraints: mechanical, semantic_facts: mechanical}
-provenance: {model_card_url: null, card_version: 3, last_validated: "2026-08-10"}
+provenance: {model_card_url: null, card_version: 4, last_validated: "2026-10-19"}

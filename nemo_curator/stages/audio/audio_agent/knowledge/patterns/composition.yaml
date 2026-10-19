@@ -9,40 +9,40 @@
 patterns:
   - id: mono-first
     kind: advisory
-    when: "input may be stereo/multi-channel"
-    then: "make the channel count consistent first, so downstream models get consistent mono input: ChannelCountStage(action='convert', target_channels=1) when the rate should be left alone, or MonoConversionStage when a single-rate gate is wanted with it. Use action='filter' instead only when the intent is to KEEP the already-mono rows rather than convert the others"
+    when: "a consumer requires mono and its selected input may have multiple channels"
+    then: "if conversion is needed, use ChannelCountStage(action='convert', target_channels=1) for its supported channel layouts, or MonoConversionStage(strict_sample_rate=False) for a mono downmix without a rate gate. Enable a strict rate gate or use channel filtering only when discarding mismatches is intended"
 
   - id: resample-before-16k-models
     kind: advisory
     when: "a model stage's card lists supported_sample_rates=[16000] and the data has other rates"
-    then: "insert ResampleAudioStage (or MonoConversionStage output_sample_rate=16000) upstream; doing it once avoids each model re-resampling"
+    then: "if the stage does not resample internally, use ResampleAudioStage and route the consumer to its converted path or retained waveform/rate pair. MonoConversionStage verifies a rate and drops mismatches by default; it does not resample"
 
   - id: sanitize-before-json-sink
     kind: enforced
-    when: "a tensor/audio-producing stage precedes a JSON/JSONL writer"
-    then: "insert AudioToDocumentStage followed by DocumentBatchJsonlWriterStage (the converter strips tensors and the sink accepts its DocumentBatch carrier); ManifestWriterStage remains AudioTask-only"
+    when: "non-JSON values can reach a JSON/JSONL writer"
+    then: "establish a serializable boundary with the correct task carrier. AudioToDocumentStage(strict_json=True) -> DocumentBatchJsonlWriterStage is one option; TimestampMapperStage(sanitize_output=True) -> ManifestWriterStage is another when timestamp mapping is needed. ManifestWriterStage accepts AudioTask only. A mapper/converter with its default settings is not a general JSON boundary; validate the configured chain"
 
   - id: filter-after-metric
     kind: advisory
     when: "filtering on a metric field (e.g. wer, duration, mos)"
-    then: "place the filter AFTER the stage that produces the metric; filtering early (before convert/write) saves cost"
+    then: "use an existing compatible metric field or compute it before filtering. Confirm its meaning, units and scope at that point; selecting earlier saves downstream cost only when it preserves the requested semantics"
 
   - id: cheap-filters-first
     kind: advisory
     when: "multiple independent quality filters are used"
-    then: "order cheap CPU filters (BandFilter) before expensive GPU filters (UTMOS/SIGMOS). Note: SIGMOS is empirically the most aggressive -- put it first only if you want maximum early cull"
+    then: "prefer low-cost filters before expensive model work when they act on the same items and reordering preserves meaning. Use observed cost and retention to choose the order; no filter is universally the most selective. Do not add a filter solely to reduce cost"
 
   - id: wer-needs-reference
     kind: enforced
     when: "WER/CER filtering is requested"
-    then: "requires reference transcripts in the source manifest AND ASR pred_text upstream; if transcripts are absent, WER is unproducible (find_producers('reference_text') is empty)"
+    then: "provide reference and hypothesis text under the metric's configured keys. Run ASR only when hypotheses are missing; existing predictions need no additional ASR. Reference text is required for WER/CER, but not for transcription itself"
 
   - id: vad-changes-granularity
     kind: advisory
     when: "the user wants per-segment (not whole-file) scores"
-    then: "enable VAD to fan out one row per speech segment; omit VAD for whole-file scores"
+    then: "reuse conforming segments when present; otherwise add segmentation only when needed. Match fan-out rows or nested segments to the consumer's configured scope. For whole-file scoring, select task scope rather than assuming a per-segment score describes the original file"
 
   - id: diarization-needs-continuous-audio
     kind: enforced
     when: "speaker separation follows VAD segmentation"
-    then: "re-join segments (SegmentConcatenationStage) before diarization; diarization needs a continuous waveform"
+    then: "for VADSegmentationStage -> SegmentConcatenationStage -> SpeakerSeparationStage, configure VAD with nested=True and retain segment waveforms. Default fan-out VAD rows lack the segment list this concatenator requires. Concatenation creates a new timeline; omit segmentation/rejoining when diarization should use the original continuous audio"

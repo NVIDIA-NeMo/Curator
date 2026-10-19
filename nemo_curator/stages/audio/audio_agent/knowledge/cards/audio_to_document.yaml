@@ -4,8 +4,7 @@ summary: "Aggregate AudioTasks into a DocumentBatch DataFrame, stripping tensors
 tags: [sink, batch_only]
 model_id: null
 domain: {language: any, style: any}
-constraints:
-  batch_size: {fixed: null, reason: "batch-only stage; process() raises, use process_batch"}
+constraints: {}
 resource:
   cpus: 1.0
   gpu_mem_gb: 0.0
@@ -27,4 +26,4 @@ notes:
   - "The default always strips known audio/tensor carriers, but it preserves legacy values such as datetime, Decimal, pathlib paths, tuples, and custom scalars. It is therefore not a general JSON boundary."
   - "Before DocumentBatchJsonlWriterStage, use strict_json=True when arbitrary custom values may be present; otherwise ensure the retained schema is already serializable."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}
+provenance: {model_card_url: null, card_version: 5, last_validated: "2026-10-19"}

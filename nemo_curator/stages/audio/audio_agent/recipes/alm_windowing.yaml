@@ -1,11 +1,11 @@
-# Runnable recipe template (Recipe IR). Fill inputs.* before running.
+# Recipe template (Recipe IR). Replace REQUIRED_* paths in stages[].params.
+# Optional inputs / --data only assert those paths; they never populate stage parameters.
+# Input rows need audio_filepath, audio_sample_rate (Hz), and ordered speaker/start/end segments.
 # Referenced by knowledge/blueprints/alm.yaml.
 recipe_id: alm-windowing
 name: alm_windowing
 intent: "build audio-language-model training windows from a diarized manifest, then filter overlaps"
-inputs:
-  manifest_path: "REQUIRED: input JSONL manifest with segments"
-  output_manifest: "REQUIRED: output .jsonl path"
+rationale: "Replace REQUIRED_* paths in stages[].params; inputs and --data are optional consistency assertions, not substitutions. Rows need audio_filepath, audio_sample_rate in Hz, and ordered segments with speaker/start/end; text is copied when present. Adapt window settings to the request. Consume filtered_windows for overlap-selected output; windows remains the original builder output."
 stages:
   - ref: ManifestReader
     params: {manifest_path: "REQUIRED_manifest_path", files_per_partition: 1}
@@ -14,11 +14,7 @@ stages:
       target_window_duration: 120.0
       tolerance: 0.1
       min_sample_rate: 16000
-      # 0, not the stage default of 8000. Segments arriving from a diarized manifest carry no
-      # ``metrics`` key, so ``_get_bandwidth`` returns 0 for every one of them and an 8000 Hz
-      # floor rejects the entire corpus. The recipe would run clean, write nothing usable, and
-      # only the acceptance criteria below would notice. Raise this only when an upstream stage
-      # actually measured per-segment bandwidth.
+      # Missing per-segment bandwidth is treated as zero; use a floor only with measurements.
       min_bandwidth: 0
       min_speakers: 2
       max_speakers: 5
@@ -29,11 +25,8 @@ stages:
     params: {overlap_percentage: 50, target_duration: 120.0}
   - ref: ManifestWriterStage
     params: {output_path: "REQUIRED_output_manifest"}
-# What "done" means, checked against the written rows rather than against the fact that every
-# stage exited zero. Present in the template on purpose: a shipped recipe with no success
-# contract teaches the next author to omit one, and then a run that writes rows nothing can use
-# still reports complete. Retune the thresholds for the job; deleting the block is the one edit
-# that removes the only check on whether the output is worth having.
+# Check filtered_windows, not the original windows retained by ALMDataOverlapStage.
+# Adapt window settings and acceptance to the requested deliverable.
 acceptance_criteria:
   - id: every_row_yields_a_window
     type: output_completeness
