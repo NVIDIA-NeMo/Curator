@@ -247,6 +247,150 @@ def test_local_model_bytes_invalidate_prefix_and_suffix(tmp_path: Path, kind: st
     assert all(a.step_key != b.step_key for a, b in zip(before, after, strict=True))
 
 
+@pytest.fixture
+def data_filter_recipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Recipe, Path]:
+    from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter import config
+
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(tmp_path))
+    defaults = tmp_path / "defaults.yaml"
+    defaults.write_bytes(config._DEFAULT_CONFIG_PATH.read_bytes())
+    monkeypatch.setattr(config, "_DEFAULT_CONFIG_PATH", defaults)
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
+                {"ref": "AudioDataFilterStage", "params": {}},
+                {"ref": "ManifestCheckpointStage", "params": {"output_path": str(tmp_path / "result.jsonl")}},
+            ]
+        }
+    ).freeze()
+    return recipe, defaults
+
+
+@pytest.mark.parametrize("override", ["none", "config", "config_path"])
+def test_changed_data_filter_defaults_invalidate_checkpoint_reuse(
+    data_filter_recipe: tuple[Recipe, Path], override: str
+) -> None:
+    import yaml
+
+    from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter import AudioDataFilterStage
+
+    recipe, defaults = data_filter_recipe
+    if override == "config":
+        recipe.stages[1].params["config"] = {"sigmos": {"enable": False}}
+    elif override == "config_path":
+        user_config = defaults.parent / "overrides.yaml"
+        user_config.write_text("sigmos:\n  enable: false\n")
+        recipe.stages[1].params["config_path"] = str(user_config)
+    recipe.freeze()
+    before = artifacts.plan_steps(recipe, "stat:fixture")
+    assert [p.step_key for p in before] == artifacts.step_keys(recipe, "stat:fixture")
+    checkpoint = before[-1]
+    Path(checkpoint.uri).write_text('{"audio_filepath": "fixture.wav", "utmos_mos": 3.6}\n')
+    artifacts.publish(
+        artifacts.Artifact(
+            step_key=checkpoint.step_key,
+            input_key=checkpoint.input_key,
+            stage_ref=checkpoint.stage_ref,
+            stage_index=checkpoint.index,
+            semantic_params=checkpoint.semantic_params,
+            uri=checkpoint.uri,
+            kind=checkpoint.kind,
+            dataset_key="stat:fixture",
+            fingerprint_tier="stat",
+            impl_version=checkpoint.impl_version,
+            model_version=checkpoint.model_version,
+            deterministic=checkpoint.deterministic,
+        )
+    )
+    assert reuse.scan(recipe, dataset_key="stat:fixture")["decision"] == "already_done"
+
+    config = yaml.safe_load(defaults.read_text())
+    config["utmos"]["mos_threshold"] = 3.8
+    defaults.write_text(yaml.safe_dump(config))
+    configured = AudioDataFilterStage(**recipe.stages[1].params)
+    assert configured._cfg["utmos"]["mos_threshold"] == 3.8
+    after = artifacts.plan_steps(recipe, "stat:fixture")
+
+    assert before[0].step_key == after[0].step_key
+    assert before[1].model_version != after[1].model_version
+    assert all(a.step_key != b.step_key for a, b in zip(before[1:], after[1:], strict=True))
+    assert reuse.scan(recipe, dataset_key="stat:fixture")["decision"] == "fresh"
+
+
+@pytest.mark.parametrize("unavailable", ["missing", "unreadable"])
+def test_unavailable_filter_defaults_cannot_match_reuse_identity(
+    data_filter_recipe: tuple[Recipe, Path], monkeypatch: pytest.MonkeyPatch, unavailable: str
+) -> None:
+    recipe, defaults = data_filter_recipe
+    if unavailable == "missing":
+        defaults.unlink()
+    else:
+        original_open = builtins.open
+
+        def deny_defaults_read(file: object, *args: object, **kwargs: object) -> object:
+            if file in (defaults, str(defaults)):
+                message = "filter defaults are unreadable"
+                raise PermissionError(message)
+            return original_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", deny_defaults_read)
+    before = artifacts.plan_steps(recipe, "stat:fixture")
+    after = artifacts.plan_steps(recipe, "stat:fixture")
+    assert before[0].step_key == after[0].step_key
+    assert before[1].model_version != after[1].model_version
+    assert all(a.step_key != b.step_key for a, b in zip(before[1:], after[1:], strict=True))
+
+
+def test_overridden_filter_default_does_not_invalidate_unchanged_computation(
+    data_filter_recipe: tuple[Recipe, Path],
+) -> None:
+    import yaml
+
+    recipe, defaults = data_filter_recipe
+    recipe.stages[1].params["config"] = {"utmos": {"mos_threshold": 4.0}}
+    before = artifacts.step_keys(recipe, "stat:fixture")
+    config = yaml.safe_load(defaults.read_text())
+    config["utmos"]["mos_threshold"] = 3.8
+    defaults.write_text(yaml.safe_dump(config))
+    assert artifacts.step_keys(recipe, "stat:fixture") == before
+
+
+@pytest.mark.parametrize("location", ["defaults", "overrides"])
+def test_filter_yaml_adapter_input_changes_invalidate_affected_suffix(
+    data_filter_recipe: tuple[Recipe, Path], location: str
+) -> None:
+    import yaml
+
+    from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter import AudioDataFilterStage
+
+    recipe, defaults = data_filter_recipe
+    engine = defaults.parent / "silero.plan"
+    engine.write_bytes(b"original engine")
+    vad = {
+        "adapter_target": "nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter",
+        "adapter_kwargs": {"engine_path": str(engine)},
+    }
+    if location == "defaults":
+        config = yaml.safe_load(defaults.read_text())
+        config["vad"].update(vad)
+        defaults.write_text(yaml.safe_dump(config))
+    else:
+        overrides = defaults.parent / "overrides.yaml"
+        overrides.write_text(yaml.safe_dump({"vad": vad}))
+        recipe.stages[1].params["config_path"] = str(overrides)
+    configured = AudioDataFilterStage(**recipe.stages[1].params)
+    delegate = configured._make_vad(configured._cfg, suffix="", nested=False)
+    assert delegate.adapter_kwargs["engine_path"] == str(engine)
+    before = artifacts.plan_steps(recipe, "stat:fixture")
+    assert [p.step_key for p in before] == artifacts.step_keys(recipe, "stat:fixture")
+    engine.write_bytes(b"modified engine")
+    after = artifacts.plan_steps(recipe, "stat:fixture")
+    assert before[0].step_key == after[0].step_key
+    assert all(a.step_key != b.step_key for a, b in zip(before[1:], after[1:], strict=True))
+
+
 @pytest.mark.parametrize(
     ("parameter", "filename"),
     [("model_path", "missing.nemo"), ("engine_path", "missing.plan"), ("runtime_module_path", "missing_runtime.py")],
@@ -331,13 +475,14 @@ def test_replaced_weights_change_identity_in_fresh_process(tmp_path: Path) -> No
     assert before != after
 
 
-def test_linked_tokenizer_payload_changes_reuse_identity(tmp_path: Path) -> None:
+@pytest.mark.parametrize("internal_alias", [False, True])
+def test_linked_tokenizer_payload_changes_reuse_identity(tmp_path: Path, internal_alias: bool) -> None:
     from transformers import AutoTokenizer
 
-    shared = tmp_path / "shared-vocab"
-    shared.mkdir()
     root = tmp_path / "tokenizer"
     root.mkdir()
+    shared = root / "shared-vocab" if internal_alias else tmp_path / "shared-vocab"
+    shared.mkdir()
     (root / "vocab").symlink_to(shared, target_is_directory=True)
     payload = shared / "vocab.txt"
     (root / "tokenizer_config.json").write_text(
@@ -358,11 +503,17 @@ def test_linked_tokenizer_payload_changes_reuse_identity(tmp_path: Path) -> None
     assert before != artifacts.model_version(params)
 
 
-def test_linked_directory_cycles_refuse_reuse(tmp_path: Path) -> None:
+@pytest.mark.parametrize("indirect", [False, True])
+def test_linked_directory_cycles_refuse_reuse(tmp_path: Path, indirect: bool) -> None:
     model = tmp_path / "model"
     model.mkdir()
     (model / "weights.bin").write_bytes(b"weights")
-    (model / "cycle").symlink_to(model, target_is_directory=True)
+    if indirect:
+        other = model / "nested"
+        other.mkdir()
+        (other / "cycle").symlink_to(model, target_is_directory=True)
+    else:
+        (model / "cycle").symlink_to(model, target_is_directory=True)
     assert artifacts.content_digest(str(model)) is None
     params = {"model_path": str(model)}
     assert artifacts.model_version(params) != artifacts.model_version(params)

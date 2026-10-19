@@ -244,8 +244,23 @@ def _sortformer_bundle_inputs(adapter_kwargs: object) -> dict[str, str]:
     return inputs
 
 
-def model_version(params: dict[str, Any]) -> str:
-    """Bind model selection and local model/tokenizer/config/adapter files to reuse identity."""
+def _data_filter_inputs(params: dict[str, Any]) -> dict[str, str]:
+    """Bind the composite's actual merged settings and configured local model files."""
+    try:
+        from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter import AudioDataFilterStage
+
+        configured = AudioDataFilterStage(config_path=params.get("config_path"), config=params.get("config"))
+        inputs = {
+            "audio_data_filter.config": _h(json.dumps(configured._cfg, sort_keys=True)),
+            "audio_data_filter.models": model_version(configured._cfg),
+        }
+    except Exception:  # noqa: BLE001 - unresolved runtime settings cannot certify a reusable prefix
+        return {"audio_data_filter.config": _model_input_digest(None)}
+    return inputs
+
+
+def model_version(params: dict[str, Any], *, stage_ref: str | None = None) -> str:
+    """Bind model inputs and stage-owned configuration files to reuse identity."""
     from nemo_curator.stages.audio.audio_agent._safety import names_local_path
 
     identifiers = {}
@@ -270,6 +285,8 @@ def model_version(params: dict[str, Any]) -> str:
                 local_inputs[key] = _model_input_digest(expanded)
     if params.get("adapter_target") == _SORTFORMER_TENSORRT_ADAPTER:
         local_inputs.update(_sortformer_bundle_inputs(params.get("adapter_kwargs")))
+    if stage_ref == "AudioDataFilterStage":
+        local_inputs.update(_data_filter_inputs(params))
     if not local_inputs and len(identifiers) == 1:
         return next(iter(identifiers.values()))
     if not identifiers and not local_inputs:
@@ -450,7 +467,7 @@ def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
     prefix_ttl = 0
     for i, stage in enumerate(recipe.stages):
         sp = stage.semantic_params()
-        mv = model_version(stage.params)
+        mv = model_version(stage.params, stage_ref=stage.ref)
         iv = (
             impl_version(stage.ref, adapter_target=stage.params["adapter_target"])
             if "adapter_target" in stage.params
@@ -674,17 +691,18 @@ def content_digest(uri: str) -> str | None:
             _hash_file(expanded, digest)
         elif os.path.isdir(expanded):
             digest.update(b"directory\0")
-            seen_directories = set()
+            ancestors: list[tuple[int, int]] = []
             for root, dirs, files in os.walk(expanded, followlinks=True, onerror=_raise_walk_error):
+                rel_root = os.path.relpath(root, expanded)
+                del ancestors[len(Path(rel_root).parts) :]
                 stat = os.stat(root)
                 identity = (stat.st_dev, stat.st_ino)
-                # A repeated directory can be a link cycle or an alias. Refuse
-                # reuse rather than compute an incomplete dependency digest.
-                if identity in seen_directories:
+                # Only a repeat on this ancestry is a cycle; sibling aliases still
+                # contribute their own relative paths and referenced bytes.
+                if identity in ancestors:
                     return None
-                seen_directories.add(identity)
+                ancestors.append(identity)
                 dirs.sort()
-                rel_root = os.path.relpath(root, expanded)
                 digest.update(f"dir\0{rel_root}".encode())
                 digest.update(b"\0")
                 for name in sorted(files):
