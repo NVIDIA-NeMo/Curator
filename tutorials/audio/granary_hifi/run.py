@@ -14,7 +14,7 @@
 
 """GranaryHiFi: Granary ASR manifests -> TTS training shards, as two Curator pipelines.
 
-``annotate`` enhances (optional), annotates, filters, selects contexts and writes training flags;
+``annotate`` annotates, filters, enhances the kept segments (optional), selects contexts and writes training flags;
 ``build_shar`` writes Lhotse SHAR shards with codec codes, validates and publishes them.
 See ``README.md`` for the stage list, input fields and requirements.
 """
@@ -37,13 +37,13 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
 
 ANNOTATE_STEPS = (
-    "enhancement",
     "diarization",
     "speaker_clustering",
     "sed",
     "utmos",
     "bandwidth",
     "filter",
+    "enhancement",
     "context",
     "ipa",
     "early_cut_off",
@@ -77,7 +77,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="command", required=True)
 
     an = sub.add_parser(
-        "annotate", help="Enhance (optional), annotate, filter, select contexts, IPA, early cut-off, flags."
+        "annotate", help="Annotate, filter, enhance (optional), select contexts, IPA, early cut-off, flags."
     )
     _add_common(an)
     an.add_argument("--output_manifest", required=True, help="Output directory for sharded JSONL manifests.")
@@ -164,9 +164,9 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
     from nemo_curator.stages.audio import tts
 
     source = {"tar_root": _abs(args.tar_root), "strip_tar_key_prefixes": tuple(args.strip_tar_key_prefix)}
-    # One switch: with enhancement on, every later stage reads the enhanced copy; otherwise the original audio.
-    audio_source = "original" if args.enhancement == "none" else "enhanced"
-    audio = {**source, "audio_source": audio_source, "enhanced_fallback": args.enhanced_fallback}
+    # The gate scores the original audio (an enhancer would inflate MOS/bandwidth), so only kept segments are
+    # enhanced; every stage after the enhancement reads the enhanced copy.
+    audio = {**source, "audio_source": "original", "enhanced_fallback": False}
     want = [s for s in ANNOTATE_STEPS if s not in set(args.skip)]
     if args.enhancement == "none" and "enhancement" in want:
         want.remove("enhancement")
@@ -176,6 +176,7 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
     stages: list[ProcessingStage] = [ManifestReader(manifest_path=args.input_manifest)]
     for step in want:
         if step == "enhancement":
+            audio = {**source, "audio_source": "enhanced", "enhanced_fallback": args.enhanced_fallback}
             if args.enhancement == "studio_voice":
                 stages.append(
                     tts.StudioVoiceEnhancementStage(

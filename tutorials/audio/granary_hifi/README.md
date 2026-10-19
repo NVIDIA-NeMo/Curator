@@ -5,12 +5,12 @@ into Lhotse SHAR shards with target/context audio, IPA, neural codec codes and t
 
 | Step | Stage | Writes (per segment) |
 |---|---|---|
-| enhancement (optional) | `StudioVoiceEnhancementStage` or `ResembleEnhanceStage` | `enhanced_audio.*` |
 | diarization | `SegmentDiarizationStage` | `diarization.{num_speakers, diarized_speech_rate, ...}` |
 | speaker clustering | `SpeakerClusteringStage` | `speaker_cluster.{speaker_id, cluster_similarity, cluster_margin}` |
 | sound events | `SegmentSEDStage` | `sed.weighted_*` |
 | quality | `UTMOSv2AnnotationStage`, `BandwidthEstimationStage` | `utmosv2.score`, `bandwidth.bandwidth` |
 | segment filter | `SegmentFilterStage(preset=ytc\|yodas\|voxpopuli\|librilight)` | drops failing segments |
+| enhancement (optional) | `StudioVoiceEnhancementStage` or `ResembleEnhanceStage` | `enhanced_audio.*` |
 | context selection | `ContextSelectionStage` | `context.*` |
 | phonemization | `ManifestIpaStage` | `ipa.ipa` |
 | end-of-word check | `EarlyCutOffEndpointGateStage` → `EarlyCutOffMFAResolverStage` | `early_cut_off_detection.decision` |
@@ -50,13 +50,14 @@ python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it
   --codec_model 25fps_spectral_codec_with_bandwidth_extension.nemo --publish_root published/
 ```
 
-`--enhancement studio_voice|reuse` enhances every segment first; all later steps and the shards then use the enhanced
-audio (`build_shar` detects it). Default `none` uses the original audio.
+`--enhancement studio_voice|reuse` enhances the segments that pass the filter; the filter scores the original audio,
+and all later steps and the shards use the enhanced audio (`build_shar` detects it). Default `none` uses the original
+audio.
 
 `--preset default` uses the general filter thresholds (the same as `yodas`). All flags: `run.py annotate --help`,
 `run.py build_shar --help`.
 
-`annotate --skip` takes step names: `enhancement diarization speaker_clustering sed utmos bandwidth filter context ipa
+`annotate --skip` takes step names: `diarization speaker_clustering sed utmos bandwidth filter enhancement context ipa
 early_cut_off mfa_resolver training_flags`. The `librilight` preset uses the row-level `speaker_id` instead of
 speaker clustering. `build_shar --skip_codec` skips codec codes. `--codec_model` accepts either a Hugging Face model
 ID or a local `.nemo` path; codec frame rate is read from the loaded model.

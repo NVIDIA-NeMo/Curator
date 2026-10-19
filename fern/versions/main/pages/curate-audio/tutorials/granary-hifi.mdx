@@ -37,8 +37,8 @@ python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it
   --codec_model nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps --publish_root published/
 ```
 
-`annotate` runs optional enhancement (`--enhancement studio_voice|reuse`), diarization, speaker clustering, sound-event
-detection, UTMOSv2, bandwidth, the segment filter, context selection, IPA, the early cut-off check and training flags.
-`build_shar` writes speaker-grouped shards, codec codes, validates and publishes them. With enhancement on, every later
-step and the shards use the enhanced audio. `--codec_model` also accepts a local `.nemo` codec. See
+`annotate` runs diarization, speaker clustering, sound-event detection, UTMOSv2, bandwidth, the segment filter,
+optional enhancement of the kept segments (`--enhancement studio_voice|reuse`), context selection, IPA, the early
+cut-off check and training flags. `build_shar` writes speaker-grouped shards, codec codes, validates and publishes them.
+The filter scores the original audio; with enhancement on, every later step and the shards use the enhanced audio. `--codec_model` also accepts a local `.nemo` codec. See
 `run.py annotate --help` and `run.py build_shar --help` for all flags.
