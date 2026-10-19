@@ -14,6 +14,7 @@
 
 """Configured persistence determines which outputs can become reuse artifacts."""
 
+import builtins
 import json
 from pathlib import Path
 
@@ -21,6 +22,133 @@ import pytest
 
 from nemo_curator.stages.audio.audio_agent import artifacts, reuse, verbs
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef, build_stages
+
+
+@pytest.fixture
+def sortformer_recipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recipe:
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(tmp_path))
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    for name in ("mel_basis.npy", "learnable_sil_emb.npy", "engine.plan", "runtime.py"):
+        (bundle / name).write_bytes(b"original model input")
+    config = bundle / "config.json"
+    config.write_text(json.dumps({"mel_basis": "mel_basis.npy", "learnable_sil_emb": "learnable_sil_emb.npy"}))
+    other = tmp_path / "working-directory"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    return Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
+                {
+                    "ref": "InferenceSortformerStage",
+                    "params": {
+                        "adapter_target": "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter",
+                        "adapter_kwargs": {
+                            "engine_path": str(bundle / "engine.plan"),
+                            "config_path": str(config),
+                            "runtime_module_path": str(bundle / "runtime.py"),
+                        },
+                    },
+                },
+                {"ref": "ManifestCheckpointStage", "params": {"output_path": str(tmp_path / "checkpoint.jsonl")}},
+            ]
+        }
+    ).freeze()
+
+
+@pytest.mark.parametrize("asset", ["mel_basis", "learnable_sil_emb"])
+@pytest.mark.parametrize("change", ["edit", "remove", "unreadable"])
+@pytest.mark.parametrize("absolute", [False, True])
+def test_sortformer_bundle_asset_changes_prevent_checkpoint_reuse(
+    monkeypatch: pytest.MonkeyPatch, sortformer_recipe: Recipe, asset: str, change: str, absolute: bool
+) -> None:
+    recipe = sortformer_recipe
+    config_path = Path(recipe.stages[1].params["adapter_kwargs"]["config_path"])
+    config = json.loads(config_path.read_text())
+    payload = config_path.parent / config[asset]
+    if absolute:
+        config[asset] = str(payload)
+        config_path.write_text(json.dumps(config))
+    before = artifacts.plan_steps(recipe, "stat:fixture")
+    assert [p.step_key for p in before] == artifacts.step_keys(recipe, "stat:fixture")
+    checkpoint = before[-1]
+    Path(checkpoint.uri).write_text('{"diar_segments": []}\n')
+    artifacts.publish(
+        artifacts.Artifact(
+            step_key=checkpoint.step_key,
+            input_key=checkpoint.input_key,
+            stage_ref=checkpoint.stage_ref,
+            stage_index=checkpoint.index,
+            semantic_params=checkpoint.semantic_params,
+            uri=checkpoint.uri,
+            kind=checkpoint.kind,
+            dataset_key="stat:fixture",
+            fingerprint_tier="stat",
+            impl_version=checkpoint.impl_version,
+            model_version=checkpoint.model_version,
+            deterministic=checkpoint.deterministic,
+        )
+    )
+    assert reuse.scan(recipe, dataset_key="stat:fixture")["decision"] == "already_done"
+
+    if change == "edit":
+        payload.write_bytes(b"modified model input")
+    elif change == "remove":
+        payload.unlink()
+    else:
+        original_open = builtins.open
+
+        def deny_asset_read(file: object, *args: object, **kwargs: object) -> object:
+            if file in (payload, str(payload)):
+                message = "model asset is unreadable"
+                raise PermissionError(message)
+            return original_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", deny_asset_read)
+    after = artifacts.plan_steps(recipe, "stat:fixture")
+
+    assert before[0].step_key == after[0].step_key
+    assert before[1].model_version != after[1].model_version
+    assert all(a.step_key != b.step_key for a, b in zip(before[1:], after[1:], strict=True))
+    assert reuse.scan(recipe, dataset_key="stat:fixture")["decision"] == "fresh"
+
+
+@pytest.mark.parametrize("optional_value", [None, "omit"])
+def test_sortformer_bundle_without_optional_silence_has_stable_identity(
+    tmp_path: Path, sortformer_recipe: Recipe, optional_value: str | None
+) -> None:
+    config_path = tmp_path / "bundle/config.json"
+    config = json.loads(config_path.read_text())
+    if optional_value == "omit":
+        config.pop("learnable_sil_emb")
+    else:
+        config["learnable_sil_emb"] = optional_value
+    config_path.write_text(json.dumps(config))
+    (config_path.parent / "learnable_sil_emb.npy").unlink()
+
+    assert artifacts.step_keys(sortformer_recipe, "stat:fixture") == artifacts.step_keys(
+        sortformer_recipe, "stat:fixture"
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [None, "{", "[]", "{}", '{"mel_basis": 1}', '{"mel_basis": "mel_basis.npy", "learnable_sil_emb": false}'],
+)
+def test_uninspectable_sortformer_config_cannot_match_an_earlier_identity(
+    tmp_path: Path, sortformer_recipe: Recipe, content: str | None
+) -> None:
+    config_path = tmp_path / "bundle/config.json"
+    if content is None:
+        config_path.unlink()
+    else:
+        config_path.write_text(content)
+
+    assert artifacts.step_keys(sortformer_recipe, "stat:fixture") != artifacts.step_keys(
+        sortformer_recipe, "stat:fixture"
+    )
 
 
 @pytest.mark.parametrize("write_to_disk", [False, True])
@@ -153,17 +281,20 @@ def test_unreadable_local_dependency_never_reuses_same_identity(
     ],
 )
 def test_replaced_adapter_files_invalidate_only_the_affected_suffix(
-    tmp_path: Path, stage_ref: str, adapter_target: str, parameter: str
+    tmp_path: Path, sortformer_recipe: Recipe, stage_ref: str, adapter_target: str, parameter: str
 ) -> None:
     dependency = tmp_path / "adapter-input.bin"
     dependency.write_bytes(b"first version")
+    adapter_kwargs = {parameter: str(dependency)}
+    if stage_ref == "InferenceSortformerStage":
+        adapter_kwargs = {**sortformer_recipe.stages[1].params["adapter_kwargs"], **adapter_kwargs}
     recipe = Recipe.from_dict(
         {
             "stages": [
                 {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
                 {
                     "ref": stage_ref,
-                    "params": {"adapter_target": adapter_target, "adapter_kwargs": {parameter: str(dependency)}},
+                    "params": {"adapter_target": adapter_target, "adapter_kwargs": adapter_kwargs},
                 },
                 {"ref": "ManifestCheckpointStage", "params": {"output_path": str(tmp_path / "out.jsonl")}},
             ]

@@ -49,7 +49,9 @@ import itertools
 import json
 import os
 import time
+import uuid
 from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.stages.audio.audio_agent.code_identity import impl_version
@@ -73,6 +75,9 @@ ArtifactKind = Literal["manifest", "audio_dir", "rttm_dir", "text_dir", "archive
 # Params naming the model a stage runs; recorded so a model swap is visible on the approval
 # card. (They are ordinary semantic params, so they already move the step key.)
 _MODEL_PARAMS = ("model_name", "model", "model_path", "pretrained_model", "hf_model", "checkpoint", "model_id")
+_SORTFORMER_TENSORRT_ADAPTER = (
+    "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter"
+)
 # Preference order when a stage names more than one output location.
 _URI_PREFERENCE = (
     "output_manifest",
@@ -206,6 +211,39 @@ def code_version() -> str:
         return "unknown"
 
 
+def _model_input_digest(path: str | None) -> str:
+    """Keep unreadable declared inputs from matching an earlier reusable prefix."""
+    digest = content_digest(path) if path is not None else None
+    return digest if digest is not None else f"unverified:{uuid.uuid4().hex}"
+
+
+def _sortformer_bundle_inputs(adapter_kwargs: object) -> dict[str, str]:
+    """Bind the selected bundle's frontend/state files without importing model code."""
+    raw_path = adapter_kwargs.get("config_path") if isinstance(adapter_kwargs, dict) else None
+    if not isinstance(raw_path, str) or not raw_path:
+        return {"sortformer_bundle": _model_input_digest(None)}
+    try:
+        config_path = Path(raw_path).expanduser()
+        with config_path.open(encoding="utf-8") as source:
+            config = json.load(source)
+        if not isinstance(config, dict):
+            return {"sortformer_bundle": _model_input_digest(None)}
+        inputs = {}
+        for name in ("mel_basis", "learnable_sil_emb"):
+            value = config.get(name)
+            if name == "learnable_sil_emb" and value is None:
+                continue
+            if not isinstance(value, str) or not value.strip():
+                return {"sortformer_bundle": _model_input_digest(None)}
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                path = config_path.parent / path
+            inputs[f"sortformer_bundle.{name}"] = _model_input_digest(str(path))
+    except (OSError, UnicodeError, ValueError, TypeError, RuntimeError):
+        return {"sortformer_bundle": _model_input_digest(None)}
+    return inputs
+
+
 def model_version(params: dict[str, Any]) -> str:
     """Bind model selection and local model/tokenizer/config/adapter files to reuse identity."""
     from nemo_curator.stages.audio.audio_agent._safety import names_local_path
@@ -229,16 +267,12 @@ def model_version(params: dict[str, Any]) -> str:
             identifiers[key] = value
             expanded = os.path.expanduser(value)
             if key in adapter_file_keys or os.path.exists(expanded) or names_local_path(value):
-                digest = content_digest(expanded)
-                if digest is None:
-                    # Unreadable local inputs must never match an earlier reusable prefix.
-                    import uuid
-
-                    digest = f"unverified:{uuid.uuid4().hex}"
-                local_inputs[key] = digest
+                local_inputs[key] = _model_input_digest(expanded)
+    if params.get("adapter_target") == _SORTFORMER_TENSORRT_ADAPTER:
+        local_inputs.update(_sortformer_bundle_inputs(params.get("adapter_kwargs")))
     if not local_inputs and len(identifiers) == 1:
         return next(iter(identifiers.values()))
-    if not identifiers:
+    if not identifiers and not local_inputs:
         return ""
     return json.dumps({"identifiers": identifiers, "local_inputs": local_inputs}, sort_keys=True)
 
