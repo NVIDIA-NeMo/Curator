@@ -669,6 +669,10 @@ python benchmarking/data_prep/prepare_audio_sortformer_data.py \
   --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
   --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
 
+python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
+  --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11 \
+  --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
+
 python benchmarking/data_prep/prepare_readspeech_data.py \
   --output-path {datasets_path}/read_speech \
   --num-parts 3 \
@@ -680,6 +684,90 @@ python benchmarking/data_prep/prepare_readspeech_data.py \
 The setup pins each Hugging Face revision and selects the configured workload
 scale in one pass. Timed entries consume these versioned paths and validate
 pipeline outputs without rescanning or downloading the staged corpus.
+The Hindi Indic ASR setup pins the public `ketav/parakeet-hindi-asr` revision
+`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0). The pinned
+source manifest has 216,169 rows / 1,914,385,701 ms and SHA-256
+`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`;
+the 40,543,034,328-byte source archive has SHA-256
+`9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20`.
+The archive is a superset, so only files referenced by that manifest define
+the cohort.
+
+Full-sample decoding deterministically rejects five referenced corrupt FLACs:
+`audio/hindi_017643.flac`, `audio/hindi_017666.flac`, and
+`audio/hindi_018619.flac` are empty; `audio/hindi_017655.flac` and
+`audio/hindi_017656.flac` are truncated 262,144-byte files whose decoders lose
+sync. They account for 58,233 ms. The shared runnable cohort therefore has
+216,164 unique mono 16 kHz clips / 1,914,327,468 ms (531.75763 hours). Its
+116,382,162-byte canonical manifest has SHA-256
+`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
+Both executor modes consume this byte-identical retained cohort and also require
+the production-compatible model artifacts to be staged at:
+
+```text
+{model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+{model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+```
+
+The Parakeet TensorRT directory is a self-contained bundle whose `model.nemo`
+is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
+`nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
+under its mounted dataset and model roots before launching this entry.
+
+The benchmark requires the dedicated Indic ASR image on Linux x86_64. Build
+and check it from the repository root:
+
+```bash
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
+docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
+```
+
+The image keeps Python 3.12 / TensorRT-LLM 1.2.1 / Torch 2.9.1 together in
+`/opt/venv`, including the audio and benchmark dependencies. Curator, Indic
+Canary, Parakeet TensorRT, and WER run in that same environment; there is no
+child runtime or dependency installation during inference. The root
+`pyproject.toml` and `uv.lock` do not select this stack. Normal Curator profiles
+retain their existing dependencies and can still be selected together.
+
+The Indic run entries are intentionally absent from `benchmarks.yaml`; the
+dataset mapping and `nightly-data-setup.yaml` entry remain available. The
+benchmark script keeps the standard audio benchmark interface, executor helper,
+and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
+it derives correctness metrics from the final JSONL rather than retained tasks;
+`--save-tasks` therefore writes an empty task list, not stage snapshots.
+
+For a standalone run, mount the staged corpus at `/datasets`, the model bundles
+at `/model_weights`, and a writable result directory at `/results`. Inside the
+dedicated image, from `/opt/Curator`, run:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python benchmarking/scripts/audio_indic_asr_benchmark.py \
+  --benchmark-results-path=/results/indic_asr_xenna \
+  --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
+  --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+  --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
+  --regex-yaml=tutorials/audio/indic_asr/regex.yaml \
+  --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
+  --executor=xenna --no-save-tasks
+```
+
+The defaults retain the eight-GPU workload and frozen cohort checks. Use
+`--executor=ray_data` and a different, unused results path for the same-data
+comparison. Dataset setup remains separate and is not rerun by this script.
+Do not build the stock `benchmarking/Dockerfile` on top of this image or run
+root `uv sync` in it: that would replace the dedicated native stack with the
+normal `all` dependencies. A site-specific harness configuration must explicitly
+select this image; the standard nightly environment does not supply it.
+
+The host or container runtime must independently provide a CUDA-13-capable
+NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported
+data-center GPU. The benchmark imports the actual TensorRT-LLM native bindings,
+NeMo ASR, the Parakeet adapter, and text normalization, then validates complete
+engine inventories before its processor-chain timer starts. Harness
+`exec_time_s` still includes the entire benchmark subprocess, including those
+preflight checks; environment creation and data staging belong before it.
+
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,
 validates, and publishes a replacement when an older or incomplete cohort is
@@ -690,9 +778,195 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
+| Hindi Indic ASR | Production Slurm pipeline only | Retained standalone benchmark: Xenna and Ray Data share the 216,164-clip / 531.75763h cohort after rejecting five exactly identified corrupt FLACs. Both use eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. The prior Xenna calibration target was 600-900s full process wall time on 8xH100; neither executor is registered in the standard nightly matrix. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ---
+
+### Qwen Omni ASR
+
+[audio_qwen_omni_asr_benchmark.py](scripts/audio_qwen_omni_asr_benchmark.py)
+transcribes audio with Qwen3-Omni, checks the generated text, selects a transcript,
+and cleans it. Existing transcripts are used only for fallback after inference;
+Qwen receives audio with the English or multilingual prompt from the YAML,
+preserving disfluencies and spoken numbers without a supplied transcript.
+Both Xenna and Ray Data load the complete
+[tutorial YAML](../tutorials/audio/qwen_omni_asr/pipeline.yaml), including its
+pinned model revision, batching, and all eight stages. Only the input
+size, paths, and executor change. The script is standalone; it is not registered
+in `benchmarks.yaml`.
+
+Use the [tutorial environment](../tutorials/audio/qwen_omni_asr/README.md#1-set-up-the-environment).
+From the repository root, stage a five-hour LibriSpeech sample and the model:
+
+```bash
+python benchmarking/data_prep/prepare_librispeech_data.py \
+  --output-path "$PWD/qwen-omni-asr-benchmark/data" \
+  --cache-dir "$PWD/qwen-omni-asr-benchmark/cache" \
+  --hf-repo-id openslr/librispeech_asr \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
+  --hf-config all --hf-split train.clean.100 --target-audio-hours 5.0
+
+hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --revision 26291f793822fb6be9555850f06dfe95f2d7e695 \
+  --local-dir "$PWD/qwen-omni-asr-benchmark/model"
+```
+
+Reuse the staged data and model for both runs. Run one executor at a time,
+using a new results directory for every run:
+
+```bash
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+  --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/xenna" \
+  --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
+  --model-id "$PWD/qwen-omni-asr-benchmark/model" \
+  --executor xenna --execution-mode streaming
+
+python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+  --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/raydata" \
+  --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
+  --model-id "$PWD/qwen-omni-asr-benchmark/model" \
+  --executor ray_data
+```
+
+The script writes `results/qwen_omni_asr.jsonl`, `metrics.json`, and the
+resolved configuration in `params.json`. It validates exact input/output
+coverage, unchanged input transcripts, nonempty predictions, positive finite
+durations, and reuse of the original text when a generated transcript is
+rejected. `num_input_text_fallbacks` counts these reused transcripts;
+`num_skipped_tasks` counts rows that remain flagged and need inspection.
+The pipeline timer, `time_taken_s`, includes model startup, audio loading,
+resampling, inference, cleanup, writing, and executor shutdown. It excludes
+data/model staging and output validation. These checks establish completion and
+output structure, not transcription accuracy.
+
+#### Observed throughput
+
+One run per executor used 22,710 unique English LibriSpeech clips totaling
+80.61259 audio hours. Each run used one EOS node with 8 × NVIDIA H100 80GB HBM3
+GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | --- | --- | --- | --- |
+| Xenna streaming | 748.54 s | 742.96 s | 390.61 | 48.83 |
+| Ray Data | 1,275.65 s | 1,270.40 s | 228.44 | 28.55 |
+
+Both produced all 22,710 outputs, preserved the input transcripts, used the
+original transcript for five clips, and left zero rows flagged. Xenna met the
+600–900 second full-process target. Ray Data used the same cohort. Full process
+time includes imports and output validation; staging is excluded. Per-GPU
+throughput divides whole-node throughput by all eight allocated GPUs.
+
+All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
+10% utilization after model initialization. Ray Data did not meet the
+eight-GPU activity target.
+
+---
+
+## Audio Text Pipeline Benchmark
+
+`scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
+from [text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml):
+manifest reader → entity recovery → punctuation/capitalization → language
+prediction and verification → text normalization → fused captioning, code
+switching and speech QA → inverse text normalization → disfluency removal →
+manifest writer. Every row remains an `AudioTask`; no audio files are opened.
+
+The tutorial and benchmark use the same prompts, stage order, generation options
+and serving settings. Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four
+Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
+128 and 256 concurrent requests per worker. The benchmark uses Curator's existing
+`InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
+benchmark, it has no entries or enablement overlay in the standard nightly matrix.
+
+### Input and paired runs
+
+Use one fixed, pre-staged English cohort that fits in driver memory. Every row
+needs a unique string `audio_item_id`, `source_lang: en`, a reference transcript
+in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
+`--id-key` for another identity field. Preserve the source dataset's license,
+revision and selection rule alongside the manifest. Human-gold inputs are also
+supported, but identify them as such; do not label copied human text as ASR output.
+
+Follow the [tutorial environment and server instructions](../tutorials/audio/text_processing/README.md#1-prepare-the-environment)
+exactly: build its project image from the same checkout, use the same eight-GPU
+node and mounted directories, start its server, and run and check the two bundled
+examples. Place the benchmark cohort at
+`text_processing_data/english/manifest.jsonl` on the host; the container sees it
+read-only at `/data/english/manifest.jsonl`.
+
+Keep that container, Ray cluster and server running. In the tutorial's second
+terminal, run these commands sequentially. Both executors use the same endpoint,
+resolved package environment, model weights, `/cache/compilation` and complete
+YAML. Only the cohort size, executor and result paths change from the tutorial.
+Use a fresh benchmark results directory:
+
+```bash
+cd /opt/Curator
+export RAY_ADDRESS=127.0.0.1:6379
+set -euo pipefail
+test ! -e /output/benchmarks
+input_sha256=$(sha256sum /data/english/manifest.jsonl | cut -d ' ' -f 1)
+input_rows=$(python -c 'from pathlib import Path; print(sum(bool(line.strip()) for line in Path("/data/english/manifest.jsonl").open()))')
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --expected-num-rows="$input_rows" \
+  --expected-manifest-sha256="$input_sha256" \
+  --output-dir=/output/benchmarks/xenna/output \
+  --cache-root=/cache/compilation \
+  --endpoint="$(cat /output/endpoint.txt)" \
+  --executor=xenna \
+  --benchmark-results-path=/output/benchmarks/xenna
+
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --expected-num-rows="$input_rows" \
+  --expected-manifest-sha256="$input_sha256" \
+  --output-dir=/output/benchmarks/ray_data/output \
+  --cache-root=/cache/compilation \
+  --endpoint="$(cat /output/endpoint.txt)" \
+  --executor=ray_data \
+  --benchmark-results-path=/output/benchmarks/ray_data
+```
+
+The shared row count and SHA-256 checks pin both runs to identical input bytes.
+Results appear under `text_processing_output/benchmarks/` on the host. After
+inspecting both runs, follow the tutorial's server shutdown instructions.
+
+The script can also start the same configured server itself when `--endpoint` is
+omitted; `--cache-root` is then required. `--model-path` selects pre-staged weights
+without changing the served model alias. The walkthrough above reuses the tutorial
+server so it cannot resolve a different worker environment between runs.
+
+### Outputs and timing
+
+Each run writes `text_pipeline.jsonl` under `--output-dir` and standard
+`params.json`, `metrics.json` and `tasks.pkl` under `--benchmark-results-path`.
+Use `--no-save-tasks` to omit the pickle. Parameters retain the resolved pipeline
+and serving configuration; metrics record the actual manifest SHA-256. Validation
+checks identities, preserved source fields, all nine operation outcomes, and the
+written JSONL against the returned tasks. An entirely skipped workload fails validation.
+
+The pipeline timer includes reader, all text operations, writer, and executor
+setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
+Ray/server startup and teardown, output validation and result serialization.
+Server startup is reported separately only when the benchmark starts its own
+server. It is zero in the commands above, which reuse the already-running
+tutorial server. Those commands measure a warm server, after the tutorial; there
+is no additional warmup pass. Earlier processing-only benchmark results excluded
+reader/writer execution and are not directly comparable to this timer.
+
+Metrics include row throughput and per-operation applied, fallback and skipped
+counts. Requests count logical model calls, including rejected completions;
+transport retries are not extra logical requests. Physical attempts and token
+throughput require serving telemetry. The shared result writer also aggregates
+batch statistics into `task_*` metrics, even with `--no-save-tasks`. It deduplicates
+by object identity, so separately deserialized copies can inflate batch totals.
+Use the independently calculated row/request throughput and operation counts for
+comparisons. These checks prove execution coverage, not semantic parity or model
+quality. Inspect the output fields and fallback counts before interpreting
+throughput.
 
 ## Writing Benchmark Scripts
 

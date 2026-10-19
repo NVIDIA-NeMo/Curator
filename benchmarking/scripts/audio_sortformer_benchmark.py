@@ -28,7 +28,7 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -122,8 +122,8 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest)))
     pipeline.add_stage(
         InferenceSortformerStage(
-            model_path=model_path,
             rttm_out_dir=rttm_out_dir,
+            adapter_kwargs={"model_path": model_path},
         ).with_(resources=Resources(gpus=1))
     )
     logger.info(pipeline.describe())

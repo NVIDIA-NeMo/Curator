@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +28,7 @@ from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_f
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
+from nemo_curator.tasks import FileGroupTask
 
 
 def test_pipeline_with_jsonl_reader_stage():
@@ -502,6 +506,73 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     }
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for audio resampling")
+@pytest.mark.parametrize("transcript_key", ["text", "draft_text"])
+@pytest.mark.parametrize("language", ["en", "fr"])
+def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
+    tmp_path: Path, transcript_key: str, language: str
+) -> None:
+    repo_root = Path(__file__).parents[2]
+    config_dir = repo_root / "tutorials/audio/qwen_omni_asr"
+    fixture = repo_root / "tests/fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
+    labels = ["The original label.", "Another human label."]
+    rows = []
+    for index, label in enumerate(labels):
+        audio_path = tmp_path / f"sample_{index}.wav"
+        shutil.copyfile(fixture, audio_path)
+        rows.append({"audio_filepath": str(audio_path), transcript_key: label, "source_lang": language})
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    output_path = tmp_path / "output.jsonl"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                f"manifest_path={manifest}",
+                f"output_path={output_path}",
+                f"workspace_dir={tmp_path / 'workspace'}",
+                f"transcript_key={transcript_key}",
+            ],
+        )
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, resample, asr, *postprocessing = pipeline.stages
+    tasks = reader.decompose()[-1].process(FileGroupTask(dataset_name="test", data=[str(manifest)]))
+    resample.setup_on_node()
+    tasks = resample.process_batch(tasks)
+    adapter = asr._create_adapter()
+    adapter._processor = MagicMock()
+    adapter._processor.apply_chat_template.side_effect = lambda messages, **_: messages[-1]["content"][0]["text"]
+    adapter._sampling_params = object()
+    adapter._llm = MagicMock()
+    prediction = "I was go- going\u2014\u2014 twenty-five."
+    cleaned_prediction = "I was go- going- twenty-five."
+    adapter._llm.generate.return_value = [
+        SimpleNamespace(outputs=[SimpleNamespace(text=text)]) for text in [prediction, "hello hello hello hello"]
+    ]
+    asr._adapter = adapter
+    with patch("nemo_curator.models.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
+        tasks = asr.process_batch(tasks)
+    prompts = adapter._llm.generate.call_args.args[0]
+    expected_prompt = cfg.stages[2].adapter_kwargs["en_prompt_text" if language == "en" else "prompt_text"]
+    assert len(prompts) == len(labels)
+    assert all(prompt["prompt"] == expected_prompt for prompt in prompts)
+    assert all(label not in prompt["prompt"] for prompt in prompts for label in labels)
+    assert "{transcript}" not in expected_prompt
+    assert "reference" not in expected_prompt.lower()
+    for stage in postprocessing:
+        stage.setup()
+        tasks = stage.process_batch(tasks)
+        stage.teardown()
+    output = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [row[transcript_key] for row in output] == labels
+    assert [row["best_prediction"] for row in output] == [prediction, labels[1]]
+    assert [row["best_prediction_source"] for row in output] == ["primary", "reference"]
+    assert [row["abbreviated_text"] for row in output] == [cleaned_prediction, labels[1]]
+    assert all(row["_skipme"] == "" for row in output)
+    assert all("waveform" not in row for row in output)
+    assert [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()] == rows
 
 
 def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
