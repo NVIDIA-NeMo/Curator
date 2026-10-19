@@ -728,8 +728,10 @@ def merge(  # noqa: PLR0913
     root: str,
     prior_files: set[str] | None = None,
     produced_files: set[str] | None = None,
+    output_path: str | None = None,
 ) -> tuple[int, int, str]:
-    """Atomically merge rows after proving each prior and fresh row's source provenance."""
+    """Merge proven rows into a staged file, or atomically replace the sink by default."""
+    destination = output_path if output_path is not None else sink.uri
     tmp: str | None = None
     kept = added = 0
     columns: set[str] | None = None
@@ -737,7 +739,7 @@ def merge(  # noqa: PLR0913
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
-            dir=os.path.dirname(os.path.abspath(sink.uri)),
+            dir=os.path.dirname(os.path.abspath(destination)),
             prefix=".delta-",
             suffix=".jsonl",
             delete=False,
@@ -761,7 +763,7 @@ def merge(  # noqa: PLR0913
             handle.flush()
             os.fchmod(handle.fileno(), stat.S_IMODE(os.stat(sink.uri).st_mode))
             os.fsync(handle.fileno())
-        os.replace(tmp, sink.uri)
+        os.replace(tmp, destination)
     except (OSError, UnicodeError, ValueError, TypeError) as error:
         if tmp is not None:
             with contextlib.suppress(OSError):

@@ -283,9 +283,8 @@ class TestDeltaExecution:
         The merge drops every file the delta RAN, not just the ones whose prior rows went stale,
         so it replaces rather than appends. On a first delta an added file has no prior rows and
         the wider set is a no-op; on a repeat it is what stops the same rows landing twice. This
-        matters because a delta that fails on its second sink leaves the first one merged, and
-        the coverage sidecar is only rewritten at the very end -- so the natural retry replans
-        the identical delta.
+        matters when a retry follows an interruption before the coverage sidecar is rewritten:
+        it may replan the identical delta even though its rows were already committed.
         """
         folder, out = tmp_path / "audio", tmp_path / "out" / "m.jsonl"
         for name in ("a.wav", "b.wav"):

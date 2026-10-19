@@ -41,7 +41,23 @@ def supported_devices(stage: Any, card: dict[str, Any] | None = None) -> frozens
         devices = frozenset(str(device).strip().lower() for device in value)
     except TypeError:
         return frozenset()
-    return devices if devices <= {"cpu", "cuda"} and devices else frozenset()
+    if not devices or not devices <= {"cpu", "cuda"}:
+        return frozenset()
+    # Some adapters support CPU only for particular constructor settings. The
+    # card supplies both the required value and the adapter's omitted default.
+    requirements = entry.get("cpu_requires", {})
+    kwargs = getattr(stage, "adapter_kwargs", {})
+    cpu_compatible = (
+        isinstance(requirements, dict)
+        and isinstance(kwargs, dict)
+        and all(
+            isinstance(requirement, dict)
+            and set(requirement) == {"value", "default"}
+            and kwargs.get(name, requirement["default"]) == requirement["value"]
+            for name, requirement in requirements.items()
+        )
+    )
+    return devices if cpu_compatible else devices - {"cpu"}
 
 
 def gpu_optional(stage: Any, card: dict[str, Any] | None = None) -> bool | None:  # noqa: ANN401

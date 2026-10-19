@@ -25,6 +25,8 @@ drift (the exact ``resample`` / ``audio_to_document`` failure class):
 * ``resource`` uses only known keys with numeric values where numeric is expected.
 * ``adapter_capabilities``, if present, maps configured adapter targets to a
   non-empty set of supported devices and covers every adapter named by a preset.
+  Optional ``cpu_requires`` entries constrain adapter kwargs by an exact value
+  and declare the adapter default used when the kwarg is omitted.
 * ``model_version`` is NOT required, even on a model stage: nothing compares it between runs,
   so demanding it only produced pin-shaped strings that were not pins. Say how far to trust it
   in ``verified`` instead.
@@ -59,7 +61,7 @@ _KNOWN_RESOURCE_KEYS = frozenset(
 _NUMERIC_RESOURCE_KEYS = frozenset({"cpus", "gpu_mem_gb", "host_mem_gb", "disk_expansion"})
 _KNOWN_BOUND = frozenset({"cpu", "gpu", "io"})
 _KNOWN_DEVICES = frozenset({"cpu", "cuda"})
-_ADAPTER_CAPABILITY_FIELDS = frozenset({"supported_devices"})
+_ADAPTER_CAPABILITY_FIELDS = frozenset({"supported_devices", "cpu_requires"})
 _VERIFIED_TIERS = frozenset({"mechanical", "measured", "best_guess"})
 _DIRECTIONS = frozenset({"higher_better", "lower_better"})
 _SEMANTIC_PROSE_FIELDS = frozenset({"meaning", "unit", "provenance", "scope", "propagation"})
@@ -752,6 +754,23 @@ _KNOWN_CARD_FIELDS = frozenset(
 )
 
 
+def _cpu_requirement_violations(prefix: str, requirements: object, params: set[str], devices: list[str]) -> list[str]:
+    if not isinstance(requirements, dict):
+        return [f"{prefix}.cpu_requires must be a mapping of adapter kwarg -> value/default"]
+    violations: list[str] = []
+    if requirements and ("adapter_kwargs" not in params or "cpu" not in devices):
+        violations.append(f"{prefix}.cpu_requires needs adapter_kwargs and declared CPU support")
+    for name, requirement in requirements.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(requirement, dict)
+            or set(requirement) != {"value", "default"}
+        ):
+            violations.append(f"{prefix}.cpu_requires[{name!r}] must declare value and default")
+    return violations
+
+
 def _adapter_capability_violations(  # noqa: C901 - independent capability-schema field checks
     stage_id: str,
     card: dict[str, Any],
@@ -793,6 +812,9 @@ def _adapter_capability_violations(  # noqa: C901 - independent capability-schem
             )
         if len(normalized) != len(set(normalized)):
             violations.append(f"{target_prefix}.supported_devices must not contain duplicates")
+        violations.extend(
+            _cpu_requirement_violations(target_prefix, entry.get("cpu_requires", {}), params, normalized)
+        )
 
     for preset, values in (card.get("presets") or {}).items():
         adapter_target = values.get("adapter_target") if isinstance(values, dict) else None

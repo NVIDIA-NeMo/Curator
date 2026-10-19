@@ -188,6 +188,74 @@ def test_mixed_pipeline_never_claims_cpu_when_one_leaf_is_gpu_only() -> None:
     assert "ASRStage" in cpu["reason"]
 
 
+@pytest.mark.parametrize(
+    ("adapter_target", "adapter_kwargs", "cpu_supported"),
+    [
+        ("nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter", {}, True),
+        (
+            "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter",
+            {"precision": "fp32"},
+            True,
+        ),
+        (
+            "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter",
+            {"precision": "fp16"},
+            False,
+        ),
+        (
+            "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter",
+            {"precision": "bf16"},
+            False,
+        ),
+        ("nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter", {}, False),
+        ("third_party.UnknownAdapter", {}, False),
+    ],
+)
+def test_sortformer_preflight_and_planner_honor_adapter_cpu_constraints(
+    adapter_target: str, adapter_kwargs: dict, cpu_supported: bool
+) -> None:
+    from nemo_curator.stages.audio import agent as foundation
+    from nemo_curator.stages.audio.audio_agent import planner
+
+    stages = _build(
+        (
+            "InferenceSortformerStage",
+            {
+                "adapter_target": adapter_target,
+                "adapter_kwargs": adapter_kwargs,
+                "resources": {"cpus": 1, "gpus": 0},
+            },
+        ),
+    )
+    cpu_env = _healthy_env(
+        has_gpu=False,
+        gpu_count=0,
+        gpu_names=[],
+        gpu_mem_gb=0,
+        gpu_visibility="absent",
+        nvidia_smi_status="unavailable",
+        nvidia_smi_gpu_count=0,
+        nvidia_device_nodes=0,
+        torch_cuda_built=False,
+    )
+
+    cpu_decision = environment_preflight(stages, cpu_env)
+    contracts = [foundation.build_contract(stage) for stage in stages]
+    cpu_plan = planner.plan(stages, contracts, cpu_env)
+
+    assert cpu_decision["can_execute"] is cpu_supported
+    assert cpu_plan.feasible is cpu_supported
+    assert ("gpu_unavailable" in {issue["code"] for issue in cpu_decision["issues"]}) is not cpu_supported
+
+    stages[0].resources.gpus = 1
+    blocked = environment_preflight(stages, cpu_env)
+    assert _choice(blocked, "use_cpu_recipe_variant")["availability"] == (
+        "conditional" if cpu_supported else "unavailable"
+    )
+    if adapter_target != "third_party.UnknownAdapter":
+        assert environment_preflight(stages, _healthy_env())["can_execute"] is True
+
+
 def test_external_ray_does_not_treat_local_cuda_mismatch_as_worker_fact() -> None:
     stages = _build(
         ("UTMOSFilterStage", {"resources": {"cpus": 1, "gpus": 1}}),

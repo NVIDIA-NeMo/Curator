@@ -119,9 +119,65 @@ def test_local_model_bytes_invalidate_prefix_and_suffix(tmp_path: Path, kind: st
     assert all(a.step_key != b.step_key for a, b in zip(before, after, strict=True))
 
 
-def test_unreadable_local_model_never_reuses_same_identity(tmp_path: Path) -> None:
-    params = {"model_path": str(tmp_path / "missing.nemo")}
+@pytest.mark.parametrize(
+    ("parameter", "filename"),
+    [("model_path", "missing.nemo"), ("engine_path", "missing.plan"), ("runtime_module_path", "missing_runtime.py")],
+)
+@pytest.mark.parametrize("relative", [False, True])
+def test_unreadable_local_dependency_never_reuses_same_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parameter: str, filename: str, relative: bool
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    params = {"adapter_kwargs": {parameter: filename if relative else str(tmp_path / filename)}}
     assert artifacts.model_version(params) != artifacts.model_version(params)
+
+
+@pytest.mark.parametrize(
+    ("stage_ref", "adapter_target", "parameter"),
+    [
+        (
+            "VADSegmentationStage",
+            "nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter",
+            "engine_path",
+        ),
+        (
+            "InferenceSortformerStage",
+            "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter",
+            "engine_path",
+        ),
+        (
+            "InferenceSortformerStage",
+            "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter",
+            "runtime_module_path",
+        ),
+    ],
+)
+def test_replaced_adapter_files_invalidate_only_the_affected_suffix(
+    tmp_path: Path, stage_ref: str, adapter_target: str, parameter: str
+) -> None:
+    dependency = tmp_path / "adapter-input.bin"
+    dependency.write_bytes(b"first version")
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
+                {
+                    "ref": stage_ref,
+                    "params": {"adapter_target": adapter_target, "adapter_kwargs": {parameter: str(dependency)}},
+                },
+                {"ref": "ManifestCheckpointStage", "params": {"output_path": str(tmp_path / "out.jsonl")}},
+            ]
+        }
+    )
+    before = artifacts.plan_steps(recipe, "dataset")
+    assert artifacts.step_keys(recipe, "dataset") == [step.step_key for step in before]
+
+    dependency.write_bytes(b"other version")
+    after = artifacts.plan_steps(recipe, "dataset")
+
+    assert before[0].step_key == after[0].step_key
+    assert before[1].model_version != after[1].model_version
+    assert all(a.step_key != b.step_key for a, b in zip(before[1:], after[1:], strict=True))
 
 
 def test_replaced_weights_change_identity_in_fresh_process(tmp_path: Path) -> None:

@@ -34,6 +34,18 @@ from nemo_curator.stages.audio.audio_agent.context import assemble
 
 
 class TestAdapterCapabilities:
+    def test_cpu_constraints_require_explicit_values_and_defaults(self) -> None:
+        entry = {
+            "supported_devices": ["cpu", "cuda"],
+            "cpu_requires": {"precision": {"value": "fp32", "default": "fp32"}},
+        }
+        card = {"adapter_capabilities": {"package.Adapter": entry}}
+        params = {"adapter_target", "adapter_kwargs"}
+        assert _adapter_capability_violations("Stage", card, params) == []
+
+        del entry["cpu_requires"]["precision"]["default"]
+        assert any("value and default" in v for v in _adapter_capability_violations("Stage", card, params))
+
     def test_valid_device_map_is_accepted(self) -> None:
         card = {
             "adapter_capabilities": {

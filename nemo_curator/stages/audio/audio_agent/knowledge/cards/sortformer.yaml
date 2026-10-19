@@ -8,6 +8,13 @@ domain: {language: en, style: conversational}
 constraints:
   max_speakers: 4
   input_duration_sweetspot_sec: {min: 5.0, max: 3600.0}
+adapter_capabilities:
+  nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter:
+    supported_devices: [cpu, cuda]
+    cpu_requires:
+      precision: {value: fp32, default: fp32}
+  nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter:
+    supported_devices: [cuda]
 resource:
   cpus: 1.0
   gpu_mem_gb: 8.0   # default stage reservation; not a measured throughput estimate
@@ -126,5 +133,5 @@ presets:
 versions:   # verified interchangeable via model_name -- load + run + IDENTICAL diar_segments structure, no module code change (tested 2026-07-23, RTX 4090)
   "nvidia/diar_sortformer_4spk-v1": "WHEN: batch/offline diarization of short-to-medium clips (non-streaming). Also the checkpoint used by SpeakerSeparationStage. Preset: offline_v1."
   "nvidia/diar_streaming_sortformer_4spk-v2": "WHEN: long or streaming audio / low-latency. Tune chunk_len for latency vs accuracy. Preset: streaming_v2. (The stage's default model_name is the -v2.1 point-release of this same streaming family -- not independently tested here.)"
-verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: mechanical, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 13, last_validated: "2026-10-19"}
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: mechanical, adapter_capabilities: mechanical, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 14, last_validated: "2026-10-19"}

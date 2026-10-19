@@ -4475,7 +4475,7 @@ def _execute_delta(  # noqa: PLR0913 - forwards run()'s knobs and the plan it ex
     calibration: dict[str, Any] | None,
     goal: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Run the changed files, merge, republish. Any failure leaves the prior result untouched."""
+    """Run changed files, promote merged manifests with rollback, then republish."""
     # Verify the caller's evidence before creating even an ephemeral output-side directory.
     # ``_carry_approval`` repeats this at the derived-recipe boundary; this first check keeps a
     # refused operation free of filesystem writes.
@@ -4566,29 +4566,38 @@ def _execute_delta_in_sandbox(  # noqa: PLR0913 - split out so scratch ownership
             return {**card, "status": "failed", "reason": "the delta's run did not complete", "run": inner}
     elapsed = round(time.perf_counter() - started, 3)
 
-    # Every file the delta RAN, not just the ones whose prior rows went stale: an added file has
-    # no prior rows, so this is a no-op on a first delta and an upsert on a retry. Without it, a
-    # delta that failed on sink 2 of 3 appends sink 1's rows a second time when it is rerun.
+    # Upsert every processed file so repeating an already successful delta cannot duplicate rows.
     stale = set(decision.change.touched) | set(decision.change.removed)
     merges: list[dict[str, Any]] = []
-    for sink in decision.sinks:
-        kept, added, why = _delta.merge(
-            sink,
-            produced=redirect[sink.uri] if decision.files else None,
-            stale=stale,
-            key=sink.key,
-            root=dp.inventory_root,
-            prior_files=set(dp.inventory or {}) | set(decision.change.removed),
-            produced_files=set(decision.change.touched),
-        )
-        if why:
-            # The failing sink's manifest is untouched, and any already merged hold a superset of
-            # their prior rows. Those no longer match the digest their artifact was published
-            # with, so the registry stops offering them ("serialized output changed after the
-            # artifact was published") and the next run recomputes instead of serving a manifest
-            # whose record understates it. Losing reuse is the safe direction; losing rows is not.
-            return {**card, "status": "failed", "reason": why, "merged": merges}
-        merges.append({**sink.summary(), "rows_kept": kept, "rows_added": added})
+    outputs: list[_StagedFileOutput] = []
+    token = uuid.uuid4().hex
+    try:
+        for sink in decision.sinks:
+            output = _StagedFileOutput(
+                stage=None,
+                param=sink.param,
+                final_path=sink.uri,
+                staged_path=f"{sink.uri}.audio-agent-delta-{token}-{sink.index}.tmp",
+            )
+            outputs.append(output)
+            kept, added, why = _delta.merge(
+                sink,
+                produced=redirect[sink.uri] if decision.files else None,
+                stale=stale,
+                key=sink.key,
+                root=dp.inventory_root,
+                prior_files=set(dp.inventory or {}) | set(decision.change.removed),
+                produced_files=set(decision.change.touched),
+                output_path=output.staged_path,
+            )
+            if why:
+                return {**card, "status": "failed", "reason": why, "merged": []}
+            merges.append({**sink.summary(), "rows_kept": kept, "rows_added": added})
+        _promote_staged_file_outputs(outputs)
+    except Exception as exc:  # noqa: BLE001 - promotion rolls back before surfacing the failure
+        return {**card, "status": "failed", "reason": f"delta output publication failed: {exc}", "merged": []}
+    finally:
+        _discard_staged_file_outputs(outputs)
 
     published, problems = _delta.republish(
         rec,

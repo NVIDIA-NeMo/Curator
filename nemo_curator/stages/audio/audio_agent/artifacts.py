@@ -207,12 +207,19 @@ def code_version() -> str:
 
 
 def model_version(params: dict[str, Any]) -> str:
-    """Bind model selection and local model/tokenizer/config bytes to reuse identity."""
+    """Bind model selection and local model/tokenizer/config/adapter files to reuse identity."""
     from nemo_curator.stages.audio.audio_agent._safety import names_local_path
 
     identifiers = {}
     local_inputs = {}
-    dependency_keys = {*_MODEL_PARAMS, "tokenizer_path", "config_path", "model_dir"}
+    adapter_file_keys = {"engine_path", "runtime_module_path"}
+    dependency_keys = {
+        *_MODEL_PARAMS,
+        "tokenizer_path",
+        "config_path",
+        "model_dir",
+        *adapter_file_keys,
+    }
     for key, value in sorted(params.items()):
         if isinstance(value, dict):
             nested = model_version(value)
@@ -221,7 +228,7 @@ def model_version(params: dict[str, Any]) -> str:
         elif key in dependency_keys and isinstance(value, str) and value:
             identifiers[key] = value
             expanded = os.path.expanduser(value)
-            if os.path.exists(expanded) or names_local_path(value):
+            if key in adapter_file_keys or os.path.exists(expanded) or names_local_path(value):
                 digest = content_digest(expanded)
                 if digest is None:
                     # Unreadable local inputs must never match an earlier reusable prefix.

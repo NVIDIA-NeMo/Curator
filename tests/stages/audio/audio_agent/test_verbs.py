@@ -16,7 +16,9 @@
 resolve, and row-accurate evidence counting (no GPU / Ray execution needed)."""
 
 import json
+import os
 import pickle
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,6 +56,133 @@ class _ReviewFailureStage(_ReviewSourceStage):
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
 _WRITER = {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/out.jsonl"}}  # noqa: S108
 _RECIPE = {"stages": [_READER, {"ref": "GetAudioDurationStage", "params": {}}, _WRITER]}
+
+
+@pytest.fixture
+def delta_publication_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change_kind: str) -> SimpleNamespace:
+    from nemo_curator.stages.audio.audio_agent import artifacts, delta
+    from nemo_curator.stages.audio.audio_agent.contracts import DataProfile
+
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
+    source = tmp_path / "input.jsonl"
+    rows = [{"audio_filepath": str(tmp_path / name), "text": "prior"} for name in ("a.wav", "b.wav")]
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    paths = [tmp_path / "first.jsonl", tmp_path / "second.jsonl"]
+    for path, mode in zip(paths, (0o600, 0o640), strict=True):
+        path.write_bytes(source.read_bytes())
+        path.chmod(mode)
+        artifacts.write_marker(str(path), step_key="prior", content_digest=artifacts.content_digest(str(path)))
+    markers = [Path(artifacts.marker_path(str(path))) for path in paths]
+    original = {path: path.read_bytes() for path in [*paths, *markers]}
+    rec = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(source)}},
+                *[{"ref": "ManifestWriterStage", "params": {"output_path": str(path)}} for path in paths],
+            ]
+        }
+    ).freeze()
+    change = delta.Change(
+        **{change_kind: ("c.wav" if change_kind == "added" else "a.wav",)},
+        unchanged=("a.wav", "b.wav") if change_kind == "added" else ("b.wav",),
+    )
+    inventory = {"a.wav": "old", "b.wav": "old"}
+    if change_kind == "removed":
+        del inventory["a.wav"]
+    else:
+        inventory[change.touched[0]] = "new"
+    dp = DataProfile(
+        source=str(source), kind="manifest", stat_digest="current", inventory=inventory, inventory_root=str(tmp_path)
+    )
+    decision = delta.Delta(
+        status="ready",
+        change=change,
+        uri=str(paths[-1]),
+        prefix=3,
+        files=tuple(str(tmp_path / name) for name in change.touched),
+        sinks=tuple(
+            delta.Sink(index=index, param="output_path", uri=str(path), step_key="prior", key="audio_filepath")
+            for index, path in enumerate(paths, 1)
+        ),
+    )
+    return SimpleNamespace(recipe=rec, decision=decision, profile=dp, paths=paths, rows=rows, original=original)
+
+
+@pytest.mark.parametrize(
+    ("change_kind", "failure"),
+    [
+        ("removed", "promotion"),
+        ("modified", "promotion"),
+        ("added", "promotion"),
+        ("modified", "validation"),
+        ("removed", None),
+        ("modified", None),
+        ("added", None),
+    ],
+)
+def test_delta_publishes_all_manifests_or_preserves_every_prior_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, delta_publication_case: SimpleNamespace, failure: str | None
+) -> None:
+    from nemo_curator.stages.audio.audio_agent import artifacts
+
+    case = delta_publication_case
+    decision, paths = case.decision, case.paths
+
+    def run_changed_files(recipe: Recipe, **_kwargs: object) -> dict:
+        assert decision.files
+        assert recipe.stages[0].params["include_files"] == list(decision.files)
+        for index, stage in enumerate(recipe.stages[1:]):
+            row = {"audio_filepath": decision.files[0], "text": "updated"}
+            if failure == "validation" and index == 1:
+                row["unexpected_column"] = True
+            Path(stage.params["output_path"]).write_text(json.dumps(row) + "\n")
+        return {"status": "completed"}
+
+    monkeypatch.setattr(verbs, "run", run_changed_files)
+    replace = os.replace
+
+    def fail_second_promotion(src: str, dst: str) -> None:
+        if str(dst) == str(paths[1]) and not str(src).endswith(".previous"):
+            raise OSError("injected second delta promotion failure")  # noqa: EM101
+        replace(src, dst)
+
+    if failure == "promotion":
+        monkeypatch.setattr(os, "replace", fail_second_promotion)
+    result = verbs._execute_delta(
+        case.recipe,
+        decision,
+        dp=case.profile,
+        data=None,
+        card={},
+        executor=None,
+        bootstrap_ray=False,
+        smoke_token=None,
+        calibration=None,
+        goal=None,
+    )
+
+    if failure:
+        assert result["status"] == "failed", result
+        assert result["merged"] == []
+        assert {path: path.read_bytes() for path in case.original} == case.original
+        assert not artifacts.list_artifacts()
+    else:
+        assert result["status"] == "completed", result
+        assert len(result["published"]) == 2
+        assert not result["warnings"]
+        expected = [row for row in case.rows if Path(row["audio_filepath"]).name not in decision.change.stale]
+        expected += [{"audio_filepath": path, "text": "updated"} for path in decision.files]
+        for path in paths:
+            assert [json.loads(line) for line in path.read_text().splitlines()] == expected
+        for published in result["published"]:
+            artifact = artifacts.load(published["step_key"])
+            assert not artifacts.invalid_reasons(artifact, dataset_key=case.profile.dataset_key())
+    assert [stat.S_IMODE(path.stat().st_mode) for path in paths] == [0o600, 0o640]
+    assert not list(tmp_path.glob("*.tmp*"))
+    assert not list(tmp_path.glob(".delta-*"))
+    assert not list(tmp_path.glob(".audio_agent_delta-*"))
 
 
 @pytest.mark.parametrize("nested", [False, True])
