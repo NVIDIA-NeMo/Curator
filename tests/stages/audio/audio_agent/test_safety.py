@@ -100,7 +100,7 @@ class TestRedact:
             "score_key": "mos",
             "storage_options": {
                 "key": "opaque-access-id",
-                "account_key": "opaque-account-key",
+                "account_key": "opaque-account-key",  # pragma: allowlist secret
                 "connection_string": "opaque-connection-string",
                 "headers": {
                     "Authorization": "opaque-authorization",
@@ -364,8 +364,8 @@ class TestRedactionWalksEveryContainerNotJustTheTwoNoticedFirst:
         from nemo_curator.stages.audio.audio_agent import verbs
 
         rows = [
-            {"path": "/data/a.wav", "text": ("hello", "world"), "api_key": "9f3c1e-cred"}
-        ]  # pragma: allowlist secret
+            {"path": "/data/a.wav", "text": ("hello", "world"), "api_key": "9f3c1e-cred"}  # pragma: allowlist secret
+        ]
         out = _safety.redact(verbs._examples_from_rows(rows, limit=1))
 
         payload = json.dumps(out, default=str)
@@ -633,14 +633,14 @@ def test_preview_policy_hides_unknown_strings_and_preserves_known_paths() -> Non
 
 def test_secret_read_validates_open_inode_not_replaced_path(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     path = tmp_path / "secret"
-    path.write_text('{"secret": "planted"}')
+    path.write_text('{"secret": "planted"}')  # pragma: allowlist secret
     path.chmod(0o644)
     real_open = os.open
 
     def swap_after_open(file, flags):  # noqa: ANN001, ANN202
         descriptor = real_open(file, flags)
         path.unlink()
-        path.write_text('{"secret": "private"}')
+        path.write_text('{"secret": "private"}')  # pragma: allowlist secret
         path.chmod(0o600)
         return descriptor
 
@@ -650,7 +650,7 @@ def test_secret_read_validates_open_inode_not_replaced_path(tmp_path, monkeypatc
 
 def test_secret_symlink_is_not_adopted_or_removed(tmp_path) -> None:  # noqa: ANN001
     target = tmp_path / "private"
-    target.write_text('{"secret": "private"}')
+    target.write_text('{"secret": "private"}')  # pragma: allowlist secret
     target.chmod(0o600)
     link = tmp_path / "link"
     link.symlink_to(target)

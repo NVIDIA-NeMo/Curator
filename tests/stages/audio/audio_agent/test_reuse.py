@@ -1283,7 +1283,7 @@ class TestContinueVerb:
             outputs = list(kwargs.get("output_paths") or [])
             return SimpleNamespace(
                 accepted=1,
-                input_count=1,
+                input_count=7,
                 output_paths=outputs,
                 per_stage_metrics={},
                 to_dict=lambda: {
@@ -1311,7 +1311,13 @@ class TestContinueVerb:
         monkeypatch.setattr(verbs, "_run_pipeline_autofallback", fake_execute)
         monkeypatch.setattr(verbs, "build_run_report", fake_report)
         monkeypatch.setattr(verbs, "_produced_roles_keys", lambda *_args, **_kw: ([], []))
-        monkeypatch.setattr(verbs, "_acceptance_result", lambda *_args, **_kwargs: {})
+
+        def capture_acceptance(_recipe, report, *_args, **kwargs):  # noqa: ANN001, ANN202
+            captured["acceptance_source_items"] = report.input_count
+            captured["acceptance_source_recipe"] = kwargs["source_recipe"]
+            return {}
+
+        monkeypatch.setattr(verbs, "_acceptance_result", capture_acceptance)
         monkeypatch.setattr(verbs, "_publish_artifacts", fake_publish)
         monkeypatch.setattr(verbs, "_record_run", fake_record)
         monkeypatch.setattr(run_store, "new_run_id", lambda _config_hash: "continued-run")
@@ -1334,6 +1340,9 @@ class TestContinueVerb:
         assert result["data_binding"]["primary_path"] == mid
         assert result["data_binding"]["logical_dataset_key"] == key
         assert result["data_binding"]["logical_data_source"] == src
+
+        assert captured["acceptance_source_items"] == 1
+        assert captured["acceptance_source_recipe"].to_dict() == rec.to_dict()
 
     def test_direct_run_cannot_bind_dataset_b_to_dataset_a_artifact(
         self,
@@ -3047,8 +3056,19 @@ class TestGeneratedOutputIntegrity:
 @pytest.mark.parametrize(
     "secret_params",
     [
-        {"storage_options": {"token": {"type": "service_account", "private_key": "opaque-summary-value"}}},
-        {"adapter_kwargs": {"providers": [{"client_secret": "opaque-summary-value"}]}},
+        {
+            "storage_options": {
+                "token": {
+                    "type": "service_account",
+                    "private_key": "opaque-summary-value",  # pragma: allowlist secret
+                }
+            }
+        },
+        {
+            "adapter_kwargs": {
+                "providers": [{"client_secret": "opaque-summary-value"}]  # pragma: allowlist secret
+            }
+        },
     ],
 )
 def test_pipeline_history_redacts_nested_credentials_before_formatting(store: Path, secret_params: dict) -> None:

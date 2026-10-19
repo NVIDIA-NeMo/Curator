@@ -49,7 +49,7 @@ def test_cloud_credentials_are_masked_in_display_history_and_kept_only_in_the_ex
                     "params": {
                         "manifest_path": "s3://bucket/input.jsonl",
                         "storage_options": {
-                            "account_key": "opaque-account-key",
+                            "account_key": "opaque-account-key",  # pragma: allowlist secret
                             "headers": {"Authorization": "opaque-authorization"},
                         },
                     },

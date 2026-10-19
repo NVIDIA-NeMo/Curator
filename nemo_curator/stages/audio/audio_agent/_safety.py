@@ -51,7 +51,7 @@ from urllib.parse import unquote, urlsplit
 if TYPE_CHECKING:
     from collections.abc import Collection
 
-_SMOKE_SECRET_ENV = "AUDIO_AGENT_SMOKE_SECRET"  # noqa: S105
+_SMOKE_SECRET_ENV = "AUDIO_AGENT_SMOKE_SECRET"  # noqa: S105  # pragma: allowlist secret
 # Same variable ``run_store`` reads; the smoke secret prefers the agent's own state dir
 # so a deployment that already redirects run records keeps its secret beside them.
 _RUNS_DIR_ENV = "AUDIO_AGENT_RUNS_DIR"

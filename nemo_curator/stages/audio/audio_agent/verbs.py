@@ -734,6 +734,7 @@ def _verify_continuation_context(  # noqa: PLR0911, C901, PLR0912 - each refusal
         "dataset_key": dataset_key,
         "fingerprint_tier": str(getattr(artifact, "fingerprint_tier", "") or ""),
         "data_source": logical_binding.primary_path,
+        "source_items": logical_profile.num_files,
         "step_identity": [(plan.step_key, plan.input_key, plan.index) for plan in logical_plans[reused_plan.index :]],
         "logical_steps": [plan.step_key for plan in logical_plans],
     }, ""
@@ -2542,6 +2543,9 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     )
     if pretrain_output_rows is not None:
         report_obj.accepted = pretrain_output_rows
+    source_recipe = Recipe.from_dict(_continuation_context.logical_recipe) if logical_identity else rec
+    if logical_identity:
+        report_obj.input_count = logical_identity["source_items"]
     terminal_outputs, cardinality_proven = _terminal_evidence_outputs(
         rec,
         list(getattr(report_obj, "output_paths", []) or []),
@@ -2559,7 +2563,9 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     report_obj.sparse_fields = sparse_fields_in(output_scan)
     report_obj.cardinality_proven = cardinality_proven
     report_obj.rejected = (
-        source_rejection_count(rec, report_obj.source_items, report_obj.output_rows, stages=stages)
+        source_rejection_count(
+            source_recipe, report_obj.source_items, report_obj.output_rows, stages=None if logical_identity else stages
+        )
         if cardinality_proven
         else None
     )
@@ -2583,6 +2589,7 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
         keys,
         list(getattr(report_obj, "output_paths", []) or []),
         output_scan=output_scan,
+        source_recipe=source_recipe,
         finalized_output=(pretrain_finalizer.manifest_path, pretrain_output_rows)
         if pretrain_finalizer is not None and pretrain_output_rows is not None
         else None,
@@ -3053,6 +3060,17 @@ def _step_keys(rec: Recipe, dataset_key: str) -> list[str]:
         return []
 
 
+def _yield_input_count(rec: Recipe, input_count: int | None, output_rows: int) -> int | None:
+    """Provide a percentage denominator only when output rows represent source items.
+
+    Absolute yield still counts output rows. Fan-out and aggregation require
+    source provenance before those rows can establish source-relative retention.
+    """
+    if input_count is None or source_rejection_count(rec, input_count, output_rows) is None:
+        return None
+    return input_count
+
+
 def _acceptance_result(  # noqa: PLR0913
     rec: Recipe,
     report: Any,  # noqa: ANN401
@@ -3062,6 +3080,7 @@ def _acceptance_result(  # noqa: PLR0913
     *,
     output_scan: dict[str, Any] | None = None,
     finalized_output: tuple[str, int] | None = None,
+    source_recipe: Recipe | None = None,
 ) -> dict[str, Any]:
     """Verify the run's own success contract against the evidence it just produced.
 
@@ -3118,7 +3137,9 @@ def _acceptance_result(  # noqa: PLR0913
                 "metrics": _aggregate_metrics(output_scan),
                 "expected_output_rows": expected_output_rows,
                 "retained": int(getattr(report, "accepted", 0)),
-                "input_count": int(getattr(report, "input_count", 0)),
+                "input_count": _yield_input_count(
+                    source_recipe or rec, int(getattr(report, "input_count", 0)), int(getattr(report, "accepted", 0))
+                ),
             },
         )
     except Exception as e:  # noqa: BLE001 - report the failure, but do not fail a completed run
@@ -3369,7 +3390,7 @@ def report(output: str, *, recipe: Recipe | dict[str, Any] | None = None, data: 
                 "retained": accepted,
                 # A relative-yield denominator must come from actual source
                 # evidence; substituting accepted would manufacture 100%.
-                "input_count": input_count,
+                "input_count": _yield_input_count(rec, input_count, accepted),
             },
             recipe=rec,
         )
@@ -5164,7 +5185,7 @@ def _serve_as_is(rec: Recipe, plan: dict[str, Any], *, parent: Any, lineage: dic
             # Relative yield is defined against the producing run's source
             # inventory.  Substituting output rows here manufactures 100%
             # retention whenever the run record is unavailable.
-            "input_count": source_input_count,
+            "input_count": _yield_input_count(rec, source_input_count, int(point.get("rows") or 0)),
         },
     )
     checked = len(rec.acceptance_criteria)
@@ -6382,18 +6403,26 @@ def _empty_required_outputs(rec: Recipe, rows: list[dict[str, Any]]) -> list[str
     cannot be inspected at all, a deterministic required output is unverifiable
     and therefore also cannot authorize a full run.
     """
-    from nemo_curator.stages.audio.audio_agent.acceptance import parse_criteria
+    from nemo_curator.stages.audio.audio_agent.acceptance import _resolve_output_field, parse_criteria
 
-    keys: list[str] = []
-    for c in parse_criteria(getattr(rec, "acceptance_criteria", None) or []):
-        if c.type == "output_completeness" and c.is_deterministic:
-            key = c.field_name or (c.compiles_to if c.compiles_to and c.compiles_to != "producible_role" else None)
-            if key:
-                keys.append(key)
+    observed = {key for row in rows for key in row}
     empty: list[str] = []
-    for key in keys:
-        if not rows or any(key not in row or _is_value_empty(row.get(key)) for row in rows):
-            empty.append(key)
+    for criterion in parse_criteria(rec.acceptance_criteria):
+        if criterion.type != "output_completeness" or criterion.severity != "must" or not criterion.is_deterministic:
+            continue
+        target = criterion.compiles_to if criterion.compiles_to != "producible_role" else None
+        target = target or criterion.field_name
+        if not target:
+            continue
+        key, mapped = _resolve_output_field(
+            target,
+            physical_field=criterion.field_name,
+            produced_roles=set(),
+            produced_keys=set(),
+            observed_fields=observed,
+        )
+        if not mapped or not rows or any(key not in row or _is_value_empty(row.get(key)) for row in rows):
+            empty.append(criterion.field_name or target)
     return empty
 
 

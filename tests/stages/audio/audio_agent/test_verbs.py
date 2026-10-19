@@ -1478,3 +1478,57 @@ def test_pretrain_finalizer_refuses_mismatched_reconciliation_keys() -> None:
     )
     assert finalizer is None
     assert "id_key" in error
+
+
+@pytest.mark.parametrize(
+    ("processing", "expected"),
+    [
+        ({"ref": "GetAudioDurationStage"}, "met"),
+        ({"ref": "VADSegmentationStage", "params": {"nested": False}}, "unverifiable"),
+        ({"ref": "AudioToDocumentStage"}, "unverifiable"),
+    ],
+)
+def test_relative_yield_requires_source_preserving_cardinality(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, processing: dict, expected: str
+) -> None:
+    source = tmp_path / "input.jsonl"
+    source.write_text("{}\n" * 10)
+    output = tmp_path / "output.jsonl"
+    output.write_text('{"original_file":"one-recording"}\n' * 10)
+    monkeypatch.setattr(verbs, "probe_env", lambda: SimpleNamespace(to_dict=dict))
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(source)}},
+                processing,
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(output)}},
+            ],
+            "acceptance_criteria": [
+                {"id": "retention", "type": "yield", "kind": "relative", "check": {"op": ">=", "value": 80}},
+                {"id": "rows", "type": "yield", "check": {"op": ">=", "value": 8}},
+            ],
+        }
+    )
+    report = SimpleNamespace(accepted=10, input_count=10)
+    run_acceptance = verbs._acceptance_result(recipe, report, [], [])
+    posthoc = verbs.report(str(output), recipe=recipe)
+    suffix = Recipe.from_dict(
+        {
+            "stages": [recipe.stages[0].to_dict(), recipe.stages[-1].to_dict()],
+            "acceptance_criteria": recipe.acceptance_criteria,
+        }
+    )
+    continued = verbs._acceptance_result(suffix, report, [], [], source_recipe=recipe)
+
+    reused = verbs._serve_as_is(
+        recipe,
+        {"reuse_point": {"uri": str(output), "rows": 10}},
+        parent=SimpleNamespace(input_count=10, status="completed"),
+        lineage={},
+    )
+
+    assert reused["status"] == "reused"
+    for acceptance in (run_acceptance, posthoc["acceptance"], reused["acceptance"], continued):
+        results = {criterion["id"]: criterion["status"] for criterion in acceptance["criteria"]}
+        assert results == {"retention": expected, "rows": "met"}
+    assert posthoc["input_count"] == posthoc["output_rows"] == 10

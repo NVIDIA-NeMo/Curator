@@ -935,3 +935,51 @@ def test_resource_planning_failure_is_structured_and_cleans_output_sandbox(
     assert "resource planning failed" in result["reason"]
     assert roots and all(not os.path.exists(root) for root in roots)  # noqa: PT018
     assert "smoke_token" not in result
+
+
+@pytest.mark.parametrize(
+    ("rows", "criteria", "authorized"),
+    [
+        (
+            [{"pred_text": "recognized speech"}],
+            [{"id": "transcript", "type": "output_completeness", "check": {"field": "transcript"}}],
+            True,
+        ),
+        (
+            [{"pred_text": "recognized speech"}],
+            [
+                {"id": "required", "type": "output_completeness", "check": {"field": "pred_text"}},
+                {"id": "optional", "type": "output_completeness", "severity": "nice", "check": {"field": "words"}},
+            ],
+            True,
+        ),
+        (
+            [{"pred_text": "recognized speech"}, {"pred_text": ""}],
+            [{"id": "transcript", "type": "output_completeness", "check": {"field": "transcript"}}],
+            False,
+        ),
+    ],
+)
+def test_smoke_completeness_matches_required_output_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rows: list[dict[str, Any]],
+    criteria: list[dict[str, Any]],
+    authorized: bool,
+) -> None:
+    source = tmp_path / "input.jsonl"
+    source.write_text("{}\n" * len(rows))
+    _stub_smoke_runtime(monkeypatch, lambda _source: None)
+    monkeypatch.setattr(
+        verbs,
+        "_run_pipeline_autofallback",
+        lambda *_args, **_kwargs: ([AudioTask(data=row) for row in rows], "batch"),
+    )
+    recipe = _source_recipe("ManifestReader", {"manifest_path": str(source)})
+    recipe["acceptance_criteria"] = criteria
+
+    result = verbs.smoke(recipe, sample=len(rows))
+
+    assert result["ran"] is True
+    assert result["goals_met"] is authorized
+    assert ("smoke_token" in result) is authorized
