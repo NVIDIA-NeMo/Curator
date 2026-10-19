@@ -14,6 +14,7 @@
 
 """Benchmark the complete audio text tutorial on a fixed transcript cohort."""
 
+
 import argparse
 import copy
 import hashlib
