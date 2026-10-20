@@ -36,16 +36,42 @@ Use Linux x86_64 with CUDA, FFmpeg, and at least two GPUs with enough memory for
 Model startup and the first weight download can take several minutes, even for
 a small input.
 
-From the Curator repository root:
+Use a dedicated Python 3.12.9 environment for this Qwen pipeline. Its vLLM and
+PyTorch versions match the model stack used for the observed throughput below.
+The Python patch version is pinned because the small streaming data preparation
+failed during interpreter shutdown with Python 3.12.3. Install
+[uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12 or newer, then run
+from the Curator repository root:
 
 ```bash
-uv sync --extra audio_cuda12 --extra vllm
-source .venv/bin/activate
+UV_PYTHON_INSTALL_DIR="$PWD/.python-qwen-omni" \
+  uv venv --no-config --managed-python --python 3.12.9 .venv-qwen-omni
+source .venv-qwen-omni/bin/activate
+uv pip install --no-config --no-sources --torch-backend cu128 --editable . \
+  'vllm==0.15.1' 'torch==2.9.1+cu128' 'torchaudio==2.9.1+cu128' \
+  'torchvision==0.24.1+cu128' \
+  'transformers==4.57.6' 'qwen-omni-utils==0.0.9' 'ray==2.57.0' \
+  'numpy==2.2.0' 'soundfile==0.13.1' 'librosa==0.11.0' \
+  'pyarrow==25.0.0' 'datasets==5.0.1' 'huggingface-hub==0.36.2' \
+  gpustat pytest GitPython rich
+uv pip install --no-config --no-sources 'torchcodec==0.9.0'
+uv pip check --no-config
 command -v ffmpeg
-python -c 'import torch; assert torch.cuda.device_count() >= 2, "At least two CUDA GPUs are required"'
+python -c 'import sys, torch; print(sys.executable, torch.__version__); assert torch.cuda.device_count() >= 2, "At least two CUDA GPUs are required"'
 ```
 
-Run the remaining commands from that same directory and activated environment.
+The environment lives in `.venv-qwen-omni`, with its Python interpreter in
+`.python-qwen-omni`. Keep both directories available on every worker. Activating
+the environment makes `python` and `hf` use its packages; the editable install
+loads Curator from this checkout.
+TorchCodec is installed separately from PyPI for CPU audio decoding; Qwen
+inference uses the CUDA-enabled PyTorch installation.
+The `--no-config --no-sources` options keep the repository's shared CUDA package
+overrides and indexes out of this dedicated installation. Use these commands
+instead of the repository-wide `uv sync` for this tutorial, and run the remaining
+commands from the repository root with this environment activated. In a new
+shell, run `source .venv-qwen-omni/bin/activate` again.
+
 For an existing Ray cluster, set `RAY_ADDRESS`; audio and workspace paths must
 be accessible to every worker. FFmpeg must also be installed on each worker.
 

@@ -714,20 +714,14 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 `nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
-The benchmark requires the dedicated Indic ASR image on Linux x86_64. Build
-and check it from the repository root:
-
-```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
-docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
-```
-
-The image keeps Python 3.12 / TensorRT-LLM 1.2.1 / Torch 2.9.1 together in
-`/opt/venv`, including the audio and benchmark dependencies. Curator, Indic
-Canary, Parakeet TensorRT, and WER run in that same environment; there is no
-child runtime or dependency installation during inference. The root
-`pyproject.toml` and `uv.lock` do not select this stack. Normal Curator profiles
-retain their existing dependencies and can still be selected together.
+Follow the [Indic ASR tutorial environment and model instructions](../tutorials/audio/granary_v2/indic_asr/README.md#1-build-and-check-the-environment)
+first, including its shared Granary image, runtime environment, model bundles and
+eight-H100 allocation. Use the same image and unchanged
+[pipeline.yaml](../tutorials/audio/granary_v2/indic_asr/pipeline.yaml) for both
+executors. The benchmark loads that YAML directly; it changes only input/output
+paths and executor, retaining the tutorial's model settings, batch64, eight
+workers per model, reader/preparation worker counts and Ray resources. Input
+validation and manifest sharding happen before the pipeline timer.
 
 The Indic run entries are intentionally absent from `benchmarks.yaml`; the
 dataset mapping and `nightly-data-setup.yaml` entry remain available. The
@@ -741,7 +735,6 @@ at `/model_weights`, and a writable result directory at `/results`. Inside the
 dedicated image, from `/opt/Curator`, run:
 
 ```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python benchmarking/scripts/audio_indic_asr_benchmark.py \
   --benchmark-results-path=/results/indic_asr_xenna \
   --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
@@ -760,9 +753,8 @@ root `uv sync` in it: that would replace the dedicated native stack with the
 normal `all` dependencies. A site-specific harness configuration must explicitly
 select this image; the standard nightly environment does not supply it.
 
-The host or container runtime must independently provide a CUDA-13-capable
-NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported
-data-center GPU. The benchmark imports the actual TensorRT-LLM native bindings,
+The shared image supplies CUDA 13 forward-compatibility libraries; preserve its
+loader path and the tutorial's runtime settings. The benchmark imports the actual TensorRT-LLM native bindings,
 NeMo ASR, the Parakeet adapter, and text normalization, then validates complete
 engine inventories before its processor-chain timer starts. Harness
 `exec_time_s` still includes the entire benchmark subprocess, including those
@@ -919,8 +911,10 @@ pinned model revision, batching, and all eight stages. Only the input
 size, paths, and executor change. The script is standalone; it is not registered
 in `benchmarks.yaml`.
 
-Use the [tutorial environment](../tutorials/audio/granary_v2/qwen_omni_asr/README.md#1-set-up-the-environment).
-From the repository root, stage a five-hour LibriSpeech sample and the model:
+Use the [tutorial environment](../tutorials/audio/granary_v2/qwen_omni_asr/README.md#1-set-up-the-environment)
+for both executors, with `.venv-qwen-omni` activated. Keep the same installed
+packages for the tutorial and benchmark. From the repository root, stage a
+five-hour LibriSpeech sample and the model:
 
 ```bash
 python benchmarking/data_prep/prepare_librispeech_data.py \

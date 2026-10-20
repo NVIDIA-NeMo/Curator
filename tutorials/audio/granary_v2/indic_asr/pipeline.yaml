@@ -38,23 +38,39 @@ hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
 
 backend: xenna
 execution_mode: streaming
-primary_workers: 1
-fallback_workers: 1
-asr_batch_size: 2
+read_concurrency: 4
+prep_workers: 24
+primary_workers: 8
+fallback_workers: 8
+asr_batch_size: 64
 
 ray_client:
   _target_: nemo_curator.core.client.RayClient
   include_dashboard: false
+  num_cpus: 128
+  num_gpus: 8
+  object_store_memory: 536870912000
 
 stages:
   # 1. Read each input JSONL row; audio is decoded by the next stage.
-  - _target_: nemo_curator.stages.audio.common.ManifestReader
-    manifest_path: ${manifest_path}
-    files_per_partition: 1
+  - _target_: nemo_curator.stages.base.CompositeStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.common.ManifestReader
+      manifest_path: ${manifest_path}
+      files_per_partition: 1
+    stage_with_dict:
+      manifest_reader_stage:
+        num_workers: ${read_concurrency}
 
   # 2. Validate Hindi references and 16 kHz audio, then load the waveform.
-  - _target_: nemo_curator.stages.audio.preprocessing.indic_asr.PrepareIndicASRInputStage
-    audio_root: ${dataset_dir}
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.preprocessing.indic_asr.PrepareIndicASRInputStage
+      audio_root: ${dataset_dir}
+    batch_size: ${asr_batch_size}
+    num_workers: ${prep_workers}
 
   # 3. Primary ASR: TensorRT encoder + TensorRT-LLM decoder.
   - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
@@ -74,11 +90,15 @@ stages:
       gpu_memory_gb: 50
 
   # 4. Annotate suspicious primary transcripts without dropping rows.
-  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
-    name: WhisperHallucination_primary
-    common_hall_file: ${hall_phrases}
-    text_key: primary_model_prediction
-    language_key: source_lang
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+      name: WhisperHallucination_primary
+      common_hall_file: ${hall_phrases}
+      text_key: primary_model_prediction
+      language_key: source_lang
+    batch_size: ${asr_batch_size}
 
   # 5. Recovery candidate: TensorRT encoder + NeMo/PyTorch RNN-T decoder.
   - _target_: nemo_curator.stages.audio.inference.parakeet.InferenceParakeetStage
@@ -97,45 +117,70 @@ stages:
       gpu_memory_gb: 24
 
   # 6. A valid fallback can clear the primary hallucination flag.
-  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
-    name: WhisperHallucination_asr
-    common_hall_file: ${hall_phrases}
-    text_key: fallback_model_prediction
-    language_key: source_lang
-    overwrite: true
-    recovery_value: Recovered:ASR
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+      name: WhisperHallucination_asr
+      common_hall_file: ${hall_phrases}
+      text_key: fallback_model_prediction
+      language_key: source_lang
+      overwrite: true
+      recovery_value: Recovered:ASR
+    batch_size: ${asr_batch_size}
 
   # 7. Select a transcript, with short-audio reference substitution disabled.
-  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
-    primary_text_key: primary_model_prediction
-    fallback_text_key: fallback_model_prediction
-    output_key: best_prediction
-    source_key: best_prediction_source
-    primary_source_label: primary
-    fallback_source_label: fallback
-    reference_text_key: granary_v1_prediction
-    use_ground_truth_for_short_audio: false
-    primary_model_type: indic_canary
-    language_key: source_lang
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+      primary_text_key: primary_model_prediction
+      fallback_text_key: fallback_model_prediction
+      output_key: best_prediction
+      source_key: best_prediction_source
+      primary_source_label: primary
+      fallback_source_label: fallback
+      reference_text_key: granary_v1_prediction
+      use_ground_truth_for_short_audio: false
+      primary_model_type: indic_canary
+      language_key: source_lang
+    batch_size: ${asr_batch_size}
 
   # 8. Normalize punctuation, character sets, and whitespace.
-  - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
-    regex_params_yaml: ${regex_yaml}
-    text_key: best_prediction
-    output_text_key: cleaned_text
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+      regex_params_yaml: ${regex_yaml}
+      text_key: best_prediction
+      output_text_key: cleaned_text
+    batch_size: ${asr_batch_size}
 
   # 9. Join eligible spaced abbreviations.
-  - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
-    text_key: cleaned_text
-    output_text_key: abbreviated_text
-    source_lang_key: source_lang
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+      text_key: cleaned_text
+      output_text_key: abbreviated_text
+      source_lang_key: source_lang
+    batch_size: ${asr_batch_size}
 
   # 10. Compare the final transcript to the reference, as a percentage.
-  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
-    text_key: reference_text
-    pred_text_key: abbreviated_text
-    wer_key: wer_pct
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
+      text_key: reference_text
+      pred_text_key: abbreviated_text
+      wer_key: wer_pct
+    batch_size: ${asr_batch_size}
 
   # 11. This stage owns one writer; use a fresh output path for every run.
-  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
-    output_path: ${output_path}
+  - _target_: nemo_curator.stages.base.ProcessingStage.with_
+    _convert_: all
+    _args_:
+    - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+      output_path: ${output_path}
+    batch_size: ${asr_batch_size}
+    num_workers: 1

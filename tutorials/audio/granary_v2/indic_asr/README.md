@@ -34,23 +34,30 @@ flagged rows bypass text cleanup.
 
 ## 1. Build and check the environment
 
-On a Linux x86_64 host with Docker and the NVIDIA Container Toolkit, run
-from the root of this Curator checkout:
+Use Linux x86_64, Docker Buildx and the NVIDIA Container Toolkit. Complete the
+[shared Granary image build](../metadata/README.md#build-the-image) from this
+checkout first. Those commands build `curator-granary-metadata` with the checked-in
+`docker/audio/Dockerfile.trt_llm` `granary` target and bounded build resources.
+Use that same image for this tutorial and its benchmarks. From the repository root:
 
 ```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-asr .
-docker run --rm --gpus all curator-indic-asr python docker/audio/check_trt_llm.py
+docker run --rm --gpus all curator-granary-metadata python docker/audio/check_trt_llm.py
 ```
 
-**GPU:** an 80 GB H100 is suitable for H100-built engine bundles. The
-configuration reserves 50 GiB for Canary and 24 GiB for Parakeet. Use an
-NVIDIA driver compatible with CUDA 13, or a supported data-center
-forward-compatibility setup.
+The shared configuration requires 128 logical CPUs, eight H100 80 GB GPUs and
+a 500 GiB Ray object store; provide at least that much shared memory and RAM for
+the models and workers. A 1 TiB host is recommended. Each Canary worker reserves
+50 GiB and each Parakeet worker reserves 24 GiB, allowing one of each per H100.
 
 The [audio Dockerfile](../../../../docker/audio/Dockerfile.trt_llm) installs
 Curator with Python 3.12, Torch 2.9.1, TensorRT-LLM 1.2.1, and
-TensorRT 10.14.1.48.post1. The second command checks the native libraries
-and GPU access. Fix any errors before continuing.
+TensorRT 10.14.1.48.post1. The shared `granary` target pins NeMo to reference
+commit `5d56c27c0e80f4cd8c93b28bacca5f98440a45f9`, also used by the metadata
+tutorial, and supplies CUDA 13 forward-compatibility libraries for supported
+data-center GPUs. Keep the image's loader path, thread settings and
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. The command
+above checks native libraries and GPU access; the tutorial run then checks both
+actual ASR engine bundles.
 
 Reuse this image for subsequent runs. Do not run `uv sync` inside it:
 that would replace the inference environment.
@@ -66,12 +73,13 @@ Create the work directories and open the container. **Replace
 ```bash
 mkdir -p indic-asr-work/data indic-asr-work/output indic-asr-work/ray-logs
 docker run --rm -it --gpus all --ipc=host \
-  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e RAY_DATA_OP_RESERVATION_RATIO=0 \
+  -e RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB=4096 \
   -v "$PWD/indic-asr-work/data:/data" \
   -v "$PWD/indic-asr-work/output:/outputs" \
   -v "$PWD/indic-asr-work/ray-logs:/tmp/ray" \
   -v /absolute/path/to/engines:/models:ro \
-  curator-indic-asr bash
+  curator-granary-metadata bash
 ```
 
 Run steps 2–4 **inside this container**, from `/opt/Curator`.
@@ -103,8 +111,10 @@ reuses identical files. It refuses to overwrite conflicting files.
 ## 3. Run the pipeline
 
 The settings and all eleven stages are in [pipeline.yaml](pipeline.yaml).
-The default uses the Xenna executor, one worker per model, and batches
-of two clips:
+The default uses the Xenna executor, eight workers per model, batches of 64,
+four manifest readers and 24 preparation workers. The benchmark loads this same
+YAML; only the input size, paths and executor change. The two-clip tutorial uses
+these settings too, so startup dominates its elapsed time:
 
 ```bash
 set -o pipefail
@@ -325,6 +335,9 @@ and 347-new-token limit. Their command-line arguments have been checked,
 but fresh checkpoint conversion has not been validated here.
 
 ## Observed throughput
+
+These historical results used the same model batching and worker counts with
+released NeMo 3.0.0. They are not measurements of the shared Granary image above.
 
 | Measurement | Result |
 | --- | --- |
