@@ -761,6 +761,37 @@ engine inventories before its processor-chain timer starts. Harness
 `exec_time_s` still includes the entire benchmark subprocess, including those
 preflight checks; environment creation and data staging belong before it.
 
+#### Indic ASR observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the tutorial's Granary
+environment and model bundles. Each executor processed the same 216,164 Hindi
+clips totaling 531.75763 audio hours on one node with eight NVIDIA H100 80 GB
+GPUs, batch size 64 and eight workers per model.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 624.493 s | 531.098 s | 3,604.471 | 450.559 |
+| Ray Data | 5,028.510 s | 4,938.302 s | 387.649 | 48.456 |
+
+These rates divide source audio hours by the recorded `pipeline_time_s`,
+converted to hours, then by eight allocated GPUs for the per-GPU figure.
+The saved benchmark metric uses `time_taken_s`, which also includes output
+validation: 537.703 s for Xenna and 4,944.549 s for Ray Data. Its corresponding
+rates are 3,560.197 and 387.159 audio-hours/hour. Full-process rates are
+3,065.410 and 380.695 audio-hours/hour. Dataset and model preparation precede
+all three measurements.
+
+Both outputs preserve every input identity and reference. Mean per-row WER
+was 12.1986232735% for Xenna and 12.1986298149% for Ray Data, with 37 and 36
+flagged rows retained. Selected transcripts differ on 9,383 rows and three
+skip decisions differ, so similar aggregate WER does not establish exact
+output parity. Xenna met the 600–900 second full-process target; Ray Data
+took 8.05× as long. The middle 80% of each run had a median sampled active
+GPU count of eight for Xenna and one for Ray Data. Dividing by allocated
+GPUs does not establish scaling efficiency.
+
+#### Audio workload summary
+
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,
 validates, and publishes a replacement when an older or incomplete cohort is
@@ -771,7 +802,7 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| Hindi Indic ASR | Production Slurm pipeline only | Retained standalone benchmark: Xenna and Ray Data share the 216,164-clip / 531.75763h cohort after rejecting five exactly identified corrupt FLACs. Both use eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. The prior Xenna calibration target was 600-900s full process wall time on 8xH100; neither executor is registered in the standard nightly matrix. |
+| Hindi Indic ASR | Production Slurm pipeline only | 2026-10-20, 216,164 clips / 531.75763h on 8× H100: Xenna 624.493s full process / 531.098s pipeline; Ray Data 5,028.510s / 4,938.302s. Pipeline throughput: 3,604.471 / 387.649 audio-hours/hour. Xenna met the 600–900s full-process target. Neither executor is registered in the standard nightly matrix. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ### Granary metadata extraction
@@ -864,7 +895,9 @@ number of allocated GPUs to report audio-hours/GPU-hour. The timer
 excludes dataset downloading and container construction. Tasks are not
 retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
 
-In the [2026-10-20 EOS benchmark run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/75184137),
+#### Observed throughput
+
+In the 2026-10-20 EOS benchmark run,
 each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
 30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
 `8d27505764d4cf941bee31e9faf82c6b685b6432` and the same pinned NeMo
@@ -872,13 +905,14 @@ runtime as the tutorial. The existing immutable image was reused with the
 verified source checkout. The input manifest SHA-256 is
 `9c6f7d8f61af7c74d5d574d21ec19c70c07f399564592d8fd9d39eb06998e99e`.
 
-| Executor | Harness wall time (`exec_time_s`) | Pipeline time (`time_taken_s`) | Output validation |
-| --- | ---: | ---: | --- |
-| [Xenna streaming](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497618497) | 863.954 s | 821.388 s | Passed; 100% source coverage |
-| [Ray Data](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497618498) | 2374.678 s | 2333.515 s | Passed; 100% source coverage |
+| Executor | Full process (`exec_time_s`) | Pipeline (`time_taken_s`) | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 863.954 s | 821.388 s | 472.309 | 59.039 |
+| Ray Data | 2,374.678 s | 2,333.515 s | 166.251 | 20.781 |
 
 Xenna met the 600–900 second wall-time target; Ray Data took 2.75× as long.
-Each executor emitted 38,416 speech clips plus one no-speech audit row, with
+Both passed output validation with 100% source coverage. Each executor emitted
+38,416 speech clips plus one no-speech audit row, with
 218 language-rejection flags. Segment intervals, speaker counts, selected
 languages, skip reasons, SED events and all RTTM files matched across executors.
 Language-identification audit values differed on 15,626 rows without changing
@@ -889,7 +923,10 @@ The harness wall time includes input inspection and output validation, which
 are outside the pipeline timer. Data staging and model-engine preparation
 precede measurement; each executor writes to a fresh output directory.
 GPU samples show processing activity across all eight devices for Xenna;
-Ray Data used physical GPU 7 only briefly. These timings
+Ray Data used physical GPU 7 only briefly. Pipeline throughput divides source
+audio hours by pipeline time in hours; per-GPU throughput divides that rate
+by all eight allocated GPUs. Full-process throughput is 449.039 audio-hours/hour
+for Xenna and 163.369 for Ray Data. These timings
 compare the configured executors on equal allocations; they do not establish
 eight-GPU scaling efficiency.
 
@@ -966,8 +1003,7 @@ output structure, not transcription accuracy.
 
 #### Observed throughput
 
-The [2026-10-20 EOS runs](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/75206015)
-used Curator [`8d275057`](https://github.com/NVIDIA-NeMo/Curator/commit/8d27505764d4cf941bee31e9faf82c6b685b6432)
+The 2026-10-20 EOS runs used Curator `8d275057`
 and the documented tutorial environment. One run per executor processed the
 same 22,710 unique English LibriSpeech clips totaling 80.61259 audio hours.
 Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
@@ -975,8 +1011,8 @@ Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
 
 | Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
 | --- | --- | --- | --- | --- |
-| [Xenna streaming](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787186) | 719.284 s | 713.711 s | 406.615 | 50.827 |
-| [Ray Data](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787187) | 1,276.624 s | 1,270.467 s | 228.424 | 28.553 |
+| Xenna streaming | 719.284 s | 713.711 s | 406.615 | 50.827 |
+| Ray Data | 1,276.624 s | 1,270.467 s | 228.424 | 28.553 |
 
 Both produced all 22,710 outputs, preserved the input transcripts, used the
 original transcript for five clips, and left zero rows flagged. Xenna met the
@@ -1096,6 +1132,36 @@ by object identity, so separately deserialized copies can inflate batch totals.
 Use the independently calculated row/request throughput and operation counts for
 comparisons. These checks prove execution coverage, not semantic parity or model
 quality. Inspect the output fields and fallback counts before interpreting
+throughput.
+
+### Observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the documented tutorial
+environment on one node with eight NVIDIA H100 80 GB GPUs. Both executors
+processed the same 14,290 English transcript rows sequentially against the
+same running server: four TP=2 replicas, batch size 128, 12 workers and
+256 concurrent requests per worker.
+
+| Executor | Pipeline with running server | Pipeline rows/second | Pipeline rows/GPU-second |
+| --- | ---: | ---: | ---: |
+| Xenna streaming | 471.889 s | 30.283 | 3.785 |
+| Ray Data | 1,169.686 s | 12.217 | 1.527 |
+
+Rates divide input rows by pipeline seconds; per-GPU rates divide by all
+eight allocated GPUs. The shared server took 510.097 seconds to start,
+outside both pipeline timers. Individual full-process wall times were not
+recorded, so these results do not establish a 600–900 second full-process
+target. All nine operations, the reader and writer are included in each
+pipeline run. These are row rates, not token rates or audio-hour rates.
+
+Both outputs preserve every input identity, original transcript and immutable
+field. Xenna retained five language-flagged rows and Ray Data retained four.
+The 865/870 operation fallbacks preserve prior text after text guards; no
+request-failure or empty-response fallback notes were found. Generated,
+audit or status values differ on 7,727 rows, including one language-rejection
+decision, so exact generated-output parity was not achieved.
+All eight GPUs recorded sustained work in both benchmark process windows;
+this does not establish scaling efficiency or isolate individual operation
 throughput.
 
 ## Writing Benchmark Scripts

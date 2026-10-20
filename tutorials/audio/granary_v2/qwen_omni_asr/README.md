@@ -261,8 +261,7 @@ paths are shortened; generated text and stage decisions are shown as recorded.
 
 ## Observed throughput
 
-The [2026-10-20 EOS runs](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/75206015)
-used Curator [`8d275057`](https://github.com/NVIDIA-NeMo/Curator/commit/8d27505764d4cf941bee31e9faf82c6b685b6432)
+The 2026-10-20 EOS runs used Curator `8d275057`
 and the environment documented above. One run per executor processed the same
 22,710 unique English LibriSpeech clips, totaling 80.61259 audio hours.
 Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
@@ -290,8 +289,6 @@ with repeated model initialization and two GPUs without qualifying model work.
 Per-GPU throughput divides whole-node throughput by all eight allocated GPUs;
 these measurements do not establish scaling efficiency. Both runs logged worker
 shutdown diagnostics despite complete outputs and normal process exits.
-See the completed [Xenna job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787186)
-and [Ray Data job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787187).
 
 ## Troubleshooting
 

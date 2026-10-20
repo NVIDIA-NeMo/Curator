@@ -340,29 +340,35 @@ and 347-new-token limit.
 
 ## Observed throughput
 
-On October 20, 2026, one run per executor used Curator
-[`8d275057`](https://github.com/NVIDIA-NeMo/Curator/commit/8d27505764d4cf941bee31e9faf82c6b685b6432)
-and the immutable Granary image described above. Both ran on one node with
-8 × NVIDIA H100 80GB HBM3 GPUs, batch size 64 and eight workers per model,
-using the same 216,164 Hindi clips (531.75763 audio hours) and engine bundles.
+The 2026-10-20 EOS runs used Curator `8d275057` and the immutable Granary image
+described above. One run per executor received one node with
+8 × NVIDIA H100 80GB HBM3 GPUs, batch size 64 and eight workers
+per model, using the same 216,164 Hindi clips (531.75763 audio hours) and engine bundles.
 
 | Measurement | Xenna streaming | Ray Data |
 | --- | ---: | ---: |
 | Full benchmark process | 624.493 seconds | 5,028.510 seconds |
 | Pipeline time | 531.098 seconds | 4,938.302 seconds |
+| Whole-node pipeline throughput | **3,604.471 audio-hours/hour** | **387.649 audio-hours/hour** |
+| Pipeline throughput per allocated GPU | **450.559 audio-hours/GPU-hour** | **48.456 audio-hours/GPU-hour** |
 | Full-process throughput, audio-hours/hour | 3,065.410 | 380.695 |
 | Mean per-row WER | 12.1986232735% | 12.1986298149% |
 | Retained flagged rows | 37 | 36 |
 
-Pipeline time measures `Pipeline.run()`; full-process wall time also includes
-process startup and output validation. Throughput uses the full-process clock.
+Pipeline time measures `Pipeline.run()`, including model startup, all eleven
+stages, and executor shutdown. Full-process wall time also includes imports,
+input preparation and output validation. Data and model staging and scheduler
+queue time are excluded. Pipeline throughput uses the pipeline clock;
+full-process throughput uses the full-process clock. The benchmark's stored
+`time_taken_s` and `throughput_audio_hours_per_hour` include output validation
+after `Pipeline.run()` and therefore differ from the pure pipeline rates above.
 Both outputs retain every input identity and reference, and every row's WER
 was independently checked. Selected transcripts differ on 9,383 rows, and
 three skip decisions differ; close aggregate WER does not establish exact parity.
 The middle 80% of each run had a median sampled active GPU count of eight
-for Xenna and one for Ray Data. This measures utilization, not scaling efficiency.
-See the completed [Xenna job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497628144)
-and [Ray Data job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497628145).
+for Xenna and one for Ray Data. Per-GPU throughput divides whole-node pipeline
+throughput by all eight allocated GPUs; it does not establish scaling efficiency.
+NeMo-CI jobs: Xenna `497628144`; Ray Data `497628145`.
 
 ## What each stage does
 

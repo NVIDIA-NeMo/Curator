@@ -266,6 +266,37 @@ exit
 The container is removed when it exits. Inputs, outputs and caches remain in the
 three mounted host directories.
 
+## Observed throughput
+
+The October 20, 2026 EOS run used Curator `8d275057` and the environment
+documented above. One run per executor processed the same
+14,290 English transcript records sequentially on one node with 224 logical CPUs
+and eight H100 GPUs. Both used the same running Gemma FP8 server with four
+two-GPU replicas, batch size 128, 12 workers per processing stage, and up to 256
+concurrent requests per worker.
+
+| Measurement | Xenna streaming | Ray Data |
+| --- | --- | --- |
+| Pipeline time with the server already running | 471.889 seconds | 1,169.686 seconds |
+| Whole-node pipeline throughput | **30.283 rows/second** | **12.217 rows/second** |
+| Pipeline throughput per allocated GPU | **3.785 rows/GPU/second** | **1.527 rows/GPU/second** |
+
+These pipeline clocks include reading, all nine processing operations and writing
+the output. Both client runs used the same shared model server; its 510.097-second
+startup, driver setup and benchmark validation are excluded. Individual full
+benchmark process times were not measured separately, so these results do not
+establish a 10–15 minute full-process target. Per-GPU throughput divides whole-node
+throughput by all eight allocated GPUs; it does not establish linear scaling or
+scaling efficiency.
+
+Both outputs retain all 14,290 rows, original transcripts, IDs and non-mutable
+input values. Language validation flags five Xenna rows and four Ray Data rows
+without dropping them. There are 865/870 operation fallbacks from novel-word or
+word-count guards; no request-failure or empty-response fallback notes were found.
+Generated text, audit notes or status values differ on 7,727 rows, including one
+language-rejection decision. Complete coverage does not establish exact generated
+output or semantic parity.
+
 ## Sample provenance and a recorded result
 
 [sample_input.jsonl](sample_input.jsonl) contains transcripts for LibriSpeech

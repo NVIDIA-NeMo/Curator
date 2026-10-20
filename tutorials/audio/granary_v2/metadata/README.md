@@ -465,6 +465,40 @@ those rows as accepted language-labeled training data without reviewing them.
    Remove waveform arrays and recording-level diarization arrays from each
    row; retain the RTTM path and per-segment speaker count.
 
+## Observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the immutable Granary image
+documented above. One run per executor processed the same 30,631 LibriSpeech
+recordings, totaling 107.76357 source audio hours,
+with identical model bundles and pipeline settings. Each run received one node
+with 8 × NVIDIA H100 80GB HBM3 GPUs.
+
+| Measurement | Xenna streaming | Ray Data |
+| --- | ---: | ---: |
+| Full benchmark process | 863.954 seconds | 2,374.678 seconds |
+| Pipeline time | 821.388 seconds | 2,333.515 seconds |
+| Whole-node pipeline throughput | **472.309 audio-hours/hour** | **166.251 audio-hours/hour** |
+| Pipeline throughput per allocated GPU | **59.039 audio-hours/GPU-hour** | **20.781 audio-hours/GPU-hour** |
+
+Pipeline time measures `Pipeline.run()`, including model startup, all stages,
+and executor shutdown. Full process time also includes imports, input checks,
+and output validation. Data and model staging and scheduler queue time are
+excluded. Throughput uses source audio hours and the pipeline clock; it does
+not use the shorter total duration of the emitted speech segments.
+
+Both runs covered every recording and produced 38,416 speech clips plus one
+retained no-speech row. Segment identities, intervals, speaker counts, final
+language decisions, skip flags, SED events, and all 30,631 RTTM files matched.
+Language audit notes differed on 15,626 rows. All encoded Opus file hashes
+differed; only two retained pairs were decoded and compared directly, and those
+samples matched. These checks do not establish full-corpus decoded-audio parity.
+
+All eight Xenna GPUs and seven Ray Data GPUs recorded at least 30 seconds of
+sampled processing activity. Ray Data's GPU 7 recorded only eight seconds and
+0.828% mean utilization. Per-GPU throughput divides whole-node throughput by
+all eight allocated GPUs; it does not establish scaling efficiency.
+NeMo-CI jobs: Xenna `497618497`; Ray Data `497618498`.
+
 ## Use your own recordings
 
 Supply a JSONL manifest with one recording per row and absolute local paths

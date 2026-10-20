@@ -23,3 +23,26 @@ tutorial.
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger
 datasets.
+
+## Observed throughput
+
+The latest completed EOS comparison ran on 2026-10-20 using Curator
+`8d275057`. Each Xenna/Ray Data pair used the same frozen input cohort,
+tutorial environment, models and stage settings, with eight NVIDIA H100
+80 GB GPUs allocated per run.
+
+| Pipeline | Benchmark cohort | Xenna streaming | Ray Data |
+| --- | --- | ---: | ---: |
+| Metadata | 30,631 recordings / 107.76357 source audio hours | 472.309 audio-hours/hour | 166.251 audio-hours/hour |
+| Indic ASR | 216,164 Hindi clips / 531.75763 audio hours | 3,604.471 audio-hours/hour | 387.649 audio-hours/hour |
+| Qwen Omni ASR | 22,710 English clips / 80.61259 audio hours | 406.615 audio-hours/hour | 228.424 audio-hours/hour |
+| Text pipeline | 14,290 English transcript rows | 30.283 rows/second | 12.217 rows/second |
+
+These whole-node rates use pipeline time, not full-process time. The text
+pipeline reused an already-running server; its 510.097-second startup is
+excluded. Audio pipelines include model startup. Each tutorial's throughput
+section gives the clocks, per-allocated-GPU rates and output checks.
+All inputs are accounted for, including retained flagged rows, but generated
+outputs differ between executors. These measurements compare each executor
+pair; different models, cohorts and timing boundaries prevent treating the
+four pipelines as a common speed or accuracy ranking.
