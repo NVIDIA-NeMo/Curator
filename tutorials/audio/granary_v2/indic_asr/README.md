@@ -289,7 +289,7 @@ mkdir -p indic-asr-work/engines &&
 docker run --rm --gpus all --ipc=host \
   --mount "type=bind,src=$PARAKEET_CHECKPOINT,dst=/checkpoints/parakeet.nemo,readonly" \
   --mount "type=bind,src=$PWD/indic-asr-work/engines,dst=/engine-output" \
-  curator-indic-asr \
+  curator-granary-metadata \
   python nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
   --model /checkpoints/parakeet.nemo \
   --output-dir /engine-output/parakeet \
