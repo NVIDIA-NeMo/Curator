@@ -29,7 +29,7 @@ from nemo_curator.core.serve.dynamo.vllm import dynamo_runtime_env
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
 from nemo_curator.tasks import AudioTask
 
-TUTORIAL_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing"
+TUTORIAL_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/text_pipeline"
 # Resolved prompts from nithinraok/Curator at 1a260a35472229a8a75a122b9a2bb9d92d5855f9.
 PROMPT_HASHES = {
     "RecoverEntities": "e6728bc4c8358c9e4f812ede9d553de09fab30eabe98c6e971aac8b7913340e8",  # pragma: allowlist secret
@@ -220,7 +220,7 @@ def test_tutorial_composes_with_shared_runner_cli():
             sys.executable,
             str(repo_root / "nemo_curator/config/run.py"),
             "--config-path",
-            "../../tutorials/audio/text_processing",
+            "../../tutorials/audio/granary_v2/text_pipeline",
             "--config-name",
             "text_pipeline",
             "--cfg",

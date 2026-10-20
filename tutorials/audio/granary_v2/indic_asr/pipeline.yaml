@@ -4,7 +4,7 @@
 # Hindi transcription, recovery, text cleanup, and reference WER.
 # From the repository root, inside the dedicated audio container:
 #   python nemo_curator/config/run.py \
-#     --config-path ../../tutorials/audio/indic_asr --config-name pipeline \
+#     --config-path ../../tutorials/audio/granary_v2/indic_asr --config-name pipeline \
 #     dataset_dir=/data/indic_asr output_path=/outputs/indic_asr.jsonl \
 #     indic_canary_engine_dir=/models/indic_canary \
 #     parakeet_tensorrt_engine_dir=/models/parakeet
@@ -33,7 +33,7 @@ manifest_path: ${dataset_dir}/manifest.jsonl
 output_path: ./indic_asr_output.jsonl
 indic_canary_engine_dir: ???
 parakeet_tensorrt_engine_dir: ???
-regex_yaml: tutorials/audio/indic_asr/regex.yaml
+regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
 hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
 
 backend: xenna

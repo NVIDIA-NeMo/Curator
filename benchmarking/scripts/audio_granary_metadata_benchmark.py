@@ -30,7 +30,7 @@ from utils import write_benchmark_results
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, create_ray_client_from_yaml
 
-_PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_metadata/pipeline.yaml"
+_PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/metadata/pipeline.yaml"
 _LID_REJECTIONS = {
     "skipped due to disagreement between langID models.",
     "skipped due to missing langID predictions.",

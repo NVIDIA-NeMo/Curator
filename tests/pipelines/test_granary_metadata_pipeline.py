@@ -53,7 +53,7 @@ def test_full_graph_preserves_fanout_silence_and_language_rejection(  # noqa: C9
         "".join(json.dumps({"audio_filepath": str(path)}) + "\n" for path in (speech_path, silence_path))
     )
 
-    config_path = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_metadata/pipeline.yaml"
+    config_path = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/metadata/pipeline.yaml"
     cfg = OmegaConf.load(config_path)
     cfg.manifest_path = str(manifest)
     cfg.output_dir = str(tmp_path / "result")

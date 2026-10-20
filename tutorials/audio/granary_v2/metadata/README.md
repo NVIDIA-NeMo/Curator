@@ -322,7 +322,7 @@ Reuse the public Hindi sample downloader from the Indic ASR tutorial:
 
 <!-- granary-eos: samples -->
 ```bash
-python tutorials/audio/indic_asr/download_samples.py --output-dir /work/data/fleurs
+python tutorials/audio/granary_v2/indic_asr/download_samples.py --output-dir /work/data/fleurs
 ```
 
 This downloads two Google FLEURS recordings, 12.24 and 10.26 seconds long,
@@ -362,7 +362,7 @@ for every run:
 set -o pipefail
 test ! -e /work/outputs/xenna && test ! -e /work/outputs/xenna.log && {
   python nemo_curator/config/run.py \
-    --config-path ../../tutorials/audio/granary_metadata --config-name pipeline \
+    --config-path ../../tutorials/audio/granary_v2/metadata --config-name pipeline \
     manifest_path=/work/data/fleurs/metadata_input.jsonl \
     model_dir=/models output_dir=/work/outputs/xenna \
     backend=xenna execution_mode=streaming \
@@ -377,7 +377,7 @@ To run the same graph with Ray Data:
 set -o pipefail
 test ! -e /work/outputs/ray_data && test ! -e /work/outputs/ray_data.log && {
   python nemo_curator/config/run.py \
-    --config-path ../../tutorials/audio/granary_metadata --config-name pipeline \
+    --config-path ../../tutorials/audio/granary_v2/metadata --config-name pipeline \
     manifest_path=/work/data/fleurs/metadata_input.jsonl \
     model_dir=/models output_dir=/work/outputs/ray_data backend=ray_data \
     2>&1 | tee /work/outputs/ray_data.log

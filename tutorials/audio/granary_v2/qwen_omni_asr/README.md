@@ -26,8 +26,8 @@ transcript before cleanup. It retains every row.
 
 This tutorial requires an existing transcript for each clip for the fallback
 stage; Qwen does not receive it. For transcription without that fallback,
-see [Qwen3-Omni in-process ASR](../qwen_omni_inprocess/).
-[Qwen3-ASR](../qwen_asr/) uses a different model.
+see [Qwen3-Omni in-process ASR](../../qwen_omni_inprocess/).
+[Qwen3-ASR](../../qwen_asr/) uses a different model.
 
 ## 1. Set up the environment
 
@@ -83,7 +83,7 @@ test ! -e "$PWD/qwen-omni-asr-work/xenna.jsonl" && \
 test ! -e "$PWD/qwen-omni-asr-work/xenna.log" && \
 test ! -e "$PWD/qwen-omni-asr-work/xenna-workspace" && \
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/qwen_omni_asr \
+  --config-path ../../tutorials/audio/granary_v2/qwen_omni_asr \
   --config-name pipeline \
   manifest_path="$PWD/qwen-omni-asr-work/data/manifest.jsonl" \
   output_path="$PWD/qwen-omni-asr-work/xenna.jsonl" \
@@ -109,7 +109,7 @@ test ! -e "$PWD/qwen-omni-asr-work/ray_data.jsonl" && \
 test ! -e "$PWD/qwen-omni-asr-work/ray_data.log" && \
 test ! -e "$PWD/qwen-omni-asr-work/ray-data-workspace" && \
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/qwen_omni_asr \
+  --config-path ../../tutorials/audio/granary_v2/qwen_omni_asr \
   --config-name pipeline \
   manifest_path="$PWD/qwen-omni-asr-work/data/manifest.jsonl" \
   backend=ray_data \

@@ -747,7 +747,7 @@ python benchmarking/scripts/audio_indic_asr_benchmark.py \
   --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
   --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
   --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  --regex-yaml=tutorials/audio/indic_asr/regex.yaml \
+  --regex-yaml=tutorials/audio/granary_v2/indic_asr/regex.yaml \
   --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
   --executor=xenna --no-save-tasks
 ```
@@ -784,13 +784,13 @@ present.
 ### Granary metadata extraction
 
 `benchmarking/scripts/audio_granary_metadata_benchmark.py` runs the complete
-[Granary metadata tutorial graph](../tutorials/audio/granary_metadata/pipeline.yaml):
+[Granary metadata tutorial graph](../tutorials/audio/granary_v2/metadata/pipeline.yaml):
 resampling, speaker diarization, speech segmentation, sound-event detection,
 three-model language identification, language selection, Opus writing, and
 JSONL output. It loads the same YAML as the tutorial, so model settings and
 stage order stay aligned across both entrypoints.
 
-Complete the [shared environment and model preparation](../tutorials/audio/granary_metadata/README.md#1-build-and-prepare-the-shared-environment)
+Complete the [shared environment and model preparation](../tutorials/audio/granary_v2/metadata/README.md#1-build-and-prepare-the-shared-environment)
 from the tutorial first. Use its `granary` image, exact model assets, generated
 TensorRT engines, runtime initialization, and unchanged YAML for benchmarking.
 Both paths require 128 logical CPUs, eight H100 80 GB GPUs, and a 500 GiB Ray
@@ -914,12 +914,12 @@ and cleans it. Existing transcripts are used only for fallback after inference;
 Qwen receives audio with the English or multilingual prompt from the YAML,
 preserving disfluencies and spoken numbers without a supplied transcript.
 Both Xenna and Ray Data load the complete
-[tutorial YAML](../tutorials/audio/qwen_omni_asr/pipeline.yaml), including its
+[tutorial YAML](../tutorials/audio/granary_v2/qwen_omni_asr/pipeline.yaml), including its
 pinned model revision, batching, and all eight stages. Only the input
 size, paths, and executor change. The script is standalone; it is not registered
 in `benchmarks.yaml`.
 
-Use the [tutorial environment](../tutorials/audio/qwen_omni_asr/README.md#1-set-up-the-environment).
+Use the [tutorial environment](../tutorials/audio/granary_v2/qwen_omni_asr/README.md#1-set-up-the-environment).
 From the repository root, stage a five-hour LibriSpeech sample and the model:
 
 ```bash
@@ -990,7 +990,7 @@ eight-GPU activity target.
 ## Audio Text Pipeline Benchmark
 
 `scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
-from [text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml):
+from [text_pipeline.yaml](../tutorials/audio/granary_v2/text_pipeline/text_pipeline.yaml):
 manifest reader → entity recovery → punctuation/capitalization → language
 prediction and verification → text normalization → fused captioning, code
 switching and speech QA → inverse text normalization → disfluency removal →
@@ -1012,7 +1012,7 @@ in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
 revision and selection rule alongside the manifest. Human-gold inputs are also
 supported, but identify them as such; do not label copied human text as ASR output.
 
-Follow the [tutorial environment and server instructions](../tutorials/audio/text_processing/README.md#1-prepare-the-environment)
+Follow the [tutorial environment and server instructions](../tutorials/audio/granary_v2/text_pipeline/README.md#1-prepare-the-environment)
 exactly: build its project image from the same checkout, use the same eight-GPU
 node and mounted directories, start its server, and run and check the two bundled
 examples. Place the benchmark cohort at

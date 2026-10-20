@@ -47,7 +47,7 @@ configuration reserves 50 GiB for Canary and 24 GiB for Parakeet. Use an
 NVIDIA driver compatible with CUDA 13, or a supported data-center
 forward-compatibility setup.
 
-The [audio Dockerfile](../../../docker/audio/Dockerfile.trt_llm) installs
+The [audio Dockerfile](../../../../docker/audio/Dockerfile.trt_llm) installs
 Curator with Python 3.12, Torch 2.9.1, TensorRT-LLM 1.2.1, and
 TensorRT 10.14.1.48.post1. The second command checks the native libraries
 and GPU access. Fix any errors before continuing.
@@ -85,7 +85,7 @@ and are licensed [CC BY 4.0](https://huggingface.co/datasets/google/fleurs/blob/
 No Hugging Face token is needed.
 
 ```bash
-python tutorials/audio/indic_asr/download_samples.py --output-dir /data/indic_asr
+python tutorials/audio/granary_v2/indic_asr/download_samples.py --output-dir /data/indic_asr
 ```
 
 This downloads two mono 16 kHz WAV files and their reference transcripts
@@ -110,7 +110,7 @@ of two clips:
 set -o pipefail
 test ! -e /outputs/indic_asr_xenna.jsonl && \
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/indic_asr \
+  --config-path ../../tutorials/audio/granary_v2/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
   indic_canary_engine_dir=/models/indic_canary \
@@ -131,7 +131,7 @@ and the `test` guard so errors and existing results are not hidden.
 set -o pipefail
 test ! -e /outputs/indic_asr_ray_data.jsonl && \
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/indic_asr \
+  --config-path ../../tutorials/audio/granary_v2/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
   indic_canary_engine_dir=/models/indic_canary \
