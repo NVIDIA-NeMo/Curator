@@ -148,6 +148,23 @@ class TestUrlRemover:
 
         assert expected_results == actual_results, f"Expected: {expected_results}, but got: {actual_results}"
 
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("See the docs (https://docs.nvidia.com/curator) for details.", "See the docs () for details."),
+            ("Links: https://a.com, https://b.com, and www.c.com.", "Links: , , and ."),
+            ('He said "https://x.com/a" twice.', 'He said "" twice.'),
+            ("[link](https://x.com/page) text", "[link]() text"),
+            ("Is it https://x.com/a? Yes: https://x.com/b!", "Is it ? Yes: !"),
+            # A closing bracket that matches an opening one in the URL is part of the URL.
+            ("Wiki: https://en.wikipedia.org/wiki/Python_(programming_language) is long.", "Wiki:  is long."),
+            ("(see https://en.wikipedia.org/wiki/Mercury_(planet))", "(see )"),
+            ("Query https://x.com/search?q=a&b=c#top, then", "Query , then"),
+        ],
+    )
+    def test_keeps_punctuation_after_urls(self, text: str, expected: str) -> None:
+        assert UrlRemover().modify_document(text) == expected
+
 
 class TestLineRemover:
     def test_remove_exact_match(self) -> None:
