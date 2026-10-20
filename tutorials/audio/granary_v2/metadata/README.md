@@ -164,14 +164,14 @@ import shutil
 from pathlib import Path
 
 files = {
-    'sortformer.nemo': '909cca86055c03bc19b28322e47544d749ebe2481e701ca5b066d223b7026d47',
-    'indic_canary/decoder/config.json': 'abf6061369df404bd4462aec2b1fe5ef6b1dffbb0864ba2dfd0ed735eda054bf',
-    'indic_canary/decoder/rank0.engine': 'acb96e0eb0fe97aa4e5cf1bd78647c63a24c2d80b37a8fb415cc3396bfe4d690',
-    'indic_canary/decoder/vocab.json': '2ba7e804f6b6e9c88a767065267e90705a19a4f6da808604d54927999e036bee',
-    'indic_canary/encoder/config.json': 'f6d1a8e1c207926ff58c8513603a8321e185e10f941c7b278dba73d576601df0',
-    'indic_canary/encoder/encoder.plan': '1259c33761a2fd7e59bdb496100b19c84371eab4981df89aac4bee4f095f4eb3',
-    'indic_canary/preprocessor/config.json': '6254bbdaf52a70c1c2d64ffb7ec6c3a98538f5624e7ac805bc4b6507c203bc29',
-    'indic_canary/preprocessor/mel_basis.pt': '44595c30a2fe50ed073567ff0b009310696487dc67a2842d9bfa695af49d8868',
+    'sortformer.nemo': '909cca86055c03bc19b28322e47544d749ebe2481e701ca5b066d223b7026d47',  # pragma: allowlist secret
+    'indic_canary/decoder/config.json': 'abf6061369df404bd4462aec2b1fe5ef6b1dffbb0864ba2dfd0ed735eda054bf',  # pragma: allowlist secret
+    'indic_canary/decoder/rank0.engine': 'acb96e0eb0fe97aa4e5cf1bd78647c63a24c2d80b37a8fb415cc3396bfe4d690',  # pragma: allowlist secret
+    'indic_canary/decoder/vocab.json': '2ba7e804f6b6e9c88a767065267e90705a19a4f6da808604d54927999e036bee',  # pragma: allowlist secret
+    'indic_canary/encoder/config.json': 'f6d1a8e1c207926ff58c8513603a8321e185e10f941c7b278dba73d576601df0',  # pragma: allowlist secret
+    'indic_canary/encoder/encoder.plan': '1259c33761a2fd7e59bdb496100b19c84371eab4981df89aac4bee4f095f4eb3',  # pragma: allowlist secret
+    'indic_canary/preprocessor/config.json': '6254bbdaf52a70c1c2d64ffb7ec6c3a98538f5624e7ac805bc4b6507c203bc29',  # pragma: allowlist secret
+    'indic_canary/preprocessor/mel_basis.pt': '44595c30a2fe50ed073567ff0b009310696487dc67a2842d9bfa695af49d8868',  # pragma: allowlist secret
 }
 
 def check(path, expected):
@@ -213,20 +213,20 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-revision = '0253049ae131d6a4be1c4f0d8b0ff483a0f8c8e9'
+revision = '0253049ae131d6a4be1c4f0d8b0ff483a0f8c8e9'  # pragma: allowlist secret
 speechbrain = {
-    'README.md': 'e2a24d3c912f3c02bc104abb86904271bacc245e55b9f856220e71c7d96eaf4c',
-    'classifier.ckpt': 'a50d9024ff58d317031c9787d4c6c614d454a87a8ef32f9d36338cd3ff57adbc',
-    'config.json': 'a861f8fbc2e23c0fc0823b3c0fd2b3d1e839563c2d4e3f9663a1237cce62bc89',
-    'embedding_model.ckpt': 'ab750d5c06d713477045fa798fab5d33e959dbc0dfe4de510a9a47844c79a19a',
-    'hyperparams.yaml': '88fec9791a8416a152fb10834327e18d38e5bf7a351e9b714e08cdc4af05de6f',
-    'label_encoder.txt': '9f566d83c4f19168be4a0bf86c0c7dac7d3264a95105bcbf33a7c32b83ccc17f',
-    'normalizer.ckpt': 'c369e01dfa2e0d84c6b116f33c7b94f1fe28c061642086538e93cde3d97c26ef',
+    'README.md': 'e2a24d3c912f3c02bc104abb86904271bacc245e55b9f856220e71c7d96eaf4c',  # pragma: allowlist secret
+    'classifier.ckpt': 'a50d9024ff58d317031c9787d4c6c614d454a87a8ef32f9d36338cd3ff57adbc',  # pragma: allowlist secret
+    'config.json': 'a861f8fbc2e23c0fc0823b3c0fd2b3d1e839563c2d4e3f9663a1237cce62bc89',  # pragma: allowlist secret
+    'embedding_model.ckpt': 'ab750d5c06d713477045fa798fab5d33e959dbc0dfe4de510a9a47844c79a19a',  # pragma: allowlist secret
+    'hyperparams.yaml': '88fec9791a8416a152fb10834327e18d38e5bf7a351e9b714e08cdc4af05de6f',  # pragma: allowlist secret
+    'label_encoder.txt': '9f566d83c4f19168be4a0bf86c0c7dac7d3264a95105bcbf33a7c32b83ccc17f',  # pragma: allowlist secret
+    'normalizer.ckpt': 'c369e01dfa2e0d84c6b116f33c7b94f1fe28c061642086538e93cde3d97c26ef',  # pragma: allowlist secret
 }
-whisper_sha = '345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1'
+whisper_sha = '345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1'  # pragma: allowlist secret
 files = [
     ('sed.pth', 'https://zenodo.org/api/records/3987831/files/Cnn14_DecisionLevelMax_mAP=0.385.pth/content',
-     'dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142'),
+     'dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142'),  # pragma: allowlist secret
     ('whisper.pt', f'https://openaipublic.azureedge.net/main/whisper/models/{whisper_sha}/medium.pt', whisper_sha),
 ]
 files += [(f'speechbrain/{name}',
