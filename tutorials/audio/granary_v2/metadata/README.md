@@ -110,6 +110,8 @@ docker run --rm -it --gpus all --ipc=host \
   curator-granary-metadata bash
 ```
 
+### Initialize the runtime
+
 Run every remaining command **inside this container**, from `/opt/Curator`.
 For EOS/Pyxis, use the same image and mount destinations. Initialize the runtime
 once in the parent shell before any Python command. Clear inherited distributed

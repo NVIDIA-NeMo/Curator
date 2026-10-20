@@ -715,8 +715,9 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 under its mounted dataset and model roots before launching this entry.
 
 Follow the [Indic ASR tutorial environment and model instructions](../tutorials/audio/granary_v2/indic_asr/README.md#1-build-and-check-the-environment)
-first, including its shared Granary image, runtime environment, model bundles and
-eight-H100 allocation. Use the same image and unchanged
+first, including its shared Granary image, model bundles and eight-H100 allocation.
+Run the [shared runtime initialization](../tutorials/audio/granary_v2/metadata/README.md#initialize-the-runtime)
+in the parent shell before either executor. Use the same image and unchanged
 [pipeline.yaml](../tutorials/audio/granary_v2/indic_asr/pipeline.yaml) for both
 executors. The benchmark loads that YAML directly; it changes only input/output
 paths and executor, retaining the tutorial's model settings, batch64, eight
@@ -725,7 +726,7 @@ validation and manifest sharding happen before the pipeline timer.
 
 The Indic run entries are intentionally absent from `benchmarks.yaml`; the
 dataset mapping and `nightly-data-setup.yaml` entry remain available. The
-benchmark script keeps the standard audio benchmark interface, executor helper,
+benchmark script keeps the standard audio benchmark interface, shared YAML executor configuration,
 and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
 it derives correctness metrics from the final JSONL rather than retained tasks;
 `--save-tasks` therefore writes an empty task list, not stage snapshots.

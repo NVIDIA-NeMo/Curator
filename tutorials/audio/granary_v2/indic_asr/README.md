@@ -38,11 +38,7 @@ Use Linux x86_64, Docker Buildx and the NVIDIA Container Toolkit. Complete the
 [shared Granary image build](../metadata/README.md#build-the-image) from this
 checkout first. Those commands build `curator-granary-metadata` with the checked-in
 `docker/audio/Dockerfile.trt_llm` `granary` target and bounded build resources.
-Use that same image for this tutorial and its benchmarks. From the repository root:
-
-```bash
-docker run --rm --gpus all curator-granary-metadata python docker/audio/check_trt_llm.py
-```
+Use that same image for this tutorial and its benchmarks.
 
 The shared configuration requires 128 logical CPUs, eight H100 80 GB GPUs and
 a 500 GiB Ray object store; provide at least that much shared memory and RAM for
@@ -55,9 +51,9 @@ TensorRT 10.14.1.48.post1. The shared `granary` target pins NeMo to reference
 commit `5d56c27c0e80f4cd8c93b28bacca5f98440a45f9`, also used by the metadata
 tutorial, and supplies CUDA 13 forward-compatibility libraries for supported
 data-center GPUs. Keep the image's loader path, thread settings and
-`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. The command
-above checks native libraries and GPU access; the tutorial run then checks both
-actual ASR engine bundles.
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Runtime initialization below
+checks native libraries and GPU access; the tutorial run then checks both actual
+ASR engine bundles.
 
 Reuse this image for subsequent runs. Do not run `uv sync` inside it:
 that would replace the inference environment.
@@ -82,7 +78,11 @@ docker run --rm -it --gpus all --ipc=host \
   curator-granary-metadata bash
 ```
 
-Run steps 2–4 **inside this container**, from `/opt/Curator`.
+Run the [shared runtime initialization](../metadata/README.md#initialize-the-runtime)
+once in this container's parent shell, then run steps 2–4 **inside this container**,
+from `/opt/Curator`. That block clears inherited distributed ranks, initializes
+Ray's private authentication file and checks the native libraries. Preserve these
+exports for both tutorial executors and the benchmark pair.
 Your data, outputs, and Ray worker logs persist under `indic-asr-work` on
 the host. Files created by Docker may be owned by root.
 
