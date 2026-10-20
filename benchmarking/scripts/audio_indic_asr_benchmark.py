@@ -477,13 +477,13 @@ def main() -> int:
     save_tasks = vars(args).pop("save_tasks")
 
     benchmark_path = Path(args.benchmark_results_path)
-    for path in (
-        benchmark_path / "params.json",
-        benchmark_path / "metrics.json",
-        benchmark_path / "tasks.pkl",
-        benchmark_path / "results" / "audio_indic_asr_output.jsonl",
-        benchmark_path / "scratch",
-    ):
+    # The runner precreates params.json and an empty scratch directory.
+    for name in ("params.json", "results", "scratch", "metrics.json", "tasks.pkl"):
+        path = benchmark_path / name
+        if name == "params.json" and path.is_file() and not path.is_symlink():
+            continue
+        if name == "scratch" and path.is_dir() and not path.is_symlink() and not any(path.iterdir()):
+            continue
         if path.exists() or path.is_symlink():
             parser.error(f"Benchmark output already exists: {path}; choose a fresh results directory")
 
