@@ -42,14 +42,22 @@ def _url_length(url: str) -> int:
     as in ``https://en.wikipedia.org/wiki/Python_(programming_language)``.
     """
     end = len(url)
+    # For each closing bracket seen at the end: how many more closing than opening brackets url[:end] has.
+    unmatched: dict[str, int] = {}
     while end > 0:
         char = url[end - 1]
-        if char in TRAILING_PUNCTUATION or (
-            char in CLOSING_BRACKETS and url.count(CLOSING_BRACKETS[char], 0, end) < url.count(char, 0, end)
-        ):
+        if char in TRAILING_PUNCTUATION:
             end -= 1
-        else:
+            continue
+        opening = CLOSING_BRACKETS.get(char)
+        if opening is None:
             break
+        if char not in unmatched:
+            unmatched[char] = url.count(char, 0, end) - url.count(opening, 0, end)
+        if unmatched[char] <= 0:
+            break
+        unmatched[char] -= 1
+        end -= 1
     return end
 
 

@@ -168,6 +168,10 @@ class TestUrlRemover:
     def test_keeps_punctuation_after_urls(self, text: str, expected: str) -> None:
         assert UrlRemover().modify_document(text) == expected
 
+    def test_long_run_of_closing_brackets(self) -> None:
+        brackets = ")" * 100_000
+        assert UrlRemover().modify_document(f"see https://x.com/a{brackets} now") == f"see {brackets} now"
+
 
 class TestLineRemover:
     def test_remove_exact_match(self) -> None:
