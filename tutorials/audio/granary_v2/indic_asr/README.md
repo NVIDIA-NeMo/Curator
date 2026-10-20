@@ -340,21 +340,29 @@ and 347-new-token limit.
 
 ## Observed throughput
 
-These historical results used the same model batching and worker counts with
-released NeMo 3.0.0. They are not measurements of the shared Granary image above.
+On October 20, 2026, one run per executor used Curator
+[`8d275057`](https://github.com/NVIDIA-NeMo/Curator/commit/8d27505764d4cf941bee31e9faf82c6b685b6432)
+and the immutable Granary image described above. Both ran on one node with
+8 × NVIDIA H100 80GB HBM3 GPUs, batch size 64 and eight workers per model,
+using the same 216,164 Hindi clips (531.75763 audio hours) and engine bundles.
 
-| Measurement | Result |
-| --- | --- |
-| Executor | Xenna streaming |
-| Hardware | One node with 8 × NVIDIA H100 80GB HBM3 GPUs |
-| Batch size | 64 |
-| Workers per model | 8 |
-| Input and output | 216,164 unique clips; 531.75763 audio hours |
-| Pipeline time | 554.05 seconds |
-| Whole-node pipeline throughput | **3,455.13 audio-hours/hour** |
-| Pipeline throughput per allocated GPU | **431.89 audio-hours/GPU-hour** |
-| Timing scope | Model startup, all eleven stages, and executor shutdown |
-| Measured runs | 1 |
+| Measurement | Xenna streaming | Ray Data |
+| --- | ---: | ---: |
+| Full benchmark process | 624.493 seconds | 5,028.510 seconds |
+| Pipeline time | 531.098 seconds | 4,938.302 seconds |
+| Full-process throughput, audio-hours/hour | 3,065.410 | 380.695 |
+| Mean per-row WER | 12.1986232735% | 12.1986298149% |
+| Retained flagged rows | 37 | 36 |
+
+Pipeline time measures `Pipeline.run()`; full-process wall time also includes
+process startup and output validation. Throughput uses the full-process clock.
+Both outputs retain every input identity and reference, and every row's WER
+was independently checked. Selected transcripts differ on 9,383 rows, and
+three skip decisions differ; close aggregate WER does not establish exact parity.
+The middle 80% of each run had a median sampled active GPU count of eight
+for Xenna and one for Ray Data. This measures utilization, not scaling efficiency.
+See the completed [Xenna job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497628144)
+and [Ray Data job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497628145).
 
 ## What each stage does
 

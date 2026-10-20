@@ -261,17 +261,19 @@ paths are shortened; generated text and stage decisions are shown as recorded.
 
 ## Observed throughput
 
-One measured run per executor used the same 22,710 unique English LibriSpeech
-clips, totaling 80.61259 audio hours. Each run used one EOS node with
-8 × NVIDIA H100 80GB HBM3 GPUs, batch size 32, two GPUs per ASR worker, and
-automatic worker scaling.
+The [2026-10-20 EOS runs](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/75206015)
+used Curator [`8d275057`](https://github.com/NVIDIA-NeMo/Curator/commit/8d27505764d4cf941bee31e9faf82c6b685b6432)
+and the environment documented above. One run per executor processed the same
+22,710 unique English LibriSpeech clips, totaling 80.61259 audio hours.
+Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
+80GB HBM3 GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
 
 | Measurement | Xenna streaming | Ray Data |
 | --- | --- | --- |
-| Full benchmark process | 748.54 seconds | 1,275.65 seconds |
-| Pipeline time | 742.96 seconds | 1,270.40 seconds |
-| Whole-node pipeline throughput | **390.61 audio-hours/hour** | **228.44 audio-hours/hour** |
-| Pipeline throughput per allocated GPU | **48.83 audio-hours/GPU-hour** | **28.55 audio-hours/GPU-hour** |
+| Full benchmark process | 719.284 seconds | 1,276.624 seconds |
+| Pipeline time | 713.711 seconds | 1,270.467 seconds |
+| Whole-node pipeline throughput | **406.615 audio-hours/hour** | **228.424 audio-hours/hour** |
+| Pipeline throughput per allocated GPU | **50.827 audio-hours/GPU-hour** | **28.553 audio-hours/GPU-hour** |
 
 Both runs wrote all 22,710 clips, preserved the input transcripts, selected the
 original transcript for five clips, and left zero rows flagged. Xenna's full
@@ -279,11 +281,17 @@ process time met the 10–15 minute target; Ray Data used the identical cohort.
 Pipeline time includes model startup, all eight stages, and executor shutdown.
 Full process time also includes imports and output validation. Data and model
 staging are excluded from both measurements.
+Selected transcripts differed on 3,473 rows; coverage and matching fallback
+decisions do not establish exact generated-output parity.
 
 All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
-10% utilization after model initialization. Ray Data did not meet the
-eight-GPU activity target. Per-GPU throughput divides whole-node throughput by
-all eight allocated GPUs.
+10% utilization while their ASR workers were ready. Ray Data completed correctly
+with repeated model initialization and two GPUs without qualifying model work.
+Per-GPU throughput divides whole-node throughput by all eight allocated GPUs;
+these measurements do not establish scaling efficiency. Both runs logged worker
+shutdown diagnostics despite complete outputs and normal process exits.
+See the completed [Xenna job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787186)
+and [Ray Data job](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787187).
 
 ## Troubleshooting
 

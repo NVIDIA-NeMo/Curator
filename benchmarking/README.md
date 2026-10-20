@@ -864,30 +864,32 @@ number of allocated GPUs to report audio-hours/GPU-hour. The timer
 excludes dataset downloading and container construction. Tasks are not
 retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
 
-In the [2026-10-15 EOS benchmark run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/74129562),
+In the [2026-10-20 EOS benchmark run](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/75184137),
 each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
 30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
-`1b277ece135811e22d0051769c7c3c3199dc396b` and the pinned NeMo
-runtime. These are historical results, not validation of a later checkout
-or a fresh image build. The input manifest SHA-256 is
+`8d27505764d4cf941bee31e9faf82c6b685b6432` and the same pinned NeMo
+runtime as the tutorial. The existing immutable image was reused with the
+verified source checkout. The input manifest SHA-256 is
 `9c6f7d8f61af7c74d5d574d21ec19c70c07f399564592d8fd9d39eb06998e99e`.
 
 | Executor | Harness wall time (`exec_time_s`) | Pipeline time (`time_taken_s`) | Output validation |
 | --- | ---: | ---: | --- |
-| [Xenna streaming](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/489699528) | 869.274 s | 830.459 s | Passed; 100% source coverage |
-| [Ray Data](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/489699529) | 2358.060 s | 2315.235 s | Passed; 100% source coverage |
+| [Xenna streaming](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497618497) | 863.954 s | 821.388 s | Passed; 100% source coverage |
+| [Ray Data](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497618498) | 2374.678 s | 2333.515 s | Passed; 100% source coverage |
 
-Xenna met the 600–900 second wall-time target; Ray Data took 2.71× as long.
+Xenna met the 600–900 second wall-time target; Ray Data took 2.75× as long.
 Each executor emitted 38,416 speech clips plus one no-speech audit row, with
 218 language-rejection flags. Segment intervals, speaker counts, selected
-languages, skip reasons, and SED events matched across executors. Encoded Opus
-files are not byte-identical; decoded audio matched exactly for the two retained
-sample pairs, while full-corpus decoded parity was not checked.
+languages, skip reasons, SED events and all RTTM files matched across executors.
+Language-identification audit values differed on 15,626 rows without changing
+the final language or rejection decisions. Encoded Opus files are not
+byte-identical; decoded audio matched exactly for the two retained sample pairs,
+while full-corpus decoded parity was not checked.
 The harness wall time includes input inspection and output validation, which
 are outside the pipeline timer. Data staging and model-engine preparation
 precede measurement; each executor writes to a fresh output directory.
 GPU samples show processing activity across all eight devices for Xenna;
-Ray Data left physical GPU 7 idle and used GPU 6 only sparsely. These timings
+Ray Data used physical GPU 7 only briefly. These timings
 compare the configured executors on equal allocations; they do not establish
 eight-GPU scaling efficiency.
 
@@ -964,24 +966,31 @@ output structure, not transcription accuracy.
 
 #### Observed throughput
 
-One run per executor used 22,710 unique English LibriSpeech clips totaling
-80.61259 audio hours. Each run used one EOS node with 8 × NVIDIA H100 80GB HBM3
-GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
+The [2026-10-20 EOS runs](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/pipelines/75206015)
+used Curator [`8d275057`](https://github.com/NVIDIA-NeMo/Curator/commit/8d27505764d4cf941bee31e9faf82c6b685b6432)
+and the documented tutorial environment. One run per executor processed the
+same 22,710 unique English LibriSpeech clips totaling 80.61259 audio hours.
+Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
+80GB HBM3 GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
 
 | Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
 | --- | --- | --- | --- | --- |
-| Xenna streaming | 748.54 s | 742.96 s | 390.61 | 48.83 |
-| Ray Data | 1,275.65 s | 1,270.40 s | 228.44 | 28.55 |
+| [Xenna streaming](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787186) | 719.284 s | 713.711 s | 406.615 | 50.827 |
+| [Ray Data](https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/jobs/497787187) | 1,276.624 s | 1,270.467 s | 228.424 | 28.553 |
 
 Both produced all 22,710 outputs, preserved the input transcripts, used the
 original transcript for five clips, and left zero rows flagged. Xenna met the
 600–900 second full-process target. Ray Data used the same cohort. Full process
 time includes imports and output validation; staging is excluded. Per-GPU
 throughput divides whole-node throughput by all eight allocated GPUs.
+Selected transcripts differed on 3,473 rows; coverage and matching fallback
+decisions do not establish exact generated-output parity.
 
 All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
-10% utilization after model initialization. Ray Data did not meet the
-eight-GPU activity target.
+10% utilization while their ASR workers were ready. Ray Data completed correctly
+with repeated model initialization and two GPUs without qualifying model work.
+These measurements do not establish scaling efficiency. Both runs logged worker
+shutdown diagnostics despite complete outputs and normal process exits.
 
 ---
 
