@@ -17,15 +17,38 @@ import re
 from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
+# Punctuation right after a URL usually belongs to the surrounding text.
+TRAILING_PUNCTUATION = ".,;:!?'\""
+CLOSING_BRACKETS = {")": "(", "]": "[", "}": "{", ">": "<"}
+
+
+def _url_length(url: str) -> int:
+    """Return the length of ``url`` without the trailing punctuation that follows it in the text.
+
+    A closing bracket stays part of the URL when the URL contains the matching opening bracket,
+    as in ``https://en.wikipedia.org/wiki/Python_(programming_language)``.
+    """
+    end = len(url)
+    while end > 0:
+        char = url[end - 1]
+        if char in TRAILING_PUNCTUATION or (
+            char in CLOSING_BRACKETS and url.count(CLOSING_BRACKETS[char], 0, end) < url.count(char, 0, end)
+        ):
+            end -= 1
+        else:
+            break
+    return end
 
 
 class UrlRemover(DocumentModifier):
     """
     Removes all URLs in a document.
+
+    Punctuation right after a URL, such as a closing parenthesis, a comma or a period, is kept.
     """
 
     def __init__(self):
         super().__init__()
 
     def modify_document(self, text: str) -> str:
-        return URL_REGEX.sub("", text)
+        return URL_REGEX.sub(lambda match: match.group()[_url_length(match.group()) :], text)
