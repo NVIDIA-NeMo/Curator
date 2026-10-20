@@ -17,9 +17,22 @@ import re
 from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
-# Punctuation right after a URL usually belongs to the surrounding text.
-TRAILING_PUNCTUATION = ".,;:!?'\""
-CLOSING_BRACKETS = {")": "(", "]": "[", "}": "{", ">": "<"}
+# Punctuation right after a URL usually belongs to the surrounding text. The escapes are the ellipsis,
+# closing curly quotes, closing guillemets and CJK sentence punctuation.
+TRAILING_PUNCTUATION = ".,;:!?'\"\u2026\u201d\u2019\u00bb\u203a\u3002\uff0c\u3001\uff1b\uff1a\uff01\uff1f"
+CLOSING_BRACKETS = {
+    ")": "(",
+    "]": "[",
+    "}": "{",
+    ">": "<",
+    # Full-width and CJK brackets
+    "\uff09": "\uff08",
+    "\u300d": "\u300c",
+    "\u300f": "\u300e",
+    "\u3011": "\u3010",
+    "\u300b": "\u300a",
+    "\u3009": "\u3008",
+}
 
 
 def _url_length(url: str) -> int:

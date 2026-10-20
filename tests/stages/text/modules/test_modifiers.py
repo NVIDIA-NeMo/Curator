@@ -160,6 +160,9 @@ class TestUrlRemover:
             ("Wiki: https://en.wikipedia.org/wiki/Python_(programming_language) is long.", "Wiki:  is long."),
             ("(see https://en.wikipedia.org/wiki/Mercury_(planet))", "(see )"),
             ("Query https://x.com/search?q=a&b=c#top, then", "Query , then"),
+            ("He said \u201chttps://x.com/a\u201d twice.", "He said \u201c\u201d twice."),
+            ("\u8bbf\u95ee https://x.com/a\u3002", "\u8bbf\u95ee \u3002"),
+            ("\u89c1\uff08https://x.com/b\uff09\u3002", "\u89c1\uff08\uff09\u3002"),
         ],
     )
     def test_keeps_punctuation_after_urls(self, text: str, expected: str) -> None:
