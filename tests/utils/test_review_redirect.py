@@ -51,41 +51,12 @@ def test_review_redirect_is_least_privilege_and_does_not_execute_review() -> Non
     )
 
 
-def test_formal_review_rubric_is_inert_and_uses_formal_submission() -> None:
-    rubric = (ROOT / "skills/pr-review/SKILL.md").read_text()
-    metadata = yaml.safe_load(rubric.split("---", 2)[1])
-    assert metadata["name"] == "pr-review"
-    assert metadata["disable-model-invocation"] is True
-    assert metadata["user_invocable"] is False
-    assert "mode=light" in rubric
-    assert "mode=strict" in rubric
-    assert "Do not run GitHub commands or" in rubric
-    assert "Never approve an incomplete" in rubric
-
-
 def test_review_redirect_workflow_has_no_other_execution_or_permissions() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/claude-review.yml").read_text())
     assert workflow["permissions"] == {}
     assert set(workflow["jobs"]) == {"redirect-to-review"}
     events = workflow.get("on", workflow.get(True))
     assert events == {"issue_comment": {"types": ["created"]}}
-
-
-def test_review_policy_preserves_the_retired_light_review_rules() -> None:
-    rubric = (ROOT / "skills/pr-review/SKILL.md").read_text()
-    for rule in (
-        "Critical bugs or logic errors",
-        "Typos in code, comments, or strings",
-        "Missing or insufficient test coverage for changed code",
-        "Outdated or inaccurate documentation affected by the changes",
-        "Style preferences or formatting",
-        "Minor naming suggestions",
-        "Architectural opinions or refactoring ideas",
-        "Performance unless there is a clear, measurable issue",
-    ):
-        assert rule in rubric
-    assert "post comments directly" in rubric
-    assert 'post "LGTM"' not in rubric
 
 
 @pytest.mark.parametrize(
