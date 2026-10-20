@@ -310,11 +310,16 @@ contain an RNN-T encoder, decoder, and joint network.
 
 #### Canary
 
-The Canary converter is not in this checkout. Use
-`scripts/audio/indic_canary_trtllm_conversion/build_engine.py` from the
-`nithinraok/Curator` reference at commit `1e2d6399`. Supply the matching Indic
-Canary `.nemo` and AI4Bharat NeMo fork. Run from that conversion directory,
-replacing all three paths:
+The Canary converter is not in this checkout. Use the
+[pinned reference converter](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/build_engine.py)
+and follow its [setup instructions](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/README.md#setup)
+in a separate build environment. The Granary inference image does not include
+the required Indic Canary NeMo fork with `CanaryMultilingualTokenizer`.
+Obtain that fork and the matching `.nemo` checkpoint from the checkpoint
+producer. The converter's setup does not identify a published commit for this
+custom fork; a stock NeMo checkout cannot replace it.
+
+Run from the conversion directory, replacing all three paths:
 
 ```bash
 python build_engine.py \
@@ -331,8 +336,7 @@ files in [model files](#model-files), including `encoder/config.json` and
 Always supply the matching Hindi checkpoint rather than its default model.
 
 These build arguments support the tutorial's 40-second window, four beams,
-and 347-new-token limit. Their command-line arguments have been checked,
-but fresh checkpoint conversion has not been validated here.
+and 347-new-token limit.
 
 ## Observed throughput
 

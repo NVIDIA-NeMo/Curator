@@ -931,17 +931,20 @@ hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
 ```
 
 Reuse the staged data and model for both runs. Run one executor at a time,
-using a new results directory for every run:
+using a new results directory for every run. Each standalone command starts a
+new local Ray cluster, avoiding a stale address left after the tutorial stops
+its cluster. Keep this setting on the individual command; the benchmark runner
+manages its own cluster address.
 
 ```bash
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
-python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+RAY_ADDRESS=local python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
   --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/xenna" \
   --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
   --model-id "$PWD/qwen-omni-asr-benchmark/model" \
   --executor xenna --execution-mode streaming
 
-python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+RAY_ADDRESS=local python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
   --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/raydata" \
   --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
   --model-id "$PWD/qwen-omni-asr-benchmark/model" \
