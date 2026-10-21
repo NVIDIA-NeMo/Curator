@@ -1045,7 +1045,43 @@ def _task_type_issue(walk: _Walk, site: _Site, contract: StageContract) -> list[
     ]
 
 
-def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: C901
+def _revoke_prior_writes(walk: _Walk, contract: StageContract) -> None:
+    scopes = (
+        (
+            contract.invalidates_prior_writes.data_keys,
+            walk.available_keys,
+            walk.possible_keys,
+            walk.key_roles,
+            walk.possible_key_roles,
+            walk.key_producer,
+            walk.unkeyed_roles,
+            walk.tensor_keys,
+        ),
+        (
+            contract.invalidates_prior_writes.segment_data_keys,
+            walk.segment_available_keys,
+            walk.possible_segment_keys,
+            walk.segment_key_roles,
+            walk.possible_segment_key_roles,
+            walk.segment_key_producer,
+            walk.unkeyed_segment_roles,
+            walk.segment_tensor_keys,
+        ),
+    )
+    for keys, live, possible, roles, possible_roles, producers, unkeyed, tensors in scopes:
+        for key in keys:
+            unkeyed.difference_update(roles.get(key, set()))
+            unkeyed.discard(contract.key_roles.get(key, role_for_value(key)))
+            live.discard(key)
+            possible.discard(key)
+            roles.pop(key, None)
+            possible_roles.pop(key, None)
+            producers.pop(key, None)
+            tensors.discard(key)
+    _refresh_role_provenance(walk, contract, set(), set(), [])
+
+
+def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: C901, PLR0915
     """Fold one stage's writes, removals and tensor residency into the running state."""
     produced = _roles_for_keys(contract, contract.writes.data_keys)
     segment_produced = _roles_for_keys(contract, contract.writes.segment_data_keys)
@@ -1054,6 +1090,8 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
     # Judged against the INPUT state, before this stage's own possible writes are folded in:
     # a branch must not be made reachable by the key it would itself write.
     reachable_conditionals = _reachable_conditional_writes(walk, contract)
+    if contract.invalidates_prior_writes.data_keys or contract.invalidates_prior_writes.segment_data_keys:
+        _revoke_prior_writes(walk, contract)
     # Explicit removals/invalidation dominate conditional writes. Rebuilding a row clears
     # inherited keys below, but its declared conditional outputs remain possible outputs.
     blocked_keys = set(contract.removes_keys) | set(contract.invalidates_keys)
