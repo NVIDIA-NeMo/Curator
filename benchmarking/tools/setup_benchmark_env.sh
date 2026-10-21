@@ -147,15 +147,17 @@ PY
 }
 
 dependency_tools_dir() {
-    if [ -d "$CURATOR_UNDER_TEST_REPO_DIR/tools" ]; then
-        echo "$CURATOR_UNDER_TEST_REPO_DIR/tools"
+    # Older docker/common installers do not implement the benchmark --check contract.
+    if [ -f "$CURATOR_UNDER_TEST_REPO_DIR/benchmarking/tools/setup_benchmark_env.sh" ] && \
+       [ -d "$CURATOR_UNDER_TEST_REPO_DIR/docker/common" ]; then
+        echo "$CURATOR_UNDER_TEST_REPO_DIR/docker/common"
         return
     fi
 
     local fallback
-    for fallback in "$BENCHMARK_SOURCE_DIR/tools" "$BENCHMARK_SOURCE_MOUNT_DIR/tools" "$script_repo_root/tools"; do
+    for fallback in "$BENCHMARK_SOURCE_DIR/docker/common" "$BENCHMARK_SOURCE_MOUNT_DIR/docker/common" "$script_repo_root/docker/common"; do
         if [ -d "$fallback" ]; then
-            echo "WARNING: Curator-under-test has no tools directory; using benchmark-source tools from $fallback" >&2
+            echo "WARNING: Curator-under-test has no benchmark-compatible dependency installers; using benchmark-source installers from $fallback" >&2
             echo "$fallback"
             return
         fi
@@ -178,7 +180,9 @@ run_dependency_tool() {
 
 install_scripts() {
     local tools_dir=$1
-    find "$tools_dir" -maxdepth 1 -type f -name 'install_*.sh' | sort
+    # These legacy build helpers do not implement idempotent install/--check.
+    find "$tools_dir" -maxdepth 1 -type f -name 'install_*.sh' \
+        ! -name install_etcd_nats.sh ! -name install_h264_support.sh | sort
 }
 
 check_environment() {

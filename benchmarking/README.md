@@ -624,8 +624,15 @@ bash benchmarking/tools/setup_benchmark_env.sh
 
 `--check` verifies Curator workflow dependencies, benchmark Python
 dependencies, and required system tools. The default action runs every
-`install_*.sh` script in the selected Curator dependency tools directory,
+benchmark-compatible `install_*.sh` script in the selected `docker/common` directory,
 installs `benchmarking/requirements.txt`, then checks again.
+
+The legacy `install_etcd_nats.sh` and `install_h264_support.sh` helpers are not
+part of this discovery contract. The former is used by the image build; the
+latter is retained for existing standalone installation instructions.
+Setup prefers the Curator-under-test checkout when it includes this benchmark
+setup entry point. For older checkouts, it warns and uses the benchmark-source
+`docker/common` installers instead.
 
 `CURATOR_BENCHMARK_CURATOR_REPO_DIR` must point at the full Curator-under-test
 source checkout. Container runs set it to `/opt/Curator`; bare-metal users
