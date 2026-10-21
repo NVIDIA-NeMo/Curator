@@ -714,24 +714,19 @@ is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
 `nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
 under its mounted dataset and model roots before launching this entry.
 
-The benchmark requires the dedicated Indic ASR image on Linux x86_64. Build
-and check it from the repository root:
-
-```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
-docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
-```
-
-The image keeps Python 3.12 / TensorRT-LLM 1.2.1 / Torch 2.9.1 together in
-`/opt/venv`, including the audio and benchmark dependencies. Curator, Indic
-Canary, Parakeet TensorRT, and WER run in that same environment; there is no
-child runtime or dependency installation during inference. The root
-`pyproject.toml` and `uv.lock` do not select this stack. Normal Curator profiles
-retain their existing dependencies and can still be selected together.
+Follow the [Indic ASR tutorial environment and model instructions](../tutorials/audio/granary_v2/indic_asr/README.md#1-build-and-check-the-environment)
+first, including its shared Granary image, model bundles and eight-H100 allocation.
+Run the [shared runtime initialization](../tutorials/audio/granary_v2/metadata/README.md#initialize-the-runtime)
+in the parent shell before either executor. Use the same image and unchanged
+[pipeline.yaml](../tutorials/audio/granary_v2/indic_asr/pipeline.yaml) for both
+executors. The benchmark loads that YAML directly; it changes only input/output
+paths and executor, retaining the tutorial's model settings, batch64, eight
+workers per model, reader/preparation worker counts and Ray resources. Input
+validation and manifest sharding happen before the pipeline timer.
 
 The Indic run entries are intentionally absent from `benchmarks.yaml`; the
 dataset mapping and `nightly-data-setup.yaml` entry remain available. The
-benchmark script keeps the standard audio benchmark interface, executor helper,
+benchmark script keeps the standard audio benchmark interface, shared YAML executor configuration,
 and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
 it derives correctness metrics from the final JSONL rather than retained tasks;
 `--save-tasks` therefore writes an empty task list, not stage snapshots.
@@ -741,13 +736,12 @@ at `/model_weights`, and a writable result directory at `/results`. Inside the
 dedicated image, from `/opt/Curator`, run:
 
 ```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python benchmarking/scripts/audio_indic_asr_benchmark.py \
   --benchmark-results-path=/results/indic_asr_xenna \
   --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
   --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
   --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  --regex-yaml=tutorials/audio/indic_asr/regex.yaml \
+  --regex-yaml=tutorials/audio/granary_v2/indic_asr/regex.yaml \
   --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
   --executor=xenna --no-save-tasks
 ```
@@ -760,13 +754,43 @@ root `uv sync` in it: that would replace the dedicated native stack with the
 normal `all` dependencies. A site-specific harness configuration must explicitly
 select this image; the standard nightly environment does not supply it.
 
-The host or container runtime must independently provide a CUDA-13-capable
-NVIDIA driver, or NVIDIA forward-compatibility libraries on a supported
-data-center GPU. The benchmark imports the actual TensorRT-LLM native bindings,
+The shared image supplies CUDA 13 forward-compatibility libraries; preserve its
+loader path and the tutorial's runtime settings. The benchmark imports the actual TensorRT-LLM native bindings,
 NeMo ASR, the Parakeet adapter, and text normalization, then validates complete
 engine inventories before its processor-chain timer starts. Harness
 `exec_time_s` still includes the entire benchmark subprocess, including those
 preflight checks; environment creation and data staging belong before it.
+
+#### Indic ASR observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the tutorial's Granary
+environment and model bundles. Each executor processed the same 216,164 Hindi
+clips totaling 531.75763 audio hours on one node with eight NVIDIA H100 80 GB
+GPUs, batch size 64 and eight workers per model.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 624.493 s | 531.098 s | 3,604.471 | 450.559 |
+| Ray Data | 5,028.510 s | 4,938.302 s | 387.649 | 48.456 |
+
+These rates divide source audio hours by the recorded `pipeline_time_s`,
+converted to hours, then by eight allocated GPUs for the per-GPU figure.
+The saved benchmark metric uses `time_taken_s`, which also includes output
+validation: 537.703 s for Xenna and 4,944.549 s for Ray Data. Its corresponding
+rates are 3,560.197 and 387.159 audio-hours/hour. Full-process rates are
+3,065.410 and 380.695 audio-hours/hour. Dataset and model preparation precede
+all three measurements.
+
+Both outputs preserve every input identity and reference. Mean per-row WER
+was 12.1986232735% for Xenna and 12.1986298149% for Ray Data, with 37 and 36
+flagged rows retained. Selected transcripts differ on 9,383 rows and three
+skip decisions differ, so similar aggregate WER does not establish exact
+output parity. Xenna met the 600–900 second full-process target; Ray Data
+took 8.05× as long. The middle 80% of each run had a median sampled active
+GPU count of eight for Xenna and one for Ray Data. Dividing by allocated
+GPUs does not establish scaling efficiency.
+
+#### Audio workload summary
 
 The ReadSpeech setup reuses staging only when its file count, byte count, and
 relative-path inventory match the configured cohort. It automatically stages,
@@ -778,8 +802,139 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| Hindi Indic ASR | Production Slurm pipeline only | Retained standalone benchmark: Xenna and Ray Data share the 216,164-clip / 531.75763h cohort after rejecting five exactly identified corrupt FLACs. Both use eight Indic Canary actors, eight Parakeet TensorRT recovery actors, selection, cleanup, and WER. The prior Xenna calibration target was 600-900s full process wall time on 8xH100; neither executor is registered in the standard nightly matrix. |
+| Hindi Indic ASR | Production Slurm pipeline only | 2026-10-20, 216,164 clips / 531.75763h on 8× H100: Xenna 624.493s full process / 531.098s pipeline; Ray Data 5,028.510s / 4,938.302s. Pipeline throughput: 3,604.471 / 387.649 audio-hours/hour. Xenna met the 600–900s full-process target. Neither executor is registered in the standard nightly matrix. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
+
+### Granary metadata extraction
+
+`benchmarking/scripts/audio_granary_metadata_benchmark.py` runs the complete
+[Granary metadata tutorial graph](../tutorials/audio/granary_v2/metadata/pipeline.yaml):
+resampling, speaker diarization, speech segmentation, sound-event detection,
+three-model language identification, language selection, Opus writing, and
+JSONL output. It loads the same YAML as the tutorial, so model settings and
+stage order stay aligned across both entrypoints.
+
+Complete the [shared environment and model preparation](../tutorials/audio/granary_v2/metadata/README.md#1-build-and-prepare-the-shared-environment)
+from the tutorial first. Use its `granary` image, exact model assets, generated
+TensorRT engines, runtime initialization, and unchanged YAML for benchmarking.
+Both paths require 128 logical CPUs, eight H100 80 GB GPUs, and a 500 GiB Ray
+object store (`536870912000` bytes); 1 TiB host RAM is recommended. A standard
+benchmark runner must request those same resources. Do not install packages,
+replace models, or override stage settings between tutorial and benchmark.
+This benchmark is not registered in the standard nightly matrix because that
+environment does not provide the complete native stack and model artifacts.
+
+Stage audio before measurement. Each input row needs an absolute
+`audio_filepath` and its accurate decoded `duration` in seconds. Optional
+`audio_item_id` values must be unique plain filenames. Remove parent-recording
+`text` and `transcript` fields: those transcripts are not aligned to the new VAD
+segments. The tutorial creates `/work/data/fleurs/metadata_input.jsonl` for a
+small check. For a larger cohort, set `GRANARY_INPUT_MANIFEST` to its prepared
+manifest, retaining its dataset revision, license, counts, duration, and hash.
+Make every referenced audio path visible in the container. Use the same frozen
+manifest and audio files for both executors; an already verified Lustre cohort
+can be mounted read-only without downloading or preparing it again.
+
+Run these commands inside the tutorial image from `/opt/Curator`, after its
+runtime initialization. Only the input size/path, output path, and selected
+executor change. `GRANARY_BENCHMARK_OUTPUT` optionally selects the result
+directory reserved by a benchmark runner; otherwise each command uses the
+default below. Such a directory may contain runner parameters and an empty
+scratch directory, but no previous results. The script also checks scratch
+contents. Run one executor at a time and choose fresh output and log paths.
+
+<!-- granary-eos: benchmark-xenna -->
+```bash
+set -euo pipefail
+benchmark_input="${GRANARY_INPUT_MANIFEST:-/work/data/fleurs/metadata_input.jsonl}"
+benchmark_output="${GRANARY_BENCHMARK_OUTPUT:-/work/benchmarks/xenna}"
+mkdir -p "$(dirname "$benchmark_output")"
+test ! -e "$benchmark_output/results"
+test ! -e "$benchmark_output/metrics.json"
+test ! -e "$benchmark_output/tasks.pkl"
+test ! -e "$benchmark_output.log"
+python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+  --benchmark-results-path "$benchmark_output" \
+  --input-manifest "$benchmark_input" \
+  --model-dir /models --executor xenna --execution-mode streaming \
+  2>&1 | tee "$benchmark_output.log"
+```
+
+<!-- granary-eos: benchmark-ray-data -->
+```bash
+set -euo pipefail
+benchmark_input="${GRANARY_INPUT_MANIFEST:-/work/data/fleurs/metadata_input.jsonl}"
+benchmark_output="${GRANARY_BENCHMARK_OUTPUT:-/work/benchmarks/ray_data}"
+mkdir -p "$(dirname "$benchmark_output")"
+test ! -e "$benchmark_output/results"
+test ! -e "$benchmark_output/metrics.json"
+test ! -e "$benchmark_output/tasks.pkl"
+test ! -e "$benchmark_output.log"
+python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+  --benchmark-results-path "$benchmark_output" \
+  --input-manifest "$benchmark_input" \
+  --model-dir /models --executor ray_data \
+  2>&1 | tee "$benchmark_output.log"
+```
+
+The standard result writer saves `params.json` and `metrics.json`; pipeline
+artifacts are under `results/`, including `metadata.jsonl`, `audio/`, and
+`rttm/`. Validation requires every input recording to be represented by speech
+segments or a no-speech audit row. It checks interval bounds, clip and RTTM
+files, duplicate outputs, source identities, language metadata, and failure
+flags. Language rejection counts remain visible rather than being treated
+as accepted labels.
+
+`time_taken_s` includes model startup, resampling, inference, segmentation,
+output writing, and executor shutdown. Input inspection and output validation
+and owned Ray cluster startup/shutdown are outside this timer.
+`total_audio_duration_hours` counts
+source recordings, whereas `total_segment_duration_hours` counts emitted
+speech. The throughput metric uses source audio hours. Divide it by the
+number of allocated GPUs to report audio-hours/GPU-hour. The timer
+excludes dataset downloading and container construction. Tasks are not
+retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
+
+#### Observed throughput
+
+In the 2026-10-20 EOS benchmark run,
+each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
+30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
+`8d27505764d4cf941bee31e9faf82c6b685b6432` and the same pinned NeMo
+runtime as the tutorial. The existing immutable image was reused with the
+verified source checkout. The input manifest SHA-256 is
+`9c6f7d8f61af7c74d5d574d21ec19c70c07f399564592d8fd9d39eb06998e99e`.
+
+| Executor | Full process (`exec_time_s`) | Pipeline (`time_taken_s`) | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 863.954 s | 821.388 s | 472.309 | 59.039 |
+| Ray Data | 2,374.678 s | 2,333.515 s | 166.251 | 20.781 |
+
+Xenna met the 600–900 second wall-time target; Ray Data took 2.75× as long.
+Both passed output validation with 100% source coverage. Each executor emitted
+38,416 speech clips plus one no-speech audit row, with
+218 language-rejection flags. Segment intervals, speaker counts, selected
+languages, skip reasons, SED events and all RTTM files matched across executors.
+Language-identification audit values differed on 15,626 rows without changing
+the final language or rejection decisions. Encoded Opus files are not
+byte-identical; decoded audio matched exactly for the two retained sample pairs,
+while full-corpus decoded parity was not checked.
+The harness wall time includes input inspection and output validation, which
+are outside the pipeline timer. Data staging and model-engine preparation
+precede measurement; each executor writes to a fresh output directory.
+GPU samples show processing activity across all eight devices for Xenna;
+Ray Data used physical GPU 7 only briefly. Pipeline throughput divides source
+audio hours by pipeline time in hours; per-GPU throughput divides that rate
+by all eight allocated GPUs. Full-process throughput is 449.039 audio-hours/hour
+for Xenna and 163.369 for Ray Data. These timings
+compare the configured executors on equal allocations; they do not establish
+eight-GPU scaling efficiency.
+
+The graph currently loads each recording into memory and uses one parent per
+VAD stage call. The production reader's bounded handling of recordings up
+to 11 hours and its 64-parent VAD scheduling are not reproduced here.
+Numerical parity with the production Granary pipeline and long-recording
+memory scaling remain unverified.
 
 ---
 
@@ -791,13 +946,15 @@ and cleans it. Existing transcripts are used only for fallback after inference;
 Qwen receives audio with the English or multilingual prompt from the YAML,
 preserving disfluencies and spoken numbers without a supplied transcript.
 Both Xenna and Ray Data load the complete
-[tutorial YAML](../tutorials/audio/qwen_omni_asr/pipeline.yaml), including its
+[tutorial YAML](../tutorials/audio/granary_v2/qwen_omni_asr/pipeline.yaml), including its
 pinned model revision, batching, and all eight stages. Only the input
 size, paths, and executor change. The script is standalone; it is not registered
 in `benchmarks.yaml`.
 
-Use the [tutorial environment](../tutorials/audio/qwen_omni_asr/README.md#1-set-up-the-environment).
-From the repository root, stage a five-hour LibriSpeech sample and the model:
+Use the [tutorial environment](../tutorials/audio/granary_v2/qwen_omni_asr/README.md#1-set-up-the-environment)
+for both executors, with `.venv-qwen-omni` activated. Keep the same installed
+packages for the tutorial and benchmark. From the repository root, stage a
+five-hour LibriSpeech sample and the model:
 
 ```bash
 python benchmarking/data_prep/prepare_librispeech_data.py \
@@ -813,17 +970,20 @@ hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
 ```
 
 Reuse the staged data and model for both runs. Run one executor at a time,
-using a new results directory for every run:
+using a new results directory for every run. Each standalone command starts a
+new local Ray cluster, avoiding a stale address left after the tutorial stops
+its cluster. Keep this setting on the individual command; the benchmark runner
+manages its own cluster address.
 
 ```bash
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
-python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+RAY_ADDRESS=local python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
   --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/xenna" \
   --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
   --model-id "$PWD/qwen-omni-asr-benchmark/model" \
   --executor xenna --execution-mode streaming
 
-python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+RAY_ADDRESS=local python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
   --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/raydata" \
   --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
   --model-id "$PWD/qwen-omni-asr-benchmark/model" \
@@ -843,31 +1003,37 @@ output structure, not transcription accuracy.
 
 #### Observed throughput
 
-One run per executor used 22,710 unique English LibriSpeech clips totaling
-80.61259 audio hours. Each run used one EOS node with 8 × NVIDIA H100 80GB HBM3
-GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
+The 2026-10-20 EOS runs used Curator `8d275057`
+and the documented tutorial environment. One run per executor processed the
+same 22,710 unique English LibriSpeech clips totaling 80.61259 audio hours.
+Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
+80GB HBM3 GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
 
 | Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
 | --- | --- | --- | --- | --- |
-| Xenna streaming | 748.54 s | 742.96 s | 390.61 | 48.83 |
-| Ray Data | 1,275.65 s | 1,270.40 s | 228.44 | 28.55 |
+| Xenna streaming | 719.284 s | 713.711 s | 406.615 | 50.827 |
+| Ray Data | 1,276.624 s | 1,270.467 s | 228.424 | 28.553 |
 
 Both produced all 22,710 outputs, preserved the input transcripts, used the
 original transcript for five clips, and left zero rows flagged. Xenna met the
 600–900 second full-process target. Ray Data used the same cohort. Full process
 time includes imports and output validation; staging is excluded. Per-GPU
 throughput divides whole-node throughput by all eight allocated GPUs.
+Selected transcripts differed on 3,473 rows; coverage and matching fallback
+decisions do not establish exact generated-output parity.
 
 All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
-10% utilization after model initialization. Ray Data did not meet the
-eight-GPU activity target.
+10% utilization while their ASR workers were ready. Ray Data completed correctly
+with repeated model initialization and two GPUs without qualifying model work.
+These measurements do not establish scaling efficiency. Both runs logged worker
+shutdown diagnostics despite complete outputs and normal process exits.
 
 ---
 
 ## Audio Text Pipeline Benchmark
 
 `scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
-from [text_pipeline.yaml](../tutorials/audio/text_processing/text_pipeline.yaml):
+from [text_pipeline.yaml](../tutorials/audio/granary_v2/text_pipeline/text_pipeline.yaml):
 manifest reader → entity recovery → punctuation/capitalization → language
 prediction and verification → text normalization → fused captioning, code
 switching and speech QA → inverse text normalization → disfluency removal →
@@ -889,7 +1055,7 @@ in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
 revision and selection rule alongside the manifest. Human-gold inputs are also
 supported, but identify them as such; do not label copied human text as ASR output.
 
-Follow the [tutorial environment and server instructions](../tutorials/audio/text_processing/README.md#1-prepare-the-environment)
+Follow the [tutorial environment and server instructions](../tutorials/audio/granary_v2/text_pipeline/README.md#1-prepare-the-environment)
 exactly: build its project image from the same checkout, use the same eight-GPU
 node and mounted directories, start its server, and run and check the two bundled
 examples. Place the benchmark cohort at
@@ -966,6 +1132,36 @@ by object identity, so separately deserialized copies can inflate batch totals.
 Use the independently calculated row/request throughput and operation counts for
 comparisons. These checks prove execution coverage, not semantic parity or model
 quality. Inspect the output fields and fallback counts before interpreting
+throughput.
+
+### Observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the documented tutorial
+environment on one node with eight NVIDIA H100 80 GB GPUs. Both executors
+processed the same 14,290 English transcript rows sequentially against the
+same running server: four TP=2 replicas, batch size 128, 12 workers and
+256 concurrent requests per worker.
+
+| Executor | Pipeline with running server | Pipeline rows/second | Pipeline rows/GPU-second |
+| --- | ---: | ---: | ---: |
+| Xenna streaming | 471.889 s | 30.283 | 3.785 |
+| Ray Data | 1,169.686 s | 12.217 | 1.527 |
+
+Rates divide input rows by pipeline seconds; per-GPU rates divide by all
+eight allocated GPUs. The shared server took 510.097 seconds to start,
+outside both pipeline timers. Individual full-process wall times were not
+recorded, so these results do not establish a 600–900 second full-process
+target. All nine operations, the reader and writer are included in each
+pipeline run. These are row rates, not token rates or audio-hour rates.
+
+Both outputs preserve every input identity, original transcript and immutable
+field. Xenna retained five language-flagged rows and Ray Data retained four.
+The 865/870 operation fallbacks preserve prior text after text guards; no
+request-failure or empty-response fallback notes were found. Generated,
+audit or status values differ on 7,727 rows, including one language-rejection
+decision, so exact generated-output parity was not achieved.
+All eight GPUs recorded sustained work in both benchmark process windows;
+this does not establish scaling efficiency or isolate individual operation
 throughput.
 
 ## Writing Benchmark Scripts
