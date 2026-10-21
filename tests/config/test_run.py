@@ -515,7 +515,7 @@ def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
     tmp_path: Path, transcript_key: str, language: str
 ) -> None:
     repo_root = Path(__file__).parents[2]
-    config_dir = repo_root / "tutorials/audio/qwen_omni_asr"
+    config_dir = repo_root / "tutorials/audio/granary_v2/qwen_omni_asr"
     fixture = repo_root / "tests/fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
     labels = ["The original label.", "Another human label."]
     rows = []
