@@ -14,7 +14,6 @@
 
 """Benchmark the complete audio text tutorial on a fixed transcript cohort."""
 
-
 import argparse
 import copy
 import hashlib
@@ -38,7 +37,7 @@ from nemo_curator.stages.audio.common import ManifestReaderStage
 from nemo_curator.stages.audio.text_filtering import AudioTextLLMStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
-_CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/text_processing"
+_CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/text_pipeline"
 
 
 def _collect_output_metrics(  # noqa: C901

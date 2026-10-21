@@ -35,13 +35,21 @@ checked-in Dockerfile with its locked dependencies; use this same checkout and
 image for the tutorial and benchmarks. Internet access is needed during the build
 and the first server startup to download packages and model weights.
 
+Create the dedicated builder once. Its 12 GiB memory limit, disabled swap and
+single-CPU affinity contain the project's native extension compilation; allow
+additional memory for your host applications. Reuse this builder for later builds.
+
 Create fresh output and cache directories and an input directory. The input
 directory can stay empty for the bundled examples. For benchmarking, place your
 English cohort at `text_processing_data/english/manifest.jsonl` before proceeding.
 
 ```bash
 git rev-parse HEAD
-docker build -f docker/Dockerfile -t curator-audio-text .
+docker buildx create --name curator-audio-text-bounded --driver docker-container \
+  --driver-opt image=moby/buildkit:v0.15.0 \
+  --driver-opt memory=12g,memory-swap=12g,cpuset-cpus=0,cpu-quota=100000,cpu-period=100000
+docker buildx build --builder curator-audio-text-bounded --load \
+  -f docker/Dockerfile -t curator-audio-text .
 mkdir -p text_processing_output text_processing_data/english .cache/audio-text
 docker run --rm -it --name curator-audio-text --gpus all --ipc=host \
   --mount type=bind,src="$PWD/text_processing_data",dst=/data,readonly \
@@ -80,17 +88,26 @@ pipeline YAML; it does not construct another serving recipe.
 ```bash
 set -euo pipefail
 cd /opt/Curator
+# Match Curator's state API limits before starting the external Ray cluster.
+export RAY_MAX_LIMIT_FROM_API_SERVER=40000
+export RAY_MAX_LIMIT_FROM_DATA_SOURCE=40000
 ray start --head --node-ip-address=127.0.0.1 --port=6379 --num-gpus=8
 export RAY_ADDRESS=127.0.0.1:6379
 python -u - <<'PY_SERVER' 2>&1 | tee /output/server.log
 from pathlib import Path
 from threading import Event
 
+from huggingface_hub import snapshot_download
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-cfg = OmegaConf.load("tutorials/audio/text_processing/text_pipeline.yaml")
+cfg = OmegaConf.load("tutorials/audio/granary_v2/text_pipeline/text_pipeline.yaml")
 cfg.cache_root = "/cache/compilation"
+cfg.model_name = str(cfg.model_name)
+cfg.model_identifier = snapshot_download(
+    repo_id=cfg.model_identifier,
+    revision=cfg.inference_server.models[0].engine_kwargs.revision,
+)
 with instantiate(cfg.inference_server) as server:
     Path("/output/endpoint.txt").write_text(server.endpoint + "\n")
     print(f"Ready: {server.endpoint}. Keep this terminal open; Ctrl-C stops serving.", flush=True)
@@ -101,8 +118,13 @@ with instantiate(cfg.inference_server) as server:
 PY_SERVER
 ```
 
-Wait for `Ready:` before continuing. Initial model loading and compilation can
-take several minutes. The server defaults are four TP=2 replicas, context and
+The snapshot download fixes the model to the YAML's revision before Dynamo starts;
+its prefetch otherwise resolves the model repository independently of vLLM's
+revision setting. The endpoint keeps the public model name. Cached snapshots are
+reused on subsequent starts.
+
+Wait for `Ready:` before continuing. Initial model download, loading and compilation
+can take several minutes. The server defaults are four TP=2 replicas, context and
 batched-token limits of 8,192, 256 sequences, prefix caching, chunked prefill, and
 95% GPU memory utilization.
 
@@ -122,9 +144,9 @@ export RAY_ADDRESS=127.0.0.1:6379
 set -euo pipefail
 test ! -e /output/english_output.jsonl
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/text_processing \
+  --config-path ../../tutorials/audio/granary_v2/text_pipeline \
   --config-name text_pipeline \
-  manifest_path=/opt/Curator/tutorials/audio/text_processing/sample_input.jsonl \
+  manifest_path=/opt/Curator/tutorials/audio/granary_v2/text_pipeline/sample_input.jsonl \
   output_path=/output/english_output.jsonl \
   endpoint="$(cat /output/endpoint.txt)" \
   2>&1 | tee /output/pipeline.log
@@ -163,7 +185,7 @@ python - <<'PY_CHECK'
 import json
 from pathlib import Path
 
-input_path = Path("tutorials/audio/text_processing/sample_input.jsonl")
+input_path = Path("tutorials/audio/granary_v2/text_pipeline/sample_input.jsonl")
 source = [json.loads(line) for line in input_path.read_text().splitlines()]
 output = [json.loads(line) for line in Path("/output/english_output.jsonl").read_text().splitlines()]
 by_id = {row["audio_item_id"]: row for row in output}
@@ -226,7 +248,7 @@ normalization permits number expansion; exhausted request retries fail the batch
 ## 5. Benchmark the same pipeline (optional)
 
 Keep this container, Ray cluster and server running. Follow the
-[paired benchmark commands](../../../benchmarking/README.md#audio-text-pipeline-benchmark)
+[paired benchmark commands](../../../../benchmarking/README.md#audio-text-pipeline-benchmark)
 in the second terminal. They reuse `/output/endpoint.txt`, `/cache/compilation`,
 the model, and the complete YAML. Only the cohort size, executor and result paths
 change. Run Xenna and Ray Data sequentially on the same input manifest.
@@ -243,6 +265,37 @@ exit
 
 The container is removed when it exits. Inputs, outputs and caches remain in the
 three mounted host directories.
+
+## Observed throughput
+
+The October 20, 2026 EOS run used Curator `8d275057` and the environment
+documented above. One run per executor processed the same
+14,290 English transcript records sequentially on one node with 224 logical CPUs
+and eight H100 GPUs. Both used the same running Gemma FP8 server with four
+two-GPU replicas, batch size 128, 12 workers per processing stage, and up to 256
+concurrent requests per worker.
+
+| Measurement | Xenna streaming | Ray Data |
+| --- | --- | --- |
+| Pipeline time with the server already running | 471.889 seconds | 1,169.686 seconds |
+| Whole-node pipeline throughput | **30.283 rows/second** | **12.217 rows/second** |
+| Pipeline throughput per allocated GPU | **3.785 rows/GPU/second** | **1.527 rows/GPU/second** |
+
+These pipeline clocks include reading, all nine processing operations and writing
+the output. Both client runs used the same shared model server; its 510.097-second
+startup, driver setup and benchmark validation are excluded. Individual full
+benchmark process times were not measured separately, so these results do not
+establish a 10–15 minute full-process target. Per-GPU throughput divides whole-node
+throughput by all eight allocated GPUs; it does not establish linear scaling or
+scaling efficiency.
+
+Both outputs retain all 14,290 rows, original transcripts, IDs and non-mutable
+input values. Language validation flags five Xenna rows and four Ray Data rows
+without dropping them. There are 865/870 operation fallbacks from novel-word or
+word-count guards; no request-failure or empty-response fallback notes were found.
+Generated text, audit notes or status values differ on 7,727 rows, including one
+language-rejection decision. Complete coverage does not establish exact generated
+output or semantic parity.
 
 ## Sample provenance and a recorded result
 
