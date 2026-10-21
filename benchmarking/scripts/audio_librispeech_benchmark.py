@@ -183,7 +183,8 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             "adapter_kwargs": {"use_cuda_graph_decoder": False},
         }
         # The benchmark suite can be newer than the Curator image being measured.
-        if "max_audio_sec_per_actor" in inspect.signature(ASRStage).parameters:
+        # StageMeta.__call__ masks the class signature with (*args, **kwargs).
+        if "max_audio_sec_per_actor" in inspect.signature(ASRStage.__init__).parameters:
             asr_kwargs["max_audio_sec_per_actor"] = 240.0
         pipeline.add_stage(ASRStage(**asr_kwargs))
         pipeline.add_stage(
