@@ -12,16 +12,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import os
-from pathlib import Path
+from dataclasses import replace
+from pathlib import Path  # noqa: TC003
+from typing import TYPE_CHECKING
 
 import pytest
 
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage, has_overlap
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from tests.stages.audio.inference import review_helpers as rh
+
+if TYPE_CHECKING:
+    from typing import Any
 
 hf_token = os.getenv("HF_TOKEN")
+
+
+@pytest.mark.parametrize("audio_key", ["pcm", "rate_hz"])
+@pytest.mark.parametrize("residency", ["file", "waveform", "auto"])
+def test_count_output_cannot_overwrite_audio_carriers(audio_key: str, residency: str) -> None:
+    with pytest.raises(ValueError, match="distinct from audio input"):
+        PyAnnoteDiarizationStage(
+            input_residency=residency,
+            waveform_key="pcm",
+            sample_rate_key="rate_hz",
+            num_speakers_key=audio_key,
+        )
+
+
+@pytest.mark.parametrize("count_key", ["", " ", 1])
+def test_enabled_count_output_requires_a_nonempty_key(count_key: object) -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        PyAnnoteDiarizationStage(num_speakers_key=count_key)
+
+
+def test_resident_count_output_preserves_audio_for_asr(monkeypatch: pytest.MonkeyPatch) -> None:
+    template, _ = rh._make_stage("pyannote", monkeypatch, input_residency="waveform")
+    stage = replace(template, num_speakers_key="speaker_count")
+    stage._pipeline = template._pipeline
+    waveform = rh.np.linspace(-0.2, 0.2, 10, dtype=rh.np.float32)[None, :]
+    result = stage.process_batch([AudioTask(data={"waveform": waveform, "sample_rate": rh._SAMPLE_RATE})])[0]
+    assert result.data["speaker_count"] == 1
+    assert result.data["sample_rate"] == rh._SAMPLE_RATE
+    rh.np.testing.assert_array_equal(result.data["waveform"], waveform)
+    asr = rh.ASRStage(
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+    )
+    asr._adapter = rh.MagicMock()
+    asr._adapter.transcribe_batch.return_value = [rh.ASRResult(text="hello")]
+    asr.process_batch([result])
+    rh.np.testing.assert_array_equal(asr._adapter.transcribe_batch.call_args.args[0][0]["waveform"], waveform[0])
 
 
 class TestPyannoteHasOverlap:
@@ -86,6 +135,10 @@ class TestPyannoteHasOverlap:
 class TestPyAnnoteDiarizationStage:
     """Tests for PyAnnoteDiarizationStage."""
 
+    def test_preserves_explicit_non_resumable_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(PyAnnoteDiarizationStage, "is_resumable", False)
+        assert PyAnnoteDiarizationStage().is_resumable is False
+
     def test_xenna_num_workers_routes_through_generic_num_workers(self) -> None:
         stage = PyAnnoteDiarizationStage(hf_token=self.__class__.__name__, xenna_num_workers=4)
 
@@ -116,3 +169,77 @@ class TestPyAnnoteDiarizationStage:
             assert segment["start"] < segment["end"], "Start should be before end"
             assert 0 <= segment["start"] <= 60.0, "Start within audio duration"
             assert 0 <= segment["end"] <= 60.0, "End within audio duration"
+
+
+@rh.pytest.mark.parametrize("residency", ["waveform", "auto"])
+def test_pyannote_non_speaker_bounds_use_selected_resident_duration(
+    residency: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    audio_path = tmp_path / "fallback.wav"
+    rh._write_audio(audio_path, rh.np.zeros((1, 2), dtype=rh.np.float32))
+    stage, _seen = rh._make_stage("pyannote", monkeypatch, input_residency=residency)
+    monkeypatch.setattr(rh.pyannote_module, "add_non_speaker_segments", rh.add_non_speaker_segments)
+    common = {"audio_filepath": str(audio_path)} if residency == "auto" else {}
+    task = rh.AudioTask(
+        data={
+            **common,
+            "waveform": rh.np.ones((1, 12), dtype=rh.np.float32),
+            "sample_rate": rh._SAMPLE_RATE,
+            "duration": 99.0,
+        }
+    )
+    result = stage.process_batch([task])[0]
+    assert max(segment["end"] for segment in result.data["segments"]) == rh.pytest.approx(1.2)
+
+
+@rh.pytest.mark.parametrize("fail_after_rttm", [False, True], ids=["success", "failure"])
+def test_pyannote_cleans_temporary_rttm_siblings(
+    fail_after_rttm: bool, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    stage, _seen = rh._make_stage(
+        "pyannote", monkeypatch, input_residency="waveform", write_rttm=True, fail_after_rttm=fail_after_rttm
+    )
+
+    def temp_resolver(item: dict[str, Any], **kwargs: object) -> str | None:
+        return rh.resolve_audio_path(item, temp_dir=str(tmp_path), **kwargs)
+
+    monkeypatch.setattr(rh.pyannote_module, "resolve_audio_path", temp_resolver)
+    task = rh.AudioTask(data={"waveform": rh.np.ones((1, 12), dtype=rh.np.float32), "sample_rate": rh._SAMPLE_RATE})
+    if fail_after_rttm:
+        with rh.pytest.raises(RuntimeError, match="failure after RTTM"):
+            stage.process(task)
+    else:
+        stage.process(task)
+    assert list(tmp_path.glob("*.wav")) == []
+    assert list(tmp_path.glob("*.rttm")) == []
+
+
+def test_pyannote_preserves_durable_file_rttm(tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch) -> None:
+    stage, _seen = rh._make_stage("pyannote", monkeypatch, write_rttm=True)
+    audio_path = tmp_path / "durable.wav"
+    rh._write_audio(audio_path, rh.np.ones((1, 12), dtype=rh.np.float32))
+    stage.process(rh.AudioTask(data={"audio_filepath": str(audio_path)}))
+    assert audio_path.with_suffix(".rttm").exists()
+
+
+def test_pyannote_fanout_excludes_silence_and_includes_overlap(
+    tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    audio_path = tmp_path / "source.wav"
+    rh._write_audio(audio_path, rh.np.arange(50, dtype=rh.np.float32)[None, :])
+    annotation = rh._FakeAnnotation(
+        [{"start": 1.0, "end": 2.0, "speaker": "speaker_0"}, {"start": 2.0, "end": 3.0, "speaker": "speaker_1"}],
+        overlap_segments=[rh.pyannote_module.Segment(2.0, 3.0)],
+    )
+    monkeypatch.setattr(rh.pyannote_module, "ProgressHook", rh._ProgressHook)
+    stage = rh.PyAnnoteDiarizationStage(
+        fanout=True, min_length=0.0, max_length=40.0, write_rttm=False, resources=rh.Resources(gpus=0)
+    )
+    stage._pipeline = lambda _payload, hook=None: (hook, annotation)[1]
+    stage._vad_model = rh.MagicMock()
+    children = stage.process(rh.AudioTask(data={"resampled_audio_filepath": str(audio_path)}))
+    assert [(child.data["start"], child.data["end"], child.data["is_overlap"]) for child in children] == [
+        (1.0, 2.0, False),
+        (2.0, 3.0, True),
+    ]
+    assert all(child.data.get("speaker") != "no-speaker" for child in children)
