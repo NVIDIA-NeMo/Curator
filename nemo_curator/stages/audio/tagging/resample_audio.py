@@ -29,7 +29,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import KW_ONLY, dataclass
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import soundfile
 from fsspec.core import url_to_fs
@@ -100,6 +100,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     target sample rate and format, while creating a new manifest with
     updated paths.
 
+    ``target_codec="pcm_f32le"`` preserves floating-point samples in WAV
+    intermediates; the default remains signed 16-bit PCM.
+
     """
 
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -130,6 +133,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional
     # slots above keep their historical order and meaning.
     _: KW_ONLY
+    target_codec: Literal["pcm_s16le", "pcm_f32le"] = "pcm_s16le"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     original_audio_filepath_key: str = "original_audio_filepath"
@@ -139,6 +143,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     update_audio_filepath: bool = False
 
     def __post_init__(self) -> None:
+        if self.target_codec not in {"pcm_s16le", "pcm_f32le"}:
+            msg = "target_codec must be pcm_s16le or pcm_f32le"
+            raise ValueError(msg)
         validate_audio_key_configuration(
             type(self).__name__,
             input_keys={
@@ -365,6 +372,9 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             info = soundfile.info(path)
         except Exception:  # noqa: BLE001 - unreadable or not-audio -> convert it again
             return False
+        expected_subtype = "FLOAT" if self.target_codec == "pcm_f32le" else "PCM_16"
+        if info.subtype != expected_subtype:
+            return False
         if info.samplerate != self.target_sample_rate or info.channels != self.target_nchannels:
             return False
         if input_audio_path is None:
@@ -509,7 +519,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "-ac",
                 str(self.target_nchannels),
                 "-acodec",
-                "pcm_s16le",
+                self.target_codec,
                 temporary_audio_path,
             ]
 

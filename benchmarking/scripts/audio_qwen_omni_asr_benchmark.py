@@ -29,7 +29,7 @@ from utils import write_benchmark_results
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
 
-_PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/qwen_omni_asr/pipeline.yaml"
+_PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/qwen_omni_asr/pipeline.yaml"
 
 
 def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
