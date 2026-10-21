@@ -21,8 +21,11 @@ import base64
 import contextlib
 import importlib.metadata
 import io
+import json
 import time
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pyarrow as pa
@@ -54,6 +57,11 @@ _NEMOTRON_PARSE_SAMPLING_PARAMS: dict[str, Any] = {
     "seed": None,
 }
 _OPENAI_GENERATION_CONFIG_FIELDS = {"max_tokens", "seed", "temperature", "top_p"}
+_PARSE_TRANSPORT: ContextVar[tuple[AsyncOpenAIClient, asyncio.AbstractEventLoop]] = ContextVar("parse_transport")
+_PARSE_INSTALL_HINT = (
+    "Served Parse 3.5 requires the model team's nemotron-parse package. "
+    "Install nemo-curator[text_cpu,cv2] for client dependencies, then install nemotron-parse --no-deps."
+)
 
 
 def _nemotron_parse_sampling_params(max_tokens: int) -> dict[str, Any]:
@@ -423,11 +431,16 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     ``proc_size`` must match the served model's image processor.
     A page request that still fails after client retries raises the whole task,
     matching in-process inference and preventing partial document output.
+    With parse_mode set, the model package owns parsing and failed pages become
+    materialize_error rows. Model prompts and sampling then come from the package;
+    text_in_pic, task_prompt and max_tokens apply only to the legacy path.
     """
 
     endpoint: str
     model_name: str
     model_path: str | None = None
+    parse_mode: str | None = None
+    triple_regions: str = "union"
     text_in_pic: bool = False
     task_prompt: str | None = None
     request_timeout_s: float = 300.0
@@ -440,6 +453,12 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
+        if self.parse_mode not in (None, "single", "double", "triple"):
+            msg = "parse_mode must be single, double or triple"
+            raise ValueError(msg)
+        if self.triple_regions not in ("union", "detector"):
+            msg = "triple_regions must be union or detector"
+            raise ValueError(msg)
         if self.task_prompt is None:
             self.task_prompt = build_task_prompt(text_in_pic=self.text_in_pic)
         self.max_retries = max(0, int(self.max_retries))
@@ -462,13 +481,125 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         return ["data"], []
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_actor_stage": False}
+        return {"is_actor_stage": self.parse_mode is not None}
+
+    def setup(self, worker_metadata: dict | None = None) -> None:  # noqa: ARG002
+        if self.parse_mode is not None:
+            try:
+                from nemotron_parse.inference import DocumentParser
+            except ImportError as exc:
+                raise ImportError(_PARSE_INSTALL_HINT) from exc
+            self._parser = DocumentParser(model=self.model_name, backend=self._parse_backend)
+
+    def teardown(self) -> None:
+        if getattr(self, "_parser", None) is not None:
+            self._parser.close()
+            self._parser = None
+
+    def _parse_backend(self, image: Image.Image, *, prompt: str, stage: str, settings: Any) -> dict:  # noqa: ARG002, ANN401
+        client, loop = _PARSE_TRANSPORT.get()
+        stream = io.BytesIO()
+        image.save(stream, format="PNG")
+        values = asdict(settings)
+        config = {key: value for key, value in values.items() if key in _OPENAI_GENERATION_CONFIG_FIELDS}
+        extras = {key: value for key, value in values.items() if key not in config}
+        generation = GenerationConfig(**config, extra_kwargs={"extra_body": {**extras, "skip_special_tokens": False}})
+        response = asyncio.run_coroutine_threadsafe(
+            self._query_page(client, stream.getvalue(), "image/png", prompt=prompt, generation_config=generation), loop
+        ).result()
+        return {
+            "raw_out": response.text,
+            "finish_reason": response.finish_reason,
+            "usage": {"prompt_tokens": response.prompt_tokens, "completion_tokens": response.output_tokens},
+        }
+
+    async def _parse_pages(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        client = AsyncOpenAIClient(
+            max_concurrent_requests=self.inference_batch_size,
+            max_retries=self.max_retries,
+            base_delay=self.retry_base_delay_s,
+            api_key="unused",  # pragma: allowlist secret
+            base_url=self.endpoint.rstrip("/"),
+            timeout=self.request_timeout_s,
+        )
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=self.inference_batch_size))
+        token = _PARSE_TRANSPORT.set((client, loop))
+        semaphore = asyncio.Semaphore(self.inference_batch_size)
+
+        async def parse_page(row: dict[str, Any]) -> dict[str, Any]:
+            if row.get("materialize_error"):
+                return {**row, "parse_document": None}
+            async with semaphore:
+                try:
+                    with Image.open(io.BytesIO(row["binary_content"])) as image:
+                        document = await asyncio.to_thread(
+                            self._parser.parse, image, mode=self.parse_mode, triple_regions=self.triple_regions
+                        )
+                    return {
+                        **row,
+                        "text_content": document["raw_out"],
+                        "parse_document": json.dumps(document),
+                        "materialize_error": None,
+                    }
+                except Exception as exc:  # noqa: BLE001
+                    response = getattr(exc, "response", None)
+                    response = response if isinstance(response, dict) else {}
+                    return {
+                        **row,
+                        "text_content": response.get("raw_out", ""),
+                        "parse_document": None,
+                        "materialize_error": json.dumps(
+                            {
+                                "stage": getattr(exc, "stage", "parse_request"),
+                                "type": type(exc).__name__,
+                                "message": str(exc),
+                            }
+                        ),
+                    }
+
+        try:
+            return list(await asyncio.gather(*(parse_page(row) for row in pages)))
+        finally:
+            _PARSE_TRANSPORT.reset(token)
+            if hasattr(client, "client"):
+                with contextlib.suppress(Exception):
+                    await client.client.close()
+
+    def _process_parse(self, task: InterleavedBatch) -> InterleavedBatch:
+        if getattr(self, "_parser", None) is None:
+            msg = "Call setup() before processing served Parse 3.5 pages"
+            raise RuntimeError(msg)
+        started = time.perf_counter()
+        rows = asyncio.run(self._parse_pages(task.to_pyarrow().to_pylist()))
+        self._log_metrics(
+            {
+                "inference_server_request_time": time.perf_counter() - started,
+                "num_input_pages": float(len(rows)),
+                "num_error_pages": float(sum(bool(row.get("materialize_error")) for row in rows)),
+            }
+        )
+        return InterleavedBatch(
+            dataset_name=task.dataset_name,
+            data=pa.Table.from_pylist(rows),
+            _metadata={
+                **task._metadata,
+                "proc_size": list(self.proc_size),
+                "model_path": self.model_path or self.model_name,
+                "parse_mode": self.parse_mode,
+                "inference_server_endpoint": self.endpoint,
+            },
+            _stage_perf=task._stage_perf,
+        )
 
     async def _query_page(
         self,
         client: AsyncOpenAIClient,
         image_bytes: bytes,
         content_type: str,
+        *,
+        prompt: str | None = None,
+        generation_config: GenerationConfig | None = None,
     ) -> _HTTPPageResult:
         image_url = f"data:{content_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
         response = await client.query_model_response(
@@ -477,12 +608,12 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": self.task_prompt or ""},
+                        {"type": "text", "text": prompt if prompt is not None else self.task_prompt or ""},
                         {"type": "image_url", "image_url": {"url": image_url}},
                     ],
                 }
             ],
-            generation_config=self._generation_config,
+            generation_config=generation_config or self._generation_config,
         )
 
         choice = response.choices[0] if response.choices else None
@@ -537,6 +668,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         }
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
+        if self.parse_mode is not None:
+            return self._process_parse(task)
         task_df = task.to_pandas()
         valid_mask: list[bool] = []
         images: list[tuple[bytes, str]] = []

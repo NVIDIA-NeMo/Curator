@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
 import os
@@ -28,6 +29,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
+    _render_page,
     extract_pdf_from_jsonl,
     extract_pdf_from_zip,
     extract_pdfs_from_jsonl_batch,
@@ -72,6 +74,8 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         Resolution for PDF page rendering.
     max_pages
         Maximum number of pages to render per PDF.
+    retain_failures
+        Preserve physical page indexes and failed-page rows for the served parser.
     """
 
     zip_base_dir: str | None = None
@@ -79,6 +83,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     jsonl_base_dir: str | None = None
     dpi: int = 300
     max_pages: int = 50
+    retain_failures: bool = False
     name: str = "pdf_preprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
 
@@ -163,7 +168,11 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         def _worker() -> None:
             try:
-                pages = render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages)
+                pages = (
+                    self._render_page_records(pdf_bytes)
+                    if self.retain_failures
+                    else render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages)
+                )
                 result_q.put(pages)
             except Exception:  # noqa: BLE001
                 result_q.put([])
@@ -190,6 +199,60 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             logger.debug(f"Forcibly cleaned up render process for {file_name} (result was obtained)")
         return pages
 
+    def _render_page_records(self, pdf_bytes: bytes) -> list[dict[str, Any]]:
+        import pypdfium2 as pdfium
+
+        records = []
+        document = None
+        try:
+            document = pdfium.PdfDocument(pdf_bytes)
+            for page_number in range(min(len(document), self.max_pages)):
+                image = _render_page(document, page_number, self.dpi / 72.0, (1664, 2048))
+                records.append(
+                    {
+                        "page_number": page_number,
+                        "binary_content": image_to_bytes(image) if image is not None else None,
+                        "materialize_error": None
+                        if image is not None
+                        else json.dumps(
+                            {"stage": "render_pdf", "type": "RenderError", "message": "Page rendering failed"}
+                        ),
+                    }
+                )
+                if image is not None:
+                    image.close()
+        except Exception as exc:  # noqa: BLE001
+            records.append(
+                {
+                    "page_number": None,
+                    "binary_content": None,
+                    "materialize_error": json.dumps(
+                        {"stage": "render_pdf", "type": type(exc).__name__, "message": str(exc)}
+                    ),
+                }
+            )
+        finally:
+            if document is not None:
+                with contextlib.suppress(Exception):
+                    document.close()
+        return records
+
+    @staticmethod
+    def _failed_row(sample_id: str, file_name: str, url: str, stage: str, message: str) -> dict[str, Any]:
+        return {
+            "sample_id": sample_id,
+            "position": -1,
+            "page_number": None,
+            "modality": "page_image",
+            "content_type": "image/png",
+            "text_content": "",
+            "binary_content": None,
+            "source_ref": None,
+            "url": url,
+            "pdf_name": file_name,
+            "materialize_error": json.dumps({"stage": stage, "type": "PDFError", "message": message}),
+        }
+
     def process(self, task: FileGroupTask) -> InterleavedBatch | None:
         rows: list[dict[str, Any]] = []
 
@@ -210,29 +273,20 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             else:
                 pdf_bytes = self._get_pdf_bytes(file_name, entry=entry)
             if pdf_bytes is None:
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "read_pdf", "Could not read PDF"))
                 logger.warning(f"Could not read PDF: {file_name}")
                 continue
 
             page_images = self._render_with_timeout(pdf_bytes, file_name)
             if not page_images:
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "render_pdf", "No render result"))
                 logger.warning(f"No pages rendered from {file_name}; skipping")
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")
-            for page_num, page_img in enumerate(page_images):
-                rows.append(
-                    {
-                        "sample_id": sample_id,
-                        "position": page_num,
-                        "modality": "page_image",
-                        "content_type": "image/png",
-                        "text_content": "",
-                        "binary_content": image_to_bytes(page_img),
-                        "source_ref": None,
-                        "url": url,
-                        "pdf_name": file_name,
-                    }
-                )
+            rows.extend(self._page_rows(page_images, sample_id, file_name, url))
 
         if not rows:
             return None
@@ -244,3 +298,31 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
+
+    def _page_rows(self, page_images: list, sample_id: str, file_name: str, url: str) -> list[dict[str, Any]]:
+        rows = []
+
+        for page_num, page_img in enumerate(page_images):
+            if self.retain_failures:
+                rows.append(
+                    {
+                        **self._failed_row(sample_id, file_name, url, "render_pdf", ""),
+                        **page_img,
+                        "position": page_img["page_number"] if page_img["page_number"] is not None else -1,
+                    }
+                )
+                continue
+            rows.append(
+                {
+                    "sample_id": sample_id,
+                    "position": page_num,
+                    "modality": "page_image",
+                    "content_type": "image/png",
+                    "text_content": "",
+                    "binary_content": image_to_bytes(page_img),
+                    "source_ref": None,
+                    "url": url,
+                    "pdf_name": file_name,
+                }
+            )
+        return rows

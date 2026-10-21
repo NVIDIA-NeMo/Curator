@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import io
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,6 +29,8 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     DEFAULT_MIN_CROP_PX,
     build_interleaved_rows,
+    crop_to_bbox,
+    image_to_bytes,
 )
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
@@ -68,6 +71,8 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
         return ["data"], []
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
+        if task._metadata.get("parse_mode") is not None:
+            return self._process_parse(task)
         pages = task.to_pandas()
         proc_size = tuple(task._metadata.get("proc_size", self.proc_size))
         model_path = task._metadata.get("model_path", "")
@@ -106,6 +111,68 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
         return InterleavedBatch(
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(final_df, preserve_index=False),
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+
+    def _process_parse(self, task: InterleavedBatch) -> InterleavedBatch | None:
+        rows = []
+        positions: dict[str, int] = {}
+        for page in task.to_pyarrow().to_pylist():
+            sample_id = page["sample_id"]
+            position = positions.setdefault(sample_id, 0)
+            common = {key: page.get(key) for key in ("sample_id", "url", "pdf_name", "page_number")}
+            common["source_ref"] = json.dumps({"page": page.get("page_number")})
+            if page.get("materialize_error"):
+                rows.append(
+                    {
+                        **common,
+                        "position": position,
+                        "modality": "metadata",
+                        "content_type": "application/json",
+                        "text_content": page["materialize_error"],
+                        "binary_content": None,
+                        "element_class": None,
+                        "materialize_error": page["materialize_error"],
+                    }
+                )
+                positions[sample_id] += 1
+                continue
+            document = json.loads(page["parse_document"])
+            with Image.open(io.BytesIO(page["binary_content"])) as image:
+                for block in document["blocks"]:
+                    kind = block["class"]
+                    binary = None
+                    if kind == "Picture":
+                        crop = crop_to_bbox(image, block["bbox"], (image.height, image.width), self.min_crop_px)
+                        if crop is None:
+                            continue
+                        binary = image_to_bytes(crop)
+                        crop.close()
+                        modality, content_type = "image", "image/png"
+                    elif kind == "Table":
+                        modality, content_type = "table", "text/html"
+                    else:
+                        modality, content_type = "text", "text/markdown"
+                    rows.append(
+                        {
+                            **common,
+                            "position": positions[sample_id],
+                            "modality": modality,
+                            "content_type": content_type,
+                            "text_content": block["content"],
+                            "binary_content": binary,
+                            "element_class": kind,
+                            "materialize_error": None,
+                            "source_ref": json.dumps({"page": page.get("page_number"), "bbox": block["bbox"]}),
+                        }
+                    )
+                    positions[sample_id] += 1
+        if not rows:
+            return None
+        return InterleavedBatch(
+            dataset_name=task.dataset_name,
+            data=pa.Table.from_pylist(rows),
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )

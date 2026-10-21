@@ -150,3 +150,58 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--dpi` | 300 | PDF rendering resolution |
 | `--max-pages` | 50 | Max pages per PDF |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
+
+## Served Nemotron Parse 3.5
+
+Keep the serving runtime separate from the Curator CPU pipeline. Start the model
+team's compatible server with its documented Dockerfile arguments. Curator-managed
+serving is not yet qualified for this model: its serving stack uses CUDA-suffixed
+vLLM builds that the model plugin's exact version check rejects.
+
+Install the model team's Python package without resolving its inference dependencies:
+
+```bash
+uv pip install "nemo-curator[text_cpu,cv2]"
+uv pip install --no-deps /path/to/nemotron_parse.whl
+```
+
+The `text_cpu` extra supplies `beautifulsoup4`, used by the parser's table conversion.
+Use a wheel supplied with the model release; this does not change Curator's dependency
+pins. The package is imported only when `parse_mode` is selected.
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --inference-batch-size 32 --client-num-workers 4 \
+    --executor ray-data
+```
+
+Use `--executor xenna` for the same served pipeline on Xenna. The endpoint must expose
+the named model. For a two-GPU server, the model team's server can use
+`--data-parallel-size 2` behind this one endpoint; Curator does not route across multiple
+endpoints. Server processes and their shutdown belong to the caller.
+
+- `single` reads the whole page.
+- `double` also rereads table/chart crops from that answer.
+- `triple` adds a boxes-only detection request before reading the crops.
+- `--triple-regions union` combines detected regions with nonoverlapping full-page
+  regions; `detector` uses only the detector's regions.
+
+The model team's `DocumentParser` owns prompts, sampling, finish checks, region
+selection, crop merging, text/table cleanup and geometry. `--text-in-pic` and
+`--max-tokens` retain their legacy meaning and do not override package settings.
+Curator keeps its existing 300-DPI rendering cap of 1664×2048, PNG images, forked
+render timeout, partitioning and writer. There is no rendering retry on this path.
+Picture boxes are content-normalized and crop the rendered page directly.
+Tables are exported as `text/html`, preserving the package's converted content.
+
+Setting `parse_mode` requires an endpoint; leaving it unset retains existing behavior
+and the default Parse v1.2 model. Failed parse or render pages become one row with
+`materialize_error`, source identity and physical page index where known. A document
+that cannot be opened has an unknown page index. Successful siblings are retained.
+The tutorial writer uses `on_materialize_error="warn"` to keep these rows; a custom
+writer's default `"error"` policy still raises. Parse v1.2 does not emit these new
+error rows by default.
