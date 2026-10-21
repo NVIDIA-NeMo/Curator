@@ -296,6 +296,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
             "original_file_key": self.original_file_key,
             "num_speakers_key": self.num_speakers_key,
             "num_samples_key": self.num_samples_key,
+            **({"skip_me_key": self.skip_me_key} if self.skip_me_key is not None else {}),
             **{f"legacy_duration_keys[{index}]": key for index, key in enumerate(self.legacy_duration_keys)},
         }
 

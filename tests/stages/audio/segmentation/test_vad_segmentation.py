@@ -1086,3 +1086,24 @@ def test_skip_signaling_preserves_successful_segment_output_and_contract(nested:
     assert (
         "waveform" in (contract.writes.segment_data_keys if nested else contract.writes.data_keys)
     ) == keep_waveform
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_skip_reason_can_use_a_remapped_legacy_waveform_key(nested: bool, failed: bool) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        emit_audit_placeholders=True,
+        waveform_key="samples",
+        output_waveform_key="pcm",
+        skip_me_key="waveform",
+        results=[VADResult([], error="failed" if failed else None)],
+    )
+    task = AudioTask(data={"samples": torch.zeros(1, 16000), "sample_rate": 16000})
+
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert task.data["waveform"] == ("read_error" if failed else "vad_empty")
+    assert "samples" not in task.data
+    assert "waveform" not in stage.describe().removes_keys
