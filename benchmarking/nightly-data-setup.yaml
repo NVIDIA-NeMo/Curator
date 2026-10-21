@@ -13,6 +13,19 @@ data_setups:
       --hf-split train.clean.100+train.clean.360+train.other.500
       --target-audio-hours 750.0
 
+  # Optional data setup for the standalone Qwen Omni ASR benchmark.
+  - name: qwen_omni_asr_librispeech_5h
+    enabled: false
+    script: prepare_librispeech_data.py
+    args: >-
+      --output-path {datasets_path}/qwen_omni_asr_librispeech_clean_5h_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/librispeech
+      --hf-repo-id openslr/librispeech_asr
+      --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1
+      --hf-config all
+      --hf-split train.clean.100
+      --target-audio-hours 5.0
+
   - name: audio_tagging_ami_sdm
     enabled: true
     script: prepare_audio_tagging_data.py
@@ -44,6 +57,13 @@ data_setups:
       --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
       --cache-dir {datasets_path}/_hf_cache/audio_sortformer
       --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+  - name: audio_indic_asr_hindi_531h
+    enabled: true
+    script: prepare_audio_indic_asr_data.py
+    args: >-
+      --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11
+      --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
 
   - name: read_speech
     enabled: true

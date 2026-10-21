@@ -83,6 +83,8 @@ def _prepare_tensorrt_llm_native_runtime() -> None:
         # The openmpi wheel retains its build-time /opt/openmpi prefix. Point
         # OpenMPI at the active Curator environment before mpi4py initializes.
         os.environ.setdefault("OPAL_PREFIX", str(prefix))
+        # Canary uses one MPI rank per GPU worker; no SSH launcher is needed.
+        os.environ.setdefault("OMPI_MCA_plm", "isolated")
 
     site_packages = Path(torch.__file__).resolve().parent.parent
     native_libraries = (
@@ -133,14 +135,12 @@ def _require_tensorrt_llm() -> None:
             TensorInfo = TensorInfoImport
             return
 
-    # The Canary stack is deliberately a mutually exclusive root profile. It
-    # cannot be combined with audio_cuda12/audio_tensorrt in one environment.
     msg = (
-        "tensorrt_llm is required for the Indic Canary ASR runtime but could "
-        "not be loaded. Create the dedicated Curator profile with CPython 3.12 on "
-        "Linux x86_64:\n"
-        "    uv sync --python 3.12 --extra audio_canary_trtllm --no-default-groups\n"
-        "Do not combine audio_canary_trtllm with audio_cuda12 or audio_tensorrt."
+        "tensorrt_llm is required for Indic Canary ASR but could not be loaded. "
+        "Use the Python 3.12 / Linux x86_64 image built with "
+        "docker/audio/Dockerfile.trt_llm, then run "
+        "python docker/audio/check_trt_llm.py on a compatible GPU. "
+        "The normal Curator extras do not install this native runtime."
     )
     raise ImportError(msg) from _TRTLLM_IMPORT_ERROR
 
