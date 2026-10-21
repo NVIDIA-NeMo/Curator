@@ -329,3 +329,18 @@ def test_failed_repeated_preparation_preserves_writer_ownership(tmp_path) -> Non
     assert not output.with_name(output.name + "._RUN").exists()
     writer.prepare_on_driver()
     writer.abort_on_driver()
+
+
+@pytest.mark.parametrize("prefix", ['{"id":0}', '{"text":"héllo"}\n', ""])
+@pytest.mark.parametrize("remote", [False, True])
+def test_append_preserves_record_boundary_without_final_newline(tmp_path, prefix: str, remote: bool) -> None:  # noqa: ANN001
+    output_path = f"memory://{tmp_path}/output.jsonl" if remote else str(tmp_path / "output.jsonl")
+    fs, path = url_to_fs(output_path)
+    with fs.open(path, "w", encoding="utf-8") as stream:
+        stream.write(prefix)
+    stage = DocumentBatchJsonlWriterStage(output_path=output_path)
+    stage.setup()
+    stage.process(_batch([{"id": 1}]))
+    with fs.open(path, encoding="utf-8") as source:
+        rows = [json.loads(line) for line in source]
+    assert rows == ([json.loads(prefix)] if prefix else []) + [{"id": 1}]

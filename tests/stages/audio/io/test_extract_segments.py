@@ -1399,3 +1399,41 @@ def test_retry_repairs_legacy_reservations_that_share_a_filename(wav_dir: Path, 
     next_retry = AudioTask(task_id="aliases", data=copy.deepcopy(data))
     SegmentExtractionStage(output_dir=str(output_dir)).process_batch([next_retry])
     assert next_retry.data["extracted_path"] == paths
+
+
+def test_standalone_colliding_speaker_labels_keep_distinct_clips(wav_dir: Path, tmp_path: Path) -> None:
+    output_dir = tmp_path / "clips"
+    manifest = _write_manifest(
+        tmp_path,
+        [
+            {
+                "original_file": _wav_path(wav_dir),
+                "diar_segments": [
+                    {"start": 0, "end": 0.5, "speaker": "0"},
+                    {"start": 0.5, "end": 1, "speaker": "speaker_0"},
+                ],
+            }
+        ],
+    )
+    stage = SegmentExtractionStage(output_dir=str(output_dir))
+    stage.extract_from_manifest(manifest)
+    with (output_dir / "metadata.csv").open(newline="") as source:
+        rows = list(csv.DictReader(source))
+    assert len({row["filename"] for row in rows}) == 2
+    assert len(list(output_dir.glob("*.wav"))) == 2
+    expected = [
+        sf.read(_wav_path(wav_dir))[0][: SAMPLE_RATE // 2],
+        sf.read(_wav_path(wav_dir))[0][SAMPLE_RATE // 2 : SAMPLE_RATE],
+    ]
+    for row, audio in zip(rows, expected, strict=True):
+        np.testing.assert_allclose(sf.read(output_dir / row["filename"])[0], audio, atol=1e-4)
+
+
+def test_extraction_discovery_matches_configured_side_effects(tmp_path: Path) -> None:
+    from nemo_curator.stages.audio import agent
+    from nemo_curator.stages.audio._agent._agent_registry import build_contract
+
+    configured = build_contract(SegmentExtractionStage(output_dir=str(tmp_path)))
+    static = agent.describe_stage("SegmentExtractionStage")
+    for key in ("writes_to_disk", "output_path_params", "requires_stable_task_id", "per_row_independent"):
+        assert getattr(static.gates, key) == getattr(configured.gates, key)

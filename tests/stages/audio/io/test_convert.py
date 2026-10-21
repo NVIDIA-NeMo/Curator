@@ -214,7 +214,8 @@ def test_configured_projection_is_visible_to_planning_and_runtime() -> None:
     contract = build_contract(stage)
 
     assert contract.preserves_upstream_keys is False
-    assert contract.reads.data_keys == ["audio_filepath"]
+    assert contract.reads.data_keys == []
+    assert contract.optional_reads.data_keys == ["audio_filepath"]
     assert contract.writes.data_keys == ["audio_filepath"]
 
     report = validate_pipeline(
@@ -282,3 +283,11 @@ def test_projection_preserves_missing_columns_and_still_excludes_audio_carriers(
     task = AudioTask(data={"text": "kept", "waveform": torch.zeros(2), "segments": []})
     assert_agent_ready(stage, lambda: task)
     assert stage.process_batch([task])[0].to_pandas().to_dict("records") == [{"text": "kept", "missing": None}]
+
+
+def test_missing_projection_columns_do_not_block_planning() -> None:
+    stage = AudioToDocumentStage(keep_keys=["text", "language"], strict_json=True)
+    report = validate_pipeline([stage], initial_keys={"text"})
+    assert report.ok
+    result = stage.process_batch([AudioTask(data={"text": "hello"})])[0]
+    assert result.to_pandas().to_dict("records") == [{"text": "hello", "language": None}]

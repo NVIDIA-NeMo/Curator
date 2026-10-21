@@ -345,7 +345,7 @@ class TestGroupExport:
         assert contract.optional_reads.data_keys == ["speaker_id"]
         assert validate_pipeline([stage], initial_keys={"text"}).ok
 
-    def test_configured_text_and_selected_columns_are_required_reads(self, tmp_path: Path) -> None:
+    def test_text_is_required_but_selected_export_columns_are_optional(self, tmp_path: Path) -> None:
         txt = ManifestGroupExportStage(
             output_dir=str(tmp_path / "txt"),
             text_key="transcript",
@@ -365,7 +365,8 @@ class TestGroupExport:
 
         assert build_contract(txt).reads.data_keys == ["transcript"]
         assert build_contract(timeline).reads.data_keys == ["transcript"]
-        assert build_contract(selected).reads.data_keys == ["transcript", "lang"]
+        assert build_contract(selected).reads.data_keys == []
+        assert build_contract(selected).optional_reads.data_keys == ["speaker_id", "transcript", "lang"]
         assert not validate_pipeline([txt], initial_keys={"speaker_id"}).ok
 
         txt.setup()
@@ -624,3 +625,153 @@ def test_prepared_timeline_is_published_once_after_all_batches(tmp_path: Path, m
         ]
     finally:
         driver.abort_on_driver()
+
+
+@pytest.mark.parametrize("format_name", ["csv", "json"])
+def test_missing_selected_columns_export_through_framework_validation(tmp_path: Path, format_name: str) -> None:
+    stage = ManifestGroupExportStage(output_dir=str(tmp_path), format=format_name, columns=["text", "lang"])
+    assert validate_pipeline([stage], initial_keys={"speaker_id", "text"}).ok
+    task = AudioTask(data={"speaker_id": "alice", "text": "hello"})
+    stage.setup()
+    assert stage.process_batch([task]) == [task]
+    if format_name == "csv":
+        with (tmp_path / "alice.csv").open(newline="") as source:
+            assert list(csv.DictReader(source)) == [{"text": "hello", "lang": ""}]
+    else:
+        assert json.loads((tmp_path / "alice.jsonl").read_text()) == {"text": "hello"}
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+@pytest.mark.parametrize("failure", ["before_append", "after_append", "after_journal"])
+@pytest.mark.parametrize("format_name", ["txt", "json", "csv"])
+def test_prepared_batch_retry_exports_each_task_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replacement: bool, failure: str, format_name: str
+) -> None:
+    import pickle
+
+    driver = ManifestGroupExportStage(output_dir=str(tmp_path), write_timeline=True, format=format_name)
+    driver.prepare_on_driver()
+    serialized = pickle.dumps(driver)
+    worker = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+    worker.setup()
+    tasks = [
+        AudioTask(task_id=str(i), dataset_name="test", data={"speaker_id": "alice", "text": text})
+        for i, text in enumerate(["first", "second"])
+    ]
+    original_append = worker._append
+    original_owner = worker._journal._write_run_owner
+    interruption = "interrupted export"
+
+    def interrupted_append(group: str, row: dict) -> None:
+        if row["text"] == "second" and failure == "before_append":
+            raise OSError(interruption)
+        original_append(group, row)
+        if row["text"] == "second" and failure == "after_append":
+            raise OSError(interruption)
+
+    def interrupted_owner() -> None:
+        raise OSError(interruption)
+
+    monkeypatch.setattr(worker, "_append", interrupted_append)
+    if failure == "after_journal":
+        monkeypatch.setattr(worker._journal, "_write_run_owner", interrupted_owner)
+    try:
+        with pytest.raises(OSError, match="interrupted export"):
+            RayDataStageAdapter(worker)._process_batch_internal({"item": tasks})
+        monkeypatch.setattr(worker, "_append", original_append)
+        monkeypatch.setattr(worker._journal, "_write_run_owner", original_owner)
+        if replacement:
+            worker = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+            worker.setup()
+        assert RayDataStageAdapter(worker)._process_batch_internal({"item": tasks})["item"] == tasks
+        driver.finalize()
+    finally:
+        driver.abort_on_driver()
+    suffix = "jsonl" if format_name == "json" else format_name
+    output = tmp_path / f"alice.{suffix}"
+    if format_name == "txt":
+        assert output.read_text().splitlines() == ["first", "second"]
+    elif format_name == "json":
+        assert [json.loads(line)["text"] for line in output.read_text().splitlines()] == ["first", "second"]
+    else:
+        with output.open(newline="") as source:
+            assert [row["text"] for row in csv.DictReader(source)] == ["first", "second"]
+    assert (tmp_path / "timeline.txt").read_text().splitlines() == ["alice: first", "alice: second"]
+
+
+def test_equal_export_rows_with_distinct_task_identities_are_preserved(tmp_path: Path) -> None:
+    stage = ManifestGroupExportStage(output_dir=str(tmp_path))
+    stage.prepare_on_driver()
+    stage.setup()
+    try:
+        tasks = [AudioTask(task_id=str(i), data={"speaker_id": "a", "text": "same"}) for i in range(2)]
+        stage.process_batch(tasks)
+        stage.process_batch(tasks)
+        stage.finalize()
+        assert (tmp_path / "a.txt").read_text().splitlines() == ["same", "same"]
+    finally:
+        stage.abort_on_driver()
+
+
+def test_full_agent_export_retry_and_discovery(tmp_path: Path) -> None:
+    import pickle
+
+    verbs = pytest.importorskip("nemo_curator.stages.audio.audio_agent.verbs")
+    from nemo_curator.stages.audio.audio_agent.index import get_index
+
+    from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+    from nemo_curator.stages.audio.io.extract_segments import SegmentExtractionStage
+
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text('{"text":"hello"}\n')
+    verdict = verbs.validate(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(manifest)}},
+                {"ref": "AudioToDocumentStage", "params": {"keep_keys": ["text", "lang"]}},
+            ]
+        },
+        initial_keys=["text"],
+        initial_roles=["transcript"],
+    )
+    assert verdict["runnable"], verdict.get("issues")
+    projected = AudioToDocumentStage(keep_keys=["text", "lang"]).process_batch([AudioTask(data={"text": "hello"})])
+    assert projected[0].to_pandas().to_dict("records") == [{"text": "hello", "lang": None}]
+    static = get_index().full_cards(["SegmentExtractionStage"])[0]["contract"]["gates"]
+    configured = build_contract(SegmentExtractionStage(output_dir=str(tmp_path / "clips"))).gates
+    for key in ("writes_to_disk", "output_path_params", "requires_stable_task_id", "per_row_independent"):
+        assert static[key] == getattr(configured, key)
+
+    tasks = [AudioTask(task_id=str(i), data={"speaker_id": "a", "text": str(i)}) for i in range(2)]
+
+    class RetryingExecutor:
+        def __init__(self) -> None:
+            self.config = {}
+
+        def execute(self, stages: list, _initial_tasks: list) -> list:
+            saved = pickle.dumps(stages[0])
+            worker = pickle.loads(saved)  # noqa: S301 - local stage fixture
+            worker.setup()
+            worker.process(tasks[0])
+            replacement = pickle.loads(saved)  # noqa: S301 - local stage fixture
+            replacement.setup()
+            return RayDataStageAdapter(replacement)._process_batch_internal({"item": tasks})["item"]
+
+    stage = ManifestGroupExportStage(output_dir=str(tmp_path / "export"), write_timeline=True)
+    assert verbs._run_pipeline([stage], RetryingExecutor()) == tasks
+    assert (tmp_path / "export" / "a.txt").read_text().splitlines() == ["0", "1"]
+    assert (tmp_path / "export" / "timeline.txt").read_text().splitlines() == ["a: 0", "a: 1"]
+
+
+def test_group_export_can_follow_a_reused_metadata_manifest(tmp_path: Path) -> None:
+    continuation = pytest.importorskip("nemo_curator.stages.audio.audio_agent.continuation")
+    from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
+
+    recipe = Recipe(
+        stages=[
+            StageRef(ref="ManifestReader", params={"manifest_path": str(tmp_path / "input.jsonl")}),
+            StageRef(ref="ManifestWriterStage", params={"output_path": str(tmp_path / "prefix.jsonl")}),
+            StageRef(ref="ManifestGroupExportStage", params={"output_dir": str(tmp_path / "export")}),
+        ]
+    )
+    assert continuation._resume_breaks_on_disk_boundary(recipe, 2) is None

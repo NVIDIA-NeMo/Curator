@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
@@ -131,7 +132,7 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
     def describe(self) -> StageContract:
         projected_keys = self._projected_keys()
         return StageContract(
-            reads=IOSpec(data_keys=projected_keys),
+            optional_reads=IOSpec(data_keys=projected_keys),
             writes=IOSpec(data_keys=projected_keys),
             preserves_upstream_keys=self.keep_keys is None,
             removes_keys=sorted(self._removed_keys()),
@@ -387,13 +388,15 @@ class DocumentBatchJsonlWriterStage(AgentReady, ProcessingStage[DocumentBatch, D
         if not dataframe.empty and lifecycle is not None:
             lifecycle.write_jsonl_batch(dataframe.to_json(orient="records", lines=True, force_ascii=False))
         elif not dataframe.empty:
+            records = dataframe.to_json(orient="records", lines=True, force_ascii=False)
+            separator = ""
+            if self._fs.size(self._path):
+                with self._fs.open(self._path, "rb") as existing:
+                    existing.seek(-1, os.SEEK_END)
+                    if existing.read(1) != b"\n":
+                        separator = "\n"
             with self._fs.open(self._path, "a", encoding="utf-8") as stream:
-                dataframe.to_json(
-                    stream,
-                    orient="records",
-                    lines=True,
-                    force_ascii=False,
-                )
+                stream.write(separator + records)
         return task
 
     def num_workers(self) -> int | None:

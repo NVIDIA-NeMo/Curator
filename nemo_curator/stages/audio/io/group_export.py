@@ -132,7 +132,9 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     snapshot every ``timeline_flush_rows`` rows, at batch boundaries, and at teardown.
 
     Explicit driver preparation retains committed export state across worker
-    replacement and requires caller-managed finalization or abort. Ordinary
+    replacement and requires caller-managed finalization or abort. Replayed rows
+    with a nonempty, unique ``(dataset_name, task_id)`` are exported only once.
+    Anonymous rows retain append semantics. Ordinary
     ``Pipeline.run()`` does not manage these hooks: worker ``setup()`` starts
     fresh export state, so replacement workers can overwrite earlier output.
 
@@ -192,6 +194,8 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     _pending: int = field(default=0, init=False, repr=False)
     _group_stems: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _group_labels: dict[str, str] = field(default_factory=dict, init=False, repr=False)
+    _committed_tasks: set[tuple[str, str]] = field(default_factory=set, init=False, repr=False)
+    _needs_restore: bool = field(default=False, init=False, repr=False)
     _journal: ManifestWriterStage | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -235,6 +239,8 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         self._pending = 0
         self._group_stems = {}
         self._group_labels = {}
+        self._committed_tasks = set()
+        self._needs_restore = False
         if prepared:
             self._restore_exports()
         logger.info(f"[{self.name}] exporting groups of {self.group_by!r} to {self.output_dir}")
@@ -244,6 +250,8 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         with open(self._journal.output_path, encoding="utf-8") as source:
             for line in source:
                 event = json.loads(line)
+                if event.get("task") is not None:
+                    self._committed_tasks.add(tuple(event["task"]))
                 path = os.path.join(self.output_dir, event["filename"])
                 self._written.add(path)
                 offsets[path] = event["offset"]
@@ -302,8 +310,6 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         required: list[str] = []
         if self.format == "txt" or self.write_timeline:
             required.append(self.text_key)
-        if self.format in {"json", "csv"} and self.columns is not None:
-            required.extend(self.columns)
         return list(dict.fromkeys(required))
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -316,7 +322,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         return StageContract(
             dispatch="process",
             reads=IOSpec(data_keys=self._required_data_keys()),
-            optional_reads=IOSpec(data_keys=[self.group_by]),
+            optional_reads=IOSpec(data_keys=list(dict.fromkeys([self.group_by, *(self.columns or [])]))),
             writes=IOSpec(produces=["disk"]),
             gates=Gates(
                 writes_to_disk=True,
@@ -331,7 +337,15 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     # ------------------------------------------------------------------ processing
     def process(self, task: AudioTask) -> AudioTask:
-        self._verify_export_ownership()
+        if self._needs_restore:
+            self.setup()
+        prepared = self._verify_export_ownership()
+        task_identity = (task.dataset_name, task.task_id)
+        if prepared and task.task_id and task_identity in self._committed_tasks:
+            return task
+        # A failed append must restore committed offsets even when the executor
+        # retries on the same worker instead of constructing a replacement.
+        self._needs_restore = prepared
         row = task.data if isinstance(task.data, dict) else {}
         # ``is None``, not truthiness: speaker ids are commonly zero-indexed, and
         # ``row.get(...) or ...`` filed every ``speaker_id == 0`` row under
@@ -373,6 +387,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             filename = f"{stem}.{_EXT[self.format]}"
             path = os.path.join(self.output_dir, filename)
             event = {
+                "task": task_identity if task.task_id else None,
                 "identity": identity,
                 "stem": stem,
                 "filename": filename,
@@ -383,6 +398,9 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 "timeline": self._timeline[-1] if self.write_timeline else None,
             }
             self._journal.write_jsonl_batch(json.dumps(event, ensure_ascii=False) + "\n")
+            if task.task_id:
+                self._committed_tasks.add(task_identity)
+        self._needs_restore = False
         return task
 
     def _append(self, group: str, row: dict[str, Any]) -> None:

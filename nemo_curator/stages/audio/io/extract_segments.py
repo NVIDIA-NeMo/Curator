@@ -62,7 +62,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import soundfile as sf
 from loguru import logger
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 
     import numpy as np
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -435,6 +435,14 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     output_format: str = DEFAULT_OUTPUT_FORMAT
     batch_size: int = 64
     is_resumable = True
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["output_dir"],
+            requires_stable_task_id=True,
+            per_row_independent=False,
+        )
+    )
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     output_key: str = field(default="extracted_path", kw_only=True)
 
@@ -940,7 +948,9 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                                 lambda name=original_name, item=entry, index=seg_idx: make_filename(name, item, index),
                             )
                     else:
-                        out_filename = make_filename(original_name, entry, seg_idx)
+                        out_filename = self._claim_filename(
+                            lambda name=original_name, item=entry, index=seg_idx: make_filename(name, item, index)
+                        )
                     output_path = os.path.join(self.output_dir, out_filename)
 
                     try:
@@ -1015,6 +1025,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         detected_combos = sorted({detect_combo([entry]) for entry in entries})
         logger.info(f"Detected: {', '.join(combo_names[combo] for combo in detected_combos)}")
 
+        self._claimed_filenames = set()
         total_extracted, total_dur, speaker_counts, metadata_rows = self._extract_entries(entries)
 
         csv_path = _write_metadata_csv(self.output_dir, metadata_rows)
