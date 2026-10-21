@@ -54,7 +54,7 @@ Review the latest NeMo Curator capabilities:
 
 ## Quick Start
 
-Three paths, depending on what you're trying to do. Each path is self-contained.
+Choose one of the three self-contained paths below based on your workload.
 
 NeMo Curator uses [`uv`](https://docs.astral.sh/uv/) for installation. Install it once:
 
