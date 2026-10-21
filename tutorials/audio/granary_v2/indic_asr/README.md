@@ -34,23 +34,26 @@ flagged rows bypass text cleanup.
 
 ## 1. Build and check the environment
 
-On a Linux x86_64 host with Docker and the NVIDIA Container Toolkit, run
-from the root of this Curator checkout:
+Use Linux x86_64, Docker Buildx and the NVIDIA Container Toolkit. Complete the
+[shared Granary image build](../metadata/README.md#build-the-image) from this
+checkout first. Those commands build `curator-granary-metadata` with the checked-in
+`docker/audio/Dockerfile.trt_llm` `granary` target and bounded build resources.
+Use that same image for this tutorial and its benchmarks.
 
-```bash
-docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-asr .
-docker run --rm --gpus all curator-indic-asr python docker/audio/check_trt_llm.py
-```
+The shared configuration requires 128 logical CPUs, eight H100 80 GB GPUs and
+a 500 GiB Ray object store; provide at least that much shared memory and RAM for
+the models and workers. A 1 TiB host is recommended. Each Canary worker reserves
+50 GiB and each Parakeet worker reserves 24 GiB, allowing one of each per H100.
 
-**GPU:** an 80 GB H100 is suitable for H100-built engine bundles. The
-configuration reserves 50 GiB for Canary and 24 GiB for Parakeet. Use an
-NVIDIA driver compatible with CUDA 13, or a supported data-center
-forward-compatibility setup.
-
-The [audio Dockerfile](../../../docker/audio/Dockerfile.trt_llm) installs
+The [audio Dockerfile](../../../../docker/audio/Dockerfile.trt_llm) installs
 Curator with Python 3.12, Torch 2.9.1, TensorRT-LLM 1.2.1, and
-TensorRT 10.14.1.48.post1. The second command checks the native libraries
-and GPU access. Fix any errors before continuing.
+TensorRT 10.14.1.48.post1. The shared `granary` target pins NeMo to reference
+commit `5d56c27c0e80f4cd8c93b28bacca5f98440a45f9`, also used by the metadata
+tutorial, and supplies CUDA 13 forward-compatibility libraries for supported
+data-center GPUs. Keep the image's loader path, thread settings and
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Runtime initialization below
+checks native libraries and GPU access; the tutorial run then checks both actual
+ASR engine bundles.
 
 Reuse this image for subsequent runs. Do not run `uv sync` inside it:
 that would replace the inference environment.
@@ -66,15 +69,20 @@ Create the work directories and open the container. **Replace
 ```bash
 mkdir -p indic-asr-work/data indic-asr-work/output indic-asr-work/ray-logs
 docker run --rm -it --gpus all --ipc=host \
-  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e RAY_DATA_OP_RESERVATION_RATIO=0 \
+  -e RAY_DATA_STREAMING_MAX_BUFFER_SIZE_MB=4096 \
   -v "$PWD/indic-asr-work/data:/data" \
   -v "$PWD/indic-asr-work/output:/outputs" \
   -v "$PWD/indic-asr-work/ray-logs:/tmp/ray" \
   -v /absolute/path/to/engines:/models:ro \
-  curator-indic-asr bash
+  curator-granary-metadata bash
 ```
 
-Run steps 2–4 **inside this container**, from `/opt/Curator`.
+Run the [shared runtime initialization](../metadata/README.md#initialize-the-runtime)
+once in this container's parent shell, then run steps 2–4 **inside this container**,
+from `/opt/Curator`. That block clears inherited distributed ranks, initializes
+Ray's private authentication file and checks the native libraries. Preserve these
+exports for both tutorial executors and the benchmark pair.
 Your data, outputs, and Ray worker logs persist under `indic-asr-work` on
 the host. Files created by Docker may be owned by root.
 
@@ -85,7 +93,7 @@ and are licensed [CC BY 4.0](https://huggingface.co/datasets/google/fleurs/blob/
 No Hugging Face token is needed.
 
 ```bash
-python tutorials/audio/indic_asr/download_samples.py --output-dir /data/indic_asr
+python tutorials/audio/granary_v2/indic_asr/download_samples.py --output-dir /data/indic_asr
 ```
 
 This downloads two mono 16 kHz WAV files and their reference transcripts
@@ -103,14 +111,16 @@ reuses identical files. It refuses to overwrite conflicting files.
 ## 3. Run the pipeline
 
 The settings and all eleven stages are in [pipeline.yaml](pipeline.yaml).
-The default uses the Xenna executor, one worker per model, and batches
-of two clips:
+The default uses the Xenna executor, eight workers per model, batches of 64,
+four manifest readers and 24 preparation workers. The benchmark loads this same
+YAML; only the input size, paths and executor change. The two-clip tutorial uses
+these settings too, so startup dominates its elapsed time:
 
 ```bash
 set -o pipefail
 test ! -e /outputs/indic_asr_xenna.jsonl && \
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/indic_asr \
+  --config-path ../../tutorials/audio/granary_v2/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
   indic_canary_engine_dir=/models/indic_canary \
@@ -131,7 +141,7 @@ and the `test` guard so errors and existing results are not hidden.
 set -o pipefail
 test ! -e /outputs/indic_asr_ray_data.jsonl && \
 python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/indic_asr \
+  --config-path ../../tutorials/audio/granary_v2/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
   indic_canary_engine_dir=/models/indic_canary \
@@ -279,7 +289,7 @@ mkdir -p indic-asr-work/engines &&
 docker run --rm --gpus all --ipc=host \
   --mount "type=bind,src=$PARAKEET_CHECKPOINT,dst=/checkpoints/parakeet.nemo,readonly" \
   --mount "type=bind,src=$PWD/indic-asr-work/engines,dst=/engine-output" \
-  curator-indic-asr \
+  curator-granary-metadata \
   python nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
   --model /checkpoints/parakeet.nemo \
   --output-dir /engine-output/parakeet \
@@ -300,11 +310,16 @@ contain an RNN-T encoder, decoder, and joint network.
 
 #### Canary
 
-The Canary converter is not in this checkout. Use
-`scripts/audio/indic_canary_trtllm_conversion/build_engine.py` from the
-`nithinraok/Curator` reference at commit `1e2d6399`. Supply the matching Indic
-Canary `.nemo` and AI4Bharat NeMo fork. Run from that conversion directory,
-replacing all three paths:
+The Canary converter is not in this checkout. Use the
+[pinned reference converter](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/build_engine.py)
+and follow its [setup instructions](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/README.md#setup)
+in a separate build environment. The Granary inference image does not include
+the required Indic Canary NeMo fork with `CanaryMultilingualTokenizer`.
+Obtain that fork and the matching `.nemo` checkpoint from the checkpoint
+producer. The converter's setup does not identify a published commit for this
+custom fork; a stock NeMo checkout cannot replace it.
+
+Run from the conversion directory, replacing all three paths:
 
 ```bash
 python build_engine.py \
@@ -321,23 +336,39 @@ files in [model files](#model-files), including `encoder/config.json` and
 Always supply the matching Hindi checkpoint rather than its default model.
 
 These build arguments support the tutorial's 40-second window, four beams,
-and 347-new-token limit. Their command-line arguments have been checked,
-but fresh checkpoint conversion has not been validated here.
+and 347-new-token limit.
 
 ## Observed throughput
 
-| Measurement | Result |
-| --- | --- |
-| Executor | Xenna streaming |
-| Hardware | One node with 8 × NVIDIA H100 80GB HBM3 GPUs |
-| Batch size | 64 |
-| Workers per model | 8 |
-| Input and output | 216,164 unique clips; 531.75763 audio hours |
-| Pipeline time | 554.05 seconds |
-| Whole-node pipeline throughput | **3,455.13 audio-hours/hour** |
-| Pipeline throughput per allocated GPU | **431.89 audio-hours/GPU-hour** |
-| Timing scope | Model startup, all eleven stages, and executor shutdown |
-| Measured runs | 1 |
+The 2026-10-20 EOS runs used Curator `8d275057` and the immutable Granary image
+described above. One run per executor received one node with
+8 × NVIDIA H100 80GB HBM3 GPUs, batch size 64 and eight workers
+per model, using the same 216,164 Hindi clips (531.75763 audio hours) and engine bundles.
+
+| Measurement | Xenna streaming | Ray Data |
+| --- | ---: | ---: |
+| Full benchmark process | 624.493 seconds | 5,028.510 seconds |
+| Pipeline time | 531.098 seconds | 4,938.302 seconds |
+| Whole-node pipeline throughput | **3,604.471 audio-hours/hour** | **387.649 audio-hours/hour** |
+| Pipeline throughput per allocated GPU | **450.559 audio-hours/GPU-hour** | **48.456 audio-hours/GPU-hour** |
+| Full-process throughput, audio-hours/hour | 3,065.410 | 380.695 |
+| Mean per-row WER | 12.1986232735% | 12.1986298149% |
+| Retained flagged rows | 37 | 36 |
+
+Pipeline time measures `Pipeline.run()`, including model startup, all eleven
+stages, and executor shutdown. Full-process wall time also includes imports,
+input preparation and output validation. Data and model staging and scheduler
+queue time are excluded. Pipeline throughput uses the pipeline clock;
+full-process throughput uses the full-process clock. The benchmark's stored
+`time_taken_s` and `throughput_audio_hours_per_hour` include output validation
+after `Pipeline.run()` and therefore differ from the pure pipeline rates above.
+Both outputs retain every input identity and reference, and every row's WER
+was independently checked. Selected transcripts differ on 9,383 rows, and
+three skip decisions differ; close aggregate WER does not establish exact parity.
+The middle 80% of each run had a median sampled active GPU count of eight
+for Xenna and one for Ray Data. Per-GPU throughput divides whole-node pipeline
+throughput by all eight allocated GPUs; it does not establish scaling efficiency.
+NeMo-CI jobs: Xenna `497628144`; Ray Data `497628145`.
 
 ## What each stage does
 

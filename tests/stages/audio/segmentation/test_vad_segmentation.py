@@ -30,6 +30,7 @@ from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -449,6 +450,35 @@ def test_read_error_passes_through_without_adapter_call() -> None:
     assert result == [task]
     assert adapter.items == []
     assert "waveform" not in task.data
+
+
+@pytest.mark.parametrize("skip_key", [None, "_skipme", "reason"])
+@pytest.mark.parametrize("prior_reason", ["", "upstream_rejection"])
+def test_empty_parent_can_skip_downstream_inference(skip_key: str | None, prior_reason: str) -> None:
+    stage, _ = _stage(emit_audit_placeholders=True, skip_me_key=skip_key, results=[VADResult([])])
+    task = _task()
+    if skip_key is not None:
+        task.data[skip_key] = prior_reason
+
+    assert stage.process_batch([task]) == [task]
+    assert task.data["vad_empty"] is True
+    if skip_key is None:
+        assert "_skipme" not in task.data
+    else:
+        assert task.data[skip_key] == (prior_reason or "vad_empty")
+
+
+def test_failed_parent_has_distinct_skip_reason() -> None:
+    stage, _ = _stage(emit_audit_placeholders=True, skip_me_key="_skipme")
+    task = AudioTask(data={"read_error": True})
+    assert stage.process_batch([task]) == [task]
+    assert task.data["_skipme"] == "read_error"
+
+
+@pytest.mark.parametrize("key", ["", "waveform", "start_ms", "duration_sec"])
+def test_skip_reason_cannot_overwrite_vad_fields(key: str) -> None:
+    with pytest.raises(ValueError, match="skip_me_key"):
+        VADSegmentationStage(skip_me_key=key)
 
 
 def test_audio_preparation_error_is_auditable_when_requested() -> None:
@@ -988,3 +1018,71 @@ def test_bundled_silero_silence_smoke(sample_rate: int, nested: bool) -> None:
         assert "waveform" not in result[0].data
     else:
         assert result == []
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+@pytest.mark.parametrize("prior_reason", ["", "upstream_rejection"])
+def test_audit_skip_reason_survives_remapped_waveform_cleanup(nested: bool, failed: bool, prior_reason: str) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        emit_audit_placeholders=True,
+        waveform_key="samples",
+        output_waveform_key="pcm",
+        skip_me_key="reason",
+        results=[VADResult([], error="failed" if failed else None)],
+    )
+    task = AudioTask(
+        data={
+            "samples": torch.zeros(1, 16000),
+            "waveform": torch.zeros(1, 10),
+            "sample_rate": 16000,
+            "reason": prior_reason,
+        }
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(data=dict(task.data)),
+        expected_cardinality="1:1 nested-list" if nested else "1:N fan-out",
+        available_keys=set(task.data),
+    )
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert task.data["reason"] == (prior_reason or ("read_error" if failed else "vad_empty"))
+    assert not {"samples", "waveform", "pcm"} & task.data.keys()
+    assert any("reason" in write.writes.data_keys for write in contract.conditional_writes)
+    if nested:
+        assert task.data["segments"] == []
+    downstream = SEDInferenceStage(
+        adapter_target="nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter",
+        skip_me_key="reason",
+        save_npz=False,
+    )
+    assert downstream.process_batch(result) == result
+    json.dumps(task.data)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("keep_waveform", [False, True])
+def test_skip_signaling_preserves_successful_segment_output_and_contract(nested: bool, keep_waveform: bool) -> None:
+    stage, _ = _stage(nested=nested, keep_segment_waveform_in_task=keep_waveform, skip_me_key="_skipme")
+    baseline, _ = _stage(nested=nested, keep_segment_waveform_in_task=keep_waveform)
+
+    result = stage.process_batch([_task()])[0]
+    expected = baseline.process_batch([_task()])[0]
+    child = result.data["segments"][0] if nested else result.data
+    expected_child = expected.data["segments"][0] if nested else expected.data
+
+    assert "_skipme" not in result.data
+    assert "_skipme" not in child
+    assert child.keys() == expected_child.keys()
+    if keep_waveform:
+        torch.testing.assert_close(child.pop("waveform"), expected_child.pop("waveform"))
+    assert child == expected_child
+    contract = stage.describe()
+    assert contract.writes.produces == (["tensor"] if keep_waveform else [])
+    assert (
+        "waveform" in (contract.writes.segment_data_keys if nested else contract.writes.data_keys)
+    ) == keep_waveform
