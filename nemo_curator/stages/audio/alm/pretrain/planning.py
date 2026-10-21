@@ -28,12 +28,13 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _MAX_FILTERED_TEXT_EXAMPLES,
     _PLAN_DATA_KEY,
@@ -95,9 +96,7 @@ def find_overlapping_indices(segments: list[dict], min_overlap_sec: float) -> se
     if n < _MIN_SEGMENTS_FOR_OVERLAP:
         return set()
     # Sort indirectly so we can return indices into the caller's list.
-    order = sorted(
-        range(n), key=lambda i: (segments[i]["start"], segments[i]["end"])
-    )
+    order = sorted(range(n), key=lambda i: (segments[i]["start"], segments[i]["end"]))
     bad: set[int] = set()
     # Active interval heap, keyed by end time so the smallest-end interval
     # (the next to fall out of the active window) is always at the root.
@@ -203,9 +202,7 @@ def plan_snippets(
     return snippets, drop_counts
 
 
-def relativize_segments(
-    segments: list[dict], snippet_start: float, snippet_end: float
-) -> list[dict]:
+def relativize_segments(segments: list[dict], snippet_start: float, snippet_end: float) -> list[dict]:
     """Return shallow-copied segments with timestamps shifted to snippet-relative.
 
     Each segment-level and word-level ``start``/``end`` is shifted by
@@ -257,9 +254,7 @@ def _count_ngrams(token_ids: list[int], n: int) -> Counter[tuple[int, ...]]:
     return Counter(tuple(token_ids[i : i + n]) for i in range(len(token_ids) - n + 1))
 
 
-def _find_offending_ngrams(
-    counts: Counter[tuple[int, ...]], max_count: int
-) -> set[tuple[int, ...]]:
+def _find_offending_ngrams(counts: Counter[tuple[int, ...]], max_count: int) -> set[tuple[int, ...]]:
     """Return n-grams whose frequency strictly exceeds ``max_count``."""
     return {ng for ng, c in counts.items() if c > max_count}
 
@@ -328,7 +323,7 @@ def _format_red(text: str, ranges: list[tuple[int, int]]) -> str:
 
 
 @dataclass
-class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
+class OverlapFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Drop empty segments and overlapping segment pairs.
 
     First filters segments that have neither text nor words.  Then drops
@@ -347,25 +342,34 @@ class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "OverlapFilter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    segments_key: str = "segments"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.segments_key]),
+            writes=IOSpec(data_keys=[self.segments_key]),
+            metadata_writes=[_PRETRAIN_META_KEY],
+            # Compares this row's segments with each other; the counters it parks in metadata
+            # are per-row facts an aggregator sums later.
+            gates=Gates(per_row_independent=True),
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        segments = list(task.data.get("segments") or [])
+        segments = list(task.data.get(self.segments_key) or [])
         original_count = len(segments)
         # Wall-clock span of the source recording: last segment's end minus
         # first segment's start. Comparable to `out_duration_sec` (which is
         # also a span, including inter-segment silences) so the input/output
         # totals can be diffed meaningfully. min/max instead of [-1].end /
         # [0].start because the input JSONL is not guaranteed to be sorted.
-        original_duration = (
-            max(s["end"] for s in segments) - min(s["start"] for s in segments) if segments else 0.0
-        )
+        original_duration = max(s["end"] for s in segments) - min(s["start"] for s in segments) if segments else 0.0
 
         kept_after_empty, dropped_empty = filter_empty_segments(segments)
         kept_after_empty.sort(key=lambda s: (s["start"], s["end"]))
@@ -373,7 +377,7 @@ class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
         kept = [s for i, s in enumerate(kept_after_empty) if i not in bad]
         dropped_overlap = len(bad)
 
-        task.data["segments"] = kept
+        task.data[self.segments_key] = kept
 
         meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
         meta["original_seg_count"] = original_count
@@ -400,7 +404,7 @@ class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetCutPlannerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Compute snippet cut boundaries for one input audio.
 
     Pure planning -- no audio I/O.  Produces a list of snippet specs
@@ -421,6 +425,9 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SnippetCutPlanner"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    segments_key: str = "segments"
+    snippet_plan_key: str = _PLAN_DATA_KEY
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_plan_key"})
 
     def __post_init__(self) -> None:
         if self.max_duration_sec <= 0:
@@ -437,21 +444,29 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], [self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [_PLAN_DATA_KEY]
+        return [], [self.snippet_plan_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.segments_key]),
+            writes=IOSpec(data_keys=[self.snippet_plan_key]),
+            metadata_writes=[_PRETRAIN_META_KEY],
+            gates=Gates(per_row_independent=True),
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        segments = list(task.data.get("segments") or [])
+        segments = list(task.data.get(self.segments_key) or [])
         snippets, drop_counts = plan_snippets(
             segments,
             self.max_duration_sec,
             self.min_duration_sec,
             self.max_segment_gap_in_snippet,
         )
-        task.data[_PLAN_DATA_KEY] = snippets
+        task.data[self.snippet_plan_key] = snippets
 
         meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
         meta["dropped_too_long"] = drop_counts["too_long"]
@@ -479,7 +494,7 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Drop planned snippets whose text shows suspicious n-gram repetition.
 
     Whisper-style ASR sometimes degenerates into repeating the same
@@ -519,6 +534,14 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SnippetRepetitionFilter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    snippet_plan_key: str = _PLAN_DATA_KEY
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_plan_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            requires_internet_first_run=True,
+            per_row_independent=True,
+        )
+    )
 
     def __post_init__(self) -> None:
         if self.ngram_n < 1:
@@ -530,10 +553,27 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
         self._tokenizer: Any = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [_PLAN_DATA_KEY]
+        return [], [self.snippet_plan_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [_PLAN_DATA_KEY]
+        return [], [self.snippet_plan_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.snippet_plan_key]),
+            writes=IOSpec(data_keys=[self.snippet_plan_key]),
+            metadata_writes=[_PRETRAIN_META_KEY],
+            gates=Gates(
+                requires_internet_first_run=not os.path.isdir(self.tokenizer_path),
+                runtime_secrets=["HF_TOKEN"] if self.hf_token else [],
+                # Not cross-corpus dedup, which the name invites: ``_snippet_is_repetitive``
+                # counts n-grams within the join of ONE snippet's own segment texts, catching an
+                # ASR run that degenerated into repeating a phrase. Nothing is compared between
+                # snippets, rows or files, and the only shared thing is the tokenizer -- a model
+                # calibrated elsewhere, which does not make a verdict corpus-dependent.
+                per_row_independent=True,
+            ),
+        )
 
     def setup_on_node(
         self,
@@ -579,7 +619,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        plan: list[dict] = list(task.data.get(_PLAN_DATA_KEY) or [])
+        plan: list[dict] = list(task.data.get(self.snippet_plan_key) or [])
         kept: list[dict] = []
         dropped_texts: list[str] = []
         for snippet in plan:
@@ -589,7 +629,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 kept.append(snippet)
 
-        task.data[_PLAN_DATA_KEY] = kept
+        task.data[self.snippet_plan_key] = kept
 
         meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
         meta["dropped_repetition"] = len(dropped_texts)
@@ -621,9 +661,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
         """
         if not text:
             return False
-        encoding = self._tokenizer(
-            text, add_special_tokens=False, return_offsets_mapping=True
-        )
+        encoding = self._tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
         token_ids: list[int] = list(encoding["input_ids"])
         offsets: list[tuple[int, int]] = [tuple(o) for o in encoding["offset_mapping"]]
         if len(token_ids) < self.ngram_n:
@@ -632,9 +670,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
         offending = _find_offending_ngrams(counts, self.ngram_max_count)
         if not offending:
             return False
-        ranges = _merge_char_ranges(
-            _locate_ngram_char_ranges(token_ids, offsets, offending, self.ngram_n)
-        )
+        ranges = _merge_char_ranges(_locate_ngram_char_ranges(token_ids, offsets, offending, self.ngram_n))
         colorized = _format_red(text, ranges)
         worst_count = max(counts[ng] for ng in offending)
         logger.opt(colors=True).warning(
