@@ -67,3 +67,35 @@ def test_setup_discovers_compatible_installers_and_skips_legacy_helpers(
     expected = [f"{selected}:--check"] if check_only else [f"{selected}:", f"{selected}:--check"]
     assert log.read_text().splitlines() == expected
     assert ("WARNING:" in result.stderr) is not compatible_under_test
+
+
+def test_check_reports_missing_pytest_in_minimal_python(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    setup = source / "benchmarking/tools/setup_benchmark_env.sh"
+    setup.parent.mkdir(parents=True)
+    repo = Path(__file__).resolve().parents[3]
+    shutil.copyfile(repo / "benchmarking/tools/setup_benchmark_env.sh", setup)
+    shutil.copyfile(repo / "benchmarking/requirements.txt", source / "benchmarking/requirements.txt")
+    (source / "docker/common").mkdir(parents=True)
+    python = tmp_path / "python"
+    # -S excludes installed third-party packages without creating another environment.
+    python.write_text(f'#!/bin/bash\nexec {shlex.quote(sys.executable)} -S "$@"\n')
+    python.chmod(0o755)
+
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(setup), "--check"],
+        env={
+            **os.environ,
+            "PYTHON": str(python),
+            "PYTHONPATH": "",
+            "CURATOR_BENCHMARK_CURATOR_REPO_DIR": str(source),
+            "CURATOR_BENCHMARK_SOURCE_DIR": str(source),
+            "CURATOR_BENCHMARK_SOURCE_MOUNT_DIR": str(tmp_path / "not-mounted"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "MISSING  pytest" in result.stdout

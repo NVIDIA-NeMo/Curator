@@ -20,7 +20,6 @@ PYTHON=${PYTHON:-python}
 CURATOR_UNDER_TEST_REPO_DIR=${CURATOR_BENCHMARK_CURATOR_REPO_DIR:-/opt/Curator}
 BENCHMARK_SOURCE_MOUNT_DIR=${CURATOR_BENCHMARK_SOURCE_MOUNT_DIR:-/tmp/.curator-benchmark-source}
 BENCHMARK_SOURCE_DIR=${CURATOR_BENCHMARK_SOURCE_DIR:-/opt/curator-benchmark-source}
-BENCHMARK_SOURCE_SUBDIRS=(benchmarking tutorials)
 
 usage() {
     cat <<'EOF'
@@ -76,22 +75,6 @@ esac
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 script_benchmarking_dir="$(cd "$script_dir/.." && pwd -P)"
 script_repo_root="$(cd "$script_benchmarking_dir/.." && pwd -P)"
-
-prepare_benchmark_source() {
-    if [ ! -d "$BENCHMARK_SOURCE_MOUNT_DIR" ]; then
-        return 0
-    fi
-
-    rm -rf "$BENCHMARK_SOURCE_DIR"
-    mkdir -p "$BENCHMARK_SOURCE_DIR"
-    for subdir in "${BENCHMARK_SOURCE_SUBDIRS[@]}"; do
-        if [ ! -e "$BENCHMARK_SOURCE_MOUNT_DIR/$subdir" ]; then
-            echo "ERROR: mounted benchmark source is missing $subdir" >&2
-            exit 1
-        fi
-        cp -a "$BENCHMARK_SOURCE_MOUNT_DIR/$subdir" "$BENCHMARK_SOURCE_DIR/"
-    done
-}
 
 benchmark_source_root() {
     if [ -f "$BENCHMARK_SOURCE_DIR/benchmarking/requirements.txt" ]; then
@@ -211,7 +194,9 @@ install_environment() {
         -r "$source_root/benchmarking/requirements.txt"
 }
 
-prepare_benchmark_source
+if [ "$ACTION" = install ] && [ -d "$BENCHMARK_SOURCE_MOUNT_DIR" ]; then
+    "$PYTHON" "$script_dir/prepare_benchmark_source.py"
+fi
 source_root=$(benchmark_source_root)
 tools_dir=$(dependency_tools_dir)
 

@@ -34,9 +34,9 @@ HOST_REPO_ROOT = THIS_SCRIPT.parents[2]
 CONTAINER_BENCHMARK_SOURCE_MOUNT_DIR = Path("/tmp/.curator-benchmark-source")  # noqa: S108
 CONTAINER_BENCHMARK_SOURCE_DIR = Path("/opt/curator-benchmark-source")
 CONTAINER_CURATOR_UNDER_TEST_DIR = Path("/opt/Curator")
-CONTAINER_SETUP_SCRIPT_CANDIDATES = (
-    CONTAINER_BENCHMARK_SOURCE_MOUNT_DIR / "benchmarking" / "tools" / "setup_benchmark_env.sh",
-    CONTAINER_BENCHMARK_SOURCE_DIR / "benchmarking" / "tools" / "setup_benchmark_env.sh",
+CONTAINER_TOOL_DIRS = (
+    CONTAINER_BENCHMARK_SOURCE_MOUNT_DIR / "benchmarking" / "tools",
+    CONTAINER_BENCHMARK_SOURCE_DIR / "benchmarking" / "tools",
 )
 BENCHMARK_SOURCE_SUBDIRS = ("benchmarking", "tutorials")
 
@@ -181,31 +181,39 @@ def _strip_arg_separator(args: Sequence[str]) -> list[str]:
     return list(args[1:] if args and args[0] == "--" else args)
 
 
+def _run_tool_script(
+    container: str,
+    name: str,
+    args: Sequence[str] = (),
+    *,
+    interpreter: str = "bash",
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    quoted_args = " ".join(shlex.quote(arg) for arg in args)
+    candidates = " ".join(shlex.quote(str(path / name)) for path in CONTAINER_TOOL_DIRS)
+    script = f"""
+set -u
+for tool_script in {candidates}; do
+  if [ -f "$tool_script" ]; then
+    exec {shlex.quote(interpreter)} "$tool_script" {quoted_args}
+  fi
+done
+echo {shlex.quote(f"ERROR: could not find {name}")} >&2
+exit 1
+"""
+    return _docker_exec_bash(container, script, check=check)
+
+
 def _run_setup_script(
     container: str,
     action: str,
     *,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    args: list[str] = []
-    if action == "check":
-        args.append("--check")
-    elif action != "install":
+    if action not in ("check", "install"):
         msg = f"Unknown setup action: {action}"
         raise ValueError(msg)
-    quoted_args = " ".join(shlex.quote(arg) for arg in args)
-    candidates = " ".join(shlex.quote(str(path)) for path in CONTAINER_SETUP_SCRIPT_CANDIDATES)
-    script = f"""
-set -u
-for setup_script in {candidates}; do
-  if [ -f "$setup_script" ]; then
-    exec bash "$setup_script" {quoted_args}
-  fi
-done
-echo "ERROR: could not find setup_benchmark_env.sh" >&2
-exit 1
-"""
-    return _docker_exec_bash(container, script, check=check)
+    return _run_tool_script(container, "setup_benchmark_env.sh", ["--check"] if action == "check" else [], check=check)
 
 
 def start_container(args: argparse.Namespace) -> int:
@@ -236,6 +244,8 @@ def start_container(args: argparse.Namespace) -> int:
     _run(cmd)
     if args.setup_benchmark_env == "yes":
         _run_setup_script(args.name, "install")
+    else:
+        _run_tool_script(args.name, "prepare_benchmark_source.py", interpreter="python")
     print(args.name)
     return 0
 
@@ -245,6 +255,7 @@ def check_container(args: argparse.Namespace) -> int:
 
 
 def run_in_container(args: argparse.Namespace) -> int:
+    _run_tool_script(args.container, "prepare_benchmark_source.py", interpreter="python")
     command = [
         "python",
         str(CONTAINER_BENCHMARK_SOURCE_DIR / "benchmarking" / "run.py"),
