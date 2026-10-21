@@ -34,29 +34,18 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from omegaconf import OmegaConf
 
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
-from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, create_ray_client_from_yaml
 from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
-from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
-from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
-from nemo_curator.stages.audio.preprocessing.indic_asr import PrepareIndicASRInputStage
-from nemo_curator.stages.audio.text_filtering import (
-    AbbreviationConcatStage,
-    RegexSubstitutionStage,
-    SelectBestPredictionStage,
-    WhisperHallucinationStage,
-)
-from nemo_curator.stages.resources import Resources
 
+_PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/indic_asr/pipeline.yaml"
 EXPECTED_NUM_ROWS = 216_164
 EXPECTED_TOTAL_DURATION_MS = 1_914_327_468
 EXPECTED_MANIFEST_BYTES = 116_382_162
 EXPECTED_MANIFEST_SHA256 = (
     "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"  # pragma: allowlist secret
 )
-GPU_ACTOR_RUNTIME_ENV = {"env_vars": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 CANARY_REQUIRED_FILES = (
     "encoder/encoder.plan",
     "encoder/config.json",
@@ -69,14 +58,14 @@ CANARY_REQUIRED_FILES = (
 PARAKEET_ENGINE_REQUIRED_FILES = ("encoder.plan", "metadata.json", "model.nemo")
 
 
-def _load_benchmark_utils() -> tuple[Any, Any]:
+def _load_benchmark_writer() -> Any:  # noqa: ANN401
     """Load harness-only helpers without burdening Hydra stage imports."""
     if __package__:
-        from benchmarking.scripts.utils import setup_executor, write_benchmark_results
+        from benchmarking.scripts.utils import write_benchmark_results
     else:  # Direct script execution adds only benchmarking/scripts to sys.path.
-        from utils import setup_executor, write_benchmark_results
+        from utils import write_benchmark_results
 
-    return setup_executor, write_benchmark_results
+    return write_benchmark_results
 
 
 @dataclass(frozen=True)
@@ -259,104 +248,6 @@ def _preflight_runtime_and_models(
             logger.info(f"{package_name} is importable but has no package metadata")
 
 
-def _build_pipeline(  # noqa: PLR0913
-    input_manifests: tuple[Path, ...],
-    output_manifest: Path,
-    indic_canary_engine_dir: Path,
-    parakeet_tensorrt_engine_dir: Path,
-    regex_yaml: Path,
-    hall_phrases: Path,
-    read_concurrency: int,
-    prep_workers: int,
-    primary_workers: int,
-    fallback_workers: int,
-    audio_root: str | None = None,
-) -> Pipeline:
-    reader = ManifestReader(
-        manifest_path=[str(path) for path in input_manifests],
-        files_per_partition=1,
-    ).with_({"manifest_reader_stage": {"num_workers": read_concurrency}})
-    return Pipeline(
-        name="audio_indic_asr",
-        description="Hindi Indic Canary ASR with Parakeet TensorRT recovery and Granary-v2 text cleanup",
-        stages=[
-            reader,
-            PrepareIndicASRInputStage(audio_root=audio_root).with_(batch_size=64, num_workers=prep_workers),
-            InferenceIndicCanaryStage(
-                name="IndicCanary_primary",
-                engine_dir=str(indic_canary_engine_dir),
-                num_beams=4,
-                max_new_tokens=347,
-                pnc=False,
-                kv_cache_free_gpu_memory_fraction=0.1,
-                cross_kv_cache_fraction=0.1,
-                source_lang_key="source_lang",
-                pred_text_key="primary_model_prediction",
-                keep_waveform=True,
-                batch_size=64,
-                num_workers_override=primary_workers,
-                resources=Resources(gpu_memory_gb=50),
-            ).with_(runtime_env=GPU_ACTOR_RUNTIME_ENV),
-            WhisperHallucinationStage(
-                name="WhisperHallucination_primary",
-                common_hall_file=str(hall_phrases),
-                text_key="primary_model_prediction",
-                language_key="source_lang",
-            ).with_(batch_size=64),
-            InferenceParakeetStage(
-                name="ParakeetRiva_recovery",
-                model_id=str(parakeet_tensorrt_engine_dir / "model.nemo"),
-                supported_langs={"hi"},
-                backend="tensorrt",
-                tensorrt_engine_dir=str(parakeet_tensorrt_engine_dir),
-                chunking_mode="engine",
-                source_lang_key="source_lang",
-                pred_text_key="fallback_model_prediction",
-                keep_waveform=False,
-                batch_size=64,
-                num_workers_override=fallback_workers,
-                resources=Resources(gpu_memory_gb=24),
-            ).with_(runtime_env=GPU_ACTOR_RUNTIME_ENV),
-            WhisperHallucinationStage(
-                name="WhisperHallucination_asr",
-                common_hall_file=str(hall_phrases),
-                text_key="fallback_model_prediction",
-                language_key="source_lang",
-                overwrite=True,
-                recovery_value="Recovered:ASR",
-            ).with_(batch_size=64),
-            SelectBestPredictionStage(
-                primary_text_key="primary_model_prediction",
-                fallback_text_key="fallback_model_prediction",
-                output_key="best_prediction",
-                source_key="best_prediction_source",
-                primary_source_label="primary",
-                fallback_source_label="fallback",
-                reference_text_key="granary_v1_prediction",
-                use_ground_truth_for_short_audio=False,
-                primary_model_type="indic_canary",
-                language_key="source_lang",
-            ).with_(batch_size=64),
-            RegexSubstitutionStage(
-                regex_params_yaml=str(regex_yaml),
-                text_key="best_prediction",
-                output_text_key="cleaned_text",
-            ).with_(batch_size=64),
-            AbbreviationConcatStage(
-                text_key="cleaned_text",
-                output_text_key="abbreviated_text",
-                source_lang_key="source_lang",
-            ).with_(batch_size=64),
-            GetPairwiseWerStage(
-                text_key="reference_text",
-                pred_text_key="abbreviated_text",
-                wer_key="wer_pct",
-            ).with_(batch_size=64),
-            ManifestWriterStage(output_path=str(output_manifest)).with_(batch_size=64, num_workers=1),
-        ],
-    )
-
-
 def _coverage(rows: list[dict[str, Any]], key: str) -> float:
     return sum(isinstance(row.get(key), str) and bool(row[key].strip()) for row in rows) / len(rows)
 
@@ -481,10 +372,10 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     expected_total_duration_ms: int = EXPECTED_TOTAL_DURATION_MS,
     expected_manifest_bytes: int = EXPECTED_MANIFEST_BYTES,
     expected_manifest_sha256: str = EXPECTED_MANIFEST_SHA256,
-    read_concurrency: int = 4,
-    prep_workers: int = 24,
-    primary_workers: int = 8,
-    fallback_workers: int = 8,
+    read_concurrency: int | None = None,
+    prep_workers: int | None = None,
+    primary_workers: int | None = None,
+    fallback_workers: int | None = None,
 ) -> dict[str, Any]:
     """Run the pinned production processor chain over the staged Hindi cohort."""
     benchmark_path = Path(benchmark_results_path)
@@ -502,8 +393,24 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
         if not config_path.is_file():
             msg = f"Indic ASR configuration file is missing: {config_path}"
             raise FileNotFoundError(msg)
+    cfg = OmegaConf.load(_PIPELINE_CONFIG)
+    cfg.dataset_dir = str(Path(input_manifest).resolve().parent)
+    cfg.output_path = str(output_manifest.resolve())
+    cfg.indic_canary_engine_dir = str(canary_path.resolve())
+    cfg.parakeet_tensorrt_engine_dir = str(parakeet_engine.resolve())
+    cfg.regex_yaml = str(regex_path.resolve())
+    cfg.hall_phrases = str(phrases_path.resolve())
+    cfg.backend = executor
+    for key, value in (
+        ("read_concurrency", read_concurrency),
+        ("prep_workers", prep_workers),
+        ("primary_workers", primary_workers),
+        ("fallback_workers", fallback_workers),
+    ):
+        if value is not None:
+            cfg[key] = value
     _preflight_runtime_and_models(canary_path, parakeet_engine)
-    inventory = _materialize_input_manifests(Path(input_manifest), scratch_dir, read_concurrency)
+    inventory = _materialize_input_manifests(Path(input_manifest), scratch_dir, int(cfg.read_concurrency))
     if inventory.num_rows != expected_num_rows:
         msg = f"Expected {expected_num_rows} Hindi rows, found {inventory.num_rows}"
         raise RuntimeError(msg)
@@ -517,29 +424,23 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
         msg = f"Expected manifest SHA-256 {expected_manifest_sha256.lower()}, found {inventory.manifest_sha256}"
         raise RuntimeError(msg)
 
-    pipeline = _build_pipeline(
-        input_manifests=inventory.manifests,
-        output_manifest=output_manifest,
-        indic_canary_engine_dir=canary_path,
-        parakeet_tensorrt_engine_dir=parakeet_engine,
-        regex_yaml=regex_path,
-        hall_phrases=phrases_path,
-        read_concurrency=read_concurrency,
-        prep_workers=prep_workers,
-        primary_workers=primary_workers,
-        fallback_workers=fallback_workers,
-    )
+    cfg.manifest_path = [str(path.resolve()) for path in inventory.manifests]
+    pipeline = create_pipeline_from_yaml(cfg)
     logger.info(pipeline.describe())
-    setup_executor, _ = _load_benchmark_utils()
-    start_time = time.perf_counter()
-    tasks = pipeline.run(setup_executor(executor))
-    pipeline_elapsed_s = time.perf_counter() - start_time
-    output_metrics = _validate_output_manifest(output_manifest, inventory)
-    elapsed_s = time.perf_counter() - start_time
+    with create_ray_client_from_yaml(cfg):
+        start_time = time.perf_counter()
+        tasks = pipeline.run(create_executor_from_yaml(cfg))
+        pipeline_elapsed_s = time.perf_counter() - start_time
+        output_metrics = _validate_output_manifest(output_manifest, inventory)
+        elapsed_s = time.perf_counter() - start_time
     del tasks
     total_audio_hours = float(output_metrics["total_audio_duration_hours"])
     logger.success(f"Processed {inventory.num_rows} unique Hindi clips in {elapsed_s:.2f}s")
     return {
+        "params": {
+            "pipeline_config_path": str(_PIPELINE_CONFIG),
+            "pipeline_config": OmegaConf.to_container(cfg, resolve=True),
+        },
         "metrics": {
             "is_success": True,
             "time_taken_s": elapsed_s,
@@ -565,29 +466,42 @@ def main() -> int:
     parser.add_argument("--expected-total-duration-ms", type=int, default=EXPECTED_TOTAL_DURATION_MS)
     parser.add_argument("--expected-manifest-bytes", type=int, default=EXPECTED_MANIFEST_BYTES)
     parser.add_argument("--expected-manifest-sha256", default=EXPECTED_MANIFEST_SHA256)
-    parser.add_argument("--read-concurrency", type=int, default=4)
-    parser.add_argument("--prep-workers", type=int, default=24)
-    parser.add_argument("--primary-workers", type=int, default=8)
-    parser.add_argument("--fallback-workers", type=int, default=8)
+    parser.add_argument("--read-concurrency", type=int, help="Override the shared tutorial YAML setting")
+    parser.add_argument("--prep-workers", type=int, help="Override the shared tutorial YAML setting")
+    parser.add_argument("--primary-workers", type=int, help="Override the shared tutorial YAML setting")
+    parser.add_argument("--fallback-workers", type=int, help="Override the shared tutorial YAML setting")
     parser.add_argument(
         "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
     )
     args = parser.parse_args()
     save_tasks = vars(args).pop("save_tasks")
 
+    benchmark_path = Path(args.benchmark_results_path)
+    # The runner precreates params.json and an empty scratch directory.
+    for name in ("params.json", "results", "scratch", "metrics.json", "tasks.pkl"):
+        path = benchmark_path / name
+        if name == "params.json" and path.is_file() and not path.is_symlink():
+            continue
+        if name == "scratch" and path.is_dir() and not path.is_symlink() and not any(path.iterdir()):
+            continue
+        if path.exists() or path.is_symlink():
+            parser.error(f"Benchmark output already exists: {path}; choose a fresh results directory")
+
     params = vars(args)
     logger.info(f"Audio Indic ASR benchmark arguments: {params}")
     results: dict[str, Any] = {"params": params, "metrics": {"is_success": False}, "tasks": []}
     exit_code = 1
     try:
-        results.update(run_audio_indic_asr_benchmark(**params))
+        result = run_audio_indic_asr_benchmark(**params)
+        result["params"] = {**params, **result["params"]}
+        results.update(result)
         exit_code = 0
     except Exception as e:
         logger.error(f"Indic ASR benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{traceback.format_exc()}")
         results["metrics"]["error_message"] = str(e)
     finally:
-        _, write_benchmark_results = _load_benchmark_utils()
+        write_benchmark_results = _load_benchmark_writer()
         write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
     return exit_code
 
