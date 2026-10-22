@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import packaging
 import pytest
 
 
@@ -81,7 +82,88 @@ def test_check_reports_missing_pytest_in_minimal_python(tmp_path: Path) -> None:
     # -S excludes installed third-party packages without creating another environment.
     python.write_text(f'#!/bin/bash\nexec {shlex.quote(sys.executable)} -S "$@"\n')
     python.chmod(0o755)
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    (packages / "packaging").symlink_to(Path(packaging.__file__).parent, target_is_directory=True)
 
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(setup), "--check"],
+        env={
+            **os.environ,
+            "PYTHON": str(python),
+            "PYTHONPATH": str(packages),
+            "CURATOR_BENCHMARK_CURATOR_REPO_DIR": str(source),
+            "CURATOR_BENCHMARK_SOURCE_DIR": str(source),
+            "CURATOR_BENCHMARK_SOURCE_MOUNT_DIR": str(tmp_path / "not-mounted"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "MISSING  pytest" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("requirement", "package", "installed", "expected_status", "expected_output"),
+    [
+        ("albumentations==2.0.8", "albumentations", None, 1, "MISSING  albumentations"),
+        ("albumentations==2.0.8", "albumentations", "1.4.0", 1, "required ==2.0.8"),
+        ("albumentations==2.0.8", "albumentations", "2.0.8", 0, "OK       albumentations: 2.0.8"),
+        ("albumentations>=2.0.8", "albumentations", "2.1.0rc1", 0, "OK       albumentations: 2.1.0rc1"),
+        ("rich", "rich", "1.0", 0, "OK       rich: 1.0"),
+        ("# comment\n\nalbumentations==2.0.8 # pinned", "albumentations", "2.0.8", 0, "OK       albumentations"),
+        ('albumentations==2.0.8; python_version < "1.0"', "albumentations", None, 0, "OK       nemo_curator"),
+    ],
+)
+def test_check_validates_installed_requirement_versions(  # noqa: PLR0913
+    tmp_path: Path, requirement: str, package: str, installed: str | None, expected_status: int, expected_output: str
+) -> None:
+    source = tmp_path / "source"
+    setup = source / "benchmarking/tools/setup_benchmark_env.sh"
+    setup.parent.mkdir(parents=True)
+    shutil.copyfile(Path(__file__).resolve().parents[3] / "benchmarking/tools/setup_benchmark_env.sh", setup)
+    (source / "benchmarking/requirements.txt").write_text(requirement + "\n")
+    (source / "docker/common").mkdir(parents=True)
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    (packages / "packaging").symlink_to(Path(packaging.__file__).parent, target_is_directory=True)
+    (packages / "nemo_curator.py").touch()
+    if installed is not None:
+        metadata = packages / f"{package}-{installed}.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(f"Name: {package}\nVersion: {installed}\n")
+    python = tmp_path / "python"
+    python.write_text(f'#!/bin/bash\nexec {shlex.quote(sys.executable)} -S "$@"\n')
+    python.chmod(0o755)
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(setup), "--check"],
+        env={
+            **os.environ,
+            "PYTHON": str(python),
+            "PYTHONPATH": str(packages),
+            "CURATOR_BENCHMARK_CURATOR_REPO_DIR": str(source),
+            "CURATOR_BENCHMARK_SOURCE_DIR": str(source),
+            "CURATOR_BENCHMARK_SOURCE_MOUNT_DIR": str(tmp_path / "not-mounted"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected_status, result.stderr
+    assert expected_output in result.stdout
+
+
+def test_check_reports_missing_packaging(tmp_path: Path) -> None:
+    setup = Path(__file__).resolve().parents[3] / "benchmarking/tools/setup_benchmark_env.sh"
+    source = tmp_path / "source"
+    (source / "benchmarking").mkdir(parents=True)
+    (source / "benchmarking/requirements.txt").write_text("packaging\n")
+    (source / "docker/common").mkdir(parents=True)
+    python = tmp_path / "python"
+    python.write_text(f'#!/bin/bash\nexec {shlex.quote(sys.executable)} -S "$@"\n')
+    python.chmod(0o755)
     result = subprocess.run(  # noqa: S603
         ["/bin/bash", str(setup), "--check"],
         env={
@@ -96,6 +178,6 @@ def test_check_reports_missing_pytest_in_minimal_python(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-
     assert result.returncode == 1
-    assert "MISSING  pytest" in result.stdout
+    assert "MISSING  packaging" in result.stdout
+    assert "Traceback" not in result.stderr

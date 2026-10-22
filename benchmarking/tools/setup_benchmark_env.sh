@@ -95,17 +95,14 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+# Parse versions only in the environment being checked, not on a Docker-launching host.
+try:
+    from packaging.requirements import Requirement
+except ImportError:
+    print("MISSING  packaging (required to check dependency versions)")
+    raise SystemExit(1)
+
 requirements = Path(sys.argv[1])
-
-
-def requirement_name(line):
-    line = line.split("#", 1)[0].split(";", 1)[0].strip()
-    if not line or line.startswith("-"):
-        return None
-    for separator in ("==", ">=", "<=", "~=", "!=", ">", "<"):
-        line = line.split(separator, 1)[0]
-    return line.split("[", 1)[0].strip()
-
 
 status = 0
 if importlib.util.find_spec("nemo_curator") is None:
@@ -115,15 +112,23 @@ else:
     print("OK       nemo_curator")
 
 for raw_line in requirements.read_text(encoding="utf-8").splitlines():
-    package = requirement_name(raw_line)
-    if package is None:
+    line = raw_line.split("#", 1)[0].strip()
+    if not line:
         continue
+    requirement = Requirement(line)
+    if requirement.marker is not None and not requirement.marker.evaluate():
+        continue
+    package = requirement.name
     try:
         installed_version = version(package)
     except PackageNotFoundError:
         print(f"MISSING  {package}")
         status = 1
     else:
+        if not requirement.specifier.contains(installed_version, prereleases=True):
+            print(f"INCOMPATIBLE  {package}: {installed_version} (required {requirement.specifier})")
+            status = 1
+            continue
         print(f"OK       {package}: {installed_version}")
 raise SystemExit(status)
 PY

@@ -7,6 +7,7 @@ albumentations==2.0.8  # Nemotron-Parse model-side dependency.
 GitPython
 gpustat
 nvidia-ml-py
+packaging
 pytest
 pyyaml
 rich
